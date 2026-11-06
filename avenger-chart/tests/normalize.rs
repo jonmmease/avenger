@@ -318,3 +318,20 @@ fn a_concat_without_children_keeps_its_partition_values() {
     };
     assert!(root.partition.is_empty());
 }
+
+#[test]
+fn a_repeated_class_counts_once() {
+    let chart = |repeated: bool| {
+        let classes = |names: &[&str]| names.iter().map(|name| name.to_string()).collect();
+        let listed: Vec<String> = match repeated {
+            true => classes(&["a", "b", "a"]),
+            false => classes(&["a", "b"]),
+        };
+        let mut layer = symbols(0);
+        layer.classes = listed.clone();
+        let mut root = plot(vec![layer]);
+        plot_mut(&mut root).classes = listed;
+        parts(root, vec![])
+    };
+    same_chart(chart(true), chart(false));
+}

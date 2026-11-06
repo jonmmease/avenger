@@ -745,3 +745,37 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
     read(listed).unwrap();
 }
+
+#[test]
+fn a_class_is_not_empty_and_holds_no_whitespace() {
+    let strings = |classes: &[&str]| classes.iter().map(|class| class.to_string()).collect();
+    let mut parts = base();
+    plot_mut(&mut parts.0).classes = strings(&["wide", ""]);
+    invalid(parts, "root.plot.classes[1]", "a class is not empty");
+
+    let mut parts = base();
+    layer_mut(&mut parts.0).classes = strings(&["muted dim"]);
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].classes[0]",
+        "holds no whitespace",
+    );
+
+    let mut parts = base();
+    x_scale(&mut parts.0).guide = Some(proto::Guide {
+        guide: Some(guide::Guide::Axis(proto::Axis {
+            classes: strings(&["a\tb"]),
+            ..Default::default()
+        })),
+    });
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].mark.symbol.x.scale.guide.axis.classes[0]",
+        "holds no whitespace",
+    );
+
+    let mut parts = base();
+    plot_mut(&mut parts.0).classes = strings(&["report", "wide"]);
+    layer_mut(&mut parts.0).classes = strings(&["muted"]);
+    read(parts).unwrap();
+}

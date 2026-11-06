@@ -85,11 +85,11 @@ message AreaMark {
 }
 
 // A rectangle from a baseline to a value, along a band, or at a continuous key with the thickness
-// of the theme.
+// that the styles give.
 message BarMark {
   // When absent, the bar is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
-  // The radius of the corners of each bar, in pixels. When absent, the theme gives it.
+  // The radius of the corners of each bar, in pixels. When absent, the styles give it.
   optional float corner_radius = 2;
 
   Encoding x = 101;
@@ -110,7 +110,7 @@ message BarMark {
 // scale without its second channel. A rect without `x` spans the width of its plot, and a rect
 // without `y` spans its height.
 message RectMark {
-  // The radius of the corners of each rect, in pixels. When absent, the theme gives it.
+  // The radius of the corners of each rect, in pixels. When absent, the styles give it.
   optional float corner_radius = 1;
   // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice as
   // far apart, as the bins of a histogram or the slices of a pie do.
@@ -155,7 +155,7 @@ message TextMark {
   TextAlign align = 2;
   // How each text aligns to its position along its lines. When absent, at its middle.
   TextBaseline baseline = 3;
-  // The font family of the texts. When it is empty, the theme gives it.
+  // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
   // How the text engine reads each text.
   TextSyntax syntax = 5;
@@ -202,9 +202,9 @@ message ImageMark {
   Encoding x2 = 103;
   Encoding y2 = 104;
   Encoding image = 115;
-  // The width of each image, in pixels. When it is not encoded, the theme gives it.
+  // The width of each image, in pixels. When it is not encoded, the styles give it.
   Encoding width = 131;
-  // The height of each image, in pixels. When it is not encoded, the theme gives it.
+  // The height of each image, in pixels. When it is not encoded, the styles give it.
   Encoding height = 132;
 }
 
@@ -317,7 +317,7 @@ message PolarAreaMark {
 message PolarBarMark {
   // When absent, the bar is vertical unless only its `theta` scale is continuous.
   Orient orient = 1;
-  // The radius of the corners of each bar, in pixels. When absent, the theme gives it.
+  // The radius of the corners of each bar, in pixels. When absent, the styles give it.
   optional float corner_radius = 2;
   // How each segment between two points runs, as `Route` describes.
   Route route = 3;
@@ -342,7 +342,7 @@ message PolarBarMark {
 // at one radius take its route: arcs of rings by default, and straight lines with `ROUTE_CANVAS`,
 // as the cells of the web behind a radar chart are.
 message PolarRectMark {
-  // The radius of the corners of each rect, in pixels. When absent, the theme gives it.
+  // The radius of the corners of each rect, in pixels. When absent, the styles give it.
   optional float corner_radius = 1;
   // How each segment between two points runs, as `Route` describes.
   Route route = 2;
@@ -400,7 +400,7 @@ message PolarRuleMark {
 message PolarTextMark {
   // The pattern of a numeric or temporal `text` value, as for `GuideLabels.format`.
   string format = 1;
-  // The font family of the texts. When it is empty, the theme gives it.
+  // The font family of the texts. When it is empty, the styles give it.
   string font_family = 2;
   // How the text engine reads each text.
   TextSyntax syntax = 3;
@@ -529,7 +529,7 @@ message GeoTextMark {
   TextAlign align = 2;
   // How each text aligns to its position along its lines. When absent, at its middle.
   TextBaseline baseline = 3;
-  // The font family of the texts. When it is empty, the theme gives it.
+  // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
   // How the text engine reads each text.
   TextSyntax syntax = 5;
@@ -574,9 +574,9 @@ message GeoImageMark {
   Encoding longitude = 109;
   Encoding latitude = 110;
   Encoding image = 115;
-  // The width of each image, in pixels. When it is not encoded, the theme gives it.
+  // The width of each image, in pixels. When it is not encoded, the styles give it.
   Encoding width = 131;
-  // The height of each image, in pixels. When it is not encoded, the theme gives it.
+  // The height of each image, in pixels. When it is not encoded, the styles give it.
   Encoding height = 132;
 }
 

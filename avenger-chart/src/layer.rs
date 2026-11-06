@@ -167,6 +167,15 @@ impl<'a> LayerRef<'a> {
         }
     }
 
+    /// The class names of the layer, which stylesheets select.
+    pub fn classes(self) -> &'a [String] {
+        match self {
+            Self::Cartesian(layer) => &layer.classes,
+            Self::Polar(layer) => &layer.classes,
+            Self::Geo(layer) => &layer.classes,
+        }
+    }
+
     pub fn table(self) -> Option<&'a proto::TableRef> {
         match self {
             Self::Cartesian(layer) => layer.table.as_ref(),

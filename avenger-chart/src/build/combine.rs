@@ -241,7 +241,8 @@ fn root_partition(chart: &Chart) -> std::collections::BTreeMap<String, ArrayRef>
 /// are those of `node` when it holds them, and otherwise those of the children, where a field that
 /// one child holds is the field of the plot and two different values are an error. The resolve
 /// rules of `node` replace the children's rules of their channels. The tools are those of `node`,
-/// then those of the children. Each child's partition values move to its layers.
+/// then those of the children, and the classes are those of `node`, then those of the children
+/// that it lacks. Each child's partition values move to its layers.
 pub fn overlay(node: impl Into<Fragment<proto::Plot>>, children: Vec<Chart>) -> Result<Chart> {
     let mut combined = Combined::default();
     let roots = combined.add(children)?;
@@ -311,6 +312,11 @@ pub fn overlay(node: impl Into<Fragment<proto::Plot>>, children: Vec<Chart>) -> 
     plot.resolve = resolve;
     for child in &plots {
         plot.tools.extend(child.tools.iter().cloned());
+        for class in &child.classes {
+            if !plot.classes.contains(class) {
+                plot.classes.push(class.clone());
+            }
+        }
     }
 
     // The options of the node's coordinate system win over those of the children.

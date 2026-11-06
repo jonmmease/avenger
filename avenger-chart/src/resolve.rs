@@ -23,9 +23,10 @@ use crate::{
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The identity of a plot, a layer, or another node with an id: its id and its partition, the
-/// values that apply to every layer and empty cell below it. Two with one identity are a
-/// conflict, so a node or a layer of a new chart with the same identity stands for the same part,
+/// The identity of a plot, a layer, a concat, a wrap, a guide, or a facet header with an id: its
+/// id and its partition, the values that apply to every layer and empty cell below it. All of
+/// them share one namespace, and two with one identity are a conflict, so an identity names one
+/// part of a chart, and a part of a new chart with the same identity stands for the same part,
 /// whatever its place in the tree.
 #[derive(Clone, Debug)]
 pub struct Identity {
@@ -119,17 +120,20 @@ pub struct Layer<'a> {
     pub partition: BTreeMap<String, ArrayRef>,
 }
 
-/// A concat or a wrap of a chart with an id.
+/// A concat, a wrap, or a facet header of a chart with an id.
 pub struct NodeRef {
     pub path: String,
     pub identity: Identity,
 }
 
-/// The plots, the layers, and the identified concats and wraps of a chart, in tree order.
+/// The plots, the layers, and the identified concats, wraps, and facet headers of a chart, in
+/// tree order.
 pub struct Tree<'a> {
     pub plots: Vec<PlotRef<'a>>,
     pub layers: Vec<Layer<'a>>,
     pub nodes: Vec<NodeRef>,
+    /// The facet headers with ids, each with the partition of its concat or wrap.
+    pub headers: Vec<NodeRef>,
     /// The partition of each node, by its path, such as `root.concat.children[1].plot`: the
     /// values that apply to every layer and empty cell below it.
     pub partitions: HashMap<String, BTreeMap<String, ArrayRef>>,
@@ -138,7 +142,7 @@ pub struct Tree<'a> {
 impl<'a> Tree<'a> {
     /// The tree of `chart`, a chart whose messages are each valid. It fails for a layer or an
     /// empty cell that gets two different values of one partition column, and for two plots,
-    /// layers, or nodes with one identity.
+    /// layers, concats, wraps, or facet headers with one identity.
     pub(crate) fn new(chart: &'a Chart) -> Result<Self> {
         let mut walk = Walk {
             chart,
@@ -147,33 +151,47 @@ impl<'a> Tree<'a> {
                 plots: Vec::new(),
                 layers: Vec::new(),
                 nodes: Vec::new(),
+                headers: Vec::new(),
                 partitions: HashMap::new(),
             },
         };
         walk.node(chart.root(), "root".to_string(), &BTreeMap::new())?;
         let tree = walk.tree;
-        let mut seen: HashMap<Vec<u8>, String> = HashMap::new();
-        let identities = (tree.plots.iter())
-            .filter_map(|plot| Some((plot.identity.as_ref()?, &plot.path)))
-            .chain(
-                tree.layers
-                    .iter()
-                    .filter_map(|layer| Some((layer.identity.as_ref()?, &layer.path))),
-            )
-            .chain(tree.nodes.iter().map(|node| (&node.identity, &node.path)));
-        for (identity, path) in identities {
-            if let Some(first) = seen.insert(identity.key(), path.clone()) {
-                return Err(ChartError::invalid(
-                    path,
-                    format!(
-                        "`{first}` and `{path}` have one id and one partition, `{}`, which is a conflict",
-                        identity.name()
-                    ),
-                ));
-            }
-        }
+        unique(tree.identities())?;
         Ok(tree)
     }
+
+    /// The identities of the plots, the layers, the concats, the wraps, and the facet headers with
+    /// ids, with their paths.
+    pub fn identities(&self) -> impl Iterator<Item = (&Identity, &str)> {
+        (self.plots.iter())
+            .filter_map(|plot| Some((plot.identity.as_ref()?, plot.path.as_str())))
+            .chain(
+                (self.layers.iter())
+                    .filter_map(|layer| Some((layer.identity.as_ref()?, layer.path.as_str()))),
+            )
+            .chain(
+                (self.nodes.iter().chain(&self.headers))
+                    .map(|node| (&node.identity, node.path.as_str())),
+            )
+    }
+}
+
+/// Fails for two of `identities` that are equal, naming both by their paths.
+fn unique<'a>(identities: impl IntoIterator<Item = (&'a Identity, &'a str)>) -> Result<()> {
+    let mut seen: HashMap<Vec<u8>, &str> = HashMap::new();
+    for (identity, path) in identities {
+        if let Some(first) = seen.insert(identity.key(), path) {
+            return Err(ChartError::invalid(
+                path,
+                format!(
+                    "`{first}` and `{path}` have one id and one partition, `{}`, which is a conflict",
+                    identity.name()
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A walk over the nodes of a chart, which collects its plots, its layers, and its identified
@@ -281,12 +299,14 @@ impl<'a> Walk<'a> {
                 id,
                 children,
                 partition,
+                facet,
                 ..
             })
             | Node::Wrap(proto::Wrap {
                 id,
                 children,
                 partition,
+                facet,
                 ..
             }) => {
                 let kind = match node.node.as_ref() {
@@ -310,6 +330,21 @@ impl<'a> Walk<'a> {
                 }
                 let partition = common(&leaves).expect("the node has a leaf");
                 self.tree.partitions.insert(path.clone(), partition.clone());
+                if let Some(proto::Facet {
+                    header: Some(proto::facet::Header::Shown(header)),
+                    ..
+                }) = facet
+                {
+                    if !header.id.is_empty() {
+                        self.tree.headers.push(NodeRef {
+                            path: format!("{path}.facet.shown"),
+                            identity: Identity {
+                                id: header.id.clone(),
+                                partition: partition.clone(),
+                            },
+                        });
+                    }
+                }
                 if !id.is_empty() {
                     self.tree.nodes.push(NodeRef {
                         path,
@@ -445,6 +480,39 @@ pub struct ScaleGroup {
 }
 
 impl ScaleGroup {
+    /// The identity of the scale's guide, when it has an id: the id, with the partition values
+    /// that every layer of the scale shares.
+    pub fn guide_identity(&self, tree: &Tree) -> Option<Identity> {
+        let id = guide_id(self.spec.guide.as_ref()?)?;
+        let partitions: Vec<BTreeMap<String, ArrayRef>> = (self.members.iter())
+            .map(|member| tree.layers[member.layer].partition.clone())
+            .collect();
+        Some(Identity {
+            id: id.to_string(),
+            partition: common(&partitions).unwrap_or_default(),
+        })
+    }
+
+    /// The path of the guide of the first encoding whose spec gives the guide its id, such as
+    /// `root.plot.cartesian.layers[0].mark.bar.x.scale.guide.axis`.
+    fn guide_path(&self, tree: &Tree, id: &str) -> String {
+        (self.members.iter())
+            .find_map(|member| {
+                let layer = &tree.layers[member.layer];
+                let guide = layer.mark.encoding(member.channel)?.scale.as_ref()?.guide.as_ref()?;
+                (guide_id(guide)? == id).then(|| {
+                    format!(
+                        "{}.mark.{}.{}.scale.guide.{}",
+                        layer.path,
+                        layer.mark.name(),
+                        member.channel.field_name(),
+                        guide_name(guide),
+                    )
+                })
+            })
+            .unwrap_or_else(|| self.owner.clone())
+    }
+
     /// Whether the scale is a position scale, which fits at the length of its plot.
     pub fn is_position(&self) -> bool {
         is_position(self.channel)
@@ -458,6 +526,29 @@ impl ScaleGroup {
     /// Whether a navigation moves the scale, such as `x` of a Cartesian plot.
     pub fn is_navigated(&self) -> bool {
         (self.kind).is_some_and(|kind| kind.navigated().contains(&self.channel))
+    }
+}
+
+/// The id of a guide, when it has one.
+fn guide_id(guide: &proto::Guide) -> Option<&str> {
+    let id = match guide.guide.as_ref()? {
+        proto::guide::Guide::Axis(axis) => &axis.id,
+        proto::guide::Guide::PolarAxis(axis) => &axis.id,
+        proto::guide::Guide::Legend(legend) => &legend.id,
+        proto::guide::Guide::Colorbar(colorbar) => &colorbar.id,
+        proto::guide::Guide::None(_) => return None,
+    };
+    (!id.is_empty()).then_some(id.as_str())
+}
+
+/// The name of the member of a guide's oneof, such as `axis`.
+fn guide_name(guide: &proto::Guide) -> &'static str {
+    match guide.guide {
+        Some(proto::guide::Guide::Axis(_)) => "axis",
+        Some(proto::guide::Guide::PolarAxis(_)) => "polar_axis",
+        Some(proto::guide::Guide::Legend(_)) => "legend",
+        Some(proto::guide::Guide::Colorbar(_)) => "colorbar",
+        Some(proto::guide::Guide::None(_)) | None => "none",
     }
 }
 
@@ -738,10 +829,22 @@ pub struct Resolved<'a> {
 }
 
 /// The models of `chart`, whose messages are each valid, from its tree. It fails for a chart whose
-/// shared scales, projections, or tracks conflict.
+/// shared scales, projections, or tracks conflict, and for a guide whose identity is another
+/// part's.
 pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resolved<'a>> {
     let scales = groups(chart, &tree)?;
     check_groups(&tree, &scales)?;
+    let guides: Vec<(Identity, String)> = (scales.iter())
+        .filter_map(|group| {
+            let identity = group.guide_identity(&tree)?;
+            let path = group.guide_path(&tree, &identity.id);
+            Some((identity, path))
+        })
+        .collect();
+    unique(
+        tree.identities()
+            .chain(guides.iter().map(|(identity, path)| (identity, path.as_str()))),
+    )?;
     let projections = projections(&tree)?;
     let tables = table::tables(chart)?;
     let matches = table::matches(&tree, &scales, &projections, &tables)?;

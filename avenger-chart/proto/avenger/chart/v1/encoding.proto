@@ -13,7 +13,7 @@ import "avenger/chart/v1/value.proto";
 //
 // The marks without a prefix draw in Cartesian plots, the `polar_` marks in polar plots, and the
 // `geo_` marks in map plots, and the `mark` oneof of each kind of layer holds the marks of its
-// plot. A property of a mark that is absent takes the value of the theme. A property that varies
+// plot. A property of a mark that is absent takes its value from the styles. A property that varies
 // with each row or each series is a channel, not a property, so an encoding gives its values: each
 // mark message has an `Encoding` field for each channel that it takes, named after the channel, at
 // the number 100 plus the channel's value in `Channel`. The comment of a channel's field says what

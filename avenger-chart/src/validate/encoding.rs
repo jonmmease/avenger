@@ -13,8 +13,8 @@ use arrow::{
 };
 
 use super::{
-    dictionary_values, fail, is_string, keyed, named, non_negative, positive, within, Checker,
-    Result,
+    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, within,
+    Checker, Result,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
@@ -621,7 +621,9 @@ impl Checker<'_> {
                         "an axis is the guide of `x` or `y` of a Cartesian plot",
                     ));
                 }
-                self.axis(axis, scale_type, domain_type, &format!("{path}.axis"))
+                let path = format!("{path}.axis");
+                classes(&axis.classes, &path)?;
+                self.axis(axis, scale_type, domain_type, &path)
             }
             guide::Guide::PolarAxis(axis) => {
                 let path = format!("{path}.polar_axis");
@@ -637,11 +639,13 @@ impl Checker<'_> {
                         "an angle is valid only on a polar axis of `radius`",
                     ));
                 }
+                classes(&axis.classes, &path)?;
                 self.labels(axis.labels.as_ref(), domain_type, &path)?;
                 self.ticks(axis.ticks.as_ref(), scale_type, domain_type, &path)
             }
             guide::Guide::Legend(legend) => {
                 let path = format!("{path}.legend");
+                classes(&legend.classes, &path)?;
                 if is_position(channel) {
                     return Err(fail(
                         &path,
@@ -668,6 +672,7 @@ impl Checker<'_> {
             }
             guide::Guide::Colorbar(colorbar) => {
                 let path = format!("{path}.colorbar");
+                classes(&colorbar.classes, &path)?;
                 if !matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke)
                     || !ticked(scale_type)
                 {

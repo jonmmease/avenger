@@ -72,8 +72,10 @@ import "avenger/chart/v1/tool.proto";
 // empty string, `false`, or the zero value of an enum, and which protobuf does not write. Otherwise
 // it is present. So an empty plain `string` field is absent, and an empty `optional string` field
 // is present and holds the empty text. A field that gives only how something looks, such as a
-// color, a width, a font, a gap, a padding, or a side, is a style field, and an absent style field
-// takes the value of the renderer's theme where its comment gives no other default.
+// color, a width, a font, a gap, a padding, or a side, is a style field. A present style field is
+// an inline style of its node for the renderer's stylesheets, and an absent style field takes its
+// value from the styles that the renderer computes from them, where its comment gives no other
+// default.
 //
 // Charts combine: placing their roots under a new concat or wrap, appending their tables, their
 // values, and their selections, and changing each `TableRef` and `ValueRef` to the new position of
@@ -132,7 +134,7 @@ message Chart {
   // size of its own, such as a window or a tile of a dashboard, uses that size instead. When
   // absent, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
   // with what stands around them and the padding, where a plot without a `width` counts at the plot
-  // width of the theme.
+  // width that the styles give.
   //
   // The plots without a `width` share what the padding, the plots with one, the guides, the gaps,
   // and the titles leave. When the plots with a `width` need more than the chart's width, they keep
@@ -148,7 +150,7 @@ message Chart {
 }
 
 // The space on each side of a box, in pixels, each at least 0 and finite. A side that is absent
-// takes the value of the theme.
+// takes its value from the styles.
 message Padding {
   // The space above.
   optional float top = 1;
@@ -171,9 +173,11 @@ message Table {
 }
 
 // A node of the tree. Its id, when it has one, and its partition identify it, and the same holds
-// for a layer: two nodes or layers with one id and one partition are a conflict, but two with one
-// id and different partitions are not, so the charts of the facets of one table can give their
-// plots one id. A clause names the plot or the layer that wrote it by both, and an app carries the
+// for a layer, a guide, and a facet header, whose ids share one namespace with the nodes': two of
+// them with one id and one partition are a conflict, whatever their kinds, but two with one id and
+// different partitions are not, so the charts of the facets of one table can give their plots one
+// id. The partition of a guide holds the values that every layer of its scale shares, and the
+// partition of a facet header is its concat's or its wrap's. A clause names the plot or the layer that wrote it by both, and an app carries the
 // views and the selections of a plot to a new chart by both, so the plot of a facet keeps them
 // when a new query reorders the facets or drops some of them. A plot or a layer without an id is
 // named by its path in the tree.
@@ -202,7 +206,9 @@ message Empty {
 // each layer has a scale of its own, and the layers whose specs name one family still share one
 // scale, as the layers on each side of a plot with two `y` axes do.
 message Plot {
-  // An id, or empty. With the partition, it identifies the plot, as `Node` describes.
+  // An id, or empty. With the partition, it identifies the plot, as `Node` describes. A stylesheet
+  // selects it with `#id`, with CSS escapes for an id that is not a CSS identifier, so it selects
+  // the plots of every facet that share the id.
   string id = 1;
   // The title of the plot.
   Title title = 2;
@@ -247,6 +253,9 @@ message Plot {
     PolarPlot polar = 11;
     GeoPlot geo = 12;
   }
+  // The class names of the plot, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 13;
 }
 
 // Children placed in a row or a column.
@@ -274,6 +283,9 @@ message Concat {
   // The partition column that the children split, and the header that labels them. A concat with
   // a facet is a row or a column of a facet grid.
   Facet facet = 9;
+  // The class names of the concat, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 10;
 }
 
 enum Direction {
@@ -288,7 +300,7 @@ enum Direction {
 // The layout options of a concat. They lower to avenger-layout, but the format holds its own
 // types, so it does not change when avenger-layout changes its API.
 message ConcatLayout {
-  // The space between children, in pixels. When absent, the theme gives it.
+  // The space between children, in pixels. When absent, the styles give it.
   optional float gap = 1;
   // One track for each child, in the order of the children, or no tracks, which gives no track a
   // size. A track without a size gives its child's track none, so the track takes the sizes that
@@ -349,9 +361,12 @@ message Wrap {
   // The partition column that the children split, and the header that labels each child. A wrap
   // with a facet is a wrapped facet grid.
   Facet facet = 8;
+  // The class names of the wrap, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 9;
 }
 
-// The layout options of a wrap. A field that is absent takes the value of the theme.
+// The layout options of a wrap. A field that is absent takes its value from the styles.
 message WrapLayout {
   // The narrowest width of a column, in pixels. The wrap takes the most columns that fit its
   // width at this width or wider, and at least one.
@@ -373,7 +388,7 @@ message WrapLayout {
 // The size of a child along the direction of its concat, or of a row of a wrap.
 message Track {
   // When absent, the track gives no size: a track of a concat takes its size as
-  // `ConcatLayout.tracks` describes, and a row of a wrap takes the height of the theme.
+  // `ConcatLayout.tracks` describes, and a row of a wrap takes the height that the styles give.
   oneof size {
     // A fixed length, in pixels.
     float length = 1;
@@ -409,11 +424,11 @@ enum Distribute {
 
 // A title of a node: its text, with an optional subtitle after it, on one side of the node. A title
 // runs along the whole side of the node's box, over the slabs of its guides, and a title at the
-// bottom serves as a caption. A style field that is absent takes the value of the theme.
+// bottom serves as a caption. A style field that is absent takes its value from the styles.
 message Title {
   // The text, in the syntax of `syntax`.
   string text = 1;
-  // When absent, the theme gives it.
+  // When absent, the styles give it.
   TitleSide side = 2;
   // How the text engine reads the text and the subtitle.
   TextSyntax syntax = 3;
@@ -424,12 +439,12 @@ message Title {
   string subtitle = 5;
   // The style of the subtitle.
   TextStyle subtitle_style = 6;
-  // Where the title stands along its side. When absent, the theme gives it.
+  // Where the title stands along its side. When absent, the styles give it.
   TitleAlign align = 7;
 }
 
 enum TitleSide {
-  // Absent, so the theme gives the side.
+  // Absent, so the styles give the side.
   TITLE_SIDE_UNSPECIFIED = 0;
   TITLE_SIDE_TOP = 1;
   TITLE_SIDE_LEFT = 2;
@@ -440,7 +455,7 @@ enum TitleSide {
 // A place along a side, in the direction that the title reads: from the left of a title at the
 // top or the bottom, up a title on the left, and down a title on the right.
 enum TitleAlign {
-  // Absent, so the theme gives the alignment.
+  // Absent, so the styles give the alignment.
   TITLE_ALIGN_UNSPECIFIED = 0;
   TITLE_ALIGN_START = 1;
   TITLE_ALIGN_CENTER = 2;

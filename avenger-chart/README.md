@@ -123,7 +123,7 @@ A producer writes the messages of `proto`, and the module `build` does the work 
 
 A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again. A combination that breaks a rule of its own, such as an overlay of plots of two coordinate systems, fails with `ChartError::Combine`, which names the position of the chart that breaks it among the charts that combine. A combined chart that breaks a rule of the format fails as any chart does, with `ChartError::Invalid` and the path of the field.
 
-`infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. An encoding of `x` or `y` always has a scale. An encoding of another channel gets one only when it holds a scale whose type is absent, such as the scale of `build::scaled_column`, because an encoding without a scale draws its values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer, the renderer, and the theme, and it never changes a field that the producer set.
+`infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. An encoding of `x` or `y` always has a scale. An encoding of another channel gets one only when it holds a scale whose type is absent, such as the scale of `build::scaled_column`, because an encoding without a scale draws its values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it leaves the kind of a discrete scale absent. It never changes a field that the producer set.
 
 ```rust
 use std::sync::Arc;
@@ -172,15 +172,15 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 
 | Field of `Resolved` | What it holds |
 |---|---|
-| `tree` | The plots and the layers, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
-| `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs and the node that owns the scale's guides |
+| `tree` | The plots, the layers, and the concats, wraps, and facet headers with ids, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
+| `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs, the node that owns the scale's guides, and the identity of its guide |
 | `projections` | The map plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
 | `matches` | The tracks whose lengths the plots of shared position scales and projections match |
 
 The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 
-An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
+Plots, layers, concats, wraps, guides, and facet headers share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
 
 ## Columns of charts
 

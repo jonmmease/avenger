@@ -27,7 +27,7 @@ use prost::bytes::Bytes;
 use crate::{
     layer::MarkMessage,
     proto::{
-        self, domain, domain_fit, facet, geo, node::Node, plot::Coord, scale_spec,
+        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale_spec,
         selection_domain, spherical,
     },
     resolve::{Identity, Tree},
@@ -97,6 +97,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
     match node.node.as_mut().expect("a valid node has a kind") {
         Node::Plot(plot) => {
             by_key(&mut plot.resolve, |rule| rule.channel);
+            distinct(&mut plot.classes);
             if place == Place::Cell {
                 plot.width = None;
                 plot.height = None;
@@ -105,18 +106,21 @@ fn local_node(node: &mut proto::Node, place: Place) {
                 Coord::Cartesian(cartesian) => {
                     default_to_none(&mut cartesian.options);
                     for layer in &mut cartesian.layers {
+                        distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
                     }
                 }
                 Coord::Polar(polar) => {
                     default_to_none(&mut polar.options);
                     for layer in &mut polar.layers {
+                        distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
                     }
                 }
                 Coord::Geo(map) => {
                     geo_options(map.options.as_mut().expect("a valid map plot has options"));
                     for layer in &mut map.layers {
+                        distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
                     }
                 }
@@ -125,6 +129,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
         Node::Empty(_) => {}
         Node::Concat(concat) => {
             by_key(&mut concat.resolve, |rule| rule.channel);
+            distinct(&mut concat.classes);
             if let Some(layout) = &mut concat.layout {
                 by_key(&mut layout.guide_rules, |rule| rule.part);
                 // Only the outermost concat of a table distributes its free length.
@@ -143,6 +148,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
         }
         Node::Wrap(wrap) => {
             by_key(&mut wrap.resolve, |rule| rule.channel);
+            distinct(&mut wrap.classes);
             if let Some(layout) = &mut wrap.layout {
                 by_key(&mut layout.guide_rules, |rule| rule.part);
             }
@@ -271,8 +277,12 @@ fn default_to_none<T: Default + PartialEq>(message: &mut Option<T>) {
     }
 }
 
-/// A facet's header with the default options is the header of a facet that sets neither member.
+/// Removes the repeated classes of a facet's header. A header with the default options is the
+/// header of a facet that sets neither member.
 fn facet_header(facet: &mut proto::Facet) {
+    if let Some(facet::Header::Shown(header)) = &mut facet.header {
+        distinct(&mut header.classes);
+    }
     if facet.header == Some(facet::Header::Shown(proto::FacetHeader::default())) {
         facet.header = None;
     }
@@ -303,12 +313,22 @@ fn encodings(mark: &mut dyn MarkMessage) {
 }
 
 /// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no guide,
-/// orders the options of a custom scale, and leaves out the empty fits of its domain.
+/// orders the options of a custom scale, leaves out the empty fits of its domain, and removes the
+/// repeated classes of its guide.
 fn encoding(encoding: &mut proto::Encoding) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
         return;
     };
+    if let Some(guide) = spec.guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
+        match guide {
+            guide::Guide::Axis(axis) => distinct(&mut axis.classes),
+            guide::Guide::PolarAxis(axis) => distinct(&mut axis.classes),
+            guide::Guide::Legend(legend) => distinct(&mut legend.classes),
+            guide::Guide::Colorbar(colorbar) => distinct(&mut colorbar.classes),
+            guide::Guide::None(_) => {}
+        }
+    }
     let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
     if let scale_spec::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());
@@ -462,4 +482,10 @@ fn canonical_values(message: &mut proto::Chart, values: &[ArrayRef]) -> Vec<Arra
         position += 1;
     });
     ordered
+}
+
+/// Removes each class that an earlier class of `classes` repeats, so a node lists each once.
+fn distinct(classes: &mut Vec<String>) {
+    let mut seen = std::collections::HashSet::new();
+    classes.retain(|class| seen.insert(class.clone()));
 }

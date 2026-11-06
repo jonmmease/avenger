@@ -36,7 +36,7 @@ message Facet {
 // header with one value has no rule. In a wrap, whose rows change with its width, each child has a
 // header with its own value, and the titles merge into one on the wrap by default. The headers of
 // one column below one concat match the thickness of their labels, so their titles line up whether
-// or not a header has a rule. A style field that is absent takes the value of the theme.
+// or not a header has a rule. A style field that is absent takes its value from the styles.
 message FacetHeader {
   // The title. When its text is absent, the title is the facet's column.
   GuideTitle title = 1;
@@ -50,7 +50,7 @@ message FacetHeader {
   // level above or below the children, up beside a left header, and down beside a right one.
   optional float label_angle = 4;
   // The space between the labels and what lies inward of them: the edge of the children, or the
-  // header of a facet inside this one, in pixels. When absent, the theme gives it, with more space
+  // header of a facet inside this one, in pixels. When absent, the styles give it, with more space
   // beyond an inner header, so the levels of a nested facet read apart.
   optional float label_padding = 5;
   // The length of each tick, in pixels.
@@ -59,6 +59,12 @@ message FacetHeader {
   string rule_color = 7;
   // The width of the rule and the ticks, in pixels.
   optional float rule_width = 8;
+  // The class names of the header, which a stylesheet selects with `.name`, as the HTML `class`
+  // attribute lists them. Each is not empty and holds no whitespace.
+  repeated string classes = 9;
+  // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
+  // not a CSS identifier. With its partition, it identifies the header, as `Node` describes.
+  string id = 10;
 }
 
 message NoHeader {}

@@ -82,6 +82,16 @@ fn plain<T: PartialEq>(merged: &mut T, other: &T, field: &str) -> Merged {
     }
 }
 
+/// The classes of a guide, which join: the merged guide has each class of either, in order.
+fn classes(merged: &mut Vec<String>, other: &[String], _field: &str) -> Merged {
+    for class in other {
+        if !merged.contains(class) {
+            merged.push(class.clone());
+        }
+    }
+    Ok(())
+}
+
 /// A repeated field, set when it is not empty.
 fn repeated<T: PartialEq + Clone>(merged: &mut Vec<T>, other: &Vec<T>, field: &str) -> Merged {
     match (merged.is_empty(), other.is_empty()) {
