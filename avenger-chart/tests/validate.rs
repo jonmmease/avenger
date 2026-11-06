@@ -617,7 +617,7 @@ fn a_predicate_names_a_selection_of_the_chart() {
 #[test]
 fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     let mut parts = base();
-    x_scale(&mut parts.0).navigation = Some(proto::ScaleNavigation::default());
+    x_scale(&mut parts.0).navigation = Some(proto::NavigationLimits::default());
     read(parts.clone()).unwrap();
     x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
     invalid(
@@ -627,7 +627,7 @@ fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     );
     let mut parts = base();
     let mut color = column("b", linear_data());
-    color.scale.as_mut().unwrap().navigation = Some(proto::ScaleNavigation::default());
+    color.scale.as_mut().unwrap().navigation = Some(proto::NavigationLimits::default());
     symbol_mut(&mut parts.0).color = Some(color);
     invalid(
         parts,

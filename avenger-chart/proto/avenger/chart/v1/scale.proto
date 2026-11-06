@@ -69,16 +69,16 @@ message ScaleSpec {
   // legend of its bins, a continuous color scale has a colorbar, and another continuous scale, such
   // as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
   Guide guide = 19;
-  // How a navigation moves a view of the scale, which every plot of the scale keeps. Valid only on
-  // a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a custom scale.
-  // When absent, a view moves freely.
-  ScaleNavigation navigation = 21;
+  // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
+  // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
+  // custom scale. When absent, a view moves freely.
+  NavigationLimits navigation = 21;
 }
 
-// How a navigation moves the domain of a scale, in the numeric data values of the scale: numbers,
-// or epoch milliseconds for a time scale. The bounds and the span of a log, pow, or symlog scale
-// are in data values, not in the coordinate of the scale.
-message ScaleNavigation {
+// The limits of how a navigation moves the domain of a scale, in the numeric data values of the
+// scale: numbers, or epoch milliseconds for a time scale. The bounds and the span of a log, pow, or
+// symlog scale are in data values, not in the coordinate of the scale.
+message NavigationLimits {
   // The bounds that the domain stays inside. A pan stops at a bound, and a zoom out stops at the
   // width of the bounds. Without bounds, the domain moves freely.
   oneof bounds {

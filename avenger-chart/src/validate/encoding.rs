@@ -20,7 +20,7 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
         self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        legend, polar_layer, range, scale_navigation, scale_spec, selection_domain, Channel,
+        legend, navigation_limits, polar_layer, range, scale_spec, selection_domain, Channel,
     },
     resolve::scale_channel,
 };
@@ -429,7 +429,7 @@ impl Checker<'_> {
                     "a navigation is valid only on a continuous scale of `x` or `y`",
                 ));
             }
-            if let Some(scale_navigation::Bounds::Interval(interval)) = &navigation.bounds {
+            if let Some(navigation_limits::Bounds::Interval(interval)) = &navigation.bounds {
                 if !(interval.low.is_finite()
                     && interval.high.is_finite()
                     && interval.low < interval.high)
