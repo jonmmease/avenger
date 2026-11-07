@@ -256,6 +256,11 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
             "encoding_mut(&mut self, channel: Channel) -> Option<&mut Encoding>",
             &|variant, _, _| format!("Self::{variant}(mark) => mark.encoding_mut(channel)"),
         );
+        method(
+            &mut code,
+            "encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>>",
+            &|variant, _, _| format!("Self::{variant}(mark) => mark.encoding_slot(channel)"),
+        );
         code.push_str("}\n\n");
     }
 
@@ -331,6 +336,21 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
         }
         writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
     }
+    writeln!(
+        code,
+        "    /// The field of the encoding of `channel`, to set, or `None` when the mark does not take the\n    /// channel in a field of its own.\n    pub fn encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>> {{\n        match channel {{"
+    )
+    .unwrap();
+    for ((_, holder), variant) in taken.iter().zip(&variants) {
+        if let Holder::Field(field) = holder {
+            writeln!(
+                code,
+                "            Channel::{variant} => Some(&mut self.{field}),"
+            )
+            .unwrap();
+        }
+    }
+    writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
     code.push_str("}\n\n");
 }
 

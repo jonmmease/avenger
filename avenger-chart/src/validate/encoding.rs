@@ -24,6 +24,7 @@ use crate::{
         LegendForm,
     },
     resolve::scale_channel,
+    span,
 };
 
 /// The kind of fit of a scale type.
@@ -161,6 +162,7 @@ impl Checker<'_> {
                     ));
                 }
             }
+            spans(mark, channel, encoding, table, &path)?;
             self.encoding(encoding, channel, layer.kind(), table, &path)?;
         }
         if mark.mark_type() == MarkType::Rect {
@@ -192,7 +194,7 @@ impl Checker<'_> {
     ) -> Result<DataType> {
         Ok(match encoding.kind.as_ref() {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
-                column(table, name, path)?.data_type().clone()
+                span::values_type(column(table, name, path)?.data_type())
             }
             Some(encoding::Kind::DirectValue(value) | encoding::Kind::ScaledValue(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
@@ -316,7 +318,11 @@ impl Checker<'_> {
             self.predicate(predicate, &format!("{path}.predicate"))?;
             match conditional.kind.as_ref().expect(REQUIRED) {
                 conditional_value::Kind::DirectField(name) => {
-                    raw_values(channel, column(table, name, &path)?.data_type(), &path)?;
+                    raw_values(
+                        channel,
+                        &span::values_type(column(table, name, &path)?.data_type()),
+                        &path,
+                    )?;
                 }
                 conditional_value::Kind::ScaledField(name) => {
                     column(table, name, &path)?;
@@ -1464,6 +1470,71 @@ pub(crate) fn scaled(encoding: &proto::Encoding) -> bool {
 }
 
 include!(concat!(env!("OUT_DIR"), "/channels.rs"));
+
+/// Checks an encoding of a column of spans: it is on a position channel with a partner, such as
+/// `x` or `x2`, of a mark that takes the partner, and the pair names the one column, so the first
+/// channel takes the starts and the partner the ends.
+fn spans(
+    mark: &dyn MarkMessage,
+    channel: Channel,
+    encoding: &proto::Encoding,
+    table: &RecordBatch,
+    path: &str,
+) -> Result<()> {
+    let name = match &encoding.kind {
+        Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => name,
+        _ => return Ok(()),
+    };
+    let spanned =
+        (table.column_by_name(name)).is_some_and(|column| span::is_span(column.data_type()));
+    if !spanned {
+        return Ok(());
+    }
+    let first = scale_channel(channel);
+    let Some(partner) = span::partner(first) else {
+        return Err(fail(
+            path,
+            format!(
+                "a column of spans gives a position and its partner, such as `x` and `x2`, and \
+                 `{}` has no partner",
+                channel.field_name()
+            ),
+        ));
+    };
+    if !mark.channels().contains(&partner) {
+        return Err(fail(
+            path,
+            format!(
+                "a `{}` mark takes no `{}`, so it takes no column of spans on `{}`",
+                mark.name(),
+                partner.field_name(),
+                first.field_name()
+            ),
+        ));
+    }
+    let field = |channel: Channel| {
+        mark.encoding(channel)
+            .and_then(|encoding| match &encoding.kind {
+                Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => {
+                    Some(name.as_str())
+                }
+                _ => None,
+            })
+    };
+    if field(first) != Some(name) || field(partner) != Some(name) {
+        return Err(fail(
+            path,
+            format!(
+                "the column of spans `{name}` gives `{}` and `{}`, so they name it both, or `{}` \
+                 is absent",
+                first.field_name(),
+                partner.field_name(),
+                partner.field_name()
+            ),
+        ));
+    }
+    Ok(())
+}
 
 /// The name of the member of `Ticks.at` that `at` holds.
 fn at_name(at: &ticks::At) -> &'static str {

@@ -25,6 +25,13 @@ message Encoding {
   // is, in the form that the comment of the channel gives, even in an encoding that has a scale.
   // Each value says which, so one encoding can hold both, such as a scaled field with a
   // conditional direct value that grays the rows outside a brush.
+  //
+  // A field of a position channel with a partner, `x`, `y`, `theta`, or `radius`, can name a
+  // column of spans: structs of exactly a `start` and an `end` field, in that order, of one
+  // numeric or temporal type, such as the bins of a histogram. The column gives the channel its
+  // starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark takes the
+  // partner, and the partner is absent, which the reader fills with the same field, or names the
+  // same column.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
     // The name of a column of the layer's table, whose values the mark draws as they are, such as

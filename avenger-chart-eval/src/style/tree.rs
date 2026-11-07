@@ -253,9 +253,9 @@ fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option
     let member = &group.members[0];
     let layer = &resolved.tree.layers[member.layer];
     let from_encoding = match layer.mark.encoding(member.channel)?.kind.as_ref()? {
-        encoding::Kind::ScaledField(name) => {
-            Some(layer.table.column_by_name(name)?.data_type().clone())
-        }
+        encoding::Kind::ScaledField(name) => Some(avenger_chart::span::values_type(
+            layer.table.column_by_name(name)?.data_type(),
+        )),
         encoding::Kind::ScaledValue(value) => Some(chart.value(value).data_type().clone()),
         encoding::Kind::DirectField(_) | encoding::Kind::DirectValue(_) => None,
     };

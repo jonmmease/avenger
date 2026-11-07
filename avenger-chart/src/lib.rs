@@ -50,6 +50,7 @@ mod merge;
 mod normalize;
 mod read;
 pub mod resolve;
+pub mod span;
 pub mod table;
 mod validate;
 pub mod walk;

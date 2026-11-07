@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use arrow::array::RecordBatch;
+use arrow::{
+    array::{ArrayRef, RecordBatch, StructArray},
+    datatypes::{DataType, Field},
+};
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
 use avenger_scenegraph::marks::{mark::SceneMark, text::text_origin};
@@ -131,6 +134,44 @@ fn rects() {
     );
     let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
     render_both(&chart, "rects-histogram");
+}
+
+/// The histogram of `rects` from one column of spans, which gives `x` and `x2`, draws as the
+/// histogram of two columns, with the column's name as the title of the axis.
+#[test]
+fn rects_of_a_span_column() {
+    let starts: Vec<f64> = (0..8).map(|bin| bin as f64 * 5.0).collect();
+    let ends: Vec<f64> = starts.iter().map(|start| start + 5.0).collect();
+    let spans = StructArray::from(vec![
+        (
+            Arc::new(Field::new("start", DataType::Float64, false)),
+            numbers(&starts),
+        ),
+        (
+            Arc::new(Field::new("end", DataType::Float64, false)),
+            numbers(&ends),
+        ),
+    ]);
+    let bins = RecordBatch::try_from_iter([
+        ("bin", Arc::new(spans) as ArrayRef),
+        (
+            "count",
+            numbers(&[2.0, 5.0, 9.0, 14.0, 11.0, 7.0, 3.0, 1.0]),
+        ),
+    ])
+    .unwrap();
+    let rects = CartesianLayer::rect(
+        bins,
+        RectMark::builder()
+            .inset(1.0)
+            .x("bin")
+            .y(Encoding::scaled_field("count").scale(Domain::data(
+                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
+            )))
+            .y2(Encoding::scaled_value(0.0)),
+    );
+    let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
+    render_both(&chart, "rects-span-histogram");
 }
 
 #[test]

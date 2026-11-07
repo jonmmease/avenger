@@ -623,7 +623,8 @@ fn member_values(
         return Ok(None);
     };
     let base = match encoding.kind.as_ref() {
-        Some(encoding::Kind::ScaledField(name)) => table.column_by_name(name).cloned(),
+        Some(encoding::Kind::ScaledField(name)) => (table.column_by_name(name))
+            .map(|column| avenger_chart::span::channel_values(column, channel)),
         Some(encoding::Kind::ScaledValue(value)) => Some(chart.value(value).clone()),
         Some(encoding::Kind::DirectField(_) | encoding::Kind::DirectValue(_)) | None => None,
     };
