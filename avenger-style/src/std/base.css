@@ -6,16 +6,22 @@ chart {
   color: env(foreground, contrast-color(env(background, white)));
   font-family: env(font-family, Lato, sans-serif);
   font-size: 1.1rem;
+  padding: 5;
 }
 
 /* Texts take the color of the chart, the foreground. 1rem is 10px at a text scale of 1. */
-chart > title { font-size: 1.3rem; font-weight: bold; }
+chart > title { font-size: 1.3rem; font-weight: bold; offset: 10; }
 chart > subtitle { font-size: 1.2rem; }
 footer, attribution { font-size: 1rem; }
 axis > title, legend > title, header > title { font-size: 1.1rem; font-weight: bold; }
 label { font-size: 1rem; }
 axis > label, legend > title { max-width: 18rem; }
 legend > label { max-width: 16rem; }
+
+/* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a
+   continuous scale has about 5 entries. */
+legend { offset: 12; }
+legend[type=symbol] { tick-count: 5; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
@@ -28,12 +34,20 @@ grid {
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
+/* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
+plot[type=cartesian] { contain-intrinsic-size: 200; }
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
+
+/* The labels of axes and colorbars keep apart, except those of categories, which all show as in
+   Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
+axis, legend[type=colorbar] { label-overlap: parity; }
+axis[kind=categorical] { label-overlap: none; }
+axis > level:last-of-type { label-angle: inherit; }
 
 /* Marks: the accent, and the foreground for rules and texts. */
 plot > mark { color: env(accent, #4c78a8); }
@@ -42,6 +56,10 @@ mark:is([type=rule], [type=text]) {
 }
 mark[type=text] { font-size: 1.1rem; }
 mark[type=symbol] { stroke: none; stroke-width: 2; }
+mark[type=line] { stroke-width: 2; }
+mark[type=trail] { size: 2; }
+mark[type=text] { max-lines: none; }
+mark[type=image] { width: 50; height: 50; }
 mark[type=rect][store] {
   fill: color-mix(in srgb,
           color-mix(in srgb, env(foreground, contrast-color(env(background, white))) 80%,
@@ -75,6 +93,9 @@ scale[channel=opacity] { range: 0.3, 0.8; }
 scale[channel=fill_opacity], scale[channel=stroke_opacity] { range: 0.3, 0.8; }
 scale[channel=stroke_width] { range: 1, 4; }
 scale[channel=angle] { range: 0, 360; }
+scale[channel=size] { range: 9, 361; }
+scale[channel=size][marks~=text] { range: 8, 40; }
+scale[channel=size][marks~=trail] { range: 1, 10; }
 
 /* Focus: a 2px ring, 2px outside the focused node. */
 :focus-visible {

@@ -220,3 +220,16 @@ fn values_round_trip_through_their_stream() {
         .unwrap()
         .is_empty());
 }
+
+/// The descriptor set of the format holds the messages of its `.proto` files.
+#[test]
+fn the_descriptor_set_holds_the_chart_message() {
+    use prost::Message;
+    let set =
+        prost_types::FileDescriptorSet::decode(avenger_chart::proto::FILE_DESCRIPTOR_SET).unwrap();
+    let chart = (set.file.iter())
+        .filter(|file| file.package() == "avenger.chart.v1")
+        .flat_map(|file| &file.message_type)
+        .any(|message| message.name() == "Chart");
+    assert!(chart);
+}

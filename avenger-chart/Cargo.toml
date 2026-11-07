@@ -19,3 +19,4 @@ protoc-bin-vendored = { workspace = true }
 [dev-dependencies]
 # Tests write a compressed IPC stream, which a reader rejects.
 arrow = { workspace = true, features = ["ipc_compression"] }
+prost-types = { workspace = true }

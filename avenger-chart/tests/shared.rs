@@ -947,3 +947,20 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
         "have one id and one partition, `measure`",
     );
 }
+
+#[test]
+fn an_id_holds_no_nul_character() {
+    invalid(
+        parts(plot_with("a\0b", vec![], vec![symbols(0)]), vec![]),
+        "root.plot",
+        "no NUL character",
+    );
+    assert_eq!(
+        avenger_chart::resolve::Identity::owner_name("", "scatter"),
+        "scatter"
+    );
+    assert_eq!(
+        avenger_chart::resolve::Identity::owner_name("magnitude", "scatter"),
+        "\0magnitude\0scatter"
+    );
+}

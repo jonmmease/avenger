@@ -1022,6 +1022,18 @@ pub(crate) fn expand(shorthand: Shorthand, text: &str) -> Option<Vec<(Property, 
                 (Property::ColumnGap, Declared::Value(column)),
             ]
         }
+        Shorthand::ContainIntrinsicSize => {
+            let sizes = values(&Syntax::Repeat(&INTRINSIC_SIZE, 1, 2), &mut parser)?;
+            let (width, height) = match sizes.as_slice() {
+                [both] => (both.clone(), both.clone()),
+                [width, height] => (width.clone(), height.clone()),
+                _ => return None,
+            };
+            vec![
+                (Property::ContainIntrinsicWidth, Declared::Value(width)),
+                (Property::ContainIntrinsicHeight, Declared::Value(height)),
+            ]
+        }
         Shorthand::Border | Shorthand::Outline => {
             let parts = values(&Syntax::Line, &mut parser)?;
             let (width, style, color) = match shorthand {
@@ -1057,6 +1069,11 @@ pub(crate) fn expand(shorthand: Shorthand, text: &str) -> Option<Vec<(Property, 
 }
 
 const SIZE_FOR_PADDING: Syntax = Syntax::Length { min: Some(0.0) };
+
+const INTRINSIC_SIZE: Syntax = Syntax::Any(&[
+    Syntax::Length { min: Some(0.0) },
+    Syntax::Keywords(&["none"]),
+]);
 
 fn invalid_value(name: &str, text: &str, syntax: &Syntax) -> Problem {
     let message = format!("`{text}` is not a valid value of `{name}`");

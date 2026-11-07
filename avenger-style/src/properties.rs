@@ -179,8 +179,10 @@ macro_rules! properties {
 
 properties! {
     // Size and composition.
-    Width = "width", false, SIZE_OR_AUTO, "auto", PLOT;
-    Height = "height", false, SIZE_OR_AUTO, "auto", PLOT;
+    Width = "width", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
+    Height = "height", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
+    ContainIntrinsicWidth = "contain-intrinsic-width", false, SIZE_OR_NONE, "none", PLOT;
+    ContainIntrinsicHeight = "contain-intrinsic-height", false, SIZE_OR_NONE, "none", PLOT;
     AspectRatio = "aspect-ratio", false, Syntax::Any(&[Syntax::Ratio, Syntax::Keywords(&["auto"])]), "auto", PLOT;
     Step = "step", false, SIZE_OR_NONE, "none", SCALE;
     PaddingTop = "padding-top", false, SIZE, "0", BOXES;
@@ -260,11 +262,11 @@ properties! {
     TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Header];
     Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
-    TickCount = "tick-count", false, Syntax::Number { min: Some(0.0), max: None }, "10", &[Axis, Legend];
+    TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
     LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Header, Graticule, Mark];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
-    Offset = "offset", false, LENGTH, "0", GUIDES;
+    Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Header, Title, Attribution];
     LabelOffset = "label-offset", false, LENGTH, "0", &[Axis, Mark];
     MinExtent = "min-extent", false, SIZE_OR_NONE, "none", AXIS;
     MaxExtent = "max-extent", false, SIZE_OR_NONE, "none", AXIS;
@@ -272,7 +274,7 @@ properties! {
     Length = "length", false, SIZE_OR_AUTO, "auto", &[Ramp];
     MaxLength = "max-length", false, SIZE_OR_NONE, "none", &[Ramp];
     AxisGap = "axis-gap", false, SIZE, "0", &[Legend];
-    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Mark];
+    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Legend, Mark];
     LabelSeparation = "label-separation", false, SIZE, "0", AXIS;
     LabelFlush = "label-flush", false, Syntax::Any(&[Syntax::Boolean, SIZE]), "false", AXIS;
     TickBand = "tick-band", false, Syntax::Keywords(&["center", "extent"]), "center", AXIS;
@@ -344,6 +346,9 @@ pub enum Shorthand {
     Outline,
     /// One length for rows and columns, or two for rows and then columns.
     Gap,
+    /// `none`, or one length for the width and the height, or two for the width and then the
+    /// height, that a plot counts at when nothing gives it a size.
+    ContainIntrinsicSize,
     /// Every property except the outline properties and the custom properties. It takes only a
     /// CSS-wide keyword.
     All,
@@ -356,6 +361,7 @@ impl Shorthand {
             "border" => Shorthand::Border,
             "outline" => Shorthand::Outline,
             "gap" => Shorthand::Gap,
+            "contain-intrinsic-size" => Shorthand::ContainIntrinsicSize,
             "all" => Shorthand::All,
             _ => return None,
         })
@@ -367,6 +373,7 @@ impl Shorthand {
             Shorthand::Border => "border",
             Shorthand::Outline => "outline",
             Shorthand::Gap => "gap",
+            Shorthand::ContainIntrinsicSize => "contain-intrinsic-size",
             Shorthand::All => "all",
         }
     }
@@ -393,6 +400,10 @@ impl Shorthand {
                 Property::OutlineColor,
             ],
             Shorthand::Gap => vec![Property::RowGap, Property::ColumnGap],
+            Shorthand::ContainIntrinsicSize => vec![
+                Property::ContainIntrinsicWidth,
+                Property::ContainIntrinsicHeight,
+            ],
             Shorthand::All => (Property::ALL.iter())
                 .copied()
                 .filter(|property| !property.is_outline())

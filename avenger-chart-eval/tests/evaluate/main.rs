@@ -1,0 +1,12 @@
+//! Charts of one plot evaluated at sizes with the base stylesheet, and compared with image
+//! baselines.
+//!
+//! A changed image is written to `tests/output/`; accept it by copying it to `tests/baselines/`.
+
+mod bands;
+mod domains;
+mod guides;
+mod marks;
+mod overlays;
+mod selections;
+mod support;
