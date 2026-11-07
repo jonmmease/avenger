@@ -3,9 +3,15 @@ name = "avenger-widgets"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = ["app"]
+# The `Widgets` tool, which draws the widgets in an avenger app and routes its events to them.
+# The controls, their measurements, and their drawing need no app.
+app = ["dep:avenger-app", "dep:async-trait"]
+
 [dependencies]
-async-trait = { workspace = true }
-avenger-app = { path = "../avenger-app" }
+async-trait = { workspace = true, optional = true }
+avenger-app = { path = "../avenger-app", optional = true }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
@@ -22,3 +28,16 @@ avenger-app-tools = { path = "../avenger-app-tools" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 pollster = { workspace = true }
+
+# The tests of the tool and of the controls in an app.
+[[test]]
+name = "builtins"
+required-features = ["app"]
+
+[[test]]
+name = "text_input"
+required-features = ["app"]
+
+[[test]]
+name = "tool"
+required-features = ["app"]

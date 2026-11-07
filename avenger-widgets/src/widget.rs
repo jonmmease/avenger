@@ -69,7 +69,7 @@ pub trait Widget<State>: Send + Sync + 'static {
     }
 
     /// Decide what happens to an input event that the tool routes to the widget, as
-    /// [`ToolHandler::disposition`](avenger_app::app::ToolHandler::disposition) does for a
+    /// `ToolHandler::disposition` of avenger-app does for a
     /// tool's stream. By default, the widget consumes pointer events to prevent scenes below
     /// from receiving them. It ignores key, paste and input method events so they reach the
     /// app.
