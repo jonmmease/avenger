@@ -9,7 +9,7 @@ mod tree;
 mod widget;
 
 pub use encoding::FitKind;
-pub(crate) use encoding::{is_position, scaled, takes_scale};
+pub(crate) use encoding::{is_position, scaled, scales_numbers, scales_strings, takes_scale};
 
 use std::collections::HashSet;
 

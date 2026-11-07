@@ -29,9 +29,13 @@ extend google.protobuf.EnumValueOptions {
   // How a channel of the `Channel` enum relates to scales, which decides what a string means in
   // the builder of its encoding. When absent, the channel takes no scale.
   ChannelScale channel_scale = 50004;
+  // Marks a position channel of a coordinate system, such as `x`, `theta`, or `longitude`. A
+  // number in the builder of an encoding of a position with a scale is a scaled value, a data value
+  // such as the place of a reference line, and on any other channel a direct value.
+  bool position = 50005;
 }
 
-// How a channel relates to scales.
+// How a channel relates to scales, which decides what a string means in a builder.
 enum ChannelScale {
   // The channel takes no scale: its values are direct, and a string names a direct field.
   CHANNEL_SCALE_NONE = 0;

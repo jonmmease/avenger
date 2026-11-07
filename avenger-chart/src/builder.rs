@@ -13,7 +13,7 @@ use prost::bytes::Bytes;
 use crate::{
     codec::list_value,
     proto,
-    validate::{is_position, scaled, takes_scale},
+    validate::{is_position, scaled, scales_numbers, scales_strings, takes_scale},
     ChartError, MarkMessage,
 };
 
@@ -114,38 +114,40 @@ impl<T: ListItem + Clone> IntoValue for &[T] {
 }
 
 /// The values that the setter of an encoding of a channel takes: an [`EncodingBuilder`], an
-/// [`Encoding`], a string, which names a column, or a number or a bool, which is a direct value.
+/// [`Encoding`], a string, which names a column, or a number or a bool, which is one value.
 ///
 /// A string is a `scaled_field` on a channel that has a scale or follows the scale of its partner,
 /// such as `x`, `color`, or `x2`, and a `direct_field` on a channel of direct values, such as
 /// `text` or `longitude`, as the `channel_scale` option of the channel's value in `channel.proto`
-/// says. A number or a bool is a `direct_value` on every channel, which the mark draws as it is,
-/// such as a size of `100.0`. A constant in the units of the data is
-/// `Encoding::scaled_value(..)`, and a string constant, such as a CSS color, is
-/// `Encoding::direct_value(..)`.
+/// says. A number is a `scaled_value` on a position of a coordinate system with a scale, a data
+/// value such as the place of a reference line on `x`, and a `direct_value` on any other channel,
+/// which the mark draws as it is, such as a size of `100.0`, as the `position` option says. A bool
+/// is a direct value. A direct number on a position is `Encoding::direct_value(..)`, a data value
+/// on another channel is `Encoding::scaled_value(..)`, and a string constant, such as a CSS color,
+/// is `Encoding::direct_value(..)`.
 ///
 /// [`EncodingBuilder`]: crate::proto::EncodingBuilder
 /// [`Encoding`]: crate::proto::Encoding
 pub trait IntoEncoding {
-    /// The encoding, where `scaled` says whether a string names a scaled field.
-    fn into_encoding(self, scaled: bool) -> proto::EncodingBuilder;
+    /// The encoding of `channel`.
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder;
 }
 
 impl IntoEncoding for proto::EncodingBuilder {
-    fn into_encoding(self, _scaled: bool) -> proto::EncodingBuilder {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
         self
     }
 }
 
 impl IntoEncoding for proto::Encoding {
-    fn into_encoding(self, _scaled: bool) -> proto::EncodingBuilder {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
         self.into()
     }
 }
 
 impl IntoEncoding for &str {
-    fn into_encoding(self, scaled: bool) -> proto::EncodingBuilder {
-        match scaled {
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+        match scales_strings(channel) {
             true => proto::Encoding::scaled_field(self),
             false => proto::Encoding::direct_field(self),
         }
@@ -153,22 +155,31 @@ impl IntoEncoding for &str {
 }
 
 impl IntoEncoding for String {
-    fn into_encoding(self, scaled: bool) -> proto::EncodingBuilder {
-        self.as_str().into_encoding(scaled)
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+        self.as_str().into_encoding(channel)
     }
 }
 
-macro_rules! direct_values {
+macro_rules! numbers {
     ($($rust:ty),* $(,)?) => {$(
         impl IntoEncoding for $rust {
-            fn into_encoding(self, _scaled: bool) -> proto::EncodingBuilder {
-                proto::Encoding::direct_value(self)
+            fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+                match scales_numbers(channel) {
+                    true => proto::Encoding::scaled_value(self),
+                    false => proto::Encoding::direct_value(self),
+                }
             }
         }
     )*};
 }
 
-direct_values!(f64, f32, i64, i32, u32, bool);
+numbers!(f64, f32, i64, i32, u32);
+
+impl IntoEncoding for bool {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
+        proto::Encoding::direct_value(self)
+    }
+}
 
 /// The order of the nodes of [`Node::partitions`](crate::proto::Node::partitions).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

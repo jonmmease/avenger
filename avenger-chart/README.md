@@ -126,7 +126,7 @@ Each field and member that is not required content has one method, named after i
 | A `ValueRef` | `impl IntoValue`: a Rust scalar, which becomes one element of its own Arrow type, an array, a `Vec`, or a slice of them, which becomes a list, or a `builder::Value` of any Arrow type |
 | A repeated field | `impl IntoIterator` of the items, which it appends |
 
-An encoding holds one of four kinds of values: a `scaled_field` or a `direct_field`, a column of the layer's table, and a `scaled_value` or a `direct_value`, one value. A scaled value goes through the channel's scale, and a direct value is what the mark draws, such as a CSS color. A string names a column: a scaled field on a channel that has a scale or follows the scale of its partner, such as `x`, `color`, or `x2`, and a direct field on a channel of direct values, such as `text`, `longitude`, or `width`, as the `channel_scale` option of the channel's value says. A number or a bool is a direct value. Any other value is explicit, such as `Encoding::direct_value("#e45756")`, since `.color("#e45756")` names a column, and the error of a missing column says so.
+An encoding holds one of four kinds of values: a `scaled_field` or a `direct_field`, a column of the layer's table, and a `scaled_value` or a `direct_value`, one value. A scaled value goes through the channel's scale, and a direct value is what the mark draws, such as a CSS color. A string names a column: a scaled field on a channel that has a scale or follows the scale of its partner, such as `x`, `color`, or `x2`, and a direct field on a channel of direct values, such as `text`, `longitude`, or `width`, as the `channel_scale` option of the channel's value says. A number is a scaled value on a position of a coordinate system with a scale, such as `.x(2.5)` for a reference line at 2.5 in the data, and a direct value on any other channel, such as `.size(100.0)`, as the `position` option of the channel's value says. A bool is a direct value. Any other value is explicit, such as `Encoding::direct_value("#e45756")`, since `.color("#e45756")` names a column, and the error of a missing column says so.
 
 A builder converts from other types where the conversion is unambiguous:
 
@@ -140,7 +140,7 @@ A builder holds the tables and the values that its fields take, and `ChartBuilde
 
 The reader infers the absent scale of each encoding of a scaled value, and the absent type and domain of its scale, so a chart that another language writes gets the defaults that a builder's chart gets: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. The comments of `Scale.type` and `Scale.domain` give the rules. Inference leaves fits, sort orders, axes, legends, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set.
 
-A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale`, and the `channel_scale` option of the values of `Channel`.
+A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale`, and the `channel_scale` and `position` options of the values of `Channel`.
 
 The builders also compose charts:
 

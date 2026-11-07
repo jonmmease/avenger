@@ -97,6 +97,8 @@ mod wire {
     pub struct ValueOptions {
         #[prost(int32, optional, tag = "50004")]
         pub channel_scale: Option<i32>,
+        #[prost(bool, optional, tag = "50005")]
+        pub position: Option<bool>,
     }
 }
 
@@ -112,6 +114,8 @@ pub struct Annotations {
     pub lift: BTreeSet<(String, String)>,
     /// The `channel_scale` of each value of `Channel` that sets it, by the value's name.
     pub channel_scale: BTreeMap<String, i32>,
+    /// The values of `Channel` that the `position` option marks, by name.
+    pub positions: BTreeSet<String>,
 }
 
 impl Annotations {
@@ -132,6 +136,9 @@ impl Annotations {
                         annotations
                             .channel_scale
                             .insert(value.name().to_string(), scale);
+                    }
+                    if value.options.as_ref().and_then(|o| o.position) == Some(true) {
+                        annotations.positions.insert(value.name().to_string());
                     }
                 }
             }
@@ -382,23 +389,49 @@ pub fn required_visitors(
     Ok(())
 }
 
-/// The code of `channels.rs`: `takes_scale`, from the `channel_scale` option of the values of
-/// `Channel`.
+/// The code of `channels.rs`, from the `channel_scale` and `position` options of the values of
+/// `Channel`: `takes_scale`, `is_position`, and what a string and a number mean in the builder of
+/// an encoding of a channel.
 pub fn channels(annotations: &Annotations) -> String {
-    let own: Vec<String> = (annotations.channel_scale.iter())
-        .filter(|(_, scale)| **scale == CHANNEL_SCALE_OWN)
-        .map(|(name, _)| {
-            format!(
-                "Channel::{}",
-                camel(&name.strip_prefix("CHANNEL_").unwrap_or(name).to_lowercase())
-            )
-        })
-        .collect();
+    let variant = |name: &str| {
+        format!(
+            "Channel::{}",
+            camel(&name.strip_prefix("CHANNEL_").unwrap_or(name).to_lowercase())
+        )
+    };
+    let matching = |names: Vec<&String>| -> String {
+        names
+            .into_iter()
+            .map(|name| variant(name))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    let own = matching(
+        (annotations.channel_scale.iter())
+            .filter(|(_, scale)| **scale == CHANNEL_SCALE_OWN)
+            .map(|(name, _)| name)
+            .collect(),
+    );
+    let scaled = matching(annotations.channel_scale.keys().collect());
+    let positions = matching(annotations.positions.iter().collect());
+    let scaled_positions = matching(
+        (annotations.positions.iter())
+            .filter(|name| annotations.channel_scale.contains_key(*name))
+            .collect(),
+    );
     format!(
         "/// Whether a channel has a scale of its own, as the `channel_scale` option of its value \
          says: not the second\n/// channel of a pair, which follows the scale of the first, and \
          not a channel of direct values.\npub(crate) fn takes_scale(channel: Channel) -> bool {{\n    \
-         matches!(channel, {})\n}}\n",
-        own.join(" | ")
+         matches!(channel, {own})\n}}\n\n\
+         /// Whether a channel is a position of a coordinate system, as the `position` option of \
+         its value says.\npub(crate) fn is_position(channel: Channel) -> bool {{\n    \
+         matches!(channel, {positions})\n}}\n\n\
+         /// Whether a string on a channel names a scaled field: on a channel with a scale of its \
+         own or of its partner.\npub(crate) fn scales_strings(channel: Channel) -> bool {{\n    \
+         matches!(channel, {scaled})\n}}\n\n\
+         /// Whether a number on a channel is a scaled value: on a position with a scale.\n\
+         pub(crate) fn scales_numbers(channel: Channel) -> bool {{\n    \
+         matches!(channel, {scaled_positions})\n}}\n"
     )
 }

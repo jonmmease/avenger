@@ -213,9 +213,8 @@ fn kind(field: &FieldDescriptorProto) -> Kind {
     }
 }
 
-/// Whether a string names a scaled field on each channel, by the name of its encoding fields, from
-/// the `channel_scale` option of the values of `Channel`.
-fn channel_strings(set: &FileDescriptorSet, annotations: &Annotations) -> BTreeMap<String, bool> {
+/// The Rust path of each channel's value, by the name of its encoding fields.
+fn channel_paths(set: &FileDescriptorSet) -> BTreeMap<String, String> {
     (set.file.iter())
         .flat_map(|file| &file.enum_type)
         .filter(|enumeration| enumeration.name() == "Channel")
@@ -226,8 +225,9 @@ fn channel_strings(set: &FileDescriptorSet, annotations: &Annotations) -> BTreeM
                 .name()
                 .strip_prefix("CHANNEL_")
                 .unwrap_or(value.name());
-            let scaled = annotations.channel_scale.contains_key(value.name());
-            (name.to_lowercase(), scaled)
+            let name = name.to_lowercase();
+            let path = format!("crate::proto::Channel::{}", camel(&name));
+            (name, path)
         })
         .collect()
 }
@@ -256,12 +256,12 @@ pub(super) fn builders(
     annotations: &Annotations,
 ) -> String {
     let comments = Comments::new(set);
-    let strings = channel_strings(set, annotations);
+    let channels = channel_paths(set);
     let encoding = format!("{PACKAGE}.Encoding");
-    // Whether `field` is an encoding of a channel, and whether a string on it is a scaled field.
-    let channel = |field: &FieldDescriptorProto| -> Option<bool> {
+    // The Rust path of the channel of `field`, when it is an encoding of a channel.
+    let channel = |field: &FieldDescriptorProto| -> Option<String> {
         (field.type_name() == encoding)
-            .then(|| strings.get(field.name()).copied())
+            .then(|| channels.get(field.name()).cloned())
             .flatten()
     };
     let values = messages.holders(&format!("{PACKAGE}.ValueRef"));
@@ -436,9 +436,9 @@ pub(super) fn builders(
                                 Some(format!("{field_ident}: impl IntoIterator<Item = {item}>"))
                             } else {
                                 let (argument, convert) = match channel(field) {
-                                    Some(scaled) => (
+                                    Some(channel) => (
                                         "impl crate::builder::IntoEncoding".to_string(),
-                                        format!("value.into_encoding({scaled})"),
+                                        format!("value.into_encoding({channel})"),
                                     ),
                                     None => (
                                         format!("impl Into<{member_builder}>"),
@@ -527,9 +527,9 @@ pub(super) fn builders(
                         ),
                         Kind::Message(type_name) => {
                             let (argument, convert) = match channel(field) {
-                                Some(scaled) => (
+                                Some(channel) => (
                                     "impl crate::builder::IntoEncoding".to_string(),
-                                    format!("value.into_encoding({scaled})"),
+                                    format!("value.into_encoding({channel})"),
                                 ),
                                 None => (
                                     format!("impl Into<{}Builder>", rust_path(&type_name)),
@@ -726,9 +726,8 @@ fn item_argument(field: &FieldDescriptorProto, messages: &Messages) -> String {
 struct Content<'a> {
     required: &'a [&'a FieldDescriptorProto],
     required_oneof: Option<i32>,
-    /// For a message whose one required field is an encoding of a channel, whether a string on the
-    /// channel is a scaled field.
-    channel: Option<bool>,
+    /// For a message whose one required field is an encoding of a channel, the channel.
+    channel: Option<String>,
 }
 
 /// The `From` conversions of a message's builder, which `docs` of the module list as rules A, B,

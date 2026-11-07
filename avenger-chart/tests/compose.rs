@@ -419,12 +419,9 @@ fn the_fields_of_an_overlay_plot_win_and_its_layers_come_first() {
         )])
         .title(Title::new(title))
     };
-    let own = Plot::cartesian([CartesianLayer::rule(
-        points(),
-        RuleMark::builder().y(Encoding::scaled_value(5.0)),
-    )])
-    .title(Title::new("Both"))
-    .overlay([titled("A"), titled("B")]);
+    let own = Plot::cartesian([CartesianLayer::rule(points(), RuleMark::builder().y(5.0))])
+        .title(Title::new("Both"))
+        .overlay([titled("A"), titled("B")]);
     let chart = Chart::builder(own).build().unwrap();
 
     let plot = root_plot(&chart);

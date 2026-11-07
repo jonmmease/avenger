@@ -174,7 +174,7 @@ fn an_encoding_takes_strings_numbers_and_bools_by_its_channel() {
         kind(&mark.text),
         encoding::Kind::DirectField("label".to_string())
     );
-    // A number is a direct value.
+    // A number off the positions is a direct value.
     let layer = CartesianLayer::symbol(
         points(),
         SymbolMark::builder().x("a").y("b").size(100.0).opacity(1),
@@ -186,6 +186,20 @@ fn an_encoding_takes_strings_numbers_and_bools_by_its_channel() {
         kind(&mark.opacity),
         encoding::Kind::DirectValue(_)
     ));
+    // A number on a position with a scale is a scaled value, a data value such as the place of a
+    // reference line.
+    let rule = CartesianLayer::rule(points(), RuleMark::builder().x(2.5));
+    let chart = Chart::builder(Plot::cartesian([rule])).build().unwrap();
+    let Some(node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("the root is a plot")
+    };
+    let Some(plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("the plot is Cartesian")
+    };
+    let Some(cartesian_layer::Mark::Rule(rule)) = &cartesian.layers[0].mark else {
+        panic!("the layer draws a rule")
+    };
+    assert!(matches!(kind(&rule.x), encoding::Kind::ScaledValue(_)));
     // A second channel follows its partner's scale, so a string on it is scaled.
     let rule = RuleMark::builder().x("a").x2("b").build().unwrap();
     assert_eq!(kind(&rule.x2), encoding::Kind::ScaledField("b".to_string()));

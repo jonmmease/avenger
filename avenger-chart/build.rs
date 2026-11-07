@@ -377,6 +377,10 @@ fn check_annotations(annotations: &annotations::Annotations) -> Result<(), Strin
             annotations.channel_scale.contains_key("CHANNEL_X"),
             "`channel_scale` on `CHANNEL_X`",
         ),
+        (
+            annotations.positions.contains("CHANNEL_X"),
+            "`position` on `CHANNEL_X`",
+        ),
     ];
     match checks.iter().find(|(found, _)| !found) {
         Some((_, option)) => Err(format!("the descriptors hold the option {option}")),

@@ -1427,25 +1427,6 @@ fn levels(value_type: &DataType) -> usize {
     }
 }
 
-pub(crate) fn is_position(channel: Channel) -> bool {
-    matches!(
-        channel,
-        Channel::X
-            | Channel::Y
-            | Channel::X2
-            | Channel::Y2
-            | Channel::Longitude
-            | Channel::Latitude
-            | Channel::Longitude2
-            | Channel::Latitude2
-            | Channel::Geometry
-            | Channel::Theta
-            | Channel::Radius
-            | Channel::Theta2
-            | Channel::Radius2
-    )
-}
-
 /// Whether `value` goes through the channel's scale.
 fn is_scaled(value: &encoding::Kind) -> bool {
     matches!(

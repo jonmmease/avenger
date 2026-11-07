@@ -52,13 +52,7 @@ fn read(layer: CartesianLayerBuilder) -> Result<Chart, ChartError> {
 
 #[test]
 fn a_span_gives_its_channel_and_its_partner() {
-    let rects = CartesianLayer::rect(
-        bins(),
-        RectMark::builder()
-            .x("bin")
-            .y("count")
-            .y2(Encoding::scaled_value(0.0)),
-    );
+    let rects = CartesianLayer::rect(bins(), RectMark::builder().x("bin").y("count").y2(0.0));
     let chart = read(rects).unwrap();
     let Some(node::Node::Plot(plot)) = &chart.root().node else {
         panic!("the root is a plot")
@@ -79,11 +73,7 @@ fn a_span_gives_its_channel_and_its_partner() {
     // A chart that names the span on both channels reads as the same chart.
     let both = read(CartesianLayer::rect(
         bins(),
-        RectMark::builder()
-            .x("bin")
-            .x2("bin")
-            .y("count")
-            .y2(Encoding::scaled_value(0.0)),
+        RectMark::builder().x("bin").x2("bin").y("count").y2(0.0),
     ))
     .unwrap();
     assert_eq!(both, chart);
@@ -115,11 +105,7 @@ fn a_span_and_another_partner_are_a_conflict() {
     invalid(
         read(CartesianLayer::rect(
             bins(),
-            RectMark::builder()
-                .x("bin")
-                .x2("edge")
-                .y("count")
-                .y2(Encoding::scaled_value(0.0)),
+            RectMark::builder().x("bin").x2("edge").y("count").y2(0.0),
         )),
         "the column of spans `bin` gives `x` and `x2`",
     );

@@ -17,33 +17,57 @@ enum Channel {
   // No channel: where a comment allows it, a column that a selection names directly.
   CHANNEL_UNSPECIFIED = 0;
   // The horizontal position of a Cartesian mark. Values: values of its scale's domain.
-  CHANNEL_X = 1 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
+  CHANNEL_X = 1 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
+    (avenger.chart.v1.position) = true
+  ];
   // The vertical position of a Cartesian mark. Values: values of its scale's domain.
-  CHANNEL_Y = 2 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
+  CHANNEL_Y = 2 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
+    (avenger.chart.v1.position) = true
+  ];
   // The second x position, through the scale of `x`.
-  CHANNEL_X2 = 3 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER];
+  CHANNEL_X2 = 3 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
+    (avenger.chart.v1.position) = true
+  ];
   // The second y position, through the scale of `y`.
-  CHANNEL_Y2 = 4 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER];
+  CHANNEL_Y2 = 4 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
+    (avenger.chart.v1.position) = true
+  ];
   // The angle of a row in a polar plot, through its scale. Values: degrees clockwise from the top.
-  CHANNEL_THETA = 5 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
+  CHANNEL_THETA = 5 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
+    (avenger.chart.v1.position) = true
+  ];
   // The distance of a row from the center of a polar plot, through its scale. Values: fractions of
   // the outer radius, from 0 at the center to 1 at the outer edge, and past 1 outside it, as the
   // labels outside a pie are.
-  CHANNEL_RADIUS = 6 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
+  CHANNEL_RADIUS = 6 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
+    (avenger.chart.v1.position) = true
+  ];
   // The second angle, through the scale of `theta`.
-  CHANNEL_THETA2 = 7 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER];
+  CHANNEL_THETA2 = 7 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
+    (avenger.chart.v1.position) = true
+  ];
   // The second radius, through the scale of `radius`.
-  CHANNEL_RADIUS2 = 8 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER];
+  CHANNEL_RADIUS2 = 8 [
+    (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
+    (avenger.chart.v1.position) = true
+  ];
   // The longitude of a row in degrees, or its first coordinate in a planar map, without a scale.
-  CHANNEL_LONGITUDE = 9;
+  CHANNEL_LONGITUDE = 9 [(avenger.chart.v1.position) = true];
   // The latitude of a row in degrees, or its second coordinate in a planar map, without a scale.
-  CHANNEL_LATITUDE = 10;
+  CHANNEL_LATITUDE = 10 [(avenger.chart.v1.position) = true];
   // The second longitude, without a scale.
-  CHANNEL_LONGITUDE2 = 11;
+  CHANNEL_LONGITUDE2 = 11 [(avenger.chart.v1.position) = true];
   // The second latitude, without a scale.
-  CHANNEL_LATITUDE2 = 12;
+  CHANNEL_LATITUDE2 = 12 [(avenger.chart.v1.position) = true];
   // The geometry of a row, from a GeoArrow column in any encoding, without a scale.
-  CHANNEL_GEOMETRY = 13;
+  CHANNEL_GEOMETRY = 13 [(avenger.chart.v1.position) = true];
   // The text of a row, which the text mark formats, without a scale.
   CHANNEL_TEXT = 14;
   // The image of a row, without a scale: a URL, or a struct of `width` (UInt32), `height` (UInt32),

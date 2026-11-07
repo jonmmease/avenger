@@ -130,7 +130,7 @@ fn rects() {
             .y(Encoding::scaled_field("count").scale(Domain::data(
                 DataDomain::builder().fit(IntervalFit::builder().zero(true)),
             )))
-            .y2(Encoding::scaled_value(0.0)),
+            .y2(0.0),
     );
     let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
     render_both(&chart, "rects-histogram");
@@ -168,7 +168,7 @@ fn rects_of_a_span_column() {
             .y(Encoding::scaled_field("count").scale(Domain::data(
                 DataDomain::builder().fit(IntervalFit::builder().zero(true)),
             )))
-            .y2(Encoding::scaled_value(0.0)),
+            .y2(0.0),
     );
     let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
     render_both(&chart, "rects-span-histogram");
@@ -191,7 +191,7 @@ fn rules() {
         RuleMark::builder()
             .x("weight")
             .y("mpg")
-            .y2(Encoding::scaled_value(15.0))
+            .y2(15.0)
             .color("origin")
             .stroke_dash(Encoding::direct_value("4 2")),
     );
