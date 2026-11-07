@@ -66,7 +66,7 @@ pub fn data_fit(spec: &mut ScaleSpec) -> &mut Option<proto::DomainFit> {
 /// An encoding of the column `name` through `scale`.
 pub fn column(name: &str, scale: ScaleSpec) -> Encoding {
     Encoding {
-        value: Some(encoding::Value::Column(name.to_string())),
+        value: Some(encoding::Value::ScaledColumn(name.to_string())),
         scale: Some(scale),
         ..Default::default()
     }

@@ -148,6 +148,21 @@ impl Checker<'_> {
                     ),
                 ));
             }
+            if first != channel && takes_scale(first) {
+                let first_scaled = mark.encoding(first).is_some_and(scaled);
+                if scaled(encoding) != first_scaled {
+                    return Err(fail(
+                        &path,
+                        format!(
+                            "`{}` goes through the scale of `{}`, so it is a `scaled_` value \
+                             exactly when `{}` is",
+                            channel.field_name(),
+                            first.field_name(),
+                            first.field_name()
+                        ),
+                    ));
+                }
+            }
             self.encoding(encoding, channel, layer.kind(), table, &path)?;
         }
         let required: &[Channel] = match mark.mark_type() {
@@ -197,12 +212,37 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<DataType> {
         Ok(match encoding.value.as_ref() {
-            Some(encoding::Value::Column(name)) => column(table, name, path)?.data_type().clone(),
+            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+                column(table, name, path)?.data_type().clone()
+            }
             Some(encoding::Value::Constant(value) | encoding::Value::ScaledConstant(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
             }
             None => return Err(fail(path, "the value of an encoding is required")),
         })
+    }
+
+    /// The type of the values of the first `scaled_` conditional value of `encoding`, which has
+    /// one.
+    fn scaled_conditional_type(
+        &self,
+        encoding: &proto::Encoding,
+        table: &RecordBatch,
+        path: &str,
+    ) -> Result<DataType> {
+        for (index, conditional) in encoding.conditional.iter().enumerate() {
+            let path = format!("{path}.conditional[{index}]");
+            match &conditional.value {
+                Some(conditional_value::Value::ScaledColumn(name)) => {
+                    return Ok(column(table, name, &path)?.data_type().clone())
+                }
+                Some(conditional_value::Value::ScaledConstant(value)) => {
+                    return Ok(self.values.scalar(value, &path)?.data_type().clone())
+                }
+                _ => {}
+            }
+        }
+        unreachable!("an encoding with a scale has a scaled value")
     }
 
     fn encoding(
@@ -231,62 +271,58 @@ impl Checker<'_> {
                 ));
             }
         }
-        if matches!(value, encoding::Value::Constant(_))
+        if !is_scaled(value)
             && matches!(channel, Channel::X | Channel::Y | Channel::X2 | Channel::Y2)
         {
             return Err(fail(
                 path,
-                "a Cartesian position is a column or a scaled constant, which go through the scale \
-                 of `x` or `y`",
+                "a Cartesian position is a `scaled_column` or a `scaled_constant`, which go through \
+                 the scale of `x` or `y`",
             ));
         }
-        let scaled = matches!(value, encoding::Value::ScaledConstant(_))
-            || (encoding.conditional.iter()).any(|conditional| {
-                matches!(
-                    conditional.value,
-                    Some(conditional_value::Value::ScaledConstant(_))
-                )
-            });
-        let constants = matches!(value, encoding::Value::Constant(_))
-            && (encoding.conditional.iter()).all(|conditional| {
-                matches!(
-                    conditional.value,
-                    Some(conditional_value::Value::Constant(_))
-                )
-            });
-        match (&encoding.scale, takes_scale(channel)) {
-            (Some(_), false) => {
+        let scaled = scaled(encoding);
+        let paired = scale_channel(channel) != channel;
+        if scaled && !paired && !takes_scale(channel) {
+            return Err(fail(
+                path,
+                format!(
+                    "`{}` takes no scale, so its values are a `column` or a `constant`",
+                    channel.field_name()
+                ),
+            ));
+        }
+        match &encoding.scale {
+            Some(_) if !takes_scale(channel) => {
                 return Err(fail(
                     path,
                     format!("`{}` never has a scale", channel.field_name()),
                 ))
             }
-            (Some(_), true) if constants => {
+            Some(_) if !scaled => {
                 return Err(fail(
                     path,
-                    "an encoding whose values are all constants has no scale",
+                    "an encoding without a `scaled_column` or a `scaled_constant` has no scale",
                 ))
             }
-            (None, true) if scaled => {
+            None if scaled && !paired => {
                 return Err(fail(
                     path,
-                    "a scaled constant goes through the channel's scale",
-                ))
-            }
-            (None, true) if matches!(channel, Channel::X | Channel::Y) => {
-                return Err(fail(
-                    path,
-                    "`x` and `y` always have a scale, because the axes and the fit of the plot \
-                     need one",
+                    "a `scaled_column` or a `scaled_constant` goes through the channel's scale",
                 ))
             }
             _ => {}
         }
-        match &encoding.scale {
-            Some(scale) => {
-                self.scale(scale, channel, kind, &value_type, &format!("{path}.scale"))?
-            }
-            None => raw_values(channel, &value_type, path)?,
+        if !is_scaled(value) {
+            raw_values(channel, &value_type, path)?;
+        }
+        if let Some(scale) = &encoding.scale {
+            // The scale takes the type of the encoding's value when it is scaled, and otherwise of
+            // the first scaled conditional value.
+            let scaled_type = match is_scaled(value) {
+                true => value_type.clone(),
+                false => self.scaled_conditional_type(encoding, table, path)?,
+            };
+            self.scale(scale, channel, kind, &scaled_type, &format!("{path}.scale"))?;
         }
         band_placement(encoding, channel, &value_type, path)?;
         if !encoding.conditional.is_empty() && (is_position(channel) || channel == Channel::Detail)
@@ -305,13 +341,17 @@ impl Checker<'_> {
                 .ok_or_else(|| fail(&path, "the value of a conditional value is required"))?
             {
                 conditional_value::Value::Column(name) => {
+                    raw_values(channel, column(table, name, &path)?.data_type(), &path)?;
+                }
+                conditional_value::Value::ScaledColumn(name) => {
                     column(table, name, &path)?;
                 }
                 conditional_value::Value::Constant(value) => {
-                    let data_type = self.values.scalar(value, &path)?.data_type();
-                    if encoding.scale.is_none() {
-                        raw_values(channel, data_type, &path)?;
-                    }
+                    raw_values(
+                        channel,
+                        self.values.scalar(value, &path)?.data_type(),
+                        &path,
+                    )?;
                 }
                 conditional_value::Value::ScaledConstant(value) => {
                     self.values.scalar(value, &path)?;
@@ -1199,7 +1239,9 @@ fn one_value_per_series(mark: &dyn MarkMessage, table: &RecordBatch, path: &str)
         _ => return Ok(()),
     };
     let column_of = |channel: Channel| match &mark.encoding(channel)?.value {
-        Some(encoding::Value::Column(name)) => table.column_by_name(name).cloned(),
+        Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+            table.column_by_name(name).cloned()
+        }
         _ => None,
     };
     let checked: Vec<(Channel, ArrayRef)> = (per_series.iter())
@@ -1407,6 +1449,29 @@ pub(crate) fn is_position(channel: Channel) -> bool {
             | Channel::Theta2
             | Channel::Radius2
     )
+}
+
+/// Whether `value` goes through the channel's scale.
+fn is_scaled(value: &encoding::Value) -> bool {
+    matches!(
+        value,
+        encoding::Value::ScaledColumn(_) | encoding::Value::ScaledConstant(_)
+    )
+}
+
+/// Whether the value of `encoding` or one of its conditional values goes through the channel's
+/// scale.
+pub(crate) fn scaled(encoding: &proto::Encoding) -> bool {
+    encoding.value.as_ref().is_some_and(is_scaled)
+        || (encoding.conditional.iter()).any(|conditional| {
+            matches!(
+                conditional.value,
+                Some(
+                    conditional_value::Value::ScaledColumn(_)
+                        | conditional_value::Value::ScaledConstant(_)
+                )
+            )
+        })
 }
 
 /// Whether a channel can take a scale: not the second channels of pairs, which follow the first,

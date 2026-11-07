@@ -5,20 +5,20 @@ use arrow::{
 
 use crate::{
     layer::{MarkMessage, MarkType},
-    proto::{self, domain, encoding, node::Node, plot::Coord, scale_spec, Channel},
-    validate::{dictionary_values, takes_scale},
+    proto::{
+        self, conditional_value, domain, encoding, node::Node, plot::Coord, scale_spec, Channel,
+    },
+    validate::{dictionary_values, scaled, takes_scale},
 };
 
 /// Infers the scales of the encodings of `message` from their marks and the types of their values,
 /// with the tables and the values that `message` refers to: the absent scale types and domains. It
 /// never changes a field that is present, so a producer sets a field to override an inference.
 ///
-/// It infers the scale of an encoding of a column or of a scaled constant:
-///
-/// - an encoding of `x` or `y` always has a scale, which it gets when it has none
-/// - an encoding of another channel gets an inferred scale when it holds a scale whose type is
-///   absent, such as `ScaleSpec::default()`, and an encoding without a scale stays one whose
-///   values the mark draws as they are
+/// It infers the scale of each encoding whose value or one of whose conditional values is a
+/// `scaled_column` or a `scaled_constant`: the scale when the encoding has none, its type when it
+/// is absent, and its domain when it is absent. An encoding of plain values has no scale, and the
+/// mark draws its values as they are.
 ///
 /// The scale type follows the Arrow type of the values, the channel, and for categories on a
 /// position, the mark:
@@ -91,24 +91,42 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
         let Some(encoding) = mark.encoding_mut(*channel) else {
             continue;
         };
-        if !takes_scale(*channel) {
+        if !takes_scale(*channel) || !scaled(encoding) {
             continue;
         }
-        let data_type = match &encoding.value {
-            Some(encoding::Value::Column(name)) => table
+        let column_type = |name: &str| {
+            table
                 .and_then(|table| table.schema().field_with_name(name).ok().cloned())
-                .map(|field| field.data_type().clone()),
-            Some(encoding::Value::ScaledConstant(value)) => {
-                (values.get(value.index as usize)).map(|value| value.data_type().clone())
+                .map(|field| field.data_type().clone())
+        };
+        let value_type = |value: &proto::ValueRef| {
+            (values.get(value.index as usize)).map(|value| value.data_type().clone())
+        };
+        // The scale takes the type of the encoding's value when it is scaled, and otherwise of the
+        // first scaled conditional value.
+        let data_type = match &encoding.value {
+            Some(encoding::Value::ScaledColumn(name)) => column_type(name),
+            Some(encoding::Value::ScaledConstant(value)) => value_type(value),
+            _ => {
+                let first =
+                    (encoding.conditional.iter()).find_map(|conditional| {
+                        match &conditional.value {
+                            Some(conditional_value::Value::ScaledColumn(name)) => {
+                                Some(column_type(name))
+                            }
+                            Some(conditional_value::Value::ScaledConstant(value)) => {
+                                Some(value_type(value))
+                            }
+                            _ => None,
+                        }
+                    });
+                let Some(data_type) = first else {
+                    continue;
+                };
+                data_type
             }
-            _ => continue,
         };
-        if encoding.scale.is_none() && matches!(channel, Channel::X | Channel::Y) {
-            encoding.scale = Some(proto::ScaleSpec::default());
-        }
-        let Some(spec) = &mut encoding.scale else {
-            continue;
-        };
+        let spec = encoding.scale.get_or_insert_with(proto::ScaleSpec::default);
         if spec.r#type.is_none() {
             spec.r#type =
                 data_type.and_then(|data_type| scale_type(&data_type, *channel, mark_type));

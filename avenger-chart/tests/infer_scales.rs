@@ -99,12 +99,12 @@ fn type_name(encoding: &Encoding) -> Option<&'static str> {
     })
 }
 
-/// Symbols at `x` of the column `x`, with `y` of `number`, and `channel` of the column `value`
-/// through a scale to infer.
+/// Symbols at `x` of the column `x`, with `y` of `number`, and `channel` of the column `value`,
+/// all through scales to infer.
 fn symbols(x: &str, channel: Option<(Channel, &str)>) -> Mark {
     let mut mark = proto::SymbolMark {
-        x: Some(build::column(x)),
-        y: Some(build::column("number")),
+        x: Some(build::scaled_column(x)),
+        y: Some(build::scaled_column("number")),
         ..Default::default()
     };
     if let Some((channel, value)) = channel {
@@ -167,8 +167,8 @@ fn scale_types_follow_values_channels_and_marks() {
     }
     // Categories on a position of a bar are bands.
     let bar = Mark::Bar(proto::BarMark {
-        x: Some(build::column("name")),
-        y: Some(build::column("number")),
+        x: Some(build::scaled_column("name")),
+        y: Some(build::scaled_column("number")),
         ..Default::default()
     });
     assert_eq!(
@@ -180,8 +180,8 @@ fn scale_types_follow_values_channels_and_marks() {
 #[test]
 fn present_fields_and_raw_values_stay() {
     let mut mark = proto::SymbolMark {
-        x: Some(build::column("number")),
-        y: Some(build::column("number")),
+        x: Some(build::scaled_column("number")),
+        y: Some(build::scaled_column("number")),
         color: Some(build::column("name")),
         ..Default::default()
     };
@@ -207,7 +207,7 @@ fn present_fields_and_raw_values_stay() {
         x.domain.unwrap().domain,
         Some(domain::Domain::Data(_))
     ));
-    // `x` without a scale gets one, and `color` without a scale stays raw.
+    // `y`, a scaled column without a scale, gets one, and `color`, a plain column, has none.
     assert_eq!(type_name(&encoding(&message, Channel::Y)), Some("linear"));
     assert!(encoding(&message, Channel::Color).scale.is_none());
     // Fits, guides, and titles stay absent.
@@ -234,8 +234,8 @@ fn layers_with_inferred_scales_share_them() {
         ..Default::default()
     };
     let bar = Mark::Bar(proto::BarMark {
-        x: Some(build::column("name")),
-        y: Some(build::column("number")),
+        x: Some(build::scaled_column("name")),
+        y: Some(build::scaled_column("number")),
         ..Default::default()
     });
     // `ChartParts::finish` infers the scales before it reads the chart.

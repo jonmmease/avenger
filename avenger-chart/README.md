@@ -58,7 +58,7 @@ let table = RecordBatch::try_new(Arc::new(schema), columns)?;
 
 // A scatter plot of `a` against `b`, each through a linear scale fitted to the data.
 let column = |name: &str| proto::Encoding {
-    value: Some(encoding::Value::Column(name.to_string())),
+    value: Some(encoding::Value::ScaledColumn(name.to_string())),
     scale: Some(proto::ScaleSpec {
         r#type: Some(scale_spec::Type::Linear(proto::LinearScale::default())),
         domain: Some(proto::Domain {
@@ -123,7 +123,7 @@ A producer writes the messages of `proto`, and the module `build` does the work 
 
 A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again. A combination that breaks a rule of its own, such as an overlay of plots of two coordinate systems, fails with `ChartError::Combine`, which names the position of the chart that breaks it among the charts that combine. A combined chart that breaks a rule of the format fails as any chart does, with `ChartError::Invalid` and the path of the field.
 
-`infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. An encoding of `x` or `y` always has a scale. An encoding of another channel gets one only when it holds a scale whose type is absent, such as the scale of `build::scaled_column`, because an encoding without a scale draws its values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it leaves the kind of a discrete scale absent. It never changes a field that the producer set.
+`infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. It infers the scale of each encoding whose value or one of whose conditional values is a `scaled_column` or a `scaled_constant`: the scale when the encoding has none, such as an encoding from `build::scaled_column`, its type when it is absent, and its domain when it is absent. An encoding of plain values has no scale, because the mark draws plain values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it leaves the kind of a discrete scale absent. It never changes a field that the producer set.
 
 ```rust
 use std::sync::Arc;
@@ -148,8 +148,8 @@ let mut parts = ChartParts::new();
 let layer = proto::CartesianLayer {
     table: Some(parts.table(table)),
     mark: Some(Mark::Bar(proto::BarMark {
-        x: Some(build::column("species")),
-        y: Some(build::column("count")),
+        x: Some(build::scaled_column("species")),
+        y: Some(build::scaled_column("count")),
         ..Default::default()
     })),
     ..Default::default()
