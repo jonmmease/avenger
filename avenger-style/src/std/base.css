@@ -1,4 +1,5 @@
-/* std:base.css: the look of Vega-Lite 6 on a white background, with the font Lato.
+/* std:base.css: Avenger's default look on a white background, with the font Lato. Many of its
+   values, such as the palettes and the ranges of scales, come from Vega-Lite 6.
    Parameters: env(background), env(foreground), env(accent), env(font-family). */
 
 chart {
@@ -93,7 +94,7 @@ mark > label {
   font-size: 1.1rem;
 }
 
-/* Scales: the palettes and ranges of Vega-Lite. */
+/* Scales: palettes and ranges, which Vega-Lite also uses. */
 scale[kind=categorical] { scheme: tableau10; }
 scale:is([kind=ordinal], [kind=sequential]) { scheme: blues; }
 scale[kind=sequential]:is([marks~=rect], [marks~=shape]) { scheme: yellowgreenblue; }
