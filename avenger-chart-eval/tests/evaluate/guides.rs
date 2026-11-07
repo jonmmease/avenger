@@ -73,6 +73,23 @@ fn an_axis_with_explicit_ticks() {
     render_both(&chart, "axis-explicit-ticks");
 }
 
+/// A continuous color scale whose fit pins its middle is diverging, so the base stylesheet gives
+/// it a diverging scheme, centered on the pinned value.
+#[test]
+fn a_color_scale_that_pins_its_middle_diverges() {
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x("weight")
+            .y("mpg")
+            .color(Encoding::scaled_field("mpg").scale(Domain::data(
+                DataDomain::builder().fit(IntervalFit::builder().mid(25.0)),
+            ))),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    render_both(&chart, "legend-diverging");
+}
+
 #[test]
 fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     let symbols = CartesianLayer::symbol(
