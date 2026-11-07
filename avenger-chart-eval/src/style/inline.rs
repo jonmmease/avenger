@@ -4,7 +4,8 @@
 //! they map, which a test checks against the descriptors of the format.
 
 use avenger_chart::proto::{
-    self, cartesian_layer, Side, TextAlign, TextBaseline, TextWidthMode, TitleAlign, TitleSide,
+    self, cartesian_layer, polar_layer, Side, TextAlign, TextBaseline, TextWidthMode, TitleAlign,
+    TitleSide,
 };
 use avenger_style::{NodeId, Property, StyleTree};
 
@@ -58,6 +59,35 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("ImageMark", &["align", "baseline", "aspect", "smooth"]),
+    ("PolarSymbolMark", &["filled"]),
+    ("PolarBarMark", &["corner_radius"]),
+    ("PolarRectMark", &["corner_radius", "inset"]),
+    (
+        "PolarTextMark",
+        &[
+            "font_family",
+            "max_lines",
+            "wrap",
+            "ellipsis",
+            "width_mode",
+            "radius_side",
+            "theta_side",
+            "orient",
+        ],
+    ),
+    (
+        "PolarAxis",
+        &[
+            "labels",
+            "show_labels",
+            "label_angle",
+            "label_orient",
+            "ticks",
+            "domain_color",
+            "grid",
+            "angle",
+        ],
+    ),
     (
         "Axis",
         &[
@@ -418,6 +448,17 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
             px(tree, node, Property::Inset, rect.inset);
         }
         Mark::Text(text) => {
+            text_fields(
+                tree,
+                node,
+                TextFields {
+                    font_family: &text.font_family,
+                    max_lines: text.max_lines,
+                    wrap: text.wrap,
+                    ellipsis: text.ellipsis,
+                    width_mode: text.width_mode,
+                },
+            );
             let align = match TextAlign::try_from(text.align).unwrap_or_default() {
                 TextAlign::Unspecified => None,
                 TextAlign::Left => Some("left"),
@@ -431,26 +472,6 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
                 Property::Baseline,
                 vertical_align(text.baseline),
             );
-            if !text.font_family.is_empty() {
-                set(tree, node, Property::FontFamily, &text.font_family);
-            }
-            if let Some(lines) = text.max_lines {
-                set(tree, node, Property::MaxLines, &lines.to_string());
-            }
-            if let Some(wrap) = text.wrap {
-                let white_space = if wrap { "normal" } else { "nowrap" };
-                set(tree, node, Property::WhiteSpace, white_space);
-            }
-            if let Some(ellipsis) = text.ellipsis {
-                let overflow = if ellipsis { "ellipsis" } else { "clip" };
-                set(tree, node, Property::TextOverflow, overflow);
-            }
-            let mode = match TextWidthMode::try_from(text.width_mode).unwrap_or_default() {
-                TextWidthMode::Unspecified => None,
-                TextWidthMode::Max => Some("max"),
-                TextWidthMode::Fixed => Some("fixed"),
-            };
-            keyword(tree, node, Property::WidthMode, mode);
         }
         Mark::Image(image) => {
             let align = match proto::ImageAlign::try_from(image.align).unwrap_or_default() {
@@ -478,6 +499,97 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
             }
         }
         Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) | Mark::Path(_) => {}
+    }
+}
+
+/// The fields that the text marks of every coordinate system share.
+struct TextFields<'a> {
+    font_family: &'a str,
+    max_lines: Option<u32>,
+    wrap: Option<bool>,
+    ellipsis: Option<bool>,
+    width_mode: i32,
+}
+
+/// The shared fields of a text mark on its `mark` node.
+fn text_fields(tree: &mut Styled, node: NodeId, text: TextFields) {
+    if !text.font_family.is_empty() {
+        set(tree, node, Property::FontFamily, text.font_family);
+    }
+    if let Some(lines) = text.max_lines {
+        set(tree, node, Property::MaxLines, &lines.to_string());
+    }
+    if let Some(wrap) = text.wrap {
+        let white_space = if wrap { "normal" } else { "nowrap" };
+        set(tree, node, Property::WhiteSpace, white_space);
+    }
+    if let Some(ellipsis) = text.ellipsis {
+        let overflow = if ellipsis { "ellipsis" } else { "clip" };
+        set(tree, node, Property::TextOverflow, overflow);
+    }
+    let mode = match TextWidthMode::try_from(text.width_mode).unwrap_or_default() {
+        TextWidthMode::Unspecified => None,
+        TextWidthMode::Max => Some("max"),
+        TextWidthMode::Fixed => Some("fixed"),
+    };
+    keyword(tree, node, Property::WidthMode, mode);
+}
+
+/// The keyword of a `PolarTextOrient`, or `None` when it is unspecified.
+fn polar_orient(orient: i32) -> Option<&'static str> {
+    match proto::PolarTextOrient::try_from(orient).ok()? {
+        proto::PolarTextOrient::Unspecified => None,
+        proto::PolarTextOrient::Radial => Some("radial"),
+        proto::PolarTextOrient::Tangential => Some("tangential"),
+    }
+}
+
+/// The style fields of a polar mark on its `mark` node.
+pub(crate) fn polar_mark(tree: &mut Styled, node: NodeId, mark: &polar_layer::Mark) {
+    use polar_layer::Mark;
+    match mark {
+        Mark::Symbol(symbol) => {
+            if symbol.filled == Some(false) {
+                set(tree, node, Property::Fill, "none");
+                set(tree, node, Property::Stroke, "currentColor");
+            }
+        }
+        Mark::Bar(bar) => px(tree, node, Property::CornerRadius, bar.corner_radius),
+        Mark::Rect(rect) => {
+            px(tree, node, Property::CornerRadius, rect.corner_radius);
+            px(tree, node, Property::Inset, rect.inset);
+        }
+        Mark::Text(text) => {
+            text_fields(
+                tree,
+                node,
+                TextFields {
+                    font_family: &text.font_family,
+                    max_lines: text.max_lines,
+                    wrap: text.wrap,
+                    ellipsis: text.ellipsis,
+                    width_mode: text.width_mode,
+                },
+            );
+            let radius_side = match proto::RadiusSide::try_from(text.radius_side).ok() {
+                Some(proto::RadiusSide::Outward) => Some("outward"),
+                Some(proto::RadiusSide::Middle) => Some("middle"),
+                Some(proto::RadiusSide::Inward) => Some("inward"),
+                _ => None,
+            };
+            keyword(tree, node, Property::RadiusSide, radius_side);
+            let theta_side = match proto::ThetaSide::try_from(text.theta_side).ok() {
+                Some(proto::ThetaSide::Clockwise) => Some("clockwise"),
+                Some(proto::ThetaSide::Middle) => Some("middle"),
+                Some(proto::ThetaSide::Counterclockwise) => Some("counterclockwise"),
+                _ => None,
+            };
+            keyword(tree, node, Property::ThetaSide, theta_side);
+            if let Some(proto::polar_text_mark::Turn::Orient(orient)) = text.turn {
+                keyword(tree, node, Property::TextOrient, polar_orient(orient));
+            }
+        }
+        Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) => {}
     }
 }
 
@@ -583,6 +695,54 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
         shown(tree, *label_node, level.show_labels);
         deg(tree, *level_node, Property::LabelAngle, level.label_angle);
     }
+}
+
+/// A `PolarAxis` on its nodes, in a plot whose angles start at `start_angle`. The `angle` of the
+/// axis runs from the start angle, so its initial 0 is the start angle, as an absent `angle` is.
+pub(crate) fn polar_axis(
+    tree: &mut Styled,
+    nodes: &AxisNodes,
+    axis: &proto::PolarAxis,
+    start_angle: f32,
+) {
+    use proto::polar_axis::LabelTurn;
+    text_style(
+        tree,
+        nodes.label,
+        axis.labels
+            .as_ref()
+            .and_then(|labels| labels.style.as_ref()),
+    );
+    shown(tree, nodes.label, axis.show_labels);
+    match axis.label_turn {
+        Some(LabelTurn::LabelAngle(angle)) => {
+            deg(tree, nodes.axis, Property::LabelAngle, Some(angle));
+        }
+        Some(LabelTurn::LabelOrient(orient)) => {
+            keyword(
+                tree,
+                nodes.axis,
+                Property::LabelOrient,
+                polar_orient(orient),
+            );
+        }
+        None => {}
+    }
+    if let Some(ticks) = &axis.ticks {
+        if let Some(proto::guide_ticks::At::Count(count)) = ticks.at {
+            set(tree, nodes.axis, Property::TickCount, &count.to_string());
+        }
+        px(tree, nodes.tick, Property::TickSize, ticks.length);
+        color(tree, nodes.tick, Property::Stroke, &ticks.color);
+    }
+    color(tree, nodes.rule, Property::Stroke, &axis.domain_color);
+    if let Some(grid) = &axis.grid {
+        shown(tree, nodes.grid, grid.show);
+        color(tree, nodes.grid, Property::Stroke, &grid.color);
+        px(tree, nodes.grid, Property::StrokeWidth, grid.width);
+    }
+    let angle = axis.angle.map(|angle| angle - start_angle);
+    deg(tree, nodes.axis, Property::Angle, angle);
 }
 
 /// The nodes of a symbol legend and its parts.

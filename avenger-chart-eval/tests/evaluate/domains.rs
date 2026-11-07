@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
 use avenger_chart::prelude::*;
-use avenger_chart_eval::{ChartEvaluator, EvalError, Registry};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_style::HostInputs;
 
@@ -235,38 +234,6 @@ fn a_resize_fits_the_position_scales_at_the_new_size() {
     assert_eq!(
         x.numeric_interval_range().unwrap().1,
         f64::from(large.plots[0].rect[2])
-    );
-}
-
-#[test]
-fn a_polar_plot_in_a_composition_is_unsupported() {
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg")),
-    )
-    .table(cars());
-    let points = PolarLayer::symbol(
-        PolarSymbolMark::builder()
-            .theta(Encoding::scaled_column("weight"))
-            .radius(Encoding::scaled_column("mpg")),
-    )
-    .table(cars());
-    let concat = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
-        .root(Concat::builder().direction(Direction::Row).children([
-            Plot::cartesian(CartesianPlot::builder().layers([symbols])),
-            Plot::polar(PolarPlot::builder().layers([points])),
-        ]))
-        .infer_scales()
-        .build()
-        .unwrap();
-
-    let error = ChartEvaluator::new(concat, cascade(), engine(), Registry::new()).err();
-    assert!(
-        matches!(error, Some(EvalError::Unsupported(ref what)) if what == "a polar plot"),
-        "{error:?}"
     );
 }
 

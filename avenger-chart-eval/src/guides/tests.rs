@@ -112,7 +112,7 @@ fn with_guides<T>(
                 registry: &registry,
                 states: &states,
             };
-            let position = fit::position(&inputs, group, style, &values).unwrap();
+            let position = fit::position(&inputs, group, style, &values, false).unwrap();
             positions.push(Some(position.fitting));
             scales.push(None);
         } else {
@@ -283,7 +283,8 @@ fn a_position_fit_leaves_room_for_the_reach() {
         registry: &registry,
         states: &states,
     };
-    let position = fit::position(&inputs, group, &styles[nodes.scales[index]], &values).unwrap();
+    let position =
+        fit::position(&inputs, group, &styles[nodes.scales[index]], &values, false).unwrap();
     let at = position.fitting.at((0.0, 200.0)).unwrap();
     assert!(at.marks_fit);
     let (low, high) = at.scale.numeric_interval_domain().unwrap();
@@ -319,6 +320,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         &resolved.scales[index],
         &styles[nodes.scales[index]],
         &[],
+        false,
     )
     .unwrap();
     assert!(position.clip);

@@ -26,6 +26,8 @@ pub(crate) fn color(style: &ComputedStyle, property: Property) -> [f32; 4] {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GuideKind {
     Axis,
+    /// The axis of `theta` or `radius` in a polar plot.
+    PolarAxis,
     Legend,
     Colorbar,
 }
@@ -39,7 +41,7 @@ pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
 /// The guide that a scale group draws, as `Scale.guide` gives it: its own guide, or without
 /// one, an axis for `x` and `y`, a legend for a discrete scale or the bins of a quantize, quantile,
 /// or threshold scale, a colorbar for a continuous color scale, and a legend of the ticks of another
-/// continuous scale. `theta` and `radius` draw no guide in a Cartesian chart.
+/// continuous scale. `theta` and `radius` draw a polar axis only when their spec sets one.
 pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind> {
     match group
         .spec
@@ -50,7 +52,8 @@ pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind>
         Some(guide::Guide::Axis(_)) => return Some(GuideKind::Axis),
         Some(guide::Guide::Legend(_)) => return Some(GuideKind::Legend),
         Some(guide::Guide::Colorbar(_)) => return Some(GuideKind::Colorbar),
-        Some(guide::Guide::None(_) | guide::Guide::PolarAxis(_)) => return None,
+        Some(guide::Guide::PolarAxis(_)) => return Some(GuideKind::PolarAxis),
+        Some(guide::Guide::None(_)) => return None,
         None => {}
     }
     match group.channel {
