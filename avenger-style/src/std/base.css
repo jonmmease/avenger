@@ -25,9 +25,9 @@ legend { offset: 12; }
 legend[type=symbol] { tick-count: 5; max-entries: 30; }
 legend[type=colorbar] > ramp { max-length: 200; }
 
-/* The ticks of a continuous axis stand at least 2.5 ems apart, so they spread with the size of
-   the text. */
-axis { tick-spacing: 2.5em; }
+/* The ticks of a continuous axis fit their count to a spacing of 2.25 ems, so they spread with
+   the size of the text: 24.75 pixels at the chart's font size, near 2.5 times the labels'. */
+axis { tick-spacing: 2.25em; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
