@@ -208,10 +208,11 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     let symbols = CartesianLayer::symbol(
         points(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("a")
-                .scale(Scale::linear(LinearScale::builder()).domain(
-                    DataDomain::builder().fit(IntervalFit::builder().zero(true).nice(5.0)),
-                )))
+            .x(
+                Encoding::scaled_field("a").scale(Scale::linear(LinearScale::builder()).domain(
+                    DataDomain::builder().fit(IntervalFit::builder().zero(true).nice_count(5.0)),
+                )),
+            )
             .y("b"),
     );
     let data = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -237,6 +238,40 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     };
     assert!(interval.zero);
     assert_eq!(interval.nice, Some(5.0));
+}
+
+/// `nice: false` turns off the default nice ends, `nice: true` rounds at a count of 10 where no
+/// default does, and an absent fit takes the default.
+#[test]
+fn nice_turns_nice_ends_on_and_off() {
+    let nice = |fit: IntervalFitBuilder, defaults: Option<f64>| {
+        let symbols = CartesianLayer::symbol(
+            points(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("a").scale(
+                    Scale::linear(LinearScale::builder()).domain(DataDomain::builder().fit(fit)),
+                ))
+                .y("b"),
+        );
+        let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+        let group = x_group(&chart);
+        let defaults = FitDefaults {
+            zero: false,
+            nice: defaults,
+        };
+        let fit = domain_options(&chart, &group.spec, FitKind::Interval, defaults);
+        let DomainOptions::Interval(interval) = fit.options else {
+            panic!("an interval fit");
+        };
+        interval.nice
+    };
+    assert_eq!(nice(IntervalFit::builder(), Some(10.0)), Some(10.0));
+    assert_eq!(nice(IntervalFit::builder().nice(false), Some(10.0)), None);
+    assert_eq!(nice(IntervalFit::builder().nice(true), None), Some(10.0));
+    assert_eq!(
+        nice(IntervalFit::builder().nice_count(4.0), Some(10.0)),
+        Some(4.0)
+    );
 }
 
 #[test]

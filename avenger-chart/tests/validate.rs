@@ -1259,6 +1259,23 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
     read(parts).unwrap();
 }
 
+/// The tick count of nice ends is more than 0, since `nice: false` turns nice ends off.
+#[test]
+fn a_nice_count_is_more_than_zero() {
+    let mut parts = base();
+    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
+        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
+            nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(0.0)),
+            ..Default::default()
+        })),
+    });
+    invalid(
+        parts,
+        &format!("{X}.scale.domain.data.fit.interval.nice_count"),
+        "more than 0",
+    );
+}
+
 /// A fit pins one value, a scalar that the chart's values hold.
 #[test]
 fn a_pin_of_a_fit_is_a_scalar() {

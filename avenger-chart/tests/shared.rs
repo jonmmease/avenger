@@ -522,7 +522,7 @@ fn shared_fits_merge_field_by_field() {
         ..Default::default()
     };
     let nice = proto::IntervalFit {
-        nice: Some(5.0),
+        nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(5.0)),
         ..Default::default()
     };
     let chart = read(parts(shared_row(vec![fitted(zero), fitted(nice)]), vec![])).unwrap();
@@ -534,7 +534,7 @@ fn shared_fits_merge_field_by_field() {
     assert_eq!(x.members.len(), 2);
     let merged = proto::IntervalFit {
         zero: Some(true),
-        nice: Some(5.0),
+        nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(5.0)),
         empty: None,
         domain_pin: None,
     };

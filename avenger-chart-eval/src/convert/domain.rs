@@ -69,7 +69,8 @@ pub(crate) struct FitDefaults {
 }
 
 impl FitDefaults {
-    /// The tick count of the default nice ends of `x` and `y`.
+    /// The tick count of nice ends when a fit gives none: the default nice ends of `x` and `y`,
+    /// and `nice: true`.
     pub(crate) const NICE: f64 = 10.0;
 
     fn options(self) -> IntervalOptions {
@@ -333,8 +334,11 @@ fn interval_options(
     let zero = defaults.zero && fit.domain_pin.is_none();
     IntervalOptions {
         zero: fit.zero.unwrap_or(zero),
-        // A count of 0 gives ends that are not nice.
-        nice: fit.nice.or(defaults.nice).filter(|count| *count > 0.0),
+        nice: match fit.nice_ends {
+            None => defaults.nice,
+            Some(interval_fit::NiceEnds::Nice(nice)) => nice.then_some(FitDefaults::NICE),
+            Some(interval_fit::NiceEnds::NiceCount(count)) => Some(count),
+        },
         empty: fit.empty.as_ref().map(|empty| chart.list_elements(empty)),
         pin: fit.domain_pin.as_ref().map(|pin| match pin {
             interval_fit::DomainPin::Low(low) => DomainPin::Low(value(low)),

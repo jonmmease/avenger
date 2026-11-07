@@ -333,7 +333,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("DomainFit", &["interval", "categories"]),
     (
         "IntervalFit",
-        &["zero", "nice", "empty", "low", "mid", "high"],
+        &["zero", "nice", "nice_count", "empty", "low", "mid", "high"],
     ),
     ("CategoryFit", &["sort", "preferred"]),
     ("Selection", &["name", "resolution", "initial"]),

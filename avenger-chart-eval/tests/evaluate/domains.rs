@@ -213,7 +213,7 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight").scale(Domain::summary(
                 SummaryDomain::new(linear_summary(&[1800.0, 4790.0]))
-                    .fit(IntervalFit::builder().zero(false).nice(0.0)),
+                    .fit(IntervalFit::builder().zero(false).nice(false)),
             )))
             .y("mpg")
             .size(400.0),
