@@ -239,7 +239,7 @@ properties! {
     WidthMode = "width-mode", false, Syntax::Keywords(&["max", "fixed"]), "max", MARK;
     WhiteSpace = "white-space", false, Syntax::Keywords(&["normal", "nowrap"]), "normal", MARK;
     TextOverflow = "text-overflow", false, Syntax::Keywords(&["clip", "ellipsis"]), "clip", MARK;
-    RadiusSide = "radius-side", false, Syntax::Keywords(&["outward", "middle", "inward"]), "middle", MARK;
+    RadiusSide = "radius-side", false, Syntax::Keywords(&["outward", "middle", "inward"]), "outward", MARK;
     ThetaSide = "theta-side", false, Syntax::Keywords(&["clockwise", "middle", "counterclockwise"]), "middle", MARK;
     TextOrient = "text-orient", false, Syntax::Keywords(&["horizontal", "radial", "tangential"]), "horizontal", MARK;
     ObjectFit = "object-fit", false, Syntax::Keywords(&["contain", "fill"]), "contain", MARK;

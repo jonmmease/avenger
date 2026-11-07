@@ -181,7 +181,7 @@ The initial values of the table hold on every node except these, where they depe
 | `width-mode` | `max \| fixed` | `max` | no | `mark` |
 | `white-space` | `normal \| nowrap` | `normal` | no | `mark` |
 | `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark` |
-| `radius-side` | `outward \| middle \| inward` | `middle` | no | `mark` |
+| `radius-side` | `outward \| middle \| inward` | `outward` | no | `mark` |
 | `theta-side` | `clockwise \| middle \| counterclockwise` | `middle` | no | `mark` |
 | `text-orient` | `horizontal \| radial \| tangential` | `horizontal` | no | `mark` |
 | `object-fit` | `contain \| fill` | `contain` | no | `mark` |
