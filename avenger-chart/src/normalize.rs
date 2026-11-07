@@ -27,7 +27,7 @@ use prost::bytes::Bytes;
 use crate::{
     layer::MarkMessage,
     proto::{
-        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale_spec,
+        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale,
         selection_domain, spherical,
     },
     resolve::{Identity, Tree},
@@ -363,7 +363,7 @@ fn encoding(encoding: &mut proto::Encoding) {
         }
     }
     let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
-    if let scale_spec::Type::Custom(custom) = scale_type {
+    if let scale::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());
     }
     use selection_domain::Fallback;

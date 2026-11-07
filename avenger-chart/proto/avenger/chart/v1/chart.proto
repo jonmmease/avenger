@@ -237,7 +237,7 @@ message Plot {
   // can have different heights. Inside a wrap, whose cells take their sizes from `WrapLayout`, a
   // reader ignores the width and the height of a plot.
   //
-  // The plots that share a position scale fix equal lengths along it, as `ScaleSpec` describes.
+  // The plots that share a position scale fix equal lengths along it, as `Scale` describes.
   //
   // A plot whose coordinate system keeps a shape and that has one of the two takes the other from
   // its shape: a Cartesian plot from its aspect ratio, a polar plot from the box around its part of

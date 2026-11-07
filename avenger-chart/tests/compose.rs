@@ -51,9 +51,8 @@ fn layers(plot: &Plot) -> &[CartesianLayer] {
 fn a_builder_tree_refers_to_its_own_tables_and_values() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a").scale(
-                ScaleSpec::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0])),
-            ))
+            .x(Encoding::scaled_column("a")
+                .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
             .y(Encoding::scaled_column("b")),
     )
     .table(points())
@@ -81,14 +80,11 @@ fn nested_builders_refer_to_their_own_values() {
     // Each layer has its own `y` and its own explicit domain, after the values of the layers
     // before it.
     let layer = |low: f64| {
-        CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_column("a"))
-                .y(Encoding::scaled_column("b").scale(
-                    ScaleSpec::linear(LinearScale::builder())
-                        .domain(Domain::explicit([low, low + 10.0])),
-                )),
-        )
+        CartesianLayer::symbol(SymbolMark::builder().x(Encoding::scaled_column("a")).y(
+            Encoding::scaled_column("b").scale(
+                Scale::linear(LinearScale::builder()).domain(Domain::explicit([low, low + 10.0])),
+            ),
+        ))
         .table(points())
     };
     let chart = Chart::builder()

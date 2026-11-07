@@ -11,7 +11,7 @@ use arrow::{
 };
 use avenger_chart::{
     proto::{
-        self, guide, node, plot, scale_spec, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
+        self, guide, node, plot, scale, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
     },
     Chart,
 };
@@ -194,7 +194,7 @@ fn an_owner_writes_one_clause_of_a_selection() {
 #[test]
 fn the_specs_of_a_shared_scale_agree() {
     let mut log = symbols(0);
-    scale_of(&mut log, true).r#type = Some(scale_spec::Type::Log(proto::LogScale::default()));
+    scale_of(&mut log, true).r#type = Some(scale::Type::Log(proto::LogScale::default()));
     invalid(
         parts(plot(vec![symbols(0), log]), vec![]),
         "root.plot.cartesian.layers[1]",
@@ -247,15 +247,15 @@ fn a_band_and_a_point_scale_share_a_band_scale() {
         ),
     ])
     .unwrap();
-    let layer = |scale_type: scale_spec::Type| {
+    let layer = |scale_type: scale::Type| {
         let mut layer = symbols(0);
         let scale = scale_of(&mut layer, false);
         scale.r#type = Some(scale_type);
         layer
     };
-    let band = || layer(scale_spec::Type::Band(proto::BandScale::default()));
+    let band = || layer(scale::Type::Band(proto::BandScale::default()));
     let point = |padding| {
-        layer(scale_spec::Type::Point(proto::PointScale {
+        layer(scale::Type::Point(proto::PointScale {
             padding,
             ..Default::default()
         }))
@@ -271,7 +271,7 @@ fn a_band_and_a_point_scale_share_a_band_scale() {
         .iter()
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
-    assert!(matches!(x.spec.r#type, Some(scale_spec::Type::Band(_))));
+    assert!(matches!(x.spec.r#type, Some(scale::Type::Band(_))));
     invalid(
         (
             chart_message(vec![point(Some(0.5)), band()]),
@@ -331,7 +331,7 @@ fn a_family_shares_a_scale_across_independent_plots() {
     let mut b = symbols(0);
     let scale = scale_of(&mut b, false);
     scale.family = "shared".to_string();
-    scale.r#type = Some(scale_spec::Type::Log(proto::LogScale::default()));
+    scale.r#type = Some(scale::Type::Log(proto::LogScale::default()));
     invalid(
         parts(
             concat(proto::Direction::Row, vec![plot(vec![a]), plot(vec![b])]),
@@ -748,7 +748,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
     let band = |kind: proto::ScaleKind, classes: &[&str]| {
         let mut layer = symbols(0);
         let spec = scale_of(&mut layer, false);
-        spec.r#type = Some(scale_spec::Type::Band(proto::BandScale {
+        spec.r#type = Some(scale::Type::Band(proto::BandScale {
             kind: kind as i32,
             ..Default::default()
         }));
@@ -787,7 +787,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
     let x = (groups.iter())
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
-    let Some(scale_spec::Type::Band(band)) = &x.spec.r#type else {
+    let Some(scale::Type::Band(band)) = &x.spec.r#type else {
         panic!("the shared scale is a band scale")
     };
     assert_eq!(band.kind, proto::ScaleKind::Ordinal as i32);

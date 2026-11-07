@@ -12,9 +12,9 @@ use arrow::{
 };
 use avenger_chart::{
     proto::{
-        self, cartesian_layer, domain, encoding, node, plot, scale_spec, select, tool,
-        CartesianLayer, CartesianPlot, Concat, DataDomain, Domain, Encoding, LinearScale, Node,
-        Plot, ScaleSpec, Selection, SymbolMark, TableRef, ValueRef,
+        self, cartesian_layer, domain, encoding, node, plot, scale, select, tool, CartesianLayer,
+        CartesianPlot, Concat, DataDomain, Domain, Encoding, LinearScale, Node, Plot, Scale,
+        Selection, SymbolMark, TableRef, ValueRef,
     },
     Chart, ChartError,
 };
@@ -36,9 +36,9 @@ pub fn points() -> RecordBatch {
 }
 
 /// A linear scale whose domain is `domain`.
-pub fn linear(domain: domain::Domain) -> ScaleSpec {
-    ScaleSpec {
-        r#type: Some(scale_spec::Type::Linear(LinearScale::default())),
+pub fn linear(domain: domain::Domain) -> Scale {
+    Scale {
+        r#type: Some(scale::Type::Linear(LinearScale::default())),
         domain: Some(Domain {
             domain: Some(domain),
         }),
@@ -47,12 +47,12 @@ pub fn linear(domain: domain::Domain) -> ScaleSpec {
 }
 
 /// A linear scale fitted to the layer's data.
-pub fn linear_data() -> ScaleSpec {
+pub fn linear_data() -> Scale {
     linear(domain::Domain::Data(DataDomain::default()))
 }
 
 /// The fit of the data domain of `spec`, to change.
-pub fn data_fit(spec: &mut ScaleSpec) -> &mut Option<proto::DomainFit> {
+pub fn data_fit(spec: &mut Scale) -> &mut Option<proto::DomainFit> {
     match spec
         .domain
         .as_mut()
@@ -64,7 +64,7 @@ pub fn data_fit(spec: &mut ScaleSpec) -> &mut Option<proto::DomainFit> {
 }
 
 /// An encoding of the column `name` through `scale`.
-pub fn column(name: &str, scale: ScaleSpec) -> Encoding {
+pub fn column(name: &str, scale: Scale) -> Encoding {
     Encoding {
         value: Some(encoding::Value::ScaledColumn(name.to_string())),
         scale: Some(scale),
@@ -194,7 +194,7 @@ pub fn parts(root: Node, values: Vec<ArrayRef>) -> Parts {
 }
 
 /// The scale of `channel` of the symbols of `layer`.
-pub fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::ScaleSpec {
+pub fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::Scale {
     match layer.mark.as_mut() {
         Some(cartesian_layer::Mark::Symbol(mark)) => {
             let encoding = if y { mark.y.as_mut() } else { mark.x.as_mut() };

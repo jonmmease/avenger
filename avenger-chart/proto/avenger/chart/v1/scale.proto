@@ -1,4 +1,4 @@
-// The scale specs of encoded channels.
+// The scales of encoded channels.
 
 syntax = "proto3";
 
@@ -38,7 +38,7 @@ import "avenger/chart/v1/value.proto";
 // length of the others. The polar
 // plots whose layers share `radius` draw it at one outer radius, the smallest of theirs, so a value
 // lies as far from the center of each.
-message ScaleSpec {
+message Scale {
   // The type of the scale and its options. Required. An option that is absent takes the default
   // that its comment gives.
   oneof type {

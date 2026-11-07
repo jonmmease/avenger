@@ -41,7 +41,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    proto::{self, cartesian_layer, domain, encoding, node, plot, scale_spec},
+    proto::{self, cartesian_layer, domain, encoding, node, plot, scale},
     Chart, ChartError, FORMAT_VERSION,
 };
 
@@ -59,8 +59,8 @@ let table = RecordBatch::try_new(Arc::new(schema), columns)?;
 // A scatter plot of `a` against `b`, each through a linear scale fitted to the data.
 let column = |name: &str| proto::Encoding {
     value: Some(encoding::Value::ScaledColumn(name.to_string())),
-    scale: Some(proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Linear(proto::LinearScale::default())),
+    scale: Some(proto::Scale {
+        r#type: Some(scale::Type::Linear(proto::LinearScale::default())),
         domain: Some(proto::Domain {
             domain: Some(domain::Domain::Data(proto::DataDomain::default())),
         }),
@@ -123,9 +123,9 @@ Each message `Foo` of `proto` has a builder, `FooBuilder`, from `Foo::builder()`
 | A `ValueRef` | `impl IntoValue`: a Rust scalar, which becomes one element of its own Arrow type, an array, a `Vec`, or a slice of them, which becomes a list, or a `builder::Value` of any Arrow type |
 | A repeated field | `impl IntoIterator` of the items, which it appends |
 
-Each oneof member also has a constructor on its message, such as `Encoding::scaled_column("count")` or `Plot::cartesian(..)`. A member whose message has no fields takes no argument, such as `ScaleSpec::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`. A field named after a Rust keyword has a method with a trailing underscore, such as `CustomScale::type_`.
+Each oneof member also has a constructor on its message, such as `Encoding::scaled_column("count")` or `Plot::cartesian(..)`. A member whose message has no fields takes no argument, such as `Scale::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`. A field named after a Rust keyword has a method with a trailing underscore, such as `CustomScale::type_`.
 
-A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which checks it and puts it in the canonical form. `ChartBuilder::infer_scales` asks `build` to infer the absent scale of each encoding of a `scaled_column` or a `scaled_constant`, and the absent type and domain of its scale, by the conventions that the common charting tools share: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. Inference leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set. The builder of any other message builds alone when it holds no data, such as a scale spec for a unit test.
+A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which checks it and puts it in the canonical form. `ChartBuilder::infer_scales` asks `build` to infer the absent scale of each encoding of a `scaled_column` or a `scaled_constant`, and the absent type and domain of its scale, by the conventions that the common charting tools share: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. Inference leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set. The builder of any other message builds alone when it holds no data, such as a scale for a unit test.
 
 The builders also compose charts:
 
@@ -160,7 +160,7 @@ let bars = CartesianLayer::bar(
     BarMark::builder()
         .x(Encoding::scaled_column("species"))
         .y(Encoding::scaled_column("count").scale(
-            ScaleSpec::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
+            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
         )),
 )
 .table(table);

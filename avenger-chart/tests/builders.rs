@@ -13,7 +13,7 @@ use avenger_chart::{
     prelude::*,
     proto::{
         cartesian_layer, conditional_value, domain, domain_fit, encoding, guide, node, plot,
-        predicate, scale_spec,
+        predicate, scale,
     },
     FORMAT_VERSION,
 };
@@ -90,7 +90,7 @@ fn a_oneof_member_replaces_the_member_that_is_set() {
 
 #[test]
 fn a_wrapper_converts_from_its_members() {
-    let spec = ScaleSpec::builder()
+    let spec = Scale::builder()
         .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true)))
         .build()
         .unwrap();
@@ -114,8 +114,8 @@ fn a_wrapper_converts_from_its_members() {
 
 #[test]
 fn a_member_without_fields_takes_no_argument() {
-    let spec = ScaleSpec::builder().quantile().build().unwrap();
-    assert!(matches!(spec.r#type, Some(scale_spec::Type::Quantile(_))));
+    let spec = Scale::builder().quantile().build().unwrap();
+    assert!(matches!(spec.r#type, Some(scale::Type::Quantile(_))));
     assert!(matches!(
         Guide::none().build().unwrap().guide,
         Some(guide::Guide::None(_))
@@ -180,8 +180,7 @@ fn a_list_value_is_one_element_of_a_list() {
             CartesianPlot::builder().layers([CartesianLayer::symbol(
                 SymbolMark::builder()
                     .x(Encoding::scaled_column("a").scale(
-                        ScaleSpec::linear(LinearScale::builder())
-                            .domain(Domain::explicit([0.0, 10.0])),
+                        Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0])),
                     ))
                     .y(Encoding::scaled_column("b")),
             )
@@ -215,7 +214,7 @@ fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
 #[test]
 fn an_error_of_a_setter_names_its_path_in_the_chart() {
     // An explicit domain of a scalar of two elements.
-    let size = Encoding::scaled_column("a").scale(ScaleSpec::builder().domain(Domain::explicit(
+    let size = Encoding::scaled_column("a").scale(Scale::builder().domain(Domain::explicit(
         Value::scalar(Arc::new(Float64Array::from(vec![1.0, 2.0]))),
     )));
     let layer = CartesianLayer::symbol(
@@ -254,7 +253,7 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
     let chart = scatter().infer_scales().build().unwrap();
     assert_eq!(chart.message().version, FORMAT_VERSION);
     let x = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
-    assert!(matches!(x.r#type, Some(scale_spec::Type::Linear(_))));
+    assert!(matches!(x.r#type, Some(scale::Type::Linear(_))));
 }
 
 #[test]

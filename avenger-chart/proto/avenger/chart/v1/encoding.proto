@@ -48,7 +48,7 @@ message Encoding {
   // `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`, and `detail` take no scale, so
   // their values are plain. An encoding of any other channel without a scale has no guide and
   // joins no shared scale.
-  ScaleSpec scale = 6;
+  Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // conditional value whose predicate selects it, and the value of the encoding when none does.
   // The position channels of every coordinate system and `detail` have no conditional values. The

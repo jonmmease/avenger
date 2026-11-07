@@ -3,7 +3,7 @@
 //! into projections.
 //!
 //! The resolve rules of plots, concats, and wraps and the share families of specs decide which
-//! channels share a scale, and the specs of each group merge by the agreement rule of `ScaleSpec`.
+//! channels share a scale, and the specs of each group merge by the agreement rule of `Scale`.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -486,7 +486,7 @@ pub struct ScaleGroup {
     /// The spec of the scale, which merges the specs of its encodings. Its domain is the domain of
     /// the first encoding, which for summary and data domains holds the merged fit, and each member
     /// holds its own summary.
-    pub spec: proto::ScaleSpec,
+    pub spec: proto::Scale,
     /// The encodings of the scale, in tree order, with the second channel of a pair after its
     /// first.
     pub members: Vec<Member>,
@@ -632,7 +632,7 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     struct Entry<'a> {
         layer: usize,
         channel: Channel,
-        spec: &'a proto::ScaleSpec,
+        spec: &'a proto::Scale,
     }
     let mut entries: Vec<Entry> = Vec::new();
     let mut keys: Vec<Vec<(Channel, bool, &str)>> = Vec::new();

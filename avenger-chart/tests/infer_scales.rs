@@ -14,7 +14,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{domain, node, plot, scale_spec},
+    proto::{domain, node, plot, scale},
     MarkMessage,
 };
 
@@ -75,7 +75,7 @@ fn encoding(message: &ChartMessage, channel: Channel) -> Encoding {
 
 /// The name of the scale type of `encoding`, or `None` without one.
 fn type_name(encoding: &Encoding) -> Option<&'static str> {
-    use scale_spec::Type;
+    use scale::Type;
     Some(match encoding.scale.as_ref()?.r#type.as_ref()? {
         Type::Linear(_) => "linear",
         Type::Time(_) => "time",
@@ -136,7 +136,7 @@ fn scale_types_follow_values_channels_and_marks() {
             match chart {
                 Err(ChartError::Invalid { reason, .. }) => {
                     assert!(
-                        reason.contains("the type of a scale spec is required"),
+                        reason.contains("the type of a scale is required"),
                         "{reason}"
                     )
                 }
@@ -185,7 +185,7 @@ fn scale_types_follow_values_channels_and_marks() {
 #[test]
 fn present_fields_and_plain_values_stay() {
     let mark = SymbolMark::builder()
-        .x(Encoding::scaled_column("number").scale(ScaleSpec::log(LogScale::builder().base(2.0))))
+        .x(Encoding::scaled_column("number").scale(Scale::log(LogScale::builder().base(2.0))))
         .y(Encoding::scaled_column("number"))
         .color(Encoding::column("name"));
     let chart = Chart::builder()
@@ -199,7 +199,7 @@ fn present_fields_and_plain_values_stay() {
     let x = encoding(message, Channel::X).scale.unwrap();
     assert!(matches!(
         x.r#type,
-        Some(scale_spec::Type::Log(LogScale {
+        Some(scale::Type::Log(LogScale {
             base: Some(2.0),
             ..
         }))
@@ -268,5 +268,5 @@ fn layers_with_inferred_scales_share_them() {
         .unwrap();
     // A band and a point scale share a band scale.
     assert_eq!(x.members.len(), 2);
-    assert!(matches!(x.spec.r#type, Some(scale_spec::Type::Band(_))));
+    assert!(matches!(x.spec.r#type, Some(scale::Type::Band(_))));
 }

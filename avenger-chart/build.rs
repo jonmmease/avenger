@@ -508,7 +508,7 @@ impl<'a> Messages<'a> {
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();
-        if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.ScaleSpec")) {
+        if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.Scale")) {
             for field in &spec.field {
                 // `merge.rs` merges the options of custom scales by name, because they are keyed.
                 if field.oneof_index.is_some()

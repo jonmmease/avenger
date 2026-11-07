@@ -5,9 +5,7 @@ use arrow::{
 
 use crate::{
     layer::{MarkMessage, MarkType},
-    proto::{
-        self, conditional_value, domain, encoding, node::Node, plot::Coord, scale_spec, Channel,
-    },
+    proto::{self, conditional_value, domain, encoding, node::Node, plot::Coord, scale, Channel},
     validate::{dictionary_values, scaled, takes_scale},
 };
 
@@ -130,7 +128,7 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
                 data_type
             }
         };
-        let spec = encoding.scale.get_or_insert_with(proto::ScaleSpec::default);
+        let spec = encoding.scale.get_or_insert_with(proto::Scale::default);
         if spec.r#type.is_none() {
             spec.r#type =
                 data_type.and_then(|data_type| scale_type(&data_type, *channel, mark_type));
@@ -144,12 +142,8 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
 }
 
 /// The scale type of values of `data_type` on `channel` of a mark of `mark_type`.
-fn scale_type(
-    data_type: &DataType,
-    channel: Channel,
-    mark_type: MarkType,
-) -> Option<scale_spec::Type> {
-    use scale_spec::Type;
+fn scale_type(data_type: &DataType, channel: Channel, mark_type: MarkType) -> Option<scale::Type> {
+    use scale::Type;
     enum Values {
         Numbers,
         Times,
