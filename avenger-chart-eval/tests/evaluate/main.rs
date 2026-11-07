@@ -7,6 +7,8 @@ mod bands;
 mod compositions;
 mod domains;
 mod guides;
+#[cfg(feature = "geo")]
+mod maps;
 mod marks;
 mod overlays;
 mod polar;

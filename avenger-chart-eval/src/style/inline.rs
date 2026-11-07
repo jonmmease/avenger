@@ -4,8 +4,8 @@
 //! they map, which a test checks against the descriptors of the format.
 
 use avenger_chart::proto::{
-    self, cartesian_layer, polar_layer, Side, TextAlign, TextBaseline, TextWidthMode, TitleAlign,
-    TitleSide,
+    self, cartesian_layer, geo_layer, polar_layer, Side, TextAlign, TextBaseline, TextWidthMode,
+    TitleAlign, TitleSide,
 };
 use avenger_style::{NodeId, Property, StyleTree};
 
@@ -34,6 +34,11 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Cartesian", &["aspect_ratio"]),
+    ("SphereStyle", &["fill", "stroke", "stroke_width"]),
+    (
+        "Graticule",
+        &["label_style", "label_padding", "color", "width"],
+    ),
     ("Title", &["side", "align", "style", "subtitle_style"]),
     (
         "TextStyle",
@@ -75,6 +80,20 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "orient",
         ],
     ),
+    ("GeoSymbolMark", &["filled"]),
+    (
+        "GeoTextMark",
+        &[
+            "align",
+            "baseline",
+            "font_family",
+            "max_lines",
+            "wrap",
+            "ellipsis",
+            "width_mode",
+        ],
+    ),
+    ("GeoImageMark", &["align", "baseline", "aspect", "smooth"]),
     (
         "PolarAxis",
         &[
@@ -459,47 +478,131 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
                     width_mode: text.width_mode,
                 },
             );
-            let align = match TextAlign::try_from(text.align).unwrap_or_default() {
-                TextAlign::Unspecified => None,
-                TextAlign::Left => Some("left"),
-                TextAlign::Center => Some("center"),
-                TextAlign::Right => Some("right"),
-            };
-            keyword(tree, node, Property::Align, align);
-            keyword(
-                tree,
-                node,
-                Property::Baseline,
-                vertical_align(text.baseline),
-            );
+            text_anchor(tree, node, text.align, text.baseline);
         }
-        Mark::Image(image) => {
-            let align = match proto::ImageAlign::try_from(image.align).unwrap_or_default() {
-                proto::ImageAlign::Unspecified => None,
-                proto::ImageAlign::Left => Some("left"),
-                proto::ImageAlign::Center => Some("center"),
-                proto::ImageAlign::Right => Some("right"),
-            };
-            keyword(tree, node, Property::Align, align);
-            let baseline = match proto::ImageBaseline::try_from(image.baseline).unwrap_or_default()
-            {
-                proto::ImageBaseline::Unspecified => None,
-                proto::ImageBaseline::Top => Some("top"),
-                proto::ImageBaseline::Middle => Some("middle"),
-                proto::ImageBaseline::Bottom => Some("bottom"),
-            };
-            keyword(tree, node, Property::Baseline, baseline);
-            if let Some(aspect) = image.aspect {
-                let fit = if aspect { "contain" } else { "fill" };
-                set(tree, node, Property::ObjectFit, fit);
-            }
-            if let Some(smooth) = image.smooth {
-                let rendering = if smooth { "smooth" } else { "pixelated" };
-                set(tree, node, Property::ImageRendering, rendering);
-            }
-        }
+        Mark::Image(image) => image_fields(
+            tree,
+            node,
+            image.align,
+            image.baseline,
+            image.aspect,
+            image.smooth,
+        ),
         Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) | Mark::Path(_) => {}
     }
+}
+
+/// The `align` and the `baseline` of a text mark on its `mark` node.
+fn text_anchor(tree: &mut Styled, node: NodeId, align: i32, baseline: i32) {
+    let align = match TextAlign::try_from(align).unwrap_or_default() {
+        TextAlign::Unspecified => None,
+        TextAlign::Left => Some("left"),
+        TextAlign::Center => Some("center"),
+        TextAlign::Right => Some("right"),
+    };
+    keyword(tree, node, Property::Align, align);
+    keyword(tree, node, Property::Baseline, vertical_align(baseline));
+}
+
+/// The fields of an image mark on its `mark` node.
+fn image_fields(
+    tree: &mut Styled,
+    node: NodeId,
+    align: i32,
+    baseline: i32,
+    aspect: Option<bool>,
+    smooth: Option<bool>,
+) {
+    let align = match proto::ImageAlign::try_from(align).unwrap_or_default() {
+        proto::ImageAlign::Unspecified => None,
+        proto::ImageAlign::Left => Some("left"),
+        proto::ImageAlign::Center => Some("center"),
+        proto::ImageAlign::Right => Some("right"),
+    };
+    keyword(tree, node, Property::Align, align);
+    let baseline = match proto::ImageBaseline::try_from(baseline).unwrap_or_default() {
+        proto::ImageBaseline::Unspecified => None,
+        proto::ImageBaseline::Top => Some("top"),
+        proto::ImageBaseline::Middle => Some("middle"),
+        proto::ImageBaseline::Bottom => Some("bottom"),
+    };
+    keyword(tree, node, Property::Baseline, baseline);
+    if let Some(aspect) = aspect {
+        let fit = if aspect { "contain" } else { "fill" };
+        set(tree, node, Property::ObjectFit, fit);
+    }
+    if let Some(smooth) = smooth {
+        let rendering = if smooth { "smooth" } else { "pixelated" };
+        set(tree, node, Property::ImageRendering, rendering);
+    }
+}
+
+/// The style fields of a map mark on its `mark` node.
+pub(crate) fn geo_mark(tree: &mut Styled, node: NodeId, mark: &geo_layer::Mark) {
+    use geo_layer::Mark;
+    match mark {
+        Mark::Symbol(symbol) => {
+            if symbol.filled == Some(false) {
+                set(tree, node, Property::Fill, "none");
+                set(tree, node, Property::Stroke, "currentColor");
+            }
+        }
+        Mark::Text(text) => {
+            text_fields(
+                tree,
+                node,
+                TextFields {
+                    font_family: &text.font_family,
+                    max_lines: text.max_lines,
+                    wrap: text.wrap,
+                    ellipsis: text.ellipsis,
+                    width_mode: text.width_mode,
+                },
+            );
+            text_anchor(tree, node, text.align, text.baseline);
+        }
+        Mark::Image(image) => image_fields(
+            tree,
+            node,
+            image.align,
+            image.baseline,
+            image.aspect,
+            image.smooth,
+        ),
+        Mark::Line(_) | Mark::Trail(_) | Mark::Rule(_) | Mark::Path(_) | Mark::Shape(_) => {}
+    }
+}
+
+/// A `SphereStyle` on the `plot[type=geo]` of its map: its fill as the `background`, and its
+/// stroke and width as a solid border.
+pub(crate) fn sphere(tree: &mut Styled, node: NodeId, sphere: &proto::SphereStyle) {
+    color(tree, node, Property::Background, &sphere.fill);
+    if !sphere.stroke.is_empty() {
+        color(tree, node, Property::BorderColor, &sphere.stroke);
+        set(tree, node, Property::BorderStyle, "solid");
+    }
+    px(tree, node, Property::BorderWidth, sphere.stroke_width);
+}
+
+/// The nodes of a graticule and its parts.
+#[derive(Clone, Debug)]
+pub(crate) struct GraticuleNodes {
+    pub(crate) graticule: NodeId,
+    pub(crate) grid: NodeId,
+    pub(crate) label: NodeId,
+}
+
+/// A `Graticule` on its nodes.
+pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &proto::Graticule) {
+    color(tree, nodes.grid, Property::Stroke, &graticule.color);
+    px(tree, nodes.grid, Property::StrokeWidth, graticule.width);
+    text_style(tree, nodes.label, graticule.label_style.as_ref());
+    px(
+        tree,
+        nodes.graticule,
+        Property::LabelPadding,
+        graticule.label_padding,
+    );
 }
 
 /// The fields that the text marks of every coordinate system share.

@@ -35,7 +35,6 @@ use avenger_scenegraph::marks::{
     mark::SceneMark,
     path::ScenePathMark,
     text::{SceneTextMark, TextHalo, TextPaths},
-    trail::SceneTrailMark,
 };
 use avenger_style::{ComputedStyle, ComputedStyles, Property};
 use avenger_typst_label::{reads_reversed, LabelEngine, PathOffset, PathOverflow, TextBounds};
@@ -46,6 +45,7 @@ use crate::{
     fit::Position,
     guides::axis_style,
     marks::{pattern_fills, row_patterns, stroke_width, symbol_mark, text_mark, Drawn, TextFormat},
+    polyline::{polyline, rule_lines, series_lines, series_trails, Polyline},
     reach::Reach,
     style::{color as style_color, number as style_number, tree::GuideNodes, tree::StyleNodes},
     EvalError, EvalWarning,
@@ -1049,63 +1049,6 @@ impl Wedge {
     }
 }
 
-/// The vertices of a polyline through the pieces of segments, with an undefined vertex between
-/// pieces that do not meet, so the line breaks there.
-#[derive(Default)]
-struct Polyline {
-    x: Vec<f32>,
-    y: Vec<f32>,
-    defined: Vec<bool>,
-    /// The row of each vertex: the first row of its segment.
-    rows: Vec<u32>,
-    /// The first and the last row of the segment of each vertex.
-    ends: Vec<[u32; 2]>,
-    /// How far along its piece each vertex is, from 0 at its start to 1 at its end.
-    along: Vec<f32>,
-}
-
-impl Polyline {
-    fn push_vertex(&mut self, [x, y]: [f32; 2], defined: bool, ends: [u32; 2], along: f32) {
-        self.x.push(x);
-        self.y.push(y);
-        self.defined.push(defined);
-        self.rows.push(ends[0]);
-        self.ends.push(ends);
-        self.along.push(along);
-    }
-
-    /// Adds `piece`, the pixels of a segment between the rows `ends`, continuing the line where
-    /// the piece starts at its last vertex, and breaking it elsewhere.
-    fn push_piece(&mut self, piece: &[[f32; 2]], ends: [u32; 2]) {
-        let Some(first) = piece.first() else {
-            return;
-        };
-        let meets = match (self.x.last(), self.y.last(), self.defined.last()) {
-            (Some(x), Some(y), Some(true)) => {
-                (x - first[0]).abs() < 1e-3 && (y - first[1]).abs() < 1e-3
-            }
-            _ => false,
-        };
-        if !self.x.is_empty() && !meets {
-            self.push_vertex([f32::NAN, f32::NAN], false, ends, 0.0);
-        }
-        let mut lengths = vec![0.0_f32];
-        for pair in piece.windows(2) {
-            let length = lengths.last().copied().unwrap_or(0.0)
-                + (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
-            lengths.push(length);
-        }
-        let total = lengths.last().copied().unwrap_or(0.0);
-        for (index, (point, length)) in piece.iter().zip(&lengths).enumerate() {
-            if index == 0 && meets {
-                continue;
-            }
-            let along = if total > 0.0 { length / total } else { 0.0 };
-            self.push_vertex(*point, true, ends, along);
-        }
-    }
-}
-
 /// The pieces in pixels of the segment between the positions `from` and `to` of `circle`: a
 /// straight line between their pixels for the canvas route, and the arc between them otherwise.
 fn segment(
@@ -1225,19 +1168,12 @@ impl Drawer<'_, '_> {
         canvas: bool,
     ) -> Polyline {
         let circle = self.fit.circle();
-        let place = |row: u32| place(row as usize).map(f64::from);
-        let mut polyline = Polyline::default();
-        if let [row] = series[..] {
-            if let Some(point) = circle.pixel(place(row)) {
-                polyline.push_piece(&[point], [row; 2]);
-            }
-        }
-        for pair in series.windows(2) {
-            for piece in segment(&circle, place(pair[0]), place(pair[1]), canvas) {
-                polyline.push_piece(&piece, [pair[0], pair[1]]);
-            }
-        }
-        polyline
+        polyline(
+            series,
+            |row| place(row).map(f64::from),
+            |position| circle.pixel(position),
+            |from, to| segment(&circle, from, to, canvas),
+        )
     }
 
     /// The polyline of each series of a line or a trail through its rows along its route.
@@ -1252,65 +1188,11 @@ impl Drawer<'_, '_> {
     }
 
     fn lines(&self, canvas: bool) -> Result<Vec<Drawn>> {
-        let rows = self.rows;
-        let (_, stroke) = rows.paint()?;
-        let width = rows.numbers_or(Channel::StrokeWidth, Property::StrokeWidth)?;
-        let dash = rows.dashes_or_style()?;
-        (self.series_polylines(canvas)?.into_iter().enumerate())
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                let mark = SceneLineMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    stroke_width: at(&width, first),
-                    stroke_dash: (dash.as_ref())
-                        .map(|dash| at(dash, first))
-                        .filter(|dash| !dash.is_empty()),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        series_lines(self.rows, self.series_polylines(canvas)?)
     }
 
     fn trails(&self, canvas: bool) -> Result<Vec<Drawn>> {
-        let rows = self.rows;
-        let (_, stroke) = rows.paint()?;
-        let size = rows.numbers_or(Channel::Size, Property::Size)?;
-        (self.series_polylines(canvas)?.into_iter().enumerate())
-            .map(|(index, (series, polyline))| {
-                let first = series[0] as usize;
-                // The width of each vertex runs from the size of its segment's first row to the
-                // size of its last.
-                let sizes = (polyline.ends.iter().zip(&polyline.along))
-                    .map(|([a, b], along)| {
-                        let (a, b) = (at(&size, *a as usize), at(&size, *b as usize));
-                        a + (b - a) * along
-                    })
-                    .collect();
-                let mark = SceneTrailMark {
-                    name: format!("{}/{index}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    size: ScalarOrArray::new_array(sizes),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, first),
-                    ..Default::default()
-                };
-                Ok(Drawn {
-                    mark: mark.into(),
-                    rows: rows.rows(&polyline.rows)?,
-                })
-            })
-            .collect()
+        series_trails(self.rows, self.series_polylines(canvas)?)
     }
 
     /// The baseline of a bar or an area along `channel`: zero when its scale's domain holds it,
@@ -1599,10 +1481,7 @@ impl Drawer<'_, '_> {
         let angles = pairs(Channel::Theta, Channel::Theta2, self.whole_angles())?;
         let radii = pairs(Channel::Radius, Channel::Radius2, self.whole_radii())?;
         let circle = self.fit.circle();
-        let (_, stroke) = rows.paint()?;
-        let width = rows.numbers_or(Channel::StrokeWidth, Property::StrokeWidth)?;
-        let dash = rows.dashes_or_style()?;
-        let mut drawn = Vec::new();
+        let mut lines = Vec::new();
         for (row, ([from, to], [inner, outer])) in angles.into_iter().zip(radii).enumerate() {
             let [from, to, inner, outer] = [from, to, inner, outer].map(f64::from);
             // A rule that holds its angle runs along a spoke, and one that holds its radius
@@ -1618,28 +1497,9 @@ impl Drawer<'_, '_> {
             for piece in pieces {
                 polyline.push_piece(&piece, [row as u32; 2]);
             }
-            if polyline.x.is_empty() {
-                continue;
-            }
-            drawn.push(Drawn {
-                mark: SceneLineMark {
-                    name: format!("{}/{row}", rows.name),
-                    len: polyline.x.len() as u32,
-                    x: ScalarOrArray::new_array(polyline.x),
-                    y: ScalarOrArray::new_array(polyline.y),
-                    defined: ScalarOrArray::new_array(polyline.defined),
-                    stroke: at(&stroke, row),
-                    stroke_width: at(&width, row),
-                    stroke_dash: (dash.as_ref())
-                        .map(|dash| at(dash, row))
-                        .filter(|dash| !dash.is_empty()),
-                    ..Default::default()
-                }
-                .into(),
-                rows: rows.rows(&polyline.rows)?,
-            });
+            lines.push((row, polyline));
         }
-        Ok(drawn)
+        rule_lines(rows, lines)
     }
 
     /// The text of each row beside its point, as its sides say: along the circle through the
