@@ -29,12 +29,12 @@ pub mod builder;
 
 /// Everything that building a chart takes, for `use avenger_chart::prelude::*`: the checked
 /// [`Chart`], with [`Chart::builder`], every message of [`proto`] and its builder, every enum of
-/// the format, [`Value`](builder::Value), [`IntoValue`](builder::IntoValue),
+/// the format, [`Value`](builder::Value), [`IntoValue`](builder::IntoValue), [`IntoEncoding`](builder::IntoEncoding),
 /// [`PartitionOrder`](builder::PartitionOrder), and [`ChartError`]. The message `proto::Chart`, the
 /// wire form of a chart, is `ChartMessage`, so the name `Chart` is the checked chart's.
 pub mod prelude {
     pub use crate::{
-        builder::{IntoValue, PartitionOrder, Value},
+        builder::{IntoEncoding, IntoValue, PartitionOrder, Value},
         proto::Chart as ChartMessage,
         Chart, ChartError,
     };

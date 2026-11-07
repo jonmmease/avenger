@@ -162,12 +162,12 @@ impl Annotations {
         }
     }
 
-    fn is_required(&self, message: &str, field: &str) -> bool {
+    pub fn is_required(&self, message: &str, field: &str) -> bool {
         self.required
             .contains(&(message.to_string(), field.to_string()))
     }
 
-    fn is_required_oneof(&self, message: &str, oneof: &str) -> bool {
+    pub fn is_required_oneof(&self, message: &str, oneof: &str) -> bool {
         self.required_oneof
             .contains(&(message.to_string(), oneof.to_string()))
     }

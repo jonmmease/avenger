@@ -100,7 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
-    std::fs::write(out.join("builders.rs"), builders::builders(&set, &messages))?;
+    std::fs::write(
+        out.join("builders.rs"),
+        builders::builders(&set, &messages, &annotations),
+    )?;
     std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
     Ok(())
 }

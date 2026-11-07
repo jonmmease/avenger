@@ -16,16 +16,15 @@ use crate::support::*;
 fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
     let bars = |x: EncodingBuilder| {
         let bars = CartesianLayer::bar(
+            categories(),
             BarMark::builder()
                 .x(x)
                 .y(Encoding::scaled_field("amount").scale(
                     Scale::builder()
                         .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
                 )),
-        )
-        .table(categories());
-        Chart::builder()
-            .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        );
+        Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
             .build()
             .unwrap()
     };
@@ -46,13 +45,12 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
 
     let points = |x: EncodingBuilder| {
         let symbols = CartesianLayer::symbol(
+            categories(),
             SymbolMark::builder()
                 .x(x)
                 .y(Encoding::scaled_field("amount")),
-        )
-        .table(categories());
-        let chart = Chart::builder()
-            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        );
+        let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
             .build()
             .unwrap();
         symbol_positions(&evaluate(&chart, [320.0, 240.0]))
@@ -89,14 +87,16 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
         evaluator.evaluate(&host([320.0, 240.0])).unwrap()
     };
 
-    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_field("category")).y(
-        Encoding::scaled_field("amount").scale(
-            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
-        ),
-    ))
-    .table(categories());
-    let bars = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+    let bars = CartesianLayer::bar(
+        categories(),
+        BarMark::builder()
+            .x(Encoding::scaled_field("category"))
+            .y(Encoding::scaled_field("amount").scale(
+                Scale::builder()
+                    .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
+            )),
+    );
+    let bars = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
         .build()
         .unwrap();
     let full = rect_spans(&styled(&bars, ""));
@@ -109,13 +109,12 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     // Symbols take a point scale of categories, which has no bands, unless they ask for a band
     // scale.
     let symbols = CartesianLayer::symbol(
+        categories(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("category").scale(Scale::band(BandScale::builder())))
             .y(Encoding::scaled_field("amount")),
-    )
-    .table(categories());
-    let points = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let points = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let diameter = |css: &str| symbol_positions(&styled(&points, css))[0].2.sqrt();
@@ -127,13 +126,12 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     );
 
     let lines = CartesianLayer::line(
+        categories(),
         LineMark::builder()
             .x(Encoding::scaled_field("category"))
             .y(Encoding::scaled_field("amount")),
-    )
-    .table(categories());
-    let line = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+    );
+    let line = Chart::builder(Plot::cartesian(CartesianPlot::new([lines])))
         .build()
         .unwrap();
     let warned = styled(&line, "mark[type=line] { size: 50%; }");
@@ -180,17 +178,14 @@ fn group_totals_span_their_groups_behind_their_members() {
         )
     };
     let groups = CartesianLayer::bar(
+        totals,
         BarMark::builder()
             .x(key().band_level(0))
             .y(zeroed_sales())
             .opacity(Encoding::direct_value(0.35)),
-    )
-    .table(totals);
-    let members = CartesianLayer::bar(BarMark::builder().x(key()).y(zeroed_sales())).table(sales);
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([groups, members]),
-        ))
+    );
+    let members = CartesianLayer::bar(sales, BarMark::builder().x(key()).y(zeroed_sales()));
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([groups, members])))
         .build()
         .unwrap();
     render_both(&chart, "grouped-bars-totals");
@@ -247,14 +242,12 @@ fn group_totals_span_their_groups_behind_their_members() {
 #[test]
 fn a_custom_scale_of_categories_runs_down_the_plot() {
     let symbols = CartesianLayer::symbol(
+        categories(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("amount"))
-            .y(Encoding::scaled_field("category")
-                .scale(Scale::custom(CustomScale::builder().type_("dots")))),
-    )
-    .table(categories());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+            .y(Encoding::scaled_field("category").scale(Scale::custom(CustomScale::new("dots")))),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
 

@@ -121,14 +121,13 @@ fn colors(
 #[test]
 fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
     let lines = CartesianLayer::line(
+        table(),
         LineMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b"))
             .color(Encoding::direct_field("group")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([lines])))
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -149,13 +148,12 @@ fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
 #[test]
 fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
     let bars = CartesianLayer::bar(
+        table(),
         BarMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -189,21 +187,17 @@ fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
 fn the_first_conditional_value_that_selects_a_row_wins() {
     // Gray, unless the first of two conditional values that selects a row gives it red or blue.
     let selected = |color: &str| {
-        ConditionalValue::direct_value(color)
-            .predicate(Predicate::selected(Selected::builder().selection("brush")))
+        ConditionalValue::direct_value(Predicate::selected(Selected::new("brush")), color)
     };
     let symbols = CartesianLayer::symbol(
+        table(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b"))
             .color(Encoding::direct_value("gray").conditional([selected("red"), selected("blue")])),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Global)])
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
+        .selections([Selection::new("brush", SelectionResolution::Global)])
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -240,14 +234,13 @@ fn the_first_conditional_value_that_selects_a_row_wins() {
 #[test]
 fn paints_follow_the_computed_styles_and_the_color_channel() {
     let symbols = CartesianLayer::symbol(
+        table(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b"))
             .color(Encoding::direct_value("red")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -298,14 +291,13 @@ fn paints_follow_the_computed_styles_and_the_color_channel() {
 #[test]
 fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     let symbols = CartesianLayer::symbol(
+        table(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b"))
             .size(Encoding::direct_value(100.0)),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -328,14 +320,12 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     }
 
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        table(),
+        TextMark::new(Encoding::direct_value("Gentoo"))
             .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b"))
-            .text(Encoding::direct_value("Gentoo")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+            .y(Encoding::scaled_field("b")),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
     let mark = first_mark(&chart);

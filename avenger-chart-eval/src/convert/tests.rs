@@ -70,9 +70,7 @@ fn scale_types_take_their_options_and_custom_scales_their_registry() {
     let log = Scale::log(LogScale::builder().base(2.0)).build().unwrap();
     assert_eq!(options(&log, style)["base"].as_f64().unwrap(), 2.0);
 
-    let custom = Scale::custom(CustomScale::builder().type_("warp"))
-        .build()
-        .unwrap();
+    let custom = Scale::custom(CustomScale::new("warp")).build().unwrap();
     assert!(matches!(
         scale_impl(&custom, &Registry::new()),
         Err(EvalError::UnknownScale(name)) if name == "warp"
@@ -175,9 +173,7 @@ fn points() -> RecordBatch {
 
 /// A clause of `owner` with a range of `a` through `x`.
 fn range_clause(owner: &str, range: ValueRangeBuilder) -> ClauseBuilder {
-    Clause::builder()
-        .owner(owner)
-        .conditions([range.column("a").channel(Channel::X)])
+    Clause::new([range.channel(Channel::X)]).owner(owner)
 }
 
 fn x_group(chart: &Chart) -> avenger_chart::resolve::ScaleGroup {
@@ -196,14 +192,13 @@ fn f64s(values: &ArrayRef) -> Vec<f64> {
 #[test]
 fn explicit_summary_and_data_domains_have_their_sources() {
     let symbols = CartesianLayer::symbol(
+        points(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a")
                 .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
             .y(Encoding::scaled_field("b")),
-    )
-    .table(points());
-    let explicit = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let explicit = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let group = x_group(&explicit);
@@ -213,16 +208,15 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     }
 
     let symbols = CartesianLayer::symbol(
+        points(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a")
                 .scale(Scale::linear(LinearScale::builder()).domain(
                     DataDomain::builder().fit(IntervalFit::builder().zero(true).nice(5.0)),
                 )))
             .y(Encoding::scaled_field("b")),
-    )
-    .table(points());
-    let data = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let data = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let group = x_group(&data);
@@ -247,16 +241,15 @@ fn explicit_summary_and_data_domains_have_their_sources() {
 #[test]
 fn a_preferred_order_moves_the_listed_categories_first() {
     let symbols = CartesianLayer::symbol(
+        points(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a").scale(
                 Scale::band(BandScale::builder())
                     .domain(DataDomain::builder().fit(CategoryFit::preferred([3.0, 9.0, 1.0]))),
             ))
             .y(Encoding::scaled_field("b")),
-    )
-    .table(points());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let group = x_group(&chart);
@@ -282,46 +275,41 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
     use SelectionResolution::{Global, Intersect, Union};
     // The selection domain of `x`, with an explicit fallback, of a chart whose brush has
     // `initial` clauses.
-    let domain = |resolution: SelectionResolution, initial: Vec<ClauseBuilder>| {
-        let symbols = CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a").scale(
-                    Scale::linear(LinearScale::builder()).domain(
-                        SelectionDomain::builder()
-                            .selection("brush")
-                            .channel(Channel::X)
-                            .explicit([-100.0, 100.0]),
-                    ),
-                ))
-                .y(Encoding::scaled_field("b")),
-        )
-        .table(points())
-        .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
-            .id("scatter")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let chart = Chart::builder()
-            .root(plot)
-            .selections([Selection::builder()
-                .name("brush")
-                .resolution(resolution)
-                .initial(initial)])
-            .build()
-            .unwrap();
-        let group = x_group(&chart);
-        source(&chart, &group, &states(&chart).unwrap()).unwrap()
-    };
+    let domain =
+        |resolution: SelectionResolution, initial: Vec<ClauseBuilder>| {
+            let symbols =
+                CartesianLayer::symbol(
+                    points(),
+                    SymbolMark::builder()
+                        .x(Encoding::scaled_field("a").scale(
+                            Scale::linear(LinearScale::builder()).domain(
+                                SelectionDomain::explicit("brush", Channel::X, [-100.0, 100.0]),
+                            ),
+                        ))
+                        .y(Encoding::scaled_field("b")),
+                )
+                .id("points")
+                .tools([Select::interval("brush", IntervalSelect::builder())]);
+            let plot = Plot::cartesian(CartesianPlot::new([symbols]))
+                .id("scatter")
+                .tools([Select::interval("brush", IntervalSelect::builder())]);
+            let chart = Chart::builder(plot)
+                .selections([Selection::new("brush", resolution).initial(initial)])
+                .build()
+                .unwrap();
+            let group = x_group(&chart);
+            source(&chart, &group, &states(&chart).unwrap()).unwrap()
+        };
     // Without clauses, the fallback.
     assert_eq!(explicit(domain(Global, vec![])), [-100.0, 100.0]);
     // One clause gives its range.
-    let scatter = || range_clause("scatter", ValueRange::builder().low(2.0).high(5.0));
+    let scatter = || range_clause("scatter", ValueRange::new("a").low(2.0).high(5.0));
     assert_eq!(explicit(domain(Global, vec![scatter()])), [2.0, 5.0]);
     // A union takes the envelope; an intersection the overlap.
     let two = || {
         vec![
             scatter(),
-            range_clause("points", ValueRange::builder().low(3.0).high(8.0)),
+            range_clause("points", ValueRange::new("a").low(3.0).high(8.0)),
         ]
     };
     assert_eq!(explicit(domain(Union, two())), [2.0, 8.0]);
@@ -332,40 +320,36 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
 /// end past the fallback's other end closes the domain there.
 #[test]
 fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
-    let domain = |range: ValueRangeBuilder| {
-        let symbols = CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a").scale(
-                    Scale::linear(LinearScale::builder()).domain(
-                        SelectionDomain::builder()
-                            .selection("brush")
-                            .channel(Channel::X)
-                            .explicit([-100.0, 100.0]),
-                    ),
-                ))
-                .y(Encoding::scaled_field("b")),
-        )
-        .table(points())
-        .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
-            .id("scatter")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let chart = Chart::builder()
-            .root(plot)
-            .selections([Selection::builder()
-                .name("brush")
-                .resolution(SelectionResolution::Global)
-                .initial([range_clause("scatter", range)])])
-            .build()
-            .unwrap();
-        let group = x_group(&chart);
-        explicit(source(&chart, &group, &states(&chart).unwrap()).unwrap())
-    };
-    assert_eq!(domain(ValueRange::builder().low(2.0)), [2.0, 100.0]);
-    assert_eq!(domain(ValueRange::builder().low(10i64)), [10.0, 100.0]);
-    assert_eq!(domain(ValueRange::builder().low(200.0)), [200.0, 200.0]);
-    assert_eq!(domain(ValueRange::builder().high(-500.0)), [-500.0, -500.0]);
+    let domain =
+        |range: ValueRangeBuilder| {
+            let symbols =
+                CartesianLayer::symbol(
+                    points(),
+                    SymbolMark::builder()
+                        .x(Encoding::scaled_field("a").scale(
+                            Scale::linear(LinearScale::builder()).domain(
+                                SelectionDomain::explicit("brush", Channel::X, [-100.0, 100.0]),
+                            ),
+                        ))
+                        .y(Encoding::scaled_field("b")),
+                )
+                .id("points")
+                .tools([Select::interval("brush", IntervalSelect::builder())]);
+            let plot = Plot::cartesian(CartesianPlot::new([symbols]))
+                .id("scatter")
+                .tools([Select::interval("brush", IntervalSelect::builder())]);
+            let chart = Chart::builder(plot)
+                .selections([Selection::new("brush", SelectionResolution::Global)
+                    .initial([range_clause("scatter", range)])])
+                .build()
+                .unwrap();
+            let group = x_group(&chart);
+            explicit(source(&chart, &group, &states(&chart).unwrap()).unwrap())
+        };
+    assert_eq!(domain(ValueRange::new("a").low(2.0)), [2.0, 100.0]);
+    assert_eq!(domain(ValueRange::new("a").low(10i64)), [10.0, 100.0]);
+    assert_eq!(domain(ValueRange::new("a").low(200.0)), [200.0, 200.0]);
+    assert_eq!(domain(ValueRange::new("a").high(-500.0)), [-500.0, -500.0]);
 }
 
 /// A range with one end over a data fallback pins that end of the fallback's fit, which finds the
@@ -373,29 +357,23 @@ fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
 #[test]
 fn a_range_with_one_end_pins_a_fit_of_the_data() {
     let symbols = CartesianLayer::symbol(
+        points(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("a").scale(
-                Scale::linear(LinearScale::builder()).domain(
-                    SelectionDomain::builder()
-                        .selection("brush")
-                        .channel(Channel::X)
-                        .data(DataDomain::builder()),
-                ),
-            ))
+            .x(
+                Encoding::scaled_field("a").scale(Scale::linear(LinearScale::builder()).domain(
+                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
+                )),
+            )
             .y(Encoding::scaled_field("b")),
     )
-    .table(points())
     .id("points")
-    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+    .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let plot = Plot::cartesian(CartesianPlot::new([symbols]))
         .id("scatter")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let chart = Chart::builder()
-        .root(plot)
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Global)
-            .initial([range_clause("scatter", ValueRange::builder().high(2.5))])])
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let chart = Chart::builder(plot)
+        .selections([Selection::new("brush", SelectionResolution::Global)
+            .initial([range_clause("scatter", ValueRange::new("a").high(2.5))])])
         .build()
         .unwrap();
     let group = x_group(&chart);
@@ -450,29 +428,24 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
     ])
     .unwrap();
     let magnitude = Widget::range_slider(
-        RangeSliderWidget::builder()
-            .target(WidgetTarget::builder().selection("brush").column("a"))
-            .domain(WidgetDataDomain::builder()),
-    )
-    .key("magnitude");
+        "magnitude",
+        RangeSliderWidget::new(WidgetTarget::new("brush", "a"), WidgetDataDomain::builder()),
+    );
     let symbols = CartesianLayer::symbol(
+        table,
         SymbolMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("b")),
     )
-    .table(table)
     .widgets([magnitude]);
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+    let plot = Plot::cartesian(CartesianPlot::new([symbols]))
         .id("scatter")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
     let widget_clause =
-        range_clause("", ValueRange::builder().low(1.0).high(2.5)).widget("magnitude");
-    let brush_clause = range_clause("scatter", ValueRange::builder().low(2.5).high(4.0));
-    let chart = Chart::builder()
-        .root(plot)
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Intersect)
+        range_clause("", ValueRange::new("a").low(1.0).high(2.5)).widget("magnitude");
+    let brush_clause = range_clause("scatter", ValueRange::new("a").low(2.5).high(4.0));
+    let chart = Chart::builder(plot)
+        .selections([Selection::new("brush", SelectionResolution::Intersect)
             .initial([widget_clause, brush_clause])])
         .build()
         .unwrap();
@@ -484,7 +457,7 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
     // layers.
     assert_eq!(owners, ["scatter", "\0magnitude\0"]);
 
-    let selected = Predicate::selected(Selected::builder().selection("brush").exclude_own(true))
+    let selected = Predicate::selected(Selected::new("brush").exclude_own(true))
         .build()
         .unwrap();
     let test = predicate(&selected, &["scatter".to_string()], false);
@@ -501,14 +474,13 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
 fn a_syntax_that_the_engine_lacks_fails() {
     let table = RecordBatch::try_from_iter([("a", numbers(&[1.0]))]).unwrap();
     let symbols = CartesianLayer::symbol(
+        table,
         SymbolMark::builder()
             .x(Encoding::scaled_field("a"))
             .y(Encoding::scaled_field("a")),
-    )
-    .table(table);
-    let chart = Chart::builder()
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .number_format_syntax("d3")
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .build()
         .unwrap();
     let bare = avenger_typst_label::bundled_label_engine();
@@ -533,25 +505,22 @@ fn a_summary_domain_holds_the_producers_summary() {
         .summarize(&numbers(&[-5.0, 50.0]), Extents::None)
         .unwrap();
     let symbols = CartesianLayer::symbol(
+        points(),
         SymbolMark::builder()
             .x(
                 Encoding::scaled_field("a").scale(Scale::linear(LinearScale::builder()).domain(
-                    SummaryDomain::builder().value(Value::scalar(Arc::new(summary.to_arrow()))),
+                    SummaryDomain::new(Value::scalar(Arc::new(summary.to_arrow()))),
                 )),
             )
             .y(Encoding::scaled_field("b")),
     )
-    .table(points())
     .id("points")
-    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+    .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let plot = Plot::cartesian(CartesianPlot::new([symbols]))
         .id("scatter")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let chart = Chart::builder()
-        .root(plot)
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Global)])
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let chart = Chart::builder(plot)
+        .selections([Selection::new("brush", SelectionResolution::Global)])
         .build()
         .unwrap();
     let group = x_group(&chart);

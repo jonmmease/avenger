@@ -16,17 +16,17 @@ use crate::{
     layer::CoordKind,
     proto::{
         self, node::Node, plot::Coord, ChartBuilder, NodeBuilder, PartitionValue,
-        PartitionValueBuilder, PlotBuilder,
+        PartitionValueBuilder, Plot, PlotBuilder,
     },
     Chart, ChartError, FORMAT_VERSION,
 };
 
 impl Chart {
-    /// A builder of a chart that sets no field, the builder of the message
+    /// A builder of a chart with its root, the builder of the message
     /// [`proto::Chart`](crate::proto::Chart), whose [`build`](ChartBuilder::build) returns a
-    /// checked chart.
-    pub fn builder() -> ChartBuilder {
-        ChartBuilder::default()
+    /// checked chart. The root is a node, such as a plot, a concat, or a finished chart.
+    pub fn builder(root: impl Into<NodeBuilder>) -> ChartBuilder {
+        proto::Chart::new(root)
     }
 }
 
@@ -201,11 +201,17 @@ impl proto::Node {
                 let value = key.slice(indices[0] as usize, 1);
                 let rows = take_record_batch(batch, &UInt32Array::from(indices))?;
                 let node: NodeBuilder = cell(rows)?.into();
-                Ok(node.partition([PartitionValue::builder()
-                    .column(column)
-                    .value(Value::scalar(value))]))
+                Ok(node.partition([PartitionValue::new(column, Value::scalar(value))]))
             })
             .collect()
+    }
+}
+
+impl Plot {
+    /// A builder of a plot of the layers of `plots`, which gives the plot its coordinate system,
+    /// as [`PlotBuilder::overlay`] describes.
+    pub fn overlay(plots: impl IntoIterator<Item = impl Into<NodeBuilder>>) -> PlotBuilder {
+        PlotBuilder::default().overlay(plots)
     }
 }
 

@@ -12,14 +12,13 @@ use crate::support::*;
 #[test]
 fn symbols() {
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight"))
             .y(Encoding::scaled_field("mpg"))
             .color(Encoding::scaled_field("origin")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     render_both(&chart, "symbols");
@@ -28,6 +27,7 @@ fn symbols() {
 #[test]
 fn symbols_with_a_size_and_a_shape() {
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight"))
             .y(Encoding::scaled_field("mpg").scale(
@@ -36,10 +36,8 @@ fn symbols_with_a_size_and_a_shape() {
             ))
             .shape(Encoding::scaled_field("cylinders"))
             .size(Encoding::scaled_field("count")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     render_both(&chart, "symbols-size-shape");
@@ -48,14 +46,13 @@ fn symbols_with_a_size_and_a_shape() {
 #[test]
 fn lines() {
     let lines = CartesianLayer::line(
+        series(),
         LineMark::builder()
             .x(Encoding::scaled_field("date"))
             .y(Encoding::scaled_field("value"))
             .color(Encoding::scaled_field("symbol")),
-    )
-    .table(series());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([lines])))
         .build()
         .unwrap();
     render_both(&chart, "lines");
@@ -64,15 +61,14 @@ fn lines() {
 #[test]
 fn trails() {
     let trails = CartesianLayer::trail(
+        series(),
         TrailMark::builder()
             .x(Encoding::scaled_field("date"))
             .y(Encoding::scaled_field("value"))
             .color(Encoding::scaled_field("symbol"))
             .size(Encoding::scaled_field("value")),
-    )
-    .table(series());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([trails])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([trails])))
         .build()
         .unwrap();
     render_both(&chart, "trails");
@@ -81,6 +77,7 @@ fn trails() {
 #[test]
 fn areas() {
     let areas = CartesianLayer::area(
+        series(),
         AreaMark::builder()
             .x(Encoding::scaled_field("date"))
             .y(Encoding::scaled_field("value").scale(
@@ -89,10 +86,8 @@ fn areas() {
             ))
             .color(Encoding::scaled_field("symbol"))
             .opacity(Encoding::direct_value(0.6)),
-    )
-    .table(series());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([areas])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([areas])))
         .build()
         .unwrap();
     render_both(&chart, "areas");
@@ -100,14 +95,16 @@ fn areas() {
 
 #[test]
 fn bars() {
-    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_field("category")).y(
-        Encoding::scaled_field("amount").scale(
-            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
-        ),
-    ))
-    .table(categories());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+    let bars = CartesianLayer::bar(
+        categories(),
+        BarMark::builder()
+            .x(Encoding::scaled_field("category"))
+            .y(Encoding::scaled_field("amount").scale(
+                Scale::builder()
+                    .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
+            )),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
         .build()
         .unwrap();
     render_both(&chart, "bars");
@@ -116,6 +113,7 @@ fn bars() {
 #[test]
 fn horizontal_bars() {
     let bars = CartesianLayer::bar(
+        categories(),
         BarMark::builder()
             .x(Encoding::scaled_field("amount").scale(
                 Scale::builder()
@@ -123,10 +121,8 @@ fn horizontal_bars() {
             ))
             .y(Encoding::scaled_field("category"))
             .color(Encoding::scaled_field("category")),
-    )
-    .table(categories());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
         .build()
         .unwrap();
     render_both(&chart, "bars-horizontal");
@@ -147,6 +143,7 @@ fn rects() {
     ])
     .unwrap();
     let rects = CartesianLayer::rect(
+        bins,
         RectMark::builder()
             .inset(1.0)
             .x(Encoding::scaled_field("start"))
@@ -156,10 +153,8 @@ fn rects() {
                     .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
             ))
             .y2(Encoding::scaled_value(0.0)),
-    )
-    .table(bins);
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([rects])))
         .build()
         .unwrap();
     render_both(&chart, "rects-histogram");
@@ -168,13 +163,12 @@ fn rects() {
 #[test]
 fn a_rect_without_y_spans_the_height_of_its_band() {
     let rects = CartesianLayer::rect(
+        categories(),
         RectMark::builder()
             .x(Encoding::scaled_field("category"))
             .color(Encoding::scaled_field("amount")),
-    )
-    .table(categories());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([rects])))
         .build()
         .unwrap();
     render_both(&chart, "rects-bands");
@@ -183,16 +177,15 @@ fn a_rect_without_y_spans_the_height_of_its_band() {
 #[test]
 fn rules() {
     let rules = CartesianLayer::rule(
+        cars(),
         RuleMark::builder()
             .x(Encoding::scaled_field("weight"))
             .y(Encoding::scaled_field("mpg"))
             .y2(Encoding::scaled_value(15.0))
             .color(Encoding::scaled_field("origin"))
             .stroke_dash(Encoding::direct_value("4 2")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([rules])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([rules])))
         .build()
         .unwrap();
     render_both(&chart, "rules");
@@ -201,15 +194,13 @@ fn rules() {
 #[test]
 fn texts() {
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        categories(),
+        TextMark::new(Encoding::direct_field("amount"))
             .x(Encoding::scaled_field("category"))
             .y(Encoding::scaled_field("amount"))
-            .text(Encoding::direct_field("amount"))
             .color(Encoding::scaled_field("category")),
-    )
-    .table(categories());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
     render_both(&chart, "texts");
@@ -218,17 +209,15 @@ fn texts() {
 #[test]
 fn image_marks() {
     let icons = CartesianLayer::image(
-        ImageMark::builder()
+        images(),
+        ImageMark::new(Encoding::direct_field("image"))
             .smooth(false)
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .image(Encoding::direct_field("image"))
             .width(Encoding::direct_value(24.0))
             .height(Encoding::direct_value(24.0)),
-    )
-    .table(images());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([icons])))
         .build()
         .unwrap();
     render_both(&chart, "images");
@@ -237,17 +226,15 @@ fn image_marks() {
 #[test]
 fn images_with_sizes_from_columns() {
     let icons = CartesianLayer::image(
-        ImageMark::builder()
+        images(),
+        ImageMark::new(Encoding::direct_field("image"))
             .smooth(false)
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .image(Encoding::direct_field("image"))
             .width(Encoding::direct_field("size"))
             .height(Encoding::direct_field("size")),
-    )
-    .table(images());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([icons])))
         .build()
         .unwrap();
     render_both(&chart, "images-sizes");
@@ -256,16 +243,14 @@ fn images_with_sizes_from_columns() {
 #[test]
 fn texts_with_weights_and_styles_from_columns() {
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        labels(),
+        TextMark::new(Encoding::direct_field("name"))
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .text(Encoding::direct_field("name"))
             .font_weight(Encoding::direct_field("weight"))
             .font_style(Encoding::direct_field("style")),
-    )
-    .table(labels());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
     render_both(&chart, "texts-fonts");
@@ -274,33 +259,29 @@ fn texts_with_weights_and_styles_from_columns() {
 #[test]
 fn texts_wrap_at_their_widths() {
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        labels(),
+        TextMark::new(Encoding::direct_field("name"))
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .text(Encoding::direct_field("name"))
             .width(Encoding::direct_field("width")),
-    )
-    .table(labels());
-    let wrapped = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+    );
+    let wrapped = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
     render_both(&wrapped, "texts-wrapped");
 
     // A fixed width, and one line with an ellipsis where the width cuts it.
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        labels(),
+        TextMark::new(Encoding::direct_field("name"))
             .width_mode(TextWidthMode::Fixed)
             .max_lines(1)
             .ellipsis(true)
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .text(Encoding::direct_field("name"))
             .width(Encoding::direct_value(70.0)),
-    )
-    .table(labels());
-    let cut = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+    );
+    let cut = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
     render_both(&cut, "texts-cut");
@@ -309,15 +290,13 @@ fn texts_wrap_at_their_widths() {
 #[test]
 fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        labels(),
+        TextMark::new(Encoding::direct_field("name"))
             .x(Encoding::scaled_field("x"))
             .y(Encoding::scaled_field("y"))
-            .text(Encoding::direct_field("name"))
             .width(Encoding::direct_value(90.0)),
-    )
-    .table(labels());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .build()
         .unwrap();
 
@@ -352,18 +331,16 @@ fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
 #[test]
 fn paths() {
     let paths = CartesianLayer::path(
-        PathMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .path(Encoding::direct_value(
-                "M -8 -4 L 4 -4 L 4 -8 L 12 0 L 4 8 L 4 4 L -8 4 Z",
-            ))
-            .angle(Encoding::direct_field("count"))
-            .color(Encoding::scaled_field("origin")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([paths])))
+        cars(),
+        PathMark::new(Encoding::direct_value(
+            "M -8 -4 L 4 -4 L 4 -8 L 12 0 L 4 8 L 4 4 L -8 4 Z",
+        ))
+        .x(Encoding::scaled_field("weight"))
+        .y(Encoding::scaled_field("mpg"))
+        .angle(Encoding::direct_field("count"))
+        .color(Encoding::scaled_field("origin")),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([paths])))
         .build()
         .unwrap();
     render_both(&chart, "paths");
@@ -373,35 +350,28 @@ fn paths() {
 #[test]
 fn a_conditional_path_draws_for_the_rows_that_it_selects() {
     // A line, and an arrow for the rows that the brush selects.
-    let path = Encoding::direct_value("M 0 0 L 8 0")
-        .conditional([ConditionalValue::direct_value("M 0 0 L 8 0 L 8 8 L 0 8 Z")
-            .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
+    let path = Encoding::direct_value("M 0 0 L 8 0").conditional([ConditionalValue::direct_value(
+        Predicate::selected(Selected::new("brush")),
+        "M 0 0 L 8 0 L 8 8 L 0 8 Z",
+    )]);
     let paths = CartesianLayer::path(
-        PathMark::builder()
+        cars(),
+        PathMark::new(path)
             .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .path(path),
-    )
-    .table(cars());
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([paths]))
+            .y(Encoding::scaled_field("mpg")),
+    );
+    let plot = Plot::cartesian(CartesianPlot::new([paths]))
         .id("plot")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
     // The brush starts with the weights from 2500 to 3500.
-    let brush = Selection::builder()
-        .name("brush")
-        .resolution(SelectionResolution::Union)
-        .initial([Clause::builder()
-            .owner("plot")
-            .conditions([ValueRange::builder()
-                .column("weight")
-                .channel(Channel::X)
-                .low(2500.0)
-                .high(3500.0)])]);
-    let chart = Chart::builder()
-        .root(plot)
-        .selections([brush])
-        .build()
-        .unwrap();
+    let brush = Selection::new("brush", SelectionResolution::Union).initial([Clause::new([
+        ValueRange::new("weight")
+            .channel(Channel::X)
+            .low(2500.0)
+            .high(3500.0),
+    ])
+    .owner("plot")]);
+    let chart = Chart::builder(plot).selections([brush]).build().unwrap();
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     let paths = (plot_group(&evaluated).marks.iter())
@@ -421,18 +391,16 @@ fn a_conditional_path_draws_for_the_rows_that_it_selects() {
 #[test]
 fn a_formatted_value_under_typst_syntax_is_escaped() {
     let texts = CartesianLayer::text(
-        TextMark::builder()
+        categories(),
+        TextMark::new(Encoding::direct_field("amount"))
             .x(Encoding::scaled_field("category"))
             .y(Encoding::scaled_field("amount"))
-            .text(Encoding::direct_field("amount"))
             .format("$,.2f")
             .syntax(TextSyntax::Typst),
-    )
-    .table(categories());
+    );
     // The text's pattern is a pattern of numbers, so the chart names its syntax.
-    let chart = Chart::builder()
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([texts])))
         .number_format_syntax("d3")
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .build()
         .unwrap();
 
@@ -457,14 +425,12 @@ fn an_auto_image_size_is_the_images_own_size() {
     };
 
     let icons = CartesianLayer::image(
-        ImageMark::builder()
+        images(),
+        ImageMark::new(Encoding::direct_field("image"))
             .x(Encoding::scaled_field("x"))
-            .y(Encoding::scaled_field("y"))
-            .image(Encoding::direct_field("image")),
-    )
-    .table(images());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
+            .y(Encoding::scaled_field("y")),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([icons])))
         .build()
         .unwrap();
     let own = styled(&chart, "mark[type=image] { width: auto; height: auto; }");
@@ -473,14 +439,12 @@ fn an_auto_image_size_is_the_images_own_size() {
     assert!(image_sizes(&wide).iter().all(|size| *size == (20.0, 20.0)));
 
     let urls = CartesianLayer::image(
-        ImageMark::builder()
+        images(),
+        ImageMark::new(Encoding::direct_value("https://example.com/icon.png"))
             .x(Encoding::scaled_field("x"))
-            .y(Encoding::scaled_field("y"))
-            .image(Encoding::direct_value("https://example.com/icon.png")),
-    )
-    .table(images());
-    let urls = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([urls])))
+            .y(Encoding::scaled_field("y")),
+    );
+    let urls = Chart::builder(Plot::cartesian(CartesianPlot::new([urls])))
         .build()
         .unwrap();
     let unknown = styled(&urls, "mark[type=image] { width: auto; }");
@@ -504,6 +468,7 @@ fn a_range_of_dash_lists_draws_its_dashes() {
         Some(vec![Some(6.0), Some(1.0)]),
     ]));
     let lines = CartesianLayer::line(
+        series(),
         LineMark::builder()
             .x(Encoding::scaled_field("date"))
             .y(Encoding::scaled_field("value"))
@@ -512,10 +477,8 @@ fn a_range_of_dash_lists_draws_its_dashes() {
                 Encoding::scaled_field("symbol")
                     .scale(Scale::builder().range(Range::values(Value::list(dashes)))),
             ),
-    )
-    .table(series());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([lines])))
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -541,6 +504,7 @@ fn a_range_of_dash_lists_draws_its_dashes() {
 fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
     let chart = |reverse: bool| {
         let symbols = CartesianLayer::symbol(
+            cars(),
             SymbolMark::builder()
                 .x(Encoding::scaled_field("weight"))
                 .y(Encoding::scaled_field("mpg"))
@@ -548,10 +512,8 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
                     Encoding::scaled_field("origin")
                         .scale(Scale::builder().range(Range::builder().reverse(reverse))),
                 ),
-        )
-        .table(cars());
-        Chart::builder()
-            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        );
+        Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
             .build()
             .unwrap()
     };
@@ -577,13 +539,12 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
 #[test]
 fn a_hidden_layer_draws_nothing_and_keeps_its_domains() {
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight"))
             .y(Encoding::scaled_field("mpg")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
         .build()
         .unwrap();
     let mut evaluator = ChartEvaluator::new(
@@ -620,16 +581,14 @@ fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
     ])
     .unwrap();
     let images = CartesianLayer::image(
-        ImageMark::builder()
+        table,
+        ImageMark::new(Encoding::direct_value("https://example.com/icon.png"))
             .x(Encoding::scaled_field("x"))
             .x2(Encoding::scaled_field("x2"))
             .y(Encoding::scaled_field("y"))
-            .y2(Encoding::scaled_field("y2"))
-            .image(Encoding::direct_value("https://example.com/icon.png")),
-    )
-    .table(table);
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([images])))
+            .y2(Encoding::scaled_field("y2")),
+    );
+    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([images])))
         .build()
         .unwrap();
     let image = |css: &str| {
