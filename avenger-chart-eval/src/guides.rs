@@ -381,7 +381,8 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
         // styles give its ticks or their count.
         if style.ticks.is_none() && style.tick_count.is_none() {
             if let Some(edges) = crate::bins::edges(inputs.resolved, index, inputs.kinds) {
-                style.ticks = Some(AxisTicks::Edges(edges));
+                style.ticks = Some(edges);
+                style.thin_ticks = true;
             }
         }
         let labels = spec.labels.as_ref();

@@ -14,7 +14,7 @@ use avenger_chart::{
     resolve::{Layer, Resolved},
     span, FitKind,
 };
-use avenger_guides::axis::BinEdges;
+use avenger_guides::axis::{AxisTickInterval, AxisTicks};
 
 /// How near two edges, as a fraction of the bin width, count as one.
 const EPSILON: f64 = 1e-9;
@@ -40,13 +40,13 @@ pub(crate) fn key_channel(layer: &Layer, continuous: impl Fn(Channel) -> bool) -
     })
 }
 
-/// The edges of the bins of the bars of the scale group `index`, when the group is the continuous
-/// numeric key of bars that span their bins: the lattice of uniform bins, whose edges tick across
-/// the whole domain, through empty bins and past the bins of the data, or else the distinct starts
-/// and ends. The edges of several bar layers on the scale join, and other layers give none.
+/// The ticks at the edges of the bins of the bars of the scale group `index`, when the group is
+/// the continuous numeric key of bars that span their bins: for uniform bins, ticks at the least
+/// start and each whole multiple of their width before and after it, across the whole domain,
+/// through empty bins and past the bins of the data, and otherwise the distinct starts and ends. The edges of several bar layers on the scale join, and other layers give none.
 /// `None` for another group, and for a bar spanned on its value axis, as a Gantt chart's tasks
 /// are.
-pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Option<BinEdges> {
+pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Option<AxisTicks> {
     let group = &resolved.scales[index];
     let partner = span::partner(group.channel)?;
     let numeric = matches!(
@@ -89,8 +89,8 @@ pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Opt
         return None;
     }
     Some(match lattice(&bins) {
-        Some((origin, width)) => BinEdges::Lattice { origin, width },
-        None => BinEdges::Values(Arc::new(Float64Array::from(distinct(&bins))) as ArrayRef),
+        Some((start, step)) => AxisTicks::StartStep(AxisTickInterval::Numeric { start, step }),
+        None => AxisTicks::Values(Arc::new(Float64Array::from(distinct(&bins))) as ArrayRef),
     })
 }
 

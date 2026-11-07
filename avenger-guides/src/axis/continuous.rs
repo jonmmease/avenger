@@ -1,12 +1,10 @@
 //! Ticks for scales with a numeric or temporal domain, such as linear, log and time scales: how
 //! many an axis of a length shows, which ones it labels, and their label text.
 
-use std::sync::Arc;
-
 use arrow::{
-    array::{Array, ArrayRef, BooleanArray, Float64Array, UInt32Array},
+    array::{Array, ArrayRef, AsArray, BooleanArray, UInt32Array},
     compute::{filter, take},
-    datatypes::DataType,
+    datatypes::{DataType, Float64Type},
 };
 use avenger_scales::{
     error::AvengerScaleError,
@@ -14,7 +12,7 @@ use avenger_scales::{
 };
 use avenger_typst_label::{LabelEngine, LabelValue};
 
-use super::opts::{AxisStyle, AxisTickInterval, AxisTicks, BinEdges};
+use super::opts::{AxisStyle, AxisTickInterval, AxisTicks};
 use crate::error::AvengerGuidesError;
 
 /// The gap between the labels and the title.
@@ -39,9 +37,9 @@ pub(crate) fn min_tick_spacing(style: &AxisStyle) -> f32 {
 pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
     style.tick_count.or_else(|| {
         let count = f64::from((length / min_spacing).max(2.0));
-        // Edges take every count, since they thin to the count at any length.
-        let edges = matches!(style.ticks, Some(AxisTicks::Edges(_)));
-        (edges || count < DEFAULT_MAX_TICK_COUNT).then_some(count)
+        // Thinned ticks take every count, since they thin to the count at any length.
+        let thinned = style.thin_ticks && style.ticks.is_some();
+        (thinned || count < DEFAULT_MAX_TICK_COUNT).then_some(count)
     })
 }
 
@@ -62,73 +60,59 @@ pub(crate) fn axis_ticks(
             nanos,
         })) => scale.temporal_start_step_ticks(*start_millis, *months, *days, *nanos)?,
         Some(AxisTicks::Values(values)) => values_in_range(scale, values)?,
-        Some(AxisTicks::Edges(BinEdges::Values(edges))) => {
-            let edges = values_in_range(scale, edges)?;
-            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
-            let stride = edge_stride(edges.len(), count);
-            let indices = UInt32Array::from_iter_values((0..edges.len() as u32).step_by(stride));
-            take(&edges, &indices, None).map_err(AvengerScaleError::from)?
-        }
-        Some(AxisTicks::Edges(BinEdges::Lattice { origin, width })) => {
-            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
-            Arc::new(lattice_ticks(scale, *origin, *width, count)?) as ArrayRef
-        }
         None => {
             let ticks = scale.ticks(tick_count)?;
             let labeled = scale.label_ticks(&ticks, tick_count);
             return Ok((ticks, labeled));
         }
     };
+    let ticks = match style.thin_ticks {
+        true => {
+            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
+            let step = match &style.ticks {
+                Some(AxisTicks::StartStep(AxisTickInterval::Numeric { step, .. })) => Some(*step),
+                _ => None,
+            };
+            thinned(&ticks, count, step)?
+        }
+        false => ticks,
+    };
     Ok((ticks.clone(), ticks))
 }
 
-/// The edges of the lattice `origin + k * width` inside the domain of `scale`, every one where
-/// they stand apart at about `count` ticks, and otherwise every `stride`-th, starting at the edge
-/// nearest a whole multiple of `stride * width`, so the kept edges land on round values.
-fn lattice_ticks(
-    scale: &ConfiguredScale,
-    origin: f64,
-    width: f64,
+/// Every `stride`-th of `ticks`, ascending, at the smallest stride whose kept ticks number no
+/// more than about `count`. For numeric ticks one `step` apart, the kept ticks start at the tick
+/// nearest a whole multiple of `stride * step`, so they land on round values, and otherwise at
+/// the first.
+fn thinned(
+    ticks: &ArrayRef,
     count: f64,
-) -> Result<Float64Array, AvengerGuidesError> {
-    let (start, end) = scale.numeric_interval_domain()?;
-    let (low, high) = (start.min(end), start.max(end));
-    if !(width.is_finite()
-        && width > 0.0
-        && origin.is_finite()
-        && low.is_finite()
-        && high.is_finite())
-    {
-        return Ok(Float64Array::from(Vec::<f64>::new()));
+    step: Option<f64>,
+) -> Result<ArrayRef, AvengerGuidesError> {
+    let len = ticks.len();
+    let stride = edge_stride(len, count);
+    if stride <= 1 {
+        return Ok(ticks.clone());
     }
-    let slack = 1e-9;
-    let first = ((low - origin) / width - slack).ceil();
-    let last = ((high - origin) / width + slack).floor();
-    if last < first {
-        return Ok(Float64Array::from(Vec::<f64>::new()));
-    }
-    let edges = (last - first) as usize + 1;
-    let stride = edge_stride(edges, count);
-    let span = stride as f64 * width;
-    let at = |index: f64| origin + index * width;
-    // The phase whose edge lies nearest a whole multiple of the stride's length.
-    let phase = (0..stride.min(edges))
-        .min_by(|a, b| {
-            let off = |phase: usize| {
-                let value = at(first + phase as f64);
+    let phase = match step.zip(ticks.as_primitive_opt::<Float64Type>()) {
+        Some((step, values)) => {
+            let span = stride as f64 * step;
+            let off = |index: usize| {
+                let value = values.value(index);
                 (value - (value / span).round() * span).abs()
             };
-            off(*a).total_cmp(&off(*b))
-        })
-        .unwrap_or(0);
-    Ok((phase..edges)
-        .step_by(stride)
-        .map(|index| at(first + index as f64))
-        .collect())
+            (0..stride.min(len))
+                .min_by(|a, b| off(*a).total_cmp(&off(*b)))
+                .unwrap_or(0)
+        }
+        None => 0,
+    };
+    let indices = UInt32Array::from_iter_values((phase as u32..len as u32).step_by(stride));
+    Ok(take(ticks, &indices, None).map_err(AvengerScaleError::from)?)
 }
 
-/// The stride of the edges that an axis of about `count` ticks keeps of `edges` edges: the smallest
-/// of 1, 2, 5, 10, 20, 50, and so on whose kept edges number no more than the count, plus one.
+/// The stride of the ticks that an axis of about `count` ticks keeps of `edges` ticks: the smallest
+/// of 1, 2, 5, 10, 20, 50, and so on whose kept ticks number no more than the count, plus one.
 fn edge_stride(edges: usize, count: f64) -> usize {
     let intervals = edges.saturating_sub(1) as f64;
     let count = count.max(1.0);
@@ -357,7 +341,7 @@ mod tests {
     }
 
     #[test]
-    fn edges_keep_every_kth_edge_at_the_tick_count() {
+    fn thinned_ticks_keep_every_kth_at_the_tick_count() {
         // Nine edges of eight bins of width 5.
         assert_eq!(edge_stride(9, 10.0), 1);
         assert_eq!(edge_stride(9, 4.0), 2);
@@ -368,7 +352,8 @@ mod tests {
             (0..=8).map(|bin| f64::from(bin) * 5.0),
         )) as ArrayRef;
         let style = AxisStyle {
-            ticks: Some(AxisTicks::Edges(BinEdges::Values(edges))),
+            ticks: Some(AxisTicks::Values(edges)),
+            thin_ticks: true,
             ..Default::default()
         };
         let (ticks, labeled) = axis_ticks(&scale, &style, Some(4.0)).unwrap();
@@ -377,11 +362,15 @@ mod tests {
     }
 
     #[test]
-    fn a_lattice_ticks_across_the_domain_on_round_values() {
+    fn thinned_start_step_ticks_cross_the_domain_on_round_values() {
         // Bins of width 10 tick across a domain of 0 to 100, past the bins of the data.
         let scale = LinearScale::configured((0.0, 100.0), (0.0, 400.0));
-        let lattice = |origin: f64, width: f64| AxisStyle {
-            ticks: Some(AxisTicks::Edges(BinEdges::Lattice { origin, width })),
+        let lattice = |start: f64, step: f64| AxisStyle {
+            ticks: Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
+                start,
+                step,
+            })),
+            thin_ticks: true,
             ..Default::default()
         };
         let (ticks, _) = axis_ticks(&scale, &lattice(0.0, 10.0), Some(11.0)).unwrap();

@@ -10,7 +10,7 @@ mod polar;
 mod prepared;
 
 pub use nested_band::NestedBandAxisLevelConfig;
-pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, BinEdges, LabelThinning};
+pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, LabelThinning};
 pub use polar::{
     PolarAxis, PolarAxisConfig, PolarAxisKind, PolarFrame, PolarLabel, PolarLabelOrient, PolarShape,
 };
