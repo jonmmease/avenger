@@ -5,6 +5,11 @@ edition = "2021"
 description = "Serializable charts of Arrow data that render at any size"
 readme = "README.md"
 
+[features]
+# `proto::FILE_DESCRIPTOR_SET`, the descriptors of the format's messages, for tests that walk the
+# messages and their fields.
+descriptors = []
+
 [dependencies]
 arrow = { workspace = true }
 prost = { workspace = true }

@@ -63,6 +63,19 @@ impl Identity {
         format!("{}[{}]", self.id, values.join(", "))
     }
 
+    /// The name of the owner of a clause in a selection state, which a renderer and a query give
+    /// avenger-selection: the id of the plot or the layer of a tool's clause, and for the clause of
+    /// the widget `widget`, a name that begins with a NUL character and joins the key with the id
+    /// of the widget's anchor, empty for a widget that the whole chart shares. No id holds a NUL
+    /// character, so the clauses of tools and widgets never share an owner. The partition of either
+    /// clause stays apart from its name.
+    pub fn owner_name(widget: &str, owner: &str) -> String {
+        match widget {
+            "" => owner.to_string(),
+            widget => format!("\0{widget}\0{owner}"),
+        }
+    }
+
     /// The key of the identity, equal exactly for equal identities.
     pub(crate) fn key(&self) -> Vec<u8> {
         let mut key = self.id.clone().into_bytes();
@@ -181,6 +194,12 @@ impl<'a> Tree<'a> {
 fn unique<'a>(identities: impl IntoIterator<Item = (&'a Identity, &'a str)>) -> Result<()> {
     let mut seen: HashMap<Vec<u8>, &str> = HashMap::new();
     for (identity, path) in identities {
+        if identity.id.contains('\0') {
+            return Err(ChartError::invalid(
+                path,
+                "an id holds no NUL character, which the owners of widgets' clauses begin with",
+            ));
+        }
         if let Some(first) = seen.insert(identity.key(), path) {
             return Err(ChartError::invalid(
                 path,

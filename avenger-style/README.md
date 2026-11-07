@@ -104,7 +104,7 @@ The lengths are `px`, `rem`, and `em`. A number without a unit is a number of pi
 
 Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. `color-mix()` takes the other color's value for a missing component, also when the mix converts the color to another space, for the components of the same kind, such as the hues of `hsl()` and `oklch()`. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
 
-The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), and `all`, which takes only a CSS-wide keyword.
+The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
 
 ## Properties
 
@@ -126,8 +126,10 @@ The initial values of the table hold on every node except these, where they depe
 <!-- properties -->
 | Property | Values | Initial | Inherited | Elements |
 |---|---|---|---|---|
-| `width` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
-| `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
+| `width` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
+| `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
+| `contain-intrinsic-width` | `<length [0,∞]> \| none` | `none` | no | `plot` |
+| `contain-intrinsic-height` | `<length [0,∞]> \| none` | `none` | no | `plot` |
 | `aspect-ratio` | `<ratio> \| auto` | `auto` | no | `plot` |
 | `step` | `<length [0,∞]> \| none` | `none` | no | `scale` |
 | `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
@@ -201,11 +203,11 @@ The initial values of the table hold on every node except these, where they depe
 | `title-orient` | `top \| bottom \| left \| right` | `top` | no | `header` |
 | `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
-| `tick-count` | `<number [0,∞]>` | `10` | no | `axis`, `legend` |
+| `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
 | `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `header`, `graticule`, `mark` |
 | `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `header` |
-| `offset` | `<length>` | `0` | no | `axis`, `legend`, `header` |
+| `offset` | `<length>` | `0` | no | `axis`, `legend`, `header`, `title`, `attribution` |
 | `label-offset` | `<length>` | `0` | no | `axis`, `mark` |
 | `min-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
 | `max-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
@@ -213,7 +215,7 @@ The initial values of the table hold on every node except these, where they depe
 | `length` | `<length [0,∞]> \| auto` | `auto` | no | `ramp` |
 | `max-length` | `<length [0,∞]> \| none` | `none` | no | `ramp` |
 | `axis-gap` | `<length [0,∞]>` | `0` | no | `legend` |
-| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `mark` |
+| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `legend`, `mark` |
 | `label-separation` | `<length [0,∞]>` | `0` | no | `axis` |
 | `label-flush` | `true \| false \| <length [0,∞]>` | `false` | no | `axis` |
 | `tick-band` | `center \| extent` | `center` | no | `axis` |
@@ -285,7 +287,7 @@ A property without a declaration takes the value of the parent when it is inheri
 
 A custom property computes at the node that declares it, with the custom properties of that node and the `env()` values of its own stylesheet, and the children inherit the computed value. So `--b: var(--a)` on a plot keeps the plot's `--a` in the marks below it, also when a mark declares its own `--a`. Custom properties that refer to each other in a cycle, also through a fallback, are invalid, and an invalid custom property has no value, so a `var()` of it takes its fallback. `initial` removes an inherited custom property, and `inherit` and `unset` keep it. `1rem` is 10 pixels times the text scale, and `em` is the font size of the node, or of its parent for `font-size`. `currentColor` is the `color` of the node, or of its parent for `color`. A node that inherits a color that reads `currentColor`, such as `fill: currentColor` or a `color-mix()` of it, resolves it against its own `color`, as CSS Color 4 specifies.
 
-`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark, a text, a swatch, or a ramp, `stroke: auto` is the `color` of a line, a rule, a tick, or a grid line, and the `fill` of the label of a mark contrasts with the mark that it labels. Other nodes paint nothing with `auto`. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
+`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark, a text, a swatch, or a ramp, `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line, and the `fill` of the label of a mark contrasts with the mark that it labels. Other nodes paint nothing with `auto`. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
 
 `ComputedStyles::needs_update` tells whether a render at new host inputs needs new styles: when the preferences or the host theme change, or when a condition changes its outcome. A resize within a breakpoint keeps the styles, so a renderer computes them again only when the host box crosses a breakpoint. Two `StyleTree`s are equal when their nodes have the same elements, ids, classes, attributes, inline styles, and places, so a renderer that builds the tree of an updated chart keeps the old computed styles when the trees are equal and the cascade and the host inputs are the same. On the tree of `examples/cascade_bench.rs`, the comparison takes about 1% of the time of `Cascade::compute`.
 
