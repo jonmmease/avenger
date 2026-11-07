@@ -1,0 +1,41 @@
+[package]
+name = "avenger-chart-app"
+version = "0.1.0"
+edition = "2021"
+description = "An avenger app that shows an avenger chart and serves the tools of its plots"
+
+[features]
+# Geo plots: their projections pan, zoom, and select, and draw their raster tiles through the
+# app's image cache.
+geo = ["avenger-app-tools/geo", "avenger-chart-eval/geo", "dep:avenger-geo"]
+
+[dependencies]
+arrow = { workspace = true }
+async-trait = { workspace = true }
+avenger-app = { path = "../avenger-app" }
+avenger-app-tools = { path = "../avenger-app-tools" }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-eval = { path = "../avenger-chart-eval" }
+avenger-coords = { path = "../avenger-coords" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geo = { path = "../avenger-geo", optional = true }
+avenger-geometry = { path = "../avenger-geometry" }
+avenger-image = { path = "../avenger-image", default-features = false }
+avenger-layout = { path = "../avenger-layout" }
+avenger-scales = { path = "../avenger-scales" }
+avenger-selection = { path = "../avenger-selection" }
+avenger-style = { path = "../avenger-style" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+
+[dev-dependencies]
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
+
+[[test]]
+name = "geo"
+required-features = ["geo"]
