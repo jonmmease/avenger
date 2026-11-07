@@ -41,6 +41,15 @@ plot[type=cartesian] {
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
+/* Compositions keep Vega-Lite's spacing of 20 between their children, and a wrap's columns are
+   at least 160 wide. */
+plot:is([type=hconcat], [type=vconcat], [type=wrap], [type=facet_row], [type=facet_col],
+        [type=facet_wrap]) { gap: 20; }
+plot:is([type=wrap], [type=facet_wrap]) { min-column-width: 160; }
+/* Facet headers stand above their columns and wraps, and to the right of their rows, whose labels
+   read down. */
+header { orient: top; label-padding: 4; }
+header[type=row] { orient: right; label-angle: 90deg; }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 
 /* The labels of axes and colorbars keep apart, except those of categories, which all show as in
