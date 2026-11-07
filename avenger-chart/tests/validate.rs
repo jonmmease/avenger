@@ -178,15 +178,20 @@ fn enum_fields_hold_declared_values() {
 }
 
 #[test]
-fn x_and_y_take_a_column_or_a_scaled_constant_through_a_scale() {
+fn x_and_y_take_a_scaled_column_or_a_scaled_constant_through_a_scale() {
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().scale = None;
-    invalid(parts, X, "always have a scale");
+    invalid(parts, X, "goes through the channel's scale");
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().value =
-        Some(encoding::Value::Column("missing".to_string()));
+        Some(encoding::Value::ScaledColumn("missing".to_string()));
     invalid(parts, X, "no column `missing`");
+
+    let mut parts = base();
+    symbol_mut(&mut parts.0).x.as_mut().unwrap().value =
+        Some(encoding::Value::Column("a".to_string()));
+    invalid(parts, X, "a `scaled_column` or a `scaled_constant`");
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x = Some(Encoding {
@@ -194,7 +199,130 @@ fn x_and_y_take_a_column_or_a_scaled_constant_through_a_scale() {
         ..Default::default()
     });
     parts.2 = vec![Arc::new(Float64Array::from(vec![1.0]))];
-    invalid(parts, X, "a column or a scaled constant");
+    invalid(parts, X, "a `scaled_column` or a `scaled_constant`");
+}
+
+#[test]
+fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
+    // A plain column with a scale.
+    let mut parts = base();
+    symbol_mut(&mut parts.0).size = Some(Encoding {
+        value: Some(encoding::Value::Column("a".to_string())),
+        scale: Some(linear_data()),
+        ..Default::default()
+    });
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].mark.symbol.size",
+        "has no scale",
+    );
+
+    // A channel that takes no scale takes no scaled value.
+    let mut parts = base();
+    layer_mut(&mut parts.0).mark = Some(cartesian_layer::Mark::Line(proto::LineMark {
+        x: Some(column("a", linear_data())),
+        y: Some(column("b", linear_data())),
+        detail: Some(Encoding {
+            value: Some(encoding::Value::ScaledColumn("a".to_string())),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }));
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].mark.line.detail",
+        "takes no scale",
+    );
+}
+
+#[test]
+fn a_plain_conditional_value_in_a_scaled_encoding_is_drawn_as_it_is() {
+    let gray = |parts: &mut (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>), value| {
+        symbol_mut(&mut parts.0).size = Some(Encoding {
+            value: Some(encoding::Value::ScaledColumn("a".to_string())),
+            scale: Some(linear_data()),
+            conditional: vec![proto::ConditionalValue {
+                predicate: Some(proto::Predicate {
+                    predicate: Some(predicate::Predicate::All(proto::PredicateList::default())),
+                }),
+                value: Some(value),
+            }],
+            ..Default::default()
+        });
+    };
+    // A plain constant of the form of `size` reads, and a plain column of strings does not.
+    let mut parts = base();
+    parts.2 = vec![Arc::new(Float64Array::from(vec![4.0]))];
+    gray(
+        &mut parts,
+        proto::conditional_value::Value::Constant(ValueRef { index: 0 }),
+    );
+    read(parts).unwrap();
+
+    let mut parts = base();
+    parts.1 = vec![RecordBatch::try_from_iter([
+        (
+            "a",
+            Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0])) as ArrayRef,
+        ),
+        (
+            "b",
+            Arc::new(Float64Array::from(vec![4.0, 6.0, 5.0])) as ArrayRef,
+        ),
+        (
+            "c",
+            Arc::new(StringArray::from(vec!["x", "y", "z"])) as ArrayRef,
+        ),
+    ])
+    .unwrap()];
+    gray(
+        &mut parts,
+        proto::conditional_value::Value::Column("c".to_string()),
+    );
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].mark.symbol.size.conditional[0]",
+        "cannot have type Utf8",
+    );
+}
+
+#[test]
+fn the_second_channel_of_a_pair_follows_the_scale_of_the_first() {
+    let bar = |theta2: Encoding| {
+        let layer = proto::PolarLayer {
+            table: Some(proto::TableRef { index: 0 }),
+            mark: Some(proto::polar_layer::Mark::Bar(proto::PolarBarMark {
+                theta: Some(column("a", linear_data())),
+                theta2: Some(theta2),
+                radius: Some(column("b", linear_data())),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let root = proto::Node {
+            node: Some(node::Node::Plot(Plot {
+                coord: Some(plot::Coord::Polar(proto::PolarPlot {
+                    layers: vec![layer],
+                    ..Default::default()
+                })),
+                ..Default::default()
+            })),
+        };
+        (chart(root), vec![points()], vec![])
+    };
+    read(bar(Encoding {
+        value: Some(encoding::Value::ScaledColumn("b".to_string())),
+        ..Default::default()
+    }))
+    .unwrap();
+    invalid(
+        bar(Encoding {
+            value: Some(encoding::Value::Column("b".to_string())),
+            ..Default::default()
+        }),
+        "root.plot.polar.layers[0].mark.bar.theta2",
+        "goes through the scale of `theta`",
+    );
 }
 
 #[test]
