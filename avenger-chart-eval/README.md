@@ -1,9 +1,22 @@
 # avenger-chart-eval
 
 The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size. This version
-draws a chart of one Cartesian plot: its 10 marks, every scale type with every kind of domain,
-axes, legends, colorbars, its title, and its attribution. A concat, a wrap, a polar plot, and a map
-plot are `EvalError::Unsupported`.
+draws charts of Cartesian plots: their 10 marks, every scale type with every kind of domain, axes,
+legends, colorbars, titles, and attributions, in concats, wraps, and facets with their headers and
+empty cells, with the guide rules of compositions and scales that plots share. A polar plot and a
+map plot are `EvalError::Unsupported`.
+
+## Compositions
+
+A concat lays out its children in a row or a column on the tracks of its table, and the plots of a
+facet grid, a column of rows, line up in one table. A wrap fills rows with its children and reflows
+as the chart resizes. A plot's width or height fixes the length of its track, and an empty cell
+keeps its track. The guides of a scale that plots share follow the guide rules of the scale's
+owner: by default a concat or a wrap collapses the ticks and the labels of axes and the labels and
+titles of facet headers where they line up, and merges axis titles, legends, colorbars, and
+attributions into one. A facet header labels the children of its concat, or each child of its wrap,
+with the values of the facet's column in their partitions. The titles of concats and wraps run
+along their side, outermost.
 
 ## Preparation and evaluation
 

@@ -17,6 +17,21 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ("Chart", &["padding"]),
     ("Padding", &["top", "right", "bottom", "left"]),
     ("Plot", &["width", "height"]),
+    ("ConcatLayout", &["gap"]),
+    ("WrapLayout", &["min_column_width", "max_columns", "gap"]),
+    (
+        "FacetHeader",
+        &[
+            "title",
+            "side",
+            "labels",
+            "label_angle",
+            "label_padding",
+            "tick_length",
+            "rule_color",
+            "rule_width",
+        ],
+    ),
     ("Cartesian", &["aspect_ratio"]),
     ("Title", &["side", "align", "style", "subtitle_style"]),
     (
@@ -290,6 +305,72 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
         {
             set(tree, node, Property::AspectRatio, &format!("{ratio} / 1"));
         }
+    }
+}
+
+/// `ConcatLayout.gap` on the `plot` of a concat.
+pub(crate) fn concat(tree: &mut Styled, node: NodeId, concat: &proto::Concat) {
+    if let Some(layout) = &concat.layout {
+        px(tree, node, Property::RowGap, layout.gap);
+        px(tree, node, Property::ColumnGap, layout.gap);
+    }
+}
+
+/// `WrapLayout.gap`, `min_column_width`, and `max_columns` on the `plot` of a wrap.
+pub(crate) fn wrap(tree: &mut Styled, node: NodeId, wrap: &proto::Wrap) {
+    let Some(layout) = &wrap.layout else {
+        return;
+    };
+    px(tree, node, Property::RowGap, layout.gap);
+    px(tree, node, Property::ColumnGap, layout.gap);
+    px(
+        tree,
+        node,
+        Property::MinColumnWidth,
+        layout.min_column_width,
+    );
+    if let Some(columns) = layout.max_columns {
+        set(tree, node, Property::MaxColumns, &columns.to_string());
+    }
+}
+
+/// The nodes of a facet header and its parts.
+#[derive(Clone, Debug)]
+pub(crate) struct HeaderNodes {
+    pub(crate) header: NodeId,
+    pub(crate) title: NodeId,
+    pub(crate) label: NodeId,
+    pub(crate) tick: NodeId,
+    pub(crate) rule: NodeId,
+}
+
+/// A `FacetHeader` on its nodes.
+pub(crate) fn header(tree: &mut Styled, nodes: &HeaderNodes, header: &proto::FacetHeader) {
+    keyword(tree, nodes.header, Property::Orient, side(header.side));
+    deg(tree, nodes.header, Property::LabelAngle, header.label_angle);
+    px(
+        tree,
+        nodes.header,
+        Property::LabelPadding,
+        header.label_padding,
+    );
+    text_style(
+        tree,
+        nodes.title,
+        header.title.as_ref().and_then(|title| title.style.as_ref()),
+    );
+    text_style(
+        tree,
+        nodes.label,
+        header
+            .labels
+            .as_ref()
+            .and_then(|labels| labels.style.as_ref()),
+    );
+    px(tree, nodes.tick, Property::TickSize, header.tick_length);
+    for node in [nodes.tick, nodes.rule] {
+        color(tree, node, Property::Stroke, &header.rule_color);
+        px(tree, node, Property::StrokeWidth, header.rule_width);
     }
 }
 

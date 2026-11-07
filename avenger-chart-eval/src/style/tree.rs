@@ -1,11 +1,13 @@
-//! The style tree of a chart of one plot, built once for each chart from its resolved models, as
+//! The style tree of a chart, built once for each chart from its resolved models, as
 //! the style proposal's table of nodes gives it, with the inline styles of the format's style
 //! fields.
 
+use std::collections::HashMap;
+
 use arrow::datatypes::DataType;
 use avenger_chart::{
-    proto::{self, encoding, guide, layer_tool, plot::Coord, select, tool},
-    resolve::{Resolved, ScaleGroup},
+    proto::{self, encoding, guide, layer_tool, node::Node, plot::Coord, select, tool},
+    resolve::{PlotRef, Resolved, ScaleGroup},
     Chart, FitKind,
 };
 use avenger_style::{Element, NodeId, StyleTree};
@@ -14,7 +16,7 @@ use crate::EvalWarning;
 
 use super::{
     guide_kind, inline,
-    inline::{AxisNodes, ColorbarNodes, LegendNodes, Styled},
+    inline::{AxisNodes, ColorbarNodes, HeaderNodes, LegendNodes, Styled},
     scale_type, GuideKind,
 };
 
@@ -26,32 +28,65 @@ pub(crate) enum GuideNodes {
     Colorbar(ColorbarNodes),
 }
 
-/// The nodes of the style tree that stand for the parts of a chart of one plot.
+/// The nodes that a plot, a concat, or a wrap has: the `plot` inside its `chart`, and its title and
+/// subtitle.
 #[derive(Clone, Debug)]
-pub(crate) struct StyleNodes {
-    pub(crate) chart: NodeId,
+pub(crate) struct NodeNodes {
+    pub(crate) plot: NodeId,
     pub(crate) title: Option<NodeId>,
     pub(crate) subtitle: Option<NodeId>,
-    pub(crate) plot: NodeId,
-    pub(crate) attribution: Option<NodeId>,
+}
+
+/// The nodes of the style tree that stand for the parts of a chart.
+#[derive(Clone, Debug)]
+pub(crate) struct StyleNodes {
+    /// The root `chart`.
+    pub(crate) chart: NodeId,
+    /// The nodes of each plot, concat, and wrap, by its path, such as `root.concat` or
+    /// `root.concat.children[1].plot`.
+    pub(crate) nodes: HashMap<String, NodeNodes>,
+    /// The `attribution` of each plot that has one, in the order of `Tree::plots`.
+    pub(crate) attributions: Vec<Option<NodeId>>,
     /// The `mark` of each layer, in the order of `Tree::layers`.
     pub(crate) marks: Vec<NodeId>,
     /// The `scale` of each scale group, in the order of `Resolved::scales`.
     pub(crate) scales: Vec<NodeId>,
     /// The nodes of each scale group's guide, or `None` for a group without a guide.
     pub(crate) guides: Vec<Option<GuideNodes>>,
+    /// The `header` of each concat or wrap with a shown facet header, by the path of the concat
+    /// or the wrap.
+    pub(crate) headers: HashMap<String, HeaderNodes>,
 }
 
-/// The style tree of `chart`, whose root is one Cartesian plot, with its nodes and a warning for
-/// each style field whose text is not a value of its property. `kinds` holds the kind of fit of
-/// each scale group, by its position in `Resolved::scales`.
+impl StyleNodes {
+    /// The nodes of the plot at `path`.
+    pub(crate) fn plot(&self, path: &str) -> &NodeNodes {
+        &self.nodes[path]
+    }
+}
+
+/// The path of the innermost plot, concat, or wrap of `nodes` at or above `path`.
+pub(crate) fn owner_path<'a, T>(nodes: &HashMap<String, T>, path: &'a str) -> &'a str {
+    let mut end = path.len();
+    loop {
+        let candidate = &path[..end];
+        if nodes.contains_key(candidate) {
+            return candidate;
+        }
+        end = candidate
+            .rfind('.')
+            .expect("a path is below the root's node");
+    }
+}
+
+/// The style tree of `chart`, whose plots are all Cartesian, with its nodes and a warning for each
+/// style field whose text is not a value of its property. `kinds` holds the kind of fit of each
+/// scale group, by its position in `Resolved::scales`.
 pub(crate) fn build(
     chart: &Chart,
     resolved: &Resolved,
     kinds: &[FitKind],
 ) -> (StyleTree, StyleNodes, Vec<EvalWarning>) {
-    let plot_ref = &resolved.tree.plots[0];
-    let plot = plot_ref.plot;
     let mut tree = Styled {
         tree: StyleTree::new(Element::Chart),
         warnings: Vec::new(),
@@ -59,31 +94,22 @@ pub(crate) fn build(
     let chart_node = tree.root();
     inline::chart(&mut tree, chart_node, chart.message());
 
-    let (title, subtitle) = match &plot.title {
-        Some(title) => {
-            let title_node = tree.add(chart_node, Element::Title);
-            let subtitle_node =
-                (!title.subtitle.is_empty()).then(|| tree.add(chart_node, Element::Subtitle));
-            inline::title(&mut tree, title_node, subtitle_node, title);
-            (Some(title_node), subtitle_node)
-        }
-        None => (None, None),
-    };
-
-    let plot_node = tree.add(chart_node, Element::Plot);
-    tree.set_attribute(plot_node, "type", "cartesian");
-    identify(&mut tree, plot_node, &plot.id, &plot.classes);
-    let discrete: Vec<&str> = (resolved.scales.iter().zip(kinds))
-        .filter(|(group, kind)| group.is_position() && **kind == FitKind::Categories)
-        .map(|(group, _)| group.channel.field_name())
-        .collect();
-    if !discrete.is_empty() {
-        tree.set_attribute(plot_node, "discrete", discrete.join(" "));
-    }
-    inline::plot(&mut tree, plot_node, plot);
+    let mut nodes = HashMap::new();
+    let mut headers = HashMap::new();
+    composition(
+        &mut tree,
+        chart_node,
+        chart.root(),
+        "root",
+        resolved,
+        kinds,
+        &mut nodes,
+        &mut headers,
+    );
 
     let mut marks = Vec::with_capacity(resolved.tree.layers.len());
     for layer in &resolved.tree.layers {
+        let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
         // A Cartesian mark has the same name in both forms.
         let name = layer.mark.name();
@@ -98,7 +124,8 @@ pub(crate) fn build(
 
     let mut scales = Vec::with_capacity(resolved.scales.len());
     for (group, kind) in resolved.scales.iter().zip(kinds) {
-        let node = tree.add(plot_node, Element::Scale);
+        let owner = nodes[owner_path(&nodes, &group.owner)].plot;
+        let node = tree.add(owner, Element::Scale);
         let type_name = scale_type(&group.spec);
         tree.set_attribute(node, "type", type_name);
         tree.set_attribute(node, "channel", group.channel.field_name());
@@ -111,94 +138,273 @@ pub(crate) fn build(
 
     let mut guides = Vec::with_capacity(resolved.scales.len());
     for (group, kind) in resolved.scales.iter().zip(kinds) {
-        let spec_guide = group
-            .spec
-            .guide
-            .as_ref()
-            .and_then(|guide| guide.guide.as_ref());
-        let attributes = |tree: &mut StyleTree, node: NodeId| {
-            tree.set_attribute(node, "channel", group.channel.field_name());
-            tree.set_attribute(node, "scale", scale_type(&group.spec));
-            tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, *kind));
-        };
-        let nodes = match guide_kind(group, *kind) {
-            None => None,
-            Some(GuideKind::Axis) => {
-                let axis = tree.add(plot_node, Element::Axis);
-                attributes(&mut tree, axis);
-                let nodes = AxisNodes {
-                    axis,
-                    title: tree.add(axis, Element::Title),
-                    label: tree.add(axis, Element::Label),
-                    tick: tree.add(axis, Element::Tick),
-                    rule: tree.add(axis, Element::Rule),
-                    grid: tree.add(axis, Element::Grid),
-                    levels: (0..nested_levels(chart, resolved, group))
-                        .map(|_| {
-                            let level = tree.add(axis, Element::Level);
-                            (level, tree.add(level, Element::Label))
-                        })
-                        .collect(),
-                };
-                if let Some(guide::Guide::Axis(message)) = spec_guide {
-                    identify(&mut tree, axis, &message.id, &message.classes);
-                    inline::axis(&mut tree, &nodes, message);
-                }
-                Some(GuideNodes::Axis(nodes))
-            }
-            Some(GuideKind::Legend) => {
-                let legend = tree.add(plot_node, Element::Legend);
-                tree.set_attribute(legend, "type", "symbol");
-                attributes(&mut tree, legend);
-                let nodes = LegendNodes {
-                    legend,
-                    title: tree.add(legend, Element::Title),
-                    swatch: tree.add(legend, Element::Swatch),
-                    label: tree.add(legend, Element::Label),
-                };
-                if let Some(guide::Guide::Legend(message)) = spec_guide {
-                    identify(&mut tree, legend, &message.id, &message.classes);
-                    inline::legend(&mut tree, &nodes, message);
-                }
-                Some(GuideNodes::Legend(nodes))
-            }
-            Some(GuideKind::Colorbar) => {
-                let legend = tree.add(plot_node, Element::Legend);
-                tree.set_attribute(legend, "type", "colorbar");
-                attributes(&mut tree, legend);
-                let nodes = ColorbarNodes {
-                    legend,
-                    title: tree.add(legend, Element::Title),
-                    ramp: tree.add(legend, Element::Ramp),
-                    label: tree.add(legend, Element::Label),
-                    tick: tree.add(legend, Element::Tick),
-                    rule: tree.add(legend, Element::Rule),
-                };
-                if let Some(guide::Guide::Colorbar(message)) = spec_guide {
-                    identify(&mut tree, legend, &message.id, &message.classes);
-                    inline::colorbar(&mut tree, &nodes, message);
-                }
-                Some(GuideNodes::Colorbar(nodes))
-            }
-        };
-        guides.push(nodes);
+        let owner = nodes[owner_path(&nodes, &group.owner)].plot;
+        guides.push(guide_nodes(&mut tree, owner, chart, resolved, group, *kind));
     }
 
-    let attribution = plot.attribution.as_ref().map(|attribution| {
-        let node = tree.add(plot_node, Element::Attribution);
-        inline::attribution(&mut tree, node, attribution);
-        node
-    });
+    let mut attributions = Vec::with_capacity(resolved.tree.plots.len());
+    for plot_ref in &resolved.tree.plots {
+        let plot_node = nodes[&plot_ref.path].plot;
+        attributions.push(plot_ref.plot.attribution.as_ref().map(|attribution| {
+            let node = tree.add(plot_node, Element::Attribution);
+            inline::attribution(&mut tree, node, attribution);
+            node
+        }));
+        store_marks(&mut tree, plot_node, resolved, plot_ref);
+    }
 
-    // Each `Select` tool with a box or a lasso has a `mark[store]` for the mark of its selection's
-    // store, which the app draws.
-    let layer_selects = (resolved.tree.layers.iter())
+    let nodes = StyleNodes {
+        chart: chart_node,
+        nodes,
+        attributions,
+        marks,
+        scales,
+        guides,
+        headers,
+    };
+    (tree.tree, nodes, tree.warnings)
+}
+
+/// The nodes of `node` at `path`, whose `chart` is `chart_node`, and of the nodes below it: a
+/// `plot` with the node's type, its title, and the `chart` of each child under the `plot`.
+#[allow(clippy::too_many_arguments)]
+fn composition(
+    tree: &mut Styled,
+    chart_node: NodeId,
+    node: &proto::Node,
+    path: &str,
+    resolved: &Resolved,
+    kinds: &[FitKind],
+    nodes: &mut HashMap<String, NodeNodes>,
+    headers: &mut HashMap<String, HeaderNodes>,
+) {
+    let kind = node.node.as_ref().expect("a valid node has a kind");
+    let (path, title, children, facet) = match kind {
+        Node::Plot(plot) => (format!("{path}.plot"), plot.title.as_ref(), &[][..], None),
+        Node::Concat(concat) => (
+            format!("{path}.concat"),
+            concat.title.as_ref(),
+            &concat.children[..],
+            concat.facet.as_ref(),
+        ),
+        Node::Wrap(wrap) => (
+            format!("{path}.wrap"),
+            wrap.title.as_ref(),
+            &wrap.children[..],
+            wrap.facet.as_ref(),
+        ),
+        Node::Empty(_) => return,
+    };
+    let (title_node, subtitle_node) = match title {
+        Some(title) => {
+            let title_node = tree.add(chart_node, Element::Title);
+            let subtitle_node =
+                (!title.subtitle.is_empty()).then(|| tree.add(chart_node, Element::Subtitle));
+            inline::title(tree, title_node, subtitle_node, title);
+            (Some(title_node), subtitle_node)
+        }
+        None => (None, None),
+    };
+    let plot_node = tree.add(chart_node, Element::Plot);
+    match kind {
+        Node::Plot(plot) => {
+            tree.set_attribute(plot_node, "type", "cartesian");
+            identify(tree, plot_node, &plot.id, &plot.classes);
+            let plot_index = (resolved.tree.plots.iter())
+                .position(|plot_ref| plot_ref.path == path)
+                .expect("the tree has every plot");
+            let discrete: Vec<&str> = (resolved.scales.iter().zip(kinds))
+                .filter(|(group, kind)| {
+                    group.is_position()
+                        && **kind == FitKind::Categories
+                        && (group.members.iter())
+                            .any(|member| resolved.tree.layers[member.layer].plot == plot_index)
+                })
+                .map(|(group, _)| group.channel.field_name())
+                .collect();
+            if !discrete.is_empty() {
+                tree.set_attribute(plot_node, "discrete", discrete.join(" "));
+            }
+            inline::plot(tree, plot_node, plot);
+        }
+        Node::Concat(concat) => {
+            let row = !matches!(
+                proto::Direction::try_from(concat.direction),
+                Ok(proto::Direction::Column)
+            );
+            let name = match (row, concat.facet.is_some()) {
+                (true, false) => "hconcat",
+                (false, false) => "vconcat",
+                (true, true) => "facet_col",
+                (false, true) => "facet_row",
+            };
+            tree.set_attribute(plot_node, "type", name);
+            identify(tree, plot_node, &concat.id, &concat.classes);
+            inline::concat(tree, plot_node, concat);
+        }
+        Node::Wrap(wrap) => {
+            let name = match wrap.facet.is_some() {
+                true => "facet_wrap",
+                false => "wrap",
+            };
+            tree.set_attribute(plot_node, "type", name);
+            identify(tree, plot_node, &wrap.id, &wrap.classes);
+            inline::wrap(tree, plot_node, wrap);
+        }
+        Node::Empty(_) => unreachable!("an empty node has no nodes"),
+    }
+    if let Some(header) = facet.and_then(shown_header) {
+        let header_node = tree.add(plot_node, Element::Header);
+        let header_type = match kind {
+            Node::Wrap(_) => "by",
+            Node::Concat(concat)
+                if matches!(
+                    proto::Direction::try_from(concat.direction),
+                    Ok(proto::Direction::Column)
+                ) =>
+            {
+                "row"
+            }
+            _ => "col",
+        };
+        tree.set_attribute(header_node, "type", header_type);
+        identify(tree, header_node, &header.id, &header.classes);
+        let header_nodes = HeaderNodes {
+            header: header_node,
+            title: tree.add(header_node, Element::Title),
+            label: tree.add(header_node, Element::Label),
+            tick: tree.add(header_node, Element::Tick),
+            rule: tree.add(header_node, Element::Rule),
+        };
+        inline::header(tree, &header_nodes, header);
+        headers.insert(path.clone(), header_nodes);
+    }
+    nodes.insert(
+        path.clone(),
+        NodeNodes {
+            plot: plot_node,
+            title: title_node,
+            subtitle: subtitle_node,
+        },
+    );
+    for (index, child) in children.iter().enumerate() {
+        let child_chart = match child.node {
+            Some(Node::Empty(_)) => continue,
+            _ => tree.add(plot_node, Element::Chart),
+        };
+        composition(
+            tree,
+            child_chart,
+            child,
+            &format!("{path}.children[{index}]"),
+            resolved,
+            kinds,
+            nodes,
+            headers,
+        );
+    }
+}
+
+/// The header of a facet, or `None` for a hidden one: its own, or the default header.
+pub(crate) fn shown_header(facet: &proto::Facet) -> Option<&proto::FacetHeader> {
+    static DEFAULT: std::sync::OnceLock<proto::FacetHeader> = std::sync::OnceLock::new();
+    match &facet.header {
+        Some(proto::facet::Header::Hidden(_)) => None,
+        Some(proto::facet::Header::Shown(header)) => Some(header),
+        None => Some(DEFAULT.get_or_init(proto::FacetHeader::default)),
+    }
+}
+
+/// The nodes of the guide of `group` under `owner`, the `plot` of the node that owns it.
+fn guide_nodes(
+    tree: &mut Styled,
+    owner: NodeId,
+    chart: &Chart,
+    resolved: &Resolved,
+    group: &ScaleGroup,
+    kind: FitKind,
+) -> Option<GuideNodes> {
+    let spec_guide = group
+        .spec
+        .guide
+        .as_ref()
+        .and_then(|guide| guide.guide.as_ref());
+    let attributes = |tree: &mut StyleTree, node: NodeId| {
+        tree.set_attribute(node, "channel", group.channel.field_name());
+        tree.set_attribute(node, "scale", scale_type(&group.spec));
+        tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, kind));
+    };
+    match guide_kind(group, kind)? {
+        GuideKind::Axis => {
+            let axis = tree.add(owner, Element::Axis);
+            attributes(tree, axis);
+            let nodes = AxisNodes {
+                axis,
+                title: tree.add(axis, Element::Title),
+                label: tree.add(axis, Element::Label),
+                tick: tree.add(axis, Element::Tick),
+                rule: tree.add(axis, Element::Rule),
+                grid: tree.add(axis, Element::Grid),
+                levels: (0..nested_levels(chart, resolved, group))
+                    .map(|_| {
+                        let level = tree.add(axis, Element::Level);
+                        (level, tree.add(level, Element::Label))
+                    })
+                    .collect(),
+            };
+            if let Some(guide::Guide::Axis(message)) = spec_guide {
+                identify(tree, axis, &message.id, &message.classes);
+                inline::axis(tree, &nodes, message);
+            }
+            Some(GuideNodes::Axis(nodes))
+        }
+        GuideKind::Legend => {
+            let legend = tree.add(owner, Element::Legend);
+            tree.set_attribute(legend, "type", "symbol");
+            attributes(tree, legend);
+            let nodes = LegendNodes {
+                legend,
+                title: tree.add(legend, Element::Title),
+                swatch: tree.add(legend, Element::Swatch),
+                label: tree.add(legend, Element::Label),
+            };
+            if let Some(guide::Guide::Legend(message)) = spec_guide {
+                identify(tree, legend, &message.id, &message.classes);
+                inline::legend(tree, &nodes, message);
+            }
+            Some(GuideNodes::Legend(nodes))
+        }
+        GuideKind::Colorbar => {
+            let legend = tree.add(owner, Element::Legend);
+            tree.set_attribute(legend, "type", "colorbar");
+            attributes(tree, legend);
+            let nodes = ColorbarNodes {
+                legend,
+                title: tree.add(legend, Element::Title),
+                ramp: tree.add(legend, Element::Ramp),
+                label: tree.add(legend, Element::Label),
+                tick: tree.add(legend, Element::Tick),
+                rule: tree.add(legend, Element::Rule),
+            };
+            if let Some(guide::Guide::Colorbar(message)) = spec_guide {
+                identify(tree, legend, &message.id, &message.classes);
+                inline::colorbar(tree, &nodes, message);
+            }
+            Some(GuideNodes::Colorbar(nodes))
+        }
+    }
+}
+
+/// A `mark[store]` under `plot_node` for each `Select` tool of the plot and its layers with a box
+/// or a lasso, for the mark of its selection's store, which the app draws.
+fn store_marks(tree: &mut Styled, plot_node: NodeId, resolved: &Resolved, plot_ref: &PlotRef) {
+    let layer_selects = (resolved.tree.layers[plot_ref.layers.clone()].iter())
         .flat_map(|layer| layer.layer.tools())
         .filter_map(|tool| match &tool.kind {
             Some(layer_tool::Kind::Select(select)) => Some(select),
             _ => None,
         });
-    let selects = (plot.tools.iter())
+    let selects = (plot_ref.plot.tools.iter())
         .filter_map(|tool| match &tool.kind {
             Some(tool::Kind::Select(select)) => Some(select),
             _ => None,
@@ -214,18 +420,6 @@ pub(crate) fn build(
         tree.set_attribute_forms(node, "type", mark, mark);
         tree.set_attribute(node, "store", select.selection.clone());
     }
-
-    let nodes = StyleNodes {
-        chart: chart_node,
-        title,
-        subtitle,
-        plot: plot_node,
-        attribution,
-        marks,
-        scales,
-        guides,
-    };
-    (tree.tree, nodes, tree.warnings)
 }
 
 /// Sets the id and the classes of a node from the format.
@@ -325,7 +519,7 @@ fn nested_levels(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> usiz
     }
 }
 
-/// Whether a plot is the Cartesian root that this evaluator draws.
+/// Whether a plot is Cartesian, which this evaluator draws.
 pub(crate) fn is_cartesian(plot: &proto::Plot) -> bool {
     matches!(plot.coord, Some(Coord::Cartesian(_)))
 }
