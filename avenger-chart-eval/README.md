@@ -47,6 +47,23 @@ background and border of its `plot[type=geo]`, and its graticule takes the style
 warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps.
 The coordinates of a map plot are its projection, without scales.
 
+## State and updates
+
+An evaluation reads a state that changes without a new chart. `set_selections` replaces the clauses
+of the selections, which the conditional values of encodings take at the next evaluation, and a
+scale whose domain reads a selection fits again. `scale_view_mut` gives the view of a continuous
+scale of `x` or `y`, which keeps its domain at every size, shows on its axes, and clips its plots,
+and `projection_view_mut` gives the view of a map's projection, which scales and moves with the
+map's fit as the plots resize. An evaluation drops a view that did not move. A scale has an identity
+from the family of its spec or from the id of its first plot, and a projection from the family of
+its spec or from the id of its first map plot.
+
+`PreparedChart::new` prepares a chart on any thread, and `ChartEvaluator::install` installs it with
+`UpdateOptions`: a `Fit` that refits, keeps, or extends the fitted domain of each scale and
+projection that carries over by identity, `Views` that keep or drop the views, and a `Carry` that
+keeps or resets the clauses of each selection. A chart whose style tree equals the old one keeps the
+computed styles.
+
 ## Preparation and evaluation
 
 `ChartEvaluator::new` prepares a chart one time, with the cascade of a style table, a label engine,

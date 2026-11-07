@@ -25,7 +25,7 @@ use avenger_scenegraph::{
     },
     scene_graph::SceneGraph,
 };
-use avenger_selection::SelectionState;
+use avenger_selection::{Condition, SelectionState};
 use avenger_style::{Cascade, ComputedStyle, ComputedStyles, HostInputs, Property, StyleTree};
 use avenger_typst_label::LabelEngine;
 
@@ -33,12 +33,16 @@ use crate::{
     convert::{scale::fit_kind, selection},
     encode::{self, at, LayerRows},
     fit::{self, FitInputs, MemberValues, Position},
-    geo::{self, MapInputs, Maps},
+    geo::{self, MapInputs, Maps, ProjectionNavigation, ProjectionView},
     guides::{self, GuideInputs, Guides},
     layout::{self, Lowered, Lowering, Measurer, SlabId},
     marks,
     polar::{self, PolarInputs, Polars},
     reach::{self, Reach},
+    state::{
+        self, Carried, Carry, Fit, ProjectionIdentity, ScaleIdentity, ScaleNavigation, ScaleView,
+        UpdateOptions,
+    },
     style::tree::{self, StyleNodes},
     style::{color as style_color, number as style_number},
     EvalError, EvalWarning, Registry,
@@ -126,21 +130,50 @@ pub struct ChartEvaluator {
     prepared: Option<Prepared>,
     measured: Option<Measured<SlabId>>,
     warnings: Vec<EvalWarning>,
+    /// The identity of each scale group that has one, by its position in `Resolved::scales`.
+    identities: Vec<Option<ScaleIdentity>>,
+    /// The identity of each projection group that has one, by its position in
+    /// `Resolved::projections`.
+    projection_identities: Vec<Option<ProjectionIdentity>>,
+    /// The first scale group of each channel of each plot, by plot.
+    plot_groups: Vec<BTreeMap<Channel, usize>>,
+    /// The view of each position group that has one, by its position in `Resolved::scales`.
+    views: BTreeMap<usize, ScaleView>,
+    /// The fitted domains that an update carried from the old chart, by scale group.
+    carried: BTreeMap<usize, Carried>,
+    /// The views and the carried fits of the projections of maps.
+    projections: geo::ProjectionState,
+    /// The last revision of an axis, which each new view of an axis takes the next of.
+    revision: u64,
+    /// The rectangle of each plot at the last evaluation.
+    rects: Vec<avenger_layout::Rect>,
     /// The image resolver of the host, which loads the tiles of maps.
     #[cfg(feature = "geo")]
     resolver: Option<Arc<dyn avenger_image::ImageResolver>>,
 }
 
-impl ChartEvaluator {
-    /// Prepares `chart` with the cascade of its style table, a label engine, and the custom scales
-    /// of `registry`. It fails for an empty chart, which this version of the evaluator does not
-    /// draw, and for a chart with a map plot without the `geo` feature.
-    pub fn new(
-        chart: Chart,
-        cascade: Arc<Cascade>,
-        engine: LabelEngine,
-        registry: Registry,
-    ) -> Result<Self> {
+/// A chart prepared to install in a [`ChartEvaluator`]: its resolved models, its style tree, the
+/// rows of its layers that draw an instance, and the initial clauses of its selections. They depend
+/// only on the chart, the label engine, and the registry, so a chart prepares on any thread, such
+/// as for an update off the render loop, and [`ChartEvaluator::install`] only installs it.
+pub struct PreparedChart {
+    chart: Chart,
+    tree: StyleTree,
+    nodes: StyleNodes,
+    drawn: Vec<RecordBatch>,
+    kinds: Vec<FitKind>,
+    states: BTreeMap<String, SelectionState>,
+    warnings: Vec<EvalWarning>,
+    identities: Vec<Option<ScaleIdentity>>,
+    projection_identities: Vec<Option<ProjectionIdentity>>,
+    plot_groups: Vec<BTreeMap<Channel, usize>>,
+}
+
+impl PreparedChart {
+    /// Prepares `chart` with `engine` and the custom scales of `registry`, the label engine and the
+    /// registry of the evaluator that installs it. It fails for an empty chart, which this version
+    /// of the evaluator does not draw, and for a chart with a map plot without the `geo` feature.
+    pub fn new(chart: Chart, engine: &LabelEngine, registry: &Registry) -> Result<Self> {
         if matches!(chart.root().node, Some(Node::Empty(_))) {
             return Err(EvalError::Unsupported("an empty chart".into()));
         }
@@ -151,12 +184,12 @@ impl ChartEvaluator {
                 ));
             }
         }
-        crate::convert::format::check(&chart, &engine)?;
+        crate::convert::format::check(&chart, engine)?;
         let states = selection::states(&chart)?;
-        let (tree, nodes, drawn, kinds, warnings) = {
+        let (tree, nodes, drawn, kinds, warnings, identities, projection_identities, plot_groups) = {
             let resolved = chart.resolve();
             let kinds = (resolved.scales.iter())
-                .map(|group| fit_kind(&group.spec, &registry))
+                .map(|group| fit_kind(&group.spec, registry))
                 .collect::<Result<Vec<_>>>()?;
             let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
             let drawn = (resolved.tree.layers.iter())
@@ -173,8 +206,59 @@ impl ChartEvaluator {
                     ),
                 }
             }));
-            (tree, nodes, drawn, kinds, warnings)
+            (
+                tree,
+                nodes,
+                drawn,
+                kinds,
+                warnings,
+                state::scale_identities(&resolved),
+                state::projection_identities(&resolved),
+                state::plot_groups(&resolved),
+            )
         };
+        Ok(Self {
+            chart,
+            tree,
+            nodes,
+            drawn,
+            kinds,
+            states,
+            warnings,
+            identities,
+            projection_identities,
+            plot_groups,
+        })
+    }
+
+    /// The chart that the preparation prepared.
+    pub fn chart(&self) -> &Chart {
+        &self.chart
+    }
+}
+
+impl ChartEvaluator {
+    /// Prepares `chart` with the cascade of its style table, a label engine, and the custom scales
+    /// of `registry`, as [`PreparedChart::new`] does, with the initial clauses of its selections.
+    pub fn new(
+        chart: Chart,
+        cascade: Arc<Cascade>,
+        engine: LabelEngine,
+        registry: Registry,
+    ) -> Result<Self> {
+        let prepared = PreparedChart::new(chart, &engine, &registry)?;
+        let PreparedChart {
+            chart,
+            tree,
+            nodes,
+            drawn,
+            kinds,
+            states,
+            warnings,
+            identities,
+            projection_identities,
+            plot_groups,
+        } = prepared;
         Ok(Self {
             chart,
             cascade,
@@ -189,6 +273,14 @@ impl ChartEvaluator {
             prepared: None,
             measured: None,
             warnings,
+            identities,
+            projection_identities,
+            plot_groups,
+            views: BTreeMap::new(),
+            carried: BTreeMap::new(),
+            projections: geo::ProjectionState::default(),
+            revision: 0,
+            rects: Vec::new(),
             #[cfg(feature = "geo")]
             resolver: None,
         })
@@ -237,6 +329,7 @@ impl ChartEvaluator {
     /// a dimension where the host gives none, and at the chart's natural size in a dimension
     /// without either.
     pub fn evaluate(&mut self, host: &HostInputs) -> Result<EvaluatedChart> {
+        self.views.retain(|_, view| view.moved());
         self.restyle(host);
         let styles = self.styles.as_ref().expect("the styles are computed");
         let chart = &self.chart;
@@ -253,12 +346,41 @@ impl ChartEvaluator {
                 states: &self.states,
                 drawn: &self.drawn,
                 kinds: &self.kinds,
+                carried: &self.carried,
+                projections: &self.projections,
             })?;
             #[cfg(feature = "geo")]
             if let Some(resolver) = &self.resolver {
                 prepared.maps.set_image_resolver(resolver.clone())?;
             }
             self.prepared = Some(prepared);
+        }
+        // The axes of the scales whose views changed show their new views, and the layout lowers
+        // again, so their slabs measure again.
+        let prepared = self.prepared.as_mut().expect("the chart is prepared");
+        let mut changed = false;
+        for axis in &mut prepared.guides.axes {
+            let view = self.views.get(&axis.group).map(|view| &view.scale);
+            let shown = axis.view.as_ref().map(|domain| domain.as_ref());
+            if shown == view.map(|view| view.domain().as_ref()) {
+                continue;
+            }
+            let Some(position) = &prepared.positions[axis.group] else {
+                continue;
+            };
+            self.revision += 1;
+            axis.set_view(view, &position.fitting, self.revision, &self.engine)?;
+            changed = true;
+        }
+        if changed {
+            prepared.lowered = layout::lower(&Lowering {
+                chart,
+                resolved: &resolved,
+                guides: &prepared.guides,
+                maps: &prepared.maps,
+                nodes: &self.nodes,
+                styles,
+            });
         }
         let prepared = self.prepared.as_ref().expect("the chart is prepared");
 
@@ -313,6 +435,15 @@ impl ChartEvaluator {
                 Channel::Y => rect.height,
                 _ => rect.width,
             };
+            // A view keeps its domain at every length, in the direction of the fit.
+            if let Some(view) = self.views.get(&index) {
+                let range = match position.fitting.direction() {
+                    Direction::Forward => (0.0, f64::from(length)),
+                    Direction::Reverse => (f64::from(length), 0.0),
+                };
+                positions[index] = Some(view.scale.clone().with_range_interval(range));
+                continue;
+            }
             let at = position.fitting.at((0.0, f64::from(length)))?;
             if !at.marks_fit {
                 warnings.push(EvalWarning::Fit {
@@ -329,7 +460,9 @@ impl ChartEvaluator {
         // their ranges at its frame, which the plots of a shared scale share.
         let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
         let polar_fits = prepared.polars.fit(&sizes, &mut warnings)?;
-        let map_fits = prepared.maps.fit(&sizes, &mut warnings)?;
+        let map_fits = prepared
+            .maps
+            .fit(&sizes, &mut self.projections, &mut warnings)?;
         for fit in polar_fits.values() {
             for (group, scale) in [&fit.theta, &fit.radius].into_iter().flatten() {
                 positions[*group].get_or_insert_with(|| scale.clone());
@@ -357,9 +490,13 @@ impl ChartEvaluator {
             let clip = match (polar_fit, map_fit) {
                 (Some(fit), _) => fit.clip,
                 (_, Some(fit)) => fit.clip(),
-                _ => (resolved.scales.iter().zip(&prepared.positions)).any(|(group, position)| {
-                    in_plot(group) && position.as_ref().is_some_and(|p| p.clip)
-                }),
+                _ => (resolved.scales.iter().zip(&prepared.positions).enumerate()).any(
+                    |(index, (group, position))| {
+                        in_plot(group)
+                            && (position.as_ref().is_some_and(|p| p.clip)
+                                || self.views.contains_key(&index))
+                    },
+                ),
             };
             let mut plot_marks: Vec<SceneMark> = match (polar_fit, map_fit) {
                 (Some(fit), _) => prepared.polars.backdrop(fit),
@@ -531,6 +668,7 @@ impl ChartEvaluator {
             let labels = prepared.maps.labels(plot, fit, guide.labels[side].0, slot);
             marks.extend(labels.map(SceneMark::from));
         }
+        self.rects = rects;
         Ok(EvaluatedChart {
             scene: SceneGraph {
                 marks,
@@ -545,6 +683,422 @@ impl ChartEvaluator {
     }
 }
 
+/// The state of an evaluation: the clauses of the selections, the views of scales and
+/// projections, and the installation of a new chart, which carries them.
+impl ChartEvaluator {
+    /// Installs `prepared` in place of the chart, and carries the state of the old chart by
+    /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
+    /// and the clauses of its selections, as they stand at the installation. A scale carries over
+    /// when the new chart has a scale with its identity and its kind of fit, and a projection when
+    /// the new chart has a projection with its identity. The new chart keeps the computed styles
+    /// of the old one when their style trees are equal.
+    pub fn install(&mut self, prepared: PreparedChart, options: &UpdateOptions) -> Result<()> {
+        let PreparedChart {
+            chart,
+            tree,
+            nodes,
+            drawn,
+            kinds,
+            states,
+            warnings,
+            identities,
+            projection_identities,
+            plot_groups,
+        } = prepared;
+        let new_resolved = chart.resolve();
+        let mut views = BTreeMap::new();
+        let mut carried = BTreeMap::new();
+        for (index, identity) in identities.iter().enumerate() {
+            let Some(identity) = identity else {
+                continue;
+            };
+            let Some(old_index) =
+                (self.identities.iter()).position(|own| own.as_ref() == Some(identity))
+            else {
+                continue;
+            };
+            if self.kinds[old_index] != kinds[index] {
+                continue;
+            }
+            let group = &new_resolved.scales[index];
+            let viewable = group.is_navigated()
+                && kinds[index] == FitKind::Interval
+                && !state::selection_domain(&group.spec);
+            if let (true, true, Some(view)) =
+                (options.keeps_views(), viewable, self.views.get(&old_index))
+            {
+                if view.moved() {
+                    views.insert(index, view.clone());
+                }
+            }
+            let fit = options.scale_fit(identity);
+            if fit == Fit::Refit
+                || state::selection_domain(&group.spec)
+                || state::explicit_domain(&group.spec)
+            {
+                continue;
+            }
+            // The fit carries the scale of the old chart as it was last prepared, or the scale
+            // that the old chart carried in turn.
+            let old =
+                self.prepared
+                    .as_ref()
+                    .and_then(|prepared| match group.is_position() {
+                        true => (prepared.positions[old_index].clone())
+                            .map(|position| Carried::Position(fit, position)),
+                        false => (prepared.scales[old_index].clone())
+                            .map(|scale| Carried::Scale(fit, scale)),
+                    });
+            if let Some(old) = old.or_else(|| self.carried.get(&old_index).cloned()) {
+                carried.insert(index, old);
+            }
+        }
+        let projections = self.carry_projections(&projection_identities, options);
+        let states = carry_states(&self.states, states, &new_resolved, options);
+        drop(new_resolved);
+        // An equal style tree keeps the computed styles, which the same cascade computed.
+        if tree != self.tree {
+            self.styles = None;
+        }
+        self.chart = chart;
+        self.tree = tree;
+        self.nodes = nodes;
+        self.drawn = drawn;
+        self.kinds = kinds;
+        self.states = states;
+        self.warnings = warnings;
+        self.identities = identities;
+        self.projection_identities = projection_identities;
+        self.plot_groups = plot_groups;
+        self.views = views;
+        self.carried = carried;
+        self.projections = projections;
+        self.prepared = None;
+        self.measured = None;
+        self.rects.clear();
+        Ok(())
+    }
+
+    /// The views and the carried fits of the projections of a new chart with
+    /// `projection_identities`, by `options`.
+    #[cfg(feature = "geo")]
+    fn carry_projections(
+        &self,
+        projection_identities: &[Option<ProjectionIdentity>],
+        options: &UpdateOptions,
+    ) -> geo::ProjectionState {
+        let mut state = geo::ProjectionState::default();
+        for (index, identity) in projection_identities.iter().enumerate() {
+            let Some(identity) = identity else {
+                continue;
+            };
+            let Some(old_index) =
+                (self.projection_identities.iter()).position(|own| own.as_ref() == Some(identity))
+            else {
+                continue;
+            };
+            if let (true, Some(view)) = (
+                options.keeps_views(),
+                self.projections.views.get(&old_index),
+            ) {
+                state.views.insert(index, view.carried());
+            }
+            let fit = options.projection_fit(identity);
+            let summary = (self.prepared.as_ref())
+                .and_then(|prepared| prepared.maps.data_summary(old_index))
+                .or_else(|| {
+                    (self.projections.carried.get(&old_index)).map(|(_, summary)| *summary)
+                });
+            if let (Fit::Keep | Fit::Extend, Some(summary)) = (fit, summary) {
+                state.carried.insert(index, (fit, summary));
+            }
+        }
+        state
+    }
+
+    #[cfg(not(feature = "geo"))]
+    fn carry_projections(
+        &self,
+        _projection_identities: &[Option<ProjectionIdentity>],
+        _options: &UpdateOptions,
+    ) -> geo::ProjectionState {
+        geo::ProjectionState::default()
+    }
+
+    /// The states of the evaluator's selections, by name.
+    pub fn selections(&self) -> &BTreeMap<String, SelectionState> {
+        &self.states
+    }
+
+    /// Replaces the states of the evaluator's selections. The conditional values of encodings take
+    /// them at the next evaluation, and the scales whose domains read a selection fit again.
+    pub fn set_selections(&mut self, states: BTreeMap<String, SelectionState>) {
+        self.states = states;
+        let resolved = self.chart.resolve();
+        if (resolved.scales.iter()).any(|group| state::selection_domain(&group.spec)) {
+            self.prepared = None;
+        }
+    }
+
+    /// The first scale group of `channel` of the plot at index `plot`.
+    fn plot_group(&self, plot: usize, channel: Channel) -> Option<usize> {
+        self.plot_groups.get(plot)?.get(&channel).copied()
+    }
+
+    /// The width and the height of the plot at index `plot` at the last evaluation.
+    fn plot_size(&self, plot: usize) -> Option<[f32; 2]> {
+        let rect = self.rects.get(plot)?;
+        Some([rect.width, rect.height])
+    }
+
+    /// The fitted scale of `channel` of the plot at index `plot` at its size at the last
+    /// evaluation, without its view, which a navigation returns to.
+    pub fn home_scale(&self, plot: usize, channel: Channel) -> Option<ConfiguredScale> {
+        let group = self.plot_group(plot, channel)?;
+        let position = self.prepared.as_ref()?.positions[group].as_ref()?;
+        let [width, height] = self.plot_size(plot)?;
+        let length = match channel {
+            Channel::Y => height,
+            _ => width,
+        };
+        Some(position.fitting.at((0.0, f64::from(length))).ok()?.scale)
+    }
+
+    /// The view of the scale of `channel`, `x` or `y`, of the plot at index `plot` of the
+    /// evaluation, to move, as a pan or a zoom does. A scale without a view takes its fitted scale
+    /// at the plot's size at the last evaluation as its view, and the next evaluation drops a view
+    /// that still has the domain that it started from, so reading a view, as a press does, leaves
+    /// the scale fitting. A plot's first scale of the channel has a view when it is continuous and
+    /// its domain does not read a selection, and the plot has been evaluated, and otherwise this
+    /// is `None`.
+    pub fn scale_view_mut(
+        &mut self,
+        plot: usize,
+        channel: Channel,
+    ) -> Option<&mut ConfiguredScale> {
+        let group = self.plot_group(plot, channel)?;
+        let resolved = self.chart.resolve();
+        let spec_group = &resolved.scales[group];
+        let viewable = spec_group.is_navigated()
+            && self.kinds[group] == FitKind::Interval
+            && !state::selection_domain(&spec_group.spec);
+        drop(resolved);
+        if !viewable {
+            return None;
+        }
+        if !self.views.contains_key(&group) {
+            let scale = self.home_scale(plot, channel)?;
+            let start = scale.domain().clone();
+            self.views.insert(group, ScaleView { scale, start });
+        }
+        Some(&mut self.views.get_mut(&group)?.scale)
+    }
+
+    /// Removes the view of the scale of `channel` of the plot at index `plot`, so that the scale
+    /// fits its domain again.
+    pub fn clear_scale_view(&mut self, plot: usize, channel: Channel) {
+        if let Some(group) = self.plot_group(plot, channel) {
+            self.views.remove(&group);
+        }
+    }
+
+    /// The view of the scale of `channel` of the plot at index `plot`, when it has one.
+    pub fn scale_view(&self, plot: usize, channel: Channel) -> Option<&ConfiguredScale> {
+        Some(&self.views.get(&self.plot_group(plot, channel)?)?.scale)
+    }
+
+    /// The identity of the scale of `channel` of the plot at index `plot`, when it has one.
+    pub fn scale_identity(&self, plot: usize, channel: Channel) -> Option<&ScaleIdentity> {
+        self.identities
+            .get(self.plot_group(plot, channel)?)?
+            .as_ref()
+    }
+
+    /// The selection whose clauses give the domain of the scale of `channel` of the plot at index
+    /// `plot`, when its domain reads a selection. A navigation of such a scale moves the
+    /// selection, because the scale has no view.
+    pub fn domain_selection(&self, plot: usize, channel: Channel) -> Option<String> {
+        let group = self.plot_group(plot, channel)?;
+        let resolved = self.chart.resolve();
+        match resolved.scales[group]
+            .spec
+            .domain
+            .as_ref()?
+            .domain
+            .as_ref()?
+        {
+            avenger_chart::proto::domain::Domain::Selection(selection) => {
+                Some(selection.selection.clone())
+            }
+            _ => None,
+        }
+    }
+
+    /// The column that a selection through `channel` of the plot at index `plot` records: the
+    /// selection field of the plot's first encoding of the channel, or its encoded column.
+    pub fn selection_column(&self, plot: usize, channel: Channel) -> Option<String> {
+        let resolved = self.chart.resolve();
+        let plot_ref = resolved.tree.plots.get(plot)?;
+        resolved.tree.layers[plot_ref.layers.clone()]
+            .iter()
+            .find_map(|layer| {
+                let encoding = layer.mark.encoding(channel)?;
+                if !encoding.selection_field.is_empty() {
+                    return Some(encoding.selection_field.clone());
+                }
+                match encoding.value.as_ref()? {
+                    encoding::Value::Column(column) | encoding::Value::ScaledColumn(column) => {
+                        Some(column.clone())
+                    }
+                    _ => None,
+                }
+            })
+    }
+
+    /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,
+    /// with the partition values of the layers. A plot shows a clause of a selection when it draws
+    /// some of its conditions and every other condition holds there. A layer without a column of
+    /// the condition matches none of it.
+    pub fn satisfies(&self, plot: usize, condition: &Condition) -> Result<bool> {
+        let resolved = self.chart.resolve();
+        let Some(plot_ref) = resolved.tree.plots.get(plot) else {
+            return Ok(false);
+        };
+        for index in plot_ref.layers.clone() {
+            let layer = &resolved.tree.layers[index];
+            let table = &self.drawn[index];
+            let columns: Option<Vec<ArrayRef>> = (condition.columns().into_iter())
+                .map(|name| match table.column_by_name(name) {
+                    Some(column) => Some(column.clone()),
+                    None => {
+                        let value = layer.partition.get(name)?;
+                        let rows = arrow::array::UInt32Array::from(vec![0; table.num_rows()]);
+                        arrow::compute::take(value, &rows, None).ok()
+                    }
+                })
+                .collect();
+            let Some(columns) = columns else {
+                return Ok(false);
+            };
+            if condition.matches(&columns)?.false_count() > 0 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// The navigation of the scale of `channel` of the plot at index `plot`, from the scale's
+    /// navigation limits, at the plot's size at the last evaluation: the bounds that its domain
+    /// stays inside, with the fitted domain in place of data bounds, and its smallest width, in the
+    /// numeric values of the scale. A scale whose domain reads a selection has no data bounds,
+    /// because its fitted domain is the selection. This is `None` for a plot without a scale of the
+    /// channel.
+    pub fn scale_navigation(&self, plot: usize, channel: Channel) -> Option<ScaleNavigation> {
+        use avenger_chart::proto::navigation_limits::Bounds;
+        let group = self.plot_group(plot, channel)?;
+        let resolved = self.chart.resolve();
+        let spec = &resolved.scales[group].spec;
+        let Some(limits) = &spec.navigation_limits else {
+            return Some(ScaleNavigation::default());
+        };
+        let bounds = match &limits.bounds {
+            Some(Bounds::Data(_)) if !state::selection_domain(spec) => self
+                .home_scale(plot, channel)
+                .and_then(|home| home.numeric_interval_domain().ok())
+                .map(|(start, end)| [start.min(end), start.max(end)]),
+            Some(Bounds::Interval(interval)) => Some([interval.low, interval.high]),
+            Some(Bounds::Data(_)) | None => None,
+        };
+        Some(ScaleNavigation {
+            bounds,
+            min_span: limits.min_span,
+        })
+    }
+
+    /// The view of the projection of the plot at index `plot` of the evaluation, to move, as a pan
+    /// or a zoom does. A projection without a view takes its fitted projection at the plot's size
+    /// at the last evaluation as its view. The plots of the projection show the view, scaled and
+    /// moved with their fitted view as they resize, and clip their marks. This is `None` for a
+    /// plot without a projection, such as a Cartesian plot, or that has not been evaluated.
+    pub fn projection_view_mut(&mut self, plot: usize) -> Option<&mut ProjectionView> {
+        let size = self.plot_size(plot)?;
+        let prepared = self.prepared.as_ref()?;
+        prepared.maps.view_mut(&mut self.projections, plot, size)
+    }
+
+    /// Removes the view of the projection of the plot at index `plot`, so that it fits again.
+    pub fn clear_projection_view(&mut self, plot: usize) {
+        if let Some(prepared) = &self.prepared {
+            prepared.maps.clear_view(&mut self.projections, plot);
+        }
+    }
+
+    /// The view of the projection of the plot at index `plot`, when it has one.
+    pub fn projection_view(&self, plot: usize) -> Option<&ProjectionView> {
+        self.prepared.as_ref()?.maps.view(&self.projections, plot)
+    }
+
+    /// The fitted projection of the plot at index `plot` at its size at the last evaluation,
+    /// without its view, which a navigation returns to.
+    pub fn home_projection(&self, plot: usize) -> Option<ProjectionView> {
+        self.prepared
+            .as_ref()?
+            .maps
+            .home(plot, self.plot_size(plot)?)
+    }
+
+    /// The identity of the projection of the plot at index `plot`, when it has one.
+    pub fn projection_identity(&self, plot: usize) -> Option<&ProjectionIdentity> {
+        let group = self.prepared.as_ref()?.maps.group_of(plot)?;
+        self.projection_identities.get(group)?.as_ref()
+    }
+
+    /// The navigation of the projection of the plot at index `plot`, from the specs of its
+    /// coordinate system, at the plot's size at the last evaluation. This is `None` for a plot
+    /// without a projection.
+    pub fn projection_navigation(&self, plot: usize) -> Option<ProjectionNavigation> {
+        self.prepared
+            .as_ref()?
+            .maps
+            .navigation(plot, self.plot_size(plot)?)
+    }
+}
+
+/// The states of the selections of a new chart, whose models are `resolved`, by `options`, from
+/// the states `old` of the old chart and the initial states `initial` of the new chart. A clause of
+/// a selection that is not global carries when its owner is a plot or a layer of the new chart,
+/// which can draw and clear it.
+fn carry_states(
+    old: &BTreeMap<String, SelectionState>,
+    initial: BTreeMap<String, SelectionState>,
+    resolved: &Resolved,
+    options: &UpdateOptions,
+) -> BTreeMap<String, SelectionState> {
+    let owners: std::collections::BTreeSet<String> = (resolved.tree.identities())
+        .map(|(identity, _)| identity.id.clone())
+        .collect();
+    let names: std::collections::BTreeSet<String> =
+        old.keys().chain(initial.keys()).cloned().collect();
+    let mut states = BTreeMap::new();
+    for name in names {
+        let carried = match (options.carry_for(&name), old.get(&name)) {
+            (Carry::Keep, Some(kept)) => {
+                let global = kept.resolution == avenger_selection::Resolution::Global;
+                let mut kept = kept.clone();
+                if !global {
+                    kept.clauses.retain(|clause| owners.contains(&clause.owner));
+                }
+                Some(kept)
+            }
+            (Carry::Keep, None) | (Carry::Reset, _) => initial.get(&name).cloned(),
+        };
+        if let Some(carried) = carried {
+            states.insert(name, carried);
+        }
+    }
+    states
+}
+
 /// What preparing a chart's scales, guides, and layout reads.
 struct Inputs<'a> {
     chart: &'a Chart,
@@ -556,6 +1110,9 @@ struct Inputs<'a> {
     states: &'a BTreeMap<String, SelectionState>,
     drawn: &'a [RecordBatch],
     kinds: &'a [FitKind],
+    /// The fitted domains that an update carried, by scale group.
+    carried: &'a BTreeMap<usize, Carried>,
+    projections: &'a geo::ProjectionState,
 }
 
 /// The scales, the reach of the marks, the guides, and the layout of a chart at its computed
@@ -572,6 +1129,8 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         states,
         drawn,
         kinds,
+        carried,
+        projections,
     } = *inputs;
     let groups = &resolved.scales;
     let layers = &resolved.tree.layers;
@@ -596,14 +1155,18 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             continue;
         }
         let values: Vec<Option<ArrayRef>> = group.members.iter().map(values_of).collect();
-        scales[index] = Some(fit::non_position(
+        let scale = fit::non_position(
             &fit_inputs,
             group,
             &styles[nodes.scales[index]],
             styles,
             &values,
             &mut warnings,
-        )?);
+        )?;
+        scales[index] = Some(match carried.get(&index) {
+            Some(Carried::Scale(fit, old)) => state::carry_scale(kinds[index], *fit, old, &scale)?,
+            _ => scale,
+        });
     }
 
     // The rows of each layer at no size, with the non-position scales.
@@ -664,13 +1227,19 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
                 Some((values, along))
             })
             .collect();
-        positions[index] = Some(fit::position(
+        let position = fit::position(
             &fit_inputs,
             group,
             &styles[nodes.scales[index]],
             &values,
             polar::wraps(resolved, group),
-        )?);
+        )?;
+        positions[index] = Some(match carried.get(&index) {
+            Some(Carried::Position(fit, old)) => {
+                state::carry_position(chart, group, kinds[index], *fit, old, &position)?
+            }
+            _ => position,
+        });
     }
     let polars = Polars::prepare(
         &PolarInputs {
@@ -693,6 +1262,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         },
         unsized_rows,
         &reach,
+        projections,
     )?;
 
     let fittings: Vec<_> = (positions.iter())
@@ -879,3 +1449,6 @@ fn backdrop(name: &str, style: &ComputedStyle, rect: [f32; 4]) -> Option<SceneMa
         .into(),
     )
 }
+
+#[cfg(test)]
+mod tests;
