@@ -12,7 +12,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{self, node::Node, plot::Coord},
+    proto::{cartesian_layer, domain, node, plot::Coord, Table},
 };
 use support::*;
 
@@ -32,7 +32,7 @@ fn fails<T: std::fmt::Debug>(result: Result<T, ChartError>, path: &str, reason: 
 }
 
 /// Symbols of `a` against `b` over `table`.
-fn layer(table: RecordBatch) -> proto::CartesianLayerBuilder {
+fn layer(table: RecordBatch) -> CartesianLayerBuilder {
     CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_column("a"))
@@ -42,7 +42,7 @@ fn layer(table: RecordBatch) -> proto::CartesianLayerBuilder {
 }
 
 /// A scatter plot with `id`, whose plot declares `partition`.
-fn plot(id: &str, partition: &[(&str, &str)]) -> proto::PlotBuilder {
+fn plot(id: &str, partition: &[(&str, &str)]) -> PlotBuilder {
     Plot::cartesian(CartesianPlot::builder().layers([layer(points())]))
         .id(id)
         .partition(
@@ -65,21 +65,21 @@ fn chart_of(root: impl Into<NodeBuilder>) -> Result<Chart, ChartError> {
     Chart::builder().root(root).infer_scales().build()
 }
 
-fn root_plot(chart: &Chart) -> &proto::Plot {
+fn root_plot(chart: &Chart) -> &Plot {
     match &chart.root().node {
-        Some(Node::Plot(plot)) => plot,
+        Some(node::Node::Plot(plot)) => plot,
         _ => panic!("the root is a plot"),
     }
 }
 
-fn layers(plot: &proto::Plot) -> &[proto::CartesianLayer] {
+fn layers(plot: &Plot) -> &[CartesianLayer] {
     match &plot.coord {
         Some(Coord::Cartesian(cartesian)) => &cartesian.layers,
         _ => panic!("the plot is Cartesian"),
     }
 }
 
-fn row() -> proto::ConcatBuilder {
+fn row() -> ConcatBuilder {
     Concat::builder().direction(Direction::Row)
 }
 
@@ -92,12 +92,11 @@ fn a_builder_tree_refers_to_its_own_tables_and_values() {
             .table(points())
             .partition([PartitionValue::builder().column("sex").value("female")]);
     let chart = chart_of(Plot::cartesian(CartesianPlot::builder().layers([symbols]))).unwrap();
-    let Some(proto::cartesian_layer::Mark::Symbol(mark)) = &layers(root_plot(&chart))[0].mark
-    else {
+    let Some(cartesian_layer::Mark::Symbol(mark)) = &layers(root_plot(&chart))[0].mark else {
         panic!("the layer draws symbols")
     };
     let x = mark.x.as_ref().unwrap().scale.as_ref().unwrap();
-    let Some(proto::domain::Domain::Explicit(domain)) = x.domain.as_ref().unwrap().domain else {
+    let Some(domain::Domain::Explicit(domain)) = x.domain.as_ref().unwrap().domain else {
         panic!("the domain is explicit")
     };
     let ends = chart.list_elements(&domain);
@@ -121,8 +120,7 @@ fn nested_builders_refer_to_their_own_values() {
     let lows: Vec<f64> = (chart.resolve().scales.iter())
         .filter(|group| group.channel == Channel::Y)
         .map(|group| {
-            let Some(proto::domain::Domain::Explicit(value)) =
-                group.spec.domain.as_ref().unwrap().domain
+            let Some(domain::Domain::Explicit(value)) = group.spec.domain.as_ref().unwrap().domain
             else {
                 panic!("the domain is explicit")
             };
@@ -141,7 +139,7 @@ fn a_concat_of_finished_charts_copies_their_streams() {
     let stream = ipc(&points(), options.clone());
     let read = || {
         let mut message = chart(support::plot(vec![symbols(0)]));
-        message.tables = vec![proto::Table {
+        message.tables = vec![Table {
             padding: Default::default(),
             ipc: ipc(&points(), options.clone()).into(),
         }];
@@ -189,7 +187,7 @@ fn the_selections_of_finished_charts_join() {
         let mut node = selecting();
         plot_mut(&mut node).id = id.to_string();
         let mut message = chart(node);
-        message.selections = vec![brush(proto::SelectionResolution::Global)];
+        message.selections = vec![brush(SelectionResolution::Global)];
         Chart::from_parts(message, vec![points()], vec![]).unwrap()
     };
     let combined = chart_of(row().children([selecting("a"), selecting("b")])).unwrap();
@@ -240,7 +238,7 @@ fn keyed(keys: ArrayRef) -> RecordBatch {
 /// The value of each node of `nodes` and the rows of its table.
 fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
     let concat = chart_of(row().facet(Facet::builder().column("key")).children(nodes)).unwrap();
-    let Some(Node::Concat(concat_node)) = &concat.root().node else {
+    let Some(node::Node::Concat(concat_node)) = &concat.root().node else {
         panic!("the root is a concat")
     };
     let resolved = concat.resolve();
@@ -258,7 +256,7 @@ fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
                     _ => key.as_string::<i32>().value(0).to_string(),
                 },
             };
-            let Some(Node::Plot(plot)) = &concat_node.children[index].node else {
+            let Some(node::Node::Plot(plot)) = &concat_node.children[index].node else {
                 panic!("each cell is a plot")
             };
             let table = layers(plot)[0].table.unwrap();
@@ -274,7 +272,7 @@ fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
 }
 
 /// A plot of the rows of a part, with `row` on `x` and `y`.
-fn part(rows: RecordBatch) -> Result<proto::PlotBuilder, ChartError> {
+fn part(rows: RecordBatch) -> Result<PlotBuilder, ChartError> {
     Ok(Plot::cartesian(
         CartesianPlot::builder().layers([CartesianLayer::symbol(
             SymbolMark::builder()
@@ -296,7 +294,7 @@ fn partitions_split_a_table_in_each_order() {
             Some("c"),
         ])) as ArrayRef
     };
-    let split = |order| cells(proto::Node::partitions(&keyed(keys()), "key", order, part).unwrap());
+    let split = |order| cells(Node::partitions(&keyed(keys()), "key", order, part).unwrap());
     let appearance = split(PartitionOrder::Appearance);
     assert_eq!(
         appearance,
@@ -324,8 +322,7 @@ fn partitions_split_a_table_in_each_order() {
 fn partitions_of_numbers_sort_nan_above_every_number() {
     let keys = Arc::new(Float64Array::from(vec![2.0, f64::NAN, 1.0])) as ArrayRef;
     let split = |order| {
-        let cells =
-            cells(proto::Node::partitions(&keyed(keys.clone()), "key", order, part).unwrap());
+        let cells = cells(Node::partitions(&keyed(keys.clone()), "key", order, part).unwrap());
         cells.into_iter().map(|(name, _)| name).collect::<Vec<_>>()
     };
     assert_eq!(split(PartitionOrder::Ascending), ["1", "2", "NaN"]);
@@ -335,7 +332,7 @@ fn partitions_of_numbers_sort_nan_above_every_number() {
 #[test]
 fn partitions_of_a_dictionary_take_its_values() {
     let keys: DictionaryArray<Int32Type> = vec!["x", "y", "x"].into_iter().collect();
-    let nodes = proto::Node::partitions(
+    let nodes = Node::partitions(
         &keyed(Arc::new(keys)),
         "key",
         PartitionOrder::Ascending,
@@ -355,14 +352,14 @@ fn partitions_of_a_dictionary_take_its_values() {
 fn partitions_of_a_missing_column_fail() {
     let keys = Arc::new(StringArray::from(vec!["a"])) as ArrayRef;
     fails(
-        proto::Node::partitions(&keyed(keys), "missing", PartitionOrder::Appearance, part),
+        Node::partitions(&keyed(keys), "missing", PartitionOrder::Appearance, part),
         "missing",
         "no column `missing`",
     );
 }
 
 /// The title of a plot.
-fn title(text: &str) -> proto::TitleBuilder {
+fn title(text: &str) -> TitleBuilder {
     Title::builder().text(text)
 }
 
@@ -397,7 +394,7 @@ fn an_overlay_draws_the_layers_of_its_plots_in_one_plot() {
 }
 
 /// A scatter plot titled `text`.
-fn titled_plot(text: &str) -> proto::PlotBuilder {
+fn titled_plot(text: &str) -> PlotBuilder {
     plot("", &[]).title(title(text))
 }
 
@@ -407,7 +404,7 @@ fn the_options_of_overlaid_plots_agree() {
         Plot::cartesian(
             CartesianPlot::builder()
                 .layers([layer(points())])
-                .options(proto::Cartesian::builder().aspect_ratio(ratio)),
+                .options(Cartesian::builder().aspect_ratio(ratio)),
         )
     };
     chart_of(Plot::builder().overlay([shaped(1.5), shaped(1.5)])).unwrap();
@@ -452,21 +449,17 @@ fn an_overlay_joins_the_classes_of_its_plots() {
 
 /// A scatter plot whose layer declares a magnitude filter over `a`, which writes `filters`.
 fn filtered() -> Chart {
-    let slider = proto::RangeSliderWidget::builder()
-        .target(
-            proto::WidgetTarget::builder()
-                .selection("filters")
-                .column("a"),
-        )
-        .domain(proto::WidgetDataDomain::builder());
-    let widget = proto::Widget::range_slider(slider).key("magnitude");
+    let slider = RangeSliderWidget::builder()
+        .target(WidgetTarget::builder().selection("filters").column("a"))
+        .domain(WidgetDataDomain::builder());
+    let widget = Widget::range_slider(slider).key("magnitude");
     let plot =
         Plot::cartesian(CartesianPlot::builder().layers([layer(points()).widgets([widget])]));
     Chart::builder()
         .root(plot)
-        .selections([proto::Selection::builder()
+        .selections([Selection::builder()
             .name("filters")
-            .resolution(proto::SelectionResolution::Intersect)])
+            .resolution(SelectionResolution::Intersect)])
         .infer_scales()
         .build()
         .unwrap()

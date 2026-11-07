@@ -12,7 +12,7 @@ use arrow::{
 use avenger_chart::{
     prelude::*,
     proto::{
-        self, cartesian_layer, conditional_value, domain, domain_fit, encoding, guide, node, plot,
+        cartesian_layer, conditional_value, domain, domain_fit, encoding, guide, node, plot,
         predicate, scale_spec,
     },
     FORMAT_VERSION,
@@ -35,7 +35,7 @@ fn invalid<T: std::fmt::Debug>(result: Result<T, ChartError>, path: &str, reason
 }
 
 /// A chart of one layer of symbols of `a` against `b` with `mark`'s other channels.
-fn scatter(mark: proto::SymbolMarkBuilder) -> proto::ChartBuilder {
+fn scatter(mark: SymbolMarkBuilder) -> ChartBuilder {
     let layer = CartesianLayer::symbol(
         mark.x(Encoding::scaled_column("a"))
             .y(Encoding::scaled_column("b")),
@@ -45,7 +45,7 @@ fn scatter(mark: proto::SymbolMarkBuilder) -> proto::ChartBuilder {
 }
 
 /// The symbols of the first layer of `chart`.
-fn symbols(chart: &avenger_chart::Chart) -> &proto::SymbolMark {
+fn symbols(chart: &Chart) -> &SymbolMark {
     let Some(node::Node::Plot(plot)) = &chart.root().node else {
         panic!("the root is a plot")
     };
@@ -110,7 +110,7 @@ fn a_wrapper_converts_from_its_members() {
     else {
         panic!("the domain is a data domain")
     };
-    let Some(proto::DomainFit {
+    let Some(DomainFit {
         fit: Some(domain_fit::Fit::Interval(fit)),
     }) = data.fit
     else {
@@ -118,9 +118,7 @@ fn a_wrapper_converts_from_its_members() {
     };
     assert_eq!(fit.zero, Some(true));
     // A message converts as its builder does.
-    let guide = proto::GuideBuilder::from(proto::Axis::default())
-        .build()
-        .unwrap();
+    let guide = GuideBuilder::from(Axis::default()).build().unwrap();
     assert!(matches!(guide.guide, Some(guide::Guide::Axis(_))));
 }
 
@@ -156,9 +154,7 @@ fn a_message_converts_to_its_builder() {
         corner_radius: Some(2.0),
         ..Default::default()
     };
-    let bar = proto::BarMarkBuilder::from(message.clone())
-        .build()
-        .unwrap();
+    let bar = BarMarkBuilder::from(message.clone()).build().unwrap();
     assert_eq!(bar, message);
 }
 
@@ -252,11 +248,11 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
 
 #[test]
 fn a_conditional_value_takes_its_predicate_and_value() {
-    let conditional = proto::ConditionalValue::scaled_constant(3.0)
+    let conditional = ConditionalValue::scaled_constant(3.0)
         .predicate(Predicate::selected(Selected::builder().selection("brush")))
         .build();
     invalid(conditional, "scaled_constant", "builds only in a chart");
-    let plain = proto::ConditionalValue::column("c").build().unwrap();
+    let plain = ConditionalValue::column("c").build().unwrap();
     assert_eq!(
         plain.value,
         Some(conditional_value::Value::Column("c".to_string()))

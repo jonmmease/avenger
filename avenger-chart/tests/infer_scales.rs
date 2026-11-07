@@ -14,7 +14,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{self, scale_spec},
+    proto::{domain, node, plot, scale_spec},
     MarkMessage,
 };
 
@@ -71,11 +71,11 @@ fn inferred(layers: Vec<CartesianLayerBuilder>) -> Result<Chart, ChartError> {
 }
 
 /// The encoding of `channel` of the first layer of `message`.
-fn encoding(message: &proto::Chart, channel: Channel) -> Encoding {
-    let Some(proto::node::Node::Plot(plot)) = &message.root.as_ref().unwrap().node else {
+fn encoding(message: &ChartMessage, channel: Channel) -> Encoding {
+    let Some(node::Node::Plot(plot)) = &message.root.as_ref().unwrap().node else {
         panic!("the root is a plot")
     };
-    let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+    let Some(plot::Coord::Cartesian(cartesian)) = &plot.coord else {
         panic!("the plot is Cartesian")
     };
     let mark = cartesian.layers[0].mark.as_ref().unwrap() as &dyn MarkMessage;
@@ -177,8 +177,8 @@ fn scale_types_follow_values_channels_and_marks() {
                     .scale
                     .as_ref()
                     .and_then(|spec| spec.domain.as_ref()),
-                Some(proto::Domain {
-                    domain: Some(proto::domain::Domain::Data(_))
+                Some(Domain {
+                    domain: Some(domain::Domain::Data(_))
                 })
             ),
             "the domain of {channel:?} of `{column}`"
@@ -203,7 +203,7 @@ fn present_fields_and_plain_values_stay() {
     let x = encoding(message, Channel::X).scale.unwrap();
     assert!(matches!(
         x.r#type,
-        Some(scale_spec::Type::Log(proto::LogScale {
+        Some(scale_spec::Type::Log(LogScale {
             base: Some(2.0),
             ..
         }))
@@ -211,7 +211,7 @@ fn present_fields_and_plain_values_stay() {
     // The domain was absent, so it is the data domain.
     assert!(matches!(
         x.domain.unwrap().domain,
-        Some(proto::domain::Domain::Data(_))
+        Some(domain::Domain::Data(_))
     ));
     // `y`, a scaled column without a scale, gets one, and `color`, a plain column, has none.
     assert_eq!(type_name(&encoding(message, Channel::Y)), Some("linear"));
