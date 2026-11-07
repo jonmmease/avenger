@@ -194,9 +194,7 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
     .unwrap();
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("key").scale(
-                Scale::nested_band(NestedBandScale::builder()).domain(DataDomain::builder()),
-            ))
+            .x(Encoding::scaled_column("key"))
             .y(Encoding::scaled_column("sales")),
     )
     .table(sales);
@@ -467,9 +465,7 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     .unwrap();
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("key").scale(
-                Scale::nested_band(NestedBandScale::builder()).domain(DataDomain::builder()),
-            ))
+            .x(Encoding::scaled_column("key"))
             .y(Encoding::scaled_column("sales")),
     )
     .table(sales);

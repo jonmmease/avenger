@@ -24,8 +24,6 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
         )
         .table(cars());
         let chart = Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
             .infer_scales()
             .build()
@@ -52,8 +50,6 @@ fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -88,8 +84,6 @@ fn a_plot_too_small_for_its_symbols_warns() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -126,8 +120,6 @@ fn the_rows_of_each_mark_are_its_instances() {
     let engine = engine();
     for layer in [symbols, lines] {
         let chart = Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(Plot::cartesian(
                 CartesianPlot::builder().layers([layer.table(table.clone())]),
             ))
@@ -156,8 +148,6 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -176,8 +166,6 @@ fn a_cartesian_plot_maps_its_pixels_to_themselves() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -219,8 +207,6 @@ fn a_resize_fits_the_position_scales_at_the_new_size() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -250,8 +236,6 @@ fn a_chart_of_a_concat_is_unsupported() {
         Plot::cartesian(CartesianPlot::builder().layers([symbols]))
     };
     let concat = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(
             Concat::builder()
                 .direction(Direction::Row)
@@ -280,8 +264,6 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -305,8 +287,6 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -348,8 +328,6 @@ fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
                 .channel(Channel::X)
                 .low(2500.0)])]);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(plot)
         .selections([brush])
         .infer_scales()
@@ -382,8 +360,6 @@ fn a_pinned_middle_centers_the_domain() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -406,8 +382,6 @@ fn a_chart_without_a_size_takes_its_natural_size() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -441,8 +415,6 @@ fn a_conditionally_shown_stroke_widens_the_reach_of_its_marks() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .selections([Selection::builder()
             .name("brush")

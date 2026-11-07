@@ -19,8 +19,6 @@ fn symbols() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -42,8 +40,6 @@ fn symbols_with_a_size_and_a_shape() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -61,8 +57,6 @@ fn lines() {
     )
     .table(series());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
         .infer_scales()
         .build()
@@ -81,8 +75,6 @@ fn trails() {
     )
     .table(series());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([trails])))
         .infer_scales()
         .build()
@@ -104,8 +96,6 @@ fn areas() {
     )
     .table(series());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([areas])))
         .infer_scales()
         .build()
@@ -122,8 +112,6 @@ fn bars() {
     ))
     .table(categories());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
         .infer_scales()
         .build()
@@ -144,8 +132,6 @@ fn horizontal_bars() {
     )
     .table(categories());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
         .infer_scales()
         .build()
@@ -180,8 +166,6 @@ fn rects() {
     )
     .table(bins);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
         .infer_scales()
         .build()
@@ -198,8 +182,6 @@ fn a_rect_without_y_spans_the_height_of_its_band() {
     )
     .table(categories());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
         .infer_scales()
         .build()
@@ -219,8 +201,6 @@ fn rules() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([rules])))
         .infer_scales()
         .build()
@@ -239,8 +219,6 @@ fn texts() {
     )
     .table(categories());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -261,8 +239,6 @@ fn image_marks() {
     )
     .table(images());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
         .infer_scales()
         .build()
@@ -283,8 +259,6 @@ fn images_with_sizes_from_columns() {
     )
     .table(images());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
         .infer_scales()
         .build()
@@ -304,8 +278,6 @@ fn texts_with_weights_and_styles_from_columns() {
     )
     .table(labels());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -324,8 +296,6 @@ fn texts_wrap_at_their_widths() {
     )
     .table(labels());
     let wrapped = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -345,8 +315,6 @@ fn texts_wrap_at_their_widths() {
     )
     .table(labels());
     let cut = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -365,8 +333,6 @@ fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
     )
     .table(labels());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -414,8 +380,6 @@ fn paths() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([paths])))
         .infer_scales()
         .build()
@@ -452,8 +416,6 @@ fn a_conditional_path_draws_for_the_rows_that_it_selects() {
                 .low(2500.0)
                 .high(3500.0)])]);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(plot)
         .selections([brush])
         .infer_scales()
@@ -486,9 +448,9 @@ fn a_formatted_value_under_typst_syntax_is_escaped() {
             .syntax(TextSyntax::Typst),
     )
     .table(categories());
+    // The text's pattern is a pattern of numbers, so the chart names its syntax.
     let chart = Chart::builder()
         .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
         .infer_scales()
         .build()
@@ -522,8 +484,6 @@ fn an_auto_image_size_is_the_images_own_size() {
     )
     .table(images());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
         .infer_scales()
         .build()
@@ -541,8 +501,6 @@ fn an_auto_image_size_is_the_images_own_size() {
     )
     .table(images());
     let urls = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([urls])))
         .infer_scales()
         .build()
@@ -573,16 +531,12 @@ fn a_range_of_dash_lists_draws_its_dashes() {
             .y(Encoding::scaled_column("value"))
             .detail(Encoding::column("symbol"))
             .stroke_dash(
-                Encoding::scaled_column("symbol").scale(
-                    Scale::ordinal(OrdinalScale::builder())
-                        .range(Range::builder().values(Value::list(dashes))),
-                ),
+                Encoding::scaled_column("symbol")
+                    .scale(Scale::builder().range(Range::values(Value::list(dashes)))),
             ),
     )
     .table(series());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
         .infer_scales()
         .build()
@@ -620,8 +574,6 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
         )
         .table(cars());
         Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
             .infer_scales()
             .build()
@@ -655,8 +607,6 @@ fn a_hidden_layer_draws_nothing_and_keeps_its_domains() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -704,8 +654,6 @@ fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
     )
     .table(table);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([images])))
         .infer_scales()
         .build()

@@ -44,8 +44,6 @@ fn a_condition_grays_the_rows_outside_a_brush() {
             .resolution(SelectionResolution::Union)
             .initial(initial);
         Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(plot)
             .selections([brush])
             .infer_scales()
@@ -58,13 +56,11 @@ fn a_condition_grays_the_rows_outside_a_brush() {
     assert!(grays(&evaluated).iter().all(|gray| !gray));
 
     let with = brushed(vec![Clause::builder().owner("plot").conditions([
-        Condition::range(
-            ValueRange::builder()
-                .column("weight")
-                .channel(Channel::X)
-                .low(2500.0)
-                .high(3500.0),
-        ),
+        ValueRange::builder()
+            .column("weight")
+            .channel(Channel::X)
+            .low(2500.0)
+            .high(3500.0),
     ])]);
     let evaluated = render(&with, [320.0, 240.0], "condition-with-brush");
     let grays = grays(&evaluated);
@@ -99,16 +95,12 @@ fn a_cyclic_range_selects_across_its_wrap() {
             .resolution(SelectionResolution::Union)
             .initial([Clause::builder()
                 .owner("plot")
-                .conditions([Condition::cyclic_range(
-                    CyclicRange::builder()
-                        .column("weight")
-                        .start(start)
-                        .end(end)
-                        .period(period),
-                )])]);
+                .conditions([CyclicRange::builder()
+                    .column("weight")
+                    .start(start)
+                    .end(end)
+                    .period(period)])]);
         let chart = Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(plot)
             .selections([brush])
             .infer_scales()
@@ -157,8 +149,6 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
             .resolution(resolution)
             .initial(initial);
         let chart = Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(plot)
             .selections([brush])
             .infer_scales()
@@ -173,13 +163,13 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
             .exclude_own(exclude_own)
     };
     let weights_between = |owner: &str, low: f64, high: f64| {
-        Clause::builder().owner(owner).conditions([Condition::range(
-            ValueRange::builder()
+        Clause::builder()
+            .owner(owner)
+            .conditions([ValueRange::builder()
                 .column("weight")
                 .channel(Channel::X)
                 .low(low)
-                .high(high),
-        )])
+                .high(high)])
     };
 
     // Without clauses, a predicate selects every row, or none when it says so.
@@ -257,8 +247,6 @@ fn a_test_of_a_missing_column_selects_no_row_and_warns() {
                 .column("price")
                 .values([1.0])])])]);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(plot)
         .selections([brush])
         .infer_scales()
@@ -298,8 +286,6 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
             .resolution(SelectionResolution::Union)
             .initial(initial);
         Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(plot)
             .selections([brush])
             .infer_scales()
@@ -307,13 +293,13 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
             .unwrap()
     };
     let weights_between = |owner: &str, low: f64, high: f64| {
-        Clause::builder().owner(owner).conditions([Condition::range(
-            ValueRange::builder()
+        Clause::builder()
+            .owner(owner)
+            .conditions([ValueRange::builder()
                 .column("weight")
                 .channel(Channel::X)
                 .low(low)
-                .high(high),
-        )])
+                .high(high)])
     };
 
     let fallback = domain(&evaluate(&chart(Vec::new()), [320.0, 240.0]), 0);
@@ -340,8 +326,6 @@ fn a_conditional_value_alone_fits_its_scales_domain() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .selections([Selection::builder()
             .name("brush")
@@ -393,12 +377,10 @@ fn a_union_open_at_both_ends_takes_the_fallback_domain() {
     let clause = |owner: &str, range: ValueRangeBuilder| {
         Clause::builder()
             .owner(owner)
-            .conditions([Condition::range(range.column("weight").channel(Channel::X))])
+            .conditions([range.column("weight").channel(Channel::X)])
     };
     let chart = |initial: Vec<ClauseBuilder>| {
         Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(plot.clone())
             .selections([Selection::builder()
                 .name("brush")

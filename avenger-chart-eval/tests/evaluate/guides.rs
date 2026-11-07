@@ -23,13 +23,7 @@ fn titles_and_attributions() {
                 .align(TitleAlign::Start),
         )
         .attribution(Attribution::builder().credits(["Source: StatLib"]));
-    let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
-        .root(plot)
-        .infer_scales()
-        .build()
-        .unwrap();
+    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
     render_both(&chart, "title-subtitle-attribution");
 
     let symbols = CartesianLayer::symbol(
@@ -44,13 +38,7 @@ fn titles_and_attributions() {
             .text("Figure 1: heavier cars travel fewer miles on a gallon.")
             .side(TitleSide::Bottom),
     );
-    let caption = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
-        .root(plot)
-        .infer_scales()
-        .build()
-        .unwrap();
+    let caption = Chart::builder().root(plot).infer_scales().build().unwrap();
     render_both(&caption, "caption");
 }
 
@@ -68,8 +56,6 @@ fn legends() {
     )
     .table(cars());
     let threshold = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -86,8 +72,6 @@ fn legends() {
     )
     .table(cars());
     let merged = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -99,17 +83,14 @@ fn legends() {
 fn an_axis_with_explicit_ticks() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(
-                Encoding::scaled_column("weight").scale(Scale::builder().guide(
-                    Axis::builder().ticks(GuideTicks::builder().values([2000.0, 3000.0, 4000.0])),
-                )),
-            )
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder()
+                    .guide(Axis::builder().ticks(GuideTicks::values([2000.0, 3000.0, 4000.0]))),
+            ))
             .y(Encoding::scaled_column("mpg")),
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -130,8 +111,6 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -151,8 +130,6 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     )
     .table(cars());
     let symbols = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -180,8 +157,6 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     )
     .table(cars());
     let lines = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
         .infer_scales()
         .build()
@@ -200,8 +175,6 @@ fn a_hidden_guide_draws_nothing() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -232,8 +205,6 @@ fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -302,8 +273,6 @@ fn a_mix_of_current_color_tints_each_rows_color() {
     )
     .table(cars());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()

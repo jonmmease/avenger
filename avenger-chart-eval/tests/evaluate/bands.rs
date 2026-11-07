@@ -25,8 +25,6 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         )
         .table(categories());
         Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
             .infer_scales()
             .build()
@@ -56,8 +54,6 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         )
         .table(categories());
         let chart = Chart::builder()
-            .number_format_syntax("d3")
-            .datetime_format_syntax("d3")
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
             .infer_scales()
             .build()
@@ -103,8 +99,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     ))
     .table(categories());
     let bars = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
         .infer_scales()
         .build()
@@ -125,8 +119,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     )
     .table(categories());
     let points = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
@@ -146,8 +138,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     )
     .table(categories());
     let line = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
         .infer_scales()
         .build()
@@ -204,8 +194,6 @@ fn group_totals_span_their_groups_behind_their_members() {
     .table(totals);
     let members = CartesianLayer::bar(BarMark::builder().x(key()).y(zeroed_sales())).table(sales);
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([groups, members]),
         ))
@@ -268,14 +256,11 @@ fn a_custom_scale_of_categories_runs_down_the_plot() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_column("amount"))
-            .y(Encoding::scaled_column("category").scale(
-                Scale::custom(CustomScale::builder().type_("dots")).domain(DataDomain::builder()),
-            )),
+            .y(Encoding::scaled_column("category")
+                .scale(Scale::custom(CustomScale::builder().type_("dots")))),
     )
     .table(categories());
     let chart = Chart::builder()
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
         .infer_scales()
         .build()
