@@ -12,7 +12,8 @@ mod prepared;
 pub use nested_band::NestedBandAxisLevelConfig;
 pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, LabelThinning};
 pub use polar::{
-    PolarAxis, PolarAxisConfig, PolarAxisKind, PolarFrame, PolarLabel, PolarLabelOrient, PolarShape,
+    arc_path, upright, PolarAxis, PolarAxisConfig, PolarAxisKind, PolarFrame, PolarLabel,
+    PolarLabelOrient, PolarShape,
 };
 pub use prepared::{Axis, AxisPart};
 
