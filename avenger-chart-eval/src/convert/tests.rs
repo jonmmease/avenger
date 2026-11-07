@@ -20,7 +20,7 @@ use super::{
     scale::{options, range, range_shape, scale_impl, RangeShape, ScaleRange},
     selection::{domain_values, predicate, states, SelectionValues},
 };
-use crate::{EvalError, Registry};
+use crate::{EvalError, EvalWarning, Registry};
 
 /// The computed styles of one `scale` node of `channel` and `kind`, which `css` styles after the
 /// base stylesheet.
@@ -516,4 +516,47 @@ fn a_summary_domain_holds_the_producers_summary() {
     };
     assert_eq!(summaries, [summary]);
     assert_eq!(data, [false]);
+}
+
+/// A selection domain whose selection's clauses give no range through its channel takes its
+/// fallback and warns, and one whose clauses give a range does not warn.
+#[test]
+fn a_selection_domain_without_its_channel_warns() {
+    let warnings = |channel: Option<Channel>| {
+        let symbols =
+            CartesianLayer::symbol(
+                points(),
+                SymbolMark::builder()
+                    .x(Encoding::scaled_field("a").scale(Domain::selection(
+                        SelectionDomain::explicit("brush", Channel::X, [-100.0, 100.0]),
+                    )))
+                    .y("b"),
+            )
+            .id("points");
+        let plot = Plot::cartesian([symbols])
+            .id("scatter")
+            .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let range = ValueRange::new("a").low(2.0).high(5.0);
+        let range = match channel {
+            Some(channel) => range.channel(channel),
+            None => range,
+        };
+        let chart = Chart::builder(plot)
+            .selections([Selection::new("brush", SelectionResolution::Global)
+                .initial([Clause::new([range]).owner("scatter")])])
+            .build()
+            .unwrap();
+        let resolved = chart.resolve();
+        super::domain::selection_warnings(&resolved.scales, &states(&chart).unwrap())
+    };
+    let missed = warnings(None);
+    assert_eq!(missed.len(), 1);
+    let EvalWarning::Domain { reason, .. } = &missed[0] else {
+        panic!("a domain warning, got {missed:?}")
+    };
+    assert!(
+        reason.contains("give no range or set through `x`"),
+        "{reason}"
+    );
+    assert!(warnings(Some(Channel::X)).is_empty());
 }

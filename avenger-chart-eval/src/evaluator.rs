@@ -184,6 +184,10 @@ impl ChartEvaluator {
                     ),
                 }
             }));
+            warnings.extend(crate::convert::domain::selection_warnings(
+                &resolved.scales,
+                &states,
+            ));
             (tree, nodes, drawn, kinds, warnings)
         };
         Ok(Self {

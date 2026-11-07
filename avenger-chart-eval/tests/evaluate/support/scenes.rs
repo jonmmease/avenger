@@ -63,9 +63,9 @@ pub(crate) fn domain(evaluated: &EvaluatedChart, dimension: usize) -> (f64, f64)
 
 pub(crate) fn warns(evaluated: &EvaluatedChart, text: &str) -> bool {
     evaluated.warnings.iter().any(|warning| match warning {
-        EvalWarning::NotDrawn { reason, .. } | EvalWarning::Fit { reason, .. } => {
-            reason.contains(text)
-        }
+        EvalWarning::NotDrawn { reason, .. }
+        | EvalWarning::Fit { reason, .. }
+        | EvalWarning::Domain { reason, .. } => reason.contains(text),
         EvalWarning::Style(_) => false,
     })
 }
