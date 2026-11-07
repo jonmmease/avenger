@@ -1,8 +1,10 @@
 //! The 10 Cartesian marks, their texts and images, and their conditional values.
 
+use std::sync::Arc;
+
 use arrow::array::RecordBatch;
 use avenger_chart::prelude::*;
-use avenger_chart_eval::{ChartEvaluator, Registry};
+use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
 use avenger_scenegraph::marks::{mark::SceneMark, text::text_origin};
 
 use crate::support::*;
@@ -551,4 +553,186 @@ fn an_auto_image_size_is_the_images_own_size() {
         "{:?}",
         unknown.warnings
     );
+}
+
+/// An ordinal range of dashes as Arrow lists draws those dashes, one for each series.
+#[test]
+fn a_range_of_dash_lists_draws_its_dashes() {
+    use arrow::{
+        array::{ArrayRef, ListArray},
+        datatypes::Float64Type,
+    };
+    let dashes: ArrayRef = Arc::new(ListArray::from_iter_primitive::<Float64Type, _, _>([
+        Some(vec![Some(1.0), Some(2.0)]),
+        Some(vec![Some(4.0), Some(5.0)]),
+        Some(vec![Some(6.0), Some(1.0)]),
+    ]));
+    let lines = CartesianLayer::line(
+        LineMark::builder()
+            .x(Encoding::scaled_column("date"))
+            .y(Encoding::scaled_column("value"))
+            .detail(Encoding::column("symbol"))
+            .stroke_dash(
+                Encoding::scaled_column("symbol").scale(
+                    Scale::ordinal(OrdinalScale::builder())
+                        .range(Range::builder().values(Value::list(dashes))),
+                ),
+            ),
+    )
+    .table(series());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let dashes: Vec<Option<Vec<f32>>> = (plot_group(&evaluated).marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Line(line) => Some(line.stroke_dash.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        dashes,
+        [
+            Some(vec![1.0, 2.0]),
+            Some(vec![4.0, 5.0]),
+            Some(vec![6.0, 1.0])
+        ]
+    );
+}
+
+/// A range that only reverses draws the stylesheet's palette in reverse.
+#[test]
+fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
+    let chart = |reverse: bool| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("weight"))
+                .y(Encoding::scaled_column("mpg"))
+                .color(
+                    Encoding::scaled_column("origin")
+                        .scale(Scale::builder().range(Range::builder().reverse(reverse))),
+                ),
+        )
+        .table(cars());
+        Chart::builder()
+            .number_format_syntax("d3")
+            .datetime_format_syntax("d3")
+            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+            .infer_scales()
+            .build()
+            .unwrap()
+    };
+    // The legend's colors, each once, in the order of its entries.
+    let colors = |reverse| {
+        let mut colors = Vec::new();
+        for color in legend_symbol_fills(&evaluate(&chart(reverse), [320.0, 240.0])) {
+            if !colors.contains(&color) {
+                colors.push(color);
+            }
+        }
+        colors
+    };
+    let mut forward = colors(false);
+    let reversed = colors(true);
+    assert_eq!(forward.len(), 3);
+    forward.reverse();
+    assert_eq!(forward, reversed);
+}
+
+/// A layer whose mark computes `display: none` draws no marks and has no rows, and its values
+/// still fit the scales, so the axes stay as they are.
+#[test]
+fn a_hidden_layer_draws_nothing_and_keeps_its_domains() {
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut evaluator = ChartEvaluator::new(
+        chart.clone(),
+        cascade_with("mark { display: none; }"),
+        engine(),
+        Registry::new(),
+    )
+    .unwrap();
+    let hidden = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
+    let shown = evaluate(&chart, [320.0, 240.0]);
+    assert!(hidden.plots[0].layers[0].marks.is_empty());
+    assert!(!(plot_group(&hidden).marks.iter()).any(|mark| matches!(mark, SceneMark::Symbol(_))));
+    let pixels = |evaluated: &EvaluatedChart| {
+        let [x, y] = evaluated.plots[0]
+            .coords
+            .pixels([&numbers(&[2000.0, 4000.0]), &numbers(&[20.0, 30.0])])
+            .unwrap();
+        (x, y)
+    };
+    assert_eq!(pixels(&hidden), pixels(&shown));
+}
+
+/// An image that spans its four coordinates asks for the size that it draws at, whatever its
+/// width and height styles, which do not apply to it.
+#[test]
+fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
+    use avenger_scenegraph::marks::image::SceneImageSource;
+    let table = RecordBatch::try_from_iter([
+        ("x", numbers(&[0.0])),
+        ("x2", numbers(&[10.0])),
+        ("y", numbers(&[0.0])),
+        ("y2", numbers(&[10.0])),
+    ])
+    .unwrap();
+    let images = CartesianLayer::image(
+        ImageMark::builder()
+            .x(Encoding::scaled_column("x"))
+            .x2(Encoding::scaled_column("x2"))
+            .y(Encoding::scaled_column("y"))
+            .y2(Encoding::scaled_column("y2"))
+            .image(Encoding::constant("https://example.com/icon.png")),
+    )
+    .table(table);
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([images])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let image = |css: &str| {
+        let mut evaluator =
+            ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new())
+                .unwrap();
+        let evaluated = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
+        assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+        let image = (plot_group(&evaluated).marks.iter())
+            .find_map(|mark| match mark {
+                SceneMark::Image(image) => Some(image.clone()),
+                _ => None,
+            })
+            .expect("an image mark");
+        let SceneImageSource::Resource(resource) = &image.image.as_vec(1, None)[0] else {
+            panic!("a URL resource");
+        };
+        let [width, height] = [
+            image.width.as_vec(1, None)[0],
+            image.height.as_vec(1, None)[0],
+        ];
+        ([resource.width, resource.height], [width, height])
+    };
+    let (wide, drawn) = image("mark[type=image] { width: 100; height: 10; }");
+    let (tall, _) = image("mark[type=image] { width: 10; height: 100; }");
+    assert_eq!(wide, tall);
+    assert_eq!(wide, drawn.map(|size| size.round() as u32));
 }

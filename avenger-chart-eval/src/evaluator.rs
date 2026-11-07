@@ -346,20 +346,27 @@ impl ChartEvaluator {
                 &layer.path,
                 &mut warnings,
             )?;
-            if let Some(reason) = marks::image_warning(&rows)? {
+            // A layer whose `mark` node computes `display: none` draws nothing and has no rows to
+            // hit, and its values still fit its scales, so hiding it rescales no other layer.
+            let hidden = rows.style.is_hidden();
+            if let Some(reason) = marks::image_warning(&rows)?.filter(|_| !hidden) {
                 warnings.push(EvalWarning::NotDrawn {
                     path: layer.path.clone(),
                     reason,
                 });
             }
-            if let Some(reason) = rows.size_warning()? {
+            if let Some(reason) = rows.size_warning()?.filter(|_| !hidden) {
                 warnings.push(EvalWarning::NotDrawn {
                     path: layer.path.clone(),
                     reason,
                 });
             }
             let mut names = Vec::new();
-            for drawn in marks::marks(&rows)? {
+            let drawn = match hidden {
+                true => Vec::new(),
+                false => marks::marks(&rows)?,
+            };
+            for drawn in drawn {
                 let name = drawn.mark.mark_name().to_string();
                 data.insert(name.clone(), Arc::new(drawn.rows));
                 names.push(name);
@@ -488,7 +495,9 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         if group.is_position() {
             continue;
         }
-        let values: Vec<Option<ArrayRef>> = group.members.iter().map(values_of).collect();
+        let values = (group.members.iter())
+            .map(values_of)
+            .collect::<Result<Vec<Option<ArrayRef>>>>()?;
         scales[index] = Some(fit::non_position(
             &fit_inputs,
             group,
@@ -531,21 +540,32 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             Channel::Y => fit::direction(group, kinds[index]) == Direction::Forward,
             _ => fit::direction(group, kinds[index]) == Direction::Reverse,
         };
-        let values: Vec<Option<MemberValues>> = (group.members.iter())
-            .map(|member| {
-                let values = values_of(member)?;
-                if outer_level(layers[member.layer].mark, member.channel, &values) {
-                    return None;
+        let mut values: Vec<Option<MemberValues>> = Vec::with_capacity(group.members.len());
+        for member in &group.members {
+            let Some(member_values) = values_of(member)? else {
+                values.push(None);
+                continue;
+            };
+            if outer_level(layers[member.layer].mark, member.channel, &member_values) {
+                values.push(None);
+                continue;
+            }
+            // The values hold each source of the encoding for every row, one source after
+            // another, so each source's values take the reach of their rows.
+            let along = match &reach[member.layer] {
+                Some(reach)
+                    if !reach.is_empty()
+                        && member_values.len() % reach.len() == 0
+                        && member.summary.is_none() =>
+                {
+                    let sources = member_values.len() / reach.len();
+                    let (low, high) = reach::along(reach, group.channel, reversed);
+                    Some((low.repeat(sources), high.repeat(sources)))
                 }
-                let along = match &reach[member.layer] {
-                    Some(reach) if values.len() == reach.len() && member.summary.is_none() => {
-                        Some(reach::along(reach, group.channel, reversed))
-                    }
-                    _ => None,
-                };
-                Some((values, along))
-            })
-            .collect();
+                _ => None,
+            };
+            values.push(Some((member_values, along)));
+        }
         positions[index] = Some(fit::position(
             &fit_inputs,
             group,
@@ -588,19 +608,46 @@ fn outer_level(mark: &dyn MarkMessage, channel: Channel, values: &ArrayRef) -> b
     }
 }
 
-/// The values of the encoding of `channel` of `mark` that go through its scale: its scaled column in
-/// `table`, or its scaled constant.
+/// The values of the encoding of `channel` of `mark` that go through its scale: the scaled column in
+/// `table` or the scaled constant of its value and of each of its conditional values, in order, as
+/// the type of the first. A conditional value can be the only source of the scale, as a gray
+/// constant whose selected rows take the scale of a column.
 fn member_values(
     chart: &Chart,
     mark: &dyn MarkMessage,
     channel: Channel,
     table: &RecordBatch,
-) -> Option<ArrayRef> {
-    match mark.encoding(channel)?.value.as_ref()? {
-        encoding::Value::ScaledColumn(name) => table.column_by_name(name).cloned(),
-        encoding::Value::ScaledConstant(value) => Some(chart.value(value).clone()),
-        encoding::Value::Column(_) | encoding::Value::Constant(_) => None,
+) -> Result<Option<ArrayRef>> {
+    use avenger_chart::proto::conditional_value;
+    let Some(encoding) = mark.encoding(channel) else {
+        return Ok(None);
+    };
+    let base = match encoding.value.as_ref() {
+        Some(encoding::Value::ScaledColumn(name)) => table.column_by_name(name).cloned(),
+        Some(encoding::Value::ScaledConstant(value)) => Some(chart.value(value).clone()),
+        Some(encoding::Value::Column(_) | encoding::Value::Constant(_)) | None => None,
+    };
+    let conditionals = (encoding.conditional.iter()).filter_map(|conditional| {
+        match conditional.value.as_ref()? {
+            conditional_value::Value::ScaledColumn(name) => table.column_by_name(name).cloned(),
+            conditional_value::Value::ScaledConstant(value) => Some(chart.value(value).clone()),
+            conditional_value::Value::Column(_) | conditional_value::Value::Constant(_) => None,
+        }
+    });
+    let sources: Vec<ArrayRef> = base.into_iter().chain(conditionals).collect();
+    let Some(first) = sources.first() else {
+        return Ok(None);
+    };
+    if sources.len() == 1 {
+        return Ok(Some(first.clone()));
     }
+    let data_type = first.data_type().clone();
+    let sources = (sources.iter())
+        .map(|source| arrow::compute::cast(source, &data_type))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let sources: Vec<&dyn arrow::array::Array> =
+        sources.iter().map(|source| source.as_ref()).collect();
+    Ok(Some(arrow::compute::concat(&sources)?))
 }
 
 /// The scales of the channels of the layer `layer`: the position scales of `positions` and the

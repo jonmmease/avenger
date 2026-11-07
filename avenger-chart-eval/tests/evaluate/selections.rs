@@ -324,3 +324,101 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
     ]);
     assert_eq!(domain(&evaluate(&two, [320.0, 240.0]), 0), (2500.0, 3600.0));
 }
+
+/// A gray constant whose selected rows take the scale of a column fits the scale's domain to that
+/// column, so the selected rows draw in its colors and the legend lists its categories.
+#[test]
+fn a_conditional_value_alone_fits_its_scales_domain() {
+    let color = Encoding::constant("lightgray")
+        .conditional([ConditionalValue::scaled_column("origin")
+            .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .color(color),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Global)])
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
+    // An empty global selection selects every row.
+    assert!(grays(&evaluated).iter().all(|gray| !gray));
+    let fills = {
+        let symbol = plot_symbols(&evaluated);
+        symbol.fill.as_vec(symbol.len as usize, None)
+    };
+    let mut distinct = fills.clone();
+    distinct.dedup();
+    assert!(distinct.len() > 1, "{fills:?}");
+    let mut legend = Vec::new();
+    for color in legend_symbol_fills(&evaluated) {
+        if !legend.contains(&color) {
+            legend.push(color);
+        }
+    }
+    assert_eq!(legend.len(), 3, "{legend:?}");
+}
+
+/// The clauses of a union, one open above and one open below, bound neither end of a selection
+/// domain, which takes its fallback for both.
+#[test]
+fn a_union_open_at_both_ends_takes_the_fallback_domain() {
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder().domain(
+                    SelectionDomain::builder()
+                        .selection("brush")
+                        .channel(Channel::X)
+                        .data(DataDomain::builder()),
+                ),
+            ))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars())
+    .id("points")
+    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .id("plot")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let clause = |owner: &str, range: ValueRangeBuilder| {
+        Clause::builder()
+            .owner(owner)
+            .conditions([Condition::range(range.column("weight").channel(Channel::X))])
+    };
+    let chart = |initial: Vec<ClauseBuilder>| {
+        Chart::builder()
+            .number_format_syntax("d3")
+            .datetime_format_syntax("d3")
+            .root(plot.clone())
+            .selections([Selection::builder()
+                .name("brush")
+                .resolution(SelectionResolution::Union)
+                .initial(initial)])
+            .infer_scales()
+            .build()
+            .unwrap()
+    };
+    let open = chart(vec![
+        clause("plot", ValueRange::builder().high(3000.0)),
+        clause("points", ValueRange::builder().low(2500.0)),
+    ]);
+    let x = |evaluated: &EvaluatedChart| {
+        let [x, _] = evaluated.plots[0]
+            .coords
+            .pixels([&numbers(&[2000.0, 4000.0]), &numbers(&[20.0, 20.0])])
+            .unwrap();
+        x
+    };
+    let fallback = evaluate(&chart(Vec::new()), [320.0, 240.0]);
+    assert_eq!(x(&evaluate(&open, [320.0, 240.0])), x(&fallback));
+}

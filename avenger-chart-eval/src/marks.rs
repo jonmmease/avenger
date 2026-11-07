@@ -763,7 +763,7 @@ fn own_sizes(rows: &LayerRows) -> Result<Vec<Option<(f32, f32)>>> {
 /// Why an image does not draw: an `auto` size of a URL image, whose size is unknown before it
 /// loads.
 pub(crate) fn image_warning(rows: &LayerRows) -> Result<Option<String>> {
-    if !matches!(rows.mark, cartesian_layer::Mark::Image(_)) {
+    if !matches!(rows.mark, cartesian_layer::Mark::Image(_)) || spans(rows) {
         return Ok(None);
     }
     let auto = |channel: Channel, property: Property| {
@@ -816,19 +816,17 @@ fn image_sources(
     Ok(ScalarOrArray::new_array(images))
 }
 
+/// Whether an image spans the rectangle of its `x`, `y`, `x2`, and `y2`, so that no width, height,
+/// or anchor applies to it.
+fn spans(rows: &LayerRows) -> bool {
+    rows.has(Channel::X2) && rows.has(Channel::Y2)
+}
+
 fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
-    let sizes = image_sizes(rows)?;
-    let len = rows.len();
-    let convert =
-        |values: &ArrayRef, _: Option<&ConfiguredScale>| image_sources(values, &sizes, len);
-    let Some(images) = rows.resolve(Channel::Image, &convert)? else {
-        return Ok(Vec::new());
-    };
-    let [width, height] = sizes;
-    let (align, baseline) = image_anchor(rows.style);
     let x = rows.position(Channel::X)?;
     let y = rows.position(Channel::Y)?;
-    let (x, y, width, height, align, baseline) = if rows.has(Channel::X2) && rows.has(Channel::Y2) {
+    // The geometry comes first, so that a URL image asks for the size that it draws at.
+    let (x, y, width, height, align, baseline) = if spans(rows) {
         let x2 = rows.position(Channel::X2)?;
         let y2 = rows.position(Channel::Y2)?;
         let len = rows.len();
@@ -849,7 +847,16 @@ fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
             ImageBaseline::Top,
         )
     } else {
+        let [width, height] = image_sizes(rows)?;
+        let (align, baseline) = image_anchor(rows.style);
         (x, y, width, height, align, baseline)
+    };
+    let len = rows.len();
+    let sizes = [width.clone(), height.clone()];
+    let convert =
+        |values: &ArrayRef, _: Option<&ConfiguredScale>| image_sources(values, &sizes, len);
+    let Some(images) = rows.resolve(Channel::Image, &convert)? else {
+        return Ok(Vec::new());
     };
     let mark = SceneImageMark {
         name: rows.name.clone(),

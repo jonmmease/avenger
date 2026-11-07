@@ -114,18 +114,34 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ("PointScale", &["padding"]),
 ];
 
-/// The values of a range as CSS text: strings as they are, such as colors and shape names, and
-/// numbers as numbers.
+/// The values of a range as CSS text: strings as they are, such as colors and shape names,
+/// numbers as numbers, and lists, such as dashes, as their numbers apart by spaces.
 fn css_items(values: &arrow::array::ArrayRef) -> Vec<String> {
     use arrow::{
         array::{Array, AsArray},
         datatypes::DataType,
     };
-    let values = arrow::compute::cast(values, &DataType::Utf8).expect("a range casts to text");
-    let strings = values.as_string::<i32>();
-    (0..strings.len())
-        .map(|index| strings.value(index).to_string())
-        .collect()
+    let text = |values: &arrow::array::ArrayRef| -> Vec<String> {
+        let values = arrow::compute::cast(values, &DataType::Utf8).expect("a range casts to text");
+        let strings = values.as_string::<i32>();
+        (0..strings.len())
+            .map(|index| strings.value(index).to_string())
+            .collect()
+    };
+    let list = |index: usize| -> arrow::array::ArrayRef {
+        match values.data_type() {
+            DataType::List(_) => values.as_list::<i32>().value(index),
+            DataType::LargeList(_) => values.as_list::<i64>().value(index),
+            _ => values.as_fixed_size_list().value(index),
+        }
+    };
+    match values.data_type() {
+        DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(..) => (0..values
+            .len())
+            .map(|index| text(&list(index)).join(" "))
+            .collect(),
+        _ => text(values),
+    }
 }
 
 /// A style tree under construction, with a warning for each style field whose text is not a value

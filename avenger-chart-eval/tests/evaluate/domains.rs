@@ -423,3 +423,42 @@ fn a_chart_without_a_size_takes_its_natural_size() {
     let hosted = evaluate(&chart, [640.0, 360.0]);
     assert!(hosted.plots[0].rect[2] > 200.0);
 }
+
+/// A stroke that only a conditional value shows still widens the reach of its marks, so the
+/// selected outlines stay inside the plot.
+#[test]
+fn a_conditionally_shown_stroke_widens_the_reach_of_its_marks() {
+    let stroke = Encoding::constant("transparent")
+        .conditional([ConditionalValue::constant("black")
+            .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .size(Encoding::constant(100.0))
+            .stroke_width(Encoding::constant(40.0))
+            .stroke(stroke),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Global)])
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [640.0, 360.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let symbol = plot_symbols(&evaluated);
+    let [_, _, width, height] = evaluated.plots[0].rect;
+    // Each symbol is 10 pixels across with a stroke of 40, so it reaches 25 pixels.
+    let xs = symbol.x.as_vec(symbol.len as usize, None);
+    let ys = symbol.y.as_vec(symbol.len as usize, None);
+    for (x, y) in xs.into_iter().zip(ys) {
+        assert!(x >= 25.0 - 0.5 && x <= width - 25.0 + 0.5, "{x} {width}");
+        assert!(y >= 25.0 - 0.5 && y <= height - 25.0 + 0.5, "{y} {height}");
+    }
+}

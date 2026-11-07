@@ -129,13 +129,19 @@ pub(crate) fn source(
                         low: Some(low),
                         high: Some(high),
                     }) => DomainSource::Explicit(concat(&[low.as_ref(), high.as_ref()])?),
+                    // A union of ranges open at opposite ends bounds neither end, so the
+                    // fallback gives both, as it does without a selection.
+                    Some(SelectionValues::Range {
+                        low: None,
+                        high: None,
+                    }) => fallback,
                     // Ranges that leave one end open pin the other, and the fallback gives the
                     // open end.
                     Some(SelectionValues::Range { low, high }) => {
                         let pin = match (low, high) {
                             (Some(low), _) => DomainPin::Low(low),
                             (None, Some(high)) => DomainPin::High(high),
-                            (None, None) => unreachable!("a range bounds an end"),
+                            (None, None) => unreachable!("a range open at both ends falls back"),
                         };
                         match fallback {
                             DomainSource::Explicit(explicit) => {

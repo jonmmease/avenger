@@ -156,9 +156,23 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
     use cartesian_layer::Mark;
     let len = rows.len();
     // Half the widest stroke of each row, of the `stroke_width` channel or the computed
-    // `stroke-width`.
+    // `stroke-width`, when a choice of the conditional values of the paints and the opacities
+    // shows a stroke, as a selection can.
     let stroke = |rows: &LayerRows| -> Result<Vec<f32>> {
-        Ok(match rows.strokes()? {
+        let paints = [
+            Channel::Stroke,
+            Channel::Color,
+            Channel::Opacity,
+            Channel::StrokeOpacity,
+        ];
+        let mut strokes = false;
+        for choice in choices(rows, &paints) {
+            if rows.choosing(&choice).strokes()? {
+                strokes = true;
+                break;
+            }
+        }
+        Ok(match strokes {
             true => largest(
                 &rows.alternatives(Channel::StrokeWidth, &numbers)?,
                 len,

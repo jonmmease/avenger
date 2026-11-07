@@ -220,6 +220,21 @@ impl ScaleRange {
             ScaleRange::Values(values) => scale.with_range(values.clone()),
         })
     }
+
+    /// The range in reverse order.
+    pub(crate) fn reversed(self) -> Result<ScaleRange> {
+        Ok(match self {
+            ScaleRange::Colors { mut colors, space } => {
+                colors.reverse();
+                ScaleRange::Colors { colors, space }
+            }
+            ScaleRange::Values(values) => {
+                let indices =
+                    arrow::array::UInt32Array::from_iter_values((0..values.len() as u32).rev());
+                ScaleRange::Values(arrow::compute::take(&values, &indices, None)?)
+            }
+        })
+    }
 }
 
 /// How many values a non-position scale maps to: one for each category of a discrete scale, a

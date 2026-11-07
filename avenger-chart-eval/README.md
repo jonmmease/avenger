@@ -74,9 +74,9 @@ fn scenes(
 The styles of the style tree are computed again only when the host's preferences or theme change,
 or when a resize changes the outcome of a condition, such as a `@media` query of the host's width.
 The scales, the reach of the marks, the guides, and the layout follow the styles. A resize within a
-breakpoint keeps all of them: it solves the layout again, asking the guides only for the
-measurements that no longer hold, fits the position scales at the plot's new size, and encodes the
-marks. The rows that draw and the selection states never recompute.
+breakpoint reuses all of them as they were prepared. It solves the layout again, asking the guides
+only for the measurements that no longer hold, fits the position scales at the plot's new size, and
+encodes the marks. The rows that draw and the selection states never recompute.
 
 ## Styles
 
@@ -91,6 +91,10 @@ plot > mark[type=symbol] { size: 60; }
 axis[channel=y] > grid { display: none; }
 legend { orient: bottom; }
 ```
+
+`display: none` hides a guide or a part of one, and a layer whose `mark` computes it draws nothing
+and has no rows. A hidden layer's values still fit its scales, so a breakpoint that hides a layer
+does not rescale the others.
 
 `ChartEvaluator::styles` returns the computed styles for host inputs, and their warnings are in the
 warnings of each evaluation.

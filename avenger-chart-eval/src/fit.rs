@@ -247,7 +247,17 @@ pub(crate) fn non_position(
     };
     let scale = unfitted.with_domain(domain.clone());
     let shape = range_shape(spec, domain.len());
-    let scale = match range(style, styles, shape) {
+    // A format range that only reverses reverses the range of the styles, and one with values or a
+    // palette is reversed in the styles already.
+    let reverse = spec
+        .range
+        .as_ref()
+        .is_some_and(|range| range.reverse && range.range.is_none());
+    let range = match (range(style, styles, shape), reverse) {
+        (Some(range), true) => Some(range.reversed()?),
+        (range, _) => range,
+    };
+    let scale = match range {
         Some(range) => range.apply(scale)?,
         None => {
             warnings.push(EvalWarning::NotDrawn {
