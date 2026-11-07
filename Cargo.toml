@@ -52,6 +52,7 @@ members = [
     "examples/cross-filter",
     "examples/chart-facets",
     "examples/chart-crossfilter",
+    "examples/chart-widgets",
     "examples/egui-embed",
 ]
 exclude = [

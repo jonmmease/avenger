@@ -1565,6 +1565,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-widgets"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-scenegraph",
+ "avenger-selection",
+ "avenger-style",
+ "avenger-svg",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
