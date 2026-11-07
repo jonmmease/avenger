@@ -35,7 +35,17 @@ grid {
             env(background, white));
 }
 /* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
-plot:is([type=cartesian], [type=polar]) { contain-intrinsic-size: 200; }
+plot:is([type=cartesian], [type=polar], [type=geo]) { contain-intrinsic-size: 200; }
+/* The sphere of a map, which a map with a sphere fills and outlines: pale blue, with the color of
+   guide lines, and graticule labels 4 from their lines. */
+plot[type=geo] {
+  background: #f0f7ff;
+  border: 1 solid color-mix(in srgb,
+            env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
+            env(background, white));
+}
+graticule { label-padding: 4; }
+graticule > grid { stroke-width: 0.7; }
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
@@ -71,6 +81,7 @@ mark[type=line] { stroke-width: 2; }
 mark[type=trail] { size: 2; }
 mark[type=text] { max-lines: none; }
 mark[type=image] { width: 50; height: 50; }
+mark[type=shape] { stroke: env(background, white); stroke-width: 0.5; }
 mark[type=rect][store] {
   fill: color-mix(in srgb,
           color-mix(in srgb, env(foreground, contrast-color(env(background, white))) 80%,
