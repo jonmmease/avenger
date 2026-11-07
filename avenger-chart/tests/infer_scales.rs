@@ -61,15 +61,6 @@ fn table() -> RecordBatch {
     .unwrap()
 }
 
-/// The chart of `layers` over [`table`], with its scales inferred.
-fn inferred(layers: Vec<CartesianLayerBuilder>) -> Result<Chart, ChartError> {
-    let layers = layers.into_iter().map(|layer| layer.table(table()));
-    Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers(layers)))
-        .infer_scales()
-        .build()
-}
-
 /// The encoding of `channel` of the first layer of `message`.
 fn encoding(message: &ChartMessage, channel: Channel) -> Encoding {
     let Some(node::Node::Plot(plot)) = &message.root.as_ref().unwrap().node else {
@@ -96,32 +87,6 @@ fn type_name(encoding: &Encoding) -> Option<&'static str> {
     })
 }
 
-/// Symbols at `x` of the column `x`, with `y` of `number`, and `channel` of the column `value`,
-/// all through scales to infer.
-fn symbols(x: &str, channel: Option<(Channel, &str)>) -> CartesianLayerBuilder {
-    let mut mark = SymbolMark::builder()
-        .x(Encoding::scaled_column(x))
-        .y(Encoding::scaled_column("number"));
-    if let Some((channel, value)) = channel {
-        let encoding = Encoding::scaled_column(value);
-        mark = match channel {
-            Channel::Color => mark.color(encoding),
-            Channel::Size => mark.size(encoding),
-            Channel::Shape => mark.shape(encoding),
-            other => panic!("the cases do not encode {other:?}"),
-        };
-    }
-    CartesianLayer::symbol(mark)
-}
-
-fn bars() -> CartesianLayerBuilder {
-    CartesianLayer::bar(
-        BarMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
-    )
-}
-
 #[test]
 fn scale_types_follow_values_channels_and_marks() {
     let cases = [
@@ -146,11 +111,26 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Shape, "name", Some("ordinal")),
     ];
     for (channel, column, expected) in cases {
-        let layer = match channel {
-            Channel::X => symbols(column, None),
-            _ => symbols("number", Some((channel, column))),
+        let mark = SymbolMark::builder().y(Encoding::scaled_column("number"));
+        let mark = match channel {
+            Channel::X => mark.x(Encoding::scaled_column(column)),
+            Channel::Color => mark
+                .x(Encoding::scaled_column("number"))
+                .color(Encoding::scaled_column(column)),
+            Channel::Size => mark
+                .x(Encoding::scaled_column("number"))
+                .size(Encoding::scaled_column(column)),
+            Channel::Shape => mark
+                .x(Encoding::scaled_column("number"))
+                .shape(Encoding::scaled_column(column)),
+            other => panic!("the cases do not encode {other:?}"),
         };
-        let chart = inferred(vec![layer]);
+        let chart = Chart::builder()
+            .root(Plot::cartesian(
+                CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
+            ))
+            .infer_scales()
+            .build();
         let Some(expected) = expected else {
             // Values without a scale type leave the type absent, and the chart is invalid.
             match chart {
@@ -185,7 +165,17 @@ fn scale_types_follow_values_channels_and_marks() {
         );
     }
     // Categories on a position of a bar are bands.
-    let chart = inferred(vec![bars()]).unwrap();
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        .infer_scales()
+        .build()
+        .unwrap();
     assert_eq!(
         type_name(&encoding(chart.message(), Channel::X)),
         Some("band")
@@ -198,7 +188,13 @@ fn present_fields_and_plain_values_stay() {
         .x(Encoding::scaled_column("number").scale(ScaleSpec::log(LogScale::builder().base(2.0))))
         .y(Encoding::scaled_column("number"))
         .color(Encoding::column("name"));
-    let chart = inferred(vec![CartesianLayer::symbol(mark)]).unwrap();
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
     let message = chart.message();
     let x = encoding(message, Channel::X).scale.unwrap();
     assert!(matches!(
@@ -224,7 +220,18 @@ fn present_fields_and_plain_values_stay() {
 
 #[test]
 fn inferring_twice_changes_nothing() {
-    let once = inferred(vec![symbols("name", Some((Channel::Color, "number")))]).unwrap();
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number"))
+            .color(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let once = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let twice = Chart::builder()
         .root(once.clone())
         .infer_scales()
@@ -235,7 +242,25 @@ fn inferring_twice_changes_nothing() {
 
 #[test]
 fn layers_with_inferred_scales_share_them() {
-    let chart = inferred(vec![bars(), symbols("name", None)]).unwrap();
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([bars, symbols]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
     let scales = chart.resolve().scales;
     let x = scales
         .iter()

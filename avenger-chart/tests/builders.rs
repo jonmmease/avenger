@@ -34,16 +34,6 @@ fn invalid<T: std::fmt::Debug>(result: Result<T, ChartError>, path: &str, reason
     }
 }
 
-/// A chart of one layer of symbols of `a` against `b` with `mark`'s other channels.
-fn scatter(mark: SymbolMarkBuilder) -> ChartBuilder {
-    let layer = CartesianLayer::symbol(
-        mark.x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b")),
-    )
-    .table(points());
-    Chart::builder().root(Plot::cartesian(CartesianPlot::builder().layers([layer])))
-}
-
 /// The symbols of the first layer of `chart`.
 fn symbols(chart: &Chart) -> &SymbolMark {
     let Some(node::Node::Plot(plot)) = &chart.root().node else {
@@ -160,14 +150,19 @@ fn a_message_converts_to_its_builder() {
 
 #[test]
 fn values_take_the_arrow_type_of_their_rust_type() {
-    let chart = scatter(
+    let layer = CartesianLayer::symbol(
         SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
             .color(Encoding::constant("#e45756"))
             .size(Encoding::constant(5)),
     )
-    .infer_scales()
-    .build()
-    .unwrap();
+    .table(points());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([layer])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let mark = symbols(&chart);
     let value = |encoding: &Option<Encoding>| match &encoding.as_ref().unwrap().value {
         Some(encoding::Value::Constant(value)) => chart.value(value).clone(),
@@ -219,11 +214,21 @@ fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
 
 #[test]
 fn an_error_of_a_setter_names_its_path_in_the_chart() {
-    let pinned = ScaleSpec::builder().domain(Domain::explicit(Value::scalar(Arc::new(
-        Float64Array::from(vec![1.0, 2.0]),
-    ))));
+    // An explicit domain of a scalar of two elements.
+    let size = Encoding::scaled_column("a").scale(ScaleSpec::builder().domain(Domain::explicit(
+        Value::scalar(Arc::new(Float64Array::from(vec![1.0, 2.0]))),
+    )));
+    let layer = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .size(size),
+    )
+    .table(points());
     invalid(
-        scatter(SymbolMark::builder().size(Encoding::scaled_column("a").scale(pinned))).build(),
+        Chart::builder()
+            .root(Plot::cartesian(CartesianPlot::builder().layers([layer])))
+            .build(),
         "root.plot.cartesian.layers[0].symbol.size.scale.domain.explicit",
         "one element",
     );
@@ -231,16 +236,22 @@ fn an_error_of_a_setter_names_its_path_in_the_chart() {
 
 #[test]
 fn a_chart_takes_the_version_and_infers_only_when_asked() {
+    let scatter = || {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("a"))
+                .y(Encoding::scaled_column("b")),
+        )
+        .table(points());
+        Chart::builder().root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+    };
     // Without inference, a scaled column needs its scale.
     invalid(
-        scatter(SymbolMark::builder()).build(),
+        scatter().build(),
         "root.plot.cartesian.layers[0].mark.symbol.x",
         "goes through the channel's scale",
     );
-    let chart = scatter(SymbolMark::builder())
-        .infer_scales()
-        .build()
-        .unwrap();
+    let chart = scatter().infer_scales().build().unwrap();
     assert_eq!(chart.message().version, FORMAT_VERSION);
     let x = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
     assert!(matches!(x.r#type, Some(scale_spec::Type::Linear(_))));
@@ -261,13 +272,21 @@ fn a_conditional_value_takes_its_predicate_and_value() {
 
 #[test]
 fn a_replaced_value_leaves_no_trace_in_the_chart() {
-    let replaced = scatter(SymbolMark::builder().color(Encoding::constant("red").constant("blue")))
-        .infer_scales()
-        .build()
-        .unwrap();
-    let once = scatter(SymbolMark::builder().color(Encoding::constant("blue")))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let colored = |color: EncodingBuilder| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("a"))
+                .y(Encoding::scaled_column("b"))
+                .color(color),
+        )
+        .table(points());
+        Chart::builder()
+            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+            .infer_scales()
+            .build()
+            .unwrap()
+    };
+    let replaced = colored(Encoding::constant("red").constant("blue"));
+    let once = colored(Encoding::constant("blue"));
     assert_eq!(replaced, once);
 }
