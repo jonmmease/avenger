@@ -35,7 +35,7 @@ grid {
             env(background, white));
 }
 /* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
-plot[type=cartesian] { contain-intrinsic-size: 200; }
+plot:is([type=cartesian], [type=polar]) { contain-intrinsic-size: 200; }
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
@@ -51,6 +51,8 @@ plot:is([type=wrap], [type=facet_wrap]) { min-column-width: 160; }
 header { orient: top; label-padding: 4; }
 header[type=row] { orient: right; label-angle: 90deg; }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
+/* The axes of polar plots draw their spokes and rings, as a radar chart's web. */
+axis:is([channel=theta], [channel=radius]) > grid { display: block; }
 
 /* The labels of axes and colorbars keep apart, except those of categories, which all show as in
    Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
