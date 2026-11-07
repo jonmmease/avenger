@@ -1,5 +1,8 @@
 //! Titles, attributions, axes, legends, and colorbars, and the styles that hide and paint them.
 
+use std::sync::Arc;
+
+use arrow::array::{RecordBatch, StringArray};
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
 use avenger_color::ColorOrGradient;
@@ -88,6 +91,23 @@ fn a_color_scale_that_pins_its_middle_diverges() {
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&chart, "legend-diverging");
+}
+
+/// A legend of 40 categories ends at its 30th entry, which counts the rest.
+#[test]
+fn a_legend_past_its_max_entries() {
+    let names: Vec<String> = (0..40).map(|index| format!("item {index}")).collect();
+    let table = RecordBatch::try_from_iter([
+        ("x", numbers(&(0..40).map(f64::from).collect::<Vec<_>>())),
+        (
+            "name",
+            Arc::new(StringArray::from(names)) as arrow::array::ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(table, SymbolMark::builder().x("x").y("x").color("name"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    render(&chart, [480.0, 640.0], "legend-max-entries");
 }
 
 #[test]

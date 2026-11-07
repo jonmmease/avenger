@@ -21,7 +21,7 @@ legend > label { max-width: 16rem; }
 /* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a
    continuous scale has about 5 entries. */
 legend { offset: 12; }
-legend[type=symbol] { tick-count: 5; }
+legend[type=symbol] { tick-count: 5; max-entries: 30; }
 legend[type=colorbar] > ramp { max-length: 200; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */

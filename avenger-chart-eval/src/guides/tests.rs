@@ -238,6 +238,28 @@ fn legends_of_different_columns_stay_apart() {
     with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
 }
 
+/// A legend of more entries than `max-entries` shows one less and an entry that counts the rest.
+#[test]
+fn a_legend_past_its_max_entries_counts_the_rest() {
+    let names: Vec<String> = (0..40).map(|index| format!("c{index:02}")).collect();
+    let table = RecordBatch::try_from_iter([
+        (
+            "x",
+            Arc::new(Float64Array::from_iter_values((0..40).map(f64::from))) as ArrayRef,
+        ),
+        ("name", Arc::new(StringArray::from(names.clone()))),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(table, SymbolMark::builder().x("x").y("x").color("name"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    with_guides(&chart, |guides, _| {
+        let labels = legend_labels(&guides.legends[0].guide);
+        assert_eq!(labels.len(), 30);
+        assert_eq!(labels[..29], names[..29]);
+        assert_eq!(labels[29], "…11 more");
+    });
+}
+
 /// An angle scale draws no legend unless its spec has one.
 #[test]
 fn an_angle_scale_draws_no_legend_by_default() {

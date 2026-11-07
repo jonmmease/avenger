@@ -437,6 +437,35 @@ enum Swatch {
     Pattern(PatternFills),
 }
 
+impl Swatch {
+    /// Repeats the swatch of the last entry for one more entry, which the legend hides.
+    fn repeat_last(&mut self) {
+        fn repeat<T: Clone>(values: &mut Vec<T>) {
+            if let Some(last) = values.last().cloned() {
+                values.push(last);
+            }
+        }
+        match self {
+            Self::Color(values) | Self::Fill(values) | Self::Stroke(values) => repeat(values),
+            Self::Opacity(values)
+            | Self::Size(values)
+            | Self::StrokeWidth(values)
+            | Self::Angle(values) => repeat(values),
+            Self::Shape(values) => repeat(values),
+            Self::StrokeDash(values) => repeat(values),
+            Self::Pattern(fills) => {
+                let len = match fills.0.value() {
+                    avenger_common::value::ScalarOrArrayValue::Array(values) => values.len(),
+                    avenger_common::value::ScalarOrArrayValue::Scalar(_) => 1,
+                };
+                let mut values = fills.0.as_vec(len, None);
+                values.push(None);
+                *fills = PatternFills(ScalarOrArray::new_array(values));
+            }
+        }
+    }
+}
+
 /// The values of `values` through `scale` as the swatch of `channel`, or `None` for a channel
 /// that a swatch does not draw.
 fn swatch(channel: Channel, scale: &ConfiguredScale, values: &ArrayRef) -> Result<Option<Swatch>> {
@@ -659,6 +688,8 @@ fn scaled_columns(resolved: &Resolved, group: &ScaleGroup) -> Vec<String> {
 struct LegendDraft {
     /// The scale group of its first scale.
     group: usize,
+    /// Whether the last entry counts the entries past `max-entries`, which draws no swatch.
+    rest: bool,
     spec: proto::Legend,
     /// The categories of a discrete scale, which merge legends with equal categories.
     categories: Option<ArrayRef>,
@@ -703,11 +734,28 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
-                let (values, labels, label_syntax) =
+                let (values, mut labels, label_syntax) =
                     entries(scale, &spec, tick_count, inputs.chart, inputs.engine)?;
-                let Some(swatch) = swatch(group.channel, scale, &values)? else {
+                // A legend longer than `max-entries` ends with an entry that counts the rest.
+                let max_entries = inputs.styles[nodes.legend].integer(Property::MaxEntries);
+                let rest = match max_entries {
+                    Some(max) if labels.len() > max as usize => labels.len() - (max as usize - 1),
+                    _ => 0,
+                };
+                let values = match rest {
+                    0 => values,
+                    rest => {
+                        labels.truncate(labels.len() - rest);
+                        labels.push(format!("…{rest} more"));
+                        values.slice(0, values.len() - rest)
+                    }
+                };
+                let Some(mut swatch) = swatch(group.channel, scale, &values)? else {
                     continue;
                 };
+                if rest > 0 {
+                    swatch.repeat_last();
+                }
                 let title = guide_title(spec.title.as_ref(), || {
                     default_title(inputs.resolved, group, true)
                 });
@@ -744,6 +792,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                     }
                     None => pending.push(Pending::Legend(Box::new(LegendDraft {
                         group: index,
+                        rest: rest > 0,
                         spec,
                         categories,
                         columns,
@@ -856,6 +905,9 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         if let Some(opacity) = opacity {
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
         }
+        if draft.rest {
+            swatches.stroke = faded(&swatches.stroke, &shown(len), len);
+        }
         LegendSwatches::Lines(swatches)
     } else {
         let swatch_style = &styles[nodes.swatch];
@@ -935,6 +987,10 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
             swatches.fill = faded(&swatches.fill, &opacity, len);
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
         }
+        if draft.rest {
+            swatches.fill = faded(&swatches.fill, &shown(len), len);
+            swatches.stroke = faded(&swatches.stroke, &shown(len), len);
+        }
         LegendSwatches::Symbols(swatches)
     };
     let legend_style = &styles[nodes.legend];
@@ -981,6 +1037,16 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         max_length: None,
         offset: offset(legend_style),
     })
+}
+
+/// The opacity of the swatches of a legend of `len` entries whose last entry counts the rest: every
+/// swatch but the last.
+fn shown(len: usize) -> Vec<f32> {
+    let mut opacity = vec![1.0; len];
+    if let Some(last) = opacity.last_mut() {
+        *last = 0.0;
+    }
+    opacity
 }
 
 /// `colors` with their alpha times `opacity`.

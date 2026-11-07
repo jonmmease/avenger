@@ -263,6 +263,7 @@ properties! {
     Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
     TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
+    MaxEntries = "max-entries", false, Syntax::Any(&[Syntax::Integer { min: 2 }, Syntax::Keywords(&["none"])]), "none", &[Legend];
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
     LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Header, Graticule, Mark];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
