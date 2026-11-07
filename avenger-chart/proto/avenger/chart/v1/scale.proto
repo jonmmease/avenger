@@ -48,7 +48,8 @@ message Scale {
   // - dates and timestamps: a time scale, and an ordinal scale on `shape`, `pattern`, and
   //   `stroke_dash`
   // - strings and booleans: on a position, a band scale for bars and rects and a point scale for
-  //   other marks, and elsewhere an ordinal scale
+  //   other marks, a point scale on `size`, `opacity`, `fill_opacity`, `stroke_opacity`, and
+  //   `stroke_width`, which spreads the categories over the range, and elsewhere an ordinal scale
   // - structs of the levels of nested categories: a nested band scale on a position
   //
   // The values are those of the encoding when they are scaled, and otherwise of its first scaled

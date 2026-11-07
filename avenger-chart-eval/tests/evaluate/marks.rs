@@ -38,6 +38,17 @@ fn symbols_with_a_size_and_a_shape() {
     render_both(&chart, "symbols-size-shape");
 }
 
+/// Categories on `size` take a point scale, which spreads them over the range of sizes.
+#[test]
+fn symbols_sized_by_category() {
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").size("origin"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    render_both(&chart, "symbols-size-category");
+}
+
 #[test]
 fn lines() {
     let lines = CartesianLayer::line(

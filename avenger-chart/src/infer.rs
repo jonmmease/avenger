@@ -30,7 +30,7 @@ use crate::{
 /// |---|---|---|---|---|
 /// | numbers | linear | linear | linear | ordinal |
 /// | dates and timestamps | time | time | time | ordinal |
-/// | strings and booleans | band for bars and rects, point otherwise | ordinal | ordinal | ordinal |
+/// | strings and booleans | band for bars and rects, point otherwise | ordinal | point on `size`, the opacities, and `stroke_width`, ordinal otherwise | ordinal |
 /// | structs of paths | nested band | none | none | none |
 ///
 /// A scale with a type whose domain is absent gets the layer's data domain. Values of another type,
@@ -199,6 +199,14 @@ fn scale_type(data_type: &DataType, channel: Channel, mark_type: MarkType) -> Op
         channel,
         Channel::X | Channel::Y | Channel::Theta | Channel::Radius
     );
+    let spread = matches!(
+        channel,
+        Channel::Size
+            | Channel::Opacity
+            | Channel::FillOpacity
+            | Channel::StrokeOpacity
+            | Channel::StrokeWidth
+    );
     let categorical = matches!(
         channel,
         Channel::Shape | Channel::Pattern | Channel::StrokeDash
@@ -213,6 +221,8 @@ fn scale_type(data_type: &DataType, channel: Channel, mark_type: MarkType) -> Op
             MarkType::Bar | MarkType::Rect => Type::Band(proto::BandScale::default()),
             _ => Type::Point(proto::PointScale::default()),
         },
+        // Categories spread over a range of numbers, in place of alternating between its ends.
+        Values::Categories if spread => Type::Point(proto::PointScale::default()),
         Values::Categories => Type::Ordinal(proto::OrdinalScale::default()),
     })
 }
