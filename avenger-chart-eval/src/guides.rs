@@ -294,6 +294,9 @@ fn axis_style(
     let mut style = AxisStyle {
         tick_count: axis.number(Property::TickCount).map(f64::from),
         tick_spacing: axis.number(Property::TickSpacing),
+        // `thin-ticks: true` thins the explicit ticks of the spec, such as `Ticks.values`, to the
+        // axis's length.
+        thin_ticks: axis.boolean(Property::ThinTicks).unwrap_or(false),
         ticks: ticks(chart, spec_ticks),
         tick_length: match ticks_shown {
             true => style_number(tick, Property::TickSize),

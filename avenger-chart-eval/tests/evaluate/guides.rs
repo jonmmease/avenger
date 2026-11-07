@@ -417,3 +417,47 @@ fn crowded_short_labels_never_thicken_as_the_axis_grows() {
         assert!(!limited, "{height}: {:?}", evaluated.warnings);
     }
 }
+
+/// `thin-ticks: true` thins the explicit ticks of an axis to its length, keeping every 2nd, 5th,
+/// or 10th tick where they crowd. Without it, the axis draws every explicit tick, and the overlap
+/// of its labels hides all but every 6th label.
+#[test]
+fn thin_ticks_thins_explicit_ticks() {
+    let values: Vec<f64> = (15..=55).map(|step| f64::from(step) * 100.0).collect();
+    let symbols =
+        CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("weight")
+                    .scale(Axis::builder().ticks(Ticks::values(values))))
+                .y("mpg"),
+        );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let thousands = |texts: Vec<String>| {
+        let mut kept: Vec<String> = texts
+            .into_iter()
+            .filter(|text| {
+                text.replace(',', "")
+                    .parse::<f64>()
+                    .is_ok_and(|n| n >= 1500.0)
+            })
+            .collect();
+        kept.sort();
+        kept
+    };
+    let every = thousands(scene_texts(&evaluate(&chart, [320.0, 240.0]).scene.marks));
+    let mut thinned = ChartEvaluator::new(
+        chart,
+        cascade_with("axis { thin-ticks: true; }"),
+        engine(),
+        Registry::new(),
+    )
+    .unwrap();
+    let evaluated = thinned.evaluate(&host([320.0, 240.0])).unwrap();
+    let kept = thousands(scene_texts(&evaluated.scene.marks));
+    assert_eq!(
+        every,
+        ["1,500", "2,100", "2,700", "3,300", "3,900", "4,500"]
+    );
+    assert_eq!(kept, ["1,500", "2,500", "3,500", "4,500"]);
+}

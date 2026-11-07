@@ -205,6 +205,7 @@ The initial values of the table hold on every node except these, where they depe
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
 | `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
 | `tick-spacing` | `<length [0,∞]> \| auto` | `auto` | no | `axis` |
+| `thin-ticks` | `true \| false` | `false` | no | `axis` |
 | `max-entries` | `<integer [2,∞]> \| none` | `none` | no | `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
 | `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `header`, `graticule`, `mark` |
