@@ -13,6 +13,33 @@ use arrow::{
 
 use avenger_chart::builder::Value;
 
+/// The 406 cars of the cars dataset of vega-datasets, from the StatLib library of Carnegie Mellon
+/// University, with lowercase column names: `name`, `mpg`, `cylinders`, `displacement`,
+/// `horsepower`, `weight`, `acceleration`, `year` as a date, and `origin`. Eight cars have no `mpg`
+/// and six no `horsepower`.
+pub(crate) fn cars_dataset() -> RecordBatch {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/cars.csv");
+    let float = |name| Field::new(name, DataType::Float64, true);
+    let schema = Arc::new(arrow::datatypes::Schema::new(vec![
+        Field::new("name", DataType::Utf8, false),
+        float("mpg"),
+        Field::new("cylinders", DataType::Int64, false),
+        float("displacement"),
+        float("horsepower"),
+        float("weight"),
+        float("acceleration"),
+        Field::new("year", DataType::Date32, false),
+        Field::new("origin", DataType::Utf8, false),
+    ]));
+    let file = std::fs::File::open(path).expect("the cars dataset is in tests/data");
+    let mut reader = arrow::csv::ReaderBuilder::new(schema)
+        .with_header(true)
+        .with_batch_size(1024)
+        .build(file)
+        .unwrap();
+    reader.next().unwrap().unwrap()
+}
+
 /// A table of 24 cars: a weight, a fuel economy, a count, an origin, a cylinder count, and a
 /// model year.
 pub(crate) fn cars() -> RecordBatch {

@@ -46,6 +46,49 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("Title", &["text", "syntax", "subtitle"]),
     (
+        "Concat",
+        &[
+            "id",
+            "direction",
+            "children",
+            "resolve",
+            "layout",
+            "title",
+            "projection",
+            "partition",
+            "facet",
+            "classes",
+        ],
+    ),
+    (
+        "ConcatLayout",
+        &[
+            "tracks",
+            "part_rules",
+            "horizontal_distribute",
+            "vertical_distribute",
+        ],
+    ),
+    (
+        "Wrap",
+        &[
+            "id",
+            "children",
+            "resolve",
+            "layout",
+            "title",
+            "projection",
+            "partition",
+            "facet",
+            "classes",
+        ],
+    ),
+    ("WrapLayout", &["row", "part_rules", "distribute"]),
+    ("Track", &["length", "share"]),
+    ("Share", &["weight", "max"]),
+    ("Facet", &["column", "show", "classes", "id"]),
+    ("Empty", &["partition"]),
+    (
         "Encoding",
         &[
             "direct_field",
@@ -389,19 +432,6 @@ const DEFERRED_FIELDS: &[(&str, &[&str])] = &[("Axis", &["angle", "label_orient"
 
 /// The messages that a later evaluator PR maps, whose nodes PR 1 does not build.
 const DEFERRED: &[(&str, &[&str])] = &[
-    (
-        "PR 2, compositions",
-        &[
-            "Concat",
-            "ConcatLayout",
-            "Wrap",
-            "WrapLayout",
-            "Track",
-            "Share",
-            "Facet",
-            "Empty",
-        ],
-    ),
     (
         "PR 3, polar plots",
         &[

@@ -53,6 +53,34 @@ pub(crate) fn scene_texts(marks: &[SceneMark]) -> Vec<String> {
     texts
 }
 
+/// The text and the anchor in the scene of every text mark of a scene, its groups and their
+/// origins included.
+pub(crate) fn scene_text_positions(marks: &[SceneMark]) -> Vec<(String, [f32; 2])> {
+    fn walk(marks: &[SceneMark], origin: [f32; 2], out: &mut Vec<(String, [f32; 2])>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => {
+                    let origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
+                    walk(&group.marks, origin, out);
+                }
+                SceneMark::Text(text) => {
+                    let len = text.len as usize;
+                    let texts = text.text.as_vec(len, None);
+                    let x = text.x.as_vec(len, None);
+                    let y = text.y.as_vec(len, None);
+                    for ((text, x), y) in texts.into_iter().zip(x).zip(y) {
+                        out.push((text, [origin[0] + x, origin[1] + y]));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(marks, [0.0, 0.0], &mut out);
+    out
+}
+
 /// The domain of the scale of `dimension`, 0 for `x` and 1 for `y`, of the first plot.
 pub(crate) fn domain(evaluated: &EvaluatedChart, dimension: usize) -> (f64, f64) {
     (evaluated.plots[0].coords.scale(dimension))
