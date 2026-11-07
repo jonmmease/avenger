@@ -28,7 +28,7 @@ pub struct AxisStyle {
     /// would overlap. `ticks` replaces it.
     pub tick_count: Option<f64>,
     /// The least distance between the ticks of a continuous axis that fits its tick count to its
-    /// length, in pixels, along a horizontal axis and a vertical one alike. When absent, 3.5 times
+    /// length, in pixels, along a horizontal axis and a vertical one alike. When absent, 2.5 times
     /// the font size of the labels, so the ticks spread with the size of their labels.
     pub tick_spacing: Option<f32>,
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
