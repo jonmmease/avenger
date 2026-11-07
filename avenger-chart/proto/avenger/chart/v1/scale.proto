@@ -40,8 +40,20 @@ import "avenger/chart/v1/value.proto";
 // plots whose layers share `radius` draw it at one outer radius, the smallest of theirs, so a value
 // lies as far from the center of each.
 message Scale {
-  // The type of the scale and its options. Required. An option that is absent takes the default
-  // that its comment gives.
+  // The type of the scale and its options. An option that is absent takes the default that its
+  // comment gives. When the type is absent, the reader infers it from the type of the values, the
+  // channel, and for categories on a position, the mark:
+  //
+  // - numbers: a linear scale, and an ordinal scale on `shape`, `pattern`, and `stroke_dash`
+  // - dates and timestamps: a time scale, and an ordinal scale on `shape`, `pattern`, and
+  //   `stroke_dash`
+  // - strings and booleans: on a position, a band scale for bars and rects and a point scale for
+  //   other marks, and elsewhere an ordinal scale
+  // - structs of the levels of nested categories: a nested band scale on a position
+  //
+  // The values are those of the encoding when they are scaled, and otherwise of its first scaled
+  // conditional value. Values of another type, such as durations, have no inferred type, and a
+  // chart that leaves their type absent is invalid.
   oneof type {
     LinearScale linear = 1;
     LogScale log = 2;
@@ -58,7 +70,8 @@ message Scale {
     // A scale that an app adds to its renderer.
     CustomScale custom = 15;
   }
-  // Where the domain comes from. Required.
+  // Where the domain comes from. When absent, and the scale has a type, the reader infers the data
+  // domain of the layer with no fit.
   Domain domain = 16 [(avenger.chart.v1.lift) = true];
   // The range. When absent, the styles give the range of a non-position channel, and the plot gives
   // the range of a position channel, whose `Range` holds only `reverse`.

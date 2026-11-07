@@ -239,9 +239,6 @@ pub(super) fn builders(set: &FileDescriptorSet, messages: &Messages) -> String {
         writeln!(code, "pub struct {builder} {{").unwrap();
         writeln!(code, "    pub(crate) message: {path},").unwrap();
         code.push_str("    pub(crate) parts: crate::builder::Parts,\n");
-        if is_chart {
-            code.push_str("    pub(crate) infer_scales: bool,\n");
-        }
         if is_plot {
             code.push_str("    pub(crate) overlays: Vec<crate::proto::NodeBuilder>,\n");
         }

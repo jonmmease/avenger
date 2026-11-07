@@ -125,7 +125,7 @@ Each message `Foo` of `proto` has a builder, `FooBuilder`, from `Foo::builder()`
 
 Each oneof member also has a constructor on its message, such as `Encoding::scaled_field("count")` or `Plot::cartesian(..)`. A member whose message has no fields takes no argument, such as `Scale::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`. A field named after a Rust keyword has a method with a trailing underscore, such as `CustomScale::type_`.
 
-A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which checks it and puts it in the canonical form. `ChartBuilder::infer_scales` asks `build` to infer the absent scale of each encoding of a `scaled_column` or a `scaled_constant`, and the absent type and domain of its scale, by the conventions that the common charting tools share: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. Inference leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set. The builder of any other message builds alone when it holds no data, such as a scale for a unit test.
+A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which infers its absent scales, checks it, and puts it in the canonical form, as every reader does. The builder of any other message builds alone when it holds no data, such as a scale for a unit test.
 
 The builders also compose charts:
 
@@ -155,7 +155,7 @@ let table = RecordBatch::try_from_iter([
 ])?;
 
 // Bars of `count` by `species`: a band scale of the species and a linear scale of the counts,
-// which inference infers, and whose domain contains zero.
+// which the reader infers, and whose domain contains zero.
 let bars = CartesianLayer::bar(
     BarMark::builder()
         .x(Encoding::scaled_field("species"))
@@ -166,7 +166,6 @@ let bars = CartesianLayer::bar(
 .table(table);
 let chart = Chart::builder()
     .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-    .infer_scales()
     .build()?;
 
 // Two copies of the chart side by side, which share one table.

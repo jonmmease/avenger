@@ -25,7 +25,6 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
         .table(cars());
         let chart = Chart::builder()
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-            .infer_scales()
             .build()
             .unwrap();
         let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -51,7 +50,6 @@ fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -85,7 +83,6 @@ fn a_plot_too_small_for_its_symbols_warns() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [200.0, 150.0]);
@@ -123,7 +120,6 @@ fn the_rows_of_each_mark_are_its_instances() {
             .root(Plot::cartesian(
                 CartesianPlot::builder().layers([layer.table(table.clone())]),
             ))
-            .infer_scales()
             .build()
             .unwrap();
         let evaluated = evaluate(&chart, [300.0, 200.0]);
@@ -149,7 +145,6 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "explicit-domain-clipped");
@@ -167,7 +162,6 @@ fn a_cartesian_plot_maps_its_pixels_to_themselves() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -208,7 +202,6 @@ fn a_resize_fits_the_position_scales_at_the_new_size() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -241,7 +234,6 @@ fn a_chart_of_a_concat_is_unsupported() {
                 .direction(Direction::Row)
                 .children([scatter(), scatter()]),
         )
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -265,7 +257,6 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -288,7 +279,6 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -330,7 +320,6 @@ fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
     let chart = Chart::builder()
         .root(plot)
         .selections([brush])
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -361,7 +350,6 @@ fn a_pinned_middle_centers_the_domain() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -383,7 +371,6 @@ fn a_chart_without_a_size_takes_its_natural_size() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -419,7 +406,6 @@ fn a_conditionally_shown_stroke_widens_the_reach_of_its_marks() {
         .selections([Selection::builder()
             .name("brush")
             .resolution(SelectionResolution::Global)])
-        .infer_scales()
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [640.0, 360.0]);

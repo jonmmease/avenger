@@ -204,7 +204,6 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     .table(points());
     let explicit = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let group = x_group(&explicit);
@@ -224,7 +223,6 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     .table(points());
     let data = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let group = x_group(&data);
@@ -259,7 +257,6 @@ fn a_preferred_order_moves_the_listed_categories_first() {
     .table(points());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let group = x_group(&chart);
@@ -310,7 +307,6 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
                 .name("brush")
                 .resolution(resolution)
                 .initial(initial)])
-            .infer_scales()
             .build()
             .unwrap();
         let group = x_group(&chart);
@@ -361,7 +357,6 @@ fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
                 .name("brush")
                 .resolution(SelectionResolution::Global)
                 .initial([range_clause("scatter", range)])])
-            .infer_scales()
             .build()
             .unwrap();
         let group = x_group(&chart);
@@ -401,7 +396,6 @@ fn a_range_with_one_end_pins_a_fit_of_the_data() {
             .name("brush")
             .resolution(SelectionResolution::Global)
             .initial([range_clause("scatter", ValueRange::builder().high(2.5))])])
-        .infer_scales()
         .build()
         .unwrap();
     let group = x_group(&chart);
@@ -480,7 +474,6 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
             .name("brush")
             .resolution(SelectionResolution::Intersect)
             .initial([widget_clause, brush_clause])])
-        .infer_scales()
         .build()
         .unwrap();
     let states = states(&chart).unwrap();
@@ -516,7 +509,6 @@ fn a_syntax_that_the_engine_lacks_fails() {
     let chart = Chart::builder()
         .number_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let bare = avenger_typst_label::bundled_label_engine();
@@ -560,7 +552,6 @@ fn a_summary_domain_holds_the_producers_summary() {
         .selections([Selection::builder()
             .name("brush")
             .resolution(SelectionResolution::Global)])
-        .infer_scales()
         .build()
         .unwrap();
     let group = x_group(&chart);

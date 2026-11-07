@@ -162,7 +162,6 @@ fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     with_guides(&chart, |guides, _| {
@@ -192,7 +191,6 @@ fn legends_of_equal_categories_merge() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     with_guides(&chart, |guides, _| {
@@ -216,7 +214,6 @@ fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     with_guides(&chart, |guides, _| {
@@ -241,7 +238,6 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let (values, labels, _) =
@@ -262,7 +258,6 @@ fn a_position_fit_leaves_room_for_the_reach() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let resolved = chart.resolve();
@@ -301,7 +296,6 @@ fn a_position_fit_leaves_room_for_the_reach() {
     .table(penguins());
     let clipped = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let resolved = clipped.resolve();
@@ -344,7 +338,6 @@ fn legends_of_two_scales_of_one_channel_stay_apart() {
             Plot::cartesian(CartesianPlot::builder().layers([layer(), layer()]))
                 .resolve([Resolve::channel(Channel::Color).sharing(Sharing::Independent)]),
         )
-        .infer_scales()
         .build()
         .unwrap();
     with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
@@ -379,7 +372,6 @@ fn a_legend_draws_the_constant_shape_of_its_marks() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     with_guides(&chart, |guides, _| {

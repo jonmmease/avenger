@@ -129,7 +129,6 @@ fn scale_types_follow_values_channels_and_marks() {
             .root(Plot::cartesian(
                 CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
             ))
-            .infer_scales()
             .build();
         let Some(expected) = expected else {
             // Values without a scale type leave the type absent, and the chart is invalid.
@@ -173,7 +172,6 @@ fn scale_types_follow_values_channels_and_marks() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     assert_eq!(
@@ -192,7 +190,6 @@ fn present_fields_and_plain_values_stay() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let message = chart.message();
@@ -229,14 +226,9 @@ fn inferring_twice_changes_nothing() {
     .table(table());
     let once = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
-    let twice = Chart::builder()
-        .root(once.clone())
-        .infer_scales()
-        .build()
-        .unwrap();
+    let twice = Chart::builder().root(once.clone()).build().unwrap();
     assert_eq!(once, twice);
 }
 
@@ -258,7 +250,6 @@ fn layers_with_inferred_scales_share_them() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([bars, symbols]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let scales = chart.resolve().scales;

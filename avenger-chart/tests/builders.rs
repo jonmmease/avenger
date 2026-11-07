@@ -163,7 +163,6 @@ fn values_take_the_arrow_type_of_their_rust_type() {
     .table(points());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([layer])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = symbols(&chart);
@@ -189,7 +188,6 @@ fn a_list_value_is_one_element_of_a_list() {
             )
             .table(points())]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let spec = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
@@ -237,7 +235,7 @@ fn an_error_of_a_setter_names_its_path_in_the_chart() {
 }
 
 #[test]
-fn a_chart_takes_the_version_and_infers_only_when_asked() {
+fn a_chart_takes_the_version_and_its_reader_infers_scales() {
     let scatter = || {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
@@ -247,13 +245,7 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
         .table(points());
         Chart::builder().root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
     };
-    // Without inference, a scaled column needs its scale.
-    invalid(
-        scatter().build(),
-        "root.plot.cartesian.layers[0].symbol.x",
-        "goes through the channel's scale",
-    );
-    let chart = scatter().infer_scales().build().unwrap();
+    let chart = scatter().build().unwrap();
     assert_eq!(chart.message().version, FORMAT_VERSION);
     let x = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
     assert!(matches!(x.r#type, Some(scale::Type::Linear(_))));
@@ -284,7 +276,6 @@ fn a_replaced_value_leaves_no_trace_in_the_chart() {
         .table(points());
         Chart::builder()
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-            .infer_scales()
             .build()
             .unwrap()
     };

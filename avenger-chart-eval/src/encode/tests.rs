@@ -129,7 +129,6 @@ fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -157,7 +156,6 @@ fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -206,7 +204,6 @@ fn the_first_conditional_value_that_selects_a_row_wins() {
         .selections([Selection::builder()
             .name("brush")
             .resolution(SelectionResolution::Global)])
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -251,7 +248,6 @@ fn paints_follow_the_computed_styles_and_the_color_channel() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -310,7 +306,6 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -341,7 +336,6 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     .table(table());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
     let mark = first_mark(&chart);

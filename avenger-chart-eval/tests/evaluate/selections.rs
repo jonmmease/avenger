@@ -46,7 +46,6 @@ fn a_condition_grays_the_rows_outside_a_brush() {
         Chart::builder()
             .root(plot)
             .selections([brush])
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -103,7 +102,6 @@ fn a_cyclic_range_selects_across_its_wrap() {
         let chart = Chart::builder()
             .root(plot)
             .selections([brush])
-            .infer_scales()
             .build()
             .unwrap();
         grays(&evaluate(&chart, [320.0, 240.0]))
@@ -151,7 +149,6 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
         let chart = Chart::builder()
             .root(plot)
             .selections([brush])
-            .infer_scales()
             .build()
             .unwrap();
         grays(&evaluate(&chart, [320.0, 240.0]))
@@ -249,7 +246,6 @@ fn a_test_of_a_missing_column_selects_no_row_and_warns() {
     let chart = Chart::builder()
         .root(plot)
         .selections([brush])
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -288,7 +284,6 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
         Chart::builder()
             .root(plot)
             .selections([brush])
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -330,7 +325,6 @@ fn a_conditional_value_alone_fits_its_scales_domain() {
         .selections([Selection::builder()
             .name("brush")
             .resolution(SelectionResolution::Global)])
-        .infer_scales()
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -386,7 +380,6 @@ fn a_union_open_at_both_ends_takes_the_fallback_domain() {
                 .name("brush")
                 .resolution(SelectionResolution::Union)
                 .initial(initial)])
-            .infer_scales()
             .build()
             .unwrap()
     };

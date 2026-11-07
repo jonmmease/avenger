@@ -20,7 +20,6 @@ fn symbols() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "symbols");
@@ -41,7 +40,6 @@ fn symbols_with_a_size_and_a_shape() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "symbols-size-shape");
@@ -58,7 +56,6 @@ fn lines() {
     .table(series());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "lines");
@@ -76,7 +73,6 @@ fn trails() {
     .table(series());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([trails])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "trails");
@@ -97,7 +93,6 @@ fn areas() {
     .table(series());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([areas])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "areas");
@@ -113,7 +108,6 @@ fn bars() {
     .table(categories());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "bars");
@@ -133,7 +127,6 @@ fn horizontal_bars() {
     .table(categories());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "bars-horizontal");
@@ -167,7 +160,6 @@ fn rects() {
     .table(bins);
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "rects-histogram");
@@ -183,7 +175,6 @@ fn a_rect_without_y_spans_the_height_of_its_band() {
     .table(categories());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([rects])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "rects-bands");
@@ -202,7 +193,6 @@ fn rules() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([rules])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "rules");
@@ -220,7 +210,6 @@ fn texts() {
     .table(categories());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "texts");
@@ -240,7 +229,6 @@ fn image_marks() {
     .table(images());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "images");
@@ -260,7 +248,6 @@ fn images_with_sizes_from_columns() {
     .table(images());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "images-sizes");
@@ -279,7 +266,6 @@ fn texts_with_weights_and_styles_from_columns() {
     .table(labels());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "texts-fonts");
@@ -297,7 +283,6 @@ fn texts_wrap_at_their_widths() {
     .table(labels());
     let wrapped = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&wrapped, "texts-wrapped");
@@ -316,7 +301,6 @@ fn texts_wrap_at_their_widths() {
     .table(labels());
     let cut = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&cut, "texts-cut");
@@ -334,7 +318,6 @@ fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
     .table(labels());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -381,7 +364,6 @@ fn paths() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([paths])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "paths");
@@ -418,7 +400,6 @@ fn a_conditional_path_draws_for_the_rows_that_it_selects() {
     let chart = Chart::builder()
         .root(plot)
         .selections([brush])
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -452,7 +433,6 @@ fn a_formatted_value_under_typst_syntax_is_escaped() {
     let chart = Chart::builder()
         .number_format_syntax("d3")
         .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -485,7 +465,6 @@ fn an_auto_image_size_is_the_images_own_size() {
     .table(images());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([icons])))
-        .infer_scales()
         .build()
         .unwrap();
     let own = styled(&chart, "mark[type=image] { width: auto; height: auto; }");
@@ -502,7 +481,6 @@ fn an_auto_image_size_is_the_images_own_size() {
     .table(images());
     let urls = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([urls])))
-        .infer_scales()
         .build()
         .unwrap();
     let unknown = styled(&urls, "mark[type=image] { width: auto; }");
@@ -538,7 +516,6 @@ fn a_range_of_dash_lists_draws_its_dashes() {
     .table(series());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -575,7 +552,6 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
         .table(cars());
         Chart::builder()
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -608,7 +584,6 @@ fn a_hidden_layer_draws_nothing_and_keeps_its_domains() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let mut evaluator = ChartEvaluator::new(
@@ -655,7 +630,6 @@ fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
     .table(table);
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([images])))
-        .infer_scales()
         .build()
         .unwrap();
     let image = |css: &str| {

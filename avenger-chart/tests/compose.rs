@@ -59,7 +59,6 @@ fn a_builder_tree_refers_to_its_own_tables_and_values() {
     .partition([PartitionValue::builder().column("sex").value("female")]);
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -92,7 +91,6 @@ fn nested_builders_refer_to_their_own_values() {
             Plot::cartesian(CartesianPlot::builder().layers([layer(0.0), layer(5.0)]))
                 .resolve([Resolve::channel(Channel::Y).sharing(Sharing::Independent)]),
         )
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -153,8 +151,7 @@ fn format_syntaxes_agree_and_outer_sizes_drop() {
         .table(points());
         let chart = Chart::builder()
             .number_format_syntax(syntax)
-            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-            .infer_scales();
+            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])));
         match width {
             Some(width) => chart.width(width),
             None => chart,
@@ -217,7 +214,6 @@ fn the_selections_of_finished_charts_join() {
             .selections([Selection::builder()
                 .name("brush")
                 .resolution(SelectionResolution::Global)])
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -247,7 +243,6 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
                     .id("panel")
                     .partition([PartitionValue::builder().column("genre").value(genre)]),
             )
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -277,7 +272,6 @@ fn a_finished_chart_takes_a_partition_value() {
     .table(points());
     let scatter = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let chart = Chart::builder()
@@ -320,7 +314,6 @@ fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
                 .facet(Facet::builder().column("key"))
                 .children(nodes),
         )
-        .infer_scales()
         .build()
         .unwrap();
     let Some(node::Node::Concat(concat)) = &chart.root().node else {
@@ -486,7 +479,6 @@ fn an_overlay_draws_the_layers_of_its_plots_in_one_plot() {
     .partition([PartitionValue::builder().column("sex").value("male")]);
     let chart = Chart::builder()
         .root(Plot::builder().overlay([female, male]))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -520,7 +512,7 @@ fn the_fields_of_an_overlay_plot_win_and_its_layers_come_first() {
         )
         .title(Title::builder().text("Both"))
         .overlay([titled("A"), titled("B")]);
-    let chart = Chart::builder().root(own).infer_scales().build().unwrap();
+    let chart = Chart::builder().root(own).build().unwrap();
 
     let plot = root_plot(&chart);
     assert_eq!(plot.title.as_ref().unwrap().text, "Both");
@@ -537,7 +529,6 @@ fn the_fields_of_an_overlay_plot_win_and_its_layers_come_first() {
     fails(
         Chart::builder()
             .root(Plot::builder().overlay([titled("A"), titled("B")]))
-            .infer_scales()
             .build(),
         "root.plot.overlay[1]",
         "which is a conflict",
@@ -560,13 +551,11 @@ fn the_options_of_overlaid_plots_agree() {
     };
     Chart::builder()
         .root(Plot::builder().overlay([shaped(1.5), shaped(1.5)]))
-        .infer_scales()
         .build()
         .unwrap();
     fails(
         Chart::builder()
             .root(Plot::builder().overlay([shaped(1.5), shaped(2.0)]))
-            .infer_scales()
             .build(),
         "root.plot.overlay[1]",
         "`options`",
@@ -594,7 +583,6 @@ fn an_overlaid_plot_is_a_plot_of_the_coordinate_system() {
     fails(
         Chart::builder()
             .root(Plot::builder().overlay([cartesian.clone(), polar]))
-            .infer_scales()
             .build(),
         "root.plot.overlay[1]",
         "the coordinate system of the plot",
@@ -606,7 +594,6 @@ fn an_overlaid_plot_is_a_plot_of_the_coordinate_system() {
     fails(
         Chart::builder()
             .root(Plot::builder().overlay([row]))
-            .infer_scales()
             .build(),
         "root.plot.overlay[0]",
         "an overlaid node is a plot",
@@ -632,7 +619,6 @@ fn an_overlay_joins_the_classes_of_its_plots() {
                 .classes(["report"])
                 .overlay([classed(&["a"]), classed(&["report", "b"])]),
         )
-        .infer_scales()
         .build()
         .unwrap();
     assert_eq!(root_plot(&chart).classes, ["report", "a", "b"]);
@@ -661,7 +647,6 @@ fn combined_charts_share_the_widgets_that_they_declare() {
             .selections([Selection::builder()
                 .name("filters")
                 .resolution(SelectionResolution::Intersect)])
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -720,7 +705,6 @@ fn a_wrapped_facet_of_partitions() {
                 .facet(Facet::builder().column("origin"))
                 .children(panels),
         )
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -792,7 +776,6 @@ fn a_facet_grid_of_nested_partitions() {
                 .facet(Facet::builder().column("region"))
                 .children(rows),
         )
-        .infer_scales()
         .build()
         .unwrap();
 

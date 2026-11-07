@@ -30,7 +30,7 @@ fn bars_with_a_line_on_an_independent_y() {
     .table(weather());
     let plot = Plot::cartesian(CartesianPlot::builder().layers([bars, line]))
         .resolve([Resolve::channel(Channel::Y).sharing(Sharing::Independent)]);
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let chart = Chart::builder().root(plot).build().unwrap();
     render_both(&chart, "overlay-dual-axis");
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -72,7 +72,6 @@ fn a_line_over_its_symbols() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([line, symbols]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "overlay-line-symbols");
@@ -98,7 +97,7 @@ fn an_overlay_with_independent_colors() {
     .table(series());
     let plot = Plot::cartesian(CartesianPlot::builder().layers([line, symbols]))
         .resolve([Resolve::channel(Channel::Color).sharing(Sharing::Independent)]);
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let chart = Chart::builder().root(plot).build().unwrap();
     render_both(&chart, "overlay-independent-colors");
 }
 
@@ -129,7 +128,6 @@ fn bars_share_y_with_a_rule_of_their_mean() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([bars(), mean()]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "overlay-bars-mean");
@@ -139,7 +137,6 @@ fn bars_share_y_with_a_rule_of_their_mean() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([mean(), bars()]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -169,7 +166,6 @@ fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([summarized, rows]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
 

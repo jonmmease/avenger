@@ -23,7 +23,7 @@ fn titles_and_attributions() {
                 .align(TitleAlign::Start),
         )
         .attribution(Attribution::builder().credits(["Source: StatLib"]));
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let chart = Chart::builder().root(plot).build().unwrap();
     render_both(&chart, "title-subtitle-attribution");
 
     let symbols = CartesianLayer::symbol(
@@ -38,7 +38,7 @@ fn titles_and_attributions() {
             .text("Figure 1: heavier cars travel fewer miles on a gallon.")
             .side(TitleSide::Bottom),
     );
-    let caption = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let caption = Chart::builder().root(plot).build().unwrap();
     render_both(&caption, "caption");
 }
 
@@ -57,7 +57,6 @@ fn legends() {
     .table(cars());
     let threshold = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&threshold, "legend-threshold");
@@ -73,7 +72,6 @@ fn legends() {
     .table(cars());
     let merged = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&merged, "legend-color-shape");
@@ -92,7 +90,6 @@ fn an_axis_with_explicit_ticks() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "axis-explicit-ticks");
@@ -117,7 +114,6 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     render(&chart, [320.0, 480.0], "colorbar-longest-length");
@@ -136,7 +132,6 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     .table(cars());
     let symbols = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let red = [228.0 / 255.0, 87.0 / 255.0, 86.0 / 255.0, 1.0];
@@ -163,7 +158,6 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     .table(cars());
     let lines = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&lines, "legend-constant-color-lines");
@@ -181,7 +175,6 @@ fn a_hidden_guide_draws_nothing() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
@@ -211,7 +204,6 @@ fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let css = "mark[type=symbol] {
@@ -279,7 +271,6 @@ fn a_mix_of_current_color_tints_each_rows_color() {
     .table(cars());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 

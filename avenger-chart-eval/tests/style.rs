@@ -104,7 +104,6 @@ fn the_style_tree_has_a_node_for_each_part() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([by_species, by_mass]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluator = evaluator(chart, cascade(""));
@@ -200,7 +199,6 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
     .table(sales);
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluator = evaluator(chart, cascade(""));
@@ -243,7 +241,6 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([by_species, by_mass]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let mut turned = evaluator(turned, cascade(css));
@@ -286,7 +283,6 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([by_species, by_mass]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let mut plain = evaluator(plain, cascade(css));
@@ -319,7 +315,6 @@ fn a_table_without_stylesheets_gives_initial_values() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([by_species, by_mass]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let mut evaluator = evaluator(chart, empty);
@@ -352,7 +347,6 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([by_species, by_mass]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     let mut evaluator = evaluator(
@@ -390,7 +384,6 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let mut evaluator = evaluator(chart, cascade("grid { display: none; }"));
@@ -431,7 +424,6 @@ fn style_text_that_is_not_a_value_warns() {
     .table(penguins());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let evaluator = evaluator(chart, cascade(""));
@@ -470,7 +462,6 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     .table(sales);
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     let mut evaluator = evaluator(chart, cascade("axis { label-angle: 30deg; }"));
@@ -506,7 +497,6 @@ fn a_select_without_a_form_stores_a_box() {
             .selections([Selection::builder()
                 .name("brush")
                 .resolution(SelectionResolution::Global)])
-            .infer_scales()
             .build()
             .unwrap();
         let evaluator = evaluator(chart, cascade(""));

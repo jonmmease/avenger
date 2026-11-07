@@ -254,8 +254,8 @@ impl Checker<'_> {
         {
             return Err(fail(
                 path,
-                "a Cartesian position is a `scaled_column` or a `scaled_constant`, which go through \
-                 the scale of `x` or `y`",
+                "a Cartesian position is a `scaled_field` or a `scaled_value`, which go through the \
+                 scale of `x` or `y`",
             ));
         }
         let scaled = scaled(encoding);
@@ -264,7 +264,7 @@ impl Checker<'_> {
             return Err(fail(
                 path,
                 format!(
-                    "`{}` takes no scale, so its values are a `column` or a `constant`",
+                    "`{}` takes no scale, so its values are a `direct_field` or a `direct_value`",
                     channel.field_name()
                 ),
             ));
@@ -279,13 +279,13 @@ impl Checker<'_> {
             Some(_) if !scaled => {
                 return Err(fail(
                     path,
-                    "an encoding without a `scaled_column` or a `scaled_constant` has no scale",
+                    "an encoding without a `scaled_field` or a `scaled_value` has no scale",
                 ))
             }
             None if scaled && !paired => {
                 return Err(fail(
                     path,
-                    "a `scaled_column` or a `scaled_constant` goes through the channel's scale",
+                    "a `scaled_field` or a `scaled_value` goes through the channel's scale",
                 ))
             }
             _ => {}
@@ -1355,8 +1355,14 @@ fn ascends(array: &ArrayRef, path: &str) -> Result<()> {
 }
 
 fn column<'b>(table: &'b RecordBatch, name: &str, path: &str) -> Result<&'b ArrayRef> {
-    (table.column_by_name(name))
-        .ok_or_else(|| fail(path, format!("the layer's table has no column `{name}`")))
+    (table.column_by_name(name)).ok_or_else(|| {
+        fail(
+            path,
+            format!(
+                "the layer's table has no column `{name}`. For a constant, use a `direct_value`"
+            ),
+        )
+    })
 }
 
 /// Checks where the mark of a position channel stands in its band: `band_position` from 0 to 1

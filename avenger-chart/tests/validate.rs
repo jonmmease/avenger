@@ -115,21 +115,11 @@ fn required_fields_and_oneofs_are_set() {
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind = None;
     invalid(parts, X, "`kind` is required");
 
+    // The reader infers an absent scale type and domain.
     let mut parts = base();
     x_scale(&mut parts.0).r#type = None;
-    invalid(
-        parts,
-        &format!("{X}.scale"),
-        "the type of a scale is required",
-    );
-
-    let mut parts = base();
     x_scale(&mut parts.0).domain = None;
-    invalid(
-        parts,
-        &format!("{X}.scale.domain"),
-        "the domain of a scale is required",
-    );
+    read(parts).unwrap();
 }
 
 #[test]
@@ -181,11 +171,7 @@ fn enum_fields_hold_declared_values() {
 }
 
 #[test]
-fn x_and_y_take_a_scaled_column_or_a_scaled_constant_through_a_scale() {
-    let mut parts = base();
-    symbol_mut(&mut parts.0).x.as_mut().unwrap().scale = None;
-    invalid(parts, X, "goes through the channel's scale");
-
+fn x_and_y_take_a_scaled_field_or_a_scaled_value_through_a_scale() {
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind =
         Some(encoding::Kind::ScaledField("missing".to_string()));
@@ -194,7 +180,7 @@ fn x_and_y_take_a_scaled_column_or_a_scaled_constant_through_a_scale() {
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind =
         Some(encoding::Kind::DirectField("a".to_string()));
-    invalid(parts, X, "a `scaled_column` or a `scaled_constant`");
+    invalid(parts, X, "a `scaled_field` or a `scaled_value`");
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x = Some(Encoding {
@@ -202,7 +188,7 @@ fn x_and_y_take_a_scaled_column_or_a_scaled_constant_through_a_scale() {
         ..Default::default()
     });
     parts.2 = vec![Arc::new(Float64Array::from(vec![1.0]))];
-    invalid(parts, X, "a `scaled_column` or a `scaled_constant`");
+    invalid(parts, X, "a `scaled_field` or a `scaled_value`");
 }
 
 #[test]

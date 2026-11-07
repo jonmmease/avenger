@@ -41,9 +41,9 @@ message Encoding {
   }
   // The scale of the channel, which maps the `scaled_field` and `scaled_value` values of the
   // encoding and of its conditional values to what the mark draws. An encoding has a scale exactly
-  // when its value or one of its conditional values is a `scaled_` value, and a reader requires its
-  // type and its domain. Scale inference fills in a scale, a type, or a domain that a producer
-  // leaves out.
+  // when its value or one of its conditional values is a `scaled_` value. When it is absent, the
+  // reader infers it, with the type and the domain that `Scale.type` and `Scale.domain` describe,
+  // so a scale is needed only to set its fields.
   //
   // `x` and `y` take `scaled_` values only, because the axes and the fit of the plot need a scale.
   // The second channels of pairs, `x2`, `y2`, `theta2`, and `radius2`, never have a scale of their

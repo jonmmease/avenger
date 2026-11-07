@@ -26,7 +26,6 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         .table(categories());
         Chart::builder()
             .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-            .infer_scales()
             .build()
             .unwrap()
     };
@@ -54,7 +53,6 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         .table(categories());
         let chart = Chart::builder()
             .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-            .infer_scales()
             .build()
             .unwrap();
         symbol_positions(&evaluate(&chart, [320.0, 240.0]))
@@ -99,7 +97,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     .table(categories());
     let bars = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
         .build()
         .unwrap();
     let full = rect_spans(&styled(&bars, ""));
@@ -119,7 +116,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     .table(categories());
     let points = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
     let diameter = |css: &str| symbol_positions(&styled(&points, css))[0].2.sqrt();
@@ -138,7 +134,6 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     .table(categories());
     let line = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
         .build()
         .unwrap();
     let warned = styled(&line, "mark[type=line] { size: 50%; }");
@@ -196,7 +191,6 @@ fn group_totals_span_their_groups_behind_their_members() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([groups, members]),
         ))
-        .infer_scales()
         .build()
         .unwrap();
     render_both(&chart, "grouped-bars-totals");
@@ -261,7 +255,6 @@ fn a_custom_scale_of_categories_runs_down_the_plot() {
     .table(categories());
     let chart = Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
         .build()
         .unwrap();
 
