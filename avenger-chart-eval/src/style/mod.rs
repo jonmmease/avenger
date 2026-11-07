@@ -5,7 +5,7 @@ pub(crate) mod inline;
 pub(crate) mod tree;
 
 use avenger_chart::{
-    proto::{self, guide, scale_spec, Channel},
+    proto::{self, guide, scale, Channel},
     resolve::ScaleGroup,
     FitKind,
 };
@@ -32,11 +32,11 @@ pub(crate) enum GuideKind {
 
 /// Whether a scale of the kind of fit `kind` maps a continuous domain to a continuous range: an
 /// interval scale other than a quantize scale, whose range is bins.
-pub(crate) fn is_continuous(spec: &proto::ScaleSpec, kind: FitKind) -> bool {
-    kind == FitKind::Interval && !matches!(spec.r#type, Some(scale_spec::Type::Quantize(_)))
+pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
+    kind == FitKind::Interval && !matches!(spec.r#type, Some(scale::Type::Quantize(_)))
 }
 
-/// The guide that a scale group draws, as `ScaleSpec.guide` gives it: its own guide, or without
+/// The guide that a scale group draws, as `Scale.guide` gives it: its own guide, or without
 /// one, an axis for `x` and `y`, a legend for a discrete scale or the bins of a quantize, quantile,
 /// or threshold scale, a colorbar for a continuous color scale, and a legend of the ticks of another
 /// continuous scale. `theta` and `radius` draw no guide in a Cartesian chart.
@@ -65,8 +65,8 @@ pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind>
 
 /// The name of a scale's type, as the `type` attribute of its nodes gives it: `linear`, `band`,
 /// and so on, and the name of a custom scale.
-pub(crate) fn scale_type(spec: &proto::ScaleSpec) -> String {
-    use scale_spec::Type;
+pub(crate) fn scale_type(spec: &proto::Scale) -> String {
+    use scale::Type;
     match spec.r#type.as_ref().expect("a valid scale has a type") {
         Type::Linear(_) => "linear",
         Type::Log(_) => "log",

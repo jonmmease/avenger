@@ -623,10 +623,10 @@ pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::
 pub(crate) fn scale(
     tree: &mut Styled,
     node: NodeId,
-    spec: &proto::ScaleSpec,
+    spec: &proto::Scale,
     chart: &avenger_chart::Chart,
 ) {
-    use proto::scale_spec::Type;
+    use proto::scale::Type;
     if let Some(range) = &spec.range {
         match &range.range {
             Some(proto::range::Range::Palette(palette)) => {

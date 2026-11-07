@@ -251,17 +251,17 @@ fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> String {
     names.join(" ")
 }
 
-/// The Arrow type of the values that a scale group maps: of its first member's column or scaled
-/// constant, or of its explicit domain.
+/// The Arrow type of the values that a scale group maps: of its first member's scaled column or
+/// scaled constant, or of its explicit domain.
 fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option<DataType> {
     let member = &group.members[0];
     let layer = &resolved.tree.layers[member.layer];
     let from_encoding = match layer.mark.encoding(member.channel)?.value.as_ref()? {
-        encoding::Value::Column(name) => {
+        encoding::Value::ScaledColumn(name) => {
             Some(layer.table.column_by_name(name)?.data_type().clone())
         }
         encoding::Value::ScaledConstant(value) => Some(chart.value(value).data_type().clone()),
-        encoding::Value::Constant(_) => None,
+        encoding::Value::Column(_) | encoding::Value::Constant(_) => None,
     };
     from_encoding.or_else(|| match group.spec.domain.as_ref()?.domain.as_ref()? {
         proto::domain::Domain::Explicit(values) => {
@@ -280,7 +280,7 @@ fn scale_kind(
     group: &ScaleGroup,
     kind: FitKind,
 ) -> &'static str {
-    use proto::scale_spec::Type;
+    use proto::scale::Type;
     if kind != FitKind::Categories {
         return "sequential";
     }
@@ -316,10 +316,7 @@ fn plain_type(data_type: &DataType) -> DataType {
 /// The number of the levels of a nested band scale's axis: the fields of the structs that its
 /// values are, or 0 for another scale.
 fn nested_levels(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> usize {
-    if !matches!(
-        group.spec.r#type,
-        Some(proto::scale_spec::Type::NestedBand(_))
-    ) {
+    if !matches!(group.spec.r#type, Some(proto::scale::Type::NestedBand(_))) {
         return 0;
     }
     match values_type(chart, resolved, group) {
