@@ -59,21 +59,21 @@ message Scale {
     CustomScale custom = 15;
   }
   // Where the domain comes from. Required.
-  Domain domain = 16;
+  Domain domain = 16 [(avenger.chart.v1.lift) = true];
   // The range. When absent, the styles give the range of a non-position channel, and the plot gives
   // the range of a position channel, whose `Range` holds only `reverse`.
-  Range range = 17;
+  Range range = 17 [(avenger.chart.v1.lift) = true];
   // The share family. Layers whose specs name one family for a channel share one scale, in
   // addition to the scales that resolve rules share.
   string family = 18;
   // The axis of a position scale. When absent, `x` and `y` have an axis and `theta` and `radius`
   // have none. Invalid on the scale of another channel.
-  Axis axis = 19;
+  Axis axis = 19 [(avenger.chart.v1.lift) = true];
   // The legend of a non-position scale. When absent, a discrete scale has a symbol legend, a
   // quantize, quantile, or threshold scale has a symbol legend of its bins, a continuous color
   // scale has a colorbar, and another continuous scale, such as `size`, has a symbol legend of its
   // ticks. Invalid on the scale of a position channel.
-  Legend legend = 22;
+  Legend legend = 22 [(avenger.chart.v1.lift) = true];
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
   // custom scale. When absent, a view moves freely.
@@ -242,8 +242,8 @@ message NestedBandScale {
 }
 
 enum NestScope {
-  // Not valid.
-  NEST_SCOPE_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent, so the level is free, as `NEST_SCOPE_FREE` describes.
+  NEST_SCOPE_UNSPECIFIED = 0;
   // Each parent has room for the children that it has.
   NEST_SCOPE_FREE = 1;
   // Each parent has a slot for every child of the level, so the slots line up across parents.
@@ -286,7 +286,7 @@ message ThresholdScale {}
 // reports an error that names it.
 message CustomScale {
   // The name of the type.
-  string type = 1;
+  string type = 1 [(avenger.chart.v1.required) = true];
   // The options of the scale, keyed by name. The scale checks their names and their values.
   repeated NamedOption options = 2;
 }
@@ -359,7 +359,7 @@ message SummaryDomain {
   // the size scale of symbols. When a combination shares a non-position scale that the extents
   // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
   // past the edges of its plot. The renderer then reports that the marks do not fit.
-  ValueRef value = 1;
+  ValueRef value = 1 [(avenger.chart.v1.required) = true];
   // How the domain fits the summary.
   DomainFit fit = 2;
 }
@@ -373,12 +373,13 @@ message DataDomain {
 // A domain from the values of a selection.
 message SelectionDomain {
   // The name of the selection.
-  string selection = 1;
+  string selection = 1 [(avenger.chart.v1.required) = true];
   // The channel whose conditions give the domain: the ranges that projected through this
   // channel, and the values of the set columns that did.
-  Channel channel = 2;
+  Channel channel = 2 [(avenger.chart.v1.required) = true];
   // The domain when the selection gives no values.
   oneof fallback {
+    option (avenger.chart.v1.required_oneof) = true;
     // An explicit domain, as for `Domain.explicit`.
     ValueRef explicit = 3;
     // A summary domain, as for `Domain.summary`.
@@ -436,7 +437,7 @@ message CategoryFit {
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.
-    CategorySort sort = 1;
+    CategorySort sort = 1 [(avenger.chart.v1.required) = true];
     // A list of categories that come first, in its order, before the other categories of the data,
     // ascending. Listed categories without data are not in the domain. A preferred order is invalid
     // on a nested band scale.
@@ -445,8 +446,8 @@ message CategoryFit {
 }
 
 enum CategorySort {
-  // Not valid.
-  CATEGORY_SORT_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  CATEGORY_SORT_UNSPECIFIED = 0;
   // From the least category to the greatest, in the order of their values.
   CATEGORY_SORT_ASCENDING = 1;
   // From the greatest category to the least.

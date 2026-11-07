@@ -10,7 +10,7 @@ pub enum ChartError {
     #[error("the chart has format version {0}, and this reader reads version 1")]
     UnsupportedVersion(u32),
     /// A part of the chart that breaks a rule of the format, or two parts that conflict, at its
-    /// path from the chart, such as `root.plot.cartesian.layers[0].mark.symbol.x`.
+    /// path from the chart, such as `root.plot.cartesian.layers[0].symbol.x`.
     #[error("{path}: {reason}")]
     Invalid { path: String, reason: String },
     #[error(transparent)]

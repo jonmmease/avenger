@@ -250,7 +250,7 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
     // Without inference, a scaled column needs its scale.
     invalid(
         scatter().build(),
-        "root.plot.cartesian.layers[0].mark.symbol.x",
+        "root.plot.cartesian.layers[0].symbol.x",
         "goes through the channel's scale",
     );
     let chart = scatter().infer_scales().build().unwrap();

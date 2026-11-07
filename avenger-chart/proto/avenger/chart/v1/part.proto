@@ -20,8 +20,8 @@ import "avenger/chart/v1/value.proto";
 // `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another part,
 // which stands where its part puts it.
 message Title {
-  // The text, in the syntax of `syntax`. Required.
-  string text = 1;
+  // The text, in the syntax of `syntax`.
+  string text = 1 [(avenger.chart.v1.required) = true];
   // When absent, the styles give it.
   TitleSide side = 2;
   // How the text engine reads the text and the subtitle.
@@ -104,6 +104,7 @@ message Grid {
 // Ticks at a start and each whole multiple of a step before and after it.
 message TickInterval {
   oneof interval {
+    option (avenger.chart.v1.required_oneof) = true;
     NumericTicks numeric = 1;
     CalendarTicks calendar = 2;
   }
@@ -121,6 +122,7 @@ message CalendarTicks {
   // The first tick, in milliseconds since the Unix epoch.
   int64 start = 1;
   oneof step {
+    option (avenger.chart.v1.required_oneof) = true;
     // A tick every this many months, more than 0.
     int32 months = 2;
     // A tick every this many days, more than 0.
@@ -133,8 +135,8 @@ message CalendarTicks {
 // A part of the guides of a scale, of a facet header, or a widget, which the part rules of a concat
 // keep, collapse, or merge.
 enum Part {
-  // Not valid.
-  PART_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  PART_UNSPECIFIED = 0;
   // The ticks of an axis.
   PART_AXIS_TICKS = 1;
   // The tick labels of an axis.
@@ -158,14 +160,14 @@ enum Part {
 // The rule of one part among the plots of a concat.
 message PartRule {
   // The part that the rule applies to.
-  Part part = 1;
+  Part part = 1 [(avenger.chart.v1.required) = true];
   // What the concat does with the part.
-  PartRuleKind rule = 2;
+  PartRuleKind rule = 2 [(avenger.chart.v1.required) = true];
 }
 
 enum PartRuleKind {
-  // Not valid.
-  PART_RULE_KIND_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  PART_RULE_KIND_UNSPECIFIED = 0;
   // One guide for each plot.
   PART_RULE_KIND_KEEP = 1;
   // One guide for each lane of plots that line up.

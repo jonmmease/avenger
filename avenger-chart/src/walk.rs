@@ -30,4 +30,21 @@ pub(crate) trait VisitEnums {
     fn visit_enums(&self, path: &str, f: &mut dyn FnMut(&str, &'static str, i32));
 }
 
+/// A message that holds a field or a oneof that the options of `annotation.proto` require,
+/// directly or through its fields. build.rs implements it for each such message.
+pub(crate) trait VisitRequired {
+    /// Calls `f` with the path from `path` and the reason of each required field or oneof of the
+    /// message that is absent, in the order that the `.proto` files declare the fields, depth
+    /// first.
+    fn visit_required(&self, path: &str, f: &mut dyn FnMut(String, &'static str));
+}
+
+/// The path of `field` in the message at `path`, where the empty path is the chart.
+fn field_path(path: &str, field: &str) -> String {
+    match path {
+        "" => field.to_string(),
+        _ => format!("{path}.{field}"),
+    }
+}
+
 include!(concat!(env!("OUT_DIR"), "/walk.rs"));

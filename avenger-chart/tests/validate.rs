@@ -82,7 +82,7 @@ fn floats(values: Vec<f64>) -> ArrayRef {
     list_value(Arc::new(Float64Array::from(values)))
 }
 
-const X: &str = "root.plot.cartesian.layers[0].mark.symbol.x";
+const X: &str = "root.plot.cartesian.layers[0].symbol.x";
 
 #[test]
 fn the_base_chart_is_valid() {
@@ -96,28 +96,24 @@ fn required_fields_and_oneofs_are_set() {
     invalid(
         parts,
         "root.plot",
-        "the coordinate system of a plot is required",
+        "`coord` is required: one of `cartesian`, `polar`, `geo`",
     );
 
     let mut parts = base();
     layer_mut(&mut parts.0).mark = None;
-    invalid(
-        parts,
-        "root.plot.cartesian.layers[0].mark",
-        "the mark of a layer is required",
-    );
+    invalid(parts, "root.plot.cartesian.layers[0]", "`mark` is required");
 
     let mut parts = base();
     layer_mut(&mut parts.0).table = None;
     invalid(
         parts,
         "root.plot.cartesian.layers[0].table",
-        "always refers to its table",
+        "`table` is required",
     );
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind = None;
-    invalid(parts, X, "the value of an encoding is required");
+    invalid(parts, X, "`kind` is required");
 
     let mut parts = base();
     x_scale(&mut parts.0).r#type = None;
@@ -142,7 +138,11 @@ fn a_plot_has_a_layer() {
     if let Some(plot::Coord::Cartesian(plot)) = plot_mut(&mut parts.0).coord.as_mut() {
         plot.layers.clear();
     }
-    invalid(parts, "root.plot.cartesian.layers", "a layer or more");
+    invalid(
+        parts,
+        "root.plot.cartesian.layers",
+        "`layers` holds one item or more",
+    );
 }
 
 #[test]
@@ -167,14 +167,17 @@ fn enum_fields_hold_declared_values() {
         }
     }
     concat_mut(&mut parts).direction = 0;
-    invalid(parts.clone(), "root.concat.direction", "is absent");
-    // An `optional` enum field that is not set is valid, and its zero value is not.
+    invalid(
+        parts.clone(),
+        "root.concat.direction",
+        "`direction` is required and not `DIRECTION_UNSPECIFIED`",
+    );
+    // The zero value of a field that is not required is absent, and valid.
     concat_mut(&mut parts).direction = proto::Direction::Row as i32;
+    concat_mut(&mut parts).projection = 0;
     read(parts.clone()).unwrap();
-    concat_mut(&mut parts).projection = Some(proto::Sharing::Shared as i32);
-    read(parts.clone()).unwrap();
-    concat_mut(&mut parts).projection = Some(0);
-    invalid(parts, "root.concat.projection", "is absent");
+    concat_mut(&mut parts).projection = proto::Sharing::Shared as i32;
+    read(parts).unwrap();
 }
 
 #[test]
@@ -213,7 +216,7 @@ fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
     });
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.size",
+        "root.plot.cartesian.layers[0].symbol.size",
         "has no scale",
     );
 
@@ -230,7 +233,7 @@ fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
     }));
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.line.detail",
+        "root.plot.cartesian.layers[0].line.detail",
         "takes no scale",
     );
 }
@@ -281,7 +284,7 @@ fn a_plain_conditional_value_in_a_scaled_encoding_is_drawn_as_it_is() {
     );
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.size.conditional[0]",
+        "root.plot.cartesian.layers[0].symbol.size.conditional[0]",
         "cannot have type Utf8",
     );
 }
@@ -320,7 +323,7 @@ fn the_second_channel_of_a_pair_follows_the_scale_of_the_first() {
             kind: Some(encoding::Kind::DirectField("b".to_string())),
             ..Default::default()
         }),
-        "root.plot.polar.layers[0].mark.bar.theta2",
+        "root.plot.polar.layers[0].bar.theta2",
         "goes through the scale of `theta`",
     );
 }
@@ -334,7 +337,7 @@ fn values_without_a_scale_have_the_form_of_their_channel() {
     });
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.color",
+        "root.plot.cartesian.layers[0].symbol.color",
         "cannot have type Float64",
     );
 }
@@ -480,7 +483,7 @@ fn a_second_channel_follows_its_first() {
     };
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.bar.x2",
+        "root.plot.cartesian.layers[0].bar.x2",
         "second channel of `x`",
     );
 }
@@ -495,8 +498,8 @@ fn a_text_mark_needs_its_text() {
     }));
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.text",
-        "needs `text`",
+        "root.plot.cartesian.layers[0].text.text",
+        "`text` is required",
     );
 }
 
@@ -514,7 +517,7 @@ fn a_line_holds_one_value_for_each_series() {
     }));
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.line.opacity",
+        "root.plot.cartesian.layers[0].line.opacity",
         "one value for each series",
     );
 }
@@ -595,7 +598,7 @@ fn spherical_maps_set_a_projection_within_range() {
     invalid(
         parts.clone(),
         "root.plot.geo.options.spherical",
-        "the projection of a spherical map is required",
+        "`projection` is required",
     );
     parts.0.root = Some(geo(Some(spherical::Projection::ConicConformal(
         proto::ConicProjection {
@@ -615,11 +618,7 @@ fn spherical_maps_set_a_projection_within_range() {
             map.options = None;
         }
     }
-    invalid(
-        parts,
-        "root.plot.geo.options",
-        "the options of a map plot are required",
-    );
+    invalid(parts, "root.plot.geo.options", "`options` is required");
 }
 
 #[test]
@@ -674,7 +673,11 @@ fn selections_set_their_resolution_and_their_clauses_hold_conditions() {
         name: "brush".to_string(),
         ..Default::default()
     }];
-    invalid(parts.clone(), "selections[0].resolution", "is absent");
+    invalid(
+        parts.clone(),
+        "selections[0].resolution",
+        "`resolution` is required and not `SELECTION_RESOLUTION_UNSPECIFIED`",
+    );
     parts.0.selections[0].resolution = proto::SelectionResolution::Global as i32;
     parts.0.selections[0].initial = vec![proto::Clause {
         owner: "scatter".to_string(),
@@ -683,7 +686,7 @@ fn selections_set_their_resolution_and_their_clauses_hold_conditions() {
     invalid(
         parts.clone(),
         "selections[0].initial[0].conditions",
-        "a condition or more",
+        "`conditions` holds one item or more",
     );
     parts.0.selections[0].initial[0].conditions = vec![proto::Condition {
         kind: Some(condition::Kind::Range(proto::ValueRange {
@@ -764,7 +767,7 @@ fn a_predicate_names_a_selection_of_the_chart() {
     ];
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.opacity.conditional[0].predicate.selected.selection",
+        "root.plot.cartesian.layers[0].symbol.opacity.conditional[0].predicate.selected.selection",
         "no selection `brush`",
     );
 }
@@ -786,7 +789,7 @@ fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     symbol_mut(&mut parts.0).color = Some(color);
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.color.scale.navigation_limits",
+        "root.plot.cartesian.layers[0].symbol.color.scale.navigation_limits",
         "valid only on a continuous scale of `x` or `y`",
     );
 }
@@ -915,7 +918,7 @@ fn a_class_is_not_empty_and_holds_no_whitespace() {
     });
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.x.scale.axis.classes[0]",
+        "root.plot.cartesian.layers[0].symbol.x.scale.axis.classes[0]",
         "holds no whitespace",
     );
 
@@ -1062,7 +1065,7 @@ fn a_widget_names_its_key_selection_column_and_kind() {
     invalid(
         with_widget(missing, vec![]),
         &format!("{WIDGET}.key"),
-        "is not empty",
+        "`key` is required and not empty",
     );
     let mut unknown = valid();
     target_of(&mut unknown).as_mut().unwrap().selection = "brush".to_string();
@@ -1083,15 +1086,11 @@ fn a_widget_names_its_key_selection_column_and_kind() {
     invalid(
         with_widget(untargeted, vec![]),
         &format!("{WIDGET}.slider.target"),
-        "target of a widget that selects is required",
+        "`target` is required",
     );
     let mut kindless = valid();
     kindless.kind = None;
-    invalid(
-        with_widget(kindless, vec![]),
-        WIDGET,
-        "kind of a widget is required",
-    );
+    invalid(with_widget(kindless, vec![]), WIDGET, "`kind` is required");
     let mut parts = with_widget(valid(), vec![]);
     layer_mut(&mut parts.0).widgets.push(valid());
     invalid(
@@ -1111,7 +1110,7 @@ fn a_widget_domain_fits_its_kind_and_its_column() {
     invalid(
         with_widget(no_domain, vec![]),
         &format!("{slider_path}.domain"),
-        "domain of a widget is required",
+        "`domain` is required",
     );
     let range = |values: ArrayRef| {
         with_widget(
@@ -1261,10 +1260,14 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
     invalid(
         parts.clone(),
         "root.plot.resolve[0]",
-        "key of a resolve rule is required",
+        "`key` is required: one of `channel`, `widget`",
     );
     plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(String::new()));
-    invalid(parts.clone(), "root.plot.resolve[0].widget", "is not empty");
+    invalid(
+        parts.clone(),
+        "root.plot.resolve[0].widget",
+        "`widget` is required and not empty",
+    );
     plot_mut(&mut parts.0).resolve[0].key =
         Some(proto::resolve::Key::Widget("magnitude".to_string()));
     read(parts).unwrap();
@@ -1320,7 +1323,7 @@ fn a_band_placement_needs_a_band_of_its_position() {
     symbol_mut(&mut color.0).y.as_mut().unwrap().band_level = Some(0);
     invalid(
         color,
-        "root.plot.cartesian.layers[0].mark.symbol.y.band_level",
+        "root.plot.cartesian.layers[0].symbol.y.band_level",
         "through a nested band scale",
     );
 }
@@ -1332,7 +1335,7 @@ fn a_title_has_text() {
     invalid(
         parts,
         "root.plot.title.text",
-        "the text of a title is required",
+        "`text` is required and not empty",
     );
 }
 

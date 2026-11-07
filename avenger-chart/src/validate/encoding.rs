@@ -14,7 +14,7 @@ use arrow::{
 
 use super::{
     classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, title,
-    within, Checker, Result,
+    within, Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
@@ -131,10 +131,8 @@ fn ticked(scale_type: &scale::Type) -> bool {
 impl Checker<'_> {
     /// Checks a layer's mark against its table.
     pub(super) fn layer(&self, layer: LayerRef, table: &RecordBatch, path: &str) -> Result<()> {
-        let mark = layer
-            .mark()
-            .ok_or_else(|| fail(format!("{path}.mark"), "the mark of a layer is required"))?;
-        let mark_path = format!("{path}.mark.{}", mark.name());
+        let mark = layer.mark().expect(REQUIRED);
+        let mark_path = format!("{path}.{}", mark.name());
         for (channel, encoding) in mark.encodings() {
             let path = format!("{mark_path}.{}", channel.field_name());
             let first = scale_channel(channel);
@@ -164,25 +162,6 @@ impl Checker<'_> {
                 }
             }
             self.encoding(encoding, channel, layer.kind(), table, &path)?;
-        }
-        let required: &[Channel] = match mark.mark_type() {
-            MarkType::Text => &[Channel::Text],
-            MarkType::Image => &[Channel::Image],
-            MarkType::Path => &[Channel::Path],
-            MarkType::Shape => &[Channel::Geometry],
-            MarkType::Rule if layer.kind() == CoordKind::Geo => {
-                &[Channel::Longitude, Channel::Latitude]
-            }
-            _ => &[],
-        };
-        if let Some(missing) = required
-            .iter()
-            .find(|channel| mark.encoding(**channel).is_none())
-        {
-            return Err(fail(
-                &mark_path,
-                format!("a `{}` mark needs `{}`", mark.name(), missing.field_name()),
-            ));
         }
         if mark.mark_type() == MarkType::Rect {
             rect_spans(mark, layer.kind(), &mark_path)?;
@@ -218,7 +197,7 @@ impl Checker<'_> {
             Some(encoding::Kind::DirectValue(value) | encoding::Kind::ScaledValue(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
             }
-            None => return Err(fail(path, "the value of an encoding is required")),
+            None => unreachable!("{REQUIRED}"),
         })
     }
 
@@ -253,8 +232,7 @@ impl Checker<'_> {
         table: &RecordBatch,
         path: &str,
     ) -> Result<()> {
-        let value = (encoding.kind.as_ref())
-            .ok_or_else(|| fail(path, "the value of an encoding is required"))?;
+        let value = encoding.kind.as_ref().expect(REQUIRED);
         let value_type = self.value_type(encoding, table, path)?;
         if channel == Channel::Geometry {
             let geoarrow = match value {
@@ -334,12 +312,9 @@ impl Checker<'_> {
         }
         for (index, conditional) in encoding.conditional.iter().enumerate() {
             let path = format!("{path}.conditional[{index}]");
-            let predicate = (conditional.predicate.as_ref())
-                .ok_or_else(|| fail(&path, "the predicate of a conditional value is required"))?;
+            let predicate = conditional.predicate.as_ref().expect(REQUIRED);
             self.predicate(predicate, &format!("{path}.predicate"))?;
-            match (conditional.kind.as_ref())
-                .ok_or_else(|| fail(&path, "the value of a conditional value is required"))?
-            {
+            match conditional.kind.as_ref().expect(REQUIRED) {
                 conditional_value::Kind::DirectField(name) => {
                     raw_values(channel, column(table, name, &path)?.data_type(), &path)?;
                 }
@@ -416,12 +391,6 @@ impl Checker<'_> {
             Some(domain::Domain::Selection(selection)) => {
                 let path = format!("{path}.domain.selection");
                 self.selection(&selection.selection, &format!("{path}.selection"))?;
-                if selection.channel == Channel::Unspecified as i32 {
-                    return Err(fail(
-                        format!("{path}.channel"),
-                        "a selection domain names its channel",
-                    ));
-                }
                 match selection.fallback.as_ref() {
                     Some(selection_domain::Fallback::Explicit(value)) => {
                         Some(self.explicit(value, scale_type, &format!("{path}.explicit"))?)
@@ -434,12 +403,7 @@ impl Checker<'_> {
                         self.data(data, scale_type, &format!("{path}.data"))?;
                         None
                     }
-                    None => {
-                        return Err(fail(
-                            &path,
-                            "the fallback of a selection domain is required",
-                        ))
-                    }
+                    None => unreachable!("{REQUIRED}"),
                 }
             }
         };
@@ -1493,31 +1457,7 @@ pub(crate) fn scaled(encoding: &proto::Encoding) -> bool {
         })
 }
 
-/// Whether a channel can take a scale: not the second channels of pairs, which follow the first,
-/// and not the channels of raw values.
-pub(crate) fn takes_scale(channel: Channel) -> bool {
-    !matches!(
-        channel,
-        Channel::Unspecified
-            | Channel::X2
-            | Channel::Y2
-            | Channel::Theta2
-            | Channel::Radius2
-            | Channel::Longitude
-            | Channel::Latitude
-            | Channel::Longitude2
-            | Channel::Latitude2
-            | Channel::Geometry
-            | Channel::Text
-            | Channel::Image
-            | Channel::Path
-            | Channel::FontWeight
-            | Channel::FontStyle
-            | Channel::Width
-            | Channel::Height
-            | Channel::Detail
-    )
-}
+include!(concat!(env!("OUT_DIR"), "/channels.rs"));
 
 /// The name of the member of `Ticks.at` that `at` holds.
 fn at_name(at: &ticks::At) -> &'static str {

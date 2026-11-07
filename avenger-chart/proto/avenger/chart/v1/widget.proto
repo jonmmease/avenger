@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/side.proto";
@@ -40,9 +41,9 @@ import "avenger/chart/v1/value.proto";
 // for each plot of the group, whose drawings show one value and move together. A widget whose group
 // is one plot draws beside that plot.
 message Widget {
-  // The key, which lines the declaration up with the other copies of the widget. Required. Keys
+  // The key, which lines the declaration up with the other copies of the widget. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
-  string key = 1;
+  string key = 1 [(avenger.chart.v1.required) = true];
   // The title. When absent, the title is the name of the target's column.
   Title title = 2;
   // Whether the widget shows its title. When absent, the styles decide.
@@ -52,7 +53,7 @@ message Widget {
   // The class names of the widget, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 4;
-  // The kind of the widget, with its options. Required.
+  // The kind of the widget, with its options.
   //
   // The sliders, whose domains are intervals, write a `ValueRange`, and the radio group, the check
   // box list, and the check box, whose domains are items, write a `ValueSet`, each with one
@@ -60,6 +61,7 @@ message Widget {
   // widget writes no clause, so it does not constrain the rows, including the rows whose value is
   // null or outside its domain.
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     SliderWidget slider = 10;
     RangeSliderWidget range_slider = 11;
     RadioWidget radio = 12;
@@ -71,11 +73,10 @@ message Widget {
 // What a widget writes: a clause of a selection over a column.
 message WidgetTarget {
   // The name of the selection that the widget writes, a selection of `Chart.selections`.
-  // Required.
-  string selection = 1;
+  string selection = 1 [(avenger.chart.v1.required) = true];
   // The column of the layer's table, or a partition column of the layer, that the widget's clause
-  // checks. Required.
-  string column = 2;
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
 }
 
 // A slider with one thumb over its domain of numbers, dates, or timestamps.
@@ -93,10 +94,10 @@ message WidgetTarget {
 // follows the end when a chart update brings a new domain. A slider without a clause draws its
 // thumb at its open end, or an `equal` slider at the start of its domain.
 message SliderWidget {
-  // The selection and the column that the slider writes. Required.
-  WidgetTarget target = 1;
-  // The extent that the thumb runs over. Required.
-  WidgetDomain domain = 2;
+  // The selection and the column that the slider writes.
+  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The extent that the thumb runs over.
+  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
   // How the clause compares the rows' values with the thumb's.
   SliderComparison comparison = 3;
   // The step between the values of the thumb: a number for a domain of numbers, or a duration for
@@ -124,10 +125,10 @@ enum SliderComparison {
 // clause: its clear state. A range slider without a clause draws its thumbs at the ends of its
 // domain.
 message RangeSliderWidget {
-  // The selection and the column that the slider writes. Required.
-  WidgetTarget target = 1;
-  // The extent that the thumbs run over. Required.
-  WidgetDomain domain = 2;
+  // The selection and the column that the slider writes.
+  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The extent that the thumbs run over.
+  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
   // The step between the values of the thumbs, as for `SliderWidget.step`. When absent, the thumbs
   // move continuously.
   ValueRef step = 3;
@@ -138,10 +139,10 @@ message RangeSliderWidget {
 // A radio group of the items of its domain, which writes a set of the chosen item. Its clear state
 // is the item that clears, or no item chosen.
 message RadioWidget {
-  // The selection and the column that the radio group writes. Required.
-  WidgetTarget target = 1;
-  // The items, in their order. Required.
-  WidgetDomain domain = 2;
+  // The selection and the column that the radio group writes.
+  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The items, in their order.
+  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
   // The labels of the items. When absent, the styles give them.
   Labels labels = 3;
   // The label of an item before the others that clears the widget's clause, such as `All
@@ -153,10 +154,10 @@ message RadioWidget {
 // With every item checked, it writes no clause, its clear state, and with none checked, it writes
 // an empty set, which matches no row.
 message CheckboxesWidget {
-  // The selection and the column that the check box list writes. Required.
-  WidgetTarget target = 1;
-  // The items, in their order. Required.
-  WidgetDomain domain = 2;
+  // The selection and the column that the check box list writes.
+  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The items, in their order.
+  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
   // The labels of the items. When absent, the styles give them.
   Labels labels = 3;
 }
@@ -164,10 +165,10 @@ message CheckboxesWidget {
 // A check box, which writes a set of its value when checked, and no clause when unchecked, its
 // clear state. Its title is its label.
 message CheckboxWidget {
-  // The selection and the column that the check box writes. Required.
-  WidgetTarget target = 1;
-  // The value in the type of the column, such as `true`. Required.
-  ValueRef value = 2;
+  // The selection and the column that the check box writes.
+  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The value in the type of the column, such as `true`.
+  ValueRef value = 2 [(avenger.chart.v1.required) = true];
 }
 
 // Where a widget's domain comes from: the extent of a slider's thumbs, or the items of a radio
@@ -176,6 +177,7 @@ message CheckboxWidget {
 // of the chart, so a renderer fits it once for each chart.
 message WidgetDomain {
   oneof domain {
+    option (avenger.chart.v1.required_oneof) = true;
     // A list of the domain: the two ends of a slider, in ascending order, or the items of a radio
     // group or a check box list, one or more, in their order.
     ValueRef explicit = 1;
@@ -193,8 +195,7 @@ message WidgetDomain {
 message WidgetSummaryDomain {
   // A list of values in the type of the column, in any order, with repeats: for a slider, such as
   // the smallest and the largest value, and for a radio group or a check box list, the items.
-  // Required.
-  ValueRef values = 1;
+  ValueRef values = 1 [(avenger.chart.v1.required) = true];
   // How the domain fits the values, as for a scale: an `IntervalFit` for a slider, whose domain is
   // the extent of the values, with zero, round ends, and its domain without values as the fit
   // gives them, and a `CategoryFit` for a radio group or a check box list, whose items are the

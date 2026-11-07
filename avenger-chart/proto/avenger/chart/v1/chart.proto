@@ -58,14 +58,14 @@ import "avenger/chart/v1/tool.proto";
 // A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
 // conflict. A reader ignores a field only where a comment says so. These break a rule:
 //
-// - a field or a oneof that a comment marks as required, and is absent
-// - an empty list where a comment asks for at least one entry
+// - a field or a oneof that the `required` or `required_oneof` option of `annotation.proto` marks,
+//   and is absent: a message, a `ValueRef`, or a member of a oneof that is absent, a string or a
+//   list that is empty, or an enum that holds its zero value
 // - a `TableRef` or a `ValueRef` past the end of its list
 // - a column or a value of an Arrow type that is invalid for its field
 // - a name of a selection that the chart does not define
-// - a guide, a fit, or a tool of a kind that a comment says is invalid on its scale or its plot
-// - a value of an enum that the `invalid` option of `annotation.proto` marks, such as
-//   `SHARING_UNSPECIFIED`
+// - an axis, a legend, a fit, or a tool of a kind that a comment says is invalid on its scale or
+//   its plot
 //
 // A field is absent when its message holds no value for it: a message field, a oneof, or an
 // `optional` field that holds nothing, or a plain field that holds its default, which is 0, the
@@ -101,8 +101,8 @@ message Chart {
   // The data tables of the chart, and the `table` of a layer refers to a table by its position in
   // this list. Layers can share one entry or refer to equal copies of a table.
   repeated Table tables = 2;
-  // The root of the tree. Required.
-  Node root = 3;
+  // The root of the tree.
+  Node root = 3 [(avenger.chart.v1.required) = true];
   // The selections of the chart, keyed by name, but two selections with one name are not a
   // conflict: they join into one selection, whose initial clauses are those of both. Their
   // resolutions must be equal.
@@ -184,6 +184,7 @@ message Table {
 // widget's clause begins with in a selection state, so that name equals no id.
 message Node {
   oneof node {
+    option (avenger.chart.v1.required_oneof) = true;
     Plot plot = 1;
     Concat concat = 2;
     Wrap wrap = 3;
@@ -248,8 +249,9 @@ message Plot {
   optional float width = 7;
   // The height of the plot's area, in pixels, as for `width`.
   optional float height = 8;
-  // The coordinate system, with its options and the layers that draw into it. Required.
+  // The coordinate system, with its options and the layers that draw into it.
   oneof coord {
+    option (avenger.chart.v1.required_oneof) = true;
     CartesianPlot cartesian = 10;
     PolarPlot polar = 11;
     GeoPlot geo = 12;
@@ -264,7 +266,7 @@ message Concat {
   // An id, or empty, as for a plot.
   string id = 1;
   // Whether the children stand in a row or in a column.
-  Direction direction = 2;
+  Direction direction = 2 [(avenger.chart.v1.required) = true];
   // Nodes of any kind.
   repeated Node children = 3;
   // Rules for the channels whose sharing differs from the default of a concat, in which `x`, `y`,
@@ -278,7 +280,7 @@ message Concat {
   // The sharing of the projections of the map plots below the concat. When absent, each child has
   // its own projection, or with a facet, the children share one. Map plots that share a projection
   // fit one view and get equal sizes, so a place lands at the same position in each of them.
-  optional Sharing projection = 7;
+  Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 8;
   // The partition column that the children split, and the header that labels them. A concat with
@@ -290,8 +292,8 @@ message Concat {
 }
 
 enum Direction {
-  // Not valid.
-  DIRECTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  DIRECTION_UNSPECIFIED = 0;
   // Side by side, from left to right.
   DIRECTION_ROW = 1;
   // One above another, from top to bottom.
@@ -357,7 +359,7 @@ message Wrap {
   Title title = 5;
   // The sharing of the projections of the map plots below the wrap, as for a concat. When absent,
   // each child has its own projection, or with a facet, the children share one.
-  optional Sharing projection = 6;
+  Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;
   // The partition column that the children split, and the header that labels each child. A wrap

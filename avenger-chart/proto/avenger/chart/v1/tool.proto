@@ -4,12 +4,14 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
 
 // A tool that a plot declares, which turns gestures on the plot into changes of its views and of
 // the chart's selections.
 message Tool {
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     Navigate navigate = 1;
     Tooltip tooltip = 2;
     Select select = 3;
@@ -21,6 +23,7 @@ message Tool {
 // a plot declares one.
 message LayerTool {
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     Tooltip tooltip = 2;
     Select select = 3;
   }
@@ -121,7 +124,7 @@ enum TooltipAnchor {
 // conflict.
 message Select {
   // The name of the selection, which the chart defines.
-  string selection = 1;
+  string selection = 1 [(avenger.chart.v1.required) = true];
   // The gesture and what it selects. Without a form, the selection is an interval on the plot's
   // positional channels, as an `IntervalSelect` without channels selects.
   oneof form {

@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/encoding.proto";
 import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/route.proto";
@@ -171,7 +172,7 @@ message TextMark {
 
   Encoding x = 101;
   Encoding y = 102;
-  Encoding text = 114;
+  Encoding text = 114 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding opacity = 120;
@@ -201,7 +202,7 @@ message ImageMark {
   Encoding y = 102;
   Encoding x2 = 103;
   Encoding y2 = 104;
-  Encoding image = 115;
+  Encoding image = 115 [(avenger.chart.v1.required) = true];
   // The width of each image, in pixels. When it is not encoded, the styles give it.
   Encoding width = 131;
   // The height of each image, in pixels. When it is not encoded, the styles give it.
@@ -214,7 +215,7 @@ message ImageMark {
 message PathMark {
   Encoding x = 101;
   Encoding y = 102;
-  Encoding path = 116;
+  Encoding path = 116 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding stroke = 119;
@@ -420,7 +421,7 @@ message PolarTextMark {
 
   Encoding theta = 105;
   Encoding radius = 106;
-  Encoding text = 114;
+  Encoding text = 114 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding opacity = 120;
@@ -508,8 +509,8 @@ message GeoRuleMark {
   // How each segment between two points runs, as `Route` describes.
   Route route = 1;
 
-  Encoding longitude = 109;
-  Encoding latitude = 110;
+  Encoding longitude = 109 [(avenger.chart.v1.required) = true];
+  Encoding latitude = 110 [(avenger.chart.v1.required) = true];
   Encoding longitude2 = 111;
   Encoding latitude2 = 112;
   Encoding color = 117;
@@ -545,7 +546,7 @@ message GeoTextMark {
 
   Encoding longitude = 109;
   Encoding latitude = 110;
-  Encoding text = 114;
+  Encoding text = 114 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding opacity = 120;
@@ -573,7 +574,7 @@ message GeoImageMark {
 
   Encoding longitude = 109;
   Encoding latitude = 110;
-  Encoding image = 115;
+  Encoding image = 115 [(avenger.chart.v1.required) = true];
   // The width of each image, in pixels. When it is not encoded, the styles give it.
   Encoding width = 131;
   // The height of each image, in pixels. When it is not encoded, the styles give it.
@@ -585,7 +586,7 @@ message GeoImageMark {
 message GeoPathMark {
   Encoding longitude = 109;
   Encoding latitude = 110;
-  Encoding path = 116;
+  Encoding path = 116 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding stroke = 119;
@@ -601,7 +602,7 @@ message GeoPathMark {
 // drawn as symbols. `color`, `fill`, `fill_opacity`, and `pattern` apply to polygons and points,
 // and `size` and `shape` apply to points.
 message GeoShapeMark {
-  Encoding geometry = 113;
+  Encoding geometry = 113 [(avenger.chart.v1.required) = true];
   Encoding color = 117;
   Encoding fill = 118;
   Encoding stroke = 119;

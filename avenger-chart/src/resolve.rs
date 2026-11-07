@@ -446,8 +446,8 @@ pub(crate) fn projection_sharing(node: &Node) -> Sharing {
         Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
         Node::Plot(_) | Node::Empty(_) => return Sharing::Shared,
     };
-    match rule.map(Sharing::try_from) {
-        Some(Ok(sharing @ (Sharing::Shared | Sharing::Independent))) => sharing,
+    match Sharing::try_from(rule) {
+        Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => sharing,
         _ if facet => Sharing::Shared,
         _ => Sharing::Independent,
     }
@@ -531,7 +531,7 @@ impl ScaleGroup {
     }
 
     /// The path of the axis or the legend of the first encoding whose spec gives it its id, such
-    /// as `root.plot.cartesian.layers[0].mark.bar.x.scale.axis`.
+    /// as `root.plot.cartesian.layers[0].bar.x.scale.axis`.
     fn axis_or_legend_path(&self, tree: &Tree, id: &str) -> String {
         (self.members.iter())
             .find_map(|member| {
@@ -540,7 +540,7 @@ impl ScaleGroup {
                 let (found, field) = axis_or_legend_id(spec)?;
                 (found == id).then(|| {
                     format!(
-                        "{}.mark.{}.{}.scale.{field}",
+                        "{}.{}.{}.scale.{field}",
                         layer.path,
                         layer.mark.name(),
                         member.channel.field_name(),

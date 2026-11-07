@@ -449,7 +449,7 @@ fn map_plots_that_share_a_projection_agree() {
         ],
     );
     read(parts(row.clone(), vec![])).unwrap();
-    concat_mut(&mut row).projection = Some(proto::Sharing::Shared as i32);
+    concat_mut(&mut row).projection = proto::Sharing::Shared as i32;
     invalid(
         parts(row, vec![]),
         "root.concat.children[1].plot",
@@ -830,8 +830,8 @@ fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
 
 #[test]
 fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
-    let x_axis = "root.plot.cartesian.layers[0].mark.symbol.x.scale.axis";
-    let y_axis = "root.plot.cartesian.layers[0].mark.symbol.y.scale.axis";
+    let x_axis = "root.plot.cartesian.layers[0].symbol.x.scale.axis";
+    let y_axis = "root.plot.cartesian.layers[0].symbol.y.scale.axis";
     read(parts(
         plot_with("sales", vec![], vec![with_axis(symbols(0), false, "time")]),
         vec![],
@@ -931,7 +931,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
     );
     invalid(
         parts(plain, vec![]),
-        "root.concat.children[1].plot.cartesian.layers[0].mark.symbol.y.scale.axis",
+        "root.concat.children[1].plot.cartesian.layers[0].symbol.y.scale.axis",
         "have one id and one partition, `measure`",
     );
 }

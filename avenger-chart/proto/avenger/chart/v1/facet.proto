@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/side.proto";
 
@@ -20,7 +21,7 @@ import "avenger/chart/v1/side.proto";
 // disagree.
 message Facet {
   // The partition column of the children.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.required) = true];
   // When both are absent, the facet has a header with the default options.
   oneof header {
     // A header with these options.

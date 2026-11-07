@@ -15,9 +15,8 @@ import "avenger/chart/v1/value.proto";
 // by a selection reads the same clauses with the same rules.
 message Selection {
   // The name. Two selections with one name join, as `Chart.selections` describes.
-  string name = 1;
-  // Required.
-  SelectionResolution resolution = 2;
+  string name = 1 [(avenger.chart.v1.required) = true];
+  SelectionResolution resolution = 2 [(avenger.chart.v1.required) = true];
   // The clauses before any gesture, keyed by owner, which are the clauses of the selection until a
   // gesture writes others. A reader orders them by the tree order of their owners.
   repeated Clause initial = 3;
@@ -25,8 +24,8 @@ message Selection {
 
 // How the clauses of a selection replace each other and combine.
 enum SelectionResolution {
-  // Not valid.
-  SELECTION_RESOLUTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  SELECTION_RESOLUTION_UNSPECIFIED = 0;
   // A new clause replaces every other clause, so the chart has one brush.
   SELECTION_RESOLUTION_GLOBAL = 1;
   // A new clause replaces the clause of its owner, so each plot keeps its own brush. A row
@@ -47,7 +46,7 @@ message Clause {
   // The conditions, at least one. A row matches the clause when it matches every condition, so
   // a box of `x` and `y` is two ranges, and the clicked bars of a grouped chart are one set of
   // two columns.
-  repeated Condition conditions = 2;
+  repeated Condition conditions = 2 [(avenger.chart.v1.required) = true];
   // The partition of the owner, as `PartitionValue` describes, keyed by column. The plots of the
   // facets of one table can share an id, so the partition tells their clauses apart.
   repeated PartitionValue partition = 3;
@@ -62,6 +61,7 @@ message Clause {
 // warning that names the selection and the column.
 message Condition {
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     ValueSet set = 1;
     ValueRange range = 2;
     Polygon polygon = 3;
@@ -75,19 +75,19 @@ message Condition {
 // and BOS.
 message ValueSet {
   // The columns, at least one.
-  repeated SetColumn columns = 1;
+  repeated SetColumn columns = 1 [(avenger.chart.v1.required) = true];
 }
 
 // A column of a set and its values.
 message SetColumn {
   // The name of the column.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.required) = true];
   // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
   // the selection names directly.
   Channel channel = 2;
   // A list of the values of the column, in the type of the column. The lists of the columns of a
   // set have one length, and the tuples of the set are their rows.
-  ValueRef values = 3;
+  ValueRef values = 3 [(avenger.chart.v1.required) = true];
 }
 
 // A range of values, as an interval on a continuous scale, a click on a bin, or a slider records
@@ -96,7 +96,7 @@ message SetColumn {
 // slider whose thumb stands at the end of its domain records it.
 message ValueRange {
   // The name of the column.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.required) = true];
   // The channel that the selection projected through, or `CHANNEL_UNSPECIFIED` for a column that
   // the selection names directly.
   Channel channel = 2;
@@ -116,12 +116,12 @@ message ValueRange {
 // latitudes for a lasso on a map plot.
 message Polygon {
   // The column of the horizontal values of the points.
-  string x_column = 1;
+  string x_column = 1 [(avenger.chart.v1.required) = true];
   // The column of the vertical values of the points.
-  string y_column = 2;
+  string y_column = 2 [(avenger.chart.v1.required) = true];
   // The polygons, at least one: each a list of the vertices in order around it, each a struct of
   // an `x` field in the type of `x_column` and a `y` field in the type of `y_column`.
-  repeated ValueRef vertices = 3;
+  repeated ValueRef vertices = 3 [(avenger.chart.v1.required) = true];
 }
 
 // A range of a dimension that wraps, from `start` forward to `end`, with both ends, where values
@@ -134,7 +134,7 @@ message Polygon {
 // not wrap.
 message CyclicRange {
   // The name of the column.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.required) = true];
   // The channel that the selection projected through: `CHANNEL_LONGITUDE` for a box on a map,
   // `CHANNEL_THETA` for a box in a polar plot, or `CHANNEL_UNSPECIFIED` for a column that the
   // selection names directly.
@@ -151,6 +151,7 @@ message CyclicRange {
 // The rows that selections select.
 message Predicate {
   oneof predicate {
+    option (avenger.chart.v1.required_oneof) = true;
     Selected selected = 1;
     // Every predicate of the list selects the row, so an empty list selects every row.
     PredicateList all = 2;
@@ -169,7 +170,7 @@ message PredicateList {
 // The rows that a selection selects.
 message Selected {
   // The name of the selection.
-  string selection = 1;
+  string selection = 1 [(avenger.chart.v1.required) = true];
   // Whether a selection without clauses selects no row. Otherwise it selects every row, so a
   // conditional value that grays out the rows outside a brush grays out nothing before the first
   // brush.

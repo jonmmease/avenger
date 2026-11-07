@@ -1,6 +1,6 @@
 //! The rules of the format that a chart must follow, which a reader checks before it reads one.
 //! Each error names the path of the field that breaks a rule, such as
-//! `root.plot.cartesian.layers[0].mark.symbol.x.scale`.
+//! `root.plot.cartesian.layers[0].symbol.x.scale`.
 
 mod encoding;
 mod selection;
@@ -22,11 +22,15 @@ use arrow::{
 use crate::{
     codec::FORMAT_VERSION,
     proto,
-    walk::{enum_error, VisitEnums, VisitTables, VisitValues},
+    walk::{enum_error, VisitEnums, VisitRequired, VisitTables, VisitValues},
     Chart, ChartError,
 };
 
 type Result<T> = std::result::Result<T, ChartError>;
+
+/// Why a required field is present in the hand-written checks, which run after the generated
+/// checks of the required fields and oneofs.
+const REQUIRED: &str = "the generated checks found the required fields";
 
 /// An error at `path`.
 fn fail(path: impl Into<String>, reason: impl Into<String>) -> ChartError {
@@ -60,8 +64,8 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
             ),
         ));
     }
-    let root =
-        (message.root.as_ref()).ok_or_else(|| fail("root", "the root of a chart is required"))?;
+    required(message)?;
+    let root = (message.root.as_ref()).expect("`required` checked the root");
     references(chart, root)?;
     enums(message)?;
     size(message.width, "width")?;
@@ -76,7 +80,7 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
             non_negative(value.map(f64::from), &format!("padding.{side}"))?;
         }
     }
-    let selections = selection::selections(chart)?;
+    let selections = selection::selections(chart);
     let checker = Checker {
         chart,
         values: Values(&chart.values),
@@ -92,7 +96,7 @@ pub(crate) fn check_shared(chart: &Chart) -> Result<()> {
     let checker = Checker {
         chart,
         values: Values(&chart.values),
-        selections: selection::selections(chart)?,
+        selections: selection::selections(chart),
     };
     checker.shared()
 }
@@ -169,8 +173,17 @@ fn references(chart: &Chart, root: &proto::Node) -> Result<()> {
     failure.map_or(Ok(()), Err)
 }
 
-/// Fails for an enum field whose value its enum does not declare, or whose value is the zero
-/// value of an enum whose zero value is not valid.
+/// Fails for the first field or oneof that the options of `annotation.proto` require and that is
+/// absent, so the other checks read every required field as present.
+fn required(message: &proto::Chart) -> Result<()> {
+    let mut failure = None;
+    message.visit_required("", &mut |path, reason| {
+        failure.get_or_insert_with(|| fail(path, reason));
+    });
+    failure.map_or(Ok(()), Err)
+}
+
+/// Fails for an enum field whose value its enum does not declare.
 fn enums(message: &proto::Chart) -> Result<()> {
     let mut failure = None;
     if let Some(root) = &message.root {
@@ -329,16 +342,10 @@ fn is_string(data_type: &DataType) -> bool {
     )
 }
 
-/// Checks a title at `path`: its text is not empty, and the title of a part other than a node,
-/// such as an axis, has none of the fields that place the title of a node and give its subtitle.
+/// Checks a title at `path`: the title of a part other than a node, such as an axis, has none of
+/// the fields that place the title of a node and give its subtitle.
 fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
     let Some(title) = title else { return Ok(()) };
-    if title.text.is_empty() {
-        return Err(fail(
-            format!("{path}.text"),
-            "the text of a title is required, and `show_title: false` hides a title",
-        ));
-    }
     if !node {
         let fields = [
             ("side", title.side != 0),

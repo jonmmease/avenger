@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/value.proto";
@@ -25,6 +26,7 @@ message Encoding {
   // Each value says which, so one encoding can hold both, such as a scaled field with a
   // conditional direct value that grays the rows outside a brush.
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     // The name of a column of the layer's table, whose values the mark draws as they are, such as
     // CSS colors.
     string direct_field = 2;
@@ -94,9 +96,10 @@ message Encoding {
 // A value of a channel for the rows that a predicate selects.
 message ConditionalValue {
   // The predicate that selects the rows that take this value.
-  Predicate predicate = 1;
+  Predicate predicate = 1 [(avenger.chart.v1.required) = true];
   // What the rows that the predicate selects draw, as for `Encoding.kind`.
   oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     // The name of a column whose values the mark draws as they are, as for `Encoding.direct_field`.
     string direct_field = 2;
     // The name of a column whose values go through the channel's scale, as for
