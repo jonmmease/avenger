@@ -588,8 +588,8 @@ fn outer_level(mark: &dyn MarkMessage, channel: Channel, values: &ArrayRef) -> b
     }
 }
 
-/// The values of the encoding of `channel` of `mark`: its column in `table`, or its scaled
-/// constant.
+/// The values of the encoding of `channel` of `mark` that go through its scale: its scaled column in
+/// `table`, or its scaled constant.
 fn member_values(
     chart: &Chart,
     mark: &dyn MarkMessage,
@@ -597,9 +597,9 @@ fn member_values(
     table: &RecordBatch,
 ) -> Option<ArrayRef> {
     match mark.encoding(channel)?.value.as_ref()? {
-        encoding::Value::Column(name) => table.column_by_name(name).cloned(),
+        encoding::Value::ScaledColumn(name) => table.column_by_name(name).cloned(),
         encoding::Value::ScaledConstant(value) => Some(chart.value(value).clone()),
-        encoding::Value::Constant(_) => None,
+        encoding::Value::Column(_) | encoding::Value::Constant(_) => None,
     }
 }
 

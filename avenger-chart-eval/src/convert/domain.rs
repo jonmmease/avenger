@@ -224,7 +224,7 @@ impl Fit {
 
 /// The fit of a summary or a data domain of `spec`: the options of `kind`, the kind of fit of its
 /// type, with the fields of the spec's fit, or of a selection domain's fallback.
-pub(crate) fn domain_options(chart: &Chart, spec: &proto::ScaleSpec, kind: FitKind) -> Fit {
+pub(crate) fn domain_options(chart: &Chart, spec: &proto::Scale, kind: FitKind) -> Fit {
     let fit = match spec
         .domain
         .as_ref()

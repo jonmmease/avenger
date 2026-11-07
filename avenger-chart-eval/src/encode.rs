@@ -42,7 +42,9 @@ pub(crate) fn drawn_rows(mark: &cartesian_layer::Mark, table: &RecordBatch) -> R
         .encodings()
         .filter(|(channel, _)| positions.contains(channel))
         .filter_map(|(_, encoding)| match &encoding.value {
-            Some(encoding::Value::Column(name)) => table.column_by_name(name),
+            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+                table.column_by_name(name)
+            }
             _ => None,
         })
         .collect();
@@ -56,10 +58,12 @@ pub(crate) fn drawn_rows(mark: &cartesian_layer::Mark, table: &RecordBatch) -> R
     Ok(take_record_batch(table, &rows)?)
 }
 
-/// Where a value of an encoding or of a conditional value comes from.
+/// Where a value of an encoding or of a conditional value comes from, and whether it goes through
+/// the channel's scale.
 #[derive(Clone, Copy)]
 enum Source<'a> {
     Column(&'a str),
+    ScaledColumn(&'a str),
     Constant(&'a proto::ValueRef),
     Scaled(&'a proto::ValueRef),
 }
@@ -68,6 +72,7 @@ impl<'a> Source<'a> {
     fn of_encoding(value: &'a encoding::Value) -> Self {
         match value {
             encoding::Value::Column(name) => Self::Column(name),
+            encoding::Value::ScaledColumn(name) => Self::ScaledColumn(name),
             encoding::Value::Constant(value) => Self::Constant(value),
             encoding::Value::ScaledConstant(value) => Self::Scaled(value),
         }
@@ -76,6 +81,7 @@ impl<'a> Source<'a> {
     fn of_conditional(value: &'a conditional_value::Value) -> Self {
         match value {
             conditional_value::Value::Column(name) => Self::Column(name),
+            conditional_value::Value::ScaledColumn(name) => Self::ScaledColumn(name),
             conditional_value::Value::Constant(value) => Self::Constant(value),
             conditional_value::Value::ScaledConstant(value) => Self::Scaled(value),
         }
@@ -175,7 +181,7 @@ impl<'a> LayerRows<'a> {
 
     fn array(&self, source: Source) -> Result<ArrayRef> {
         match source {
-            Source::Column(name) => Ok(self
+            Source::Column(name) | Source::ScaledColumn(name) => Ok(self
                 .column(name)
                 .expect("a valid layer's table or partition has its columns")),
             Source::Constant(value) | Source::Scaled(value) => Ok(self.chart.value(value).clone()),
@@ -189,13 +195,14 @@ impl<'a> LayerRows<'a> {
         convert: Convert<T>,
     ) -> Result<ScalarOrArray<T>> {
         let values = self.array(source)?;
+        // A plain value is drawn as it is, even in an encoding that has a scale.
         let scale = match source {
-            Source::Constant(_) => None,
-            _ => scale,
+            Source::Column(_) | Source::Constant(_) => None,
+            Source::ScaledColumn(_) | Source::Scaled(_) => scale,
         };
         let converted = convert(&values, scale)?;
         Ok(match source {
-            Source::Column(_) => converted,
+            Source::Column(_) | Source::ScaledColumn(_) => converted,
             _ => converted.to_scalar_if_len_one(),
         })
     }
@@ -536,7 +543,9 @@ impl<'a> LayerRows<'a> {
         ]
         .into_iter()
         .filter_map(|channel| match &self.encoding(channel)?.value {
-            Some(encoding::Value::Column(name)) => self.column(name),
+            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+                self.column(name)
+            }
             _ => None,
         })
         .collect();

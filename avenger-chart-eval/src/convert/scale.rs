@@ -1,4 +1,4 @@
-//! The configured scales of the format's scale specs: their types and options, and the ranges of
+//! The configured scales of the format's scales: their types and options, and the ranges of
 //! non-position scales from the computed `scheme` or `range` of their `scale` nodes.
 
 use std::{collections::HashMap, sync::Arc};
@@ -8,7 +8,7 @@ use arrow::{
     datatypes::{DataType, Float64Type},
 };
 use avenger_chart::{
-    proto::{self, option_value, scale_spec},
+    proto::{self, option_value, scale},
     FitKind,
 };
 use avenger_color::ColorSpace;
@@ -30,7 +30,7 @@ type Result<T> = std::result::Result<T, EvalError>;
 
 /// The kind of fit of a spec's scale type, as its implementation states it: a scale of
 /// avenger-scales, or a custom scale of the registry, which fits the kind of its summary.
-pub(crate) fn fit_kind(spec: &proto::ScaleSpec, registry: &Registry) -> Result<FitKind> {
+pub(crate) fn fit_kind(spec: &proto::Scale, registry: &Registry) -> Result<FitKind> {
     Ok(match scale_impl(spec, registry)?.summary_kind() {
         Some(SummaryKind::Interval) => FitKind::Interval,
         Some(SummaryKind::Categories) => FitKind::Categories,
@@ -41,11 +41,8 @@ pub(crate) fn fit_kind(spec: &proto::ScaleSpec, registry: &Registry) -> Result<F
 
 /// The implementation of a spec's scale type: a scale of avenger-scales, or a custom scale of the
 /// registry.
-pub(crate) fn scale_impl(
-    spec: &proto::ScaleSpec,
-    registry: &Registry,
-) -> Result<Arc<dyn ScaleImpl>> {
-    use scale_spec::Type;
+pub(crate) fn scale_impl(spec: &proto::Scale, registry: &Registry) -> Result<Arc<dyn ScaleImpl>> {
+    use scale::Type;
     Ok(
         match spec.r#type.as_ref().expect("a valid scale has a type") {
             Type::Linear(_) => Arc::new(LinearScale),
@@ -70,8 +67,8 @@ pub(crate) fn scale_impl(
 
 /// The options of a spec's type as avenger-scales reads them, with the paddings of a band or a
 /// point scale from the computed `padding-inner` and `padding-outer` of its `scale` node.
-pub(crate) fn options(spec: &proto::ScaleSpec, style: &ComputedStyle) -> HashMap<String, Scalar> {
-    use scale_spec::Type;
+pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<String, Scalar> {
+    use scale::Type;
     let mut options: HashMap<String, Scalar> = HashMap::new();
     let mut set = |name: &str, value: Option<Scalar>| {
         if let Some(value) = value {
@@ -178,7 +175,7 @@ pub(crate) fn options(spec: &proto::ScaleSpec, style: &ComputedStyle) -> HashMap
 /// A scale of `spec` without its domain and its range: its type and its options, an empty domain
 /// of `value_type`, and the range from 0 to 1.
 pub(crate) fn unfitted(
-    spec: &proto::ScaleSpec,
+    spec: &proto::Scale,
     style: &ComputedStyle,
     registry: &Registry,
     value_type: &DataType,
@@ -239,8 +236,8 @@ pub(crate) enum RangeShape {
 }
 
 /// The shape of the range of `spec` over a domain of `domain_len` values.
-pub(crate) fn range_shape(spec: &proto::ScaleSpec, domain_len: usize) -> RangeShape {
-    use scale_spec::Type;
+pub(crate) fn range_shape(spec: &proto::Scale, domain_len: usize) -> RangeShape {
+    use scale::Type;
     match spec.r#type.as_ref().expect("a valid scale has a type") {
         Type::Band(_) | Type::Point(_) | Type::NestedBand(_) | Type::Ordinal(_) => {
             RangeShape::Discrete(domain_len.max(1))

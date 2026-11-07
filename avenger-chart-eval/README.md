@@ -97,7 +97,7 @@ warnings of each evaluation.
 
 ## Registry
 
-A scale spec of a custom type names its implementation, and the `Registry` maps each name to an
+A scale of a custom type names its implementation, and the `Registry` maps each name to an
 `Arc<dyn ScaleImpl>` with `Registry::with_scale`. A name that the registry does not have is
 `EvalError::UnknownScale`.
 

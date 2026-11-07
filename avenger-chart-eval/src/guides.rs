@@ -203,7 +203,11 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
         };
         let title = match (&encoding.title, &encoding.value) {
             (Some(title), _) => title.clone(),
-            (None, Some(encoding::Value::Column(name))) if columns => name.clone(),
+            (None, Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)))
+                if columns =>
+            {
+                name.clone()
+            }
             _ => String::new(),
         };
         if !title.is_empty() && !titles.contains(&title) {
@@ -381,10 +385,7 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
                 .filter(|markup| !markup.is_empty()),
             style,
         };
-        let nested = matches!(
-            group.spec.r#type,
-            Some(proto::scale_spec::Type::NestedBand(_))
-        );
+        let nested = matches!(group.spec.r#type, Some(proto::scale::Type::NestedBand(_)));
         let title = guide_title(spec.title.as_ref(), || {
             default_title(inputs.resolved, group, !nested)
         });
