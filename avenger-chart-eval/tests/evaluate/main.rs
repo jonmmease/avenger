@@ -15,3 +15,4 @@ mod polar;
 mod selections;
 mod state;
 mod support;
+mod widgets;

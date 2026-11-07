@@ -47,6 +47,28 @@ background and border of its `plot[type=geo]`, and its graticule takes the style
 warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps.
 The coordinates of a map plot are its projection, without scales.
 
+## Widgets
+
+A widget of a layer draws where a legend would: on the side that its declaration or the computed
+`orient` of its `widget` node gives, `offset` apart from the plot, on the node that holds the
+copies of its key. The node draws it once, or once beside each plot of the group when its guide rule
+for `GUIDE_PART_WIDGET` keeps it. The widgets on one side share a line along it, in their order,
+apart by their largest offset, and a widget that would pass the side's length starts a new line
+farther out. The evaluator fits the domain once, when it prepares the chart:
+the explicit values, the summaries of the copies, or the target's column in the drawn rows of the
+copies' layers, with zero when the fit asks for it. A slider runs between the least and the
+greatest number, and a radio group and a check box list list the distinct values in ascending
+order. The `widget` node gives the font, the color of the text, and with `accent-color`, the color
+of the checked and filled parts.
+
+A widget's value is the clause of its identity in the state of its selection, and its clear state
+writes no clause. `EvaluatedChart::widgets` holds each widget with its spec, its style, and the
+rectangle of each drawing. `EvaluatedWidget::value` reads the value from a selection's state, and
+`EvaluatedWidget::write` writes the clause of a value to it. A `Control` is the avenger-widgets
+control of a widget's spec over any state, which the evaluator draws over the value alone, and an
+app over its own state. `ChartEvaluator::set_draws_widgets(false)` leaves the drawings out of the
+scene for an app that draws its own at the widgets' rectangles.
+
 ## State and updates
 
 An evaluation reads a state that changes without a new chart. `set_selections` replaces the clauses
@@ -168,8 +190,9 @@ and the failures of the crates that draw a chart. A warning is a part of the cha
 not as the chart says:
 
 - `EvalWarning::Style`, a value of the styles that does not draw as written.
-- `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget, whose initial
-  clause still applies, a condition on a column that the layer does not have, the text of a style
+- `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget whose domain
+  holds no values, whose initial clause still applies, a condition on a column that the layer does
+  not have, the text of a style
   field that is not a value of its property, such as a color that CSS does not name, a percentage
   `size` of a mark without a band, or an `auto` size of a URL image.
 - `EvalWarning::Fit`, marks that reach past the edges of their plot, because the plot is too small

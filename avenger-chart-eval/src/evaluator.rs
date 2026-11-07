@@ -45,6 +45,7 @@ use crate::{
     },
     style::tree::{self, StyleNodes},
     style::{color as style_color, number as style_number},
+    widgets::{self, EvaluatedWidget, PreparedWidget, WidgetInputs},
     EvalError, EvalWarning, Registry,
 };
 
@@ -57,6 +58,8 @@ pub struct EvaluatedChart {
     /// The rows of each mark's table that draw its instances, by the mark's name.
     pub data: SceneData,
     pub plots: Vec<EvaluatedPlot>,
+    /// The widgets that draw, with the rectangles of their drawings.
+    pub widgets: Vec<EvaluatedWidget>,
     pub warnings: Vec<EvalWarning>,
 }
 
@@ -106,6 +109,7 @@ struct Prepared {
     guides: Guides,
     polars: Polars,
     maps: Maps,
+    widgets: Vec<PreparedWidget>,
     lowered: Lowered,
     warnings: Vec<EvalWarning>,
 }
@@ -151,6 +155,8 @@ pub struct ChartEvaluator {
     revision: u64,
     /// The rectangle of each plot at the last evaluation.
     rects: Vec<avenger_layout::Rect>,
+    /// Whether the scene holds the drawings of the widgets.
+    draws_widgets: bool,
     /// The image resolver of the host, which loads the tiles of maps.
     #[cfg(feature = "geo")]
     resolver: Option<Arc<dyn avenger_image::ImageResolver>>,
@@ -195,21 +201,10 @@ impl PreparedChart {
             let kinds = (resolved.scales.iter())
                 .map(|group| fit_kind(&group.spec, registry))
                 .collect::<Result<Vec<_>>>()?;
-            let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
+            let (tree, nodes, warnings) = tree::build(&chart, &resolved, &kinds);
             let drawn = (resolved.tree.layers.iter())
                 .map(|layer| encode::drawn_rows(layer.mark, layer.table))
                 .collect::<Result<Vec<_>>>()?;
-            warnings.extend((resolved.widgets.iter()).map(|group| {
-                let member = &group.members[0];
-                let layer = &resolved.tree.layers[member.layer];
-                EvalWarning::NotDrawn {
-                    path: format!("{}.widgets[{}]", layer.path, member.index),
-                    reason: format!(
-                        "the widget `{}` does not draw yet, but its initial clause applies",
-                        group.key
-                    ),
-                }
-            }));
             (
                 tree,
                 nodes,
@@ -285,6 +280,7 @@ impl ChartEvaluator {
             projections: geo::ProjectionState::default(),
             revision: 0,
             rects: Vec::new(),
+            draws_widgets: true,
             #[cfg(feature = "geo")]
             resolver: None,
         })
@@ -314,12 +310,20 @@ impl ChartEvaluator {
         }
     }
 
+    /// Sets whether the scene holds the drawings of the widgets, as it does by default. An app that
+    /// draws the widgets in a scene of its own leaves them out and places its own at the
+    /// rectangles of [`EvaluatedChart::widgets`].
+    pub fn set_draws_widgets(&mut self, draws: bool) {
+        self.draws_widgets = draws;
+    }
+
     /// The style tree of the chart, whose nodes stand for its parts.
     pub fn style_tree(&self) -> &StyleTree {
         &self.tree
     }
 
-    /// The warnings of preparing the chart, such as widgets that do not draw yet.
+    /// The warnings of preparing the chart, such as style fields whose text is not a value of
+    /// their property.
     pub fn warnings(&self) -> &[EvalWarning] {
         &self.warnings
     }
@@ -394,6 +398,7 @@ impl ChartEvaluator {
                 resolved: &resolved,
                 guides: &prepared.guides,
                 maps: &prepared.maps,
+                widgets: &prepared.widgets,
                 nodes: &self.nodes,
                 styles,
             });
@@ -406,6 +411,7 @@ impl ChartEvaluator {
         let mut measurer = Measurer {
             guides: &prepared.guides,
             maps: &prepared.maps,
+            widgets: &prepared.widgets,
         };
         let layout = &prepared.lowered.layout;
         let measured = match (self.measured.take(), size) {
@@ -686,6 +692,30 @@ impl ChartEvaluator {
             let labels = prepared.maps.labels(plot, fit, guide.labels[side].0, slot);
             marks.extend(labels.map(SceneMark::from));
         }
+        // Each drawing of each widget, in its slab, at the value of its clause.
+        let mut widgets: Vec<EvaluatedWidget> = (prepared.widgets.iter())
+            .map(|widget| widget.evaluated.clone())
+            .collect();
+        for (id, slot) in layout::widget_slots(&prepared.widgets, &prepared.lowered, &solution) {
+            let (SlabId::Widget { widget, .. } | SlabId::HeldWidget(widget)) = id else {
+                continue;
+            };
+            let prepared_widget = &prepared.widgets[widget];
+            let evaluated = &prepared_widget.evaluated;
+            let value = evaluated.value(self.states.get(&evaluated.selection));
+            let (drawn, rect) = prepared_widget.draw(&self.engine, &value, slot)?;
+            if self.draws_widgets {
+                marks.push(
+                    SceneGroup {
+                        name: format!("widget {}", evaluated.key),
+                        marks: drawn,
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
+            widgets[widget].rects.push(rect);
+        }
         self.rects = rects;
         Ok(EvaluatedChart {
             scene: SceneGraph {
@@ -696,6 +726,7 @@ impl ChartEvaluator {
             },
             data,
             plots,
+            widgets,
             warnings,
         })
     }
@@ -1295,11 +1326,22 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions: &fittings,
         scales: &scales,
     })?;
+    let widgets = widgets::widgets(
+        &WidgetInputs {
+            chart,
+            resolved,
+            drawn,
+            styles: (nodes.widgets.iter()).map(|node| &styles[*node]).collect(),
+            engine,
+        },
+        &mut warnings,
+    );
     let lowered = layout::lower(&Lowering {
         chart,
         resolved,
         guides: &guides,
         maps: &maps,
+        widgets: &widgets,
         nodes,
         styles,
     });
@@ -1310,6 +1352,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         guides,
         polars,
         maps,
+        widgets,
         lowered,
         warnings,
     })

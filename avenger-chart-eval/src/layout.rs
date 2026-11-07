@@ -45,6 +45,7 @@ use crate::{
         number as style_number,
         tree::{owner_path, StyleNodes},
     },
+    widgets::PreparedWidget,
 };
 
 /// The parts of an axis, from the plot outward, which stand in a slab each.
@@ -91,6 +92,11 @@ pub(crate) enum SlabId {
     /// The labels of the graticule of a map plot on one side: the plot, and the position of the
     /// side among the labeled sides of its `MapGuide`.
     Graticule { plot: usize, side: usize },
+    /// A drawing of a widget beside one plot of its group, because the guide rule of the node that
+    /// holds the group keeps it: the plot, and the widget's position among the prepared widgets.
+    Widget { plot: usize, widget: usize },
+    /// The one drawing of a widget, on the node that holds its group.
+    HeldWidget(usize),
 }
 
 /// The key of a tag of the layout, which names the slabs that a rule acts on.
@@ -189,6 +195,7 @@ pub(crate) struct Lowering<'a> {
     pub(crate) resolved: &'a Resolved<'a>,
     pub(crate) guides: &'a Guides,
     pub(crate) maps: &'a Maps,
+    pub(crate) widgets: &'a [PreparedWidget],
     pub(crate) nodes: &'a StyleNodes,
     pub(crate) styles: &'a ComputedStyles,
 }
@@ -317,6 +324,56 @@ impl Lowering<'_> {
         owner_path(&self.nodes.nodes, &self.resolved.scales[group].owner)
     }
 
+    /// The path of the node that holds the group of the widget `widget`.
+    fn widget_owner(&self, widget: usize) -> &str {
+        owner_path(&self.nodes.nodes, &self.widgets[widget].owner)
+    }
+
+    /// Whether the node that holds the group of a widget draws it once, because its rule for
+    /// widgets merges or collapses them, or because it is a plot.
+    fn held_widget(&self, widget: usize) -> bool {
+        match node_rules(self.chart, self.widget_owner(widget)) {
+            Some((rules, wrap)) => rule(rules, GuidePart::Widget, wrap) != GuideRuleKind::Keep,
+            None => true,
+        }
+    }
+
+    /// The widgets `members` on one side, by their sides, in a stack that wraps: each widget at
+    /// its length, apart by the largest offset among them along a line, and each line past the
+    /// offset that its widgets' thickness holds, with the id of each from `id`.
+    fn widget_stacks(
+        &self,
+        members: impl Iterator<Item = usize>,
+        id: impl Fn(usize) -> SlabId,
+        ids: &mut Ids,
+    ) -> Vec<(Side, SlabStack<SlabId>)> {
+        let mut sides: Vec<(GuideSide, Vec<usize>)> = Vec::new();
+        for widget in members {
+            let side = self.widgets[widget].side;
+            match sides.iter_mut().find(|(known, _)| *known == side) {
+                Some((_, members)) => members.push(widget),
+                None => sides.push((side, vec![widget])),
+            }
+        }
+        sides
+            .into_iter()
+            .map(|(side, members)| {
+                let gap = (members.iter())
+                    .map(|&widget| self.widgets[widget].offset)
+                    .fold(0.0f32, f32::max);
+                let slabs = members.iter().map(|&widget| {
+                    let id = ids.slab(id(widget));
+                    Slab::new().id(id).content_key(format!("widget {widget}"))
+                });
+                let stack = SlabStack::new(slabs.collect::<Vec<_>>())
+                    .tracks(Track::auto())
+                    .gap(Gap::new(gap))
+                    .wrap(Gap::new(0.0));
+                (layout_side(side), stack)
+            })
+            .collect()
+    }
+
     /// The computed style of the `plot` of the node at `path`.
     fn plot_style(&self, path: &str) -> &ComputedStyle {
         &self.styles[self.nodes.nodes[path].plot]
@@ -394,6 +451,11 @@ impl Lowering<'_> {
         for (side, members) in sides {
             let stack = self.legend_stack(&members, SlabId::HeldLegend, ids);
             slabs.push((layout_side(side), Hosted::Stack(stack)));
+        }
+        let held = (0..self.widgets.len())
+            .filter(|&widget| self.widget_owner(widget) == path && self.held_widget(widget));
+        for (side, stack) in self.widget_stacks(held, SlabId::HeldWidget, ids) {
+            slabs.push((side, Hosted::Stack(stack)));
         }
         if let Some(index) = self.guides.title_of.get(path) {
             let id = ids.slab(SlabId::Title(*index));
@@ -823,6 +885,14 @@ impl Lowering<'_> {
                     .content_key(attribution.attribution.content_key()),
             );
         }
+        // The widgets that the rule of the node holding their groups keeps beside each plot.
+        let kept = (0..self.widgets.len()).filter(|&widget| {
+            self.widgets[widget].plots.contains(&plot) && !self.held_widget(widget)
+        });
+        for (side, stack) in self.widget_stacks(kept, |widget| SlabId::Widget { plot, widget }, ids)
+        {
+            leaf = leaf.slab_stack(side, stack);
+        }
         for (side, hosted) in self.host_slabs(&plot_ref.path, ids) {
             leaf = match hosted {
                 Hosted::Slab(slab) => leaf.slab(side, slab),
@@ -870,7 +940,11 @@ fn placement(guides: &Guides, id: &SlabId) -> Option<(GuideSide, f32)> {
             (attribution.side, attribution.offset)
         }
         SlabId::Header { header, .. } => (guides.headers[*header].side, 0.0),
-        SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => return None,
+        SlabId::Plot(_)
+        | SlabId::Node(_)
+        | SlabId::Graticule { .. }
+        | SlabId::Widget { .. }
+        | SlabId::HeldWidget(_) => return None,
     })
 }
 
@@ -878,6 +952,7 @@ fn placement(guides: &Guides, id: &SlabId) -> Option<(GuideSide, f32)> {
 pub(crate) struct Measurer<'a> {
     pub(crate) guides: &'a Guides,
     pub(crate) maps: &'a Maps,
+    pub(crate) widgets: &'a [PreparedWidget],
 }
 
 impl Measurer<'_> {
@@ -886,6 +961,15 @@ impl Measurer<'_> {
         // The labels of a graticule take the thickness that the graticule measures at any length.
         if let SlabId::Graticule { plot, side } = id {
             return Some(self.maps.guide(*plot)?.labels[*side].1.clone());
+        }
+        // A widget takes its thickness at any length, with its offset.
+        if let SlabId::Widget { widget, .. } | SlabId::HeldWidget(widget) = id {
+            let widget = &self.widgets[*widget];
+            return Some(PartExtent {
+                thickness: widget.thickness + widget.offset,
+                overhang: [0.0, 0.0],
+                holds: 0.0..=f32::INFINITY,
+            });
         }
         let extent = match id {
             SlabId::Axis { axis, part, .. } => {
@@ -902,7 +986,11 @@ impl Measurer<'_> {
             SlabId::Header { header, part } => guides.headers[*header]
                 .guide
                 .extent(HEADER_PARTS[*part], length),
-            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => return None,
+            SlabId::Plot(_)
+            | SlabId::Node(_)
+            | SlabId::Graticule { .. }
+            | SlabId::Widget { .. }
+            | SlabId::HeldWidget(_) => return None,
         };
         let (_, offset) = placement(guides, id)?;
         Some(PartExtent {
@@ -925,8 +1013,17 @@ impl Measure<SlabId> for Measurer<'_> {
         self.extent(id, height).map(answer)
     }
 
-    /// A legend's length with its entries on as few lines as its wrap allows, along its side.
+    /// A legend's length with its entries on as few lines as its wrap allows, and a widget's
+    /// length, along its side.
     fn max_content(&mut self, id: &SlabId, direction: Direction) -> Option<f32> {
+        if let SlabId::Widget { widget, .. } | SlabId::HeldWidget(widget) = id {
+            let widget = &self.widgets[*widget];
+            let along = match widget.side.is_vertical() {
+                true => Direction::Vertical,
+                false => Direction::Horizontal,
+            };
+            return (direction == along).then_some(widget.length);
+        }
         let (SlabId::Legend { legend, .. } | SlabId::HeldLegend(legend)) = id else {
             return None;
         };
@@ -1039,9 +1136,32 @@ pub(crate) fn draw(
                     ..group
                 })
             }
-            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => None,
+            SlabId::Plot(_)
+            | SlabId::Node(_)
+            | SlabId::Graticule { .. }
+            | SlabId::Widget { .. }
+            | SlabId::HeldWidget(_) => None,
         };
         marks.extend(group.map(SceneMark::from));
     }
     marks
+}
+
+/// The slab of each drawing of each widget, past the widget's offset, in tree order.
+pub(crate) fn widget_slots(
+    widgets: &[PreparedWidget],
+    lowered: &Lowered,
+    solution: &Solution<SlabId>,
+) -> Vec<(SlabId, [f32; 4])> {
+    (lowered.slabs.iter())
+        .filter_map(|id| {
+            let (SlabId::Widget { widget, .. } | SlabId::HeldWidget(widget)) = id else {
+                return None;
+            };
+            let widget = &widgets[*widget];
+            let rect = solution.region(id)?.content;
+            let slot = [rect.x, rect.y, rect.width, rect.height];
+            Some((*id, past_offset(slot, widget.side, widget.offset)))
+        })
+        .collect()
 }
