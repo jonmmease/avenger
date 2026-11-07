@@ -598,7 +598,7 @@ impl<State> Slider<State> {
 }
 
 /// `value` rounded to a multiple of 10^`exponent`.
-fn round_to(value: f64, exponent: i32) -> f64 {
+pub(crate) fn round_to(value: f64, exponent: i32) -> f64 {
     let unit = 10_f64.powi(exponent.abs());
     if exponent < 0 {
         (value * unit).round() / unit
@@ -608,12 +608,12 @@ fn round_to(value: f64, exponent: i32) -> f64 {
 }
 
 /// The gap between the end of the track and the readout, which holds the thumb's focus ring.
-fn readout_gap(style: &WidgetStyle) -> f32 {
+pub(crate) fn readout_gap(style: &WidgetStyle) -> f32 {
     style.label_gap + style.focus_offset + style.focus_width
 }
 
 /// Whether `key` moves a slider's value.
-fn moves(key: Key) -> bool {
+pub(crate) fn moves(key: Key) -> bool {
     matches!(
         key,
         Key::Named(

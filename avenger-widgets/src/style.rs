@@ -54,7 +54,12 @@ impl Palette {
 
     /// A palette whose hovered and pressed paints change only the fill, and whose disabled paint
     /// blends the normal paint 55% toward `background`.
-    fn shaded(normal: Paint, hovered: [f32; 4], pressed: [f32; 4], background: [f32; 4]) -> Self {
+    pub fn shaded(
+        normal: Paint,
+        hovered: [f32; 4],
+        pressed: [f32; 4],
+        background: [f32; 4],
+    ) -> Self {
         Self {
             normal,
             hovered: Paint {
