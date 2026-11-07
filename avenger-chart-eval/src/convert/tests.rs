@@ -7,12 +7,7 @@ use arrow::{
     array::{Array, ArrayRef, AsArray, Float64Array, RecordBatch},
     datatypes::{DataType, Float64Type},
 };
-use avenger_chart::{
-    build::{self, ChartParts},
-    list_value,
-    proto::{self, cartesian_layer, condition, domain, scale_spec, Channel},
-    Chart, FitKind,
-};
+use avenger_chart::{prelude::*, FitKind};
 use avenger_scales::scales::domain_summary::{CategoryOrder, DomainOptions, DomainPin};
 use avenger_style::{
     Cascade, ComputedStyles, Element, Env, HostInputs, NodeId, ParseOptions, Sheet, SourceId,
@@ -66,32 +61,18 @@ fn floats(range: &ScaleRange) -> Vec<f64> {
 fn scale_types_take_their_options_and_custom_scales_their_registry() {
     let (styles, node) = scale_style("scale { padding-inner: 0.3; }", "x", "categorical", "bar");
     let style = &styles[node];
-    let band = proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Band(proto::BandScale {
-            align: Some(0.2),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
+    let band = Scale::band(BandScale::builder().align(0.2))
+        .build()
+        .unwrap();
     let converted = options(&band, style);
     assert_eq!(converted["align"].as_f64().unwrap(), 0.2);
     assert!((converted["padding_inner"].as_f64().unwrap() - 0.3).abs() < 1e-6);
-    let log = proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Log(proto::LogScale {
-            base: Some(2.0),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
+    let log = Scale::log(LogScale::builder().base(2.0)).build().unwrap();
     assert_eq!(options(&log, style)["base"].as_f64().unwrap(), 2.0);
 
-    let custom = proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Custom(proto::CustomScale {
-            r#type: "warp".to_string(),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
+    let custom = Scale::custom(CustomScale::builder().type_("warp"))
+        .build()
+        .unwrap();
     assert!(matches!(
         scale_impl(&custom, &Registry::new()),
         Err(EvalError::UnknownScale(name)) if name == "warp"
@@ -173,120 +154,30 @@ fn ranges_come_from_the_computed_scheme_or_range() {
 
 #[test]
 fn range_shapes_follow_the_scale_type() {
-    let spec = |kind: scale_spec::Type| proto::ScaleSpec {
-        r#type: Some(kind),
-        ..Default::default()
-    };
-    assert_eq!(
-        range_shape(&spec(scale_spec::Type::Ordinal(Default::default())), 4),
-        RangeShape::Discrete(4)
-    );
-    assert_eq!(
-        range_shape(&spec(scale_spec::Type::Threshold(Default::default())), 2),
-        RangeShape::Discrete(3)
-    );
-    assert_eq!(
-        range_shape(&spec(scale_spec::Type::Quantile(Default::default())), 9),
-        RangeShape::Bins
-    );
-    assert_eq!(
-        range_shape(&spec(scale_spec::Type::Linear(Default::default())), 2),
-        RangeShape::Continuous
-    );
+    let ordinal = Scale::ordinal(OrdinalScale::builder()).build().unwrap();
+    assert_eq!(range_shape(&ordinal, 4), RangeShape::Discrete(4));
+    let threshold = Scale::threshold().build().unwrap();
+    assert_eq!(range_shape(&threshold, 2), RangeShape::Discrete(3));
+    let quantile = Scale::quantile().build().unwrap();
+    assert_eq!(range_shape(&quantile, 9), RangeShape::Bins);
+    let linear = Scale::linear(LinearScale::builder()).build().unwrap();
+    assert_eq!(range_shape(&linear, 2), RangeShape::Continuous);
 }
 
-/// A chart of symbols of `a` and `b`, whose `x` scale is `x`, with `selections`.
-fn chart_with(
-    x: proto::ScaleSpec,
-    selections: Vec<proto::Selection>,
-    values: Vec<ArrayRef>,
-) -> Chart {
-    let mut parts = ChartParts::new();
-    let table = parts.table(
-        RecordBatch::try_from_iter([
-            ("a", numbers(&[1.0, 2.0, 3.0])),
-            ("b", numbers(&[4.0, 6.0, 5.0])),
-        ])
-        .unwrap(),
-    );
-    for value in values {
-        parts.value(value);
-    }
-    let mut x_encoding = build::column("a");
-    x_encoding.scale = Some(x);
-    let mut root = build::cartesian(vec![proto::CartesianLayer {
-        id: "points".to_string(),
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(x_encoding),
-            y: Some(build::scaled_column("b")),
-            ..Default::default()
-        })),
-        tools: vec![proto::LayerTool {
-            kind: Some(proto::layer_tool::Kind::Select(proto::Select {
-                selection: "brush".to_string(),
-                form: Some(proto::select::Form::Interval(
-                    proto::IntervalSelect::default(),
-                )),
-                ..Default::default()
-            })),
-        }],
-        ..Default::default()
-    }]);
-    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
-        plot.id = "scatter".to_string();
-        plot.tools = vec![proto::Tool {
-            kind: Some(proto::tool::Kind::Select(proto::Select {
-                selection: "brush".to_string(),
-                form: Some(proto::select::Form::Interval(
-                    proto::IntervalSelect::default(),
-                )),
-                ..Default::default()
-            })),
-        }];
-    }
-    let mut message = build::message(root);
-    message.selections = match selections.is_empty() {
-        true => vec![brush(proto::SelectionResolution::Global, vec![])],
-        false => selections,
-    };
-    parts.finish(message).unwrap()
+/// The table of `a` against `b` of the charts of the domain tests.
+fn points() -> RecordBatch {
+    RecordBatch::try_from_iter([
+        ("a", numbers(&[1.0, 2.0, 3.0])),
+        ("b", numbers(&[4.0, 6.0, 5.0])),
+    ])
+    .unwrap()
 }
 
-fn linear(domain: domain::Domain) -> proto::ScaleSpec {
-    proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Linear(proto::LinearScale::default())),
-        domain: Some(proto::Domain {
-            domain: Some(domain),
-        }),
-        ..Default::default()
-    }
-}
-
-/// A selection `brush` of `resolution` with `initial` clauses.
-fn brush(resolution: proto::SelectionResolution, initial: Vec<proto::Clause>) -> proto::Selection {
-    proto::Selection {
-        name: "brush".to_string(),
-        resolution: resolution as i32,
-        initial,
-    }
-}
-
-/// A clause of `owner` with a range of `a` through `x` from the value `low` to the value `high`.
-fn range_clause(owner: &str, low: Option<u32>, high: Option<u32>) -> proto::Clause {
-    proto::Clause {
-        owner: owner.to_string(),
-        conditions: vec![proto::Condition {
-            kind: Some(condition::Kind::Range(proto::ValueRange {
-                column: "a".to_string(),
-                channel: Channel::X as i32,
-                low: low.map(|index| proto::ValueRef { index }),
-                high: high.map(|index| proto::ValueRef { index }),
-                ..Default::default()
-            })),
-        }],
-        ..Default::default()
-    }
+/// A clause of `owner` with a range of `a` through `x`.
+fn range_clause(owner: &str, range: ValueRangeBuilder) -> ClauseBuilder {
+    Clause::builder()
+        .owner(owner)
+        .conditions([range.column("a").channel(Channel::X)])
 }
 
 fn x_group(chart: &Chart) -> avenger_chart::resolve::ScaleGroup {
@@ -297,10 +188,6 @@ fn x_group(chart: &Chart) -> avenger_chart::resolve::ScaleGroup {
     resolved.scales.into_iter().nth(index).unwrap()
 }
 
-fn scalar(value: f64) -> ArrayRef {
-    numbers(&[value])
-}
-
 fn f64s(values: &ArrayRef) -> Vec<f64> {
     let values = arrow::compute::cast(values, &DataType::Float64).unwrap();
     values.as_primitive::<Float64Type>().values().to_vec()
@@ -308,30 +195,38 @@ fn f64s(values: &ArrayRef) -> Vec<f64> {
 
 #[test]
 fn explicit_summary_and_data_domains_have_their_sources() {
-    let explicit = chart_with(
-        linear(domain::Domain::Explicit(proto::ValueRef { index: 0 })),
-        vec![],
-        vec![list_value(numbers(&[0.0, 10.0]))],
-    );
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a")
+                .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(points());
+    let explicit = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let group = x_group(&explicit);
     match source(&explicit, &group, &BTreeMap::new()).unwrap() {
         DomainSource::Explicit(values) => assert_eq!(f64s(&values), [0.0, 10.0]),
         other => panic!("an explicit domain, not {other:?}"),
     }
 
-    let data = chart_with(
-        linear(domain::Domain::Data(proto::DataDomain {
-            fit: Some(proto::DomainFit {
-                fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                    zero: Some(true),
-                    nice: Some(5.0),
-                    ..Default::default()
-                })),
-            }),
-        })),
-        vec![],
-        vec![],
-    );
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a")
+                .scale(Scale::linear(LinearScale::builder()).domain(
+                    DataDomain::builder().fit(IntervalFit::builder().zero(true).nice(5.0)),
+                )))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(points());
+    let data = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let group = x_group(&data);
     let DomainSource::Inferred {
         summaries,
@@ -353,22 +248,20 @@ fn explicit_summary_and_data_domains_have_their_sources() {
 
 #[test]
 fn a_preferred_order_moves_the_listed_categories_first() {
-    let spec = proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Band(proto::BandScale::default())),
-        domain: Some(proto::Domain {
-            domain: Some(domain::Domain::Data(proto::DataDomain {
-                fit: Some(proto::DomainFit {
-                    fit: Some(proto::domain_fit::Fit::Categories(proto::CategoryFit {
-                        order: Some(proto::category_fit::Order::Preferred(proto::ValueRef {
-                            index: 0,
-                        })),
-                    })),
-                }),
-            })),
-        }),
-        ..Default::default()
-    };
-    let chart = chart_with(spec, vec![], vec![list_value(numbers(&[3.0, 9.0, 1.0]))]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a").scale(
+                Scale::band(BandScale::builder())
+                    .domain(DataDomain::builder().fit(CategoryFit::preferred([3.0, 9.0, 1.0]))),
+            ))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(points());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let group = x_group(&chart);
     let fit = domain_options(&chart, &group.spec, FitKind::Categories);
     assert!(matches!(
@@ -380,26 +273,6 @@ fn a_preferred_order_moves_the_listed_categories_first() {
     assert_eq!(f64s(&ordered), [3.0, 1.0, 2.0, 4.0]);
 }
 
-/// The selection domain of `x` of a chart whose brush has `initial` clauses.
-fn selection_domain(
-    resolution: proto::SelectionResolution,
-    initial: Vec<proto::Clause>,
-    values: Vec<ArrayRef>,
-) -> DomainSource {
-    let spec = linear(domain::Domain::Selection(proto::SelectionDomain {
-        selection: "brush".to_string(),
-        channel: Channel::X as i32,
-        fallback: Some(proto::selection_domain::Fallback::Explicit(
-            proto::ValueRef { index: 0 },
-        )),
-    }));
-    let mut all = vec![list_value(numbers(&[-100.0, 100.0]))];
-    all.extend(values);
-    let chart = chart_with(spec, vec![brush(resolution, initial)], all);
-    let group = x_group(&chart);
-    source(&chart, &group, &states(&chart).unwrap()).unwrap()
-}
-
 fn explicit(source: DomainSource) -> Vec<f64> {
     match source {
         DomainSource::Explicit(values) => f64s(&values),
@@ -409,73 +282,128 @@ fn explicit(source: DomainSource) -> Vec<f64> {
 
 #[test]
 fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
-    use proto::SelectionResolution::{Global, Intersect, Union};
-    // Values: 1 = 2.0, 2 = 5.0, 3 = 3.0, 4 = 8.0.
-    let values = || vec![scalar(2.0), scalar(5.0), scalar(3.0), scalar(8.0)];
+    use SelectionResolution::{Global, Intersect, Union};
+    // The selection domain of `x`, with an explicit fallback, of a chart whose brush has
+    // `initial` clauses.
+    let domain = |resolution: SelectionResolution, initial: Vec<ClauseBuilder>| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("a").scale(
+                    Scale::linear(LinearScale::builder()).domain(
+                        SelectionDomain::builder()
+                            .selection("brush")
+                            .channel(Channel::X)
+                            .explicit([-100.0, 100.0]),
+                    ),
+                ))
+                .y(Encoding::scaled_column("b")),
+        )
+        .table(points())
+        .id("points")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+            .id("scatter")
+            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        let chart = Chart::builder()
+            .root(plot)
+            .selections([Selection::builder()
+                .name("brush")
+                .resolution(resolution)
+                .initial(initial)])
+            .infer_scales()
+            .build()
+            .unwrap();
+        let group = x_group(&chart);
+        source(&chart, &group, &states(&chart).unwrap()).unwrap()
+    };
     // Without clauses, the fallback.
-    assert_eq!(
-        explicit(selection_domain(Global, vec![], values())),
-        [-100.0, 100.0]
-    );
+    assert_eq!(explicit(domain(Global, vec![])), [-100.0, 100.0]);
     // One clause gives its range.
-    assert_eq!(
-        explicit(selection_domain(
-            Global,
-            vec![range_clause("scatter", Some(1), Some(2))],
-            values()
-        )),
-        [2.0, 5.0]
-    );
+    let scatter = || range_clause("scatter", ValueRange::builder().low(2.0).high(5.0));
+    assert_eq!(explicit(domain(Global, vec![scatter()])), [2.0, 5.0]);
     // A union takes the envelope; an intersection the overlap.
     let two = || {
         vec![
-            range_clause("scatter", Some(1), Some(2)),
-            range_clause("points", Some(3), Some(4)),
+            scatter(),
+            range_clause("points", ValueRange::builder().low(3.0).high(8.0)),
         ]
     };
-    let with_other = |resolution| selection_domain(resolution, two(), values());
-    assert_eq!(explicit(with_other(Union)), [2.0, 8.0]);
-    assert_eq!(explicit(with_other(Intersect)), [3.0, 5.0]);
+    assert_eq!(explicit(domain(Union, two())), [2.0, 8.0]);
+    assert_eq!(explicit(domain(Intersect, two())), [3.0, 5.0]);
 }
 
 /// A range with one end takes the other from an explicit fallback, in the fallback's type, and an
 /// end past the fallback's other end closes the domain there.
 #[test]
 fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
-    use proto::SelectionResolution::Global;
-    let domain = |low: Option<u32>, high: Option<u32>, value: ArrayRef| {
-        explicit(selection_domain(
-            Global,
-            vec![range_clause("scatter", low, high)],
-            vec![value],
-        ))
+    let domain = |range: ValueRangeBuilder| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("a").scale(
+                    Scale::linear(LinearScale::builder()).domain(
+                        SelectionDomain::builder()
+                            .selection("brush")
+                            .channel(Channel::X)
+                            .explicit([-100.0, 100.0]),
+                    ),
+                ))
+                .y(Encoding::scaled_column("b")),
+        )
+        .table(points())
+        .id("points")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+            .id("scatter")
+            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        let chart = Chart::builder()
+            .root(plot)
+            .selections([Selection::builder()
+                .name("brush")
+                .resolution(SelectionResolution::Global)
+                .initial([range_clause("scatter", range)])])
+            .infer_scales()
+            .build()
+            .unwrap();
+        let group = x_group(&chart);
+        explicit(source(&chart, &group, &states(&chart).unwrap()).unwrap())
     };
-    let int = |value: i64| -> ArrayRef { Arc::new(arrow::array::Int64Array::from(vec![value])) };
-    assert_eq!(domain(Some(1), None, scalar(2.0)), [2.0, 100.0]);
-    assert_eq!(domain(Some(1), None, int(10)), [10.0, 100.0]);
-    assert_eq!(domain(Some(1), None, scalar(200.0)), [200.0, 200.0]);
-    assert_eq!(domain(None, Some(1), scalar(-500.0)), [-500.0, -500.0]);
+    assert_eq!(domain(ValueRange::builder().low(2.0)), [2.0, 100.0]);
+    assert_eq!(domain(ValueRange::builder().low(10i64)), [10.0, 100.0]);
+    assert_eq!(domain(ValueRange::builder().low(200.0)), [200.0, 200.0]);
+    assert_eq!(domain(ValueRange::builder().high(-500.0)), [-500.0, -500.0]);
 }
 
 /// A range with one end over a data fallback pins that end of the fallback's fit, which finds the
 /// other.
 #[test]
 fn a_range_with_one_end_pins_a_fit_of_the_data() {
-    let spec = linear(domain::Domain::Selection(proto::SelectionDomain {
-        selection: "brush".to_string(),
-        channel: Channel::X as i32,
-        fallback: Some(proto::selection_domain::Fallback::Data(
-            proto::DataDomain::default(),
-        )),
-    }));
-    let chart = chart_with(
-        spec,
-        vec![brush(
-            proto::SelectionResolution::Global,
-            vec![range_clause("scatter", None, Some(0))],
-        )],
-        vec![scalar(2.5)],
-    );
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a").scale(
+                Scale::linear(LinearScale::builder()).domain(
+                    SelectionDomain::builder()
+                        .selection("brush")
+                        .channel(Channel::X)
+                        .data(DataDomain::builder()),
+                ),
+            ))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(points())
+    .id("points")
+    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .id("scatter")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let chart = Chart::builder()
+        .root(plot)
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Global)
+            .initial([range_clause("scatter", ValueRange::builder().high(2.5))])])
+        .infer_scales()
+        .build()
+        .unwrap();
     let group = x_group(&chart);
     let DomainSource::Inferred { pin, data, .. } =
         source(&chart, &group, &states(&chart).unwrap()).unwrap()
@@ -522,65 +450,39 @@ fn an_intersection_of_ranges_with_open_ends_stays_open_only_where_every_range_is
 /// owners, so a conditional value that skips the plot's own clause still reads the widget's.
 #[test]
 fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
-    let widget = proto::Clause {
-        widget: "magnitude".to_string(),
-        ..range_clause("", Some(0), Some(1))
-    };
-    let brush_clause = range_clause("scatter", Some(2), Some(3));
-    let mut parts = ChartParts::new();
-    let table = parts.table(
-        RecordBatch::try_from_iter([
-            ("a", numbers(&[1.0, 2.0, 3.0, 4.0])),
-            ("b", numbers(&[1.0, 1.0, 1.0, 1.0])),
-        ])
-        .unwrap(),
-    );
-    for value in [1.0, 2.5, 2.5, 4.0] {
-        parts.value(scalar(value));
-    }
-    let mut root = build::cartesian(vec![proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(build::scaled_column("a")),
-            y: Some(build::scaled_column("b")),
-            ..Default::default()
-        })),
-        widgets: vec![proto::Widget {
-            key: "magnitude".to_string(),
-            kind: Some(proto::widget::Kind::RangeSlider(proto::RangeSliderWidget {
-                target: Some(proto::WidgetTarget {
-                    selection: "brush".to_string(),
-                    column: "a".to_string(),
-                }),
-                domain: Some(proto::WidgetDomain {
-                    domain: Some(proto::widget_domain::Domain::Data(
-                        proto::WidgetDataDomain::default(),
-                    )),
-                }),
-                ..Default::default()
-            })),
-            ..Default::default()
-        }],
-        ..Default::default()
-    }]);
-    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
-        plot.id = "scatter".to_string();
-        plot.tools = vec![proto::Tool {
-            kind: Some(proto::tool::Kind::Select(proto::Select {
-                selection: "brush".to_string(),
-                form: Some(proto::select::Form::Interval(
-                    proto::IntervalSelect::default(),
-                )),
-                ..Default::default()
-            })),
-        }];
-    }
-    let mut message = build::message(root);
-    message.selections = vec![brush(
-        proto::SelectionResolution::Intersect,
-        vec![widget, brush_clause],
-    )];
-    let chart = parts.finish(message).unwrap();
+    let table = RecordBatch::try_from_iter([
+        ("a", numbers(&[1.0, 2.0, 3.0, 4.0])),
+        ("b", numbers(&[1.0, 1.0, 1.0, 1.0])),
+    ])
+    .unwrap();
+    let magnitude = Widget::range_slider(
+        RangeSliderWidget::builder()
+            .target(WidgetTarget::builder().selection("brush").column("a"))
+            .domain(WidgetDataDomain::builder()),
+    )
+    .key("magnitude");
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(table)
+    .widgets([magnitude]);
+    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .id("scatter")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let widget_clause =
+        range_clause("", ValueRange::builder().low(1.0).high(2.5)).widget("magnitude");
+    let brush_clause = range_clause("scatter", ValueRange::builder().low(2.5).high(4.0));
+    let chart = Chart::builder()
+        .root(plot)
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Intersect)
+            .initial([widget_clause, brush_clause])])
+        .infer_scales()
+        .build()
+        .unwrap();
     let states = states(&chart).unwrap();
     let owners: Vec<&str> = (states["brush"].clauses.iter())
         .map(|clause| clause.owner.as_str())
@@ -589,13 +491,9 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
     // layers.
     assert_eq!(owners, ["scatter", "\0magnitude\0"]);
 
-    let selected = proto::Predicate {
-        predicate: Some(proto::predicate::Predicate::Selected(proto::Selected {
-            selection: "brush".to_string(),
-            exclude_own: true,
-            ..Default::default()
-        })),
-    };
+    let selected = Predicate::selected(Selected::builder().selection("brush").exclude_own(true))
+        .build()
+        .unwrap();
     let test = predicate(&selected, &["scatter".to_string()], false);
     let rows = RecordBatch::try_from_iter([("a", numbers(&[1.0, 2.0, 3.0, 4.0]))]).unwrap();
     let mask = test.mask(&states, &rows).unwrap();
@@ -608,20 +506,19 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
 
 #[test]
 fn a_syntax_that_the_engine_lacks_fails() {
-    let mut parts = ChartParts::new();
-    let table = parts.table(RecordBatch::try_from_iter([("a", numbers(&[1.0]))]).unwrap());
-    let root = build::cartesian(vec![proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(build::scaled_column("a")),
-            y: Some(build::scaled_column("a")),
-            ..Default::default()
-        })),
-        ..Default::default()
-    }]);
-    let mut message = build::message(root);
-    message.number_format_syntax = "d3".to_string();
-    let chart = parts.finish(message).unwrap();
+    let table = RecordBatch::try_from_iter([("a", numbers(&[1.0]))]).unwrap();
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("a")),
+    )
+    .table(table);
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let bare = avenger_typst_label::bundled_label_engine();
     assert!(matches!(
         format::check(&chart, &bare),
@@ -639,19 +536,33 @@ fn a_syntax_that_the_engine_lacks_fails() {
 /// A summary domain holds the producer's summary, and the evaluator does not summarize the data.
 #[test]
 fn a_summary_domain_holds_the_producers_summary() {
-    use avenger_scales::scales::{domain_summary::Extents, linear::LinearScale};
-    let summary = LinearScale::configured((0.0, 1.0), (0.0, 1.0))
+    use avenger_scales::scales::{domain_summary::Extents, linear::LinearScale as Linear};
+    let summary = Linear::configured((0.0, 1.0), (0.0, 1.0))
         .summarize(&numbers(&[-5.0, 50.0]), Extents::None)
         .unwrap();
-    let value: ArrayRef = Arc::new(summary.to_arrow());
-    let chart = chart_with(
-        linear(domain::Domain::Summary(proto::SummaryDomain {
-            value: Some(proto::ValueRef { index: 0 }),
-            fit: None,
-        })),
-        vec![],
-        vec![value],
-    );
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(
+                Encoding::scaled_column("a").scale(Scale::linear(LinearScale::builder()).domain(
+                    SummaryDomain::builder().value(Value::scalar(Arc::new(summary.to_arrow()))),
+                )),
+            )
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(points())
+    .id("points")
+    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .id("scatter")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let chart = Chart::builder()
+        .root(plot)
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Global)])
+        .infer_scales()
+        .build()
+        .unwrap();
     let group = x_group(&chart);
     let DomainSource::Inferred {
         summaries, data, ..

@@ -49,6 +49,7 @@ const CONTENT: &[(&str, &[&str])] = &[
         "Encoding",
         &[
             "column",
+            "scaled_column",
             "constant",
             "scaled_constant",
             "scale",
@@ -61,7 +62,13 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     (
         "ConditionalValue",
-        &["predicate", "column", "constant", "scaled_constant"],
+        &[
+            "predicate",
+            "column",
+            "scaled_column",
+            "constant",
+            "scaled_constant",
+        ],
     ),
     (
         "Guide",
@@ -256,7 +263,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("Resolve", &["channel", "widget", "sharing"]),
     (
-        "ScaleSpec",
+        "Scale",
         &[
             "linear",
             "log",

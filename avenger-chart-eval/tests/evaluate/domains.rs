@@ -4,11 +4,7 @@
 use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
-use avenger_chart::{
-    build::{self},
-    proto::{self, cartesian_layer, condition, domain, Channel},
-    Chart,
-};
+use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvalError, Registry};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_style::HostInputs;
@@ -20,18 +16,20 @@ use crate::support::*;
 #[test]
 fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
     let range = |reverse: bool| {
-        let chart = cars_symbols(|_, mark| {
-            mark.y = Some(scaled(
-                "mpg",
-                proto::ScaleSpec {
-                    range: Some(proto::Range {
-                        reverse,
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                },
-            ));
-        });
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("weight"))
+                .y(Encoding::scaled_column("mpg")
+                    .scale(Scale::builder().range(Range::builder().reverse(reverse)))),
+        )
+        .table(cars());
+        let chart = Chart::builder()
+            .number_format_syntax("d3")
+            .datetime_format_syntax("d3")
+            .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+            .infer_scales()
+            .build()
+            .unwrap();
         let evaluated = evaluate(&chart, [320.0, 240.0]);
         (evaluated.plots[0].coords.scale(1))
             .unwrap()
@@ -46,7 +44,21 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
 
 #[test]
 fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
-    let chart = cars_symbols(|parts, mark| mark.size = Some(parts.number(400.0)));
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .size(Encoding::constant(400.0)),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let mut evaluator = evaluator(&chart);
     for size in [[320.0, 240.0], [640.0, 360.0]] {
         let evaluated = evaluator.evaluate(&host(size)).unwrap();
@@ -68,7 +80,20 @@ fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
 
 #[test]
 fn a_plot_too_small_for_its_symbols_warns() {
-    let chart = cars_symbols(|parts, mark| mark.size = Some(parts.number(20_000.0)));
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .size(Encoding::constant(20_000.0)),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     let evaluated = evaluate(&chart, [200.0, 150.0]);
     assert!(warns(&evaluated, "too small"), "{:?}", evaluated.warnings);
 }
@@ -85,23 +110,30 @@ fn the_rows_of_each_mark_are_its_instances() {
         ),
     ])
     .unwrap();
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("x"))
+            .y(Encoding::scaled_column("y"))
+            .color(Encoding::scaled_column("group")),
+    );
+    let lines = CartesianLayer::line(
+        LineMark::builder()
+            .x(Encoding::scaled_column("x"))
+            .y(Encoding::scaled_column("y"))
+            .color(Encoding::scaled_column("group")),
+    );
+
     let engine = engine();
-    let marks = [
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(col("x")),
-            y: Some(col("y")),
-            color: Some(col("group")),
-            ..Default::default()
-        }),
-        cartesian_layer::Mark::Line(proto::LineMark {
-            x: Some(col("x")),
-            y: Some(col("y")),
-            color: Some(col("group")),
-            ..Default::default()
-        }),
-    ];
-    for mark in marks {
-        let chart = one(table.clone(), |_| mark);
+    for layer in [symbols, lines] {
+        let chart = Chart::builder()
+            .number_format_syntax("d3")
+            .datetime_format_syntax("d3")
+            .root(Plot::cartesian(
+                CartesianPlot::builder().layers([layer.table(table.clone())]),
+            ))
+            .infer_scales()
+            .build()
+            .unwrap();
         let evaluated = evaluate(&chart, [300.0, 200.0]);
         SceneGraphRTree::from_scene_graph_with_data(&evaluated.scene, &evaluated.data, &engine)
             .unwrap();
@@ -115,25 +147,21 @@ fn the_rows_of_each_mark_are_its_instances() {
 
 #[test]
 fn an_explicit_domain_that_excludes_data_clips_its_plot() {
-    let mut parts = Parts::new();
-    let table = parts.table(cars());
-    let domain = parts.list(numbers(&[2500.0, 4000.0]));
-    let size = parts.number(200.0);
-    let chart = parts.plot(vec![layer(
-        table,
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(scaled(
-                "weight",
-                proto::ScaleSpec {
-                    domain: Some(explicit(domain)),
-                    ..Default::default()
-                },
-            )),
-            y: Some(col("mpg")),
-            size: Some(size),
-            ..Default::default()
-        }),
-    )]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight")
+                .scale(Scale::builder().domain(Domain::explicit([2500.0, 4000.0]))))
+            .y(Encoding::scaled_column("mpg"))
+            .size(Encoding::constant(200.0)),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
     render_both(&chart, "explicit-domain-clipped");
 }
 
@@ -141,7 +169,20 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
 /// scales span.
 #[test]
 fn a_cartesian_plot_maps_its_pixels_to_themselves() {
-    let chart = cars_symbols(|_, _| {});
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     let plot = &evaluated.plots[0];
     let [_, _, width, height] = plot.rect;
@@ -171,7 +212,21 @@ fn a_cartesian_plot_maps_its_pixels_to_themselves() {
 /// A resize within a breakpoint fits the position scales at the new size.
 #[test]
 fn a_resize_fits_the_position_scales_at_the_new_size() {
-    let mut evaluator = evaluator(&cars_symbols(|_, _| {}));
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
+    let mut evaluator = evaluator(&chart);
     let small = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
     let large = evaluator.evaluate(&host([640.0, 360.0])).unwrap();
     assert!(large.plots[0].rect[2] > small.plots[0].rect[2]);
@@ -185,12 +240,27 @@ fn a_resize_fits_the_position_scales_at_the_new_size() {
 
 #[test]
 fn a_chart_of_a_concat_is_unsupported() {
-    let row = proto::Concat {
-        direction: proto::Direction::Row as i32,
-        ..Default::default()
+    let scatter = || {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("weight"))
+                .y(Encoding::scaled_column("mpg")),
+        )
+        .table(cars());
+        Plot::cartesian(CartesianPlot::builder().layers([symbols]))
     };
-    let scatter = || cars_symbols(|_, _| {});
-    let concat = build::concat(row, vec![scatter(), scatter()]).unwrap();
+    let concat = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Concat::builder()
+                .direction(Direction::Row)
+                .children([scatter(), scatter()]),
+        )
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let error = ChartEvaluator::new(concat, cascade(), engine(), Registry::new()).err();
     assert!(
         matches!(error, Some(EvalError::Unsupported(ref what)) if what == "a concat"),
@@ -200,23 +270,23 @@ fn a_chart_of_a_concat_is_unsupported() {
 
 #[test]
 fn a_summary_domain_covers_more_values_than_the_rows() {
-    let mut parts = Parts::new();
-    let table = parts.table(cars());
-    let summary = parts.summary(&[0.0, 10_000.0]);
-    let chart = parts.plot(vec![layer(
-        table,
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(scaled(
-                "weight",
-                proto::ScaleSpec {
-                    domain: Some(summary),
-                    ..Default::default()
-                },
-            )),
-            y: Some(col("mpg")),
-            ..Default::default()
-        }),
-    )]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder()
+                    .domain(SummaryDomain::builder().value(linear_summary(&[0.0, 10_000.0]))),
+            ))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     assert_eq!(domain(&evaluated, 0), (0.0, 10_000.0));
 }
@@ -224,87 +294,69 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
 #[test]
 fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
     // The summary holds the extremes of the data without the reach of their symbols.
-    let mut parts = Parts::new();
-    let table = parts.table(cars());
-    let summary = parts.summary(&[1800.0, 4790.0]);
-    let size = parts.number(400.0);
-    let chart = parts.plot(vec![layer(
-        table,
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(scaled(
-                "weight",
-                proto::ScaleSpec {
-                    domain: Some(summary),
-                    ..Default::default()
-                },
-            )),
-            y: Some(col("mpg")),
-            size: Some(size),
-            ..Default::default()
-        }),
-    )]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder()
+                    .domain(SummaryDomain::builder().value(linear_summary(&[1800.0, 4790.0]))),
+            ))
+            .y(Encoding::scaled_column("mpg"))
+            .size(Encoding::constant(400.0)),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     assert!(warns(&evaluated, "summary"), "{:?}", evaluated.warnings);
-}
-
-/// A scatter of the cars whose `x` has a selection domain over a fit of the data, with the brush's
-/// initial clauses.
-fn selection_scatter(initial: Clauses) -> Chart {
-    let mut parts = Parts::new();
-    let table = parts.table(cars());
-    let initial = initial(&mut parts);
-    let spec = proto::ScaleSpec {
-        domain: Some(proto::Domain {
-            domain: Some(domain::Domain::Selection(proto::SelectionDomain {
-                selection: "brush".to_string(),
-                channel: Channel::X as i32,
-                fallback: Some(proto::selection_domain::Fallback::Data(
-                    proto::DataDomain::default(),
-                )),
-            })),
-        }),
-        ..Default::default()
-    };
-    let mut root = build::cartesian(vec![layer(
-        table,
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(scaled("weight", spec)),
-            y: Some(col("mpg")),
-            ..Default::default()
-        }),
-    )]);
-    if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
-        plot.id = "plot".to_string();
-        plot.tools = vec![proto::Tool {
-            kind: Some(proto::tool::Kind::Select(select("brush"))),
-        }];
-    }
-    let brush = proto::Selection {
-        name: "brush".to_string(),
-        resolution: proto::SelectionResolution::Union as i32,
-        initial,
-    };
-    parts.chart(root, vec![brush])
 }
 
 /// A selection's range with one open end pins that end of the fit, so the axis labels the
 /// selection's domain, which starts at the pin, and the plot clips the marks before it.
 #[test]
 fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
-    let open = Box::new(|parts: &mut Parts| {
-        let low = parts.value(numbers(&[2500.0]));
-        vec![clause(
-            "plot",
-            condition::Kind::Range(proto::ValueRange {
-                column: "weight".to_string(),
-                channel: Channel::X as i32,
-                low: Some(low),
-                high: None,
-                exclude_end: false,
-            }),
-        )]
-    });
-    let evaluated = evaluate(&selection_scatter(open), [320.0, 240.0]);
+    // The cars, whose `x` has a selection domain over a fit of the data, and a brush whose range
+    // starts at a weight of 2500 and has no end.
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder().domain(
+                    SelectionDomain::builder()
+                        .selection("brush")
+                        .channel(Channel::X)
+                        .data(DataDomain::builder()),
+                ),
+            ))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .id("plot")
+        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+    let brush = Selection::builder()
+        .name("brush")
+        .resolution(SelectionResolution::Union)
+        .initial([Clause::builder()
+            .owner("plot")
+            .conditions([ValueRange::builder()
+                .column("weight")
+                .channel(Channel::X)
+                .low(2500.0)])]);
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(plot)
+        .selections([brush])
+        .infer_scales()
+        .build()
+        .unwrap();
+
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
     let (low, high) = domain(&evaluated, 0);
     assert_eq!(low, 2500.0);
     assert!(high >= 4790.0, "{high}");
@@ -320,21 +372,23 @@ fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
 /// A fit that pins a middle gives a domain symmetric about it.
 #[test]
 fn a_pinned_middle_centers_the_domain() {
-    let mut parts = Parts::new();
-    let table = parts.table(cars());
-    let mid = parts.value(numbers(&[3000.0]));
-    let fit = proto::IntervalFit {
-        domain_pin: Some(proto::interval_fit::DomainPin::Mid(mid)),
-        ..Default::default()
-    };
-    let chart = parts.plot(vec![layer(
-        table,
-        cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(scaled("weight", fitted(fit))),
-            y: Some(col("mpg")),
-            ..Default::default()
-        }),
-    )]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder()
+                    .domain(DataDomain::builder().fit(IntervalFit::builder().mid(3000.0))),
+            ))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let (low, high) = domain(&evaluate(&chart, [320.0, 240.0]), 0);
     assert!(((low + high) / 2.0 - 3000.0).abs() < 1e-6, "{low} {high}");
     assert!(high >= 4790.0, "{high}");
@@ -344,7 +398,21 @@ fn a_pinned_middle_centers_the_domain() {
 /// a size counts at its `contain-intrinsic-size`, and a host's size stretches the plot.
 #[test]
 fn a_chart_without_a_size_takes_its_natural_size() {
-    let chart = cars_symbols(|_, mark| mark.color = Some(col("origin")));
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .color(Encoding::scaled_column("origin")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+
     let natural = evaluator(&chart).evaluate(&HostInputs::default()).unwrap();
     let [_, _, width, height] = natural.plots[0].rect;
     assert!(

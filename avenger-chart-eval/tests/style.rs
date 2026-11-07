@@ -7,11 +7,7 @@ use arrow::{
     array::{ArrayRef, Float64Array, RecordBatch, StringArray, StructArray},
     datatypes::{DataType, Field},
 };
-use avenger_chart::{
-    build::{self, ChartParts},
-    proto::{self, cartesian_layer, domain, guide, scale_spec},
-    Chart,
-};
+use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvalWarning, Registry};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_style::{
@@ -60,90 +56,6 @@ fn penguins() -> RecordBatch {
     .unwrap()
 }
 
-/// Symbols of mass against flipper length, colored by species, and symbols filled by mass, with
-/// an axis whose labels the chart turns.
-fn scatter(label_angle: Option<f32>) -> Chart {
-    let mut parts = ChartParts::new();
-    let table = parts.table(penguins());
-    let mut x = build::scaled_column("flipper");
-    x.scale.as_mut().unwrap().guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(proto::Axis {
-            label_angle,
-            id: "flippers".to_string(),
-            ..Default::default()
-        })),
-    });
-    let by_species = proto::CartesianLayer {
-        id: "points".to_string(),
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(x),
-            y: Some(build::scaled_column("mass")),
-            color: Some(build::scaled_column("species")),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-    let by_mass = proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(build::scaled_column("flipper")),
-            y: Some(build::scaled_column("mass")),
-            fill: Some(build::scaled_column("mass")),
-            filled: Some(false),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-    parts
-        .finish(build::message(build::cartesian(vec![by_species, by_mass])))
-        .unwrap()
-}
-
-/// Bars over a nested band scale of regions and channels.
-fn nested() -> Chart {
-    let mut parts = ChartParts::new();
-    let keys = StructArray::from(vec![
-        (
-            Arc::new(Field::new("region", DataType::Utf8, false)),
-            Arc::new(StringArray::from(vec!["East", "East", "West"])) as ArrayRef,
-        ),
-        (
-            Arc::new(Field::new("channel", DataType::Utf8, false)),
-            Arc::new(StringArray::from(vec!["Web", "Store", "Web"])) as ArrayRef,
-        ),
-    ]);
-    let table = parts.table(
-        RecordBatch::try_from_iter([
-            ("key", Arc::new(keys) as ArrayRef),
-            ("sales", Arc::new(Float64Array::from(vec![3.0, 5.0, 2.0]))),
-        ])
-        .unwrap(),
-    );
-    let mut x = build::column("key");
-    x.scale = Some(proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::NestedBand(
-            proto::NestedBandScale::default(),
-        )),
-        domain: Some(proto::Domain {
-            domain: Some(domain::Domain::Data(proto::DataDomain::default())),
-        }),
-        ..Default::default()
-    });
-    let bars = proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Bar(proto::BarMark {
-            x: Some(x),
-            y: Some(build::scaled_column("sales")),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-    parts
-        .finish(build::message(build::cartesian(vec![bars])))
-        .unwrap()
-}
-
 fn evaluator(chart: Chart, cascade: Arc<Cascade>) -> ChartEvaluator {
     ChartEvaluator::new(chart, cascade, engine(), Registry::new()).unwrap()
 }
@@ -170,7 +82,32 @@ fn elements(tree: &StyleTree, node: NodeId) -> Vec<Element> {
 
 #[test]
 fn the_style_tree_has_a_node_for_each_part() {
-    let evaluator = evaluator(scatter(None), cascade(""));
+    // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
+    let by_species = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(Encoding::scaled_column("species")),
+    )
+    .id("points")
+    .table(penguins());
+    let by_mass = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper"))
+            .y(Encoding::scaled_column("mass"))
+            .fill(Encoding::scaled_column("mass"))
+            .filled(false),
+    )
+    .table(penguins());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([by_species, by_mass]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluator = evaluator(chart, cascade(""));
     let tree = evaluator.style_tree();
     let plot = nodes_of(tree, Element::Plot);
     assert_eq!(plot.len(), 1);
@@ -239,7 +176,36 @@ fn the_style_tree_has_a_node_for_each_part() {
 
 #[test]
 fn a_nested_band_axis_has_a_level_for_each_level() {
-    let evaluator = evaluator(nested(), cascade(""));
+    // Bars over a nested band scale of regions and channels.
+    let keys = StructArray::from(vec![
+        (
+            Arc::new(Field::new("region", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["East", "East", "West"])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("channel", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["Web", "Store", "Web"])) as ArrayRef,
+        ),
+    ]);
+    let sales = RecordBatch::try_from_iter([
+        ("key", Arc::new(keys) as ArrayRef),
+        ("sales", Arc::new(Float64Array::from(vec![3.0, 5.0, 2.0]))),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("key").scale(
+                Scale::nested_band(NestedBandScale::builder()).domain(DataDomain::builder()),
+            ))
+            .y(Encoding::scaled_column("sales")),
+    )
+    .table(sales);
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluator = evaluator(chart, cascade(""));
     let tree = evaluator.style_tree();
     let axis = (nodes_of(tree, Element::Axis).into_iter())
         .find(|axis| attribute(tree, *axis, "channel") == "x")
@@ -256,7 +222,33 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
 #[test]
 fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let css = "axis { label-angle: 10deg; } mark { stroke-width: 3px; }";
-    let mut turned = evaluator(scatter(Some(-45.0)), cascade(css));
+    // Symbols of mass against flipper length, colored by species, and symbols filled by mass,
+    // with an axis whose labels the chart turns.
+    let by_species = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().label_angle(-45.0).id("flippers"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(Encoding::scaled_column("species")),
+    )
+    .id("points")
+    .table(penguins());
+    let by_mass = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper"))
+            .y(Encoding::scaled_column("mass"))
+            .fill(Encoding::scaled_column("mass"))
+            .filled(false),
+    )
+    .table(penguins());
+    let turned = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([by_species, by_mass]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut turned = evaluator(turned, cascade(css));
     let host = HostInputs::sized(400.0, 300.0);
     let axis = {
         let tree = turned.style_tree();
@@ -273,8 +265,33 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         avenger_style::Paint::None
     );
 
-    // Without the field, the stylesheet gives the angle.
-    let mut plain = evaluator(scatter(None), cascade(css));
+    // Without the field, the stylesheet gives the angle: the same symbols, whose axis sets no
+    // label angle.
+    let by_species = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(Encoding::scaled_column("species")),
+    )
+    .id("points")
+    .table(penguins());
+    let by_mass = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper"))
+            .y(Encoding::scaled_column("mass"))
+            .fill(Encoding::scaled_column("mass"))
+            .filled(false),
+    )
+    .table(penguins());
+    let plain = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([by_species, by_mass]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut plain = evaluator(plain, cascade(css));
     let styles = plain.styles(&host);
     assert_eq!(styles[axis].number(Property::LabelAngle), Some(10.0));
 }
@@ -282,7 +299,32 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
 #[test]
 fn a_table_without_stylesheets_gives_initial_values() {
     let empty = Arc::new(Cascade::new(&StyleTable::new()));
-    let mut evaluator = evaluator(scatter(None), empty);
+    // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
+    let by_species = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(Encoding::scaled_column("species")),
+    )
+    .id("points")
+    .table(penguins());
+    let by_mass = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper"))
+            .y(Encoding::scaled_column("mass"))
+            .fill(Encoding::scaled_column("mass"))
+            .filled(false),
+    )
+    .table(penguins());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([by_species, by_mass]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(chart, empty);
     let tick = nodes_of(evaluator.style_tree(), Element::Tick)[0];
     let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
     assert_eq!(styles[tick].number(Property::TickSize), Some(5.0));
@@ -290,8 +332,33 @@ fn a_table_without_stylesheets_gives_initial_values() {
 
 #[test]
 fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
+    // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
+    let by_species = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(Encoding::scaled_column("species")),
+    )
+    .id("points")
+    .table(penguins());
+    let by_mass = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper"))
+            .y(Encoding::scaled_column("mass"))
+            .fill(Encoding::scaled_column("mass"))
+            .filled(false),
+    )
+    .table(penguins());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([by_species, by_mass]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
     let mut evaluator = evaluator(
-        scatter(None),
+        chart,
         cascade("@container (width < 300px) { axis { label-angle: 30deg; } }"),
     );
     let first: *const _ = evaluator.styles(&HostInputs::sized(400.0, 300.0));
@@ -304,52 +371,32 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let _ = narrow;
 }
 
-/// The x axis of a scatter of the penguins with `axis`, and a color legend with `legend`.
-fn guided(axis: proto::Axis, legend: proto::Legend) -> Chart {
-    let mut parts = ChartParts::new();
-    let table = parts.table(penguins());
-    let mut x = build::scaled_column("flipper");
-    x.scale.as_mut().unwrap().guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(axis)),
-    });
-    let mut color = build::scaled_column("species");
-    color.scale.as_mut().unwrap().guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Legend(legend)),
-    });
-    let layer = proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(cartesian_layer::Mark::Symbol(proto::SymbolMark {
-            x: Some(x),
-            y: Some(build::scaled_column("mass")),
-            color: Some(color),
-            ..Default::default()
-        })),
-        ..Default::default()
-    };
-    parts
-        .finish(build::message(build::cartesian(vec![layer])))
-        .unwrap()
-}
-
 /// A field that shows a part shows it over a stylesheet that hides it, and a stroke of a
 /// background draws a solid border.
 #[test]
 fn style_fields_show_parts_and_stroke_backgrounds() {
-    let axis = proto::Axis {
-        grid: Some(proto::GuideGrid {
-            show: Some(true),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let legend = proto::Legend {
-        background: Some(proto::Background {
-            stroke: "red".to_string(),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let mut evaluator = evaluator(guided(axis, legend), cascade("grid { display: none; }"));
+    // A scatter of the penguins with an x axis that shows its grid and a color legend with a red
+    // stroke.
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper").scale(
+                Scale::builder().guide(Axis::builder().grid(GuideGrid::builder().show(true))),
+            ))
+            .y(Encoding::scaled_column("mass"))
+            .color(
+                Encoding::scaled_column("species").scale(
+                    Scale::builder()
+                        .guide(Legend::builder().background(Background::builder().stroke("red"))),
+                ),
+            ),
+    )
+    .table(penguins());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(chart, cascade("grid { display: none; }"));
     let tree = evaluator.style_tree();
     let grids = nodes_of(tree, Element::Grid);
     let x_grid = (grids.iter().copied())
@@ -373,11 +420,24 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
 /// property sets nothing and warns.
 #[test]
 fn style_text_that_is_not_a_value_warns() {
-    let axis = proto::Axis {
-        domain_color: "bluish".to_string(),
-        ..Default::default()
-    };
-    let evaluator = evaluator(guided(axis, proto::Legend::default()), cascade(""));
+    // A scatter of the penguins with an x axis whose domain color is not a color, and a color
+    // legend.
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("flipper")
+                .scale(Scale::builder().guide(Axis::builder().domain_color("bluish"))))
+            .y(Encoding::scaled_column("mass"))
+            .color(
+                Encoding::scaled_column("species").scale(Scale::builder().guide(Legend::builder())),
+            ),
+    )
+    .table(penguins());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let evaluator = evaluator(chart, cascade(""));
     assert!(
         evaluator.warnings().iter().any(|warning| matches!(warning,
             EvalWarning::NotDrawn { reason, .. } if reason.contains("`bluish`"))),
@@ -389,7 +449,36 @@ fn style_text_that_is_not_a_value_warns() {
 /// The leaf of a nested band axis takes the axis's label angle, and an outer level stays level.
 #[test]
 fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
-    let mut evaluator = evaluator(nested(), cascade("axis { label-angle: 30deg; }"));
+    // Bars over a nested band scale of regions and channels.
+    let keys = StructArray::from(vec![
+        (
+            Arc::new(Field::new("region", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["East", "East", "West"])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("channel", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["Web", "Store", "Web"])) as ArrayRef,
+        ),
+    ]);
+    let sales = RecordBatch::try_from_iter([
+        ("key", Arc::new(keys) as ArrayRef),
+        ("sales", Arc::new(Float64Array::from(vec![3.0, 5.0, 2.0]))),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("key").scale(
+                Scale::nested_band(NestedBandScale::builder()).domain(DataDomain::builder()),
+            ))
+            .y(Encoding::scaled_column("sales")),
+    )
+    .table(sales);
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(chart, cascade("axis { label-angle: 30deg; }"));
     let tree = evaluator.style_tree();
     let axis = (nodes_of(tree, Element::Axis).into_iter())
         .find(|axis| attribute(tree, *axis, "channel") == "x")

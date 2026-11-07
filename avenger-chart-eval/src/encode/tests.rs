@@ -5,9 +5,8 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::array::{ArrayRef, Float64Array, RecordBatch, StringArray};
 use avenger_chart::{
-    build::{self, ChartParts},
-    proto::{self, cartesian_layer, conditional_value, encoding, Channel},
-    Chart,
+    prelude::*,
+    proto::{cartesian_layer, node, plot},
 };
 use avenger_color::ColorOrGradient;
 use avenger_scales::scales::{linear::LinearScale, log::LogScale, ConfiguredScale};
@@ -45,13 +44,6 @@ fn mark_style(kind: &str, css: &str) -> (ComputedStyles, NodeId) {
     )
 }
 
-fn constant(chart_values: &mut ChartParts, value: ArrayRef) -> proto::Encoding {
-    proto::Encoding {
-        value: Some(encoding::Value::Constant(chart_values.value(value))),
-        ..Default::default()
-    }
-}
-
 fn table() -> RecordBatch {
     RecordBatch::try_from_iter([
         (
@@ -67,24 +59,15 @@ fn table() -> RecordBatch {
     .unwrap()
 }
 
-/// A chart whose one layer draws `mark`, and the mark as the chart holds it.
-fn chart_of(parts: ChartParts, mark: cartesian_layer::Mark) -> (Chart, cartesian_layer::Mark) {
-    let mut parts = parts;
-    let table = parts.table(table());
-    let root = build::cartesian(vec![proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(mark),
-        ..Default::default()
-    }]);
-    let chart = parts.finish(build::message(root)).unwrap();
-    let layer = match &chart.root().node {
-        Some(proto::node::Node::Plot(plot)) => match &plot.coord {
-            Some(proto::plot::Coord::Cartesian(cartesian)) => cartesian.layers[0].clone(),
+/// The mark of the first layer of `chart`, as the chart holds it.
+fn first_mark(chart: &Chart) -> cartesian_layer::Mark {
+    match &chart.root().node {
+        Some(node::Node::Plot(plot)) => match &plot.coord {
+            Some(plot::Coord::Cartesian(cartesian)) => cartesian.layers[0].mark.clone().unwrap(),
             _ => unreachable!(),
         },
         _ => unreachable!(),
-    };
-    (chart, layer.mark.unwrap())
+    }
 }
 
 /// The rows of `mark` of `chart`, with its style, its scales, and its masks.
@@ -137,13 +120,19 @@ fn colors(
 
 #[test]
 fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
-    let mark = cartesian_layer::Mark::Line(proto::LineMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        color: Some(build::column("group")),
-        ..Default::default()
-    });
-    let (chart, mark) = chart_of(ChartParts::new(), mark);
+    let lines = CartesianLayer::line(
+        LineMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .color(Encoding::column("group")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (styles, node) = mark_style("line", "");
     let (partition, engine) = (BTreeMap::new(), engine());
     let rows = rows(
@@ -160,12 +149,18 @@ fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
 
 #[test]
 fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
-    let mark = cartesian_layer::Mark::Bar(proto::BarMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        ..Default::default()
-    });
-    let (chart, mark) = chart_of(ChartParts::new(), mark);
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (styles, node) = mark_style("bar", "");
     let (partition, engine) = (BTreeMap::new(), engine());
     let linear = LinearScale::configured((-5.0, 10.0), (300.0, 0.0));
@@ -194,48 +189,27 @@ fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
 
 #[test]
 fn the_first_conditional_value_that_selects_a_row_wins() {
-    let mut parts = ChartParts::new();
-    let selected = |parts: &mut ChartParts, color: &str| proto::ConditionalValue {
-        predicate: Some(proto::Predicate {
-            predicate: Some(proto::predicate::Predicate::Selected(proto::Selected {
-                selection: "brush".to_string(),
-                ..Default::default()
-            })),
-        }),
-        value: Some(conditional_value::Value::Constant(
-            parts.value(Arc::new(StringArray::from(vec![color]))),
-        )),
+    // Gray, unless the first of two conditional values that selects a row gives it red or blue.
+    let selected = |color: &str| {
+        ConditionalValue::constant(color)
+            .predicate(Predicate::selected(Selected::builder().selection("brush")))
     };
-    let mut color = constant(&mut parts, Arc::new(StringArray::from(vec!["gray"])));
-    color.conditional = vec![selected(&mut parts, "red"), selected(&mut parts, "blue")];
-    let mark = cartesian_layer::Mark::Symbol(proto::SymbolMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        color: Some(color),
-        ..Default::default()
-    });
-    let mut parts_with_selection = parts;
-    let table = parts_with_selection.table(table());
-    let mut message = build::message(build::cartesian(vec![proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(mark),
-        ..Default::default()
-    }]));
-    message.selections = vec![proto::Selection {
-        name: "brush".to_string(),
-        resolution: proto::SelectionResolution::Global as i32,
-        ..Default::default()
-    }];
-    let chart = parts_with_selection.finish(message).unwrap();
-    let mark = match &chart.root().node {
-        Some(proto::node::Node::Plot(plot)) => match &plot.coord {
-            Some(proto::plot::Coord::Cartesian(cartesian)) => {
-                cartesian.layers[0].mark.clone().unwrap()
-            }
-            _ => unreachable!(),
-        },
-        _ => unreachable!(),
-    };
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .color(Encoding::constant("gray").conditional([selected("red"), selected("blue")])),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Global)])
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (styles, node) = mark_style("symbol", "");
     let (partition, engine) = (BTreeMap::new(), engine());
     let mut rows = rows(
@@ -268,15 +242,19 @@ fn the_first_conditional_value_that_selects_a_row_wins() {
 
 #[test]
 fn paints_follow_the_computed_styles_and_the_color_channel() {
-    let mut parts = ChartParts::new();
-    let color = constant(&mut parts, Arc::new(StringArray::from(vec!["red"])));
-    let mark = cartesian_layer::Mark::Symbol(proto::SymbolMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        color: Some(color),
-        ..Default::default()
-    });
-    let (chart, mark) = chart_of(parts, mark);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .color(Encoding::constant("red")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (partition, engine) = (BTreeMap::new(), engine());
     // A filled symbol takes the color as its fill, and the base stylesheet strokes none.
     let (styles, node) = mark_style("symbol", "");
@@ -323,15 +301,19 @@ fn paints_follow_the_computed_styles_and_the_color_channel() {
 
 #[test]
 fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
-    let mut parts = ChartParts::new();
-    let size = constant(&mut parts, Arc::new(Float64Array::from(vec![100.0])));
-    let mark = cartesian_layer::Mark::Symbol(proto::SymbolMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        size: Some(size),
-        ..Default::default()
-    });
-    let (chart, mark) = chart_of(parts, mark);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .size(Encoding::constant(100.0)),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (styles, node) = mark_style("symbol", "");
     let (partition, engine) = (BTreeMap::new(), engine());
     let symbols = rows(
@@ -350,15 +332,19 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
         assert!((5.0..5.2).contains(&side), "{:?}", symbol_reach[0]);
     }
 
-    let mut parts = ChartParts::new();
-    let text = constant(&mut parts, Arc::new(StringArray::from(vec!["Gentoo"])));
-    let mark = cartesian_layer::Mark::Text(proto::TextMark {
-        x: Some(build::scaled_column("a")),
-        y: Some(build::scaled_column("b")),
-        text: Some(text),
-        ..Default::default()
-    });
-    let (chart, mark) = chart_of(parts, mark);
+    let texts = CartesianLayer::text(
+        TextMark::builder()
+            .x(Encoding::scaled_column("a"))
+            .y(Encoding::scaled_column("b"))
+            .text(Encoding::constant("Gentoo")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let mark = first_mark(&chart);
     let (styles, node) = mark_style("text", "");
     let texts = rows(
         &chart,

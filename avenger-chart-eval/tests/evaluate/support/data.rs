@@ -11,7 +11,7 @@ use arrow::{
     datatypes::{DataType, Field},
 };
 
-use super::*;
+use avenger_chart::builder::Value;
 
 /// A table of 24 cars: a weight, a fuel economy, a count, an origin, a cylinder count, and a
 /// model year.
@@ -220,4 +220,20 @@ pub(crate) fn region_paths(regions: &[&str], channels: &[Option<&str>]) -> Array
             Arc::new(StringArray::from(channels.to_vec())) as ArrayRef,
         ),
     ]))
+}
+
+pub(crate) fn numbers(values: &[f64]) -> ArrayRef {
+    Arc::new(Float64Array::from(values.to_vec()))
+}
+
+/// The summary of the numbers `values` that a producer gives a summary domain, without the reach of
+/// their marks.
+pub(crate) fn linear_summary(values: &[f64]) -> Value {
+    let summary = avenger_scales::scales::linear::LinearScale::configured((0.0, 1.0), (0.0, 1.0))
+        .summarize(
+            &numbers(values),
+            avenger_scales::scales::domain_summary::Extents::None,
+        )
+        .unwrap();
+    Value::scalar(Arc::new(summary.to_arrow()))
 }
