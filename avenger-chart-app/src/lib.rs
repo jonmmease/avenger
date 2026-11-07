@@ -25,10 +25,12 @@ mod selections;
 mod state;
 mod tools;
 mod updates;
+mod widgets;
 
 pub use app::ChartApp;
 pub use avenger_chart_eval::{
-    Carry, Fit, Fitted, ProjectionIdentity, ProjectionView, ScaleIdentity, Views,
+    Carry, EvaluatedWidget, Fit, Fitted, ProjectionIdentity, ProjectionView, ScaleIdentity, Views,
+    WidgetSpec, WidgetValue,
 };
 pub use state::{ChartAppState, ChartChange, FocusDimension, Mode, Reports, SelectionFocus};
 pub use updates::{ChartUpdate, ChartUpdates};
@@ -41,3 +43,8 @@ pub const BRUSH_SCENE: &str = "brushes";
 
 /// The scene of the tooltips, above the brushes.
 pub const TOOLTIP_SCENE: &str = "tooltips";
+
+/// The scene of the widgets, above the tooltips.
+pub const WIDGET_SCENE: &str = "widgets";
+
+pub use widgets::SLOTS;

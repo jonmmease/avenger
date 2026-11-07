@@ -21,7 +21,10 @@ use avenger_selection::{Clause, Condition, PixelGrid, Resolution, SelectionState
 use avenger_style::Cascade;
 use avenger_typst_label::LabelEngine;
 
-use crate::updates::{ChartUpdates, PreparedUpdate};
+use crate::{
+    updates::{ChartUpdates, PreparedUpdate},
+    widgets::WidgetControls,
+};
 
 /// What one gesture changed, which a chart app reports to its host: the domains of the scales and
 /// the projections that a navigation settled, and the selections that a brush or a navigation
@@ -200,6 +203,8 @@ pub struct ChartAppState {
     /// Each lasso with keys, by its area: its paths and the keys that they wrote, so a lasso
     /// stays drawn while its owner's clause holds those keys.
     pub(crate) lassos: Vec<(SelectionArea, Lasso<Vec<Scalar>>)>,
+    /// The widgets of the last evaluation and their controls.
+    pub(crate) controls: WidgetControls,
 }
 
 impl ChartAppState {
@@ -229,6 +234,7 @@ impl ChartAppState {
             focused: None,
             written: Vec::new(),
             lassos: Vec::new(),
+            controls: WidgetControls::default(),
         })
     }
 
