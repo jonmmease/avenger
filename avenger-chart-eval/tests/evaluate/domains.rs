@@ -19,13 +19,10 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
         let symbols = CartesianLayer::symbol(
             cars(),
             SymbolMark::builder()
-                .x(Encoding::scaled_field("weight"))
-                .y(Encoding::scaled_field("mpg")
-                    .scale(Scale::builder().range(Range::builder().reverse(reverse)))),
+                .x("weight")
+                .y(Encoding::scaled_field("mpg").scale(Range::builder().reverse(reverse))),
         );
-        let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-            .build()
-            .unwrap();
+        let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
         let evaluated = evaluate(&chart, [320.0, 240.0]);
         (evaluated.plots[0].coords.scale(1))
             .unwrap()
@@ -42,14 +39,9 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
 fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
     let symbols = CartesianLayer::symbol(
         cars(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .size(Encoding::direct_value(400.0)),
+        SymbolMark::builder().x("weight").y("mpg").size(400.0),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let mut evaluator = evaluator(&chart);
     for size in [[320.0, 240.0], [640.0, 360.0]] {
@@ -74,14 +66,9 @@ fn the_symbol_at_the_maximum_of_the_data_stays_inside_its_plot() {
 fn a_plot_too_small_for_its_symbols_warns() {
     let symbols = CartesianLayer::symbol(
         cars(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .size(Encoding::direct_value(20_000.0)),
+        SymbolMark::builder().x("weight").y("mpg").size(20_000.0),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let evaluated = evaluate(&chart, [200.0, 150.0]);
     assert!(warns(&evaluated, "too small"), "{:?}", evaluated.warnings);
 }
@@ -123,14 +110,11 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight")
-                .scale(Scale::builder().domain(Domain::explicit([2500.0, 4000.0]))))
-            .y(Encoding::scaled_field("mpg"))
-            .size(Encoding::direct_value(200.0)),
+            .x(Encoding::scaled_field("weight").scale(Domain::explicit([2500.0, 4000.0])))
+            .y("mpg")
+            .size(200.0),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&chart, "explicit-domain-clipped");
 }
 
@@ -138,15 +122,8 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
 /// scales span.
 #[test]
 fn a_cartesian_plot_maps_its_pixels_to_themselves() {
-    let symbols = CartesianLayer::symbol(
-        cars(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     let plot = &evaluated.plots[0];
@@ -177,15 +154,8 @@ fn a_cartesian_plot_maps_its_pixels_to_themselves() {
 /// A resize within a breakpoint fits the position scales at the new size.
 #[test]
 fn a_resize_fits_the_position_scales_at_the_new_size() {
-    let symbols = CartesianLayer::symbol(
-        cars(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let mut evaluator = evaluator(&chart);
     let small = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
@@ -202,13 +172,8 @@ fn a_resize_fits_the_position_scales_at_the_new_size() {
 #[test]
 fn a_chart_of_a_concat_is_unsupported() {
     let scatter = || {
-        let symbols = CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight"))
-                .y(Encoding::scaled_field("mpg")),
-        );
-        Plot::cartesian(CartesianPlot::new([symbols]))
+        let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+        Plot::cartesian([symbols])
     };
     let concat = Chart::builder(Concat::new(Direction::Row).children([scatter(), scatter()]))
         .build()
@@ -226,14 +191,14 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(
-                Scale::builder().domain(SummaryDomain::new(linear_summary(&[0.0, 10_000.0]))),
-            ))
-            .y(Encoding::scaled_field("mpg")),
+            .x(
+                Encoding::scaled_field("weight").scale(Domain::summary(SummaryDomain::new(
+                    linear_summary(&[0.0, 10_000.0]),
+                ))),
+            )
+            .y("mpg"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     assert_eq!(domain(&evaluated, 0), (0.0, 10_000.0));
@@ -245,15 +210,15 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(
-                Scale::builder().domain(SummaryDomain::new(linear_summary(&[1800.0, 4790.0]))),
-            ))
-            .y(Encoding::scaled_field("mpg"))
-            .size(Encoding::direct_value(400.0)),
+            .x(
+                Encoding::scaled_field("weight").scale(Domain::summary(SummaryDomain::new(
+                    linear_summary(&[1800.0, 4790.0]),
+                ))),
+            )
+            .y("mpg")
+            .size(400.0),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     assert!(warns(&evaluated, "summary"), "{:?}", evaluated.warnings);
@@ -265,17 +230,16 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
 fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
     // The cars, whose `x` has a selection domain over a fit of the data, and a brush whose range
     // starts at a weight of 2500 and has no end.
-    let symbols = CartesianLayer::symbol(
-        cars(),
-        SymbolMark::builder()
-            .x(
-                Encoding::scaled_field("weight").scale(Scale::builder().domain(
+    let symbols =
+        CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("weight").scale(Domain::selection(
                     SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )),
-            )
-            .y(Encoding::scaled_field("mpg")),
-    );
-    let plot = Plot::cartesian(CartesianPlot::new([symbols]))
+                )))
+                .y("mpg"),
+        );
+    let plot = Plot::cartesian([symbols])
         .id("plot")
         .tools([Select::interval("brush", IntervalSelect::builder())]);
     let brush = Selection::new("brush", SelectionResolution::Union)
@@ -303,15 +267,12 @@ fn a_pinned_middle_centers_the_domain() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(
-                Scale::builder()
-                    .domain(DataDomain::builder().fit(IntervalFit::builder().mid(3000.0))),
-            ))
-            .y(Encoding::scaled_field("mpg")),
+            .x(Encoding::scaled_field("weight").scale(Domain::data(
+                DataDomain::builder().fit(IntervalFit::builder().mid(3000.0)),
+            )))
+            .y("mpg"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let (low, high) = domain(&evaluate(&chart, [320.0, 240.0]), 0);
     assert!(((low + high) / 2.0 - 3000.0).abs() < 1e-6, "{low} {high}");
@@ -324,14 +285,9 @@ fn a_pinned_middle_centers_the_domain() {
 fn a_chart_without_a_size_takes_its_natural_size() {
     let symbols = CartesianLayer::symbol(
         cars(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .color(Encoding::scaled_field("origin")),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let natural = evaluator(&chart).evaluate(&HostInputs::default()).unwrap();
     let [_, _, width, height] = natural.plots[0].rect;
@@ -350,19 +306,19 @@ fn a_chart_without_a_size_takes_its_natural_size() {
 fn a_conditionally_shown_stroke_widens_the_reach_of_its_marks() {
     let stroke =
         Encoding::direct_value("transparent").conditional([ConditionalValue::direct_value(
-            Predicate::selected(Selected::new("brush")),
+            Predicate::selected("brush"),
             "black",
         )]);
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight"))
-            .y(Encoding::scaled_field("mpg"))
-            .size(Encoding::direct_value(100.0))
-            .stroke_width(Encoding::direct_value(40.0))
+            .y("mpg")
+            .size(100.0)
+            .stroke_width(40.0)
             .stroke(stroke),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
+    let chart = Chart::builder(Plot::cartesian([symbols]))
         .selections([Selection::new("brush", SelectionResolution::Global)])
         .build()
         .unwrap();

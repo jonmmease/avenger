@@ -209,11 +209,7 @@ fn helpers_hide_axes_and_legends() {
 
     let layer = CartesianLayer::symbol(
         points(),
-        SymbolMark::builder()
-            .x("a")
-            .y("b")
-            .color(Encoding::scaled_field("a"))
-            .size(5.0),
+        SymbolMark::builder().x("a").y("b").color("a").size(5.0),
     );
     let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([layer]).no_guides()))
         .build()
@@ -263,7 +259,7 @@ fn a_member_without_fields_takes_no_argument() {
 
 #[test]
 fn a_member_of_one_repeated_field_takes_its_items() {
-    let selected = || Predicate::selected(Selected::new("brush"));
+    let selected = || Predicate::selected("brush");
     let all = Predicate::all([selected(), selected()]).build().unwrap();
     let Some(predicate::Predicate::All(list)) = all.predicate else {
         panic!("the predicate is a list of all")
@@ -292,14 +288,12 @@ fn values_take_the_arrow_type_of_their_rust_type() {
     let layer = CartesianLayer::symbol(
         points(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b"))
+            .x("a")
+            .y("b")
             .color(Encoding::direct_value("#e45756"))
-            .size(Encoding::direct_value(5)),
+            .size(5),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([layer])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([layer])).build().unwrap();
     let mark = symbols(&chart);
     let value = |encoding: &Option<Encoding>| match &encoding.as_ref().unwrap().kind {
         Some(encoding::Kind::DirectValue(value)) => chart.value(value).clone(),
@@ -312,16 +306,13 @@ fn values_take_the_arrow_type_of_their_rust_type() {
 
 #[test]
 fn a_list_value_is_one_element_of_a_list() {
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([
-        CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a").scale(
-                    Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0])),
-                ))
-                .y(Encoding::scaled_field("b")),
-        ),
-    ])))
+    let chart = Chart::builder(Plot::cartesian([CartesianLayer::symbol(
+        points(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("a")
+                .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
+            .y("b"),
+    )]))
     .build()
     .unwrap();
     let spec = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
@@ -349,18 +340,12 @@ fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
 #[test]
 fn an_error_of_a_setter_names_its_path_in_the_chart() {
     // An explicit domain of a scalar of two elements.
-    let size = Encoding::scaled_field("a").scale(Scale::builder().domain(Domain::explicit(
-        Value::scalar(Arc::new(Float64Array::from(vec![1.0, 2.0]))),
-    )));
-    let layer = CartesianLayer::symbol(
-        points(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b"))
-            .size(size),
-    );
+    let size = Encoding::scaled_field("a").scale(Domain::explicit(Value::scalar(Arc::new(
+        Float64Array::from(vec![1.0, 2.0]),
+    ))));
+    let layer = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b").size(size));
     invalid(
-        Chart::builder(Plot::cartesian(CartesianPlot::new([layer]))).build(),
+        Chart::builder(Plot::cartesian([layer])).build(),
         "root.plot.cartesian.layers[0].symbol.size.scale.domain.explicit",
         "one element",
     );
@@ -369,13 +354,8 @@ fn an_error_of_a_setter_names_its_path_in_the_chart() {
 #[test]
 fn a_chart_takes_the_version_and_its_reader_infers_scales() {
     let scatter = || {
-        let symbols = CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        );
-        Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
+        let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+        Chart::builder(Plot::cartesian([symbols]))
     };
     let chart = scatter().build().unwrap();
     assert_eq!(chart.message().version, FORMAT_VERSION);
@@ -385,8 +365,7 @@ fn a_chart_takes_the_version_and_its_reader_infers_scales() {
 
 #[test]
 fn a_conditional_value_takes_its_predicate_and_value() {
-    let conditional =
-        ConditionalValue::scaled_value(Predicate::selected(Selected::new("brush")), 3.0).build();
+    let conditional = ConditionalValue::scaled_value(Predicate::selected("brush"), 3.0).build();
     invalid(conditional, "scaled_value", "builds only in a chart");
 }
 

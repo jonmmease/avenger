@@ -156,13 +156,11 @@ fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+            .x("flipper")
+            .y("mass")
+            .color("species"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         let sides: Vec<GuideSide> = guides.axes.iter().map(|axis| axis.side).collect();
         assert!(
@@ -184,13 +182,11 @@ fn legends_of_equal_categories_merge() {
         penguins(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species"))
-            .shape(Encoding::scaled_field("species")),
+            .y("mass")
+            .color("species")
+            .shape("species"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         assert_eq!(guides.legends.len(), 1);
         assert_eq!(
@@ -206,13 +202,11 @@ fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
         penguins(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
-            .size(Encoding::scaled_field("flipper")),
+            .y("mass")
+            .fill("mass")
+            .size("flipper"),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         assert_eq!(guides.legends.len(), 2);
         assert!(matches!(guides.legends[0].guide, LegendGuide::Colorbar(_)));
@@ -227,15 +221,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
         vec![10.0, 20.0],
         Arc::new(StringArray::from(vec!["a", "b", "c"])),
     );
-    let symbols = CartesianLayer::symbol(
-        penguins(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let (values, labels, _) =
         entries(&threshold, &Legend::default(), Some(5.0), &chart, &engine()).unwrap();
     assert_eq!(values.len(), 3);
@@ -246,15 +233,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
 /// symbol's reach.
 #[test]
 fn a_position_fit_leaves_room_for_the_reach() {
-    let symbols = CartesianLayer::symbol(
-        penguins(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let resolved = chart.resolve();
     let (style_tree, nodes, _) = tree::build(&chart, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
@@ -287,11 +267,9 @@ fn a_position_fit_leaves_room_for_the_reach() {
             .x(Encoding::scaled_field("flipper").scale(
                 Scale::linear(LinearScale::builder()).domain(Domain::explicit([150.0, 250.0])),
             ))
-            .y(Encoding::scaled_field("mass")),
+            .y("mass"),
     );
-    let clipped = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let clipped = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let resolved = clipped.resolve();
     let (style_tree, nodes, _) = tree::build(&clipped, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
@@ -322,13 +300,13 @@ fn legends_of_two_scales_of_one_channel_stay_apart() {
         CartesianLayer::symbol(
             penguins(),
             SymbolMark::builder()
-                .x(Encoding::scaled_field("flipper"))
-                .y(Encoding::scaled_field("mass"))
-                .color(Encoding::scaled_field("species")),
+                .x("flipper")
+                .y("mass")
+                .color("species"),
         )
     };
     let chart = Chart::builder(
-        Plot::cartesian(CartesianPlot::new([layer(), layer()]))
+        Plot::cartesian([layer(), layer()])
             .resolve([Resolve::channel(Sharing::Independent, Channel::Color)]),
     )
     .build()
@@ -358,14 +336,12 @@ fn a_legend_draws_the_constant_shape_of_its_marks() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species"))
+            .x("flipper")
+            .y("mass")
+            .color("species")
             .shape(Encoding::direct_value("square")),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         let LegendGuide::Legend(legend) = &guides.legends[0].guide else {
             panic!("a symbol legend");

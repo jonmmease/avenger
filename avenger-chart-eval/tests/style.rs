@@ -86,21 +86,20 @@ fn the_style_tree_has_a_node_for_each_part() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .y("mass")
+            .color("species"),
     )
     .id("points");
     let by_mass = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
             .filled(false),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([by_species, by_mass])))
+    let chart = Chart::builder(Plot::cartesian([by_species, by_mass]))
         .build()
         .unwrap();
     let evaluator = evaluator(chart, cascade(""));
@@ -188,15 +187,8 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
         ("sales", Arc::new(Float64Array::from(vec![3.0, 5.0, 2.0]))),
     ])
     .unwrap();
-    let bars = CartesianLayer::bar(
-        sales,
-        BarMark::builder()
-            .x(Encoding::scaled_field("key"))
-            .y(Encoding::scaled_field("sales")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
-        .build()
-        .unwrap();
+    let bars = CartesianLayer::bar(sales, BarMark::builder().x("key").y("sales"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     let evaluator = evaluator(chart, cascade(""));
     let tree = evaluator.style_tree();
     let axis = (nodes_of(tree, Element::Axis).into_iter())
@@ -220,20 +212,20 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         penguins(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().label_angle(-45.0).id("flippers"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+                .scale(Axis::builder().label_angle(-45.0).id("flippers")))
+            .y("mass")
+            .color("species"),
     )
     .id("points");
     let by_mass = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
             .filled(false),
     );
-    let turned = Chart::builder(Plot::cartesian(CartesianPlot::new([by_species, by_mass])))
+    let turned = Chart::builder(Plot::cartesian([by_species, by_mass]))
         .build()
         .unwrap();
     let mut turned = evaluator(turned, cascade(css));
@@ -258,21 +250,20 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .y("mass")
+            .color("species"),
     )
     .id("points");
     let by_mass = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
             .filled(false),
     );
-    let plain = Chart::builder(Plot::cartesian(CartesianPlot::new([by_species, by_mass])))
+    let plain = Chart::builder(Plot::cartesian([by_species, by_mass]))
         .build()
         .unwrap();
     let mut plain = evaluator(plain, cascade(css));
@@ -287,21 +278,20 @@ fn a_table_without_stylesheets_gives_initial_values() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .y("mass")
+            .color("species"),
     )
     .id("points");
     let by_mass = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
             .filled(false),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([by_species, by_mass])))
+    let chart = Chart::builder(Plot::cartesian([by_species, by_mass]))
         .build()
         .unwrap();
     let mut evaluator = evaluator(chart, empty);
@@ -316,21 +306,20 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(Encoding::scaled_field("species")),
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .y("mass")
+            .color("species"),
     )
     .id("points");
     let by_mass = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
-            .y(Encoding::scaled_field("mass"))
-            .fill(Encoding::scaled_field("mass"))
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
             .filled(false),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([by_species, by_mass])))
+    let chart = Chart::builder(Plot::cartesian([by_species, by_mass]))
         .build()
         .unwrap();
     let mut evaluator = evaluator(
@@ -356,19 +345,14 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().show_grid(true))))
-            .y(Encoding::scaled_field("mass"))
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().show_grid(true)))
+            .y("mass")
             .color(
-                Encoding::scaled_field("species").scale(
-                    Scale::builder()
-                        .legend(Legend::builder().background(Background::builder().stroke("red"))),
-                ),
+                Encoding::scaled_field("species")
+                    .scale(Legend::builder().background(Background::builder().stroke("red"))),
             ),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mut evaluator = evaluator(chart, cascade("grid { display: none; }"));
     let tree = evaluator.style_tree();
     let grids = nodes_of(tree, Element::Grid);
@@ -398,16 +382,11 @@ fn style_text_that_is_not_a_value_warns() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().axis(Axis::builder().domain_color("bluish"))))
-            .y(Encoding::scaled_field("mass"))
-            .color(
-                Encoding::scaled_field("species").scale(Scale::builder().legend(Legend::builder())),
-            ),
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().domain_color("bluish")))
+            .y("mass")
+            .color(Encoding::scaled_field("species").scale(Legend::builder())),
     );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let evaluator = evaluator(chart, cascade(""));
     assert!(
         evaluator.warnings().iter().any(|warning| matches!(warning,
@@ -436,15 +415,8 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
         ("sales", Arc::new(Float64Array::from(vec![3.0, 5.0, 2.0]))),
     ])
     .unwrap();
-    let bars = CartesianLayer::bar(
-        sales,
-        BarMark::builder()
-            .x(Encoding::scaled_field("key"))
-            .y(Encoding::scaled_field("sales")),
-    );
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([bars])))
-        .build()
-        .unwrap();
+    let bars = CartesianLayer::bar(sales, BarMark::builder().x("key").y("sales"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     let mut evaluator = evaluator(chart, cascade("axis { label-angle: 30deg; }"));
     let tree = evaluator.style_tree();
     let axis = (nodes_of(tree, Element::Axis).into_iter())
@@ -463,20 +435,12 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
 #[test]
 fn a_select_without_a_form_stores_a_box() {
     let stores = |select: SelectBuilder| {
-        let symbols = CartesianLayer::symbol(
-            penguins(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("flipper"))
-                .y(Encoding::scaled_field("mass")),
-        );
-        let chart = Chart::builder(
-            Plot::cartesian(CartesianPlot::new([symbols]))
-                .id("plot")
-                .tools([select]),
-        )
-        .selections([Selection::new("brush", SelectionResolution::Global)])
-        .build()
-        .unwrap();
+        let symbols =
+            CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+        let chart = Chart::builder(Plot::cartesian([symbols]).id("plot").tools([select]))
+            .selections([Selection::new("brush", SelectionResolution::Global)])
+            .build()
+            .unwrap();
         let evaluator = evaluator(chart, cascade(""));
         let tree = evaluator.style_tree();
         (nodes_of(tree, Element::Mark).into_iter())

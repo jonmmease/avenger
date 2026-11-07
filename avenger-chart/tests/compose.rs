@@ -54,12 +54,10 @@ fn a_builder_tree_refers_to_its_own_tables_and_values() {
         SymbolMark::builder()
             .x(Encoding::scaled_field("a")
                 .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
-            .y(Encoding::scaled_field("b")),
+            .y("b"),
     )
     .partition([PartitionValue::new("sex", "female")]);
-    let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let Some(cartesian_layer::Mark::Symbol(mark)) = &layers(root_plot(&chart))[0].mark else {
         panic!("the layer draws symbols")
@@ -81,7 +79,7 @@ fn nested_builders_refer_to_their_own_values() {
         CartesianLayer::symbol(
             points(),
             SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
+                .x("a")
                 .y(Encoding::scaled_field("b").scale(
                     Scale::linear(LinearScale::builder())
                         .domain(Domain::explicit([low, low + 10.0])),
@@ -89,7 +87,7 @@ fn nested_builders_refer_to_their_own_values() {
         )
     };
     let chart = Chart::builder(
-        Plot::cartesian(CartesianPlot::new([layer(0.0), layer(5.0)]))
+        Plot::cartesian([layer(0.0), layer(5.0)])
             .resolve([Resolve::channel(Sharing::Independent, Channel::Y)]),
     )
     .build()
@@ -139,14 +137,8 @@ fn a_concat_of_finished_charts_copies_their_streams() {
 #[test]
 fn format_syntaxes_agree_and_outer_sizes_drop() {
     let scatter = |syntax: &str, width: Option<f32>| {
-        let symbols = CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        );
-        let chart = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-            .number_format_syntax(syntax);
+        let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+        let chart = Chart::builder(Plot::cartesian([symbols])).number_format_syntax(syntax);
         match width {
             Some(width) => chart.width(width),
             None => chart,
@@ -184,13 +176,8 @@ fn format_syntaxes_agree_and_outer_sizes_drop() {
 #[test]
 fn the_selections_of_finished_charts_join() {
     let selecting = |id: &str| {
-        let symbols = CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        );
-        let plot = Plot::cartesian(CartesianPlot::new([symbols]))
+        let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+        let plot = Plot::cartesian([symbols])
             .id(id)
             .tools([Select::interval("brush", IntervalSelect::builder())]);
         Chart::builder(plot)
@@ -208,14 +195,9 @@ fn the_selections_of_finished_charts_join() {
 #[test]
 fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
     let panel = |genre: &str| {
-        let symbols = CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        );
+        let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
         Chart::builder(
-            Plot::cartesian(CartesianPlot::new([symbols]))
+            Plot::cartesian([symbols])
                 .id("panel")
                 .partition([PartitionValue::new("genre", genre)]),
         )
@@ -239,15 +221,8 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
 
 #[test]
 fn a_finished_chart_takes_a_partition_value() {
-    let symbols = CartesianLayer::symbol(
-        points(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b")),
-    );
-    let scatter = Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+    let scatter = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let chart = Chart::builder(
         NodeBuilder::from(scatter).partition([PartitionValue::new("sex", "female")]),
     )
@@ -327,13 +302,8 @@ fn partitions_split_a_table_in_each_order() {
     ])));
     let split = |order| {
         let nodes = Node::partitions(&table, "key", order, |rows| {
-            let symbols = CartesianLayer::symbol(
-                rows,
-                SymbolMark::builder()
-                    .x(Encoding::scaled_field("row"))
-                    .y(Encoding::scaled_field("row")),
-            );
-            Ok(Plot::cartesian(CartesianPlot::new([symbols])))
+            let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("row").y("row"));
+            Ok(Plot::cartesian([symbols]))
         })
         .unwrap();
         cells(nodes)
@@ -368,13 +338,8 @@ fn partitions_of_numbers_sort_nan_above_every_number() {
     let table = keyed(Arc::new(Float64Array::from(vec![2.0, f64::NAN, 1.0])));
     let split = |order| {
         let nodes = Node::partitions(&table, "key", order, |rows| {
-            let symbols = CartesianLayer::symbol(
-                rows,
-                SymbolMark::builder()
-                    .x(Encoding::scaled_field("row"))
-                    .y(Encoding::scaled_field("row")),
-            );
-            Ok(Plot::cartesian(CartesianPlot::new([symbols])))
+            let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("row").y("row"));
+            Ok(Plot::cartesian([symbols]))
         })
         .unwrap();
         (cells(nodes).into_iter())
@@ -393,13 +358,8 @@ fn partitions_of_a_dictionary_take_its_values() {
         "key",
         PartitionOrder::Ascending,
         |rows| {
-            let symbols = CartesianLayer::symbol(
-                rows,
-                SymbolMark::builder()
-                    .x(Encoding::scaled_field("row"))
-                    .y(Encoding::scaled_field("row")),
-            );
-            Ok(Plot::cartesian(CartesianPlot::new([symbols])))
+            let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("row").y("row"));
+            Ok(Plot::cartesian([symbols]))
         },
     )
     .unwrap();
@@ -427,20 +387,16 @@ fn partitions_of_a_missing_column_fail() {
 #[test]
 fn an_overlay_draws_the_layers_of_its_plots_in_one_plot() {
     // Two plots of one table, each over its own part of a partition, the first with a title.
-    let female = Plot::cartesian(CartesianPlot::new([CartesianLayer::symbol(
+    let female = Plot::cartesian([CartesianLayer::symbol(
         points(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b")),
-    )]))
+        SymbolMark::builder().x("a").y("b"),
+    )])
     .title(Title::new("Mass"))
     .partition([PartitionValue::new("sex", "female")]);
-    let male = Plot::cartesian(CartesianPlot::new([CartesianLayer::symbol(
+    let male = Plot::cartesian([CartesianLayer::symbol(
         points(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b")),
-    )]))
+        SymbolMark::builder().x("a").y("b"),
+    )])
     .partition([PartitionValue::new("sex", "male")]);
     let chart = Chart::builder(Plot::overlay([female, male]))
         .build()
@@ -457,18 +413,16 @@ fn an_overlay_draws_the_layers_of_its_plots_in_one_plot() {
 #[test]
 fn the_fields_of_an_overlay_plot_win_and_its_layers_come_first() {
     let titled = |title: &str| {
-        Plot::cartesian(CartesianPlot::new([CartesianLayer::symbol(
+        Plot::cartesian([CartesianLayer::symbol(
             points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        )]))
+            SymbolMark::builder().x("a").y("b"),
+        )])
         .title(Title::new(title))
     };
-    let own = Plot::cartesian(CartesianPlot::new([CartesianLayer::rule(
+    let own = Plot::cartesian([CartesianLayer::rule(
         points(),
         RuleMark::builder().y(Encoding::scaled_value(5.0)),
-    )]))
+    )])
     .title(Title::new("Both"))
     .overlay([titled("A"), titled("B")]);
     let chart = Chart::builder(own).build().unwrap();
@@ -498,9 +452,7 @@ fn the_options_of_overlaid_plots_agree() {
         Plot::cartesian(
             CartesianPlot::new([CartesianLayer::symbol(
                 points(),
-                SymbolMark::builder()
-                    .x(Encoding::scaled_field("a"))
-                    .y(Encoding::scaled_field("b")),
+                SymbolMark::builder().x("a").y("b"),
             )])
             .options(Cartesian::builder().aspect_ratio(ratio)),
         )
@@ -517,18 +469,14 @@ fn the_options_of_overlaid_plots_agree() {
 
 #[test]
 fn an_overlaid_plot_is_a_plot_of_the_coordinate_system() {
-    let cartesian = Plot::cartesian(CartesianPlot::new([CartesianLayer::symbol(
+    let cartesian = Plot::cartesian([CartesianLayer::symbol(
         points(),
-        SymbolMark::builder()
-            .x(Encoding::scaled_field("a"))
-            .y(Encoding::scaled_field("b")),
-    )]));
-    let polar = Plot::polar(PolarPlot::new([PolarLayer::symbol(
+        SymbolMark::builder().x("a").y("b"),
+    )]);
+    let polar = Plot::polar([PolarLayer::symbol(
         points(),
-        PolarSymbolMark::builder()
-            .theta(Encoding::scaled_field("a"))
-            .radius(Encoding::scaled_field("b")),
-    )]));
+        PolarSymbolMark::builder().theta("a").radius("b"),
+    )]);
     fails(
         Chart::builder(Plot::overlay([cartesian.clone(), polar])).build(),
         "root.plot.overlay[1]",
@@ -546,12 +494,10 @@ fn an_overlaid_plot_is_a_plot_of_the_coordinate_system() {
 #[test]
 fn an_overlay_joins_the_classes_of_its_plots() {
     let classed = |classes: &[&str]| {
-        Plot::cartesian(CartesianPlot::new([CartesianLayer::symbol(
+        Plot::cartesian([CartesianLayer::symbol(
             points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        )]))
+            SymbolMark::builder().x("a").y("b"),
+        )])
         .classes(classes.iter().copied())
     };
     let chart = Chart::builder(
@@ -574,14 +520,9 @@ fn combined_charts_share_the_widgets_that_they_declare() {
                 WidgetDataDomain::builder(),
             ),
         );
-        let symbols = CartesianLayer::symbol(
-            points(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("a"))
-                .y(Encoding::scaled_field("b")),
-        )
-        .widgets([magnitude]);
-        Chart::builder(Plot::cartesian(CartesianPlot::new([symbols])))
+        let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"))
+            .widgets([magnitude]);
+        Chart::builder(Plot::cartesian([symbols]))
             .selections([Selection::new("filters", SelectionResolution::Intersect)])
             .build()
             .unwrap()
@@ -621,13 +562,8 @@ fn a_wrapped_facet_of_partitions() {
 
     // One panel of `mpg` against `weight` for each origin, in a wrap that facets the origins.
     let panels = Node::partitions(&cars, "origin", PartitionOrder::Ascending, |rows| {
-        let symbols = CartesianLayer::symbol(
-            rows,
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight"))
-                .y(Encoding::scaled_field("mpg")),
-        );
-        Ok(Plot::cartesian(CartesianPlot::new([symbols])).id("panel"))
+        let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"));
+        Ok(Plot::cartesian([symbols]).id("panel"))
     })
     .unwrap();
     let chart = Chart::builder(Wrap::builder().facet(Facet::new("origin")).children(panels))
@@ -681,13 +617,8 @@ fn a_facet_grid_of_nested_partitions() {
     // A column that facets the regions, of rows that facet the channels, of a bar for each cell.
     let rows = Node::partitions(&sales, "region", PartitionOrder::Ascending, |region| {
         let cells = Node::partitions(&region, "channel", PartitionOrder::Ascending, |cell| {
-            let bars = CartesianLayer::bar(
-                cell,
-                BarMark::builder()
-                    .x(Encoding::scaled_field("channel"))
-                    .y(Encoding::scaled_field("amount")),
-            );
-            Ok(Plot::cartesian(CartesianPlot::new([bars])))
+            let bars = CartesianLayer::bar(cell, BarMark::builder().x("channel").y("amount"));
+            Ok(Plot::cartesian([bars]))
         })?;
         Ok(Concat::new(Direction::Row)
             .facet(Facet::new("channel"))
