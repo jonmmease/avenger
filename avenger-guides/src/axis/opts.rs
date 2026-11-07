@@ -23,9 +23,14 @@ pub struct AxisConfig {
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
 pub struct AxisStyle {
-    /// About how many ticks to draw. Without it, the axis fits a count to its length, and a
-    /// continuous axis takes coarser ticks where their labels would overlap. `ticks` replaces it.
+    /// About how many ticks to draw. Without it, the axis fits a count to its length, with ticks
+    /// at least `tick_spacing` apart, and a continuous axis takes coarser ticks where their labels
+    /// would overlap. `ticks` replaces it.
     pub tick_count: Option<f64>,
+    /// The least distance between the ticks of a continuous axis that fits its tick count to its
+    /// length, in pixels, along a horizontal axis and a vertical one alike. When absent, 3.5 times
+    /// the font size of the labels, so the ticks spread with the size of their labels.
+    pub tick_spacing: Option<f32>,
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
     /// band axis takes neither kind.
     pub ticks: Option<AxisTicks>,
@@ -60,6 +65,7 @@ impl Default for AxisStyle {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
         Self {
             tick_count: None,
+            tick_spacing: None,
             ticks: None,
             tick_length: 5.0,
             tick_color: BLACK,

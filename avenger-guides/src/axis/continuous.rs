@@ -6,45 +6,30 @@ use arrow::{
     compute::filter,
     datatypes::DataType,
 };
-use avenger_common::types::FontStyle;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{time, ConfiguredScale},
 };
-use avenger_scenegraph::marks::text::text_style;
 use avenger_typst_label::{LabelEngine, LabelValue};
 
 use super::opts::{AxisStyle, AxisTickInterval, AxisTicks};
-use crate::{error::AvengerGuidesError, GuideSide};
+use crate::error::AvengerGuidesError;
 
 /// The gap between the labels and the title.
 pub(crate) const TITLE_MARGIN: f32 = 2.0;
 pub(crate) const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
-const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
-const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
+/// The default least distance between ticks, in label font sizes.
+const TICK_SPACING_EMS: f32 = 3.5;
 /// How far past the end of its range, in pixels, a value still counts as inside it, since a value
 /// at the end of the domain lands on the end of the range up to rounding.
 const RANGE_SLACK_PX: f64 = 1e-3;
 
-/// The smallest space between ticks that an axis on `side` fits its tick count to: a fixed
-/// spacing along a horizontal axis, and a multiple of the label font's height along a vertical
-/// one.
-pub(crate) fn min_tick_spacing(side: GuideSide, style: &AxisStyle, engine: &LabelEngine) -> f32 {
-    if !side.is_vertical() {
-        return HORIZONTAL_MIN_TICK_SPACING_PX;
-    }
-    let font_height = engine
-        .font_metrics(&text_style(
-            &style.label_font_family,
-            style.label_font_size,
-            style.label_font_weight,
-            FontStyle::Normal,
-            style.label_color,
-        ))
-        .map_or(style.label_font_size, |metrics| {
-            metrics.ascent + metrics.descent
-        });
-    (font_height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
+/// The least distance between ticks that an axis fits its tick count to: the style's spacing, or
+/// 3.5 times the font size of its labels.
+pub(crate) fn min_tick_spacing(style: &AxisStyle) -> f32 {
+    (style.tick_spacing)
+        .unwrap_or(style.label_font_size * TICK_SPACING_EMS)
+        .max(1.0)
 }
 
 /// The style's tick count, or one fitted to an axis of `length` with ticks at least
@@ -139,6 +124,7 @@ mod tests {
 
     use super::super::opts::AxisStyle;
     use super::*;
+    use crate::GuideSide;
     use arrow::array::{AsArray, Date32Array, Float64Array};
     use arrow::datatypes::Float64Type;
     use avenger_common::types::TextSyntaxMode;

@@ -134,7 +134,7 @@ impl Axis {
             .any(|option| option.name == "band");
         let ticks = ContinuousTicks {
             band,
-            min_spacing: min_tick_spacing(config.side, &config.style, engine),
+            min_spacing: min_tick_spacing(&config.style),
             engine: engine.clone(),
             kept: Mutex::new(VecDeque::new()),
         };

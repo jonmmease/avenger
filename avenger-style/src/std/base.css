@@ -24,6 +24,10 @@ legend { offset: 12; }
 legend[type=symbol] { tick-count: 5; max-entries: 30; }
 legend[type=colorbar] > ramp { max-length: 200; }
 
+/* The ticks of a continuous axis stand at least 3.5 ems apart, so they spread with the size of
+   the text. */
+axis { tick-spacing: 3.5em; }
+
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
   stroke: color-mix(in srgb,

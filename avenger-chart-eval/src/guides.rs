@@ -291,6 +291,7 @@ fn axis_style(
     let ticks_shown = visible(tick);
     let mut style = AxisStyle {
         tick_count: axis.number(Property::TickCount).map(f64::from),
+        tick_spacing: axis.number(Property::TickSpacing),
         ticks: ticks(chart, spec_ticks),
         tick_length: match ticks_shown {
             true => style_number(tick, Property::TickSize),
