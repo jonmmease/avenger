@@ -6,7 +6,8 @@
 //! in slots on declared column and row tracks. A [`Wrap`] places them in as many columns as fit,
 //! and a [`Flow`] breaks them into lines by their widths. Any node can carry [`Slab`]s on its
 //! sides, such as axes and headers, [`SlabStack`]s whose slabs share one strip along a side,
-//! such as a legend above a colorbar, and [`Overlay`]s over it. Solving the tree gives a
+//! such as a legend above a colorbar, or break into lines of strips when they do not fit, and
+//! [`Overlay`]s over it. Solving the tree gives a
 //! [`Solution`] with one positioned [`Region`] per node, in which plot edges line up across
 //! rows, columns and nested tables.
 //!

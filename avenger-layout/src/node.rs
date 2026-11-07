@@ -632,6 +632,9 @@ pub(crate) enum SideEntry<Id> {
 /// member is measured as a slab is, as its thickness at its length, and the gap between two
 /// members holds their overhang.
 ///
+/// With [`wrap`](Self::wrap), the members break into lines along the side, and each line is a
+/// band of its own, outward of the line before it.
+///
 /// A stack takes part in a container's collapse and merge rules as one unit, by its tag and
 /// content key. A member's tag takes part only in match rules.
 #[derive(Clone, Debug)]
@@ -641,6 +644,7 @@ pub struct SlabStack<Id = usize> {
     pub(crate) tracks: Vec<(usize, Track)>,
     pub(crate) all: Option<Track>,
     pub(crate) gap: Option<Gap>,
+    pub(crate) wrap: Option<Gap>,
     pub(crate) distribute: Distribute,
     pub(crate) extent: Extent,
     pub(crate) tag: Option<Tag>,
@@ -657,6 +661,7 @@ impl<Id> SlabStack<Id> {
             tracks: Vec::new(),
             all: None,
             gap: None,
+            wrap: None,
             distribute: Distribute::Start,
             extent: Extent::Content,
             tag: None,
@@ -689,8 +694,26 @@ impl<Id> SlabStack<Id> {
         self
     }
 
+    /// Breaks the members into lines along the side, `gap` apart across it.
+    ///
+    /// In member order, a line breaks before a member that would take the line past the stack's
+    /// length, and the first member of a line stays on it even when it is longer. The length of a
+    /// member is the size that its track grows toward: its max-content length for an `auto` or
+    /// fit-content track, the length of a `px` track, and the base of an `fr` track. Each line
+    /// divides the stack's length among its members by their tracks and the stack's
+    /// distribution, and is a band as thick as its thickest member. The first line is nearest
+    /// the host. The stack's minimum length is its longest member's minimum.
+    ///
+    /// A left or right stack breaks its lines at its height, which the solver finds after the
+    /// stack's width, so lines that differ from those that its width took start another solve.
+    pub fn wrap(mut self, gap: Gap) -> Self {
+        self.wrap = Some(gap);
+        self
+    }
+
     /// Where the stack puts the length that no `fr` track takes. The default is
-    /// [`Distribute::Start`], which keeps the members together at the stack's start.
+    /// [`Distribute::Start`], which keeps the members together at the stack's start. A wrapped
+    /// stack distributes each line.
     pub fn distribute(mut self, distribute: Distribute) -> Self {
         self.distribute = distribute;
         self

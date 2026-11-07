@@ -472,6 +472,135 @@ fn a_colorbar_below_a_legend_fills_the_rest_of_the_plot_height() {
     );
 }
 
+/// Legends and a colorbar in a stack that wraps beside a plot too short for one column: each
+/// column holds the members that fit along the plot's height, and the next member starts a
+/// column farther out.
+#[test]
+fn side_legends_wrap_into_columns_beside_a_short_plot() {
+    let engine = engine();
+    let legends = [("cohort", 4), ("region", 3), ("a longer legend title", 5)]
+        .map(|(title, count)| titled_legend(title, LegendLayout::default(), count, &engine));
+    let colorbar = colorbar((0.0, 100.0), "temperature", &engine);
+    let ids = ["legend 0", "legend 1", "legend 2"];
+    let layout: Layout<Id> = Leaf::new()
+        .id("plot")
+        .min_size(Size::new(220.0, 160.0))
+        .slab(Side::Right, Slab::new().min_width(12.0))
+        .slab_stack(
+            Side::Right,
+            SlabStack::new(
+                ids.iter()
+                    .map(|&id| Slab::new().id(id))
+                    .chain([Slab::new().id("colorbar").min_height(100.0)]),
+            )
+            .tracks(Track::auto())
+            .track(3, Track::fr(1.0))
+            .gap(Gap::new(12.0))
+            .wrap(Gap::new(16.0)),
+        )
+        .into();
+    let mut guides = Guides {
+        slabs: ids
+            .iter()
+            .zip(&legends)
+            .map(|(&id, legend)| (id, GuideSide::Right, Guide::Legend(legend)))
+            .chain([("colorbar", GuideSide::Right, Guide::Colorbar(&colorbar))])
+            .collect(),
+    };
+    let measured = layout.measure(&padded(640.0, None), &mut guides).unwrap();
+    let solution = measured.solution();
+    let plot_rect = solution.region(&"plot").unwrap().content;
+    let rect = |id: Id| solution.region(&id).unwrap().content;
+    let mut columns: Vec<f32> = ids
+        .iter()
+        .chain(&["colorbar"])
+        .map(|&id| rect(id).x)
+        .collect();
+    columns.dedup();
+    assert!(columns.len() >= 2, "{columns:?}");
+    for id in ids.iter().chain(&["colorbar"]) {
+        assert!(rect(id).bottom() <= plot_rect.bottom() + 1e-3, "{id}");
+    }
+    assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    let size = solution.size();
+    let pages = vec![page(solution, &["plot"], &guides, [0.0, 0.0], &engine)];
+    render(
+        "side_legends_wrap_into_columns_beside_a_short_plot",
+        [size.width, size.height],
+        pages,
+        &engine,
+    );
+}
+
+/// Horizontal legends in a stack that wraps above a plot: the wide canvas holds them on one
+/// row, and the narrow one breaks them into more rows.
+#[test]
+fn a_top_stack_wraps_into_rows_as_the_canvas_narrows() {
+    let engine = engine();
+    let layout = LegendLayout {
+        side: GuideSide::Top,
+        wrap: LegendWrap::Flow,
+    };
+    let legends = [("cohort", 3), ("region", 2), ("site", 3)]
+        .map(|(title, count)| titled_legend(title, layout, count, &engine));
+    let ids = ["legend 0", "legend 1", "legend 2"];
+    let layout: Layout<Id> = Leaf::new()
+        .id("plot")
+        .min_size(Size::new(160.0, 120.0))
+        .slab(Side::Top, Slab::new().min_height(8.0))
+        .slab_stack(
+            Side::Top,
+            SlabStack::new(ids.map(|id| Slab::new().id(id)))
+                .tracks(Track::auto())
+                .gap(Gap::new(24.0))
+                .wrap(Gap::new(8.0)),
+        )
+        .into();
+    let mut guides = Guides {
+        slabs: ids
+            .iter()
+            .zip(&legends)
+            .map(|(&id, legend)| (id, GuideSide::Top, Guide::Legend(legend)))
+            .collect(),
+    };
+    let mut measured = layout.measure(&padded(560.0, None), &mut guides).unwrap();
+    let wide = measured.solution().clone();
+    let narrow = measured
+        .remeasure(Size::new(300.0, 400.0), &mut guides)
+        .unwrap()
+        .clone();
+    let rows = |solution: &Solution<Id>| {
+        let mut rows: Vec<f32> = ids
+            .iter()
+            .map(|id| solution.region(id).unwrap().content.y)
+            .collect();
+        rows.dedup();
+        rows.len()
+    };
+    assert_eq!(rows(&wide), 1);
+    assert!(rows(&narrow) > 1);
+    for solution in [&wide, &narrow] {
+        assert!(solution.warnings().is_empty(), "{:?}", solution.warnings());
+    }
+    let size = [560.0, wide.size().height + narrow.size().height + 20.0];
+    let pages = vec![
+        page(&wide, &["plot"], &guides, [0.0, 0.0], &engine),
+        page(
+            &narrow,
+            &["plot"],
+            &guides,
+            [0.0, wide.size().height + 20.0],
+            &engine,
+        ),
+    ];
+    render(
+        "a_top_stack_wraps_into_rows_as_the_canvas_narrows",
+        size,
+        pages,
+        &engine,
+    );
+}
+
 /// Three panels in a Wrap with legends of different widths match their legend and colorbar
 /// slabs, so every stack and every plot has one width.
 #[test]

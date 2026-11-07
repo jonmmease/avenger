@@ -381,9 +381,12 @@ fn check_grid<Id>(tree: &Tree<Id>, grid: &GridNode, path: &[PathStep]) -> Result
     Ok(())
 }
 
-/// Checks a stack's gap and the tracks that it declares for its members.
+/// Checks a stack's gaps and the tracks that it declares for its members.
 fn check_stack(stack: &StackNode, path: &[PathStep]) -> Result<(), LayoutError> {
     check_gap(&stack.gap, path)?;
+    if let Some(gap) = &stack.wrap {
+        check_gap(gap, path)?;
+    }
     let declared = stack
         .declared
         .iter()
@@ -528,13 +531,14 @@ fn check_shared_slabs<Id>(tree: &Tree<Id>) -> Result<(), LayoutError> {
 }
 
 /// Whether two slabs, or two stacks, can stand in for each other: slabs with the same size
-/// limits, max-content size, placement and extent, or stacks with the same tracks, gap,
-/// distribution and extent whose members are alike by position.
+/// limits, max-content size, placement and extent, or stacks with the same tracks, gaps,
+/// wrapping, distribution and extent whose members are alike by position.
 fn alike<Id>(tree: &Tree<Id>, a: usize, b: usize) -> bool {
     match (tree.stack(a), tree.stack(b)) {
         (Some(x), Some(y)) => {
             x.tracks == y.tracks
                 && x.gap == y.gap
+                && x.wrap == y.wrap
                 && x.distribute == y.distribute
                 && x.extent == y.extent
                 && x.members.len() == y.members.len()

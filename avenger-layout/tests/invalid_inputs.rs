@@ -65,6 +65,12 @@ fn non_finite_inputs_are_rejected() {
             leaf()
                 .slab_stack(
                     Side::Right,
+                    SlabStack::new([Slab::new()]).wrap(Gap::new(bad)),
+                )
+                .into(),
+            leaf()
+                .slab_stack(
+                    Side::Right,
                     SlabStack::new([Slab::new()]).track(0, Track::px(bad)),
                 )
                 .into(),
@@ -478,6 +484,7 @@ fn stacks_that_stand_in_for_each_other_must_be_alike() {
         leaf().slab_stack(Side::Right, stack(3)),
         leaf().slab_stack(Side::Right, stack(2).gap(Gap::new(4.0))),
         leaf().slab_stack(Side::Right, stack(2).tracks(Track::auto())),
+        leaf().slab_stack(Side::Right, stack(2).wrap(Gap::new(0.0))),
         leaf().slab(Side::Right, Slab::new().tag("legends").content_key("k")),
     ] {
         assert!(

@@ -307,6 +307,10 @@ pub(crate) struct Measurements {
     /// fit changed that width after the height pass asked. The passes count it, so it only
     /// grows.
     pub fitted_height: Vec<f64>,
+    /// The line of each member of each stack that wraps, by member, for the pass across the
+    /// stack's side. A top or bottom stack breaks its lines in each width pass. A left or right
+    /// stack keeps the lines that the last height pass broke, which the next width pass uses.
+    pub stack_lines: Vec<Option<Vec<usize>>>,
 }
 
 impl Measurements {
@@ -317,6 +321,7 @@ impl Measurements {
             max_content: vec![[None; 2]; count],
             overhang: vec![[0.0; 2]; count],
             fitted_height: vec![0.0; count],
+            stack_lines: vec![None; count],
         }
     }
 }
@@ -574,6 +579,8 @@ struct Solver<'a, 's, Id> {
     recount: bool,
     /// Whether a slab's overhang grew in this solve, after the pass that counts it.
     overhang_grew: bool,
+    /// The lines that this solve's height pass broke each left or right stack that wraps into.
+    broken_lines: Vec<Option<Vec<usize>>>,
 }
 
 impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
@@ -618,6 +625,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             arrangements,
             recount,
             overhang_grew: false,
+            broken_lines: vec![None; count],
         }
     }
 
@@ -696,7 +704,9 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             }
             self.contain_fit(root);
             let fitted = self.measure_fitted_heights(root)?;
-            let grew = self.measure_widths(root)? || fitted || self.overhang_grew;
+            let widths = self.measure_widths(root)?;
+            let lines = self.measure_stack_lines(root);
+            let grew = widths || lines || fitted || self.overhang_grew;
             if !grew {
                 break;
             }
@@ -768,22 +778,21 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             }
         }
         self.match_slabs(direction, &members);
-        // A stack's band is as thick as its thickest member, and takes no space when another
-        // stack draws it.
+        // A stack's band is as thick as its lines, each as thick as its thickest member, and
+        // takes no space when another stack draws it.
         for &node in &members {
             if let Some(stack) = tree.stack(node)
                 && stack.side.direction() == direction
             {
-                let state = &mut self.states[direction.index()];
-                state.thickness[node] = if tree.nodes[node].represented_by.is_some() {
+                let thickness = if tree.nodes[node].represented_by.is_some() {
                     0.0
                 } else {
-                    stack
-                        .members
-                        .iter()
-                        .map(|&member| state.thickness[member])
-                        .fold(0.0f64, f64::max)
+                    let state = &self.states[direction.index()];
+                    self.stack_thickness(node, &self.lines_of(node), |member| {
+                        state.thickness[member]
+                    })
                 };
+                self.states[direction.index()].thickness[node] = thickness;
             }
         }
         for &node in members.iter().rev() {
@@ -960,14 +969,18 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
 
     /// How far a band's content reaches past its end `k` along its side: a slab's measured
     /// overhang, or for a stack, its first member's overhang past the start and its last
-    /// member's past the end.
+    /// member's past the end. Any member of a stack that wraps can start or end a line, so the
+    /// stack reaches as far as its members reach.
     fn band_overhang(&self, band: usize, k: usize) -> f64 {
-        let member = match self.tree.stack(band) {
-            Some(stack) if k == 0 => stack.members.first(),
-            Some(stack) => stack.members.last(),
-            None => Some(&band),
-        };
-        member.map_or(0.0, |&member| self.measurements.overhang[member][k])
+        let overhang = |member: &usize| self.measurements.overhang[*member][k];
+        match self.tree.stack(band) {
+            Some(stack) if stack.wrap.is_some() => {
+                stack.members.iter().map(overhang).fold(0.0f64, f64::max)
+            }
+            Some(stack) if k == 0 => stack.members.first().map_or(0.0, overhang),
+            Some(stack) => stack.members.last().map_or(0.0, overhang),
+            None => overhang(&band),
+        }
     }
 
     /// A node's overflow policy on `side`. A root contains what it would propagate.
@@ -1112,11 +1125,9 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             })
             .map(|band| {
                 let thickness = match tree.stack(band) {
-                    Some(stack) => stack
-                        .members
-                        .iter()
-                        .map(|&member| self.measured_min(member, H))
-                        .fold(0.0f64, f64::max),
+                    Some(_) => self.stack_thickness(band, &self.lines_of(band), |member| {
+                        self.measured_min(member, H)
+                    }),
                     None => self.measured_min(band, H),
                 };
                 self.snap.map_or(thickness, |snap| snap.up(thickness))
@@ -1660,7 +1671,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         let lines = match &self.arrangements[position] {
             // The last attempt keeps its tree's lines, so that the rows match them.
             Arrangement::Lines(lines) if !self.recount => lines.clone(),
-            _ => break_lines(&sizes, gap, width),
+            _ => break_lines(&sizes, |_| gap, width),
         };
         let mut starts = vec![0.0f64; children.len()];
         for line in 0..=lines.iter().copied().max().unwrap_or(0) {
@@ -1763,11 +1774,22 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             state.slot[band] = range;
             state.boxed[band] = range;
             state.content[band] = range;
-            // Every member spans the band across the side, and takes its segment along it.
+            // Every member spans its line's band across the side, and takes its segment along
+            // it. A stack that wraps breaks its lines at its length. The height pass of a top or
+            // bottom stack uses the lines of the width pass, and the width pass of a left or
+            // right stack uses the lines of the last height pass.
             let segments = if across {
-                vec![range; stack.members.len()]
+                self.line_ranges(band, direction, range, &self.lines_of(band))
+            } else if stack.wrap.is_some() {
+                let lines = self.break_stack(band, direction, range);
+                let segments = self.stack_segments(band, direction, range, &lines);
+                match direction {
+                    H => self.measurements.stack_lines[band] = Some(lines),
+                    V => self.broken_lines[band] = Some(lines),
+                }
+                segments
             } else {
-                self.stack_segments(band, direction, range)
+                self.stack_segments(band, direction, range, &self.lines_of(band))
             };
             for (&member, segment) in stack.members.iter().zip(segments) {
                 self.place_slab(member, direction, segment, across);
@@ -1799,19 +1821,84 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         state.content[slab] = content;
     }
 
-    /// A stack's tracks in `range` along its side, by the container track rules: each track
-    /// starts at its base size, `auto` and fit-content tracks grow toward their member's
-    /// max-content length, `fr` tracks share the rest, and the stack's distribution places what
-    /// is left. Each gap holds the overhang of the members on either side of it.
-    fn stack_allocation(
+    /// The line of each member of a stack: the lines that the solver keeps for a stack that
+    /// wraps, or one line.
+    fn lines_of(&self, band: usize) -> Vec<usize> {
+        let stack = self.tree.stack(band).expect("a stack band");
+        match (&stack.wrap, &self.measurements.stack_lines[band]) {
+            (Some(_), Some(lines)) if lines.len() == stack.members.len() => lines.clone(),
+            _ => vec![0; stack.members.len()],
+        }
+    }
+
+    /// The gap between the lines of a stack that wraps.
+    fn line_gap(&self, band: usize) -> f64 {
+        let stack = self.tree.stack(band).expect("a stack band");
+        let gap = stack.wrap.as_ref().map_or(0.0, |gap| f64::from(gap.min));
+        self.snap.map_or(gap, |snap| snap.up(gap))
+    }
+
+    /// The thickness of a stack at `lines`, whose members have `thickness`: its thickest
+    /// member, or for a stack that wraps, its lines, each as thick as its thickest member, with
+    /// the gaps between them.
+    fn stack_thickness(
+        &self,
+        band: usize,
+        lines: &[usize],
+        thickness: impl Fn(usize) -> f64,
+    ) -> f64 {
+        let stack = self.tree.stack(band).expect("a stack band");
+        let lines = line_thicknesses(lines, stack.members.iter().map(|&member| thickness(member)));
+        match stack.wrap {
+            Some(_) => {
+                lines.iter().sum::<f64>()
+                    + self.line_gap(band) * lines.len().saturating_sub(1) as f64
+            }
+            None => lines.into_iter().fold(0.0f64, f64::max),
+        }
+    }
+
+    /// Each member's range across the side, in a stack's band `range`: the band, or for a stack
+    /// that wraps, its line's band, the first line nearest the host.
+    fn line_ranges(
         &self,
         band: usize,
         direction: Direction,
         range: (f64, f64),
-    ) -> StackAllocation {
+        lines: &[usize],
+    ) -> Vec<(f64, f64)> {
+        let stack = self.tree.stack(band).expect("a stack band");
+        if stack.wrap.is_none() {
+            return vec![range; stack.members.len()];
+        }
+        let state = &self.states[direction.index()];
+        let thicknesses = line_thicknesses(
+            lines,
+            stack.members.iter().map(|&member| state.thickness[member]),
+        );
+        let gap = self.line_gap(band);
+        let mut offset = 0.0;
+        let bands: Vec<(f64, f64)> = thicknesses
+            .iter()
+            .map(|&thickness| {
+                let line = if stack.side.is_leading() {
+                    (range.1 - offset - thickness, range.1 - offset)
+                } else {
+                    (range.0 + offset, range.0 + offset + thickness)
+                };
+                offset += thickness + gap;
+                line
+            })
+            .collect();
+        lines.iter().map(|&line| bands[line]).collect()
+    }
+
+    /// Each member's base size and growth limit along a stack's side, by the container track
+    /// rules: an `auto` or fit-content track grows toward its member's max-content length.
+    fn member_sizes(&self, band: usize, direction: Direction) -> (Vec<f64>, Vec<f64>) {
         let tree = self.tree;
         let stack = tree.stack(band).expect("a stack band");
-        let (base, limits): (Vec<f64>, Vec<f64>) = stack
+        stack
             .members
             .iter()
             .zip(&stack.tracks)
@@ -1829,8 +1916,14 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     TrackSize::Auto | TrackSize::Aspect { .. } => (min, fit.max(min)),
                 }
             })
-            .unzip();
-        let (gaps, overflowed): (Vec<f64>, Vec<bool>) = stack
+            .unzip()
+    }
+
+    /// The gap after each member of a stack but the last, which holds the overhang of the
+    /// members on either side of it, and whether the overhang decided it.
+    fn member_gaps(&self, band: usize) -> (Vec<f64>, Vec<bool>) {
+        let stack = self.tree.stack(band).expect("a stack band");
+        stack
             .members
             .windows(2)
             .map(|pair| {
@@ -1843,14 +1936,56 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     (needed, true)
                 }
             })
-            .unzip();
+            .unzip()
+    }
+
+    /// The line of each member of a stack that wraps in `range` along its side: a line breaks
+    /// before a member that would take it past the range, each member at the size its track
+    /// grows toward, or an `fr` track at its base.
+    fn break_stack(&self, band: usize, direction: Direction, range: (f64, f64)) -> Vec<usize> {
+        let stack = self.tree.stack(band).expect("a stack band");
+        let (base, limits) = self.member_sizes(band, direction);
+        let lengths: Vec<f64> = stack
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(index, track)| match track {
+                TrackSize::Fr { .. } => base[index],
+                _ => limits[index],
+            })
+            .collect();
+        let (gaps, _) = self.member_gaps(band);
+        break_lines(&lengths, |index| gaps[index - 1], range.1 - range.0)
+    }
+
+    /// The tracks of the members `line` of a stack in `range` along its side, by the container
+    /// track rules: each track starts at its base size, `auto` and fit-content tracks grow
+    /// toward their member's max-content length, `fr` tracks share the rest, and the stack's
+    /// distribution places what is left. Each gap holds the overhang of the members on either
+    /// side of it.
+    fn stack_allocation(
+        &self,
+        band: usize,
+        direction: Direction,
+        range: (f64, f64),
+        line: &[usize],
+    ) -> StackAllocation {
+        let stack = self.tree.stack(band).expect("a stack band");
+        let (base, limits) = self.member_sizes(band, direction);
+        let (gaps, overflowed) = self.member_gaps(band);
+        // A line holds consecutive members, so the gap after each of its members but the last
+        // is the stack's gap after that member.
+        let between = &line[..line.len().saturating_sub(1)];
+        let gaps: Vec<f64> = between.iter().map(|&member| gaps[member]).collect();
+        let overflowed = between.iter().map(|&member| overflowed[member]).collect();
+        let tracks: Vec<TrackSize> = line.iter().map(|&member| stack.tracks[member]).collect();
         let sizes = TrackSizes {
-            base,
-            limits,
+            base: line.iter().map(|&member| base[member]).collect(),
+            limits: line.iter().map(|&member| limits[member]).collect(),
             provenance: None,
         };
         let mut allocation = tracks::allocate(
-            &stack.tracks,
+            &tracks,
             &sizes,
             &gaps,
             range.1 - range.0,
@@ -1870,84 +2005,137 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
         }
     }
 
-    /// Each member's segment of a stack's `range` along its side.
+    /// Each member's segment of a stack's `range` along its side, at `lines`.
     fn stack_segments(
         &self,
         band: usize,
         direction: Direction,
         range: (f64, f64),
+        lines: &[usize],
     ) -> Vec<(f64, f64)> {
-        let allocation = self.stack_allocation(band, direction, range).allocation;
-        allocation
-            .starts
-            .iter()
-            .zip(&allocation.sizes)
-            .map(|(&start, &size)| (start, start + size))
-            .collect()
+        let mut segments = vec![(0.0, 0.0); lines.len()];
+        for line in members_by_line(lines) {
+            let allocation = self
+                .stack_allocation(band, direction, range, &line)
+                .allocation;
+            for (index, &member) in line.iter().enumerate() {
+                let start = allocation.starts[index];
+                segments[member] = (start, start + allocation.sizes[index]);
+            }
+        }
+        segments
     }
 
-    /// Why a stack's members have their lengths: its tracks and gaps along its side.
-    fn explain_stack(&self, band: usize) -> TrackOwnerExplanation {
+    /// Keeps the lines that this solve's height pass broke each left or right stack that wraps
+    /// into, when they differ from the lines that its width pass used. Returns whether any
+    /// differed, which starts another solve, so that the width pass gives each line its band.
+    fn measure_stack_lines(&mut self, root: usize) -> bool {
+        let tree = self.tree;
+        let mut grew = false;
+        for band in tree.members(root) {
+            let Some(broken) = self.broken_lines[band].take() else {
+                continue;
+            };
+            let kept = self.lines_of(band);
+            // A stack that another draws takes no space at any lines.
+            if broken == kept || tree.nodes[band].represented_by.is_some() {
+                continue;
+            }
+            let width = |lines: &[usize]| {
+                self.stack_thickness(band, lines, |member| {
+                    let width = self.measured_min(member, H);
+                    self.snap.map_or(width, |snap| snap.up(width))
+                })
+            };
+            let (from, to) = (width(&kept), width(&broken));
+            if (to - from).abs() > GROWTH {
+                self.explanation.raised_widths.push(RaisedWidth {
+                    path: tree.nodes[band].path.clone(),
+                    from: from as f32,
+                    to: to as f32,
+                });
+            }
+            self.measurements.stack_lines[band] = Some(broken);
+            grew = true;
+        }
+        grew
+    }
+
+    /// Why a stack's members have their lengths: its tracks and gaps along its side, one owner
+    /// for each line of a stack that wraps.
+    fn explain_stack(&self, band: usize) -> Vec<TrackOwnerExplanation> {
         let tree = self.tree;
         let stack = tree.stack(band).expect("a stack band");
         let direction = stack.side.direction().cross();
         let range = self.states[direction.index()].slot[band];
-        let StackAllocation {
-            sizes,
-            overflowed,
-            allocation,
-        } = self.stack_allocation(band, direction, range);
         let path = |member: usize| tree.nodes[stack.members[member]].path.clone();
-        let tracks = stack
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(index, &size)| {
-                let min = tree.nodes[stack.members[index]].min.along(direction);
-                // The member's minimum length sets the base size when it is larger than what the
-                // track starts at.
-                let set_by = match size {
-                    TrackSize::Px(_) => false,
-                    TrackSize::Fr { basis, .. } => min > basis,
-                    _ => min > 0.0,
-                };
-                TrackExplanation {
-                    size,
-                    tag: None,
-                    start: (allocation.starts[index]) as f32,
-                    length: (allocation.sizes[index]) as f32,
-                    base_size: (sizes.base[index]) as f32,
-                    growth_limit: (sizes.limits[index]) as f32,
-                    set_by: set_by.then(|| path(index)),
-                    raised_from: None,
+        members_by_line(&self.lines_of(band))
+            .into_iter()
+            .map(|line| {
+                let StackAllocation {
+                    sizes,
+                    overflowed,
+                    allocation,
+                } = self.stack_allocation(band, direction, range, &line);
+                let tracks = line
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &member)| {
+                        let size = stack.tracks[member];
+                        let min = tree.nodes[stack.members[member]].min.along(direction);
+                        // The member's minimum length sets the base size when it is larger than
+                        // what the track starts at.
+                        let set_by = match size {
+                            TrackSize::Px(_) => false,
+                            TrackSize::Fr { basis, .. } => min > basis,
+                            _ => min > 0.0,
+                        };
+                        TrackExplanation {
+                            size,
+                            tag: None,
+                            start: (allocation.starts[index]) as f32,
+                            length: (allocation.sizes[index]) as f32,
+                            base_size: (sizes.base[index]) as f32,
+                            growth_limit: (sizes.limits[index]) as f32,
+                            set_by: set_by.then(|| path(member)),
+                            raised_from: None,
+                        }
+                    })
+                    .collect();
+                let gaps = overflowed
+                    .iter()
+                    .enumerate()
+                    .map(|(boundary, &overflowed)| GapExplanation {
+                        start: (allocation.starts[boundary] + allocation.sizes[boundary]) as f32,
+                        length: (allocation.gaps[boundary]) as f32,
+                        term: if overflowed {
+                            GapTerm::Overflow {
+                                trailing: Some(path(line[boundary])),
+                                leading: Some(path(line[boundary + 1])),
+                            }
+                        } else {
+                            GapTerm::Minimum
+                        },
+                        grid: tree.nodes[band].path.clone(),
+                        tag: stack.gap.tag.clone(),
+                        raised_from: None,
+                    })
+                    .collect();
+                // A line spans its members' band across the side.
+                let across = stack.wrap.as_ref().map(|_| {
+                    let (start, end) =
+                        self.states[direction.cross().index()].slot[stack.members[line[0]]];
+                    [start as f32, end as f32]
+                });
+                TrackOwnerExplanation {
+                    path: tree.nodes[band].path.clone(),
+                    direction,
+                    tracks,
+                    gaps,
+                    across,
                 }
             })
-            .collect();
-        let gaps = overflowed
-            .iter()
-            .enumerate()
-            .map(|(boundary, &overflowed)| GapExplanation {
-                start: (allocation.starts[boundary] + allocation.sizes[boundary]) as f32,
-                length: (allocation.gaps[boundary]) as f32,
-                term: if overflowed {
-                    GapTerm::Overflow {
-                        trailing: Some(path(boundary)),
-                        leading: Some(path(boundary + 1)),
-                    }
-                } else {
-                    GapTerm::Minimum
-                },
-                grid: tree.nodes[band].path.clone(),
-                tag: stack.gap.tag.clone(),
-                raised_from: None,
-            })
-            .collect();
-        TrackOwnerExplanation {
-            path: tree.nodes[band].path.clone(),
-            direction,
-            tracks,
-            gaps,
-        }
+            .collect()
     }
 
     /// Asks the max-content size of each measured leaf in both directions, and of each measured
@@ -2445,6 +2633,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             direction: H,
             tracks,
             gaps,
+            across: None,
         }
     }
 
@@ -2527,6 +2716,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                     direction,
                     tracks,
                     gaps,
+                    across: None,
                 });
             }
         }
@@ -2536,7 +2726,7 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
                 && !tree.nodes[band].moved
                 && tree.nodes[band].represented_by.is_none()
             {
-                owners.push(self.explain_stack(band));
+                owners.extend(self.explain_stack(band));
             }
         }
         for provenance in self
@@ -2554,13 +2744,15 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
     }
 }
 
-/// The line of each child of a flow whose children have `sizes`: a line breaks before a child
-/// that would pass `width`.
-fn break_lines(sizes: &[f64], gap: f64, width: f64) -> Vec<usize> {
+/// The line of each child of a flow or member of a stack whose children have `sizes`: a line
+/// breaks before a child that would pass `width`, with the gap `gap(index)` before each child
+/// but the first.
+fn break_lines(sizes: &[f64], gap: impl Fn(usize) -> f64, width: f64) -> Vec<usize> {
     let mut lines = vec![0usize; sizes.len()];
     let mut cursor = 0.0f64;
     let mut line = 0;
     for (index, &size) in sizes.iter().enumerate() {
+        let gap = if index > 0 { gap(index) } else { 0.0 };
         if index > 0 && cursor + gap + size > width + 1e-4 {
             line += 1;
             cursor = 0.0;
@@ -2613,4 +2805,27 @@ fn place(slot: (f64, f64), min: f64, fit: f64, max: f64, placement: Placement) -
 
 fn length(range: (f64, f64)) -> f64 {
     range.1 - range.0
+}
+
+/// The thickness of each line of a stack whose members have `thickness`, at `lines`: its
+/// thickest member.
+fn line_thicknesses(lines: &[usize], thickness: impl Iterator<Item = f64>) -> Vec<f64> {
+    let count = lines.iter().max().map_or(0, |line| line + 1);
+    let mut thicknesses = vec![0.0f64; count];
+    for (&line, thickness) in lines.iter().zip(thickness) {
+        thicknesses[line] = thicknesses[line].max(thickness);
+    }
+    thicknesses
+}
+
+/// The members of each line, in order, at `lines`.
+fn members_by_line(lines: &[usize]) -> Vec<Vec<usize>> {
+    let mut by_line: Vec<Vec<usize>> = Vec::new();
+    for (member, &line) in lines.iter().enumerate() {
+        if by_line.len() <= line {
+            by_line.resize(line + 1, Vec::new());
+        }
+        by_line[line].push(member);
+    }
+    by_line
 }

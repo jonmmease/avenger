@@ -3981,3 +3981,209 @@ fn a_slab_sized_to_its_max_content_length_gets_exactly_that_length() {
         legend.asked
     );
 }
+
+/// A member of a top or bottom stack, of `height` declared thickness and `length` max-content
+/// length.
+fn top_member(id: Id, height: f32, length: f32) -> Slab<Id> {
+    Slab::new().id(id).min_height(height).max_content(length)
+}
+
+/// Each member's span along a top or bottom stack, as `[start, end]` from the region's left.
+fn spans_x(solution: &Solution<Id>, ids: &[Id]) -> Vec<[f32; 2]> {
+    ids.iter()
+        .map(|&id| {
+            let slot = slot(solution, id);
+            [slot.x, slot.right()]
+        })
+        .collect()
+}
+
+#[test]
+fn a_wrapped_stack_breaks_before_the_member_that_would_pass_its_length() {
+    let plot = leaf(200.0, 100.0).id("plot").slab_stack(
+        Side::Top,
+        SlabStack::new([
+            top_member("a", 10.0, 80.0),
+            top_member("b", 20.0, 90.0),
+            top_member("c", 15.0, 60.0),
+        ])
+        .id("stack")
+        .tracks(Track::auto())
+        .gap(Gap::new(10.0))
+        .wrap(Gap::new(5.0)),
+    );
+    let solution = no_canvas(plot);
+    // a and b fit in 200 with their gap, and c starts a second line, outward of the first.
+    // Each line is as thick as its thickest member, and the stack holds both lines and the
+    // gap between them.
+    assert_eq!(slot(&solution, "stack"), Rect::new(0.0, 0.0, 200.0, 40.0));
+    assert_eq!(slot(&solution, "a"), Rect::new(0.0, 20.0, 80.0, 20.0));
+    assert_eq!(slot(&solution, "b"), Rect::new(90.0, 20.0, 90.0, 20.0));
+    assert_eq!(slot(&solution, "c"), Rect::new(0.0, 0.0, 60.0, 15.0));
+    assert_eq!(
+        content(&solution, "plot"),
+        Rect::new(0.0, 40.0, 200.0, 100.0)
+    );
+}
+
+#[test]
+fn each_line_of_a_wrapped_stack_divides_the_length_by_its_tracks() {
+    let plot = leaf(200.0, 100.0).slab_stack(
+        Side::Bottom,
+        SlabStack::new([
+            top_member("a", 10.0, 120.0),
+            top_member("b", 10.0, 0.0),
+            top_member("c", 10.0, 150.0),
+            top_member("d", 10.0, 30.0),
+        ])
+        .tracks(Track::auto())
+        .track(1, Track::fr(1.0))
+        .gap(Gap::new(10.0))
+        .distribute(Distribute::End)
+        .wrap(Gap::new(0.0)),
+    );
+    let solution = no_canvas(plot);
+    // The Fr member breaks at its base of 0 and fills the rest of the first line, and the
+    // second line puts its leftover 10 at its start.
+    assert_eq!(
+        spans_x(&solution, &["a", "b", "c", "d"]),
+        [[0.0, 120.0], [130.0, 200.0], [10.0, 160.0], [170.0, 200.0]]
+    );
+    assert_eq!(slot(&solution, "a").y, 100.0);
+    assert_eq!(slot(&solution, "c").y, 110.0);
+}
+
+#[test]
+fn a_member_longer_than_its_wrapped_stack_keeps_a_line_of_its_own() {
+    let plot = leaf(100.0, 100.0).slab_stack(
+        Side::Bottom,
+        SlabStack::new([
+            top_member("a", 10.0, 50.0),
+            top_member("b", 10.0, 150.0),
+            top_member("c", 10.0, 30.0),
+        ])
+        .tracks(Track::auto())
+        .gap(Gap::new(10.0))
+        .wrap(Gap::new(0.0)),
+    );
+    let solution = no_canvas(plot);
+    let lines: Vec<f32> = ["a", "b", "c"]
+        .iter()
+        .map(|&id| slot(&solution, id).y)
+        .collect();
+    assert_eq!(lines, [100.0, 110.0, 120.0]);
+    assert_eq!(spans_x(&solution, &["b"]), [[0.0, 100.0]]);
+}
+
+#[test]
+fn a_right_stack_that_wraps_solves_again_with_its_columns() {
+    let plot = leaf(100.0, 100.0).id("plot").slab_stack(
+        Side::Right,
+        SlabStack::new([
+            member("a", 20.0, 60.0),
+            member("b", 30.0, 50.0),
+            member("c", 25.0, 40.0),
+        ])
+        .id("stack")
+        .tracks(Track::auto())
+        .gap(Gap::new(10.0))
+        .wrap(Gap::new(8.0)),
+    );
+    let options = SolveOptions {
+        explain: true,
+        ..SolveOptions::sized(300.0, 100.0)
+    };
+    let solution = L::from(plot).solve(&options).unwrap();
+    // The first solve takes one column of 30, and the height of 100 breaks b and c into a
+    // second column, which the second solve makes room for.
+    assert_eq!(slot(&solution, "a"), Rect::new(242.0, 0.0, 20.0, 60.0));
+    assert_eq!(slot(&solution, "b"), Rect::new(270.0, 0.0, 30.0, 50.0));
+    assert_eq!(slot(&solution, "c"), Rect::new(270.0, 60.0, 30.0, 40.0));
+    assert_eq!(content(&solution, "plot").width, 242.0);
+    let explanation = solution.explanation();
+    assert_eq!(explanation.solves, 2);
+    assert_eq!(explanation.raised_widths.len(), 1);
+    assert_eq!(
+        explanation.raised_widths[0].path,
+        path_of(&solution, "stack")
+    );
+    assert_eq!(
+        [
+            explanation.raised_widths[0].from,
+            explanation.raised_widths[0].to
+        ],
+        [30.0, 58.0]
+    );
+    // Each line explains its tracks, across its own band.
+    let lines: Vec<_> = (explanation.sizes.as_ref().unwrap().owners.iter())
+        .filter(|owner| owner.path == path_of(&solution, "stack"))
+        .map(|owner| (owner.tracks.len(), owner.across))
+        .collect();
+    assert_eq!(
+        lines,
+        [(1, Some([242.0, 262.0])), (2, Some([270.0, 300.0]))]
+    );
+}
+
+#[test]
+fn a_wrapped_stack_needs_only_its_longest_member_along_its_host() {
+    let plot = |wrap: bool| {
+        let stack = SlabStack::new([
+            member("a", 10.0, 0.0).min_height(60.0),
+            member("b", 10.0, 0.0).min_height(50.0),
+            member("c", 10.0, 0.0).min_height(40.0),
+        ])
+        .tracks(Track::auto())
+        .gap(Gap::new(10.0));
+        let stack = match wrap {
+            true => stack.wrap(Gap::new(0.0)),
+            false => stack,
+        };
+        no_canvas(leaf(100.0, 30.0).id("plot").slab_stack(Side::Right, stack))
+    };
+    // Without wrapping, the members and their gaps raise the plot to 170, and with it, the
+    // longest member raises it to 60 and each member takes a column.
+    assert_eq!(content(&plot(false), "plot").height, 170.0);
+    let wrapped = plot(true);
+    assert_eq!(content(&wrapped, "plot").height, 60.0);
+    let columns: Vec<f32> = ["a", "b", "c"]
+        .iter()
+        .map(|&id| slot(&wrapped, id).x)
+        .collect();
+    assert_eq!(columns, [100.0, 110.0, 120.0]);
+}
+
+#[test]
+fn a_merged_stack_that_wraps_breaks_at_its_containers_length() {
+    let column = |merge: bool| {
+        let panel = |id: Id, members: [Id; 2]| {
+            leaf(100.0, 100.0).id(id).slab_stack(
+                Side::Right,
+                SlabStack::new([
+                    member(members[0], 20.0, 120.0),
+                    member(members[1], 20.0, 80.0),
+                ])
+                .tracks(Track::auto())
+                .gap(Gap::new(10.0))
+                .wrap(Gap::new(4.0))
+                .tag("legends")
+                .content_key("k"),
+            )
+        };
+        let column =
+            Column::new([panel("p0", ["a0", "b0"]), panel("p1", ["a1", "b1"])]).gap(Gap::new(10.0));
+        let column = match merge {
+            true => column.merge_tag("legends"),
+            false => column,
+        };
+        no_canvas(column)
+    };
+    // One panel's 100 breaks the members into two columns.
+    let apart = column(false);
+    assert_eq!(slot(&apart, "a0").x, 100.0);
+    assert_eq!(slot(&apart, "b0").x, 124.0);
+    // The merged stack runs along both panels and their gap, which holds one line.
+    let merged = column(true);
+    assert_eq!(slot(&merged, "a0"), Rect::new(100.0, 0.0, 20.0, 120.0));
+    assert_eq!(slot(&merged, "b0"), Rect::new(100.0, 130.0, 20.0, 80.0));
+}
