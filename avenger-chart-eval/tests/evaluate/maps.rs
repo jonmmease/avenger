@@ -661,3 +661,106 @@ fn the_coordinates_of_a_map_place_its_symbols() {
         assert!((y.value(row) - sy).abs() < 1e-2, "{row}");
     }
 }
+
+/// A world map of cities in the family `world`, which fits its data.
+fn city_map(table: RecordBatch) -> Chart {
+    let places = GeoLayer::symbol(
+        GeoSymbolMark::builder()
+            .longitude(Encoding::column("lon"))
+            .latitude(Encoding::column("lat")),
+    )
+    .table(table);
+    Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::geo(
+            GeoPlot::builder()
+                .options(
+                    Geo::spherical(Spherical::equal_earth().sphere(SphereStyle::builder()))
+                        .family("world")
+                        .navigation(GeoNavigation::builder().min_zoom(1.0).max_zoom(8.0)),
+                )
+                .layers([places]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap()
+}
+
+/// The pixel of the place at longitude 0 and latitude 0 in the first plot of an evaluation.
+fn origin(evaluated: &EvaluatedChart) -> (f32, f32) {
+    let [x, y] = (evaluated.plots[0].coords)
+        .pixels([&numbers(&[0.0]), &numbers(&[0.0])])
+        .unwrap();
+    (x.value(0), y.value(0))
+}
+
+#[test]
+fn a_projection_view_shows_on_its_map_and_scales_with_it() {
+    use avenger_chart_eval::{ProjectionNavigation, ProjectionView};
+    let chart = city_map(cities());
+    let mut evaluator = evaluator(&chart);
+    let fitted = evaluator.evaluate(&host([480.0, 300.0])).unwrap();
+    assert!(evaluator.projection_view(0).is_none());
+    let Some(ProjectionNavigation::Geo {
+        min_scale,
+        max_scale,
+        ..
+    }) = evaluator.projection_navigation(0)
+    else {
+        panic!("a map plot has a navigation");
+    };
+    assert!(max_scale.unwrap() > min_scale.unwrap() * 7.9);
+
+    // A pan of the view by 40 pixels to the right.
+    let Some(ProjectionView::Geo(projection)) = evaluator.projection_view_mut(0) else {
+        panic!("a map plot has a view");
+    };
+    projection.view.as_mut().unwrap().translate[0] += 40.0;
+    let panned = evaluator.evaluate(&host([480.0, 300.0])).unwrap();
+    assert!((origin(&panned).0 - origin(&fitted).0 - 40.0).abs() < 1e-2);
+    assert!(matches!(clip(&panned, 0), Clip::Rect { .. }));
+    render_view(&mut evaluator, "map-view");
+
+    // Without the view, the map fits again.
+    evaluator.clear_projection_view(0);
+    let cleared = evaluator.evaluate(&host([480.0, 300.0])).unwrap();
+    assert_eq!(origin(&cleared), origin(&fitted));
+}
+
+/// Renders the evaluation of `evaluator` at 480 by 300 and compares it with the baseline `name`.
+fn render_view(evaluator: &mut avenger_chart_eval::ChartEvaluator, name: &str) {
+    let evaluated = evaluator.evaluate(&host([480.0, 300.0])).unwrap();
+    assert_image(&evaluated, name);
+}
+
+#[test]
+fn an_update_carries_the_view_and_the_fit_of_a_projection() {
+    use avenger_chart_eval::{Fit, PreparedChart, ProjectionView, Registry, UpdateOptions};
+    let all = cities();
+    let mut evaluator = evaluator(&city_map(all.slice(0, 6)));
+    let fitted = evaluator.evaluate(&host([480.0, 300.0])).unwrap();
+    let update = |evaluator: &mut avenger_chart_eval::ChartEvaluator, options: &UpdateOptions| {
+        let prepared = PreparedChart::new(city_map(all.clone()), &engine(), &Registry::new());
+        evaluator.install(prepared.unwrap(), options).unwrap();
+        evaluator.evaluate(&host([480.0, 300.0])).unwrap()
+    };
+
+    // A kept fit shows the old data's extent, and a refit the new data's.
+    let mut kept = evaluator;
+    let kept_map = update(&mut kept, &UpdateOptions::new().fit(Fit::Keep));
+    assert_eq!(origin(&kept_map), origin(&fitted));
+    let mut refit = crate::support::evaluator(&city_map(all.slice(0, 6)));
+    refit.evaluate(&host([480.0, 300.0])).unwrap();
+    let refit_map = update(&mut refit, &UpdateOptions::new());
+    assert_ne!(origin(&refit_map), origin(&fitted));
+
+    // A view carries to the projection of the same family.
+    let Some(ProjectionView::Geo(projection)) = refit.projection_view_mut(0) else {
+        panic!("a map plot has a view");
+    };
+    projection.view.as_mut().unwrap().translate[1] += 25.0;
+    let panned = refit.evaluate(&host([480.0, 300.0])).unwrap();
+    let carried = update(&mut refit, &UpdateOptions::new());
+    assert!((origin(&carried).1 - origin(&panned).1).abs() < 1e-2);
+}

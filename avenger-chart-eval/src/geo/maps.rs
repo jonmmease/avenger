@@ -18,8 +18,8 @@ use avenger_chart::{
 };
 use avenger_coords::{pieces, GeoProjection, PlotCoords, PlotProjection};
 use avenger_geo::{
-    paths::row_parts, projections as p, FitSummary, Projection, ProjectionImpl, Projector,
-    RegionFrame, SphericalClip, Surface,
+    paths::row_parts, projections as p, FitSummary, PanMode, Projection, ProjectionImpl, Projector,
+    RegionFrame, SphericalClip, Surface, View,
 };
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{
@@ -33,7 +33,7 @@ use geo_traits::to_geo::ToGeoGeometry;
 use geo_types::{Geometry, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon};
 use geoarrow_array::{array::from_arrow_array, GeoArrowArray};
 
-use super::{Located, MapGuide, MapInputs};
+use super::{Located, MapGuide, MapInputs, ProjectionNavigation, ProjectionView};
 use crate::{
     encode::{numbers, LayerRows, Result},
     guides::{paint_color, text_color, visible},
@@ -43,6 +43,7 @@ use crate::{
     },
     polyline::{polyline, rule_lines, series_lines, series_trails, Polyline},
     reach::Reach,
+    state::Fit,
     style::{color as style_color, number as style_number},
     EvalError, EvalWarning,
 };
@@ -62,9 +63,85 @@ pub(crate) struct Maps {
     plots: BTreeMap<usize, MapPlot>,
 }
 
+/// The views and the carried fits of the projections of a chart's maps, which the state of an
+/// evaluation keeps across preparations.
+#[derive(Default)]
+pub(crate) struct ProjectionState {
+    /// The view of each projection group that has one, by its position in
+    /// `Resolved::projections`.
+    pub(crate) views: BTreeMap<usize, GeoView>,
+    /// The fit and the summary of the old chart that an update carried to each projection group,
+    /// `Keep` or `Extend`, by group.
+    pub(crate) carried: BTreeMap<usize, (Fit, FitSummary)>,
+}
+
+/// The view of a group of map plots, such as a pan or a zoom: the projection that it shows, the
+/// size of the plots when it last showed, and the fitted view at that size. As the plots resize,
+/// the view keeps its rotation, and scales and moves with the fitted view.
+pub(crate) struct GeoView {
+    view: ProjectionView,
+    /// The fitted view of the plots when the view last showed, or `None` for a view that an
+    /// update carried, which takes the first fit of the new chart as its own.
+    fitted: Option<View>,
+    /// The rotation and the view of the fitted projection that the view started from.
+    start: ([f64; 3], View),
+}
+
+impl GeoView {
+    /// The projection that the view shows.
+    fn projection(&self) -> &Projection {
+        let ProjectionView::Geo(projection) = &self.view;
+        projection
+    }
+
+    /// Whether a navigation moved the view from the fitted projection that it started from. An
+    /// evaluation drops a view that did not move, such as the view of a press without a drag, so
+    /// the projection fits again.
+    fn moved(&self) -> bool {
+        let projection = self.projection();
+        (projection.rotate, projection.view) != (self.start.0, Some(self.start.1))
+    }
+
+    /// Scales and moves the view with the fitted view of its plots, `fitted`: the
+    /// places that the fitted view draws at a point of the plots, the view draws at the point that
+    /// scales with the fitted view.
+    fn resize(&mut self, fitted: &Projection) {
+        let Some(new) = fitted.view else {
+            return;
+        };
+        let Some(old) = self.fitted.replace(new) else {
+            return;
+        };
+        if new == old {
+            return;
+        }
+        let ProjectionView::Geo(projection) = &mut self.view;
+        if let Some(view) = &mut projection.view {
+            let ratio = new.scale / old.scale;
+            view.scale *= ratio;
+            view.translate = [0, 1].map(|axis| {
+                new.translate[axis] + (view.translate[axis] - old.translate[axis]) * ratio
+            });
+        }
+    }
+
+    /// The view as an update carries it to a new chart, which takes the new fit as its own.
+    pub(crate) fn carried(&self) -> Self {
+        Self {
+            view: self.view.clone(),
+            fitted: None,
+            start: self.start,
+        }
+    }
+}
+
 /// The map plots that share a projection.
 struct MapGroup {
     plots: Vec<usize>,
+    /// Whether the group fits the data of its layers, so an update can carry its fit.
+    fits_data: bool,
+    /// The navigation of the spec of the group's first plot.
+    navigation: proto::GeoNavigation,
     /// The projection of the spec, without a view.
     projection: Projection,
     summary: FitSummary,
@@ -120,11 +197,12 @@ impl Maps {
         inputs: &MapInputs,
         layer_rows: impl Fn(usize) -> LayerRows<'r>,
         reach: &[Option<Vec<Reach>>],
+        state: &ProjectionState,
     ) -> Result<Self> {
         let tree = &inputs.resolved.tree;
         let mut groups = Vec::new();
         let mut plots = BTreeMap::new();
-        for group in &inputs.resolved.projections {
+        for (index, group) in inputs.resolved.projections.iter().enumerate() {
             let spec = group.spec;
             let projection = projection(spec)?;
             let layers: Vec<usize> = (group.plots.iter())
@@ -150,9 +228,17 @@ impl Maps {
                     inset = max_reach(inset, &reach);
                 }
             }
+            // A carried fit replaces or extends the summary of the data.
+            let summary = match (fits_data, state.carried.get(&index)) {
+                (true, Some((Fit::Keep, old))) => *old,
+                (true, Some((Fit::Extend, old))) => old.merge(&summary),
+                _ => summary,
+            };
             let summary = group_summary(&projection, fit, summary)?;
             let map_group = MapGroup {
                 plots: group.plots.clone(),
+                fits_data,
+                navigation: spec.navigation.unwrap_or_default(),
                 projection,
                 summary,
                 inset,
@@ -192,21 +278,107 @@ impl Maps {
         self.plots.get(&plot).map(|map| &map.guide)
     }
 
+    /// The projection group of the map plot `plot`.
+    pub(crate) fn group_of(&self, plot: usize) -> Option<usize> {
+        (self.groups.iter()).position(|group| group.plots.contains(&plot))
+    }
+
+    /// The summary of the data of the projection group `group`, when it fits its data, which an
+    /// update carries.
+    pub(crate) fn data_summary(&self, group: usize) -> Option<FitSummary> {
+        let group = self.groups.get(group)?;
+        group.fits_data.then_some(group.summary)
+    }
+
+    /// The fitted projection of the map plot `plot` at `size`, without its view, which a
+    /// navigation returns to.
+    pub(crate) fn home(&self, plot: usize, size: [f32; 2]) -> Option<ProjectionView> {
+        let (projection, _) = self.groups[self.group_of(plot)?].fit(size).ok()?;
+        Some(ProjectionView::Geo(projection))
+    }
+
+    /// The view of the projection of the map plot `plot` in `state`, to move. A projection without
+    /// a view takes its fitted projection at `size` as its view, and the next evaluation drops a
+    /// view that still shows that projection.
+    pub(crate) fn view_mut<'s>(
+        &self,
+        state: &'s mut ProjectionState,
+        plot: usize,
+        size: [f32; 2],
+    ) -> Option<&'s mut ProjectionView> {
+        let index = self.group_of(plot)?;
+        let view = match state.views.entry(index) {
+            std::collections::btree_map::Entry::Occupied(view) => view.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let (projection, _) = self.groups[index].fit(size).ok()?;
+                let fitted = projection.view?;
+                entry.insert(GeoView {
+                    start: (projection.rotate, fitted),
+                    view: ProjectionView::Geo(projection),
+                    fitted: Some(fitted),
+                })
+            }
+        };
+        Some(&mut view.view)
+    }
+
+    /// The view of the projection of the map plot `plot` in `state`, when it has one.
+    pub(crate) fn view<'s>(
+        &self,
+        state: &'s ProjectionState,
+        plot: usize,
+    ) -> Option<&'s ProjectionView> {
+        Some(&state.views.get(&self.group_of(plot)?)?.view)
+    }
+
+    /// Removes the view of the projection of the map plot `plot` from `state`.
+    pub(crate) fn clear_view(&self, state: &mut ProjectionState, plot: usize) {
+        if let Some(index) = self.group_of(plot) {
+            state.views.remove(&index);
+        }
+    }
+
+    /// The pan mode of the spec of the map plot `plot` or the projection's own, and the zoom
+    /// limits of its spec as scales of the view, from the scale of the fitted projection at `size`.
+    pub(crate) fn navigation(&self, plot: usize, size: [f32; 2]) -> Option<ProjectionNavigation> {
+        let group = &self.groups[self.group_of(plot)?];
+        let navigation = &group.navigation;
+        let pan_mode = match proto::PanMode::try_from(navigation.pan_mode) {
+            Ok(proto::PanMode::Translate) => PanMode::Translate,
+            Ok(proto::PanMode::Longitude) => PanMode::Longitude,
+            Ok(proto::PanMode::Sphere) => PanMode::Sphere,
+            Ok(proto::PanMode::Unspecified) | Err(_) => group.projection.pan_mode(),
+        };
+        let fitted = group.fit(size).ok()?.0.view?.scale;
+        Some(ProjectionNavigation::Geo {
+            pan_mode,
+            min_scale: navigation.min_zoom.map(|zoom| zoom * fitted),
+            max_scale: navigation.max_zoom.map(|zoom| zoom * fitted),
+        })
+    }
+
     /// Each map plot fitted at the size of its rectangle in `sizes`, by plot. The plots of a group
     /// take one size, so the group fits one projection at the size of its first plot. A plot too
     /// small for the inset fits its whole rectangle, with a warning.
     pub(crate) fn fit(
         &self,
         sizes: &[[f32; 2]],
+        state: &mut ProjectionState,
         warnings: &mut Vec<EvalWarning>,
     ) -> Result<BTreeMap<usize, MapFit>> {
+        state.views.retain(|_, view| view.moved());
         let mut fits = BTreeMap::new();
-        for group in &self.groups {
+        for (index, group) in self.groups.iter().enumerate() {
             let Some(first) = group.plots.first() else {
                 continue;
             };
             let size = sizes[*first];
             let (fitted, fits_inset) = group.fit(size)?;
+            // A view shows in place of the fit, scaled and moved with the fit as the plots resize.
+            let shown = (state.views.get_mut(&index)).map(|view| {
+                view.resize(&fitted);
+                view.projection().clone()
+            });
             for plot in &group.plots {
                 let map = &self.plots[plot];
                 if !fits_inset {
@@ -217,8 +389,9 @@ impl Maps {
                             .to_string(),
                     });
                 }
-                let clip = group.clipped || map.rectangle;
-                let mut projection = fitted.clone();
+                // A view can show places past the plot, so the plot clips to its rectangle.
+                let clip = group.clipped || map.rectangle || shown.is_some();
+                let mut projection = shown.clone().unwrap_or_else(|| fitted.clone());
                 if clip {
                     projection.clip_extent =
                         Some([[0.0, 0.0], [f64::from(size[0]), f64::from(size[1])]]);
