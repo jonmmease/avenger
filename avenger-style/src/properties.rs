@@ -257,7 +257,7 @@ properties! {
 
     // Guides.
     LabelAngle = "label-angle", false, Syntax::Angle, "0", &[Axis, Header, Legend, Level];
-    Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Header, Title, Attribution];
+    Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Header, Title, Attribution, Widget];
     LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Header, Axis];
     TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Header];
     Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
@@ -266,7 +266,7 @@ properties! {
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
     LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Header, Graticule, Mark];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
-    Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Header, Title, Attribution];
+    Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Header, Title, Attribution, Widget];
     LabelOffset = "label-offset", false, LENGTH, "0", &[Axis, Mark];
     MinExtent = "min-extent", false, SIZE_OR_NONE, "none", AXIS;
     MaxExtent = "max-extent", false, SIZE_OR_NONE, "none", AXIS;
