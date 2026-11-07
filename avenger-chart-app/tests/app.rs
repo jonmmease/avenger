@@ -1,0 +1,678 @@
+//! A chart app driven by window events: navigation of the declared plots, tooltips, boxes,
+//! lassos, and clicks of selections, the changes that the app reports, and updates through its
+//! handle.
+
+mod support;
+
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+use arrow::array::{Float64Array, RecordBatch, StringArray};
+use avenger_app::app::AvengerApp;
+use avenger_chart::prelude::*;
+use avenger_chart_app::{
+    ChartApp, ChartAppState, ChartChange, ChartUpdate, ChartUpdates, Fit, Mode, Reports,
+    ScaleIdentity,
+};
+use avenger_eventstream::window::ElementState;
+use avenger_scenegraph::marks::mark::SceneMark;
+
+use support::*;
+
+/// A facet row of the cars of each of `origins`, whose plots share the id `panel`, take the scale
+/// `x` for `x`, and declare `tools`.
+fn facets(
+    origins: &[&str],
+    x: impl Fn() -> ScaleBuilder,
+    tools: impl Fn() -> Vec<ToolBuilder>,
+) -> Chart {
+    let panels = Node::partitions(
+        &cars_of(origins),
+        "origin",
+        PartitionOrder::Appearance,
+        |rows| {
+            let symbols = CartesianLayer::symbol(
+                SymbolMark::builder()
+                    .x(Encoding::scaled_column("weight").scale(x()))
+                    .y(Encoding::scaled_column("mpg")),
+            )
+            .table(rows);
+            Ok(Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+                .id("panel")
+                .tools(tools()))
+        },
+    )
+    .unwrap();
+    Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Concat::builder()
+                .direction(Direction::Row)
+                .facet(Facet::builder().column("origin"))
+                .resolve([Resolve::channel(Channel::X).sharing(Sharing::Independent)])
+                .children(panels),
+        )
+        .infer_scales()
+        .build()
+        .unwrap()
+}
+
+/// A scale of `x` in the share family `weight`.
+fn weight_family() -> ScaleBuilder {
+    Scale::builder().family("weight")
+}
+
+/// A scatter plot `plot` of the cars, with `tools`.
+fn scatter(cars: RecordBatch, tools: Vec<ToolBuilder>) -> Chart {
+    let color =
+        Encoding::scaled_column("origin").conditional([ConditionalValue::constant("lightgray")
+            .predicate(Predicate::negate(Predicate::selected(
+                Selected::builder().selection("brush"),
+            )))]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .color(color),
+    )
+    .table(cars);
+    Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+                .id("plot")
+                .tools(tools),
+        )
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Union)])
+        .infer_scales()
+        .build()
+        .unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drag_in_one_facet_pans_every_facet_of_its_family() {
+    let (mut app, _, _) = app(facets(&["USA", "Japan"], weight_family, navigate_x)).await;
+    let fitted = [domains(&app, 0), domains(&app, 1)];
+    let from = center(&app, 0);
+    send(&mut app, drag(from, [from[0] + 60.0, from[1] + 30.0])).await;
+
+    let panned = [domains(&app, 0), domains(&app, 1)];
+    // The facets share `x` through the family, and the navigation moves `x` alone.
+    assert_eq!(panned[0][0], panned[1][0]);
+    assert!(panned[0][0].0 < fitted[0][0].0, "{panned:?}");
+    assert_eq!(panned[0][1], fitted[0][1]);
+    assert_eq!(panned[1][1], fitted[1][1]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_double_click_returns_the_scales_to_their_fitted_domains() {
+    let (mut app, _, _) = app(facets(&["USA", "Japan"], weight_family, navigate_x)).await;
+    let fitted = domains(&app, 1);
+    let at = center(&app, 1);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    assert_ne!(domains(&app, 1), fitted);
+
+    // The click stands apart from the wheel, so the next press is a double click.
+    send(&mut app, double_click(at)).await;
+    assert_eq!(domains(&app, 1), fitted);
+    assert!(app.state().evaluator().scale_view(1, Channel::X).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_settled_navigation_reports_the_domains_of_its_scales_in_one_change() {
+    let (mut app, _, changes) = app(facets(&["USA", "Japan"], weight_family, navigate)).await;
+    let from = center(&app, 0);
+    send(&mut app, drag(from, [from[0] - 40.0, from[1] + 30.0])).await;
+
+    let changes = changes.lock().unwrap();
+    let [ChartChange {
+        domains: settled,
+        selections,
+        settled: true,
+        ..
+    }] = &changes[..]
+    else {
+        panic!("one settled change, and not {changes:?}");
+    };
+    assert!(selections.is_empty());
+    let usa = app.state().plots()[0].identity.clone().unwrap();
+    let scales: Vec<&ScaleIdentity> = settled.iter().map(|(scale, _)| scale).collect();
+    assert_eq!(
+        scales,
+        [
+            &ScaleIdentity::Family {
+                family: "weight".into(),
+                channel: Channel::X,
+            },
+            &ScaleIdentity::Plot {
+                plot: usa,
+                channel: Channel::Y,
+                index: 0,
+            },
+        ]
+    );
+    let reported: Vec<(f64, f64)> = (settled.iter())
+        .map(|(_, domain)| {
+            let domain = domain.as_any().downcast_ref::<Float64Array>().unwrap();
+            (domain.value(0), domain.value(1))
+        })
+        .collect();
+    assert_eq!(
+        reported,
+        domains(&app, 0),
+        "the reported domains are the shown ones"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_navigation_limits_of_a_scale_bound_its_view() {
+    let limited = || {
+        Scale::builder()
+            .family("weight")
+            .navigation_limits(NavigationLimits::builder().data().min_span(500.0))
+    };
+    let (mut app, _, _) = app(facets(&["USA"], limited, navigate_x)).await;
+    let fitted = domains(&app, 0)[0];
+    let at = center(&app, 0);
+
+    // The fitted domain bounds the view, so the view neither zooms out nor pans past it.
+    send(&mut app, [moved(at), wheel(-2.0)]).await;
+    assert_eq!(domains(&app, 0)[0], fitted);
+    send(&mut app, [2.0; 8].map(wheel)).await;
+    let (start, end) = domains(&app, 0)[0];
+    assert!((end - start - 500.0).abs() < 1e-6, "{start} {end}");
+    send(&mut app, drag(at, [at[0] + 4000.0, at[1]])).await;
+    assert!((domains(&app, 0)[0].0 - fitted.0).abs() < 1e-6);
+}
+
+/// The position of the first row of `cars` in the plot at `plot`.
+fn first_car(app: &AvengerApp<ChartAppState>, plot: usize, cars: &RecordBatch) -> [f32; 2] {
+    let plot = &app.state().plots()[plot];
+    let [x, y] = plot
+        .coords
+        .pixels([
+            &cars.column_by_name("weight").unwrap().slice(0, 1),
+            &cars.column_by_name("mpg").unwrap().slice(0, 1),
+        ])
+        .unwrap();
+    [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)]
+}
+
+/// The tooltip scene's marks: the third scene, above the chart and the brushes.
+fn tooltip_marks(app: &AvengerApp<ChartAppState>) -> &[SceneMark] {
+    &app.scenes()[2].marks
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tooltip_shows_over_the_layers_that_declare_it() {
+    // Two layers of one plot, where only the layer `heavy` declares a tooltip.
+    let layer = |cars: RecordBatch, id: &str, tools: Vec<LayerToolBuilder>| {
+        CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("weight"))
+                .y(Encoding::scaled_column("mpg")),
+        )
+        .table(cars)
+        .id(id)
+        .tools(tools)
+    };
+    let (usa, japan) = (cars_of(&["USA"]), cars_of(&["Japan"]));
+    let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0));
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Plot::cartesian(CartesianPlot::builder().layers([
+                layer(usa.clone(), "heavy", vec![tooltip.into()]),
+                layer(japan.clone(), "light", Vec::new()),
+            ]))
+            .id("plot"),
+        )
+        .infer_scales()
+        .build()
+        .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    let light = first_car(&app, 0, &japan);
+    send(&mut app, [moved(light)]).await;
+    assert!(tooltip_marks(&app).is_empty());
+    let heavy = first_car(&app, 0, &usa);
+    send(&mut app, [moved(heavy)]).await;
+    assert!(!tooltip_marks(&app).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
+    let select = vec![ToolBuilder::from(
+        Select::interval(IntervalSelect::builder()).selection("brush"),
+    )];
+    let (mut app, _, changes) = app(scatter(cars(), select)).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let from = [x + width * 0.25, y + height * 0.1];
+    let to = [x + width * 0.6, y + height * 0.9];
+    send(&mut app, drag(from, to)).await;
+
+    let clauses = &app.state().evaluator().selections()["brush"].clauses;
+    assert_eq!(clauses.len(), 1);
+    assert_eq!(clauses[0].owner, "plot");
+    assert_eq!(clauses[0].conditions.len(), 2);
+    // The drag reports each move and its settle.
+    let changes = changes.lock().unwrap();
+    assert!(changes.len() >= 2, "{changes:?}");
+    assert!(changes.last().unwrap().settled);
+    assert_eq!(changes.last().unwrap().selection("brush").unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
+    let select = vec![ToolBuilder::from(
+        Select::interval(IntervalSelect::builder()).selection("brush"),
+    )];
+    let (mut app, _, changes) = app_reporting(scatter(cars(), select), Reports::Settled).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    send(
+        &mut app,
+        drag(
+            [x + width * 0.25, y + height * 0.1],
+            [x + width * 0.6, y + height * 0.9],
+        ),
+    )
+    .await;
+    let changes = changes.lock().unwrap();
+    let [change] = &changes[..] else {
+        panic!("one settled change, and not {changes:?}");
+    };
+    assert!(change.settled);
+    assert_eq!(change.selection("brush").unwrap().len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_mode_decides_whether_a_drag_pans_or_draws_a_box() {
+    let tools = vec![
+        ToolBuilder::from(Navigate::builder()),
+        Select::interval(IntervalSelect::builder())
+            .selection("brush")
+            .into(),
+    ];
+    let (mut app, updates, _) = app(scatter(cars(), tools)).await;
+    let fitted = domains(&app, 0);
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let (from, to) = (
+        [x + width * 0.25, y + height * 0.25],
+        [x + width * 0.6, y + height * 0.75],
+    );
+    send(&mut app, drag(from, to)).await;
+    assert_ne!(domains(&app, 0), fitted);
+    assert!(app.state().evaluator().selections()["brush"]
+        .clauses
+        .is_empty());
+
+    // The next press stands apart from the last release, so it is no double click.
+    std::thread::sleep(Duration::from_millis(600));
+    updates.set_mode(Mode::Select);
+    app.refresh().await;
+    assert_eq!(app.state().mode(), Mode::Select);
+    send(&mut app, drag(from, to)).await;
+    assert_eq!(
+        app.state().evaluator().selections()["brush"].clauses.len(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_chart_keeps_the_views_of_the_scales_that_it_still_has() {
+    let (mut app, updates, _) = app(facets(&["USA", "Japan"], weight_family, navigate)).await;
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    let zoomed = domains(&app, 0);
+
+    // The family keeps its view, and so does the shared `y`, whose first plot is still USA.
+    updates.send(facets(&["USA", "Europe", "Japan"], weight_family, navigate));
+    refresh_until(&mut app, |app| app.state().plots().len() == 3).await;
+    for plot in 0..3 {
+        assert_eq!(domains(&app, plot), zoomed);
+    }
+
+    // A chart with another family and other facets keeps neither view.
+    let mass = || Scale::builder().family("mass");
+    updates.send(facets(&["Europe", "Japan"], mass, navigate));
+    refresh_until(&mut app, |app| app.state().plots().len() == 2).await;
+    let evaluator = app.state().evaluator();
+    assert!((0..2).all(|plot| [Channel::X, Channel::Y]
+        .iter()
+        .all(|channel| evaluator.scale_view(plot, *channel).is_none())));
+    assert_ne!(domains(&app, 0)[0], zoomed[0]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn updates_apply_in_the_order_of_their_calls_and_a_newer_chart_overtakes_an_older_one() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    // An older chart, a mode, and a newer chart that overtakes the older one.
+    updates.send(scatter(cars_of(&["USA"]), navigate()));
+    updates.set_mode(Mode::Select);
+    updates.send(scatter(cars_of(&["Japan"]), navigate()));
+    let japan = cars_of(&["Japan"]).num_rows();
+    refresh_until(&mut app, |app| {
+        app.state().chart().tables()[0].num_rows() == japan
+    })
+    .await;
+    assert_eq!(app.state().mode(), Mode::Select);
+    assert!(updates.error().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chart_that_fails_to_prepare_keeps_the_chart_and_reports_its_error() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    // A chart whose formats need a provider that the label engine lacks.
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let unformatted = Chart::builder()
+        .number_format_syntax("icu")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    updates.send(unformatted);
+    refresh_until(&mut app, |_| updates.error().is_some()).await;
+    assert_eq!(
+        app.state().chart().tables()[0].num_rows(),
+        cars().num_rows()
+    );
+    // A later mode still applies.
+    updates.set_mode(Mode::Select);
+    app.refresh().await;
+    assert_eq!(app.state().mode(), Mode::Select);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_that_keeps_its_scales_keeps_the_home_of_a_double_click() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    let fitted = domains(&app, 0);
+    let usa = cars_of(&["USA"]);
+    let rows = usa.num_rows();
+    updates.send(ChartUpdate::new(scatter(usa, navigate())).fit(Fit::Keep));
+    refresh_until(&mut app, |app| {
+        app.state().chart().tables()[0].num_rows() == rows
+    })
+    .await;
+    assert_eq!(domains(&app, 0), fitted);
+
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    assert_ne!(domains(&app, 0), fitted);
+    send(&mut app, double_click(at)).await;
+    assert_eq!(domains(&app, 0), fitted);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn new_style_inputs_restyle_the_chart_without_a_new_chart() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    let marks = |app: &AvengerApp<ChartAppState>| app.scenes()[0].marks.len();
+    let before = marks(&app);
+    // A stylesheet that hides the axes.
+    updates.send(ChartUpdate::styles(cascade_with("axis { display: none; }")));
+    app.refresh().await;
+    assert!(marks(&app) < before, "{} {before}", marks(&app));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_press_without_a_drag_leaves_the_scales_fitting() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    let at = center(&app, 0);
+    send(
+        &mut app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    let usa = cars_of(&["USA"]);
+    let rows = usa.num_rows();
+    updates.send(scatter(usa.clone(), navigate()));
+    refresh_until(&mut app, |app| {
+        app.state().chart().tables()[0].num_rows() == rows
+    })
+    .await;
+    let (alone, _, _) = self::app(scatter(usa, navigate())).await;
+    assert_eq!(domains(&app, 0), domains(&alone, 0));
+    assert!(app.state().evaluator().scale_view(0, Channel::X).is_none());
+}
+
+/// A scatter plot `plot` of the cars, whose layer `points` declares `layer_tools`, and whose plot
+/// declares `tools`.
+fn scatter_of(tools: Vec<ToolBuilder>, layer_tools: Vec<LayerToolBuilder>) -> Chart {
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars())
+    .id("points")
+    .tools(layer_tools);
+    Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+                .id("plot")
+                .tools(tools),
+        )
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Union)])
+        .infer_scales()
+        .build()
+        .unwrap()
+}
+
+/// The clauses of the selection `brush`.
+fn brush(app: &AvengerApp<ChartAppState>) -> Vec<avenger_selection::Clause> {
+    app.state().evaluator().selections()["brush"]
+        .clauses
+        .clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_box_of_a_layer_writes_the_clause_of_the_layer() {
+    let select = Select::interval(IntervalSelect::builder()).selection("brush");
+    let (mut app, _, _) = app(scatter_of(Vec::new(), vec![select.into()])).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    send(
+        &mut app,
+        drag(
+            [x + width * 0.2, y + height * 0.2],
+            [x + width * 0.7, y + height * 0.8],
+        ),
+    )
+    .await;
+    let clauses = brush(&app);
+    assert_eq!(clauses.len(), 1);
+    assert_eq!(clauses[0].owner, "points");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lasso_writes_a_polygon_of_the_recorded_columns() {
+    let lasso = Select::lasso(Vec::<String>::new()).selection("brush");
+    let (mut app, _, _) = app(scatter_of(vec![lasso.into()], Vec::new())).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let path = [
+        [x + width * 0.2, y + height * 0.2],
+        [x + width * 0.8, y + height * 0.25],
+        [x + width * 0.7, y + height * 0.8],
+        [x + width * 0.25, y + height * 0.7],
+    ];
+    let mut events = vec![moved(path[0]), mouse(ElementState::Pressed)];
+    events.extend(path[1..].iter().map(|at| moved(*at)));
+    events.push(mouse(ElementState::Released));
+    send(&mut app, events).await;
+    let clauses = brush(&app);
+    assert_eq!(clauses.len(), 1);
+    match &clauses[0].conditions[..] {
+        [avenger_selection::Condition::Polygon {
+            x_column, y_column, ..
+        }] => assert_eq!((x_column.as_str(), y_column.as_str()), ("weight", "mpg")),
+        conditions => panic!("a polygon, and not {conditions:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_a_point_selection_writes_the_keys_of_the_instance() {
+    let points = Select::points(PointSelect::builder().keys(["origin"])).selection("brush");
+    let (mut app, _, _) = app(scatter_of(vec![points.into()], Vec::new())).await;
+    let cars = cars();
+    let at = first_car(&app, 0, &cars);
+    send(
+        &mut app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    let clauses = brush(&app);
+    assert_eq!(clauses.len(), 1);
+    match &clauses[0].conditions[..] {
+        [avenger_selection::Condition::Set {
+            columns, values, ..
+        }] => {
+            assert_eq!(columns, &["origin".to_string()]);
+            let value = values[0].as_any().downcast_ref::<StringArray>().unwrap();
+            assert_eq!(value.value(0), "USA");
+        }
+        conditions => panic!("a set, and not {conditions:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_box_in_a_polar_plot_writes_ranges_of_its_angle_and_its_radius() {
+    let symbols = PolarLayer::symbol(
+        PolarSymbolMark::builder()
+            .theta(Encoding::scaled_column("weight"))
+            .radius(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Plot::polar(PolarPlot::builder().layers([symbols]))
+                .id("plot")
+                .tools([Select::interval(IntervalSelect::builder()).selection("brush")]),
+        )
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Union)])
+        .infer_scales()
+        .build()
+        .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let middle = [x + width / 2.0, y + height / 2.0];
+    send(
+        &mut app,
+        drag(
+            [middle[0] + width * 0.05, middle[1] - height * 0.4],
+            [middle[0] + width * 0.3, middle[1] - height * 0.1],
+        ),
+    )
+    .await;
+    let clauses = brush(&app);
+    assert_eq!(clauses.len(), 1);
+    let columns: Vec<String> = (clauses[0].conditions.iter())
+        .flat_map(|condition| condition.columns().into_iter().map(str::to_string))
+        .collect();
+    assert_eq!(columns, ["weight", "mpg"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_box_of_cells_reports_its_focus_under_the_pointer() {
+    let select = Select::interval(IntervalSelect::builder().cell(10.0)).selection("brush");
+    let updates = ChartUpdates::new();
+    let focus = Arc::new(Mutex::new(Vec::new()));
+    let heard = focus.clone();
+    let mut app = ChartApp::new(
+        scatter_of(vec![select.into()], Vec::new()),
+        cascade(),
+        engine(),
+    )
+    .size(SIZE)
+    .updates(&updates)
+    .on_focus(move |focus| heard.lock().unwrap().push(focus.cloned()))
+    .build()
+    .await
+    .unwrap()
+    .with_runtime(tokio::runtime::Handle::current())
+    .unwrap();
+    let at = center(&app, 0);
+    send(&mut app, [moved(at)]).await;
+    let focus = focus.lock().unwrap();
+    let Some(Some(focused)) = focus.last() else {
+        panic!("a focus, and not {focus:?}");
+    };
+    assert_eq!(focused.selection, "brush");
+    let columns: Vec<&str> = (focused.dimensions.iter())
+        .map(|dimension| dimension.column.as_str())
+        .collect();
+    assert_eq!(columns, ["weight", "mpg"]);
+    assert!(focused
+        .dimensions
+        .iter()
+        .all(|dimension| dimension.grid.is_some()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_navigation_of_a_selection_domain_moves_the_selection() {
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight").scale(
+                Scale::builder().domain(
+                    SelectionDomain::builder()
+                        .selection("brush")
+                        .channel(Channel::X)
+                        .data(DataDomain::builder()),
+                ),
+            ))
+            .y(Encoding::scaled_column("mpg")),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(
+            Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+                .id("plot")
+                .tools([Navigate::builder().channels([Channel::X])]),
+        )
+        .selections([Selection::builder()
+            .name("brush")
+            .resolution(SelectionResolution::Union)])
+        .infer_scales()
+        .build()
+        .unwrap();
+    let (mut app, _, changes) = app(chart).await;
+    let fitted = domains(&app, 0)[0];
+    let at = center(&app, 0);
+    send(&mut app, drag(at, [at[0] + 50.0, at[1]])).await;
+    app.refresh().await;
+    // The pan writes a range of `weight` to the selection, which the domain reads.
+    let clauses = brush(&app);
+    assert_eq!(clauses.len(), 1);
+    assert_ne!(domains(&app, 0)[0], fitted);
+    let changes = changes.lock().unwrap();
+    assert!(changes
+        .iter()
+        .any(|change| change.selection("brush").is_some()));
+}

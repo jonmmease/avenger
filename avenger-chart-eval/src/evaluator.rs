@@ -7,7 +7,7 @@ use arrow::{
     datatypes::DataType,
 };
 use avenger_chart::{
-    layer::{LayerRef, MarkMessage},
+    layer::{CoordKind, LayerRef, MarkMessage},
     proto::{encoding, node::Node, plot::Coord, Channel},
     resolve::{scale_channel, Identity, Layer, PlotRef, Resolved},
     Chart, FitKind,
@@ -69,6 +69,8 @@ pub struct EvaluatedPlot {
     pub name: String,
     /// The identity of its node, when it has an id.
     pub identity: Option<Identity>,
+    /// The kind of its coordinate system, whose positions its coordinates take.
+    pub kind: CoordKind,
     /// Its left, top, width, and height in the scene.
     pub rect: [f32; 4],
     /// The projection between its pixels, from its top left, and the positions of `x` and `y`,
@@ -83,6 +85,8 @@ pub struct EvaluatedPlot {
 pub struct EvaluatedLayer {
     /// Its path in the chart, such as `root.plot.cartesian.layers[0]`.
     pub path: String,
+    /// The identity of the layer, when it has an id.
+    pub identity: Option<Identity>,
     /// The names of its marks with rows in `EvaluatedChart::data`, in the order that they draw.
     pub marks: Vec<String>,
     /// The coordinates of the plot with the scales of the layer's `x` and `y`, which differ from
@@ -296,6 +300,18 @@ impl ChartEvaluator {
     /// The chart that the evaluator draws.
     pub fn chart(&self) -> &Chart {
         &self.chart
+    }
+
+    /// Replaces the cascade of the style table, such as after an edit of a stylesheet. The styles
+    /// compute again at the next evaluation unless `cascade` is the cascade that the evaluator
+    /// holds.
+    pub fn set_cascade(&mut self, cascade: Arc<Cascade>) {
+        if !Arc::ptr_eq(&self.cascade, &cascade) {
+            self.cascade = cascade;
+            self.styles = None;
+            self.prepared = None;
+            self.measured = None;
+        }
     }
 
     /// The style tree of the chart, whose nodes stand for its parts.
@@ -597,6 +613,7 @@ impl ChartEvaluator {
                 };
                 layers.push(EvaluatedLayer {
                     path: layer.path.clone(),
+                    identity: layer.identity.clone(),
                     marks: names,
                     coords,
                 });
@@ -645,6 +662,7 @@ impl ChartEvaluator {
             plots.push(EvaluatedPlot {
                 name: plot_ref.name.clone(),
                 identity: plot_ref.identity.clone(),
+                kind: plot_ref.kind,
                 rect: [rect.x, rect.y, rect.width, rect.height],
                 coords,
                 layers,
