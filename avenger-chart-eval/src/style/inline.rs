@@ -64,7 +64,6 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("NestedAxisLevel", &["show_labels", "label_angle"]),
-    ("GuideTitle", &["style"]),
     ("Labels", &["style"]),
     ("Ticks", &["count", "length", "color"]),
     ("Grid", &["color", "width"]),
@@ -480,7 +479,7 @@ fn axis_fields(
 /// The fields of an axis that an `Axis` and the axis of a colorbar share.
 struct AxisFields<'a> {
     side: i32,
-    title: Option<&'a proto::GuideTitle>,
+    title: Option<&'a proto::Title>,
     show_title: Option<bool>,
     labels: Option<&'a proto::Labels>,
     show_labels: Option<bool>,

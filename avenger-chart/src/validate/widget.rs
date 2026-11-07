@@ -9,7 +9,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 
-use super::{classes, dictionary_values, fail, named, tree::Scope, Checker, Result};
+use super::{classes, dictionary_values, fail, named, title, tree::Scope, Checker, Result};
 use crate::proto::{self, domain_fit, widget, widget_domain, SliderComparison};
 
 /// Whether a widget's domain is an interval, for a slider, or items, for a radio group and a check
@@ -54,6 +54,7 @@ impl Checker<'_> {
     ) -> Result<()> {
         named(&declared.key, &format!("{path}.key"), "the key of a widget")?;
         classes(&declared.classes, path)?;
+        title(declared.title.as_ref(), &format!("{path}.title"), false)?;
         let kind = (declared.kind.as_ref())
             .ok_or_else(|| fail(path, "the kind of a widget is required"))?;
         let kind_path = format!("{path}.{}", kind_name(kind));

@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/side.proto";
 
 // The facet of a concat or a wrap: the partition column that its children split, and the header
@@ -38,8 +38,10 @@ message Facet {
 // one column below one concat match the thickness of their labels, so their titles line up whether
 // or not a header has a rule. A style field that is absent takes its value from the styles.
 message FacetHeader {
-  // The title. When its text is absent, the title is the facet's column.
-  GuideTitle title = 1;
+  // The title. When absent, the title is the facet's column.
+  Title title = 1;
+  // Whether the header shows its title. When absent, the styles decide.
+  optional bool show_title = 11;
   // The side of the children. A concat in a row takes the top or the bottom, a concat in a column
   // takes the left or the right, and a wrap takes any side of each child. When absent, a row and a
   // wrap have the header at the top, and a column at the right.

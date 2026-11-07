@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/value.proto";
@@ -43,8 +43,10 @@ message Widget {
   // The key, which lines the declaration up with the other copies of the widget. Required. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
   string key = 1;
-  // The title. When its text is absent, the title is the name of the target's column.
-  GuideTitle title = 2;
+  // The title. When absent, the title is the name of the target's column.
+  Title title = 2;
+  // Whether the widget shows its title. When absent, the styles decide.
+  optional bool show_title = 5;
   // The side of the plot or the concat that the widget stands on. When absent, the styles give it.
   Side side = 3;
   // The class names of the widget, which a stylesheet selects with `.name`, as the HTML `class`

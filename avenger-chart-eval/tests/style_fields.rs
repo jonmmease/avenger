@@ -74,7 +74,6 @@ const CONTENT: &[(&str, &[&str])] = &[
     // style tree holds.
     ("Axis", &["show"]),
     ("PartRule", &["part", "rule"]),
-    ("GuideTitle", &["text", "syntax"]),
     ("Labels", &["format", "markup"]),
     ("Ticks", &["interval", "values"]),
     ("TickInterval", &["numeric", "calendar"]),

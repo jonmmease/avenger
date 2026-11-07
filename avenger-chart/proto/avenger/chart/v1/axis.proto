@@ -4,7 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/side.proto";
@@ -22,11 +22,12 @@ import "avenger/chart/v1/style.proto";
 // a polar axis, and `angle`, `route`, and `label_orient` on a Cartesian axis.
 message Axis {
   // Whether the scale draws this axis. When absent, it does. `false` draws no axis, as an absent
-  // axis of `theta` or `radius` draws none; an absent axis of `x` or `y` draws the default axis.
+  // axis of `theta` or `radius` draws none, and an absent axis of `x` or `y` draws the default
+  // axis.
   optional bool show = 16;
-  // The title. When its text is absent, the axis takes the titles of the encodings of its scale, as
+  // The title. When absent, the axis takes the titles of the encodings of its scale, as
   // `Encoding.title` describes.
-  GuideTitle title = 1;
+  Title title = 1;
   // Whether the axis shows its title. When absent, the styles decide.
   optional bool show_title = 17;
   // The side of a Cartesian plot. When absent, `x` has its axis at the bottom and `y` at the left,

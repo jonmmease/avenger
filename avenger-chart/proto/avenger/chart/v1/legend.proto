@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/guide_element.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
@@ -30,9 +30,9 @@ message Legend {
   // The form of the legend. When absent, a continuous scale of `color`, `fill`, or `stroke` has a
   // colorbar, and another scale has a symbol legend.
   LegendForm form = 13;
-  // The title. When its text is absent, the legend takes the titles of the encodings of its scale,
-  // as `Encoding.title` describes.
-  GuideTitle title = 1;
+  // The title. When absent, the legend takes the titles of the encodings of its scale, as
+  // `Encoding.title` describes.
+  Title title = 1;
   // Whether the legend shows its title. When absent, the styles decide.
   optional bool show_title = 24;
   // The labels of the entries, where `#value` is the formatted entry, or the formatted range of

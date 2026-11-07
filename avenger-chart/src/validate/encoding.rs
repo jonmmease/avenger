@@ -13,8 +13,8 @@ use arrow::{
 };
 
 use super::{
-    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, within,
-    Checker, Result,
+    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, title,
+    within, Checker, Result,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
@@ -669,6 +669,7 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<()> {
         let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
+        title(axis.title.as_ref(), &format!("{path}.title"), false)?;
         let polar_orient = matches!(axis.label_turn, Some(axis::LabelTurn::LabelOrient(_)));
         match (kind, channel) {
             (CoordKind::Cartesian, Channel::X | Channel::Y) => {
@@ -732,6 +733,7 @@ impl Checker<'_> {
             ));
         }
         classes(&legend.classes, path)?;
+        title(legend.title.as_ref(), &format!("{path}.title"), false)?;
         let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);
         let colorbar = match LegendForm::try_from(legend.form).unwrap_or_default() {
             LegendForm::Colorbar => true,

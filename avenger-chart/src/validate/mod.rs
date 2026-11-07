@@ -329,6 +329,33 @@ fn is_string(data_type: &DataType) -> bool {
     )
 }
 
+/// Checks a title at `path`: its text is not empty, and the title of a part other than a node,
+/// such as an axis, has none of the fields that place the title of a node and give its subtitle.
+fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
+    let Some(title) = title else { return Ok(()) };
+    if title.text.is_empty() {
+        return Err(fail(
+            format!("{path}.text"),
+            "the text of a title is required, and `show_title: false` hides a title",
+        ));
+    }
+    if !node {
+        let fields = [
+            ("side", title.side != 0),
+            ("align", title.align != 0),
+            ("subtitle", !title.subtitle.is_empty()),
+            ("subtitle_style", title.subtitle_style.is_some()),
+        ];
+        if let Some((field, _)) = fields.iter().find(|(_, set)| *set) {
+            return Err(fail(
+                format!("{path}.{field}"),
+                "only the title of a plot, a concat, or a wrap has a side, an alignment, or a subtitle",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Checks the class names of a node, which stylesheets select: each is not empty and holds no
 /// whitespace.
 fn classes(classes: &[String], path: &str) -> Result<()> {

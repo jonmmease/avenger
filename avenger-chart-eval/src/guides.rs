@@ -218,8 +218,8 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
 }
 
 /// The title of a guide: its own text, or the default title of its scale.
-fn guide_title(title: Option<&proto::GuideTitle>, default: impl FnOnce() -> String) -> String {
-    match title.and_then(|title| title.text.clone()) {
+fn guide_title(title: Option<&proto::Title>, default: impl FnOnce() -> String) -> String {
+    match title.map(|title| title.text.clone()) {
         Some(text) => text,
         None => default(),
     }

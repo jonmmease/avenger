@@ -28,7 +28,7 @@ use prost_types::{
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
 };
 
-const PROTOS: [&str; 26] = [
+const PROTOS: [&str; 25] = [
     "annotation",
     "attribution",
     "axis",
@@ -38,7 +38,6 @@ const PROTOS: [&str; 26] = [
     "encoding",
     "facet",
     "geo",
-    "guide_element",
     "tool",
     "legend",
     "mark",

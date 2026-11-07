@@ -1324,3 +1324,32 @@ fn a_band_placement_needs_a_band_of_its_position() {
         "through a nested band scale",
     );
 }
+
+#[test]
+fn a_title_has_text() {
+    let mut parts = base();
+    plot_mut(&mut parts.0).title = Some(proto::Title::default());
+    invalid(
+        parts,
+        "root.plot.title.text",
+        "the text of a title is required",
+    );
+}
+
+#[test]
+fn only_the_title_of_a_node_has_a_subtitle() {
+    let mut parts = base();
+    x_scale(&mut parts.0).axis = Some(proto::Axis {
+        title: Some(proto::Title {
+            text: "x".to_string(),
+            subtitle: "units".to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    invalid(
+        parts,
+        &format!("{X}.scale.axis.title.subtitle"),
+        "only the title of a plot",
+    );
+}

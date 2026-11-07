@@ -3,7 +3,9 @@
 
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
-use super::{classes, fail, keyed, named, non_negative, positive, size, within, Checker, Result};
+use super::{
+    classes, fail, keyed, named, non_negative, positive, size, title, within, Checker, Result,
+};
 use crate::{
     layer::{CoordKind, LayerRef},
     proto::{
@@ -50,6 +52,7 @@ impl Checker<'_> {
     fn concat(&self, concat: &proto::Concat, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&concat.partition, path)?;
         classes(&concat.classes, path)?;
+        title(concat.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&concat.resolve, path)?;
         if let Some(layout) = &concat.layout {
             let path = format!("{path}.layout");
@@ -76,7 +79,9 @@ impl Checker<'_> {
                 "the column of a facet",
             )?;
             if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                classes(&header.classes, &format!("{path}.facet.shown"))?;
+                let path = format!("{path}.facet.shown");
+                classes(&header.classes, &path)?;
+                title(header.title.as_ref(), &format!("{path}.title"), false)?;
             }
         }
         let scope = scope.with(&concat.partition, false);
@@ -89,6 +94,7 @@ impl Checker<'_> {
     fn wrap(&self, wrap: &proto::Wrap, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&wrap.partition, path)?;
         classes(&wrap.classes, path)?;
+        title(wrap.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&wrap.resolve, path)?;
         if let Some(layout) = &wrap.layout {
             let path = format!("{path}.layout");
@@ -112,7 +118,9 @@ impl Checker<'_> {
                 "the column of a facet",
             )?;
             if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                classes(&header.classes, &format!("{path}.facet.shown"))?;
+                let path = format!("{path}.facet.shown");
+                classes(&header.classes, &path)?;
+                title(header.title.as_ref(), &format!("{path}.title"), false)?;
             }
         }
         let scope = scope.with(&wrap.partition, true);
@@ -125,6 +133,7 @@ impl Checker<'_> {
     fn plot(&self, plot: &proto::Plot, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&plot.partition, path)?;
         classes(&plot.classes, path)?;
+        title(plot.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&plot.resolve, path)?;
         size(plot.width, &format!("{path}.width"))?;
         size(plot.height, &format!("{path}.height"))?;
