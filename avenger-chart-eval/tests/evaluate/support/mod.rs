@@ -12,15 +12,11 @@ use avenger_style::{Cascade, Env, HostInputs, ParseOptions, Sheet, SourceId, Sty
 use avenger_svg::SvgRenderer;
 use avenger_typst_label::{EngineOptions, LabelEngine};
 
-mod charts;
 mod data;
 mod scenes;
-mod selections;
 
-pub(crate) use charts::*;
 pub(crate) use data::*;
 pub(crate) use scenes::*;
-pub(crate) use selections::*;
 
 pub(crate) fn engine() -> LabelEngine {
     LabelEngine::new(EngineOptions {
