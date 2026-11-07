@@ -244,8 +244,8 @@ The initial values of the table hold on every node except these, where they depe
 | `range` | `auto \| <output>#` | `auto` | no | `scale` |
 | `unknown` | `auto \| <output>` | `auto` | no | `scale` |
 | `other` | `auto \| <output>` | `auto` | no | `scale` |
-| `padding-inner` | `<number [0,1]>` | `0.1` | no | `scale` |
-| `padding-outer` | `<number [0,∞]>` | `0.05` | no | `scale` |
+| `padding-inner` | `<number [0,∞]> \| <number [0,∞]>{2,8}` | `0.1` | no | `scale` |
+| `padding-outer` | `<number [0,∞]> \| <number [0,∞]>{2,8}` | `0.05` | no | `scale` |
 <!-- /properties -->
 
 ## Diagnostics

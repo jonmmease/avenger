@@ -18,6 +18,9 @@ const NON_NEGATIVE: Syntax = Syntax::Number {
     min: Some(0.0),
     max: None,
 };
+/// The paddings of a scale: one number, or one for each level of a nested band scale, outermost
+/// first.
+const PADDINGS: Syntax = Syntax::Any(&[NON_NEGATIVE, Syntax::Repeat(&NON_NEGATIVE, 2, 8)]);
 const POSITIVE_INTEGER: Syntax = Syntax::Integer { min: 1 };
 const SIZE_OR_AUTO: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["auto"])]);
 const SIZE_OR_NONE: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["none"])]);
@@ -309,8 +312,8 @@ properties! {
     Range = "range", false, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::OutputList]), "auto", SCALE;
     Unknown = "unknown", false, OUTPUT_OR_AUTO, "auto", SCALE;
     Other = "other", false, OUTPUT_OR_AUTO, "auto", SCALE;
-    PaddingInner = "padding-inner", false, UNIT, "0.1", SCALE;
-    PaddingOuter = "padding-outer", false, NON_NEGATIVE, "0.05", SCALE;
+    PaddingInner = "padding-inner", false, PADDINGS, "0.1", SCALE;
+    PaddingOuter = "padding-outer", false, PADDINGS, "0.05", SCALE;
 }
 
 impl Property {

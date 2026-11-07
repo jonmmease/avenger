@@ -102,6 +102,14 @@ scale[channel=size] { range: 9, 361; }
 scale[channel=size][marks~=text] { range: 8, 40; }
 scale[channel=size][marks~=trail] { range: 1, 10; }
 
+/* Band paddings: the cells of a heatmap touch, and the groups of a nested band scale stand half a
+   bar apart while the bars of a group keep the gap of other bars. */
+scale:is([channel=x], [channel=y])[type=band][marks~=rect]:not([marks~=bar]) {
+  padding-inner: 0;
+  padding-outer: 0;
+}
+scale[type=nested_band] { padding-inner: 0.5 0.1; padding-outer: 0; }
+
 /* Focus: a 2px ring, 2px outside the focused node. */
 :focus-visible {
   outline: 2 solid contrast-color(env(background, white));

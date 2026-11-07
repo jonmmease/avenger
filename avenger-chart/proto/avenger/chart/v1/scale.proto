@@ -224,9 +224,9 @@ message PointScale {
 // A band scale of nested categories: structs with one field for each level, outermost first, whose
 // last field is the leaf. The bands of each level nest in the bands of its parent, as the groups
 // and the bars of a grouped bar chart. Every gap is in leaf steps, so a nested band scale of one
-// level places its categories as a band scale with the same options does. Its paddings do not come
-// from the styles. A mark stands in the band of the leaf, or of the level that the `band_level` of
-// its encoding names, as for a band scale.
+// level places its categories as a band scale with the same options does. Its paddings are style
+// fields, as those of a band scale are. A mark stands in the band of the leaf, or of the level that
+// the `band_level` of its encoding names, as for a band scale.
 message NestedBandScale {
   // As for `BandScale.align`.
   optional double align = 1;
@@ -237,11 +237,12 @@ message NestedBandScale {
   // The space between two bands of a level. At the leaf level, a fraction of the step from 0 to 1,
   // as for `BandScale.padding_inner`, and at an outer level, the gap between its groups in leaf
   // steps, at least 0. One entry applies to every level, and more entries apply to one level each,
-  // outermost first. When it is empty, 0.
+  // outermost first. When it is empty, the styles give it, as the `padding-inner` of the scale.
   repeated double padding_inner = 3;
   // The space before the first band of a level and after its last, in leaf steps, at least 0:
   // inside each parent for an inner level, and at the ends of the range for the outermost. One
-  // entry or one for each level, as for `padding_inner`. When it is empty, 0.
+  // entry or one for each level, as for `padding_inner`. When it is empty, the styles give it, as
+  // the `padding-outer` of the scale.
   repeated double padding_outer = 4;
   // Whether the scale rounds the step and the start of the bands to whole pixels, and the leaf band
   // to the nearest pixel. When absent, it does not.

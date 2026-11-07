@@ -217,6 +217,32 @@ fn group_totals_span_their_groups_behind_their_members() {
 
 /// A custom scale fits the kind of summary that its implementation states, so a custom scale of
 /// categories on `y` runs down its plot, with its first category at the top.
+/// Grouped bars take the paddings of the base stylesheet: groups half a bar apart, and the bars
+/// of a group a tenth of a step apart.
+#[test]
+fn grouped_bars_take_the_paddings_of_the_styles() {
+    let sales = RecordBatch::try_from_iter([
+        (
+            "key",
+            region_paths(
+                &["East", "East", "East", "West", "West"],
+                &[
+                    Some("Web"),
+                    Some("Store"),
+                    Some("Phone"),
+                    Some("Web"),
+                    Some("Store"),
+                ],
+            ),
+        ),
+        ("sales", numbers(&[3.0, 5.0, 2.0, 4.0, 1.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(sales, BarMark::builder().x("key").y("sales"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [320.0, 240.0], "grouped-bars-styles");
+}
+
 #[test]
 fn a_custom_scale_of_categories_runs_down_the_plot() {
     let symbols = CartesianLayer::symbol(

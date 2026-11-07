@@ -315,8 +315,6 @@ const CONTENT: &[(&str, &[&str])] = &[
         &[
             "align",
             "nest_scopes",
-            "padding_inner",
-            "padding_outer",
             "round",
             "clip_padding_lower",
             "clip_padding_upper",
