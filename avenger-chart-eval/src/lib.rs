@@ -21,6 +21,7 @@ mod reach;
 mod registry;
 mod state;
 mod style;
+mod widgets;
 
 pub use error::{EvalError, EvalWarning};
 pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot, PreparedChart};
@@ -28,6 +29,9 @@ pub use geo::{ProjectionNavigation, ProjectionView};
 pub use registry::Registry;
 pub use state::{
     Carry, Fit, Fitted, ProjectionIdentity, ScaleIdentity, ScaleNavigation, UpdateOptions, Views,
+};
+pub use widgets::{
+    Control, ControlState, ControlView, EvaluatedWidget, SliderComparison, WidgetSpec, WidgetValue,
 };
 
 /// Compiles the README's examples.

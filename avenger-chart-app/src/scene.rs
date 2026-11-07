@@ -54,6 +54,7 @@ impl AppBuild<ChartAppState> for ChartBuild {
             .map_err(app_error)?;
         state.plots = evaluated.plots;
         state.warnings = evaluated.warnings;
+        state.controls.set(evaluated.widgets);
         selections::refocus(state);
         scenes.set(
             CHART_SCENE,

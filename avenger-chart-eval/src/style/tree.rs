@@ -61,6 +61,9 @@ pub(crate) struct StyleNodes {
     /// The `header` of each concat or wrap with a shown facet header, by the path of the concat
     /// or the wrap.
     pub(crate) headers: HashMap<String, HeaderNodes>,
+    /// The `widget` of each widget group, under the `plot` of the node that holds the group, in
+    /// the order of `Resolved::widgets`.
+    pub(crate) widgets: Vec<NodeId>,
 }
 
 impl StyleNodes {
@@ -166,6 +169,18 @@ pub(crate) fn build(
         store_marks(&mut tree, plot_node, resolved, plot_ref);
     }
 
+    let mut widgets = Vec::with_capacity(resolved.widgets.len());
+    for group in &resolved.widgets {
+        let owner = nodes[owner_path(&nodes, &group.owner)].plot;
+        let node = tree.add(owner, Element::Widget);
+        if let Some(kind) = &group.widget.kind {
+            tree.set_attribute(node, "type", crate::widgets::kind_name(kind));
+        }
+        tree.set_attribute(node, "key", group.key.clone());
+        identify(&mut tree, node, "", &group.widget.classes);
+        widgets.push(node);
+    }
+
     let nodes = StyleNodes {
         chart: chart_node,
         nodes,
@@ -174,6 +189,7 @@ pub(crate) fn build(
         scales,
         guides,
         headers,
+        widgets,
     };
     (tree.tree, nodes, tree.warnings)
 }
