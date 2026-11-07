@@ -684,3 +684,148 @@ fn combined_charts_share_the_widgets_that_they_declare() {
         assert!(resolved.widgets[0].anchor.is_none());
     }
 }
+
+#[test]
+fn a_wrapped_facet_of_partitions() {
+    let cars = RecordBatch::try_from_iter([
+        (
+            "origin",
+            Arc::new(StringArray::from(vec!["USA", "Japan", "USA", "Europe"])) as ArrayRef,
+        ),
+        (
+            "weight",
+            Arc::new(Float64Array::from(vec![3.5, 2.2, 4.1, 2.8])) as ArrayRef,
+        ),
+        (
+            "mpg",
+            Arc::new(Float64Array::from(vec![18.0, 31.0, 15.0, 26.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+
+    // One panel of `mpg` against `weight` for each origin, in a wrap that facets the origins.
+    let panels = Node::partitions(&cars, "origin", PartitionOrder::Ascending, |rows| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("weight"))
+                .y(Encoding::scaled_column("mpg")),
+        )
+        .table(rows);
+        Ok(Plot::cartesian(CartesianPlot::builder().layers([symbols])).id("panel"))
+    })
+    .unwrap();
+    let chart = Chart::builder()
+        .root(
+            Wrap::builder()
+                .facet(Facet::builder().column("origin"))
+                .children(panels),
+        )
+        .infer_scales()
+        .build()
+        .unwrap();
+
+    let Some(node::Node::Wrap(wrap)) = &chart.root().node else {
+        panic!("the root is a wrap")
+    };
+    let resolved = chart.resolve();
+    let expected = [
+        ("Europe", vec![2.8]),
+        ("Japan", vec![2.2]),
+        ("USA", vec![3.5, 4.1]),
+    ];
+    assert_eq!(wrap.children.len(), expected.len());
+    for (index, (origin, weights)) in expected.iter().enumerate() {
+        let partition = &resolved.tree.partitions[&format!("root.wrap.children[{index}].plot")];
+        assert_eq!(partition["origin"].as_string::<i32>().value(0), *origin);
+        let Some(node::Node::Plot(plot)) = &wrap.children[index].node else {
+            panic!("each panel is a plot")
+        };
+        let table = &chart.tables()[layers(plot)[0].table.unwrap().index as usize];
+        let column = table.column_by_name("weight").unwrap();
+        assert_eq!(
+            column.as_primitive::<Float64Type>().values(),
+            weights.as_slice()
+        );
+    }
+}
+
+#[test]
+fn a_facet_grid_of_nested_partitions() {
+    // West has no store sales, so its row has no store cell.
+    let sales = RecordBatch::try_from_iter([
+        (
+            "region",
+            Arc::new(StringArray::from(vec!["East", "East", "West"])) as ArrayRef,
+        ),
+        (
+            "channel",
+            Arc::new(StringArray::from(vec!["web", "store", "web"])) as ArrayRef,
+        ),
+        (
+            "amount",
+            Arc::new(Float64Array::from(vec![10.0, 20.0, 30.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+
+    // A column that facets the regions, of rows that facet the channels, of a bar for each cell.
+    let rows = Node::partitions(&sales, "region", PartitionOrder::Ascending, |region| {
+        let cells = Node::partitions(&region, "channel", PartitionOrder::Ascending, |cell| {
+            let bars = CartesianLayer::bar(
+                BarMark::builder()
+                    .x(Encoding::scaled_column("channel"))
+                    .y(Encoding::scaled_column("amount")),
+            )
+            .table(cell);
+            Ok(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        })?;
+        Ok(Concat::builder()
+            .direction(Direction::Row)
+            .facet(Facet::builder().column("channel"))
+            .children(cells))
+    })
+    .unwrap();
+    let chart = Chart::builder()
+        .root(
+            Concat::builder()
+                .direction(Direction::Column)
+                .facet(Facet::builder().column("region"))
+                .children(rows),
+        )
+        .infer_scales()
+        .build()
+        .unwrap();
+
+    let Some(node::Node::Concat(column)) = &chart.root().node else {
+        panic!("the root is a concat")
+    };
+    let resolved = chart.resolve();
+    let value = |path: &str, key: &str| {
+        resolved.tree.partitions[path][key]
+            .as_string::<i32>()
+            .value(0)
+            .to_string()
+    };
+    let grid: Vec<(String, Vec<String>)> = (column.children.iter().enumerate())
+        .map(|(row, child)| {
+            let Some(node::Node::Concat(cells)) = &child.node else {
+                panic!("each row is a concat")
+            };
+            let row_path = format!("root.concat.children[{row}].concat");
+            let channels = (0..cells.children.len())
+                .map(|cell| value(&format!("{row_path}.children[{cell}].plot"), "channel"))
+                .collect();
+            (value(&row_path, "region"), channels)
+        })
+        .collect();
+    assert_eq!(
+        grid,
+        [
+            (
+                "East".to_string(),
+                vec!["store".to_string(), "web".to_string()]
+            ),
+            ("West".to_string(), vec!["web".to_string()]),
+        ]
+    );
+}
