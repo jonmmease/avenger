@@ -46,8 +46,8 @@ use super::{
 pub struct PointScale;
 
 /// The length of the range in steps: the spaces between the points and the padding at the ends, so
-/// a scale whose step is `s` pixels fills a range of `s` times the span.
-pub fn span(config: &ScaleConfig) -> f64 {
+/// a scale whose step is `s` pixels fills a range `s` times this long, in pixels.
+pub fn steps(config: &ScaleConfig) -> f64 {
     super::band::bandspace(
         config.domain.len(),
         Some(1.0),

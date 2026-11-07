@@ -55,13 +55,13 @@ fn layout_side(side: GuideSide) -> Side {
 pub(crate) fn natural_length(scale: &ConfiguredScale, step: f32) -> Option<f32> {
     use avenger_scales::scales::{band, nested_band::NestedBandLayout, point};
     let config = &scale.config;
-    let span = match scale.scale_impl.scale_type() {
-        "band" => band::span(config),
-        "point" => point::span(config),
-        "nested_band" => NestedBandLayout::from_config(config).ok()?.span(),
+    let steps = match scale.scale_impl.scale_type() {
+        "band" => band::steps(config),
+        "point" => point::steps(config),
+        "nested_band" => NestedBandLayout::from_config(config).ok()?.steps(),
         _ => return None,
     };
-    (span > 0.0).then_some(step * span as f32)
+    (steps > 0.0).then_some(step * steps as f32)
 }
 
 /// The plot's leaf with the slabs of its guides. `natural` holds the natural width and height that
