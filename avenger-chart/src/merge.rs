@@ -1,4 +1,4 @@
-//! The merge of the scale specs of a shared scale by the agreement rule of `ScaleSpec`: the specs
+//! The merge of the scale specs of a shared scale by the agreement rule of `Scale`: the specs
 //! of the layers that share a scale must agree, and the merged spec takes each field, at every
 //! depth, that one of them sets.
 //!
@@ -6,7 +6,7 @@
 //! the fits from the descriptors of the format, so a field that the format adds merges by the rule
 //! of its kind.
 
-use crate::proto::{self, domain, scale_spec};
+use crate::proto::{self, domain, scale};
 
 /// Why two specs disagree, as the end of a sentence about them, such as "set `range` to
 /// different values".
@@ -131,11 +131,7 @@ include!(concat!(env!("OUT_DIR"), "/merge.rs"));
 /// field by field into the domain of `merged`, and explicit and selection domains must be equal.
 /// The range and the navigation that one spec sets is the merged value, and those that both set
 /// must be equal. The options of the type and the guide merge field by field.
-pub(crate) fn merge(
-    merged: &mut proto::ScaleSpec,
-    other: &proto::ScaleSpec,
-    same: &SameValue,
-) -> Merged {
+pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &SameValue) -> Merged {
     merge_type(&mut merged.r#type, &other.r#type, same)?;
     merge_domain(&mut merged.domain, other.domain.as_ref(), same)?;
     optional(&mut merged.range, &other.range, "range").or_else(|reason| {
@@ -173,11 +169,11 @@ pub(crate) fn merge(
 
 /// The type of both specs, with its options merged.
 fn merge_type(
-    merged: &mut Option<scale_spec::Type>,
-    other: &Option<scale_spec::Type>,
+    merged: &mut Option<scale::Type>,
+    other: &Option<scale::Type>,
     same: &SameValue,
 ) -> Merged {
-    use scale_spec::Type;
+    use scale::Type;
     let (Some(merged_type), Some(other)) = (merged.as_mut(), other.as_ref()) else {
         return Ok(());
     };

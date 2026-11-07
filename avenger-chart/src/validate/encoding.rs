@@ -20,7 +20,7 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
         self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        interval_fit, legend, navigation_limits, polar_layer, range, scale_spec, selection_domain,
+        interval_fit, legend, navigation_limits, polar_layer, range, scale, selection_domain,
         Channel,
     },
     resolve::scale_channel,
@@ -42,8 +42,8 @@ pub enum FitKind {
 impl FitKind {
     /// The kind of fit of the scale type `scale_type`, or `None` for a custom scale, whose kind
     /// its renderer knows.
-    pub fn of(scale_type: &scale_spec::Type) -> Option<Self> {
-        use scale_spec::Type;
+    pub fn of(scale_type: &scale::Type) -> Option<Self> {
+        use scale::Type;
         Some(match scale_type {
             Type::Linear(_)
             | Type::Log(_)
@@ -71,8 +71,8 @@ enum DomainValues {
     Any,
 }
 
-fn domain_values(scale_type: &scale_spec::Type) -> DomainValues {
-    use scale_spec::Type;
+fn domain_values(scale_type: &scale::Type) -> DomainValues {
+    use scale::Type;
     match scale_type {
         Type::Linear(_)
         | Type::Log(_)
@@ -99,8 +99,8 @@ fn takes_values(values: DomainValues, data_type: &DataType) -> bool {
 }
 
 /// The name of a scale type in errors.
-fn type_name(scale_type: &scale_spec::Type) -> &'static str {
-    use scale_spec::Type;
+fn type_name(scale_type: &scale::Type) -> &'static str {
+    use scale::Type;
     match scale_type {
         Type::Linear(_) => "linear",
         Type::Log(_) => "log",
@@ -120,8 +120,8 @@ fn type_name(scale_type: &scale_spec::Type) -> &'static str {
 
 /// Whether the legends and colorbars of a scale type show ticks, unlike the bins of quantize,
 /// quantile, and threshold scales.
-fn ticked(scale_type: &scale_spec::Type) -> bool {
-    use scale_spec::Type;
+fn ticked(scale_type: &scale::Type) -> bool {
+    use scale::Type;
     matches!(
         scale_type,
         Type::Linear(_) | Type::Log(_) | Type::Pow(_) | Type::Symlog(_) | Type::Time(_)
@@ -372,14 +372,14 @@ impl Checker<'_> {
 
     fn scale(
         &self,
-        spec: &proto::ScaleSpec,
+        spec: &proto::Scale,
         channel: Channel,
         kind: CoordKind,
         value_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        let scale_type = (spec.r#type.as_ref())
-            .ok_or_else(|| fail(path, "the type of a scale spec is required"))?;
+        let scale_type =
+            (spec.r#type.as_ref()).ok_or_else(|| fail(path, "the type of a scale is required"))?;
         scale_options(scale_type, value_type, path)?;
         let values = domain_values(scale_type);
         if !takes_values(values, value_type) {
@@ -399,7 +399,7 @@ impl Checker<'_> {
             None => {
                 return Err(fail(
                     format!("{path}.domain"),
-                    "the domain of a scale spec is required",
+                    "the domain of a scale is required",
                 ))
             }
             Some(domain::Domain::Explicit(value)) => {
@@ -463,8 +463,7 @@ impl Checker<'_> {
         }
         if let Some(navigation) = &spec.navigation_limits {
             let path = format!("{path}.navigation_limits");
-            let continuous =
-                ticked(scale_type) || matches!(scale_type, scale_spec::Type::Custom(_));
+            let continuous = ticked(scale_type) || matches!(scale_type, scale::Type::Custom(_));
             if !(matches!(channel, Channel::X | Channel::Y) && continuous) {
                 return Err(fail(
                     &path,
@@ -504,7 +503,7 @@ impl Checker<'_> {
     fn explicit(
         &self,
         value: &proto::ValueRef,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         path: &str,
     ) -> Result<ArrayRef> {
         let array = self.values.list(value, path)?;
@@ -529,7 +528,7 @@ impl Checker<'_> {
                 ),
             ));
         }
-        if fit == Some(FitKind::Interval) || matches!(scale_type, scale_spec::Type::Threshold(_)) {
+        if fit == Some(FitKind::Interval) || matches!(scale_type, scale::Type::Threshold(_)) {
             ascends(&array, path)?;
         }
         Ok(array)
@@ -540,7 +539,7 @@ impl Checker<'_> {
     fn summary(
         &self,
         summary: &proto::SummaryDomain,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         path: &str,
     ) -> Result<()> {
         if let Some(fit) = &summary.fit {
@@ -587,12 +586,7 @@ impl Checker<'_> {
     }
 
     /// Checks a data domain: its scale summarizes data, and its fit.
-    fn data(
-        &self,
-        data: &proto::DataDomain,
-        scale_type: &scale_spec::Type,
-        path: &str,
-    ) -> Result<()> {
+    fn data(&self, data: &proto::DataDomain, scale_type: &scale::Type, path: &str) -> Result<()> {
         data_domain(scale_type, path)?;
         match &data.fit {
             Some(fit) => self.fit(fit, scale_type, &format!("{path}.fit")),
@@ -600,7 +594,7 @@ impl Checker<'_> {
         }
     }
 
-    fn fit(&self, fit: &proto::DomainFit, scale_type: &scale_spec::Type, path: &str) -> Result<()> {
+    fn fit(&self, fit: &proto::DomainFit, scale_type: &scale::Type, path: &str) -> Result<()> {
         let kind = FitKind::of(scale_type);
         match fit.fit.as_ref() {
             Some(domain_fit::Fit::Interval(interval))
@@ -639,7 +633,7 @@ impl Checker<'_> {
                 match categories.order.as_ref() {
                     Some(category_fit::Order::Sort(_)) => Ok(()),
                     Some(category_fit::Order::Preferred(value)) => {
-                        if matches!(scale_type, scale_spec::Type::NestedBand(_)) {
+                        if matches!(scale_type, scale::Type::NestedBand(_)) {
                             return Err(fail(
                                 &path,
                                 "a preferred order is invalid on a nested band scale",
@@ -670,7 +664,7 @@ impl Checker<'_> {
         guide: &guide::Guide,
         channel: Channel,
         kind: CoordKind,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -757,7 +751,7 @@ impl Checker<'_> {
     fn axis(
         &self,
         axis: &proto::Axis,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -771,7 +765,7 @@ impl Checker<'_> {
     fn levels(
         &self,
         levels: &[proto::NestedAxisLevel],
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -779,7 +773,7 @@ impl Checker<'_> {
             return Ok(());
         }
         let path = format!("{path}.levels");
-        if !matches!(scale_type, scale_spec::Type::NestedBand(_)) {
+        if !matches!(scale_type, scale::Type::NestedBand(_)) {
             return Err(fail(
                 &path,
                 "levels are valid only on the axis of a nested band scale",
@@ -812,7 +806,7 @@ impl Checker<'_> {
     fn colorbar_axis(
         &self,
         axis: &proto::ColorbarAxis,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -842,14 +836,14 @@ impl Checker<'_> {
     fn ticks(
         &self,
         ticks: Option<&proto::GuideTicks>,
-        scale_type: &scale_spec::Type,
+        scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
         let Some(ticks) = ticks else { return Ok(()) };
         let path = format!("{path}.ticks");
         non_negative(ticks.length.map(f64::from), &format!("{path}.length"))?;
-        use scale_spec::Type;
+        use scale::Type;
         match (scale_type, &ticks.at) {
             (Type::NestedBand(_), Some(at)) => {
                 return Err(fail(
@@ -903,8 +897,8 @@ impl Checker<'_> {
 }
 
 /// Checks the options of a scale type, whose values have type `value_type`.
-fn scale_options(scale_type: &scale_spec::Type, value_type: &DataType, path: &str) -> Result<()> {
-    use scale_spec::Type;
+fn scale_options(scale_type: &scale::Type, value_type: &DataType, path: &str) -> Result<()> {
+    use scale::Type;
     let fraction = |value: Option<f64>, at: &str| within(value, 0.0, 1.0, &format!("{path}.{at}"));
     match scale_type {
         Type::Log(log) => {
@@ -1012,8 +1006,8 @@ fn scale_options(scale_type: &scale_spec::Type, value_type: &DataType, path: &st
     Ok(())
 }
 
-fn data_domain(scale_type: &scale_spec::Type, path: &str) -> Result<()> {
-    if matches!(scale_type, scale_spec::Type::Threshold(_)) {
+fn data_domain(scale_type: &scale::Type, path: &str) -> Result<()> {
+    if matches!(scale_type, scale::Type::Threshold(_)) {
         return Err(fail(
             path,
             "a data domain is invalid on a threshold scale, whose domain is explicit",
@@ -1180,7 +1174,7 @@ fn is_band(encoding: &proto::Encoding) -> bool {
             .scale
             .as_ref()
             .and_then(|scale| scale.r#type.as_ref()),
-        Some(scale_spec::Type::Band(_))
+        Some(scale::Type::Band(_))
     )
 }
 
@@ -1389,8 +1383,8 @@ fn band_placement(
         return Ok(());
     }
     let scale_type = (encoding.scale.as_ref()).and_then(|scale| scale.r#type.as_ref());
-    let nested = matches!(scale_type, Some(scale_spec::Type::NestedBand(_)));
-    let banded = nested || matches!(scale_type, Some(scale_spec::Type::Band(_)));
+    let nested = matches!(scale_type, Some(scale::Type::NestedBand(_)));
+    let banded = nested || matches!(scale_type, Some(scale::Type::Band(_)));
     let positioned = matches!(
         channel,
         Channel::X | Channel::Y | Channel::Theta | Channel::Radius

@@ -13,9 +13,9 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    build::{self, ChartParts},
-    proto::{self, cartesian_layer::Mark, domain, scale_spec, Channel, Encoding},
-    Chart, MarkMessage,
+    prelude::*,
+    proto::{domain, node, plot, scale},
+    MarkMessage,
 };
 
 /// A table with a column of each kind of values: `number`, `time`, `date`, `duration`, `name`,
@@ -61,24 +61,12 @@ fn table() -> RecordBatch {
     .unwrap()
 }
 
-/// The chart message of one layer of `mark`, with its scales inferred.
-fn inferred(mark: Mark) -> proto::Chart {
-    let layer = proto::CartesianLayer {
-        table: Some(proto::TableRef { index: 0 }),
-        mark: Some(mark),
-        ..Default::default()
-    };
-    let mut message = build::message(build::cartesian(vec![layer]));
-    build::infer_scales(&mut message, &[table()], &[]);
-    message
-}
-
 /// The encoding of `channel` of the first layer of `message`.
-fn encoding(message: &proto::Chart, channel: Channel) -> Encoding {
-    let Some(proto::node::Node::Plot(plot)) = &message.root.as_ref().unwrap().node else {
+fn encoding(message: &ChartMessage, channel: Channel) -> Encoding {
+    let Some(node::Node::Plot(plot)) = &message.root.as_ref().unwrap().node else {
         panic!("the root is a plot")
     };
-    let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+    let Some(plot::Coord::Cartesian(cartesian)) = &plot.coord else {
         panic!("the plot is Cartesian")
     };
     let mark = cartesian.layers[0].mark.as_ref().unwrap() as &dyn MarkMessage;
@@ -87,7 +75,7 @@ fn encoding(message: &proto::Chart, channel: Channel) -> Encoding {
 
 /// The name of the scale type of `encoding`, or `None` without one.
 fn type_name(encoding: &Encoding) -> Option<&'static str> {
-    use scale_spec::Type;
+    use scale::Type;
     Some(match encoding.scale.as_ref()?.r#type.as_ref()? {
         Type::Linear(_) => "linear",
         Type::Time(_) => "time",
@@ -97,26 +85,6 @@ fn type_name(encoding: &Encoding) -> Option<&'static str> {
         Type::Ordinal(_) => "ordinal",
         _ => "other",
     })
-}
-
-/// Symbols at `x` of the column `x`, with `y` of `number`, and `channel` of the column `value`,
-/// all through scales to infer.
-fn symbols(x: &str, channel: Option<(Channel, &str)>) -> Mark {
-    let mut mark = proto::SymbolMark {
-        x: Some(build::scaled_column(x)),
-        y: Some(build::scaled_column("number")),
-        ..Default::default()
-    };
-    if let Some((channel, value)) = channel {
-        let encoding = Some(build::scaled_column(value));
-        match channel {
-            Channel::Color => mark.color = encoding,
-            Channel::Size => mark.size = encoding,
-            Channel::Shape => mark.shape = encoding,
-            other => panic!("the cases do not encode {other:?}"),
-        }
-    }
-    Mark::Symbol(mark)
 }
 
 #[test]
@@ -143,61 +111,95 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Shape, "name", Some("ordinal")),
     ];
     for (channel, column, expected) in cases {
+        let mark = SymbolMark::builder().y(Encoding::scaled_column("number"));
         let mark = match channel {
-            Channel::X => symbols(column, None),
-            _ => symbols("number", Some((channel, column))),
+            Channel::X => mark.x(Encoding::scaled_column(column)),
+            Channel::Color => mark
+                .x(Encoding::scaled_column("number"))
+                .color(Encoding::scaled_column(column)),
+            Channel::Size => mark
+                .x(Encoding::scaled_column("number"))
+                .size(Encoding::scaled_column(column)),
+            Channel::Shape => mark
+                .x(Encoding::scaled_column("number"))
+                .shape(Encoding::scaled_column(column)),
+            other => panic!("the cases do not encode {other:?}"),
         };
-        let message = inferred(mark);
-        let encoding = encoding(&message, channel);
-        assert_eq!(type_name(&encoding), expected, "{channel:?} of `{column}`");
-        let data = matches!(
-            encoding
-                .scale
-                .as_ref()
-                .and_then(|spec| spec.domain.as_ref()),
-            Some(proto::Domain {
-                domain: Some(domain::Domain::Data(_))
-            })
-        );
+        let chart = Chart::builder()
+            .root(Plot::cartesian(
+                CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
+            ))
+            .infer_scales()
+            .build();
+        let Some(expected) = expected else {
+            // Values without a scale type leave the type absent, and the chart is invalid.
+            match chart {
+                Err(ChartError::Invalid { reason, .. }) => {
+                    assert!(
+                        reason.contains("the type of a scale is required"),
+                        "{reason}"
+                    )
+                }
+                other => panic!("{channel:?} of `{column}` has no scale type, got {other:?}"),
+            }
+            continue;
+        };
+        let chart = chart.unwrap();
+        let encoding = encoding(chart.message(), channel);
         assert_eq!(
-            data,
-            expected.is_some(),
+            type_name(&encoding),
+            Some(expected),
+            "{channel:?} of `{column}`"
+        );
+        assert!(
+            matches!(
+                encoding
+                    .scale
+                    .as_ref()
+                    .and_then(|spec| spec.domain.as_ref()),
+                Some(Domain {
+                    domain: Some(domain::Domain::Data(_))
+                })
+            ),
             "the domain of {channel:?} of `{column}`"
         );
     }
     // Categories on a position of a bar are bands.
-    let bar = Mark::Bar(proto::BarMark {
-        x: Some(build::scaled_column("name")),
-        y: Some(build::scaled_column("number")),
-        ..Default::default()
-    });
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+        .infer_scales()
+        .build()
+        .unwrap();
     assert_eq!(
-        type_name(&encoding(&inferred(bar), Channel::X)),
+        type_name(&encoding(chart.message(), Channel::X)),
         Some("band")
     );
 }
 
 #[test]
-fn present_fields_and_raw_values_stay() {
-    let mut mark = proto::SymbolMark {
-        x: Some(build::scaled_column("number")),
-        y: Some(build::scaled_column("number")),
-        color: Some(build::column("name")),
-        ..Default::default()
-    };
-    let x = mark.x.as_mut().unwrap();
-    x.scale = Some(proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Log(proto::LogScale {
-            base: Some(2.0),
-            ..Default::default()
-        })),
-        ..Default::default()
-    });
-    let message = inferred(Mark::Symbol(mark));
-    let x = encoding(&message, Channel::X).scale.unwrap();
+fn present_fields_and_plain_values_stay() {
+    let mark = SymbolMark::builder()
+        .x(Encoding::scaled_column("number").scale(Scale::log(LogScale::builder().base(2.0))))
+        .y(Encoding::scaled_column("number"))
+        .color(Encoding::column("name"));
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let message = chart.message();
+    let x = encoding(message, Channel::X).scale.unwrap();
     assert!(matches!(
         x.r#type,
-        Some(scale_spec::Type::Log(proto::LogScale {
+        Some(scale::Type::Log(LogScale {
             base: Some(2.0),
             ..
         }))
@@ -208,42 +210,57 @@ fn present_fields_and_raw_values_stay() {
         Some(domain::Domain::Data(_))
     ));
     // `y`, a scaled column without a scale, gets one, and `color`, a plain column, has none.
-    assert_eq!(type_name(&encoding(&message, Channel::Y)), Some("linear"));
-    assert!(encoding(&message, Channel::Color).scale.is_none());
+    assert_eq!(type_name(&encoding(message, Channel::Y)), Some("linear"));
+    assert!(encoding(message, Channel::Color).scale.is_none());
     // Fits, guides, and titles stay absent.
-    let y = encoding(&message, Channel::Y);
+    let y = encoding(message, Channel::Y);
     assert!(y.scale.as_ref().unwrap().guide.is_none());
     assert!(y.title.is_none());
 }
 
 #[test]
 fn inferring_twice_changes_nothing() {
-    let once = inferred(symbols("name", Some((Channel::Color, "number"))));
-    let mut twice = once.clone();
-    build::infer_scales(&mut twice, &[table()], &[]);
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number"))
+            .color(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let once = Chart::builder()
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let twice = Chart::builder()
+        .root(once.clone())
+        .infer_scales()
+        .build()
+        .unwrap();
     assert_eq!(once, twice);
 }
 
 #[test]
 fn layers_with_inferred_scales_share_them() {
-    let mut parts = ChartParts::new();
-    let table = parts.table(table());
-    let layer = |mark| proto::CartesianLayer {
-        table: Some(table),
-        mark: Some(mark),
-        ..Default::default()
-    };
-    let bar = Mark::Bar(proto::BarMark {
-        x: Some(build::scaled_column("name")),
-        y: Some(build::scaled_column("number")),
-        ..Default::default()
-    });
-    // `ChartParts::finish` infers the scales before it reads the chart.
-    let message = build::message(build::cartesian(vec![
-        layer(bar),
-        layer(symbols("name", None)),
-    ]));
-    let chart: Chart = parts.finish(message).unwrap();
+    let bars = CartesianLayer::bar(
+        BarMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("name"))
+            .y(Encoding::scaled_column("number")),
+    )
+    .table(table());
+    let chart = Chart::builder()
+        .root(Plot::cartesian(
+            CartesianPlot::builder().layers([bars, symbols]),
+        ))
+        .infer_scales()
+        .build()
+        .unwrap();
     let scales = chart.resolve().scales;
     let x = scales
         .iter()
@@ -251,5 +268,5 @@ fn layers_with_inferred_scales_share_them() {
         .unwrap();
     // A band and a point scale share a band scale.
     assert_eq!(x.members.len(), 2);
-    assert!(matches!(x.spec.r#type, Some(scale_spec::Type::Band(_))));
+    assert!(matches!(x.spec.r#type, Some(scale::Type::Band(_))));
 }

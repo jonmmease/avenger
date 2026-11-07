@@ -21,7 +21,7 @@ import "avenger/chart/v1/value.proto";
 // level: the layers of a plot, the children of a concat or a wrap, and the facets of a facet grid.
 // A resolve rule of the key, as `Resolve` describes, can make the copies below a plot, a concat, or
 // a wrap independent, so each layer or each child keeps its own widget. The copies of one widget
-// are its group, and they must agree, by the rule of `ScaleSpec`: their kinds, the selections of
+// are its group, and they must agree, by the rule of `Scale`: their kinds, the selections of
 // their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves absent takes
 // the set value, two that both set are equal, and their classes join. Their domains are of one
 // kind: summary and data domains merge, and explicit domains must be equal. The columns of the

@@ -4,7 +4,7 @@ The avenger chart format and its reader. A chart is a protobuf message of packag
 
 ## The format
 
-The `.proto` files are in `proto/avenger/chart/v1/`, and their comments are the specification of the format. The comment of `Chart` in `chart.proto` holds the rules that apply to every message. prost generates the messages of the `proto` module from the files, with the comments as their documentation, so a producer in Rust builds a chart from the messages, and a producer in another language generates its own from the same files.
+The `.proto` files are in `proto/avenger/chart/v1/`, and their comments are the specification of the format. The comment of `Chart` in `chart.proto` holds the rules that apply to every message. prost generates the messages of the `proto` module from the files, with the comments as their documentation, and build.rs generates a builder for each message beside it, so a producer in Rust builds a chart with the builders, and a producer in another language generates its own messages from the same files.
 
 The data tables are Arrow IPC streams inside the message. A layer refers to its table by a `TableRef`, the position of the table in `Chart.tables`. The other Arrow values of a chart, such as constants, explicit domains, domain summaries, and partition values, are scalars that the fields of the message refer to by a `ValueRef`, so each value keeps its exact Arrow type.
 
@@ -41,7 +41,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    proto::{self, cartesian_layer, domain, encoding, node, plot, scale_spec},
+    proto::{self, cartesian_layer, domain, encoding, node, plot, scale},
     Chart, ChartError, FORMAT_VERSION,
 };
 
@@ -59,8 +59,8 @@ let table = RecordBatch::try_new(Arc::new(schema), columns)?;
 // A scatter plot of `a` against `b`, each through a linear scale fitted to the data.
 let column = |name: &str| proto::Encoding {
     value: Some(encoding::Value::ScaledColumn(name.to_string())),
-    scale: Some(proto::ScaleSpec {
-        r#type: Some(scale_spec::Type::Linear(proto::LinearScale::default())),
+    scale: Some(proto::Scale {
+        r#type: Some(scale::Type::Linear(proto::LinearScale::default())),
         domain: Some(proto::Domain {
             domain: Some(domain::Domain::Data(proto::DataDomain::default())),
         }),
@@ -111,19 +111,34 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 
 ## Producing charts
 
-A producer writes the messages of `proto`, and the module `build` does the work that every producer would otherwise repeat:
+Each message `Foo` of `proto` has a builder, `FooBuilder`, from `Foo::builder()`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. Each field and each oneof member has one method, named after it, with the field's comment as its documentation:
 
-| Helper | What it does |
+| Field | Method takes |
 |---|---|
-| `ChartParts` | Collects the tables and the values of a chart, hands out the `TableRef`s, the `ValueRef`s, and the partition values that refer to them, and reads the finished chart with its inferred scales |
-| `Fragment` | A message with the values that its `ValueRef`s refer to, such as the options of a node, which `ChartParts::embed` adds to a chart. A message without values converts to a fragment |
-| `concat`, `wrap`, `facet_grid`, `overlay` | Combine finished charts into a row or a column, a wrap, a grid of facets, or one plot, by the combination rules of the format |
-| `with_partition` | Declares a partition value on the root of a finished chart |
-| `infer_scales` | Infers the scale types and the domains that the marks and the types of their values imply, which `ChartParts::finish` does for its chart |
+| A scalar | Its exact Rust type, `impl Into<String>` for a string, or `impl Into<Bytes>` for bytes |
+| An `optional` scalar | The inner type, which it sets as `Some` |
+| An enum | The Rust enum, such as `Orient::Vertical` |
+| A message | `impl Into` of its builder: the builder, the message, or a member of a message that is only a oneof, such as a `DataDomain` for a `Domain` |
+| A `TableRef` | A `RecordBatch` |
+| A `ValueRef` | `impl IntoValue`: a Rust scalar, which becomes one element of its own Arrow type, an array, a `Vec`, or a slice of them, which becomes a list, or a `builder::Value` of any Arrow type |
+| A repeated field | `impl IntoIterator` of the items, which it appends |
 
-A combination copies the tables of its children: a chart read from bytes writes the IPC stream of each table again, unchanged, so a facet grid of charts from bytes does not encode its data again. A combination that breaks a rule of its own, such as an overlay of plots of two coordinate systems, fails with `ChartError::Combine`, which names the position of the chart that breaks it among the charts that combine. A combined chart that breaks a rule of the format fails as any chart does, with `ChartError::Invalid` and the path of the field.
+Each oneof member also has a constructor on its message, such as `Encoding::scaled_column("count")` or `Plot::cartesian(..)`. A member whose message has no fields takes no argument, such as `Scale::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`. A field named after a Rust keyword has a method with a trailing underscore, such as `CustomScale::type_`.
 
-`infer_scales` infers only by the conventions that the common charting tools share. A position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks. Categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. It infers the scale of each encoding whose value or one of whose conditional values is a `scaled_column` or a `scaled_constant`: the scale when the encoding has none, such as an encoding from `build::scaled_column`, its type when it is absent, and its domain when it is absent. An encoding of plain values has no scale, because the mark draws plain values as they are. `infer_scales` leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it leaves the kind of a discrete scale absent. It never changes a field that the producer set.
+A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which checks it and puts it in the canonical form. `ChartBuilder::infer_scales` asks `build` to infer the absent scale of each encoding of a `scaled_column` or a `scaled_constant`, and the absent type and domain of its scale, by the conventions that the common charting tools share: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. Inference leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set. The builder of any other message builds alone when it holds no data, such as a scale for a unit test.
+
+The builders also compose charts:
+
+| Method | What it does |
+|---|---|
+| `From<Chart> for NodeBuilder` | A finished chart as a node, such as a child of a concat or a wrap, whose selections join the chart's and whose format syntaxes must agree with the chart's; its tables keep their IPC streams, and its width, height, and padding do not carry over |
+| `PlotBuilder::overlay` | Plots whose layers join the plot, after its own, where the plot's own fields win and the overlaid plots' fields must agree |
+| `NodeBuilder::partition` | Partition values on the node's member, such as the cell of a finished chart in a facet |
+| `Node::partitions` | One node for each value of a column of a table, in the order in which the values appear or sorted, from the rows that hold the value |
+
+Every error of a builder, such as two overlaid plots with different titles, is a `ChartError::Invalid` at the path of its field in the chart.
+
+`use avenger_chart::prelude::*` imports everything that building a chart takes: the checked `Chart`, every message and its builder, every enum of the format, `Value`, `IntoValue`, `PartitionOrder`, and `ChartError`. The prelude names the message `proto::Chart`, the wire form of a chart, `ChartMessage`, so `Chart` is the checked chart, whose `Chart::builder()` builds one.
 
 ```rust
 use std::sync::Arc;
@@ -132,36 +147,32 @@ use arrow::{
     array::{ArrayRef, Float64Array, StringArray},
     record_batch::RecordBatch,
 };
-use avenger_chart::{
-    build::{self, ChartParts},
-    proto::{self, cartesian_layer::Mark},
-};
+use avenger_chart::prelude::*;
 
 let table = RecordBatch::try_from_iter([
     ("species", Arc::new(StringArray::from(vec!["Adelie", "Gentoo"])) as ArrayRef),
     ("count", Arc::new(Float64Array::from(vec![152.0, 124.0])) as ArrayRef),
 ])?;
 
-// Bars of `count` by `species`, whose scales `infer_scales` infers: a band scale of the species
-// and a linear scale of the counts.
-let mut parts = ChartParts::new();
-let layer = proto::CartesianLayer {
-    table: Some(parts.table(table)),
-    mark: Some(Mark::Bar(proto::BarMark {
-        x: Some(build::scaled_column("species")),
-        y: Some(build::scaled_column("count")),
-        ..Default::default()
-    })),
-    ..Default::default()
-};
-let bars = parts.finish(build::message(build::cartesian(vec![layer])))?;
+// Bars of `count` by `species`: a band scale of the species and a linear scale of the counts,
+// which inference infers, and whose domain contains zero.
+let bars = CartesianLayer::bar(
+    BarMark::builder()
+        .x(Encoding::scaled_column("species"))
+        .y(Encoding::scaled_column("count").scale(
+            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
+        )),
+)
+.table(table);
+let chart = Chart::builder()
+    .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
+    .infer_scales()
+    .build()?;
 
 // Two copies of the chart side by side, which share one table.
-let row = proto::Concat {
-    direction: proto::Direction::Row as i32,
-    ..Default::default()
-};
-let both = build::concat(row, vec![bars.clone(), bars])?;
+let both = Chart::builder()
+    .root(Concat::builder().direction(Direction::Row).children([chart.clone(), chart]))
+    .build()?;
 assert_eq!(both.tables().len(), 1);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

@@ -20,6 +20,9 @@
 use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 
 use prost::Message;
+
+#[path = "codegen/builders.rs"]
+mod builders;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
@@ -90,6 +93,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
+    std::fs::write(out.join("builders.rs"), builders::builders(&set, &messages))?;
+    std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
     Ok(())
 }
 
@@ -503,7 +508,7 @@ impl<'a> Messages<'a> {
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();
-        if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.ScaleSpec")) {
+        if let Some((_, _, spec)) = self.get(&format!("{PACKAGE}.Scale")) {
             for field in &spec.field {
                 // `merge.rs` merges the options of custom scales by name, because they are keyed.
                 if field.oneof_index.is_some()

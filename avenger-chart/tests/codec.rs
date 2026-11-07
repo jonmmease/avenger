@@ -12,7 +12,8 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    charts_from_arrow, charts_to_arrow, list_value, proto, Chart, ChartError, Decode,
+    charts_from_arrow, charts_to_arrow, list_value, proto, values_from_ipc, values_to_ipc, Chart,
+    ChartError, Decode,
 };
 use support::*;
 
@@ -201,4 +202,21 @@ fn a_column_of_charts_round_trips_with_nulls() {
         let charts = charts_from_arrow(&column, decode).unwrap();
         assert_eq!(charts, vec![Some(chart.clone()), None, Some(chart.clone())]);
     }
+}
+
+#[test]
+fn values_round_trip_through_their_stream() {
+    let values: Vec<ArrayRef> = vec![
+        Arc::new(Float64Array::from(vec![1.0])),
+        Arc::new(StringArray::from(vec!["a"])),
+        Arc::new(Float64Array::from(vec![2.0])),
+    ];
+    let decoded = values_from_ipc(&values_to_ipc(&values).unwrap()).unwrap();
+    assert_eq!(decoded.len(), 3);
+    for (decoded, value) in decoded.iter().zip(&values) {
+        assert_eq!(decoded.as_ref(), value.as_ref());
+    }
+    assert!(values_from_ipc(&values_to_ipc(&[]).unwrap())
+        .unwrap()
+        .is_empty());
 }

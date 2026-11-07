@@ -14,7 +14,7 @@ use avenger_chart::{
     list_value,
     proto::{
         self, cartesian_layer, condition, domain, domain_fit, encoding, guide, node, plot,
-        predicate, scale_spec, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection,
+        predicate, scale, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection,
         SymbolMark, ValueRef,
     },
     Chart, ChartError,
@@ -48,7 +48,7 @@ fn symbol_mut(message: &mut proto::Chart) -> &mut SymbolMark {
 }
 
 /// The scale of `x`.
-fn x_scale(message: &mut proto::Chart) -> &mut proto::ScaleSpec {
+fn x_scale(message: &mut proto::Chart) -> &mut proto::Scale {
     symbol_mut(message)
         .x
         .as_mut()
@@ -124,7 +124,7 @@ fn required_fields_and_oneofs_are_set() {
     invalid(
         parts,
         &format!("{X}.scale"),
-        "the type of a scale spec is required",
+        "the type of a scale is required",
     );
 
     let mut parts = base();
@@ -132,7 +132,7 @@ fn required_fields_and_oneofs_are_set() {
     invalid(
         parts,
         &format!("{X}.scale.domain"),
-        "the domain of a scale spec is required",
+        "the domain of a scale is required",
     );
 }
 
@@ -342,7 +342,7 @@ fn values_without_a_scale_have_the_form_of_their_channel() {
 #[test]
 fn scale_options_are_in_range() {
     let mut parts = base();
-    x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Log(proto::LogScale {
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Log(proto::LogScale {
         base: Some(1.0),
         ..Default::default()
     }));
@@ -416,8 +416,7 @@ fn a_fit_is_of_the_kind_of_its_scale() {
         "not of the kind",
     );
     // A fit is invalid on a quantile scale.
-    x_scale(&mut parts.0).r#type =
-        Some(scale_spec::Type::Quantile(proto::QuantileScale::default()));
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Quantile(proto::QuantileScale::default()));
     *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
         fit: Some(domain_fit::Fit::Interval(proto::IntervalFit::default())),
     });
@@ -783,7 +782,7 @@ fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     let mut parts = base();
     x_scale(&mut parts.0).navigation_limits = Some(proto::NavigationLimits::default());
     read(parts.clone()).unwrap();
-    x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Band(proto::BandScale::default()));
     invalid(
         parts,
         &format!("{X}.scale.navigation_limits"),
@@ -831,9 +830,7 @@ fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
     .unwrap();
     let mut parts = (chart(plot(vec![symbols(0)])), vec![table], vec![]);
     let x = x_scale(&mut parts.0);
-    x.r#type = Some(scale_spec::Type::NestedBand(
-        proto::NestedBandScale::default(),
-    ));
+    x.r#type = Some(scale::Type::NestedBand(proto::NestedBandScale::default()));
     x.guide = Some(proto::Guide {
         guide: Some(guide::Guide::Axis(guide)),
     });
@@ -894,7 +891,7 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
             ("b", vec![4.0, 6.0, 5.0]),
         ])];
         let x = x_scale(&mut parts.0);
-        x.r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+        x.r#type = Some(scale::Type::Band(proto::BandScale::default()));
         x.guide = Some(proto::Guide {
             guide: Some(guide::Guide::Axis(ticks(at))),
         });
@@ -1205,8 +1202,8 @@ fn a_widget_domain_fits_its_kind_and_its_column() {
     .unwrap()];
     symbol_mut(&mut strings.0).x = Some(column(
         "a",
-        proto::ScaleSpec {
-            r#type: Some(scale_spec::Type::Band(proto::BandScale::default())),
+        proto::Scale {
+            r#type: Some(scale::Type::Band(proto::BandScale::default())),
             domain: Some(proto::Domain {
                 domain: Some(domain::Domain::Data(proto::DataDomain::default())),
             }),
@@ -1320,7 +1317,7 @@ fn a_band_placement_needs_a_band_of_its_position() {
         &format!("{X}.band_position"),
         "through a band or a nested band scale",
     );
-    x_scale(&mut parts.0).r#type = Some(scale_spec::Type::Band(proto::BandScale::default()));
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Band(proto::BandScale::default()));
     x_scale(&mut parts.0).domain = None;
     let mut banded = nested(proto::Axis::default());
     symbol_mut(&mut banded.0).x.as_mut().unwrap().band_position = Some(1.5);
