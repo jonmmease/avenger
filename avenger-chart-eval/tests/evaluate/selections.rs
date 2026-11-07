@@ -21,7 +21,7 @@ fn grays(evaluated: &EvaluatedChart) -> Vec<bool> {
 fn a_condition_grays_the_rows_outside_a_brush() {
     // The cars, gray outside the brush, in a plot `plot` with a box of the brush.
     let brushed = |initial: Vec<ClauseBuilder>| {
-        let color = Encoding::scaled_column("origin").conditional([ConditionalValue::constant(
+        let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
             "lightgray",
         )
         .predicate(Predicate::negate(Predicate::selected(
@@ -29,8 +29,8 @@ fn a_condition_grays_the_rows_outside_a_brush() {
         )))]);
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
+                .x(Encoding::scaled_field("weight"))
+                .y(Encoding::scaled_field("mpg"))
                 .color(color),
         )
         .table(cars())
@@ -72,7 +72,7 @@ fn a_cyclic_range_selects_across_its_wrap() {
     // The gray rows of the cars, gray outside the brush, whose plot `plot` has a clause of a
     // cyclic range of the weights.
     let rows = |start: f64, end: f64, period: f64| {
-        let color = Encoding::scaled_column("origin").conditional([ConditionalValue::constant(
+        let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
             "lightgray",
         )
         .predicate(Predicate::negate(Predicate::selected(
@@ -80,8 +80,8 @@ fn a_cyclic_range_selects_across_its_wrap() {
         )))]);
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
+                .x(Encoding::scaled_field("weight"))
+                .y(Encoding::scaled_field("mpg"))
                 .color(color),
         )
         .table(cars())
@@ -129,13 +129,13 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
     let rows = |resolution: SelectionResolution,
                 predicate: SelectedBuilder,
                 initial: Vec<ClauseBuilder>| {
-        let color = Encoding::scaled_column("origin")
-            .conditional([ConditionalValue::constant("lightgray")
+        let color = Encoding::scaled_field("origin")
+            .conditional([ConditionalValue::direct_value("lightgray")
                 .predicate(Predicate::negate(Predicate::selected(predicate)))]);
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
+                .x(Encoding::scaled_field("weight"))
+                .y(Encoding::scaled_field("mpg"))
                 .color(color),
         )
         .table(cars())
@@ -222,14 +222,14 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
 fn a_test_of_a_missing_column_selects_no_row_and_warns() {
     // A clause of the layer `points` that tests a column `price`, which the table lacks.
     let color =
-        Encoding::scaled_column("origin").conditional([ConditionalValue::constant("lightgray")
-            .predicate(Predicate::negate(Predicate::selected(
-                Selected::builder().selection("brush"),
-            )))]);
+        Encoding::scaled_field("origin")
+            .conditional([ConditionalValue::direct_value("lightgray").predicate(
+                Predicate::negate(Predicate::selected(Selected::builder().selection("brush"))),
+            )]);
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
             .color(color),
     )
     .table(cars())
@@ -265,7 +265,7 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
     let chart = |initial: Vec<ClauseBuilder>| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight").scale(
+                .x(Encoding::scaled_field("weight").scale(
                     Scale::builder().domain(
                         SelectionDomain::builder()
                             .selection("brush")
@@ -273,7 +273,7 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
                             .data(DataDomain::builder()),
                     ),
                 ))
-                .y(Encoding::scaled_column("mpg")),
+                .y(Encoding::scaled_field("mpg")),
         )
         .table(cars())
         .id("points")
@@ -315,13 +315,13 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
 /// column, so the selected rows draw in its colors and the legend lists its categories.
 #[test]
 fn a_conditional_value_alone_fits_its_scales_domain() {
-    let color = Encoding::constant("lightgray")
-        .conditional([ConditionalValue::scaled_column("origin")
+    let color = Encoding::direct_value("lightgray")
+        .conditional([ConditionalValue::scaled_field("origin")
             .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
             .color(color),
     )
     .table(cars());
@@ -358,7 +358,7 @@ fn a_conditional_value_alone_fits_its_scales_domain() {
 fn a_union_open_at_both_ends_takes_the_fallback_domain() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight").scale(
+            .x(Encoding::scaled_field("weight").scale(
                 Scale::builder().domain(
                     SelectionDomain::builder()
                         .selection("brush")
@@ -366,7 +366,7 @@ fn a_union_open_at_both_ends_takes_the_fallback_domain() {
                         .data(DataDomain::builder()),
                 ),
             ))
-            .y(Encoding::scaled_column("mpg")),
+            .y(Encoding::scaled_field("mpg")),
     )
     .table(cars())
     .id("points")

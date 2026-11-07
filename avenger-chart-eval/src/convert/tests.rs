@@ -197,9 +197,9 @@ fn f64s(values: &ArrayRef) -> Vec<f64> {
 fn explicit_summary_and_data_domains_have_their_sources() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a")
+            .x(Encoding::scaled_field("a")
                 .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
-            .y(Encoding::scaled_column("b")),
+            .y(Encoding::scaled_field("b")),
     )
     .table(points());
     let explicit = Chart::builder()
@@ -215,11 +215,11 @@ fn explicit_summary_and_data_domains_have_their_sources() {
 
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a")
+            .x(Encoding::scaled_field("a")
                 .scale(Scale::linear(LinearScale::builder()).domain(
                     DataDomain::builder().fit(IntervalFit::builder().zero(true).nice(5.0)),
                 )))
-            .y(Encoding::scaled_column("b")),
+            .y(Encoding::scaled_field("b")),
     )
     .table(points());
     let data = Chart::builder()
@@ -250,11 +250,11 @@ fn explicit_summary_and_data_domains_have_their_sources() {
 fn a_preferred_order_moves_the_listed_categories_first() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a").scale(
+            .x(Encoding::scaled_field("a").scale(
                 Scale::band(BandScale::builder())
                     .domain(DataDomain::builder().fit(CategoryFit::preferred([3.0, 9.0, 1.0]))),
             ))
-            .y(Encoding::scaled_column("b")),
+            .y(Encoding::scaled_field("b")),
     )
     .table(points());
     let chart = Chart::builder()
@@ -288,7 +288,7 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
     let domain = |resolution: SelectionResolution, initial: Vec<ClauseBuilder>| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("a").scale(
+                .x(Encoding::scaled_field("a").scale(
                     Scale::linear(LinearScale::builder()).domain(
                         SelectionDomain::builder()
                             .selection("brush")
@@ -296,7 +296,7 @@ fn selection_domains_take_the_envelope_or_the_intersection_of_ranges() {
                             .explicit([-100.0, 100.0]),
                     ),
                 ))
-                .y(Encoding::scaled_column("b")),
+                .y(Encoding::scaled_field("b")),
         )
         .table(points())
         .id("points")
@@ -339,7 +339,7 @@ fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
     let domain = |range: ValueRangeBuilder| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("a").scale(
+                .x(Encoding::scaled_field("a").scale(
                     Scale::linear(LinearScale::builder()).domain(
                         SelectionDomain::builder()
                             .selection("brush")
@@ -347,7 +347,7 @@ fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
                             .explicit([-100.0, 100.0]),
                     ),
                 ))
-                .y(Encoding::scaled_column("b")),
+                .y(Encoding::scaled_field("b")),
         )
         .table(points())
         .id("points")
@@ -379,7 +379,7 @@ fn a_range_with_one_end_takes_the_other_from_an_explicit_fallback() {
 fn a_range_with_one_end_pins_a_fit_of_the_data() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a").scale(
+            .x(Encoding::scaled_field("a").scale(
                 Scale::linear(LinearScale::builder()).domain(
                     SelectionDomain::builder()
                         .selection("brush")
@@ -387,7 +387,7 @@ fn a_range_with_one_end_pins_a_fit_of_the_data() {
                         .data(DataDomain::builder()),
                 ),
             ))
-            .y(Encoding::scaled_column("b")),
+            .y(Encoding::scaled_field("b")),
     )
     .table(points())
     .id("points")
@@ -463,8 +463,8 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
     .key("magnitude");
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b")),
     )
     .table(table)
     .widgets([magnitude]);
@@ -509,8 +509,8 @@ fn a_syntax_that_the_engine_lacks_fails() {
     let table = RecordBatch::try_from_iter([("a", numbers(&[1.0]))]).unwrap();
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("a")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("a")),
     )
     .table(table);
     let chart = Chart::builder()
@@ -543,11 +543,11 @@ fn a_summary_domain_holds_the_producers_summary() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(
-                Encoding::scaled_column("a").scale(Scale::linear(LinearScale::builder()).domain(
+                Encoding::scaled_field("a").scale(Scale::linear(LinearScale::builder()).domain(
                     SummaryDomain::builder().value(Value::scalar(Arc::new(summary.to_arrow()))),
                 )),
             )
-            .y(Encoding::scaled_column("b")),
+            .y(Encoding::scaled_field("b")),
     )
     .table(points())
     .id("points")

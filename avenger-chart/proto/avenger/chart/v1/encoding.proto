@@ -19,23 +19,25 @@ import "avenger/chart/v1/value.proto";
 // the number 100 plus the channel's value in `Channel`. The comment of a channel's field says what
 // the channel means for the mark when the comment of the channel does not.
 message Encoding {
-  // The value of the channel. A `scaled_` value goes through the channel's scale, and a plain value
-  // is drawn as it is, in the form that the comment of the channel gives, even in an encoding that
-  // has a scale.
-  oneof value {
+  // What the channel draws: a field, a column of the layer's table, or a value, one constant. A
+  // `scaled_` field or value goes through the channel's scale, and a `direct_` one is drawn as it
+  // is, in the form that the comment of the channel gives, even in an encoding that has a scale.
+  // Each value says which, so one encoding can hold both, such as a scaled field with a
+  // conditional direct value that grays the rows outside a brush.
+  oneof kind {
     // The name of a column of the layer's table, whose values the mark draws as they are, such as
     // CSS colors.
-    string column = 2;
+    string direct_field = 2;
     // The name of a column of the layer's table, whose values go through the channel's scale.
-    string scaled_column = 3;
+    string scaled_field = 3;
     // A value that the mark draws as it is, in the form that the comment of the channel gives, such
     // as a CSS color.
-    ValueRef constant = 4;
+    ValueRef direct_value = 4;
     // A data value that goes through the channel's scale, such as the position of a reference
     // line.
-    ValueRef scaled_constant = 5;
+    ValueRef scaled_value = 5;
   }
-  // The scale of the channel, which maps the `scaled_column` and `scaled_constant` values of the
+  // The scale of the channel, which maps the `scaled_field` and `scaled_value` values of the
   // encoding and of its conditional values to what the mark draws. An encoding has a scale exactly
   // when its value or one of its conditional values is a `scaled_` value, and a reader requires its
   // type and its domain. Scale inference fills in a scale, a type, or a domain that a producer
@@ -46,7 +48,7 @@ message Encoding {
   // own: their `scaled_` values go through the scale of `x`, `y`, `theta`, or `radius`, so they are
   // `scaled_` values exactly when the first channel has a scale. `longitude`, `latitude`,
   // `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`, and `detail` take no scale, so
-  // their values are plain. An encoding of any other channel without a scale has no guide and
+  // their values are direct. An encoding of any other channel without a scale has no guide and
   // joins no shared scale.
   Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
@@ -93,15 +95,16 @@ message Encoding {
 message ConditionalValue {
   // The predicate that selects the rows that take this value.
   Predicate predicate = 1;
-  oneof value {
-    // The name of a column whose values the mark draws as they are, as for `Encoding.column`.
-    string column = 2;
+  // What the rows that the predicate selects draw, as for `Encoding.kind`.
+  oneof kind {
+    // The name of a column whose values the mark draws as they are, as for `Encoding.direct_field`.
+    string direct_field = 2;
     // The name of a column whose values go through the channel's scale, as for
-    // `Encoding.scaled_column`.
-    string scaled_column = 3;
-    // A value that the mark draws as it is, as for `Encoding.constant`.
-    ValueRef constant = 4;
-    // A data value that goes through the channel's scale, as for `Encoding.scaled_constant`.
-    ValueRef scaled_constant = 5;
+    // `Encoding.scaled_field`.
+    string scaled_field = 3;
+    // A value that the mark draws as it is, as for `Encoding.direct_value`.
+    ValueRef direct_value = 4;
+    // A data value that goes through the channel's scale, as for `Encoding.scaled_value`.
+    ValueRef scaled_value = 5;
   }
 }

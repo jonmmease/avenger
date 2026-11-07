@@ -211,11 +211,11 @@ impl Checker<'_> {
         table: &RecordBatch,
         path: &str,
     ) -> Result<DataType> {
-        Ok(match encoding.value.as_ref() {
-            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+        Ok(match encoding.kind.as_ref() {
+            Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 column(table, name, path)?.data_type().clone()
             }
-            Some(encoding::Value::Constant(value) | encoding::Value::ScaledConstant(value)) => {
+            Some(encoding::Kind::DirectValue(value) | encoding::Kind::ScaledValue(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
             }
             None => return Err(fail(path, "the value of an encoding is required")),
@@ -232,11 +232,11 @@ impl Checker<'_> {
     ) -> Result<DataType> {
         for (index, conditional) in encoding.conditional.iter().enumerate() {
             let path = format!("{path}.conditional[{index}]");
-            match &conditional.value {
-                Some(conditional_value::Value::ScaledColumn(name)) => {
+            match &conditional.kind {
+                Some(conditional_value::Kind::ScaledField(name)) => {
                     return Ok(column(table, name, &path)?.data_type().clone())
                 }
-                Some(conditional_value::Value::ScaledConstant(value)) => {
+                Some(conditional_value::Kind::ScaledValue(value)) => {
                     return Ok(self.values.scalar(value, &path)?.data_type().clone())
                 }
                 _ => {}
@@ -253,12 +253,12 @@ impl Checker<'_> {
         table: &RecordBatch,
         path: &str,
     ) -> Result<()> {
-        let value = (encoding.value.as_ref())
+        let value = (encoding.kind.as_ref())
             .ok_or_else(|| fail(path, "the value of an encoding is required"))?;
         let value_type = self.value_type(encoding, table, path)?;
         if channel == Channel::Geometry {
             let geoarrow = match value {
-                encoding::Value::Column(name) => (table.schema().field_with_name(name).ok())
+                encoding::Kind::DirectField(name) => (table.schema().field_with_name(name).ok())
                     .and_then(|field| field.extension_type_name().map(str::to_string))
                     .is_some_and(|extension| extension.starts_with("geoarrow.")),
                 _ => false,
@@ -337,23 +337,23 @@ impl Checker<'_> {
             let predicate = (conditional.predicate.as_ref())
                 .ok_or_else(|| fail(&path, "the predicate of a conditional value is required"))?;
             self.predicate(predicate, &format!("{path}.predicate"))?;
-            match (conditional.value.as_ref())
+            match (conditional.kind.as_ref())
                 .ok_or_else(|| fail(&path, "the value of a conditional value is required"))?
             {
-                conditional_value::Value::Column(name) => {
+                conditional_value::Kind::DirectField(name) => {
                     raw_values(channel, column(table, name, &path)?.data_type(), &path)?;
                 }
-                conditional_value::Value::ScaledColumn(name) => {
+                conditional_value::Kind::ScaledField(name) => {
                     column(table, name, &path)?;
                 }
-                conditional_value::Value::Constant(value) => {
+                conditional_value::Kind::DirectValue(value) => {
                     raw_values(
                         channel,
                         self.values.scalar(value, &path)?.data_type(),
                         &path,
                     )?;
                 }
-                conditional_value::Value::ScaledConstant(value) => {
+                conditional_value::Kind::ScaledValue(value) => {
                     self.values.scalar(value, &path)?;
                 }
             }
@@ -1232,8 +1232,8 @@ fn one_value_per_series(mark: &dyn MarkMessage, table: &RecordBatch, path: &str)
         ],
         _ => return Ok(()),
     };
-    let column_of = |channel: Channel| match &mark.encoding(channel)?.value {
-        Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+    let column_of = |channel: Channel| match &mark.encoding(channel)?.kind {
+        Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
             table.column_by_name(name).cloned()
         }
         _ => None,
@@ -1446,23 +1446,23 @@ pub(crate) fn is_position(channel: Channel) -> bool {
 }
 
 /// Whether `value` goes through the channel's scale.
-fn is_scaled(value: &encoding::Value) -> bool {
+fn is_scaled(value: &encoding::Kind) -> bool {
     matches!(
         value,
-        encoding::Value::ScaledColumn(_) | encoding::Value::ScaledConstant(_)
+        encoding::Kind::ScaledField(_) | encoding::Kind::ScaledValue(_)
     )
 }
 
 /// Whether the value of `encoding` or one of its conditional values goes through the channel's
 /// scale.
 pub(crate) fn scaled(encoding: &proto::Encoding) -> bool {
-    encoding.value.as_ref().is_some_and(is_scaled)
+    encoding.kind.as_ref().is_some_and(is_scaled)
         || (encoding.conditional.iter()).any(|conditional| {
             matches!(
-                conditional.value,
+                conditional.kind,
                 Some(
-                    conditional_value::Value::ScaledColumn(_)
-                        | conditional_value::Value::ScaledConstant(_)
+                    conditional_value::Kind::ScaledField(_)
+                        | conditional_value::Kind::ScaledValue(_)
                 )
             )
         })

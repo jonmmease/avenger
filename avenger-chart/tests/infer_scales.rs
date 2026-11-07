@@ -111,18 +111,18 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Shape, "name", Some("ordinal")),
     ];
     for (channel, column, expected) in cases {
-        let mark = SymbolMark::builder().y(Encoding::scaled_column("number"));
+        let mark = SymbolMark::builder().y(Encoding::scaled_field("number"));
         let mark = match channel {
-            Channel::X => mark.x(Encoding::scaled_column(column)),
+            Channel::X => mark.x(Encoding::scaled_field(column)),
             Channel::Color => mark
-                .x(Encoding::scaled_column("number"))
-                .color(Encoding::scaled_column(column)),
+                .x(Encoding::scaled_field("number"))
+                .color(Encoding::scaled_field(column)),
             Channel::Size => mark
-                .x(Encoding::scaled_column("number"))
-                .size(Encoding::scaled_column(column)),
+                .x(Encoding::scaled_field("number"))
+                .size(Encoding::scaled_field(column)),
             Channel::Shape => mark
-                .x(Encoding::scaled_column("number"))
-                .shape(Encoding::scaled_column(column)),
+                .x(Encoding::scaled_field("number"))
+                .shape(Encoding::scaled_field(column)),
             other => panic!("the cases do not encode {other:?}"),
         };
         let chart = Chart::builder()
@@ -167,8 +167,8 @@ fn scale_types_follow_values_channels_and_marks() {
     // Categories on a position of a bar are bands.
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
+            .x(Encoding::scaled_field("name"))
+            .y(Encoding::scaled_field("number")),
     )
     .table(table());
     let chart = Chart::builder()
@@ -185,9 +185,9 @@ fn scale_types_follow_values_channels_and_marks() {
 #[test]
 fn present_fields_and_plain_values_stay() {
     let mark = SymbolMark::builder()
-        .x(Encoding::scaled_column("number").scale(Scale::log(LogScale::builder().base(2.0))))
-        .y(Encoding::scaled_column("number"))
-        .color(Encoding::column("name"));
+        .x(Encoding::scaled_field("number").scale(Scale::log(LogScale::builder().base(2.0))))
+        .y(Encoding::scaled_field("number"))
+        .color(Encoding::direct_field("name"));
     let chart = Chart::builder()
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
@@ -222,9 +222,9 @@ fn present_fields_and_plain_values_stay() {
 fn inferring_twice_changes_nothing() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number"))
-            .color(Encoding::scaled_column("number")),
+            .x(Encoding::scaled_field("name"))
+            .y(Encoding::scaled_field("number"))
+            .color(Encoding::scaled_field("number")),
     )
     .table(table());
     let once = Chart::builder()
@@ -244,14 +244,14 @@ fn inferring_twice_changes_nothing() {
 fn layers_with_inferred_scales_share_them() {
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
+            .x(Encoding::scaled_field("name"))
+            .y(Encoding::scaled_field("number")),
     )
     .table(table());
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
+            .x(Encoding::scaled_field("name"))
+            .y(Encoding::scaled_field("number")),
     )
     .table(table());
     let chart = Chart::builder()

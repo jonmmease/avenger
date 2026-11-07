@@ -225,7 +225,7 @@ fn ignored_fields_are_left_out() {
         let mut layer = symbols(0);
         let mark = symbol_mut(&mut layer);
         mark.size = Some(proto::Encoding {
-            value: Some(encoding::Value::Column("a".to_string())),
+            kind: Some(encoding::Kind::DirectField("a".to_string())),
             title: ignored.then(|| "size".to_string()),
             ..Default::default()
         });

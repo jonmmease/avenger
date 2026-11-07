@@ -201,9 +201,9 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
         else {
             continue;
         };
-        let title = match (&encoding.title, &encoding.value) {
+        let title = match (&encoding.title, &encoding.kind) {
             (Some(title), _) => title.clone(),
-            (None, Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)))
+            (None, Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)))
                 if columns =>
             {
                 name.clone()
@@ -594,8 +594,8 @@ fn constant_value<'c>(
     channel: Channel,
 ) -> Option<&'c ArrayRef> {
     let encoding = mark.encoding(channel)?;
-    match &encoding.value {
-        Some(encoding::Value::Constant(value)) if encoding.conditional.is_empty() => {
+    match &encoding.kind {
+        Some(encoding::Kind::DirectValue(value)) if encoding.conditional.is_empty() => {
             Some(chart.value(value))
         }
         _ => None,

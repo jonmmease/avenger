@@ -18,7 +18,7 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         let bars = CartesianLayer::bar(
             BarMark::builder()
                 .x(x)
-                .y(Encoding::scaled_column("amount").scale(
+                .y(Encoding::scaled_field("amount").scale(
                     Scale::builder()
                         .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
                 )),
@@ -30,11 +30,10 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
             .build()
             .unwrap()
     };
-    let spanned =
-        bars(Encoding::scaled_column("category").scale(Scale::band(BandScale::builder())));
+    let spanned = bars(Encoding::scaled_field("category").scale(Scale::band(BandScale::builder())));
     let spanned = rect_lefts(&evaluate(&spanned, [320.0, 240.0]));
     let positioned = bars(
-        Encoding::scaled_column("category")
+        Encoding::scaled_field("category")
             .scale(Scale::band(BandScale::builder()))
             .band_position(0.5),
     );
@@ -50,7 +49,7 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
                 .x(x)
-                .y(Encoding::scaled_column("amount")),
+                .y(Encoding::scaled_field("amount")),
         )
         .table(categories());
         let chart = Chart::builder()
@@ -61,14 +60,14 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
         symbol_positions(&evaluate(&chart, [320.0, 240.0]))
     };
     let middle =
-        points(Encoding::scaled_column("category").scale(Scale::band(BandScale::builder())));
+        points(Encoding::scaled_field("category").scale(Scale::band(BandScale::builder())));
     let start = points(
-        Encoding::scaled_column("category")
+        Encoding::scaled_field("category")
             .scale(Scale::band(BandScale::builder()))
             .band_position(0.0),
     );
     let end = points(
-        Encoding::scaled_column("category")
+        Encoding::scaled_field("category")
             .scale(Scale::band(BandScale::builder()))
             .band_position(1.0),
     );
@@ -92,8 +91,8 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
         evaluator.evaluate(&host([320.0, 240.0])).unwrap()
     };
 
-    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_column("category")).y(
-        Encoding::scaled_column("amount").scale(
+    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_field("category")).y(
+        Encoding::scaled_field("amount").scale(
             Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
         ),
     ))
@@ -114,8 +113,8 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
     // scale.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("category").scale(Scale::band(BandScale::builder())))
-            .y(Encoding::scaled_column("amount")),
+            .x(Encoding::scaled_field("category").scale(Scale::band(BandScale::builder())))
+            .y(Encoding::scaled_field("amount")),
     )
     .table(categories());
     let points = Chart::builder()
@@ -133,8 +132,8 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
 
     let lines = CartesianLayer::line(
         LineMark::builder()
-            .x(Encoding::scaled_column("category"))
-            .y(Encoding::scaled_column("amount")),
+            .x(Encoding::scaled_field("category"))
+            .y(Encoding::scaled_field("amount")),
     )
     .table(categories());
     let line = Chart::builder()
@@ -176,12 +175,12 @@ fn group_totals_span_their_groups_behind_their_members() {
 
     // A gap of a leaf step between the regions, and a tenth of a step between the channels.
     let key = || {
-        Encoding::scaled_column("key").scale(Scale::nested_band(
+        Encoding::scaled_field("key").scale(Scale::nested_band(
             NestedBandScale::builder().padding_inner([1.0, 0.1]),
         ))
     };
     let zeroed_sales = || {
-        Encoding::scaled_column("sales").scale(
+        Encoding::scaled_field("sales").scale(
             Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
         )
     };
@@ -189,7 +188,7 @@ fn group_totals_span_their_groups_behind_their_members() {
         BarMark::builder()
             .x(key().band_level(0))
             .y(zeroed_sales())
-            .opacity(Encoding::constant(0.35)),
+            .opacity(Encoding::direct_value(0.35)),
     )
     .table(totals);
     let members = CartesianLayer::bar(BarMark::builder().x(key()).y(zeroed_sales())).table(sales);
@@ -255,8 +254,8 @@ fn group_totals_span_their_groups_behind_their_members() {
 fn a_custom_scale_of_categories_runs_down_the_plot() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("amount"))
-            .y(Encoding::scaled_column("category")
+            .x(Encoding::scaled_field("amount"))
+            .y(Encoding::scaled_field("category")
                 .scale(Scale::custom(CustomScale::builder().type_("dots")))),
     )
     .table(categories());

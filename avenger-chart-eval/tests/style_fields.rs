@@ -48,10 +48,10 @@ const CONTENT: &[(&str, &[&str])] = &[
     (
         "Encoding",
         &[
-            "column",
-            "scaled_column",
-            "constant",
-            "scaled_constant",
+            "direct_field",
+            "scaled_field",
+            "direct_value",
+            "scaled_value",
             "scale",
             "conditional",
             "selection_field",
@@ -64,10 +64,10 @@ const CONTENT: &[(&str, &[&str])] = &[
         "ConditionalValue",
         &[
             "predicate",
-            "column",
-            "scaled_column",
-            "constant",
-            "scaled_constant",
+            "direct_field",
+            "scaled_field",
+            "direct_value",
+            "scaled_value",
         ],
     ),
     (

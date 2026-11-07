@@ -13,9 +13,9 @@ use crate::support::*;
 fn symbols() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -30,13 +30,13 @@ fn symbols() {
 fn symbols_with_a_size_and_a_shape() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg").scale(
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg").scale(
                 Scale::builder()
                     .domain(DataDomain::builder().fit(IntervalFit::builder().nice(5.0))),
             ))
-            .shape(Encoding::scaled_column("cylinders"))
-            .size(Encoding::scaled_column("count")),
+            .shape(Encoding::scaled_field("cylinders"))
+            .size(Encoding::scaled_field("count")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -51,9 +51,9 @@ fn symbols_with_a_size_and_a_shape() {
 fn lines() {
     let lines = CartesianLayer::line(
         LineMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("symbol")),
+            .x(Encoding::scaled_field("date"))
+            .y(Encoding::scaled_field("value"))
+            .color(Encoding::scaled_field("symbol")),
     )
     .table(series());
     let chart = Chart::builder()
@@ -68,10 +68,10 @@ fn lines() {
 fn trails() {
     let trails = CartesianLayer::trail(
         TrailMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("symbol"))
-            .size(Encoding::scaled_column("value")),
+            .x(Encoding::scaled_field("date"))
+            .y(Encoding::scaled_field("value"))
+            .color(Encoding::scaled_field("symbol"))
+            .size(Encoding::scaled_field("value")),
     )
     .table(series());
     let chart = Chart::builder()
@@ -86,13 +86,13 @@ fn trails() {
 fn areas() {
     let areas = CartesianLayer::area(
         AreaMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value").scale(
+            .x(Encoding::scaled_field("date"))
+            .y(Encoding::scaled_field("value").scale(
                 Scale::builder()
                     .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
             ))
-            .color(Encoding::scaled_column("symbol"))
-            .opacity(Encoding::constant(0.6)),
+            .color(Encoding::scaled_field("symbol"))
+            .opacity(Encoding::direct_value(0.6)),
     )
     .table(series());
     let chart = Chart::builder()
@@ -105,8 +105,8 @@ fn areas() {
 
 #[test]
 fn bars() {
-    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_column("category")).y(
-        Encoding::scaled_column("amount").scale(
+    let bars = CartesianLayer::bar(BarMark::builder().x(Encoding::scaled_field("category")).y(
+        Encoding::scaled_field("amount").scale(
             Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
         ),
     ))
@@ -123,12 +123,12 @@ fn bars() {
 fn horizontal_bars() {
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("amount").scale(
+            .x(Encoding::scaled_field("amount").scale(
                 Scale::builder()
                     .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
             ))
-            .y(Encoding::scaled_column("category"))
-            .color(Encoding::scaled_column("category")),
+            .y(Encoding::scaled_field("category"))
+            .color(Encoding::scaled_field("category")),
     )
     .table(categories());
     let chart = Chart::builder()
@@ -156,13 +156,13 @@ fn rects() {
     let rects = CartesianLayer::rect(
         RectMark::builder()
             .inset(1.0)
-            .x(Encoding::scaled_column("start"))
-            .x2(Encoding::scaled_column("end"))
-            .y(Encoding::scaled_column("count").scale(
+            .x(Encoding::scaled_field("start"))
+            .x2(Encoding::scaled_field("end"))
+            .y(Encoding::scaled_field("count").scale(
                 Scale::builder()
                     .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
             ))
-            .y2(Encoding::scaled_constant(0.0)),
+            .y2(Encoding::scaled_value(0.0)),
     )
     .table(bins);
     let chart = Chart::builder()
@@ -177,8 +177,8 @@ fn rects() {
 fn a_rect_without_y_spans_the_height_of_its_band() {
     let rects = CartesianLayer::rect(
         RectMark::builder()
-            .x(Encoding::scaled_column("category"))
-            .color(Encoding::scaled_column("amount")),
+            .x(Encoding::scaled_field("category"))
+            .color(Encoding::scaled_field("amount")),
     )
     .table(categories());
     let chart = Chart::builder()
@@ -193,11 +193,11 @@ fn a_rect_without_y_spans_the_height_of_its_band() {
 fn rules() {
     let rules = CartesianLayer::rule(
         RuleMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .y2(Encoding::scaled_constant(15.0))
-            .color(Encoding::scaled_column("origin"))
-            .stroke_dash(Encoding::constant("4 2")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .y2(Encoding::scaled_value(15.0))
+            .color(Encoding::scaled_field("origin"))
+            .stroke_dash(Encoding::direct_value("4 2")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -212,10 +212,10 @@ fn rules() {
 fn texts() {
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("category"))
-            .y(Encoding::scaled_column("amount"))
-            .text(Encoding::column("amount"))
-            .color(Encoding::scaled_column("category")),
+            .x(Encoding::scaled_field("category"))
+            .y(Encoding::scaled_field("amount"))
+            .text(Encoding::direct_field("amount"))
+            .color(Encoding::scaled_field("category")),
     )
     .table(categories());
     let chart = Chart::builder()
@@ -231,11 +231,11 @@ fn image_marks() {
     let icons = CartesianLayer::image(
         ImageMark::builder()
             .smooth(false)
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .image(Encoding::column("image"))
-            .width(Encoding::constant(24.0))
-            .height(Encoding::constant(24.0)),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .image(Encoding::direct_field("image"))
+            .width(Encoding::direct_value(24.0))
+            .height(Encoding::direct_value(24.0)),
     )
     .table(images());
     let chart = Chart::builder()
@@ -251,11 +251,11 @@ fn images_with_sizes_from_columns() {
     let icons = CartesianLayer::image(
         ImageMark::builder()
             .smooth(false)
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .image(Encoding::column("image"))
-            .width(Encoding::column("size"))
-            .height(Encoding::column("size")),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .image(Encoding::direct_field("image"))
+            .width(Encoding::direct_field("size"))
+            .height(Encoding::direct_field("size")),
     )
     .table(images());
     let chart = Chart::builder()
@@ -270,11 +270,11 @@ fn images_with_sizes_from_columns() {
 fn texts_with_weights_and_styles_from_columns() {
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .text(Encoding::column("name"))
-            .font_weight(Encoding::column("weight"))
-            .font_style(Encoding::column("style")),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .text(Encoding::direct_field("name"))
+            .font_weight(Encoding::direct_field("weight"))
+            .font_style(Encoding::direct_field("style")),
     )
     .table(labels());
     let chart = Chart::builder()
@@ -289,10 +289,10 @@ fn texts_with_weights_and_styles_from_columns() {
 fn texts_wrap_at_their_widths() {
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .text(Encoding::column("name"))
-            .width(Encoding::column("width")),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .text(Encoding::direct_field("name"))
+            .width(Encoding::direct_field("width")),
     )
     .table(labels());
     let wrapped = Chart::builder()
@@ -308,10 +308,10 @@ fn texts_wrap_at_their_widths() {
             .width_mode(TextWidthMode::Fixed)
             .max_lines(1)
             .ellipsis(true)
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .text(Encoding::column("name"))
-            .width(Encoding::constant(70.0)),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .text(Encoding::direct_field("name"))
+            .width(Encoding::direct_value(70.0)),
     )
     .table(labels());
     let cut = Chart::builder()
@@ -326,10 +326,10 @@ fn texts_wrap_at_their_widths() {
 fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .text(Encoding::column("name"))
-            .width(Encoding::constant(90.0)),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .text(Encoding::direct_field("name"))
+            .width(Encoding::direct_value(90.0)),
     )
     .table(labels());
     let chart = Chart::builder()
@@ -370,13 +370,13 @@ fn a_wrapped_label_at_the_edge_stays_inside_its_plot() {
 fn paths() {
     let paths = CartesianLayer::path(
         PathMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .path(Encoding::constant(
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .path(Encoding::direct_value(
                 "M -8 -4 L 4 -4 L 4 -8 L 12 0 L 4 8 L 4 4 L -8 4 Z",
             ))
-            .angle(Encoding::column("count"))
-            .color(Encoding::scaled_column("origin")),
+            .angle(Encoding::direct_field("count"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -391,13 +391,13 @@ fn paths() {
 #[test]
 fn a_conditional_path_draws_for_the_rows_that_it_selects() {
     // A line, and an arrow for the rows that the brush selects.
-    let path = Encoding::constant("M 0 0 L 8 0")
-        .conditional([ConditionalValue::constant("M 0 0 L 8 0 L 8 8 L 0 8 Z")
+    let path = Encoding::direct_value("M 0 0 L 8 0")
+        .conditional([ConditionalValue::direct_value("M 0 0 L 8 0 L 8 8 L 0 8 Z")
             .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
     let paths = CartesianLayer::path(
         PathMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
             .path(path),
     )
     .table(cars());
@@ -441,9 +441,9 @@ fn a_conditional_path_draws_for_the_rows_that_it_selects() {
 fn a_formatted_value_under_typst_syntax_is_escaped() {
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("category"))
-            .y(Encoding::scaled_column("amount"))
-            .text(Encoding::column("amount"))
+            .x(Encoding::scaled_field("category"))
+            .y(Encoding::scaled_field("amount"))
+            .text(Encoding::direct_field("amount"))
             .format("$,.2f")
             .syntax(TextSyntax::Typst),
     )
@@ -478,9 +478,9 @@ fn an_auto_image_size_is_the_images_own_size() {
 
     let icons = CartesianLayer::image(
         ImageMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .image(Encoding::column("image")),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .image(Encoding::direct_field("image")),
     )
     .table(images());
     let chart = Chart::builder()
@@ -495,9 +495,9 @@ fn an_auto_image_size_is_the_images_own_size() {
 
     let urls = CartesianLayer::image(
         ImageMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .y(Encoding::scaled_column("y"))
-            .image(Encoding::constant("https://example.com/icon.png")),
+            .x(Encoding::scaled_field("x"))
+            .y(Encoding::scaled_field("y"))
+            .image(Encoding::direct_value("https://example.com/icon.png")),
     )
     .table(images());
     let urls = Chart::builder()
@@ -527,11 +527,11 @@ fn a_range_of_dash_lists_draws_its_dashes() {
     ]));
     let lines = CartesianLayer::line(
         LineMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .detail(Encoding::column("symbol"))
+            .x(Encoding::scaled_field("date"))
+            .y(Encoding::scaled_field("value"))
+            .detail(Encoding::direct_field("symbol"))
             .stroke_dash(
-                Encoding::scaled_column("symbol")
+                Encoding::scaled_field("symbol")
                     .scale(Scale::builder().range(Range::values(Value::list(dashes)))),
             ),
     )
@@ -565,10 +565,10 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
     let chart = |reverse: bool| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
+                .x(Encoding::scaled_field("weight"))
+                .y(Encoding::scaled_field("mpg"))
                 .color(
-                    Encoding::scaled_column("origin")
+                    Encoding::scaled_field("origin")
                         .scale(Scale::builder().range(Range::builder().reverse(reverse))),
                 ),
         )
@@ -602,8 +602,8 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
 fn a_hidden_layer_draws_nothing_and_keeps_its_domains() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -646,11 +646,11 @@ fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
     .unwrap();
     let images = CartesianLayer::image(
         ImageMark::builder()
-            .x(Encoding::scaled_column("x"))
-            .x2(Encoding::scaled_column("x2"))
-            .y(Encoding::scaled_column("y"))
-            .y2(Encoding::scaled_column("y2"))
-            .image(Encoding::constant("https://example.com/icon.png")),
+            .x(Encoding::scaled_field("x"))
+            .x2(Encoding::scaled_field("x2"))
+            .y(Encoding::scaled_field("y"))
+            .y2(Encoding::scaled_field("y2"))
+            .image(Encoding::direct_value("https://example.com/icon.png")),
     )
     .table(table);
     let chart = Chart::builder()

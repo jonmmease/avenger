@@ -78,8 +78,8 @@ fn member_values(
     (group.members.iter())
         .map(|member| {
             let layer = &resolved.tree.layers[member.layer];
-            match layer.mark.encoding(member.channel)?.value.as_ref()? {
-                encoding::Value::ScaledColumn(name) => layer.table.column_by_name(name).cloned(),
+            match layer.mark.encoding(member.channel)?.kind.as_ref()? {
+                encoding::Kind::ScaledField(name) => layer.table.column_by_name(name).cloned(),
                 _ => None,
             }
         })
@@ -155,9 +155,9 @@ fn legend_labels(guide: &LegendGuide) -> Vec<String> {
 fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .table(penguins());
     let chart = Chart::builder()
@@ -184,10 +184,10 @@ fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
 fn legends_of_equal_categories_merge() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species"))
-            .shape(Encoding::scaled_column("species")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species"))
+            .shape(Encoding::scaled_field("species")),
     )
     .table(penguins());
     let chart = Chart::builder()
@@ -208,10 +208,10 @@ fn legends_of_equal_categories_merge() {
 fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
-            .size(Encoding::scaled_column("flipper")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
+            .size(Encoding::scaled_field("flipper")),
     )
     .table(penguins());
     let chart = Chart::builder()
@@ -235,8 +235,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
     );
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass")),
     )
     .table(penguins());
     let chart = Chart::builder()
@@ -256,8 +256,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
 fn a_position_fit_leaves_room_for_the_reach() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass")),
     )
     .table(penguins());
     let chart = Chart::builder()
@@ -293,10 +293,10 @@ fn a_position_fit_leaves_room_for_the_reach() {
     // An explicit domain clips its plot.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper").scale(
+            .x(Encoding::scaled_field("flipper").scale(
                 Scale::linear(LinearScale::builder()).domain(Domain::explicit([150.0, 250.0])),
             ))
-            .y(Encoding::scaled_column("mass")),
+            .y(Encoding::scaled_field("mass")),
     )
     .table(penguins());
     let clipped = Chart::builder()
@@ -333,9 +333,9 @@ fn legends_of_two_scales_of_one_channel_stay_apart() {
     let layer = || {
         CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("flipper"))
-                .y(Encoding::scaled_column("mass"))
-                .color(Encoding::scaled_column("species")),
+                .x(Encoding::scaled_field("flipper"))
+                .y(Encoding::scaled_field("mass"))
+                .color(Encoding::scaled_field("species")),
         )
         .table(penguins())
     };
@@ -371,10 +371,10 @@ fn swatch_shapes(group: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<St
 fn a_legend_draws_the_constant_shape_of_its_marks() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species"))
-            .shape(Encoding::constant("square")),
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species"))
+            .shape(Encoding::direct_value("square")),
     )
     .table(penguins());
     let chart = Chart::builder()

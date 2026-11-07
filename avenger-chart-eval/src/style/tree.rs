@@ -257,12 +257,12 @@ fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> String {
 fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option<DataType> {
     let member = &group.members[0];
     let layer = &resolved.tree.layers[member.layer];
-    let from_encoding = match layer.mark.encoding(member.channel)?.value.as_ref()? {
-        encoding::Value::ScaledColumn(name) => {
+    let from_encoding = match layer.mark.encoding(member.channel)?.kind.as_ref()? {
+        encoding::Kind::ScaledField(name) => {
             Some(layer.table.column_by_name(name)?.data_type().clone())
         }
-        encoding::Value::ScaledConstant(value) => Some(chart.value(value).data_type().clone()),
-        encoding::Value::Column(_) | encoding::Value::Constant(_) => None,
+        encoding::Kind::ScaledValue(value) => Some(chart.value(value).data_type().clone()),
+        encoding::Kind::DirectField(_) | encoding::Kind::DirectValue(_) => None,
     };
     from_encoding.or_else(|| match group.spec.domain.as_ref()?.domain.as_ref()? {
         proto::domain::Domain::Explicit(values) => {

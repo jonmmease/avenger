@@ -10,9 +10,9 @@ use crate::support::*;
 fn titles_and_attributions() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
@@ -28,9 +28,9 @@ fn titles_and_attributions() {
 
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols])).title(
@@ -47,10 +47,10 @@ fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
             .color(
-                Encoding::scaled_column("mpg")
+                Encoding::scaled_field("mpg")
                     .scale(Scale::threshold().domain(Domain::explicit([20.0, 30.0]))),
             ),
     )
@@ -65,10 +65,10 @@ fn legends() {
     // A color and a shape of one column share one legend.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin"))
-            .shape(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin"))
+            .shape(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let merged = Chart::builder()
@@ -83,11 +83,11 @@ fn legends() {
 fn an_axis_with_explicit_ticks() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight").scale(
+            .x(Encoding::scaled_field("weight").scale(
                 Scale::builder()
                     .guide(Axis::builder().ticks(GuideTicks::values([2000.0, 3000.0, 4000.0]))),
             ))
-            .y(Encoding::scaled_column("mpg")),
+            .y(Encoding::scaled_field("mpg")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -102,10 +102,10 @@ fn an_axis_with_explicit_ticks() {
 fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
             .color(
-                Encoding::scaled_column("mpg")
+                Encoding::scaled_field("mpg")
                     .scale(Scale::builder().guide(Colorbar::builder().max_length(120.0))),
             ),
     )
@@ -123,10 +123,10 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     // A size legend of red symbols shows red symbols.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .size(Encoding::scaled_column("count"))
-            .color(Encoding::constant("#e45756")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .size(Encoding::scaled_field("count"))
+            .color(Encoding::direct_value("#e45756")),
     )
     .table(cars());
     let symbols = Chart::builder()
@@ -149,11 +149,11 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     // A dash legend of green lines shows green dashes.
     let lines = CartesianLayer::line(
         LineMark::builder()
-            .x(Encoding::scaled_column("year"))
-            .y(Encoding::scaled_column("mpg"))
-            .detail(Encoding::column("origin"))
-            .stroke_dash(Encoding::scaled_column("origin"))
-            .color(Encoding::constant("#54a24b")),
+            .x(Encoding::scaled_field("year"))
+            .y(Encoding::scaled_field("mpg"))
+            .detail(Encoding::direct_field("origin"))
+            .stroke_dash(Encoding::scaled_field("origin"))
+            .color(Encoding::direct_value("#54a24b")),
     )
     .table(cars());
     let lines = Chart::builder()
@@ -169,9 +169,9 @@ fn legends_draw_the_constant_colors_of_their_marks() {
 fn a_hidden_guide_draws_nothing() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -198,10 +198,10 @@ fn a_hidden_guide_draws_nothing() {
 fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin"))
-            .size(Encoding::constant(100.0)),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin"))
+            .size(Encoding::direct_value(100.0)),
     )
     .table(cars());
     let chart = Chart::builder()
@@ -267,9 +267,9 @@ fn close(a: &ColorOrGradient, b: [f32; 4]) -> bool {
 fn a_mix_of_current_color_tints_each_rows_color() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
+            .x(Encoding::scaled_field("weight"))
+            .y(Encoding::scaled_field("mpg"))
+            .color(Encoding::scaled_field("origin")),
     )
     .table(cars());
     let chart = Chart::builder()

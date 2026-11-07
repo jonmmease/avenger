@@ -429,11 +429,11 @@ fn map_plots_that_share_a_projection_agree() {
                     table: Some(proto::TableRef { index: 0 }),
                     mark: Some(proto::geo_layer::Mark::Symbol(proto::GeoSymbolMark {
                         longitude: Some(Encoding {
-                            value: Some(proto::encoding::Value::Column("a".to_string())),
+                            kind: Some(proto::encoding::Kind::DirectField("a".to_string())),
                             ..Default::default()
                         }),
                         latitude: Some(Encoding {
-                            value: Some(proto::encoding::Value::Column("b".to_string())),
+                            kind: Some(proto::encoding::Kind::DirectField("b".to_string())),
                             ..Default::default()
                         }),
                         ..Default::default()

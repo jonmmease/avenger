@@ -85,18 +85,18 @@ fn the_style_tree_has_a_node_for_each_part() {
     // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .id("points")
     .table(penguins());
     let by_mass = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
             .filled(false),
     )
     .table(penguins());
@@ -194,8 +194,8 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
     .unwrap();
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("key"))
-            .y(Encoding::scaled_column("sales")),
+            .x(Encoding::scaled_field("key"))
+            .y(Encoding::scaled_field("sales")),
     )
     .table(sales);
     let chart = Chart::builder()
@@ -224,18 +224,18 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     // with an axis whose labels the chart turns.
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().label_angle(-45.0).id("flippers"))))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .id("points")
     .table(penguins());
     let by_mass = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
             .filled(false),
     )
     .table(penguins());
@@ -267,18 +267,18 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     // label angle.
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .id("points")
     .table(penguins());
     let by_mass = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
             .filled(false),
     )
     .table(penguins());
@@ -300,18 +300,18 @@ fn a_table_without_stylesheets_gives_initial_values() {
     // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .id("points")
     .table(penguins());
     let by_mass = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
             .filled(false),
     )
     .table(penguins());
@@ -333,18 +333,18 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     // Symbols of mass against flipper length, colored by species, and symbols filled by mass.
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
+            .y(Encoding::scaled_field("mass"))
+            .color(Encoding::scaled_field("species")),
     )
     .id("points")
     .table(penguins());
     let by_mass = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
+            .x(Encoding::scaled_field("flipper"))
+            .y(Encoding::scaled_field("mass"))
+            .fill(Encoding::scaled_field("mass"))
             .filled(false),
     )
     .table(penguins());
@@ -377,12 +377,12 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
     // stroke.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper").scale(
+            .x(Encoding::scaled_field("flipper").scale(
                 Scale::builder().guide(Axis::builder().grid(GuideGrid::builder().show(true))),
             ))
-            .y(Encoding::scaled_column("mass"))
+            .y(Encoding::scaled_field("mass"))
             .color(
-                Encoding::scaled_column("species").scale(
+                Encoding::scaled_field("species").scale(
                     Scale::builder()
                         .guide(Legend::builder().background(Background::builder().stroke("red"))),
                 ),
@@ -422,11 +422,11 @@ fn style_text_that_is_not_a_value_warns() {
     // legend.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper")
+            .x(Encoding::scaled_field("flipper")
                 .scale(Scale::builder().guide(Axis::builder().domain_color("bluish"))))
-            .y(Encoding::scaled_column("mass"))
+            .y(Encoding::scaled_field("mass"))
             .color(
-                Encoding::scaled_column("species").scale(Scale::builder().guide(Legend::builder())),
+                Encoding::scaled_field("species").scale(Scale::builder().guide(Legend::builder())),
             ),
     )
     .table(penguins());
@@ -465,8 +465,8 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     .unwrap();
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("key"))
-            .y(Encoding::scaled_column("sales")),
+            .x(Encoding::scaled_field("key"))
+            .y(Encoding::scaled_field("sales")),
     )
     .table(sales);
     let chart = Chart::builder()
@@ -494,8 +494,8 @@ fn a_select_without_a_form_stores_a_box() {
     let stores = |select: SelectBuilder| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("flipper"))
-                .y(Encoding::scaled_column("mass")),
+                .x(Encoding::scaled_field("flipper"))
+                .y(Encoding::scaled_field("mass")),
         )
         .table(penguins());
         let chart = Chart::builder()

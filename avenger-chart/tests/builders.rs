@@ -76,15 +76,18 @@ fn a_repeated_field_appends_in_order() {
 
 #[test]
 fn a_oneof_member_replaces_the_member_that_is_set() {
-    let encoding = Encoding::scaled_column("a").column("b").build().unwrap();
+    let encoding = Encoding::scaled_field("a")
+        .direct_field("b")
+        .build()
+        .unwrap();
     assert_eq!(
-        encoding.value,
-        Some(encoding::Value::Column("b".to_string()))
+        encoding.kind,
+        Some(encoding::Kind::DirectField("b".to_string()))
     );
     // A constructor is the member's setter on an empty builder.
     assert_eq!(
-        Encoding::scaled_column("a").build().unwrap(),
-        Encoding::builder().scaled_column("a").build().unwrap()
+        Encoding::scaled_field("a").build().unwrap(),
+        Encoding::builder().scaled_field("a").build().unwrap()
     );
 }
 
@@ -152,10 +155,10 @@ fn a_message_converts_to_its_builder() {
 fn values_take_the_arrow_type_of_their_rust_type() {
     let layer = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::constant("#e45756"))
-            .size(Encoding::constant(5)),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .color(Encoding::direct_value("#e45756"))
+            .size(Encoding::direct_value(5)),
     )
     .table(points());
     let chart = Chart::builder()
@@ -164,8 +167,8 @@ fn values_take_the_arrow_type_of_their_rust_type() {
         .build()
         .unwrap();
     let mark = symbols(&chart);
-    let value = |encoding: &Option<Encoding>| match &encoding.as_ref().unwrap().value {
-        Some(encoding::Value::Constant(value)) => chart.value(value).clone(),
+    let value = |encoding: &Option<Encoding>| match &encoding.as_ref().unwrap().kind {
+        Some(encoding::Kind::DirectValue(value)) => chart.value(value).clone(),
         other => panic!("expected a constant, got {other:?}"),
     };
     assert_eq!(value(&mark.color).data_type(), &DataType::Utf8);
@@ -179,10 +182,10 @@ fn a_list_value_is_one_element_of_a_list() {
         .root(Plot::cartesian(
             CartesianPlot::builder().layers([CartesianLayer::symbol(
                 SymbolMark::builder()
-                    .x(Encoding::scaled_column("a").scale(
+                    .x(Encoding::scaled_field("a").scale(
                         Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0])),
                     ))
-                    .y(Encoding::scaled_column("b")),
+                    .y(Encoding::scaled_field("b")),
             )
             .table(points())]),
         ))
@@ -214,13 +217,13 @@ fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
 #[test]
 fn an_error_of_a_setter_names_its_path_in_the_chart() {
     // An explicit domain of a scalar of two elements.
-    let size = Encoding::scaled_column("a").scale(Scale::builder().domain(Domain::explicit(
+    let size = Encoding::scaled_field("a").scale(Scale::builder().domain(Domain::explicit(
         Value::scalar(Arc::new(Float64Array::from(vec![1.0, 2.0]))),
     )));
     let layer = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
             .size(size),
     )
     .table(points());
@@ -238,8 +241,8 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
     let scatter = || {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("a"))
-                .y(Encoding::scaled_column("b")),
+                .x(Encoding::scaled_field("a"))
+                .y(Encoding::scaled_field("b")),
         )
         .table(points());
         Chart::builder().root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
@@ -258,14 +261,14 @@ fn a_chart_takes_the_version_and_infers_only_when_asked() {
 
 #[test]
 fn a_conditional_value_takes_its_predicate_and_value() {
-    let conditional = ConditionalValue::scaled_constant(3.0)
+    let conditional = ConditionalValue::scaled_value(3.0)
         .predicate(Predicate::selected(Selected::builder().selection("brush")))
         .build();
-    invalid(conditional, "scaled_constant", "builds only in a chart");
-    let plain = ConditionalValue::column("c").build().unwrap();
+    invalid(conditional, "scaled_value", "builds only in a chart");
+    let plain = ConditionalValue::direct_field("c").build().unwrap();
     assert_eq!(
-        plain.value,
-        Some(conditional_value::Value::Column("c".to_string()))
+        plain.kind,
+        Some(conditional_value::Kind::DirectField("c".to_string()))
     );
 }
 
@@ -274,8 +277,8 @@ fn a_replaced_value_leaves_no_trace_in_the_chart() {
     let colored = |color: EncodingBuilder| {
         let symbols = CartesianLayer::symbol(
             SymbolMark::builder()
-                .x(Encoding::scaled_column("a"))
-                .y(Encoding::scaled_column("b"))
+                .x(Encoding::scaled_field("a"))
+                .y(Encoding::scaled_field("b"))
                 .color(color),
         )
         .table(points());
@@ -285,7 +288,7 @@ fn a_replaced_value_leaves_no_trace_in_the_chart() {
             .build()
             .unwrap()
     };
-    let replaced = colored(Encoding::constant("red").constant("blue"));
-    let once = colored(Encoding::constant("blue"));
+    let replaced = colored(Encoding::direct_value("red").direct_value("blue"));
+    let once = colored(Encoding::direct_value("blue"));
     assert_eq!(replaced, once);
 }

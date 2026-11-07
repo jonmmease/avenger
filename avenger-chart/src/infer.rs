@@ -106,21 +106,17 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
         };
         // The scale takes the type of the encoding's value when it is scaled, and otherwise of the
         // first scaled conditional value.
-        let data_type = match &encoding.value {
-            Some(encoding::Value::ScaledColumn(name)) => column_type(name),
-            Some(encoding::Value::ScaledConstant(value)) => value_type(value),
+        let data_type = match &encoding.kind {
+            Some(encoding::Kind::ScaledField(name)) => column_type(name),
+            Some(encoding::Kind::ScaledValue(value)) => value_type(value),
             _ => {
                 let first =
-                    (encoding.conditional.iter()).find_map(|conditional| {
-                        match &conditional.value {
-                            Some(conditional_value::Value::ScaledColumn(name)) => {
-                                Some(column_type(name))
-                            }
-                            Some(conditional_value::Value::ScaledConstant(value)) => {
-                                Some(value_type(value))
-                            }
-                            _ => None,
+                    (encoding.conditional.iter()).find_map(|conditional| match &conditional.kind {
+                        Some(conditional_value::Kind::ScaledField(name)) => Some(column_type(name)),
+                        Some(conditional_value::Kind::ScaledValue(value)) => {
+                            Some(value_type(value))
                         }
+                        _ => None,
                     });
                 let Some(data_type) = first else {
                     continue;

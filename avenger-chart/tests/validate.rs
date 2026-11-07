@@ -116,7 +116,7 @@ fn required_fields_and_oneofs_are_set() {
     );
 
     let mut parts = base();
-    symbol_mut(&mut parts.0).x.as_mut().unwrap().value = None;
+    symbol_mut(&mut parts.0).x.as_mut().unwrap().kind = None;
     invalid(parts, X, "the value of an encoding is required");
 
     let mut parts = base();
@@ -184,18 +184,18 @@ fn x_and_y_take_a_scaled_column_or_a_scaled_constant_through_a_scale() {
     invalid(parts, X, "goes through the channel's scale");
 
     let mut parts = base();
-    symbol_mut(&mut parts.0).x.as_mut().unwrap().value =
-        Some(encoding::Value::ScaledColumn("missing".to_string()));
+    symbol_mut(&mut parts.0).x.as_mut().unwrap().kind =
+        Some(encoding::Kind::ScaledField("missing".to_string()));
     invalid(parts, X, "no column `missing`");
 
     let mut parts = base();
-    symbol_mut(&mut parts.0).x.as_mut().unwrap().value =
-        Some(encoding::Value::Column("a".to_string()));
+    symbol_mut(&mut parts.0).x.as_mut().unwrap().kind =
+        Some(encoding::Kind::DirectField("a".to_string()));
     invalid(parts, X, "a `scaled_column` or a `scaled_constant`");
 
     let mut parts = base();
     symbol_mut(&mut parts.0).x = Some(Encoding {
-        value: Some(encoding::Value::Constant(ValueRef { index: 0 })),
+        kind: Some(encoding::Kind::DirectValue(ValueRef { index: 0 })),
         ..Default::default()
     });
     parts.2 = vec![Arc::new(Float64Array::from(vec![1.0]))];
@@ -207,7 +207,7 @@ fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
     // A plain column with a scale.
     let mut parts = base();
     symbol_mut(&mut parts.0).size = Some(Encoding {
-        value: Some(encoding::Value::Column("a".to_string())),
+        kind: Some(encoding::Kind::DirectField("a".to_string())),
         scale: Some(linear_data()),
         ..Default::default()
     });
@@ -223,7 +223,7 @@ fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
         x: Some(column("a", linear_data())),
         y: Some(column("b", linear_data())),
         detail: Some(Encoding {
-            value: Some(encoding::Value::ScaledColumn("a".to_string())),
+            kind: Some(encoding::Kind::ScaledField("a".to_string())),
             ..Default::default()
         }),
         ..Default::default()
@@ -239,13 +239,13 @@ fn an_encoding_has_a_scale_exactly_when_it_has_a_scaled_value() {
 fn a_plain_conditional_value_in_a_scaled_encoding_is_drawn_as_it_is() {
     let gray = |parts: &mut (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>), value| {
         symbol_mut(&mut parts.0).size = Some(Encoding {
-            value: Some(encoding::Value::ScaledColumn("a".to_string())),
+            kind: Some(encoding::Kind::ScaledField("a".to_string())),
             scale: Some(linear_data()),
             conditional: vec![proto::ConditionalValue {
                 predicate: Some(proto::Predicate {
                     predicate: Some(predicate::Predicate::All(proto::PredicateList::default())),
                 }),
-                value: Some(value),
+                kind: Some(value),
             }],
             ..Default::default()
         });
@@ -255,7 +255,7 @@ fn a_plain_conditional_value_in_a_scaled_encoding_is_drawn_as_it_is() {
     parts.2 = vec![Arc::new(Float64Array::from(vec![4.0]))];
     gray(
         &mut parts,
-        proto::conditional_value::Value::Constant(ValueRef { index: 0 }),
+        proto::conditional_value::Kind::DirectValue(ValueRef { index: 0 }),
     );
     read(parts).unwrap();
 
@@ -277,7 +277,7 @@ fn a_plain_conditional_value_in_a_scaled_encoding_is_drawn_as_it_is() {
     .unwrap()];
     gray(
         &mut parts,
-        proto::conditional_value::Value::Column("c".to_string()),
+        proto::conditional_value::Kind::DirectField("c".to_string()),
     );
     invalid(
         parts,
@@ -311,13 +311,13 @@ fn the_second_channel_of_a_pair_follows_the_scale_of_the_first() {
         (chart(root), vec![points()], vec![])
     };
     read(bar(Encoding {
-        value: Some(encoding::Value::ScaledColumn("b".to_string())),
+        kind: Some(encoding::Kind::ScaledField("b".to_string())),
         ..Default::default()
     }))
     .unwrap();
     invalid(
         bar(Encoding {
-            value: Some(encoding::Value::Column("b".to_string())),
+            kind: Some(encoding::Kind::DirectField("b".to_string())),
             ..Default::default()
         }),
         "root.plot.polar.layers[0].mark.bar.theta2",
@@ -329,7 +329,7 @@ fn the_second_channel_of_a_pair_follows_the_scale_of_the_first() {
 fn values_without_a_scale_have_the_form_of_their_channel() {
     let mut parts = base();
     symbol_mut(&mut parts.0).color = Some(Encoding {
-        value: Some(encoding::Value::Column("a".to_string())),
+        kind: Some(encoding::Kind::DirectField("a".to_string())),
         ..Default::default()
     });
     invalid(
@@ -478,7 +478,7 @@ fn a_second_channel_follows_its_first() {
         table: Some(proto::TableRef { index: 0 }),
         mark: Some(cartesian_layer::Mark::Bar(proto::BarMark {
             x2: Some(Encoding {
-                value: Some(encoding::Value::Column("a".to_string())),
+                kind: Some(encoding::Kind::DirectField("a".to_string())),
                 ..Default::default()
             }),
             y: Some(column("b", linear_data())),
@@ -515,7 +515,7 @@ fn a_line_holds_one_value_for_each_series() {
         x: Some(column("a", linear_data())),
         y: Some(column("b", linear_data())),
         opacity: Some(Encoding {
-            value: Some(encoding::Value::Column("a".to_string())),
+            kind: Some(encoding::Kind::DirectField("a".to_string())),
             ..Default::default()
         }),
         ..Default::default()
@@ -583,11 +583,11 @@ fn spherical_maps_set_a_projection_within_range() {
                     table: Some(proto::TableRef { index: 0 }),
                     mark: Some(proto::geo_layer::Mark::Symbol(proto::GeoSymbolMark {
                         longitude: Some(Encoding {
-                            value: Some(encoding::Value::Column("a".to_string())),
+                            kind: Some(encoding::Kind::DirectField("a".to_string())),
                             ..Default::default()
                         }),
                         latitude: Some(Encoding {
-                            value: Some(encoding::Value::Column("b".to_string())),
+                            kind: Some(encoding::Kind::DirectField("b".to_string())),
                             ..Default::default()
                         }),
                         ..Default::default()
@@ -752,7 +752,7 @@ fn a_range_has_one_end_or_two() {
 fn a_predicate_names_a_selection_of_the_chart() {
     let mut parts = base();
     symbol_mut(&mut parts.0).opacity = Some(Encoding {
-        value: Some(encoding::Value::Constant(ValueRef { index: 0 })),
+        kind: Some(encoding::Kind::DirectValue(ValueRef { index: 0 })),
         conditional: vec![proto::ConditionalValue {
             predicate: Some(proto::Predicate {
                 predicate: Some(predicate::Predicate::Selected(proto::Selected {
@@ -760,7 +760,7 @@ fn a_predicate_names_a_selection_of_the_chart() {
                     ..Default::default()
                 })),
             }),
-            value: Some(proto::conditional_value::Value::Constant(ValueRef {
+            kind: Some(proto::conditional_value::Kind::DirectValue(ValueRef {
                 index: 1,
             })),
         }],

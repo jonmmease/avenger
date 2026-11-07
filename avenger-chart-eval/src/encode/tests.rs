@@ -122,9 +122,9 @@ fn colors(
 fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
     let lines = CartesianLayer::line(
         LineMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::column("group")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .color(Encoding::direct_field("group")),
     )
     .table(table());
     let chart = Chart::builder()
@@ -151,8 +151,8 @@ fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
 fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
     let bars = CartesianLayer::bar(
         BarMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b")),
     )
     .table(table());
     let chart = Chart::builder()
@@ -191,14 +191,14 @@ fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
 fn the_first_conditional_value_that_selects_a_row_wins() {
     // Gray, unless the first of two conditional values that selects a row gives it red or blue.
     let selected = |color: &str| {
-        ConditionalValue::constant(color)
+        ConditionalValue::direct_value(color)
             .predicate(Predicate::selected(Selected::builder().selection("brush")))
     };
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::constant("gray").conditional([selected("red"), selected("blue")])),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .color(Encoding::direct_value("gray").conditional([selected("red"), selected("blue")])),
     )
     .table(table());
     let chart = Chart::builder()
@@ -244,9 +244,9 @@ fn the_first_conditional_value_that_selects_a_row_wins() {
 fn paints_follow_the_computed_styles_and_the_color_channel() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::constant("red")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .color(Encoding::direct_value("red")),
     )
     .table(table());
     let chart = Chart::builder()
@@ -303,9 +303,9 @@ fn paints_follow_the_computed_styles_and_the_color_channel() {
 fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .size(Encoding::constant(100.0)),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .size(Encoding::direct_value(100.0)),
     )
     .table(table());
     let chart = Chart::builder()
@@ -334,9 +334,9 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
 
     let texts = CartesianLayer::text(
         TextMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .text(Encoding::constant("Gentoo")),
+            .x(Encoding::scaled_field("a"))
+            .y(Encoding::scaled_field("b"))
+            .text(Encoding::direct_value("Gentoo")),
     )
     .table(table());
     let chart = Chart::builder()
