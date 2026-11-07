@@ -2,8 +2,8 @@
 //! many an axis of a length shows, which ones it labels, and their label text.
 
 use arrow::{
-    array::{Array, ArrayRef, BooleanArray},
-    compute::filter,
+    array::{Array, ArrayRef, BooleanArray, UInt32Array},
+    compute::{filter, take},
     datatypes::DataType,
 };
 use avenger_scales::{
@@ -37,7 +37,9 @@ pub(crate) fn min_tick_spacing(style: &AxisStyle) -> f32 {
 pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
     style.tick_count.or_else(|| {
         let count = f64::from((length / min_spacing).max(2.0));
-        (count < DEFAULT_MAX_TICK_COUNT).then_some(count)
+        // Edges take every count, since they thin to the count at any length.
+        let edges = matches!(style.ticks, Some(AxisTicks::Edges(_)));
+        (edges || count < DEFAULT_MAX_TICK_COUNT).then_some(count)
     })
 }
 
@@ -58,6 +60,13 @@ pub(crate) fn axis_ticks(
             nanos,
         })) => scale.temporal_start_step_ticks(*start_millis, *months, *days, *nanos)?,
         Some(AxisTicks::Values(values)) => values_in_range(scale, values)?,
+        Some(AxisTicks::Edges(edges)) => {
+            let edges = values_in_range(scale, edges)?;
+            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
+            let stride = edge_stride(edges.len(), count);
+            let indices = UInt32Array::from_iter_values((0..edges.len() as u32).step_by(stride));
+            take(&edges, &indices, None).map_err(AvengerScaleError::from)?
+        }
         None => {
             let ticks = scale.ticks(tick_count)?;
             let labeled = scale.label_ticks(&ticks, tick_count);
@@ -65,6 +74,23 @@ pub(crate) fn axis_ticks(
         }
     };
     Ok((ticks.clone(), ticks))
+}
+
+/// The stride of the edges that an axis of about `count` ticks keeps of `edges` edges: the smallest
+/// of 1, 2, 5, 10, 20, 50, and so on whose kept edges number no more than the count, plus one.
+fn edge_stride(edges: usize, count: f64) -> usize {
+    let intervals = edges.saturating_sub(1) as f64;
+    let count = count.max(1.0);
+    let mut magnitude = 1;
+    loop {
+        for factor in [1, 2, 5] {
+            let stride = factor * magnitude;
+            if intervals / stride as f64 <= count || stride >= edges.max(1) {
+                return stride;
+            }
+        }
+        magnitude *= 10;
+    }
 }
 
 /// The values that `scale` places inside its range, in their order. A null, a value outside the
@@ -277,5 +303,25 @@ mod tests {
         let dates = config("#%d*", Some("[#value]"), Default::default());
         let (text, _) = label_text(&start, &scale, &dates);
         assert_eq!(text, [r##"[#("#01*")]"##]);
+    }
+
+    #[test]
+    fn edges_keep_every_kth_edge_at_the_tick_count() {
+        // Nine edges of eight bins of width 5.
+        assert_eq!(edge_stride(9, 10.0), 1);
+        assert_eq!(edge_stride(9, 4.0), 2);
+        assert_eq!(edge_stride(9, 3.0), 5);
+        assert_eq!(edge_stride(41, 3.0), 20);
+        let scale = LinearScale::configured((0.0, 40.0), (0.0, 400.0));
+        let edges = Arc::new(Float64Array::from_iter_values(
+            (0..=8).map(|bin| f64::from(bin) * 5.0),
+        )) as ArrayRef;
+        let style = AxisStyle {
+            ticks: Some(AxisTicks::Edges(edges)),
+            ..Default::default()
+        };
+        let (ticks, labeled) = axis_ticks(&scale, &style, Some(4.0)).unwrap();
+        assert_eq!(values(&ticks), vec![0.0, 10.0, 20.0, 30.0, 40.0]);
+        assert_eq!(values(&labeled), values(&ticks));
     }
 }

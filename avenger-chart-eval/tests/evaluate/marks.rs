@@ -166,6 +166,50 @@ fn histogram_of_a_span_column() {
     render_both(&chart, "bars-span-histogram");
 }
 
+/// Bins of uneven widths tick at their distinct edges, and uniform bins with an empty bin tick at
+/// the lattice of their width, which keeps the edges of the empty bin.
+#[test]
+fn bins_tick_at_their_edges() {
+    let uneven = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 1.0, 3.0, 10.0])),
+        ("end", numbers(&[1.0, 3.0, 10.0, 25.0])),
+        ("count", numbers(&[4.0, 6.0, 9.0, 3.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(uneven, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-uneven-bins");
+
+    let gapped = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 10.0, 30.0])),
+        ("end", numbers(&[10.0, 20.0, 40.0])),
+        ("count", numbers(&[4.0, 6.0, 2.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(gapped, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-empty-bin");
+}
+
+/// The bars of a Gantt chart span their value axis, so the axis keeps the ticks of its scale.
+#[test]
+fn a_gantt_chart_keeps_the_ticks_of_its_scale() {
+    let tasks = RecordBatch::try_from_iter([
+        (
+            "task",
+            Arc::new(arrow::array::StringArray::from(vec![
+                "Plan", "Build", "Ship",
+            ])) as ArrayRef,
+        ),
+        ("start", numbers(&[0.0, 3.0, 11.0])),
+        ("end", numbers(&[3.0, 11.0, 13.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(tasks, BarMark::builder().y("task").x("start").x2("end"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 200.0], "bars-gantt");
+}
+
 #[test]
 fn a_rect_without_y_spans_the_height_of_its_band() {
     let rects = CartesianLayer::rect(

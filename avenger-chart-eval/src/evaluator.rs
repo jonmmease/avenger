@@ -592,6 +592,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         engine,
         positions: &fittings,
         scales: &scales,
+        kinds,
     })?;
     // A discrete position scale with a `step` gives the plot a natural length along its channel.
     let mut natural: [Option<f32>; 2] = [None, None];
@@ -707,9 +708,10 @@ fn layer_scales<'a>(
 /// as Vega-Lite gives them. A quantitative `x`, `y`, or `size` scale contains zero when one of its
 /// members asks for it: every member except the key of a bar, an area, or a line, along which the
 /// marks stand at their values. A log or a time scale, or a selection domain, contains no zero by
-/// default. A quantitative `x` or `y` scale has nice ends at a count of 10.
+/// default. A quantitative `x` or `y` scale has nice ends at a count of 10. The key of bars of
+/// bins takes neither.
 pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> FitDefaults {
-    use avenger_chart::proto::{cartesian_layer::Mark, domain, scale::Type, Orient};
+    use avenger_chart::proto::{domain, scale::Type};
     let group = &resolved.scales[index];
     let scale_type = group.spec.r#type.as_ref();
     let linear = matches!(
@@ -725,24 +727,13 @@ pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind])
         let layer = &resolved.tree.layers[member.layer];
         let layer_kinds = layer_kinds(resolved, member.layer, kinds);
         let continuous = |channel| layer_kinds.get(&channel) == Some(&FitKind::Interval);
-        let orient = match cartesian_mark(layer) {
-            Mark::Bar(bar) => Some(bar.orient),
-            Mark::Area(area) => Some(area.orient),
-            Mark::Line(_) => Some(Orient::Vertical as i32),
-            _ => None,
-        };
-        let key = orient.map(
-            |orient| match Orient::try_from(orient).unwrap_or_default() {
-                Orient::Horizontal => Channel::Y,
-                Orient::Vertical => Channel::X,
-                Orient::Unspecified if continuous(Channel::X) && !continuous(Channel::Y) => {
-                    Channel::Y
-                }
-                Orient::Unspecified => Channel::X,
-            },
-        );
-        key != Some(scale_channel(member.channel))
+        crate::bins::key_channel(layer, continuous) != Some(scale_channel(member.channel))
     };
+    // The key of bars of bins spans from the least start to the greatest end, without zero or
+    // nice ends, so the outer edges meet the ends of the plot.
+    if crate::bins::edges(resolved, index, kinds).is_some() {
+        return FitDefaults::default();
+    }
     let zero = linear
         && !selection
         && matches!(group.channel, Channel::X | Channel::Y | Channel::Size)

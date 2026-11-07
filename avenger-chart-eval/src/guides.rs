@@ -108,6 +108,8 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) positions: &'a [Option<FittingScale>],
     /// The scale of each non-position group, by its position in `Resolved::scales`.
     pub(crate) scales: &'a [Option<ConfiguredScale>],
+    /// The kind of fit of each group, by its position in `Resolved::scales`.
+    pub(crate) kinds: &'a [avenger_chart::FitKind],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -358,7 +360,7 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
         }
         let grid = visible(&styles[nodes.grid]) && !second;
         let title_syntax = text_syntax(spec.title.as_ref().map_or(0, |title| title.syntax));
-        let style = axis_style(
+        let mut style = axis_style(
             inputs.chart,
             &styles[nodes.axis],
             &styles[nodes.title],
@@ -369,6 +371,13 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             spec.ticks.as_ref(),
             title_syntax,
         );
+        // The key axis of bars of bins ticks at the edges of the bins, unless the spec or the
+        // styles give its ticks or their count.
+        if style.ticks.is_none() && style.tick_count.is_none() {
+            if let Some(edges) = crate::bins::edges(inputs.resolved, index, inputs.kinds) {
+                style.ticks = Some(AxisTicks::Edges(edges));
+            }
+        }
         let labels = spec.labels.as_ref();
         let config = AxisConfig {
             side,

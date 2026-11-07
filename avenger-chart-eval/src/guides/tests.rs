@@ -138,6 +138,7 @@ fn with_guides<T>(
         }
     }
     let engine = engine();
+    let kinds = kinds(&resolved);
     let inputs = GuideInputs {
         chart,
         resolved: &resolved,
@@ -146,6 +147,7 @@ fn with_guides<T>(
         engine: &engine,
         positions: &positions,
         scales: &scales,
+        kinds: &kinds,
     };
     let guides = guides(&inputs).unwrap();
     check(&guides, &positions)

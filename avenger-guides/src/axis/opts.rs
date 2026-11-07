@@ -115,6 +115,11 @@ pub enum AxisTicks {
     /// continuous axis draws the ones inside its domain at each length, or categories, of which a
     /// band or point axis draws the ones in its domain, in this order. Nulls draw no tick.
     Values(ArrayRef),
+    /// The edges of bins, ascending, in the type of the scale's domain, of which a continuous axis
+    /// draws the ones inside its domain: every edge where they stand apart at the axis's tick
+    /// count, and otherwise every 2nd, 5th, 10th, 20th, and so on from the first, so the ticks
+    /// stay on edges.
+    Edges(ArrayRef),
 }
 
 /// The start value and the step of `AxisTicks::StartStep`.

@@ -597,7 +597,8 @@ impl ContinuousTicks {
         length: f32,
         overlap: Option<&LabelsOverlap>,
     ) -> (ArrayRef, Option<Arc<TickSet>>) {
-        let fitted = config.style.tick_count.is_none() && config.style.ticks.is_none();
+        let fitted = config.style.tick_count.is_none()
+            && matches!(config.style.ticks, None | Some(AxisTicks::Edges(_)));
         let first = tick_count(&config.style, length, self.min_spacing);
         let fewer = first.unwrap_or(DEFAULT_MAX_TICK_COUNT).ceil() as usize;
         let coarser = (1..fewer).rev().map(|count| Some(count as f64));
