@@ -259,7 +259,7 @@ properties! {
     TitleFrame = "title-frame", false, Syntax::Keywords(&["plot", "chart"]), "chart", &[Chart];
 
     // Guides.
-    LabelAngle = "label-angle", false, Syntax::Angle, "0", &[Axis, Header, Legend, Level];
+    LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Header, Legend, Level];
     Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Header, Title, Attribution];
     LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Header, Axis];
     TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Header];

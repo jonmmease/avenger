@@ -197,7 +197,7 @@ The initial values of the table hold on every node except these, where they depe
 | `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `title-frame` | `plot \| chart` | `chart` | no | `chart` |
-| `label-angle` | `<angle>` | `0` | no | `axis`, `header`, `legend`, `level` |
+| `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `header`, `legend`, `level` |
 | `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `header`, `title`, `attribution` |
 | `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `header`, `axis` |
 | `title-orient` | `top \| bottom \| left \| right` | `top` | no | `header` |

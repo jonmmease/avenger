@@ -6,6 +6,7 @@ use arrow::array::{RecordBatch, StringArray};
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
 use avenger_color::ColorOrGradient;
+use avenger_style::HostInputs;
 
 use crate::support::*;
 
@@ -276,5 +277,87 @@ fn a_mix_of_current_color_tints_each_rows_color() {
     assert!(!tinted.is_empty() && tinted.len() == plain.len());
     for (tinted, plain) in tinted.iter().zip(&plain) {
         assert!(close(tinted, tint(plain)), "{tinted:?} {plain:?}");
+    }
+}
+
+/// The bars of the twelve months, whose labels turn where a month is wider than its band.
+fn months() -> Chart {
+    let names = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    let table = RecordBatch::try_from_iter([
+        (
+            "month",
+            Arc::new(StringArray::from(names.to_vec())) as arrow::array::ArrayRef,
+        ),
+        (
+            "rain",
+            numbers(&[
+                49.0, 36.0, 43.0, 61.0, 74.0, 80.0, 91.0, 84.0, 66.0, 58.0, 51.0, 47.0,
+            ]),
+        ),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(table, BarMark::builder().x("month").y("rain"));
+    Chart::builder(Plot::cartesian([bars])).build().unwrap()
+}
+
+/// The height of the first plot of `chart` at `size`.
+fn plot_height(evaluator: &mut ChartEvaluator, size: [f32; 2]) -> f32 {
+    let evaluated = evaluator.evaluate(&host(size)).unwrap();
+    assert!(evaluated.warnings.is_empty(), "{:?}", evaluated.warnings);
+    evaluated.plots[0].rect[3]
+}
+
+/// The labels of a discrete x axis read across where each fits its band and turn where one does
+/// not, so the axis is thicker and the plot shorter at the narrower width, and a resize across the
+/// change measures the axis again, as a new evaluation does.
+#[test]
+fn discrete_labels_turn_where_they_do_not_fit() {
+    let fresh = |size| plot_height(&mut evaluator(&months()), size);
+    let narrow = fresh([480.0, 300.0]);
+    let wide = fresh([1400.0, 300.0]);
+    assert!(narrow + 20.0 < wide, "{narrow} {wide}");
+
+    let mut resized = evaluator(&months());
+    assert_eq!(plot_height(&mut resized, [1400.0, 300.0]), wide);
+    assert_eq!(plot_height(&mut resized, [480.0, 300.0]), narrow);
+    assert_eq!(plot_height(&mut resized, [1400.0, 300.0]), wide);
+    render(&months(), [480.0, 300.0], "labels-turned");
+}
+
+/// A plot that keeps its aspect in a canvas of a fixed height, at the width where its labels turn,
+/// ends its solves: turned labels shorten the plot, which narrows it and keeps them turned.
+#[test]
+fn turned_labels_end_their_solves_in_a_plot_that_keeps_its_aspect() {
+    for height in [200.0, 260.0, 320.0, 400.0, 520.0] {
+        let mut evaluator = ChartEvaluator::new(
+            months(),
+            cascade_with("plot { aspect-ratio: 3; }"),
+            engine(),
+            Registry::new(),
+        )
+        .unwrap();
+        let host = HostInputs {
+            height: Some(height),
+            ..Default::default()
+        };
+        let evaluated = evaluator.evaluate(&host).unwrap();
+        assert!(
+            evaluated.warnings.is_empty(),
+            "{height}: {:?}",
+            evaluated.warnings
+        );
     }
 }

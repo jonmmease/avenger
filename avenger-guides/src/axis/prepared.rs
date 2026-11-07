@@ -21,8 +21,8 @@ use super::{
     label_text,
     marks::{
         domain_mark, grid_group, label_mark, label_reach, row_overlaps, separators_mark, thin_row,
-        ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET,
-        TEXT_MARGIN,
+        ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, LABEL_GAP,
+        PIXEL_OFFSET, TEXT_MARGIN,
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
     opts::{AxisConfig, AxisTicks},
@@ -510,7 +510,9 @@ impl Axis {
                 let tick_scale = band_ticks(&scale, *point);
                 let centers = positions(&tick_scale, categories);
                 let rows = if labels_visible {
-                    vec![row(labels.clone(), centers.clone())]
+                    let mut row = row(labels.clone(), centers.clone());
+                    row.row.angle = self.band_label_angle(labels, &centers, length);
+                    vec![row]
                 } else {
                     Vec::new()
                 };
@@ -532,6 +534,27 @@ impl Axis {
                     rows,
                 }
             }
+        }
+    }
+
+    /// The angle of the labels of a band or point axis at `length`: the style's turn where the
+    /// axis is horizontal and its widest label is wider than the step between its ticks, and
+    /// otherwise the style's angle.
+    fn band_label_angle(&self, labels: &Labels, centers: &[f32], length: f32) -> f32 {
+        let style = &self.config.style;
+        let Some(turn) = style.label_turn.filter(|_| !self.config.side.is_vertical()) else {
+            return style.label_angle;
+        };
+        let step = match centers {
+            [first, second, ..] => (second - first).abs(),
+            _ => length,
+        };
+        let widest = (labels.bounds.iter().flatten())
+            .map(|bounds| bounds.width)
+            .fold(0.0, f32::max);
+        match widest + LABEL_GAP > step {
+            true => turn,
+            false => style.label_angle,
         }
     }
 

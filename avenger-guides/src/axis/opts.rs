@@ -39,6 +39,11 @@ pub struct AxisStyle {
     pub labels_visible: bool,
     /// Degrees clockwise.
     pub label_angle: f32,
+    /// The angle, in degrees clockwise, that the labels of a horizontal band or point axis turn
+    /// to at a length where one of them is wider than the step between its ticks, such as 270. The
+    /// angle depends only on the length, so a layout that measures the axis at one length always
+    /// finds one thickness. When absent, the labels keep `label_angle` at every length.
+    pub label_turn: Option<f32>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
     pub label_align: Option<TextAlign>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
@@ -71,6 +76,7 @@ impl Default for AxisStyle {
             tick_color: BLACK,
             labels_visible: true,
             label_angle: 0.0,
+            label_turn: None,
             label_align: None,
             label_baseline: None,
             label_thinning: LabelThinning::default(),

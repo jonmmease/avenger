@@ -301,7 +301,10 @@ fn axis_style(
         },
         tick_color: paint_color(tick, Property::Stroke),
         labels_visible: visible(label),
-        label_angle: style_number(axis, Property::LabelAngle),
+        // `auto` draws horizontal labels where each fits its band, and turns them to 270 degrees
+        // where one does not.
+        label_angle: axis.number(Property::LabelAngle).unwrap_or(0.0),
+        label_turn: (axis.keyword(Property::LabelAngle) == Some("auto")).then_some(270.0),
         label_align,
         label_baseline,
         label_color: text_color(label),

@@ -287,6 +287,13 @@ impl ChartEvaluator {
         let mut warnings = self.warnings.clone();
         warnings.extend(styles.warnings().iter().cloned().map(EvalWarning::Style));
         warnings.extend(prepared.warnings.iter().cloned());
+        if solution.explanation().stopped_at_limit {
+            warnings.push(EvalWarning::Fit {
+                path: "root".to_string(),
+                reason: "the layout stopped at its limit of solves, so its parts may not fit"
+                    .to_string(),
+            });
+        }
 
         let plot_ref = &resolved.tree.plots[0];
         let rect = solution
