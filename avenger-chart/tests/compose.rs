@@ -11,13 +11,8 @@ use arrow::{
     ipc::{writer::IpcWriteOptions, MetadataVersion},
 };
 use avenger_chart::{
-    builder::PartitionOrder,
-    proto::{
-        self, node::Node, plot::Coord, CartesianLayer, CartesianPlot, Channel, Concat, Direction,
-        Domain, Encoding, Facet, LinearScale, NodeBuilder, PartitionValue, Plot, PolarLayer,
-        PolarPlot, PolarSymbolMark, Resolve, ScaleSpec, Sharing, SymbolMark, Title, Wrap,
-    },
-    Chart, ChartError,
+    prelude::*,
+    proto::{self, node::Node, plot::Coord},
 };
 use support::*;
 
@@ -58,7 +53,7 @@ fn plot(id: &str, partition: &[(&str, &str)]) -> proto::PlotBuilder {
 
 /// The chart of [`plot`].
 fn scatter(id: &str, partition: &[(&str, &str)]) -> Chart {
-    proto::Chart::builder()
+    Chart::builder()
         .root(plot(id, partition))
         .infer_scales()
         .build()
@@ -67,7 +62,7 @@ fn scatter(id: &str, partition: &[(&str, &str)]) -> Chart {
 
 /// The chart of `root`, with its scales inferred.
 fn chart_of(root: impl Into<NodeBuilder>) -> Result<Chart, ChartError> {
-    proto::Chart::builder().root(root).infer_scales().build()
+    Chart::builder().root(root).infer_scales().build()
 }
 
 fn root_plot(chart: &Chart) -> &proto::Plot {
@@ -179,7 +174,7 @@ fn format_syntaxes_agree_and_outer_sizes_drop() {
     );
     // The builder's own syntax takes part in the agreement.
     fails(
-        proto::Chart::builder()
+        Chart::builder()
             .number_format_syntax("icu")
             .root(row().children([with("d3", None)]))
             .build(),
@@ -467,7 +462,7 @@ fn filtered() -> Chart {
     let widget = proto::Widget::range_slider(slider).key("magnitude");
     let plot =
         Plot::cartesian(CartesianPlot::builder().layers([layer(points()).widgets([widget])]));
-    proto::Chart::builder()
+    Chart::builder()
         .root(plot)
         .selections([proto::Selection::builder()
             .name("filters")

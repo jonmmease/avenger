@@ -10,14 +10,12 @@ use arrow::{
     datatypes::{DataType, Float64Type},
 };
 use avenger_chart::{
-    builder::Value,
+    prelude::*,
     proto::{
         self, cartesian_layer, conditional_value, domain, domain_fit, encoding, guide, node, plot,
-        predicate, scale_spec, BarMark, CartesianLayer, CartesianPlot, Chart, Concat, CustomScale,
-        DataDomain, Domain, Encoding, Guide, IntervalFit, LinearScale, Orient, Plot, Predicate,
-        ScaleSpec, Selected, SymbolMark,
+        predicate, scale_spec,
     },
-    ChartError, FORMAT_VERSION,
+    FORMAT_VERSION,
 };
 use support::points;
 

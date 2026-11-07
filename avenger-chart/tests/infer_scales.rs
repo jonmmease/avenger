@@ -13,11 +13,9 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    proto::{
-        self, scale_spec, BarMark, CartesianLayer, CartesianLayerBuilder, CartesianPlot, Channel,
-        Encoding, LogScale, Plot, ScaleSpec, SymbolMark,
-    },
-    Chart, ChartError, MarkMessage,
+    prelude::*,
+    proto::{self, scale_spec},
+    MarkMessage,
 };
 
 /// A table with a column of each kind of values: `number`, `time`, `date`, `duration`, `name`,
@@ -66,7 +64,7 @@ fn table() -> RecordBatch {
 /// The chart of `layers` over [`table`], with its scales inferred.
 fn inferred(layers: Vec<CartesianLayerBuilder>) -> Result<Chart, ChartError> {
     let layers = layers.into_iter().map(|layer| layer.table(table()));
-    proto::Chart::builder()
+    Chart::builder()
         .root(Plot::cartesian(CartesianPlot::builder().layers(layers)))
         .infer_scales()
         .build()
@@ -227,7 +225,7 @@ fn present_fields_and_plain_values_stay() {
 #[test]
 fn inferring_twice_changes_nothing() {
     let once = inferred(vec![symbols("name", Some((Channel::Color, "number")))]).unwrap();
-    let twice = proto::Chart::builder()
+    let twice = Chart::builder()
         .root(once.clone())
         .infer_scales()
         .build()

@@ -138,6 +138,8 @@ The builders also compose charts:
 
 Every error of a builder, such as two overlaid plots with different titles, is a `ChartError::Invalid` at the path of its field in the chart.
 
+`use avenger_chart::prelude::*` imports everything that building a chart takes: the checked `Chart`, every message and its builder, every enum of the format, `Value`, `IntoValue`, `PartitionOrder`, and `ChartError`. The prelude names the message `proto::Chart`, the wire form of a chart, `ChartMessage`, so `Chart` is the checked chart, whose `Chart::builder()` builds one.
+
 ```rust
 use std::sync::Arc;
 
@@ -145,10 +147,7 @@ use arrow::{
     array::{ArrayRef, Float64Array, StringArray},
     record_batch::RecordBatch,
 };
-use avenger_chart::proto::{
-    BarMark, CartesianLayer, CartesianPlot, Chart, Concat, DataDomain, Direction, Encoding,
-    IntervalFit, Plot, ScaleSpec,
-};
+use avenger_chart::prelude::*;
 
 let table = RecordBatch::try_from_iter([
     ("species", Arc::new(StringArray::from(vec!["Adelie", "Gentoo"])) as ArrayRef),

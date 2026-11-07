@@ -570,3 +570,34 @@ fn wrapper_conversions(
         }
     }
 }
+
+/// The code of `prelude.rs`: a `pub use` of every message with a builder except `Chart`, whose
+/// name the prelude gives to the checked chart, of every builder, and of every enum of the
+/// package.
+pub(super) fn prelude(set: &FileDescriptorSet, messages: &Messages) -> String {
+    let mut names: Vec<String> = Vec::new();
+    for (_, _, message) in &messages.all {
+        let name = message.name();
+        if DATA.contains(&name) {
+            continue;
+        }
+        if name != "Chart" {
+            names.push(name.to_string());
+        }
+        names.push(format!("{name}Builder"));
+    }
+    for file in &set.file {
+        names.extend(
+            file.enum_type
+                .iter()
+                .map(|enumeration| enumeration.name().to_string()),
+        );
+    }
+    names.sort();
+    let mut code = String::from("pub use crate::proto::{\n");
+    for name in names {
+        writeln!(code, "    {name},").unwrap();
+    }
+    code.push_str("};\n");
+    code
+}

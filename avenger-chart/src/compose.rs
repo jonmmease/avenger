@@ -22,6 +22,15 @@ use crate::{
     Chart, ChartError, FORMAT_VERSION,
 };
 
+impl Chart {
+    /// A builder of a chart that sets no field, the builder of the message
+    /// [`proto::Chart`](crate::proto::Chart), whose [`build`](ChartBuilder::build) returns a
+    /// checked chart.
+    pub fn builder() -> ChartBuilder {
+        ChartBuilder::default()
+    }
+}
+
 impl ChartBuilder {
     /// Asks [`build`](Self::build) to infer the absent scales of the whole tree: for each encoding
     /// whose value or one of whose conditional values is a `scaled_column` or a `scaled_constant`,
