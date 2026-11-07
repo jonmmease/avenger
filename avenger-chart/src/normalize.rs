@@ -345,9 +345,9 @@ fn encodings(mark: &mut dyn MarkMessage) {
     }
 }
 
-/// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no guide,
-/// orders the options of a custom scale, leaves out the empty fits of its domain, and removes the
-/// repeated classes of its axis or legend.
+/// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no axis or
+/// legend, orders the options of a custom scale, leaves out the empty fits of its domain, and
+/// removes the repeated classes of its axis or legend.
 fn encoding(encoding: &mut proto::Encoding) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;

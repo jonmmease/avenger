@@ -3,6 +3,9 @@
 // field means the same in every part that has it. Axes are in `axis.proto`, legends in
 // `legend.proto`, and facet headers in `facet.proto`. The rules of a concat keep, collapse, or
 // merge the parts of axes, legends, facet headers, attributions, and widgets.
+//
+// The format calls the parts of a scale its axis and its legend, and keeps the name guide for the
+// guides of a coordinate system, such as the graticule of a map.
 
 syntax = "proto3";
 
@@ -132,8 +135,8 @@ message CalendarTicks {
   }
 }
 
-// A part of the guides of a scale, of a facet header, or a widget, which the part rules of a concat
-// keep, collapse, or merge.
+// A part of the axis or the legend of a scale, of a facet header, or a widget, which the part rules
+// of a concat keep, collapse, or merge.
 enum Part {
   // Absent. Every field of this enum is required, so none holds this value.
   PART_UNSPECIFIED = 0;
@@ -168,10 +171,10 @@ message PartRule {
 enum PartRuleKind {
   // Absent. Every field of this enum is required, so none holds this value.
   PART_RULE_KIND_UNSPECIFIED = 0;
-  // One guide for each plot.
+  // One part for each plot.
   PART_RULE_KIND_KEEP = 1;
-  // One guide for each lane of plots that line up.
+  // One part for each lane of plots that line up.
   PART_RULE_KIND_COLLAPSE = 2;
-  // One guide for the concat.
+  // One part for the concat.
   PART_RULE_KIND_MERGE = 3;
 }

@@ -2,7 +2,7 @@
 
 The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size. This version
 draws a chart of one Cartesian plot: its 10 marks, every scale type with every kind of domain,
-axes, legends, colorbars, its title, and its attribution. A concat, a wrap, a polar plot, and a map
+axes, symbol legends and colorbars, its title, and its attribution. A concat, a wrap, a polar plot, and a map
 plot are `EvalError::Unsupported`.
 
 ## Preparation and evaluation
@@ -24,7 +24,7 @@ instance, and reads the initial clauses of the selections.
 The chart draws at the host's size, at the chart's `width` and `height` in a dimension where the
 host gives none, and at its natural size in a dimension without either, where a plot without a
 size counts at its computed `contain-intrinsic-size`. avenger-layout places the
-plot and the parts of its guides, each position scale fits its domain to the plot's length with
+plot and the parts of its axes and legends, each position scale fits its domain to the plot's length with
 room for the reach of its marks, and the marks encode their rows through the fitted scales.
 
 ```rust
@@ -73,8 +73,8 @@ fn scenes(
 
 The styles of the style tree are computed again only when the host's preferences or theme change,
 or when a resize changes the outcome of a condition, such as a `@media` query of the host's width.
-The scales, the reach of the marks, the guides, and the layout follow the styles. A resize within a
-breakpoint reuses all of them as they were prepared. It solves the layout again, asking the guides
+The scales, the reach of the marks, the axes and legends, and the layout follow the styles. A resize within a
+breakpoint reuses all of them as they were prepared. It solves the layout again, asking the axes and legends
 only for the measurements that no longer hold, fits the position scales at the plot's new size, and
 encodes the marks. The rows that draw and the selection states never recompute.
 
@@ -92,9 +92,9 @@ axis[channel=y] > grid { display: none; }
 legend { orient: bottom; }
 ```
 
-`display: none` hides a guide or a part of one, and a layer whose `mark` computes it draws nothing
-and has no rows. A hidden layer's values still fit its scales, so a breakpoint that hides a layer
-does not rescale the others.
+`display: none` hides an axis, a legend, or a part of one, as the `show` and `show_*` fields of
+`Axis` and `Legend` do, and a layer whose `mark` computes it draws nothing and has no rows. A hidden
+layer's values still fit its scales, so a breakpoint that hides a layer does not rescale the others.
 
 `ChartEvaluator::styles` returns the computed styles for host inputs, and their warnings are in the
 warnings of each evaluation.
@@ -119,3 +119,5 @@ not as the chart says:
   `size` of a mark without a band, or an `auto` size of a URL image.
 - `EvalWarning::Fit`, marks that reach past the edges of their plot, because the plot is too small
   for them or the producer's summary did not hold their reach.
+- `EvalWarning::Domain`, a domain that takes its fallback, such as a selection domain whose
+  selection has clauses and none of them gives a range or a set through the domain's channel.

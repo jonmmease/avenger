@@ -2,9 +2,9 @@
 //! of the layers that share a scale must agree, and the merged spec takes each field, at every
 //! depth, that one of them sets.
 //!
-//! build.rs generates the field-by-field merge of the guides, the options of the scale types, and
-//! the fits from the descriptors of the format, so a field that the format adds merges by the rule
-//! of its kind.
+//! build.rs generates the field-by-field merge of the axes, the legends, the options of the scale
+//! types, and the fits from the descriptors of the format, so a field that the format adds merges
+//! by the rule of its kind.
 
 use crate::proto::{self, domain, scale};
 
@@ -82,7 +82,8 @@ fn plain<T: PartialEq>(merged: &mut T, other: &T, field: &str) -> Merged {
     }
 }
 
-/// The classes of a guide, which join: the merged guide has each class of either, in order.
+/// The classes of an axis or a legend, which join: the merged one has each class of either, in
+/// order.
 fn classes(merged: &mut Vec<String>, other: &[String], _field: &str) -> Merged {
     for class in other {
         if !merged.contains(class) {
@@ -130,7 +131,7 @@ include!(concat!(env!("OUT_DIR"), "/merge.rs"));
 /// or a band and a point scale share a band scale. Summary and data domains merge, with their fits
 /// field by field into the domain of `merged`, and explicit and selection domains must be equal.
 /// The range and the navigation that one spec sets is the merged value, and those that both set
-/// must be equal. The options of the type and the guide merge field by field.
+/// must be equal. The options of the type, the axis, and the legend merge field by field.
 pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &SameValue) -> Merged {
     merge_type(&mut merged.r#type, &other.r#type, same)?;
     merge_domain(&mut merged.domain, other.domain.as_ref(), same)?;

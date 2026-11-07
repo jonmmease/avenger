@@ -1,6 +1,6 @@
-// Styles that guides, titles, and text marks share. A present style field is an inline style for
-// the renderer's stylesheets, and an absent one takes its value from the styles, as the comment of
-// `Chart` describes.
+// Styles that axes, legends, titles, and text marks share. A present style field is an inline style
+// for the renderer's stylesheets, and an absent one takes its value from the styles, as the comment
+// of `Chart` describes.
 
 syntax = "proto3";
 
@@ -48,7 +48,7 @@ enum TextBaseline {
   TEXT_BASELINE_BOTTOM = 4;
 }
 
-// A box behind a guide.
+// A box behind an axis, a legend, or a widget.
 message Background {
   // A CSS color, such as `transparent`.
   string fill = 1;

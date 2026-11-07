@@ -1,6 +1,6 @@
 //! The rules of marks and their encodings: the channels that a mark needs, the values and the
-//! scales of encodings, the domains, fits, ranges, and guides of scales, and the patterns that
-//! format their labels.
+//! scales of encodings, the domains, fits, ranges, axes, and legends of scales, and the patterns
+//! that format their labels.
 
 use std::collections::HashMap;
 

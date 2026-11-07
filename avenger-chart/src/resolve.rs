@@ -23,9 +23,9 @@ use crate::{
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The identity of a plot, a layer, a concat, a wrap, a guide, or a facet header with an id: its
-/// id and its partition, the values that apply to every layer and empty cell below it. All of
-/// them share one namespace, and two with one identity are a conflict, so an identity names one
+/// The identity of a plot, a layer, a concat, a wrap, an axis, a legend, or a facet header with an
+/// id: its id and its partition, the values that apply to every layer and empty cell below it. All
+/// of them share one namespace, and two with one identity are a conflict, so an identity names one
 /// part of a chart, and a part of a new chart with the same identity stands for the same part,
 /// whatever its place in the tree.
 #[derive(Clone, Debug)]
@@ -510,7 +510,7 @@ pub struct ScaleGroup {
     /// first.
     pub members: Vec<Member>,
     /// The path of the node that owns the scale: the innermost node that holds every layer of
-    /// the scale, which declares the rules of its guides.
+    /// the scale, which declares the rules of its axis or legend.
     pub owner: String,
     /// The kind of the coordinate system of the plots of a position scale.
     pub kind: Option<CoordKind>,
@@ -857,8 +857,8 @@ pub struct Resolved<'a> {
 }
 
 /// The models of `chart`, whose messages are each valid, from its tree. It fails for a chart whose
-/// shared scales, projections, or tracks conflict, and for a guide whose identity is another
-/// part's.
+/// shared scales, projections, or tracks conflict, and for an axis or a legend whose identity is
+/// another part's.
 pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resolved<'a>> {
     let scales = groups(chart, &tree)?;
     check_groups(&tree, &scales)?;

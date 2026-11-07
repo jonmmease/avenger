@@ -130,21 +130,22 @@ message Chart {
   // Standard 35, such as `yyyy-MM-dd`.
   string datetime_format_syntax = 7;
   // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
-  // it draws in, with every plot, guide, gap, and title inside it. A host that draws the chart at a
-  // size of its own, such as a window or a tile of a dashboard, uses that size instead. When
-  // absent, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
-  // with what stands around them and the padding, where a plot without a `width` counts at the plot
-  // width that the styles give.
+  // it draws in, with every plot, axis, legend, gap, and title inside it. A host that draws the
+  // chart at a size of its own, such as a window or a tile of a dashboard, uses that size instead.
+  // When absent, the chart's natural width applies: the widths of its plots, as `Plot.width`
+  // describes, with what stands around them and the padding, where a plot without a `width` counts
+  // at the plot width that the styles give.
   //
-  // The plots without a `width` share what the padding, the plots with one, the guides, the gaps,
-  // and the titles leave. When the plots with a `width` need more than the chart's width, they keep
-  // their widths, and the chart draws past its width. When they need less and nothing shares the
-  // rest, the space that is left stays after them, unless the outermost concat distributes it.
+  // The plots without a `width` share what the padding, the plots with one, the axes and legends,
+  // the gaps, and the titles leave. When the plots with a `width` need more than the chart's width,
+  // they keep their widths, and the chart draws past its width. When they need less and nothing
+  // shares the rest, the space that is left stays after them, unless the outermost concat
+  // distributes it.
   optional float width = 8;
   // The outer height of the chart, in pixels, as for `width`.
   optional float height = 9;
-  // The space between the edges of the chart's canvas and what it draws, inside its outer size:
-  // the plots, the guides, and the titles fill the canvas less the padding, and the chart's
+  // The space between the edges of the chart's canvas and what it draws, inside its outer size: the
+  // plots, the axes and legends, and the titles fill the canvas less the padding, and the chart's
   // natural size includes it.
   Padding padding = 10;
 }
@@ -173,15 +174,16 @@ message Table {
 }
 
 // A node of the tree. Its id, when it has one, and its partition identify it, and the same holds
-// for a layer, a guide, and a facet header, whose ids share one namespace with the nodes': two of
-// them with one id and one partition are a conflict, whatever their kinds, but two with one id and
-// different partitions are not, so the charts of the facets of one table can give their plots one
-// id. The partition of a guide holds the values that every layer of its scale shares, and the
-// partition of a facet header is its concat's or its wrap's. A clause names the plot or the layer that wrote it by both, and an app carries the
-// views and the selections of a plot to a new chart by both, so the plot of a facet keeps them
-// when a new query reorders the facets or drops some of them. A plot or a layer without an id is
-// named by its path in the tree. An id holds no NUL character, which the name of the owner of a
-// widget's clause begins with in a selection state, so that name equals no id.
+// for a layer, an axis, a legend, and a facet header, whose ids share one namespace with the
+// nodes': two of them with one id and one partition are a conflict, whatever their kinds, but two
+// with one id and different partitions are not, so the charts of the facets of one table can give
+// their plots one id. The partition of an axis or a legend holds the values that every layer of its
+// scale shares, and the partition of a facet header is its concat's or its wrap's. A clause names
+// the plot or the layer that wrote it by both, and an app carries the views and the selections of a
+// plot to a new chart by both, so the plot of a facet keeps them when a new query reorders the
+// facets or drops some of them. A plot or a layer without an id is named by its path in the tree.
+// An id holds no NUL character, which the name of the owner of a widget's clause begins with in a
+// selection state, so that name equals no id.
 message Node {
   oneof node {
     option (avenger.chart.v1.required_oneof) = true;
@@ -316,14 +318,14 @@ message ConcatLayout {
   // one track of the table take the largest, as `Plot.width` describes, and the shares that concats
   // give one track must be equal.
   repeated Track tracks = 2;
-  // Rules for the parts whose rule differs from the default, keyed by part. The default
-  // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
+  // Rules for the parts whose rule differs from the default, keyed by part. The default collapses
+  // the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
   // attributions, and widgets, and collapses the labels and the title of a facet header. The rules
-  // apply to the guides of the scales that the concat owns: the scales that it shares, and the share
-  // families whose layers are all below it. The rules for widgets apply to the widgets whose groups
-  // the concat holds, as `Widget` describes. The rules for the parts of facet headers and for
-  // attributions apply to the headers of the facets and to the attributions of the plots below the
-  // concat.
+  // apply to the axes and legends of the scales that the concat owns: the scales that it shares,
+  // and the share families whose layers are all below it. The rules for widgets apply to the
+  // widgets whose groups the concat holds, as `Widget` describes. The rules for the parts of facet
+  // headers and for attributions apply to the headers of the facets and to the attributions of the
+  // plots below the concat.
   repeated PartRule part_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a

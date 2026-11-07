@@ -312,7 +312,7 @@ fn a_conditionally_shown_stroke_widens_the_reach_of_its_marks() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
+            .x("weight")
             .y("mpg")
             .size(100.0)
             .stroke_width(40.0)

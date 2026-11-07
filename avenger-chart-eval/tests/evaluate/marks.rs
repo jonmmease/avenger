@@ -53,7 +53,7 @@ fn trails() {
     let trails = CartesianLayer::trail(
         series(),
         TrailMark::builder()
-            .x(Encoding::scaled_field("date"))
+            .x("date")
             .y("value")
             .color("symbol")
             .size("value"),
@@ -218,7 +218,7 @@ fn image_marks() {
         images(),
         ImageMark::new(Encoding::direct_field("image"))
             .smooth(false)
-            .x(Encoding::scaled_field("x"))
+            .x("x")
             .y("y")
             .width(24.0)
             .height(24.0),
@@ -233,7 +233,7 @@ fn images_with_sizes_from_columns() {
         images(),
         ImageMark::new(Encoding::direct_field("image"))
             .smooth(false)
-            .x(Encoding::scaled_field("x"))
+            .x("x")
             .y("y")
             .width("size")
             .height("size"),
@@ -247,7 +247,7 @@ fn texts_with_weights_and_styles_from_columns() {
     let texts = CartesianLayer::text(
         labels(),
         TextMark::new(Encoding::direct_field("name"))
-            .x(Encoding::scaled_field("x"))
+            .x("x")
             .y("y")
             .font_weight("weight")
             .font_style("style"),
@@ -551,7 +551,7 @@ fn a_spanning_image_asks_for_the_size_that_it_draws_at() {
     let images = CartesianLayer::image(
         table,
         ImageMark::new(Encoding::direct_value("https://example.com/icon.png"))
-            .x(Encoding::scaled_field("x"))
+            .x("x")
             .x2("x2")
             .y("y")
             .y2("y2"),

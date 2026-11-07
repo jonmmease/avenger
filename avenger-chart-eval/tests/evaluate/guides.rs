@@ -51,7 +51,7 @@ fn legends() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
+            .x("weight")
             .y("mpg")
             .color("origin")
             .shape("origin"),
@@ -117,7 +117,7 @@ fn legends_draw_the_constant_colors_of_their_marks() {
     let lines = CartesianLayer::line(
         cars(),
         LineMark::builder()
-            .x(Encoding::scaled_field("year"))
+            .x("year")
             .y("mpg")
             .detail("origin")
             .stroke_dash("origin")
@@ -155,7 +155,7 @@ fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight"))
+            .x("weight")
             .y("mpg")
             .color("origin")
             .size(100.0),

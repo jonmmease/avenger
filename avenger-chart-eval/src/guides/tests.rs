@@ -181,7 +181,7 @@ fn legends_of_equal_categories_merge() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
+            .x("flipper")
             .y("mass")
             .color("species")
             .shape("species"),
@@ -201,7 +201,7 @@ fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper"))
+            .x("flipper")
             .y("mass")
             .fill("mass")
             .size("flipper"),

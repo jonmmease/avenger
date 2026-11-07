@@ -57,8 +57,8 @@ message Encoding {
   // own: their `scaled_` values go through the scale of `x`, `y`, `theta`, or `radius`, so they are
   // `scaled_` values exactly when the first channel has a scale. `longitude`, `latitude`,
   // `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`, and `detail` take no scale, so
-  // their values are direct. An encoding of any other channel without a scale has no guide and
-  // joins no shared scale.
+  // their values are direct. An encoding of any other channel without a scale has no axis or
+  // legend and joins no shared scale.
   Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // conditional value whose predicate selects it, and the value of the encoding when none does.
@@ -73,12 +73,13 @@ message Encoding {
   // an interval selection records its range. When it is empty, a selection records the encoded
   // column. It is absent on the second channels of the pairs.
   string selection_field = 8;
-  // The title of the encoded values in the guide of the channel's scale. When absent, the title of
-  // a column is its name, and a constant or a scaled constant has none. An empty title gives the
-  // guide no title from this encoding. A guide whose own title is absent takes the distinct titles
-  // of the encodings of its scale, in tree order, joined by `, `, so a plot of `count` bars and a
-  // `mean` rule titles its shared `y` axis `count, mean`, and it draws no title when they give
-  // none. An encoding without a scale has no guide, so it has no title.
+  // The title of the encoded values in the axis or the legend of the channel's scale. When absent,
+  // the title of a field is the name of its column, and a value has none. An empty title gives the
+  // axis or the legend no title from this encoding. An axis or a legend whose own title is absent
+  // takes the distinct titles of the encodings of its scale, in tree order, joined by `, `, so a
+  // plot of `count` bars and a `mean` rule titles its shared `y` axis `count, mean`, and it draws
+  // no title when they give none. An encoding without a scale has no axis or legend, so it has no
+  // title.
   optional string title = 9;
   // Where the mark of a position channel stands in its band, from 0 at the start of the band to 1
   // at its end, on a band or a nested band scale. When absent, a point mark, such as a symbol, a
