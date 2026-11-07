@@ -8,7 +8,7 @@ use avenger_coords::PlotCoords;
 use avenger_guides::GuideSide;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 
-use super::{GeoGuide, GeoInputs, Located};
+use super::{GeoGuide, GeoInputs, Located, ProjectionNavigation, ProjectionView};
 use crate::{
     encode::{LayerRows, Result},
     marks::Drawn,
@@ -19,6 +19,10 @@ use crate::{
 /// No geo plots.
 pub(crate) struct GeoPlots;
 
+/// No views and no carried fits of projections.
+#[derive(Default)]
+pub(crate) struct ProjectionState {}
+
 /// A geo plot at a size, which no chart has without the `geo` feature.
 pub(crate) enum GeoFit {}
 
@@ -27,6 +31,7 @@ impl GeoPlots {
         _inputs: &GeoInputs,
         _layer_rows: impl Fn(usize) -> LayerRows<'r>,
         _reach: &[Option<Vec<Reach>>],
+        _state: &ProjectionState,
     ) -> Result<Self> {
         Ok(Self)
     }
@@ -35,9 +40,41 @@ impl GeoPlots {
         None
     }
 
+    pub(crate) fn group_of(&self, _plot: usize) -> Option<usize> {
+        None
+    }
+
+    pub(crate) fn home(&self, _plot: usize, _size: [f32; 2]) -> Option<ProjectionView> {
+        None
+    }
+
+    pub(crate) fn view_mut<'s>(
+        &self,
+        _state: &'s mut ProjectionState,
+        _plot: usize,
+        _size: [f32; 2],
+    ) -> Option<&'s mut ProjectionView> {
+        None
+    }
+
+    pub(crate) fn view<'s>(
+        &self,
+        _state: &'s ProjectionState,
+        _plot: usize,
+    ) -> Option<&'s ProjectionView> {
+        None
+    }
+
+    pub(crate) fn clear_view(&self, _state: &mut ProjectionState, _plot: usize) {}
+
+    pub(crate) fn navigation(&self, _plot: usize, _size: [f32; 2]) -> Option<ProjectionNavigation> {
+        None
+    }
+
     pub(crate) fn fit(
         &self,
         _sizes: &[[f32; 2]],
+        _state: &mut ProjectionState,
         _warnings: &mut Vec<EvalWarning>,
     ) -> Result<BTreeMap<usize, GeoFit>> {
         Ok(BTreeMap::new())

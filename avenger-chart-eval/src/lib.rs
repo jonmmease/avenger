@@ -20,11 +20,16 @@ mod polar;
 mod polyline;
 mod reach;
 mod registry;
+mod state;
 mod style;
 
 pub use error::{EvalError, EvalWarning};
-pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot};
+pub use evaluator::{ChartEvaluator, EvaluatedChart, EvaluatedLayer, EvaluatedPlot, PreparedChart};
+pub use geo::{ProjectionNavigation, ProjectionView};
 pub use registry::Registry;
+pub use state::{
+    Carry, Fit, Fitted, ProjectionIdentity, ScaleIdentity, ScaleNavigation, UpdateOptions, Views,
+};
 
 /// Compiles the README's examples.
 #[cfg(doctest)]
