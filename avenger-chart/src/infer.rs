@@ -34,7 +34,11 @@ use crate::{
 /// such as times of day and durations, and a column that the layer's table lacks, get no scale
 /// type, and the reader reports the encoding. Fits, guides, titles, styles, and the kinds of
 /// discrete scales stay absent: they are the choice of the producer and the renderer's stylesheets.
-pub fn infer_scales(message: &mut proto::Chart, tables: &[RecordBatch], values: &[ArrayRef]) {
+pub(crate) fn infer_scales(
+    message: &mut proto::Chart,
+    tables: &[RecordBatch],
+    values: &[ArrayRef],
+) {
     if let Some(root) = &mut message.root {
         node(root, tables, values);
     }

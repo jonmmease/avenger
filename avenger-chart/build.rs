@@ -20,6 +20,9 @@
 use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 
 use prost::Message;
+
+#[path = "codegen/builders.rs"]
+mod builders;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
@@ -90,6 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
+    std::fs::write(out.join("builders.rs"), builders::builders(&set, &messages))?;
     Ok(())
 }
 
