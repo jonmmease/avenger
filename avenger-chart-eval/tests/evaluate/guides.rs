@@ -219,6 +219,77 @@ fn a_hidden_guide_draws_nothing() {
     assert!(texts.contains(&"mpg".to_string()), "{texts:?}");
 }
 
+/// A symbol that fills with a mix of `currentColor` and white and strokes in `currentColor`: each
+/// row's color tints its fill and outlines it, and the legend's swatches match the marks.
+#[test]
+fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
+    let symbols = CartesianLayer::symbol(
+        SymbolMark::builder()
+            .x(Encoding::scaled_column("weight"))
+            .y(Encoding::scaled_column("mpg"))
+            .color(Encoding::scaled_column("origin"))
+            .size(Encoding::constant(100.0)),
+    )
+    .table(cars());
+    let chart = Chart::builder()
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
+        .infer_scales()
+        .build()
+        .unwrap();
+    let css = "mark[type=symbol] {
+        fill: color-mix(in srgb, currentColor 50%, white);
+        stroke: currentColor;
+    }";
+    let mut evaluator =
+        ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new()).unwrap();
+    let outlined = evaluator.evaluate(&host([320.0, 240.0])).unwrap();
+    assert_image(&outlined, "symbol-tint-and-outline");
+    let plain = evaluate(&chart, [320.0, 240.0]);
+
+    // Each mark strokes in its row's color, the plain fill, and fills with a tint of it.
+    let paints = |evaluated: &EvaluatedChart| {
+        let symbol = plot_symbols(evaluated);
+        let len = symbol.len as usize;
+        (
+            symbol.fill.as_vec(len, None),
+            symbol.stroke.as_vec(len, None),
+        )
+    };
+    let (fills, strokes) = paints(&outlined);
+    let (colors, _) = paints(&plain);
+    assert_eq!(strokes, colors);
+    for (fill, color) in fills.iter().zip(&colors) {
+        assert!(close(fill, tint(color)), "{fill:?} {color:?}");
+    }
+    // The swatches paint as the marks do.
+    let colors = legend_symbol_fills(&plain);
+    assert!(!colors.is_empty());
+    assert_eq!(legend_symbol_strokes(&outlined), colors);
+    for (fill, color) in legend_symbol_fills(&outlined).iter().zip(&colors) {
+        assert!(close(fill, tint(color)), "{fill:?} {color:?}");
+    }
+}
+
+/// The color halfway from `color` to white.
+fn tint(color: &ColorOrGradient) -> [f32; 4] {
+    match color {
+        ColorOrGradient::Color([r, g, b, a]) => {
+            [(r + 1.0) / 2.0, (g + 1.0) / 2.0, (b + 1.0) / 2.0, *a]
+        }
+        other => panic!("a color, not {other:?}"),
+    }
+}
+
+/// Whether `a` is the color `b`, within rounding.
+fn close(a: &ColorOrGradient, b: [f32; 4]) -> bool {
+    match a {
+        ColorOrGradient::Color(a) => a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3),
+        _ => false,
+    }
+}
+
 /// A `color-mix()` of `currentColor` tints the color of each row, in the marks and in the swatches
 /// of their legend.
 #[test]
@@ -246,16 +317,6 @@ fn a_mix_of_current_color_tints_each_rows_color() {
     let fills = |evaluated: &EvaluatedChart| {
         let symbol = plot_symbols(evaluated);
         symbol.fill.as_vec(symbol.len as usize, None)
-    };
-    let tint = |color: &ColorOrGradient| match color {
-        ColorOrGradient::Color([r, g, b, a]) => {
-            [(r + 1.0) / 2.0, (g + 1.0) / 2.0, (b + 1.0) / 2.0, *a]
-        }
-        other => panic!("a color, not {other:?}"),
-    };
-    let close = |a: &ColorOrGradient, b: [f32; 4]| match a {
-        ColorOrGradient::Color(a) => a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3),
-        _ => false,
     };
     for (tinted, plain) in fills(&tinted).iter().zip(fills(&plain).iter()) {
         assert!(close(tinted, tint(plain)), "{tinted:?} {plain:?}");

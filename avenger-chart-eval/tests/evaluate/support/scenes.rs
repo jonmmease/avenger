@@ -110,15 +110,13 @@ pub(crate) fn image_sizes(evaluated: &EvaluatedChart) -> Vec<(f32, f32)> {
         .expect("an image mark")
 }
 
-/// The fills of the symbols outside the plot's group: the swatches of the legends.
-pub(crate) fn legend_symbol_fills(evaluated: &EvaluatedChart) -> Vec<ColorOrGradient> {
-    pub(crate) fn fills(marks: &[SceneMark], out: &mut Vec<ColorOrGradient>) {
+/// The symbols outside the plot's group: the swatches of the legends.
+fn legend_symbols(evaluated: &EvaluatedChart) -> Vec<&SceneSymbolMark> {
+    fn symbols<'a>(marks: &'a [SceneMark], out: &mut Vec<&'a SceneSymbolMark>) {
         for mark in marks {
             match mark {
-                SceneMark::Group(group) => fills(&group.marks, out),
-                SceneMark::Symbol(symbol) => {
-                    out.extend(symbol.fill.as_vec(symbol.len as usize, None))
-                }
+                SceneMark::Group(group) => symbols(&group.marks, out),
+                SceneMark::Symbol(symbol) => out.push(symbol),
                 _ => {}
             }
         }
@@ -128,8 +126,22 @@ pub(crate) fn legend_symbol_fills(evaluated: &EvaluatedChart) -> Vec<ColorOrGrad
     for mark in &evaluated.scene.marks {
         match mark {
             SceneMark::Group(group) if &group.name == plot => {}
-            mark => fills(std::slice::from_ref(mark), &mut out),
+            mark => symbols(std::slice::from_ref(mark), &mut out),
         }
     }
     out
+}
+
+/// The fills of the swatches of the legends.
+pub(crate) fn legend_symbol_fills(evaluated: &EvaluatedChart) -> Vec<ColorOrGradient> {
+    (legend_symbols(evaluated).into_iter())
+        .flat_map(|symbol| symbol.fill.as_vec(symbol.len as usize, None))
+        .collect()
+}
+
+/// The strokes of the swatches of the legends.
+pub(crate) fn legend_symbol_strokes(evaluated: &EvaluatedChart) -> Vec<ColorOrGradient> {
+    (legend_symbols(evaluated).into_iter())
+        .flat_map(|symbol| symbol.stroke.as_vec(symbol.len as usize, None))
+        .collect()
 }
