@@ -517,10 +517,10 @@ pub struct ScaleGroup {
 }
 
 impl ScaleGroup {
-    /// The identity of the scale's guide, when it has an id: the id, with the partition values
-    /// that every layer of the scale shares.
-    pub fn guide_identity(&self, tree: &Tree) -> Option<Identity> {
-        let id = guide_id(self.spec.guide.as_ref()?)?;
+    /// The identity of the scale's axis or legend, when it has an id: the id, with the partition
+    /// values that every layer of the scale shares.
+    pub fn axis_or_legend_identity(&self, tree: &Tree) -> Option<Identity> {
+        let (id, _) = axis_or_legend_id(&self.spec)?;
         let partitions: Vec<BTreeMap<String, ArrayRef>> = (self.members.iter())
             .map(|member| tree.layers[member.layer].partition.clone())
             .collect();
@@ -530,26 +530,20 @@ impl ScaleGroup {
         })
     }
 
-    /// The path of the guide of the first encoding whose spec gives the guide its id, such as
-    /// `root.plot.cartesian.layers[0].mark.bar.x.scale.guide.axis`.
-    fn guide_path(&self, tree: &Tree, id: &str) -> String {
+    /// The path of the axis or the legend of the first encoding whose spec gives it its id, such
+    /// as `root.plot.cartesian.layers[0].mark.bar.x.scale.axis`.
+    fn axis_or_legend_path(&self, tree: &Tree, id: &str) -> String {
         (self.members.iter())
             .find_map(|member| {
                 let layer = &tree.layers[member.layer];
-                let guide = layer
-                    .mark
-                    .encoding(member.channel)?
-                    .scale
-                    .as_ref()?
-                    .guide
-                    .as_ref()?;
-                (guide_id(guide)? == id).then(|| {
+                let spec = layer.mark.encoding(member.channel)?.scale.as_ref()?;
+                let (found, field) = axis_or_legend_id(spec)?;
+                (found == id).then(|| {
                     format!(
-                        "{}.mark.{}.{}.scale.guide.{}",
+                        "{}.mark.{}.{}.scale.{field}",
                         layer.path,
                         layer.mark.name(),
                         member.channel.field_name(),
-                        guide_name(guide),
                     )
                 })
             })
@@ -572,27 +566,14 @@ impl ScaleGroup {
     }
 }
 
-/// The id of a guide, when it has one.
-fn guide_id(guide: &proto::Guide) -> Option<&str> {
-    let id = match guide.guide.as_ref()? {
-        proto::guide::Guide::Axis(axis) => &axis.id,
-        proto::guide::Guide::PolarAxis(axis) => &axis.id,
-        proto::guide::Guide::Legend(legend) => &legend.id,
-        proto::guide::Guide::Colorbar(colorbar) => &colorbar.id,
-        proto::guide::Guide::None(_) => return None,
+/// The id of a scale's axis or legend, when it has one, with the name of the field that holds it.
+fn axis_or_legend_id(spec: &proto::Scale) -> Option<(&str, &'static str)> {
+    let (id, field) = match (&spec.axis, &spec.legend) {
+        (Some(axis), _) => (&axis.id, "axis"),
+        (None, Some(legend)) => (&legend.id, "legend"),
+        (None, None) => return None,
     };
-    (!id.is_empty()).then_some(id.as_str())
-}
-
-/// The name of the member of a guide's oneof, such as `axis`.
-fn guide_name(guide: &proto::Guide) -> &'static str {
-    match guide.guide {
-        Some(proto::guide::Guide::Axis(_)) => "axis",
-        Some(proto::guide::Guide::PolarAxis(_)) => "polar_axis",
-        Some(proto::guide::Guide::Legend(_)) => "legend",
-        Some(proto::guide::Guide::Colorbar(_)) => "colorbar",
-        Some(proto::guide::Guide::None(_)) | None => "none",
-    }
+    (!id.is_empty()).then_some((id.as_str(), field))
 }
 
 /// An encoding of a scale group: the channel of a layer, and where its part of the domain comes
@@ -883,8 +864,8 @@ pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resol
     check_groups(&tree, &scales)?;
     let guides: Vec<(Identity, String)> = (scales.iter())
         .filter_map(|group| {
-            let identity = group.guide_identity(&tree)?;
-            let path = group.guide_path(&tree, &identity.id);
+            let identity = group.axis_or_legend_identity(&tree)?;
+            let path = group.axis_or_legend_path(&tree, &identity.id);
             Some((identity, path))
         })
         .collect();

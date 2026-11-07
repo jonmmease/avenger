@@ -13,9 +13,9 @@ use arrow::{
 use avenger_chart::{
     list_value,
     proto::{
-        self, cartesian_layer, condition, domain, domain_fit, encoding, guide, node, plot,
-        predicate, scale, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection,
-        SymbolMark, ValueRef,
+        self, cartesian_layer, condition, domain, domain_fit, encoding, node, plot, predicate,
+        scale, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark,
+        ValueRef,
     },
     Chart, ChartError,
 };
@@ -440,31 +440,23 @@ fn the_plot_gives_the_range_of_a_position() {
 #[test]
 fn a_guide_is_of_a_kind_that_its_channel_takes() {
     let mut parts = base();
-    x_scale(&mut parts.0).guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Legend(proto::Legend::default())),
-    });
-    invalid(
-        parts,
-        &format!("{X}.scale.guide.legend"),
-        "other than a position",
-    );
+    x_scale(&mut parts.0).legend = Some(proto::Legend::default());
+    invalid(parts, &format!("{X}.scale.legend"), "other than a position");
 }
 
 #[test]
 fn a_pattern_needs_its_syntax() {
     let mut parts = base();
-    x_scale(&mut parts.0).guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(proto::Axis {
-            labels: Some(proto::Labels {
-                format: ",.0f".to_string(),
-                ..Default::default()
-            }),
+    x_scale(&mut parts.0).axis = Some(proto::Axis {
+        labels: Some(proto::Labels {
+            format: ",.0f".to_string(),
             ..Default::default()
-        })),
+        }),
+        ..Default::default()
     });
     invalid(
         parts.clone(),
-        &format!("{X}.scale.guide.axis.labels.format"),
+        &format!("{X}.scale.axis.labels.format"),
         "number_format_syntax",
     );
     parts.0.number_format_syntax = "d3".to_string();
@@ -831,9 +823,7 @@ fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
     let mut parts = (chart(plot(vec![symbols(0)])), vec![table], vec![]);
     let x = x_scale(&mut parts.0);
     x.r#type = Some(scale::Type::NestedBand(proto::NestedBandScale::default()));
-    x.guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(guide)),
-    });
+    x.axis = Some(guide);
     parts
 }
 
@@ -850,7 +840,7 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
     read(nested(axis(vec![level(Some(false)), level(None)]))).unwrap();
     invalid(
         nested(axis(vec![level(None), level(None), level(None)])),
-        &format!("{X}.scale.guide.axis.levels"),
+        &format!("{X}.scale.axis.levels"),
         "the axis has 3 levels, and the paths of its scale have 2",
     );
     // A level's pattern of numbers needs its syntax, and the values of these levels are strings.
@@ -860,12 +850,10 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
     };
     read(nested(axis(vec![formatted]))).unwrap();
     let mut parts = base();
-    x_scale(&mut parts.0).guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(axis(vec![level(None)]))),
-    });
+    x_scale(&mut parts.0).axis = Some(axis(vec![level(None)]));
     invalid(
         parts,
-        &format!("{X}.scale.guide.axis.levels"),
+        &format!("{X}.scale.axis.levels"),
         "valid only on the axis of a nested band scale",
     );
 }
@@ -881,7 +869,7 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     };
     invalid(
         nested(ticks(proto::ticks::At::Count(3.0))),
-        &format!("{X}.scale.guide.axis.ticks.count"),
+        &format!("{X}.scale.axis.ticks.count"),
         "ticks at the bands of its leaf",
     );
     let band = |at| {
@@ -892,14 +880,12 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
         ])];
         let x = x_scale(&mut parts.0);
         x.r#type = Some(scale::Type::Band(proto::BandScale::default()));
-        x.guide = Some(proto::Guide {
-            guide: Some(guide::Guide::Axis(ticks(at))),
-        });
+        x.axis = Some(ticks(at));
         parts
     };
     invalid(
         band(proto::ticks::At::Count(3.0)),
-        &format!("{X}.scale.guide.axis.ticks.count"),
+        &format!("{X}.scale.axis.ticks.count"),
         "only a list of ticks is valid",
     );
     let mut listed = band(proto::ticks::At::Values(ValueRef { index: 0 }));
@@ -923,15 +909,13 @@ fn a_class_is_not_empty_and_holds_no_whitespace() {
     );
 
     let mut parts = base();
-    x_scale(&mut parts.0).guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(proto::Axis {
-            classes: strings(&["a\tb"]),
-            ..Default::default()
-        })),
+    x_scale(&mut parts.0).axis = Some(proto::Axis {
+        classes: strings(&["a\tb"]),
+        ..Default::default()
     });
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].mark.symbol.x.scale.guide.axis.classes[0]",
+        "root.plot.cartesian.layers[0].mark.symbol.x.scale.axis.classes[0]",
         "holds no whitespace",
     );
 

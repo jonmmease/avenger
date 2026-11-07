@@ -57,8 +57,6 @@ message Ticks {
 // The grid lines of a plot at the ticks of an axis. A style field that is absent takes its value
 // from the styles.
 message Grid {
-  // Whether the plot draws grid lines at the ticks.
-  optional bool show = 1;
   // A CSS color.
   string color = 2;
   // The width of each grid line, in pixels.

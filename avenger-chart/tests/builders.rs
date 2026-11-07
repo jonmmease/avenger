@@ -12,7 +12,7 @@ use arrow::{
 use avenger_chart::{
     prelude::*,
     proto::{
-        cartesian_layer, conditional_value, domain, domain_fit, encoding, guide, node, plot,
+        cartesian_layer, conditional_value, domain, domain_fit, encoding, legend_wrap, node, plot,
         predicate, scale,
     },
     FORMAT_VERSION,
@@ -111,8 +111,8 @@ fn a_wrapper_converts_from_its_members() {
     };
     assert_eq!(fit.zero, Some(true));
     // A message converts as its builder does.
-    let guide = GuideBuilder::from(Axis::default()).build().unwrap();
-    assert!(matches!(guide.guide, Some(guide::Guide::Axis(_))));
+    let domain = DomainBuilder::from(DataDomain::default()).build().unwrap();
+    assert!(matches!(domain.domain, Some(domain::Domain::Data(_))));
 }
 
 #[test]
@@ -120,8 +120,8 @@ fn a_member_without_fields_takes_no_argument() {
     let spec = Scale::builder().quantile().build().unwrap();
     assert!(matches!(spec.r#type, Some(scale::Type::Quantile(_))));
     assert!(matches!(
-        Guide::none().build().unwrap().guide,
-        Some(guide::Guide::None(_))
+        LegendWrap::flow().build().unwrap().wrap,
+        Some(legend_wrap::Wrap::Flow(_))
     ));
 }
 

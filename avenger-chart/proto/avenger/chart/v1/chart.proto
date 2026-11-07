@@ -8,7 +8,7 @@ package avenger.chart.v1;
 import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/attribution.proto";
 import "avenger/chart/v1/facet.proto";
-import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/plot.proto";
 import "avenger/chart/v1/resolve.proto";

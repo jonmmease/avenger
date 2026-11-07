@@ -86,7 +86,7 @@ fn the_style_tree_has_a_node_for_each_part() {
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
             .y(Encoding::scaled_field("mass"))
             .color(Encoding::scaled_field("species")),
     )
@@ -225,7 +225,7 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().label_angle(-45.0).id("flippers"))))
+                .scale(Scale::builder().axis(Axis::builder().label_angle(-45.0).id("flippers"))))
             .y(Encoding::scaled_field("mass"))
             .color(Encoding::scaled_field("species")),
     )
@@ -268,7 +268,7 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
             .y(Encoding::scaled_field("mass"))
             .color(Encoding::scaled_field("species")),
     )
@@ -301,7 +301,7 @@ fn a_table_without_stylesheets_gives_initial_values() {
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
             .y(Encoding::scaled_field("mass"))
             .color(Encoding::scaled_field("species")),
     )
@@ -334,7 +334,7 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let by_species = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().id("flippers"))))
+                .scale(Scale::builder().axis(Axis::builder().id("flippers"))))
             .y(Encoding::scaled_field("mass"))
             .color(Encoding::scaled_field("species")),
     )
@@ -378,12 +378,12 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().grid(Grid::builder().show(true)))))
+                .scale(Scale::builder().axis(Axis::builder().show_grid(true))))
             .y(Encoding::scaled_field("mass"))
             .color(
                 Encoding::scaled_field("species").scale(
                     Scale::builder()
-                        .guide(Legend::builder().background(Background::builder().stroke("red"))),
+                        .legend(Legend::builder().background(Background::builder().stroke("red"))),
                 ),
             ),
     )
@@ -422,10 +422,10 @@ fn style_text_that_is_not_a_value_warns() {
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Scale::builder().guide(Axis::builder().domain_color("bluish"))))
+                .scale(Scale::builder().axis(Axis::builder().domain_color("bluish"))))
             .y(Encoding::scaled_field("mass"))
             .color(
-                Encoding::scaled_field("species").scale(Scale::builder().guide(Legend::builder())),
+                Encoding::scaled_field("species").scale(Scale::builder().legend(Legend::builder())),
             ),
     )
     .table(penguins());

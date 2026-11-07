@@ -152,18 +152,25 @@ pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &Same
         &other.navigation_limits,
         "navigation_limits",
     )?;
-    match (&mut merged.guide, &other.guide) {
+    optional_merged(&mut merged.axis, &other.axis, same, "axis")?;
+    optional_merged(&mut merged.legend, &other.legend, same, "legend")
+}
+
+/// Merges an optional message field by field: an absent side takes the other, and two present
+/// sides merge their fields.
+fn optional_merged<T: MergeFields + Clone>(
+    merged: &mut Option<T>,
+    other: &Option<T>,
+    same: &SameValue,
+    name: &str,
+) -> Merged {
+    match (merged.as_mut(), other) {
         (_, None) => Ok(()),
-        (guide @ None, Some(other)) => {
-            *guide = Some(other.clone());
+        (None, Some(other)) => {
+            *merged = Some(other.clone());
             Ok(())
         }
-        (Some(guide), Some(other)) => match (&guide.guide, &other.guide) {
-            (Some(a), Some(b)) if std::mem::discriminant(a) != std::mem::discriminant(b) => {
-                Err("set guides of two kinds".to_string())
-            }
-            _ => guide.merge_fields(other, same, "guide"),
-        },
+        (Some(merged), Some(other)) => merged.merge_fields(other, same, name),
     }
 }
 

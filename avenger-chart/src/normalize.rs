@@ -27,8 +27,8 @@ use prost::bytes::Bytes;
 use crate::{
     layer::MarkMessage,
     proto::{
-        self, domain, domain_fit, facet, geo, guide, node::Node, plot::Coord, scale,
-        selection_domain, spherical,
+        self, domain, domain_fit, facet, geo, node::Node, plot::Coord, scale, selection_domain,
+        spherical,
     },
     resolve::{Identity, Tree},
     walk::{VisitTables, VisitValues},
@@ -347,20 +347,17 @@ fn encodings(mark: &mut dyn MarkMessage) {
 
 /// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no guide,
 /// orders the options of a custom scale, leaves out the empty fits of its domain, and removes the
-/// repeated classes of its guide.
+/// repeated classes of its axis or legend.
 fn encoding(encoding: &mut proto::Encoding) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
         return;
     };
-    if let Some(guide) = spec.guide.as_mut().and_then(|guide| guide.guide.as_mut()) {
-        match guide {
-            guide::Guide::Axis(axis) => distinct(&mut axis.classes),
-            guide::Guide::PolarAxis(axis) => distinct(&mut axis.classes),
-            guide::Guide::Legend(legend) => distinct(&mut legend.classes),
-            guide::Guide::Colorbar(colorbar) => distinct(&mut colorbar.classes),
-            guide::Guide::None(_) => {}
-        }
+    if let Some(axis) = spec.axis.as_mut() {
+        distinct(&mut axis.classes);
+    }
+    if let Some(legend) = spec.legend.as_mut() {
+        distinct(&mut legend.classes);
     }
     let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
     if let scale::Type::Custom(custom) = scale_type {

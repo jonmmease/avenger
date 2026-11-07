@@ -214,7 +214,7 @@ fn present_fields_and_plain_values_stay() {
     assert!(encoding(message, Channel::Color).scale.is_none());
     // Fits, guides, and titles stay absent.
     let y = encoding(message, Channel::Y);
-    assert!(y.scale.as_ref().unwrap().guide.is_none());
+    assert!(y.scale.as_ref().unwrap().axis.is_none());
     assert!(y.title.is_none());
 }
 

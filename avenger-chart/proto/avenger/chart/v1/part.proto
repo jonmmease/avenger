@@ -1,6 +1,6 @@
-// The choice of the guide of a scale, and the rules that concats apply to guides. Each kind of
-// guide has its own file: `Axis` and `PolarAxis` are in `axis.proto`, `Legend` and `Colorbar` are
-// in `legend.proto`, and `FacetHeader` is in `facet.proto`. The titles, labels, ticks, and grid
+// The parts that stand beside plots, which the rules of a concat keep, collapse, or merge: the parts
+// of axes, legends, facet headers, attributions, and widgets. Axes are in `axis.proto`, legends in
+// `legend.proto`, and facet headers in `facet.proto`, and the titles, labels, ticks, and grid
 // lines that they share are in `guide_element.proto`.
 
 syntax = "proto3";
@@ -8,22 +8,6 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
-import "avenger/chart/v1/axis.proto";
-import "avenger/chart/v1/legend.proto";
-
-message Guide {
-  oneof guide {
-    Axis axis = 1;
-    Legend legend = 2;
-    Colorbar colorbar = 3;
-    // No guide, so the scale draws none.
-    NoGuide none = 4;
-    PolarAxis polar_axis = 5;
-  }
-}
-
-message NoGuide {}
-
 
 // A part of the guides of a scale, of a facet header, or a widget, which the part rules of a concat
 // keep, collapse, or merge.

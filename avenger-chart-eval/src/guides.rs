@@ -11,7 +11,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::MarkType,
-    proto::{self, calendar_ticks, encoding, guide, tick_interval, ticks, Channel},
+    proto::{self, calendar_ticks, encoding, tick_interval, ticks, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
     Chart,
 };
@@ -229,15 +229,7 @@ fn guide_title(title: Option<&proto::GuideTitle>, default: impl FnOnce() -> Stri
 // Axes
 
 fn axis_spec(group: &ScaleGroup) -> proto::Axis {
-    match group
-        .spec
-        .guide
-        .as_ref()
-        .and_then(|guide| guide.guide.as_ref())
-    {
-        Some(guide::Guide::Axis(axis)) => axis.clone(),
-        _ => proto::Axis::default(),
-    }
+    group.spec.axis.clone().unwrap_or_default()
 }
 
 /// The ticks of a `Ticks` in place of the scale's: a list of values or an interval.
@@ -686,15 +678,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 pending.push(Pending::Colorbar(colorbar(inputs, index, group, scale)?));
             }
             Some(Some(GuideNodes::Legend(nodes))) => {
-                let spec = match group
-                    .spec
-                    .guide
-                    .as_ref()
-                    .and_then(|guide| guide.guide.as_ref())
-                {
-                    Some(guide::Guide::Legend(legend)) => legend.clone(),
-                    _ => proto::Legend::default(),
-                };
+                let spec = group.spec.legend.clone().unwrap_or_default();
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
@@ -1000,16 +984,7 @@ fn colorbar(
         unreachable!("a colorbar has the nodes of one");
     };
     let styles = inputs.styles;
-    let spec = match group
-        .spec
-        .guide
-        .as_ref()
-        .and_then(|guide| guide.guide.as_ref())
-    {
-        Some(guide::Guide::Colorbar(colorbar)) => colorbar.clone(),
-        _ => proto::Colorbar::default(),
-    };
-    let axis_spec = spec.axis.clone().unwrap_or_default();
+    let axis_spec = group.spec.legend.clone().unwrap_or_default();
     let legend_style = &styles[nodes.legend];
     let side = side(legend_style);
     let style = axis_style(

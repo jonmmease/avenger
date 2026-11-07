@@ -19,8 +19,9 @@ use super::{
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
-        self, category_fit, conditional_value, domain, domain_fit, encoding, guide, interval_fit,
+        self, axis, category_fit, conditional_value, domain, domain_fit, encoding, interval_fit,
         legend, navigation_limits, polar_layer, range, scale, selection_domain, ticks, Channel,
+        LegendForm,
     },
     resolve::scale_channel,
 };
@@ -482,18 +483,16 @@ impl Checker<'_> {
             }
             positive(navigation.min_span, &format!("{path}.min_span"))?;
         }
-        if let Some(guide) = spec.guide.as_ref().and_then(|guide| guide.guide.as_ref()) {
-            let domain_type = explicit
-                .as_ref()
-                .map_or(value_type, |array| array.data_type());
-            self.guide(
-                guide,
-                channel,
-                kind,
-                scale_type,
-                domain_type,
-                &format!("{path}.guide"),
-            )?;
+        let domain_type = explicit
+            .as_ref()
+            .map_or(value_type, |array| array.data_type());
+        if let Some(axis) = &spec.axis {
+            let path = format!("{path}.axis");
+            self.axis(axis, channel, kind, scale_type, domain_type, &path)?;
+        }
+        if let Some(legend) = &spec.legend {
+            let path = format!("{path}.legend");
+            self.legend(legend, channel, scale_type, domain_type, &path)?;
         }
         Ok(())
     }
@@ -658,105 +657,141 @@ impl Checker<'_> {
         }
     }
 
-    fn guide(
+    /// Checks an axis: valid on `x` or `y` of a Cartesian plot and on `theta` or `radius` of a polar
+    /// plot, without the fields that the other kind of plot draws.
+    fn axis(
         &self,
-        guide: &guide::Guide,
+        axis: &proto::Axis,
         channel: Channel,
         kind: CoordKind,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        match guide {
-            guide::Guide::Axis(axis) => {
-                if kind != CoordKind::Cartesian || !matches!(channel, Channel::X | Channel::Y) {
-                    return Err(fail(
-                        path,
-                        "an axis is the guide of `x` or `y` of a Cartesian plot",
-                    ));
+        let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
+        let polar_orient = matches!(axis.label_turn, Some(axis::LabelTurn::LabelOrient(_)));
+        match (kind, channel) {
+            (CoordKind::Cartesian, Channel::X | Channel::Y) => {
+                if axis.angle.is_some() {
+                    return invalid("angle", "an angle is valid only on the axis of `radius`");
                 }
-                let path = format!("{path}.axis");
-                classes(&axis.classes, &path)?;
-                self.axis(axis, scale_type, domain_type, &path)
+                if axis.route != 0 {
+                    return invalid("route", "a route is valid only on the axis of a polar plot");
+                }
+                if polar_orient {
+                    return invalid(
+                        "label_orient",
+                        "an orient of labels is valid only on the axis of a polar plot",
+                    );
+                }
             }
-            guide::Guide::PolarAxis(axis) => {
-                let path = format!("{path}.polar_axis");
-                if !matches!(channel, Channel::Theta | Channel::Radius) {
-                    return Err(fail(
-                        &path,
-                        "a polar axis is the guide of `theta` or `radius`",
-                    ));
+            (CoordKind::Polar, Channel::Theta | Channel::Radius) => {
+                let cartesian = [
+                    ("title", axis.title.is_some()),
+                    ("show_title", axis.show_title.is_some()),
+                    ("side", axis.side != 0),
+                    ("label_align", axis.label_align != 0),
+                    ("label_baseline", axis.label_baseline != 0),
+                    ("levels", !axis.levels.is_empty()),
+                ];
+                if let Some((field, _)) = cartesian.iter().find(|(_, set)| *set) {
+                    return invalid(field, "the axis of a polar plot draws no such part");
                 }
                 if axis.angle.is_some() && channel != Channel::Radius {
-                    return Err(fail(
-                        format!("{path}.angle"),
-                        "an angle is valid only on a polar axis of `radius`",
-                    ));
-                }
-                classes(&axis.classes, &path)?;
-                self.labels(axis.labels.as_ref(), domain_type, &path)?;
-                self.ticks(axis.ticks.as_ref(), scale_type, domain_type, &path)
-            }
-            guide::Guide::Legend(legend) => {
-                let path = format!("{path}.legend");
-                classes(&legend.classes, &path)?;
-                if is_position(channel) {
-                    return Err(fail(
-                        &path,
-                        "a legend is the guide of a channel other than a position",
-                    ));
-                }
-                if !ticked(scale_type) && legend.entries.is_some() {
-                    return Err(fail(
-                        &path,
-                        "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
-                         count or values",
-                    ));
-                }
-                match &legend.entries {
-                    Some(legend::Entries::TickCount(count)) => {
-                        positive(Some(*count), &format!("{path}.tick_count"))?
-                    }
-                    Some(legend::Entries::Values(values)) => {
-                        self.domain_values(values, domain_type, &format!("{path}.values"))?
-                    }
-                    None => {}
-                }
-                self.labels(legend.labels.as_ref(), domain_type, &path)
-            }
-            guide::Guide::Colorbar(colorbar) => {
-                let path = format!("{path}.colorbar");
-                classes(&colorbar.classes, &path)?;
-                if !matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke)
-                    || !ticked(scale_type)
-                {
-                    return Err(fail(
-                        &path,
-                        "a colorbar is the guide of a linear, log, pow, symlog, or time scale of a \
-                         color channel",
-                    ));
-                }
-                match &colorbar.axis {
-                    Some(axis) => {
-                        self.colorbar_axis(axis, scale_type, domain_type, &format!("{path}.axis"))
-                    }
-                    None => Ok(()),
+                    return invalid("angle", "an angle is valid only on the axis of `radius`");
                 }
             }
-            guide::Guide::None(_) => Ok(()),
+            _ => {
+                return Err(fail(
+                    path,
+                    "an axis is valid on `x` or `y` of a Cartesian plot, and on `theta` or \
+                     `radius` of a polar plot",
+                ))
+            }
         }
+        classes(&axis.classes, path)?;
+        self.labels(axis.labels.as_ref(), domain_type, path)?;
+        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)?;
+        self.levels(&axis.levels, scale_type, domain_type, path)
     }
 
-    fn axis(
+    /// Checks a legend: valid on a channel other than a position, as a symbol legend or as a
+    /// colorbar of a continuous color scale, without the fields of the other form.
+    fn legend(
         &self,
-        axis: &proto::Axis,
+        legend: &proto::Legend,
+        channel: Channel,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)?;
-        self.levels(&axis.levels, scale_type, domain_type, path)
+        if is_position(channel) {
+            return Err(fail(
+                path,
+                "a legend is valid on a channel other than a position",
+            ));
+        }
+        classes(&legend.classes, path)?;
+        let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);
+        let colorbar = match LegendForm::try_from(legend.form).unwrap_or_default() {
+            LegendForm::Colorbar => true,
+            LegendForm::Symbol => false,
+            LegendForm::Unspecified => color && ticked(scale_type),
+        };
+        let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
+        if colorbar {
+            if !color || !ticked(scale_type) {
+                return Err(fail(
+                    path,
+                    "a colorbar is the legend of a linear, log, pow, symlog, or time scale of a \
+                     color channel",
+                ));
+            }
+            let symbol = [
+                ("wrap", legend.wrap.is_some()),
+                ("label_padding", legend.label_padding.is_some()),
+                ("column_gap", legend.column_gap.is_some()),
+                ("row_gap", legend.row_gap.is_some()),
+                ("entries", legend.entries.is_some()),
+                ("show_swatches", legend.show_swatches.is_some()),
+            ];
+            if let Some((field, _)) = symbol.iter().find(|(_, set)| *set) {
+                return invalid(field, "a colorbar has no such part");
+            }
+            self.ticks(legend.ticks.as_ref(), scale_type, domain_type, path)?;
+        } else {
+            let colorbar_only = [
+                ("thickness", legend.thickness.is_some()),
+                ("axis_gap", legend.axis_gap.is_some()),
+                ("max_length", legend.max_length.is_some()),
+                ("label_align", legend.label_align != 0),
+                ("label_baseline", legend.label_baseline != 0),
+                ("ticks", legend.ticks.is_some()),
+                ("show_ticks", legend.show_ticks.is_some()),
+                ("domain_color", !legend.domain_color.is_empty()),
+                ("show_domain", legend.show_domain.is_some()),
+            ];
+            if let Some((field, _)) = colorbar_only.iter().find(|(_, set)| *set) {
+                return invalid(field, "a symbol legend has no such part");
+            }
+            if !ticked(scale_type) && legend.entries.is_some() {
+                return Err(fail(
+                    path,
+                    "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
+                     count or values",
+                ));
+            }
+            match &legend.entries {
+                Some(legend::Entries::TickCount(count)) => {
+                    positive(Some(*count), &format!("{path}.tick_count"))?
+                }
+                Some(legend::Entries::Values(values)) => {
+                    self.domain_values(values, domain_type, &format!("{path}.values"))?
+                }
+                None => {}
+            }
+        }
+        self.labels(legend.labels.as_ref(), domain_type, path)
     }
 
     /// Checks the levels of an axis: valid only on the axis of a nested band scale, with at most
@@ -800,17 +835,6 @@ impl Checker<'_> {
             )?;
         }
         Ok(())
-    }
-
-    fn colorbar_axis(
-        &self,
-        axis: &proto::ColorbarAxis,
-        scale_type: &scale::Type,
-        domain_type: &DataType,
-        path: &str,
-    ) -> Result<()> {
-        self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)
     }
 
     fn labels(

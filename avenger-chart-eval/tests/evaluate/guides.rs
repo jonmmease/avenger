@@ -85,7 +85,7 @@ fn an_axis_with_explicit_ticks() {
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight").scale(
                 Scale::builder()
-                    .guide(Axis::builder().ticks(Ticks::values([2000.0, 3000.0, 4000.0]))),
+                    .axis(Axis::builder().ticks(Ticks::values([2000.0, 3000.0, 4000.0]))),
             ))
             .y(Encoding::scaled_field("mpg")),
     )
@@ -105,8 +105,13 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
             .x(Encoding::scaled_field("weight"))
             .y(Encoding::scaled_field("mpg"))
             .color(
-                Encoding::scaled_field("mpg")
-                    .scale(Scale::builder().guide(Colorbar::builder().max_length(120.0))),
+                Encoding::scaled_field("mpg").scale(
+                    Scale::builder().legend(
+                        Legend::builder()
+                            .form(LegendForm::Colorbar)
+                            .max_length(120.0),
+                    ),
+                ),
             ),
     )
     .table(cars());

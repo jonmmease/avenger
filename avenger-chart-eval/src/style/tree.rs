@@ -4,7 +4,7 @@
 
 use arrow::datatypes::DataType;
 use avenger_chart::{
-    proto::{self, encoding, guide, layer_tool, plot::Coord, select, tool},
+    proto::{self, encoding, layer_tool, plot::Coord, select, tool},
     resolve::{Resolved, ScaleGroup},
     Chart, FitKind,
 };
@@ -111,11 +111,6 @@ pub(crate) fn build(
 
     let mut guides = Vec::with_capacity(resolved.scales.len());
     for (group, kind) in resolved.scales.iter().zip(kinds) {
-        let spec_guide = group
-            .spec
-            .guide
-            .as_ref()
-            .and_then(|guide| guide.guide.as_ref());
         let attributes = |tree: &mut StyleTree, node: NodeId| {
             tree.set_attribute(node, "channel", group.channel.field_name());
             tree.set_attribute(node, "scale", scale_type(&group.spec));
@@ -140,7 +135,7 @@ pub(crate) fn build(
                         })
                         .collect(),
                 };
-                if let Some(guide::Guide::Axis(message)) = spec_guide {
+                if let Some(message) = &group.spec.axis {
                     identify(&mut tree, axis, &message.id, &message.classes);
                     inline::axis(&mut tree, &nodes, message);
                 }
@@ -156,7 +151,7 @@ pub(crate) fn build(
                     swatch: tree.add(legend, Element::Swatch),
                     label: tree.add(legend, Element::Label),
                 };
-                if let Some(guide::Guide::Legend(message)) = spec_guide {
+                if let Some(message) = &group.spec.legend {
                     identify(&mut tree, legend, &message.id, &message.classes);
                     inline::legend(&mut tree, &nodes, message);
                 }
@@ -174,7 +169,7 @@ pub(crate) fn build(
                     tick: tree.add(legend, Element::Tick),
                     rule: tree.add(legend, Element::Rule),
                 };
-                if let Some(guide::Guide::Colorbar(message)) = spec_guide {
+                if let Some(message) = &group.spec.legend {
                     identify(&mut tree, legend, &message.id, &message.classes);
                     inline::colorbar(&mut tree, &nodes, message);
                 }

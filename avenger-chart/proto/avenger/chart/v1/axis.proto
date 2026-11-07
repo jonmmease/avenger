@@ -1,4 +1,4 @@
-// The axes of position scales: the axes of Cartesian plots, and the axes of polar plots.
+// The axes of position scales, in Cartesian and in polar plots.
 
 syntax = "proto3";
 
@@ -10,35 +10,66 @@ import "avenger/chart/v1/route.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
-// The axis of `x` or `y` in a Cartesian plot: its title, its line, its ticks, their labels, and the
-// grid lines of the plot at its ticks. A style field that is absent takes its value from the
-// styles.
+// The axis of a position scale: its title, its line, its ticks, their labels, and the grid lines of
+// the plot at its ticks. A style field that is absent takes its value from the styles.
+//
+// In a Cartesian plot, the axis of `x` or `y` stands on a side of the plot. In a polar plot, the
+// axis of `theta` runs around the outer edge, with its labels outside the circle and spokes as its
+// grid lines, and the axis of `radius` runs along the spoke at its `angle`, with rings as its grid
+// lines. A polar axis draws no title. A band or point scale ticks at each category, so a radar
+// chart has a spoke and a label for each of its categories. The fields that only one kind of plot
+// draws are invalid on the axis of the other: `side`, `levels`, and the alignment of the labels on
+// a polar axis, and `angle`, `route`, and `label_orient` on a Cartesian axis.
 message Axis {
+  // Whether the scale draws this axis. When absent, it does. `false` draws no axis, as an absent
+  // axis of `theta` or `radius` draws none; an absent axis of `x` or `y` draws the default axis.
+  optional bool show = 16;
   // The title. When its text is absent, the axis takes the titles of the encodings of its scale, as
   // `Encoding.title` describes.
   GuideTitle title = 1;
+  // Whether the axis shows its title. When absent, the styles decide.
+  optional bool show_title = 17;
   // The side of a Cartesian plot. When absent, `x` has its axis at the bottom and `y` at the left,
   // and the second scale of a plot has its axis on the other side.
   Side side = 2;
   Labels labels = 3;
-  // Whether the axis shows its labels. When absent, it shows them.
+  // Whether the axis shows its labels. When absent, the styles decide.
   optional bool show_labels = 4;
-  // The angle of the labels, in degrees clockwise.
-  optional float label_angle = 5;
+  // How the labels turn. When both are absent, the styles give the angle.
+  oneof label_turn {
+    // The angle of the labels, in degrees clockwise.
+    float label_angle = 5;
+    // How the labels of a polar axis run.
+    PolarTextOrient label_orient = 15;
+  }
   // When absent, each label aligns to its end nearest its tick, for the side of the axis and the
   // angle of the labels.
   TextAlign label_align = 6;
   // When absent, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 7;
   Ticks ticks = 8;
-  // The CSS color of the line along the axis.
+  // Whether the axis shows its ticks. When absent, the styles decide.
+  optional bool show_ticks = 18;
+  // The CSS color of the line along the axis: the outer edge of the plot for an axis of `theta`.
   string domain_color = 9;
+  // Whether the axis shows its line. When absent, the styles decide.
+  optional bool show_domain = 19;
   Grid grid = 10;
+  // Whether the plot draws grid lines at the ticks of the axis. When absent, the styles decide.
+  optional bool show_grid = 20;
   // The options of each level of the axis of a nested band scale, outermost first, which stacks a
   // row of labels for each outer level outward from the labels of the leaf, with separators
   // between the bands of each outer level. A level past the end of the list takes the defaults.
   // Valid only on the axis of a nested band scale, with at most one entry for each level.
   repeated NestedAxisLevel levels = 11;
+  // The spoke that the axis of `radius` runs along, in degrees clockwise from the top. When absent,
+  // the start angle of the plot. Invalid on the axis of `theta`.
+  optional float angle = 14;
+  // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
+  // the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and with
+  // `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim of a
+  // radar chart. Spokes are straight with either route.
+  Route route = 21;
   // The class names of the axis, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 12;
@@ -62,41 +93,4 @@ message NestedAxisLevel {
   // The pattern of the numeric and temporal values of the level, as for `Labels.format`. When
   // absent, the pattern of the axis.
   string format = 4;
-}
-
-// The axis of `theta` or `radius` in a polar plot: its line, its ticks, their labels, and the grid
-// lines of the plot at its ticks. An axis of `theta` runs around the outer edge, with its labels
-// outside the circle and spokes as its grid lines, and an axis of `radius` runs along the spoke at
-// its `angle`, with rings as its grid lines. A polar axis draws no title. A band or point scale
-// ticks at each category, as on a line, so a radar chart has a spoke and a label for each of its
-// categories. A style field that is absent takes its value from the styles.
-message PolarAxis {
-  Labels labels = 1;
-  // Whether the axis shows its labels. When absent, it shows them.
-  optional bool show_labels = 2;
-  // How the labels turn. When both are absent, they are horizontal.
-  oneof label_turn {
-    // The angle of the labels, in degrees clockwise.
-    float label_angle = 3;
-    // How the labels run.
-    PolarTextOrient label_orient = 9;
-  }
-  Ticks ticks = 4;
-  // The CSS color of the line along the axis: the outer edge of the plot for an axis of `theta`.
-  string domain_color = 5;
-  Grid grid = 6;
-  // The spoke that an axis of `radius` runs along, in degrees clockwise from the top. When absent,
-  // the start angle of the plot. Invalid on an axis of `theta`.
-  optional float angle = 7;
-  // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
-  // the outer edge of an axis of `theta`. Circles with `ROUTE_COORDINATE`, and with
-  // `ROUTE_CANVAS`, polygons whose corners are the ticks of `theta`, as the web and the rim of a
-  // radar chart. Spokes are straight with either route.
-  Route route = 8;
-  // The class names of the axis, which a stylesheet selects with `.name`, as the HTML `class`
-  // attribute lists them. Each is not empty and holds no whitespace.
-  repeated string classes = 10;
-  // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
-  // not a CSS identifier. With its partition, it identifies the axis, as `Node` describes.
-  string id = 11;
 }

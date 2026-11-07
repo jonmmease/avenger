@@ -38,12 +38,12 @@ const PROTOS: [&str; 26] = [
     "encoding",
     "facet",
     "geo",
-    "guide",
     "guide_element",
     "tool",
     "legend",
     "mark",
     "option",
+    "part",
     "partition",
     "plot",
     "polar",
@@ -501,10 +501,10 @@ impl<'a> Messages<'a> {
         }
     }
 
-    /// The messages that the specs of a shared scale merge field by field: the guides, the
-    /// messages of the scale types, and the fits, with the messages that they hold.
+    /// The messages that the specs of a shared scale merge field by field: the axes, the legends,
+    /// the messages of the scale types, and the fits, with the messages that they hold.
     fn merged(&self) -> BTreeSet<String> {
-        let mut merged: BTreeSet<String> = ["Guide", "DomainFit", "Widget"]
+        let mut merged: BTreeSet<String> = ["Axis", "Legend", "DomainFit", "Widget"]
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();
