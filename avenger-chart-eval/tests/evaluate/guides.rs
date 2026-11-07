@@ -320,9 +320,10 @@ fn plot_height(evaluator: &mut ChartEvaluator, size: [f32; 2]) -> f32 {
     evaluated.plots[0].rect[3]
 }
 
-/// The labels of a discrete x axis read across where each fits its band and turn where one does
-/// not, so the axis is thicker and the plot shorter at the narrower width, and a resize across the
-/// change measures the axis again, as a new evaluation does.
+/// The labels of a discrete x axis read across where each fits its band, slant at 315 degrees
+/// where the slant keeps them apart, and stand vertical where it does not, so the axis grows
+/// thicker and the plot shorter as the width narrows, and a resize across a change measures the
+/// axis again, as a new evaluation does.
 #[test]
 fn discrete_labels_turn_where_they_do_not_fit() {
     let fresh = |size| plot_height(&mut evaluator(&months()), size);
@@ -334,6 +335,10 @@ fn discrete_labels_turn_where_they_do_not_fit() {
     assert_eq!(plot_height(&mut resized, [1400.0, 300.0]), wide);
     assert_eq!(plot_height(&mut resized, [480.0, 300.0]), narrow);
     assert_eq!(plot_height(&mut resized, [1400.0, 300.0]), wide);
+    // Narrower still, the step no longer fits the slant, and the labels stand vertical, which
+    // takes more room than the slant for the long names of months.
+    let vertical = fresh([200.0, 300.0]);
+    assert!(vertical < narrow, "{vertical} {narrow}");
     render(&months(), [480.0, 300.0], "labels-turned");
 }
 

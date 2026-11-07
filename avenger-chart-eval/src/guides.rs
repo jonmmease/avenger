@@ -301,10 +301,13 @@ fn axis_style(
         },
         tick_color: paint_color(tick, Property::Stroke),
         labels_visible: visible(label),
-        // `auto` draws horizontal labels where each fits its band, and turns them to 270 degrees
-        // where one does not.
+        // `auto` draws the thinnest labels that keep apart, horizontal, slanted at 315 degrees, or
+        // turned to 270 degrees.
         label_angle: axis.number(Property::LabelAngle).unwrap_or(0.0),
-        label_turn: (axis.keyword(Property::LabelAngle) == Some("auto")).then_some(270.0),
+        label_angles: match axis.keyword(Property::LabelAngle) {
+            Some("auto") => vec![0.0, 315.0, 270.0],
+            _ => Vec::new(),
+        },
         label_align,
         label_baseline,
         label_color: text_color(label),

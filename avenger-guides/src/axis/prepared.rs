@@ -537,24 +537,50 @@ impl Axis {
         }
     }
 
-    /// The angle of the labels of a band or point axis at `length`: the style's turn where the
-    /// axis is horizontal and its widest label is wider than the step between its ticks, and
-    /// otherwise the style's angle.
+    /// The angle of the labels of a band or point axis at `length`: where the axis is horizontal,
+    /// the first candidate of the style's `label_angles` where its labels keep apart at the step
+    /// between its ticks, else the candidate with the thinnest labels among the others whose labels
+    /// keep apart, or the last candidate when none do, and otherwise the style's angle.
     fn band_label_angle(&self, labels: &Labels, centers: &[f32], length: f32) -> f32 {
         let style = &self.config.style;
-        let Some(turn) = style.label_turn.filter(|_| !self.config.side.is_vertical()) else {
+        if style.label_angles.is_empty() || self.config.side.is_vertical() {
             return style.label_angle;
-        };
+        }
         let step = match centers {
             [first, second, ..] => (second - first).abs(),
             _ => length,
         };
-        let widest = (labels.bounds.iter().flatten())
+        let bounds = labels.bounds.iter().flatten();
+        let widest = bounds
+            .clone()
             .map(|bounds| bounds.width)
             .fold(0.0, f32::max);
-        match widest + LABEL_GAP > step {
-            true => turn,
-            false => style.label_angle,
+        let tallest = bounds.map(|bounds| bounds.height).fold(0.0, f32::max);
+        let mut chosen: Option<(f32, f32)> = None;
+        for (index, &angle) in style.label_angles.iter().enumerate() {
+            let radians = angle.to_radians();
+            let (across, along) = (radians.sin().abs(), radians.cos().abs());
+            // Horizontal labels need their width along the axis. Slanted labels lie in parallel
+            // strips, `step * across` apart, which their height must fit.
+            let apart = match across < 1e-3 {
+                true => widest + LABEL_GAP <= step,
+                false => tallest + LABEL_GAP <= step * across,
+            };
+            // The first candidate, such as horizontal labels, wins wherever its labels keep apart.
+            if apart && index == 0 {
+                return angle;
+            }
+            let thickness = widest * across + tallest * along;
+            if apart && chosen.is_none_or(|(_, thinnest)| thickness < thinnest - 1e-3) {
+                chosen = Some((angle, thickness));
+            }
+        }
+        match chosen {
+            Some((angle, _)) => angle,
+            None => *style
+                .label_angles
+                .last()
+                .expect("the candidates are not empty"),
         }
     }
 

@@ -39,11 +39,15 @@ pub struct AxisStyle {
     pub labels_visible: bool,
     /// Degrees clockwise.
     pub label_angle: f32,
-    /// The angle, in degrees clockwise, that the labels of a horizontal band or point axis turn
-    /// to at a length where one of them is wider than the step between its ticks, such as 270. The
-    /// angle depends only on the length, so a layout that measures the axis at one length always
-    /// finds one thickness. When absent, the labels keep `label_angle` at every length.
-    pub label_turn: Option<f32>,
+    /// The angles, in degrees clockwise, that the labels of a horizontal band or point axis choose
+    /// from at each length, such as 0, 315, and 270: the first where its labels keep apart, else
+    /// the one that draws the thinnest labels among the others whose labels keep apart, or the
+    /// last when none do. Horizontal labels keep apart where
+    /// the widest fits the step between ticks, and slanted labels where the step across their
+    /// slant fits their height, whatever their width. The angle depends only on the length, so a
+    /// layout that measures the axis at one length always finds one thickness, and a shorter
+    /// length never draws thinner labels. When empty, the labels keep `label_angle`.
+    pub label_angles: Vec<f32>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
     pub label_align: Option<TextAlign>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
@@ -76,7 +80,7 @@ impl Default for AxisStyle {
             tick_color: BLACK,
             labels_visible: true,
             label_angle: 0.0,
-            label_turn: None,
+            label_angles: Vec::new(),
             label_align: None,
             label_baseline: None,
             label_thinning: LabelThinning::default(),

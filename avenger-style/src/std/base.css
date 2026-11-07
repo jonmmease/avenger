@@ -56,7 +56,8 @@ axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
    Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
 axis, legend[type=colorbar] { label-overlap: parity; }
 axis:is([kind=categorical], [kind=ordinal]) { label-overlap: none; }
-/* The labels of a discrete x axis read across where each fits its band, and turn otherwise. */
+/* The labels of a discrete x axis read across where each fits its band, and otherwise slant or
+   turn, whichever is thinner and keeps them apart. */
 axis[channel=x]:is([scale=band], [scale=point]) { label-angle: auto; }
 axis > level:last-of-type { label-angle: inherit; }
 
