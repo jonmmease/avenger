@@ -206,6 +206,55 @@ fn legends_of_equal_categories_merge() {
     });
 }
 
+/// Two columns whose categories happen to be equal show two legends, since legends merge by the
+/// column that they encode.
+#[test]
+fn legends_of_different_columns_stay_apart() {
+    let table = RecordBatch::try_from_iter([
+        (
+            "flipper",
+            Arc::new(Float64Array::from(vec![181.0, 186.0])) as ArrayRef,
+        ),
+        ("mass", Arc::new(Float64Array::from(vec![3750.0, 3800.0]))),
+        (
+            "species",
+            Arc::new(StringArray::from(vec!["Adelie", "Gentoo"])),
+        ),
+        (
+            "guess",
+            Arc::new(StringArray::from(vec!["Gentoo", "Adelie"])),
+        ),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(
+        table,
+        SymbolMark::builder()
+            .x("flipper")
+            .y("mass")
+            .color("species")
+            .shape("guess"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
+}
+
+/// An angle scale draws no legend unless its spec has one.
+#[test]
+fn an_angle_scale_draws_no_legend_by_default() {
+    let symbols = |angle: EncodingBuilder| {
+        let mark = SymbolMark::builder().x("flipper").y("mass").angle(angle);
+        let layer = CartesianLayer::symbol(penguins(), mark);
+        Chart::builder(Plot::cartesian([layer])).build().unwrap()
+    };
+    with_guides(&symbols(Encoding::scaled_field("flipper")), |guides, _| {
+        assert!(guides.legends.is_empty())
+    });
+    let legend = Encoding::scaled_field("flipper").scale(Legend::builder());
+    with_guides(&symbols(legend), |guides, _| {
+        assert_eq!(guides.legends.len(), 1)
+    });
+}
+
 #[test]
 fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     let symbols = CartesianLayer::symbol(

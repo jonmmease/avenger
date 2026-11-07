@@ -637,6 +637,24 @@ fn constant_string(
         .transpose()
 }
 
+/// The distinct columns that the encodings of `group` scale, in order.
+fn scaled_columns(resolved: &Resolved, group: &ScaleGroup) -> Vec<String> {
+    let mut columns: Vec<String> = (group.members.iter())
+        .filter_map(|member| {
+            let encoding = resolved.tree.layers[member.layer]
+                .mark
+                .encoding(member.channel)?;
+            match &encoding.kind {
+                Some(encoding::Kind::ScaledField(name)) => Some(name.clone()),
+                _ => None,
+            }
+        })
+        .collect();
+    columns.sort();
+    columns.dedup();
+    columns
+}
+
 /// A symbol legend before its swatches are made.
 struct LegendDraft {
     /// The scale group of its first scale.
@@ -644,6 +662,8 @@ struct LegendDraft {
     spec: proto::Legend,
     /// The categories of a discrete scale, which merge legends with equal categories.
     categories: Option<ArrayRef>,
+    /// The columns that the scale's encodings scale, which merge legends of one column.
+    columns: Vec<String>,
     title: String,
     labels: Vec<String>,
     label_syntax: TextSyntaxMode,
@@ -657,8 +677,9 @@ enum Pending {
 }
 
 /// The legends and the colorbars of the plot, in the order of their scales. Symbol legends whose
-/// scales hold the same categories in the same order and whose specs are equal merge, and their
-/// titles join.
+/// scales encode the same columns and hold the same categories in the same order, and whose specs
+/// are equal, merge, and their titles join, so the `color` and the `shape` of one column show one
+/// legend, and two columns whose categories happen to be equal show two.
 fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
     let mut pending: Vec<Pending> = Vec::new();
     for (index, group) in inputs.resolved.scales.iter().enumerate() {
@@ -692,11 +713,14 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 });
                 let categories = (scale.scale_impl.summary_kind() == Some(SummaryKind::Categories))
                     .then(|| scale.domain().clone());
+                let columns = scaled_columns(inputs.resolved, group);
                 let merged = pending.iter_mut().find_map(|pending| match pending {
                     // Two scales of one kind of swatch, such as two independent color scales,
                     // keep their legends apart, so each shows its own swatches.
                     Pending::Legend(draft)
                         if draft.spec == spec
+                            && !columns.is_empty()
+                            && draft.columns == columns
                             && matches!((&draft.categories, &categories),
                                 (Some(a), Some(b)) if a.as_ref() == b.as_ref())
                             && !(draft.swatches.iter()).any(|known| {
@@ -722,6 +746,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                         group: index,
                         spec,
                         categories,
+                        columns,
                         title,
                         labels,
                         label_syntax,

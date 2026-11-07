@@ -85,8 +85,8 @@ message Scale {
   Axis axis = 19 [(avenger.chart.v1.lift) = true];
   // The legend of a non-position scale. When absent, a discrete scale has a symbol legend, a
   // quantize, quantile, or threshold scale has a symbol legend of its bins, a continuous color
-  // scale has a colorbar, and another continuous scale, such as `size`, has a symbol legend of its
-  // ticks. Invalid on the scale of a position channel.
+  // scale has a colorbar, another continuous scale, such as `size`, has a symbol legend of its
+  // ticks, and an `angle` scale has none. Invalid on the scale of a position channel.
   Legend legend = 22 [(avenger.chart.v1.lift) = true];
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a

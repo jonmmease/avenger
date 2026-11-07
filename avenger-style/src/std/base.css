@@ -22,6 +22,7 @@ legend > label { max-width: 16rem; }
    continuous scale has about 5 entries. */
 legend { offset: 12; }
 legend[type=symbol] { tick-count: 5; }
+legend[type=colorbar] > ramp { max-length: 200; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
@@ -43,10 +44,10 @@ plot[type=cartesian] {
 }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 
-/* The labels of axes and colorbars keep apart, except those of categories, which all show as in
+/* The labels of axes and colorbars keep apart, except those of discrete axes, which all show as in
    Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
 axis, legend[type=colorbar] { label-overlap: parity; }
-axis[kind=categorical] { label-overlap: none; }
+axis:is([kind=categorical], [kind=ordinal]) { label-overlap: none; }
 axis > level:last-of-type { label-angle: inherit; }
 
 /* Marks: the accent, and the foreground for rules and texts. */
