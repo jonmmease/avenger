@@ -105,7 +105,7 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Color, "duration", None),
         (Channel::Size, "number", Some("linear")),
         (Channel::Size, "time", Some("time")),
-        (Channel::Size, "name", Some("ordinal")),
+        (Channel::Size, "name", Some("point")),
         (Channel::Shape, "number", Some("ordinal")),
         (Channel::Shape, "time", Some("ordinal")),
         (Channel::Shape, "name", Some("ordinal")),

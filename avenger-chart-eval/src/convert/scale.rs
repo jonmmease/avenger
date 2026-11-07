@@ -65,8 +65,9 @@ pub(crate) fn scale_impl(spec: &proto::Scale, registry: &Registry) -> Result<Arc
     )
 }
 
-/// The options of a spec's type as avenger-scales reads them, with the paddings of a band or a
-/// point scale from the computed `padding-inner` and `padding-outer` of its `scale` node.
+/// The options of a spec's type as avenger-scales reads them, with the paddings of a band, a point,
+/// or a nested band scale from the computed `padding-inner` and `padding-outer` of its `scale`
+/// node.
 pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<String, Scalar> {
     use scale::Type;
     let mut options: HashMap<String, Scalar> = HashMap::new();
@@ -77,10 +78,19 @@ pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<Str
     };
     let number = |value: Option<f64>| value.map(Scalar::from);
     let flag = |value: Option<bool>| value.map(Scalar::from);
+    // The paddings of a band or a point scale take the first value, a fraction of the step that
+    // avenger-scales takes from 0 to 1, and a nested band scale takes one for each level.
     let padding = |property: Property| {
-        style
-            .number(property)
-            .map(|value| Scalar::from(value as f64))
+        (style.numbers(property))
+            .and_then(|values| values.first().copied())
+            .map(|value| Scalar::from(f64::from(value).min(1.0)))
+    };
+    // One value applies to every level, as a number, and more apply to one level each.
+    let paddings = |property: Property| {
+        (style.numbers(property)).map(|values| match values.as_slice() {
+            [value] => Scalar::from(f64::from(*value)),
+            _ => Scalar::from(values.into_iter().map(f64::from).collect::<Vec<_>>()),
+        })
     };
     match spec.r#type.as_ref().expect("a valid scale has a type") {
         Type::Linear(linear) => {
@@ -133,19 +143,10 @@ pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<Str
                     .collect();
                 set("nest_scopes", Some(Scalar::from(scopes)));
             }
-            // The paddings of a nested band scale are content, one for each level or one for all.
-            if !nested.padding_inner.is_empty() {
-                set(
-                    "padding_inner",
-                    Some(Scalar::from(nested.padding_inner.clone())),
-                );
-            }
-            if !nested.padding_outer.is_empty() {
-                set(
-                    "padding_outer",
-                    Some(Scalar::from(nested.padding_outer.clone())),
-                );
-            }
+            // The paddings of a nested band scale come from the styles, one for each level or one
+            // for all, outermost first.
+            set("padding_inner", paddings(Property::PaddingInner));
+            set("padding_outer", paddings(Property::PaddingOuter));
             set("round", flag(nested.round));
             set("clip_padding_lower", number(nested.clip_padding_lower));
             set("clip_padding_upper", number(nested.clip_padding_upper));

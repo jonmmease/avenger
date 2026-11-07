@@ -21,8 +21,8 @@ use super::{
     label_text,
     marks::{
         domain_mark, grid_group, label_mark, label_reach, row_overlaps, separators_mark, thin_row,
-        ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, PIXEL_OFFSET,
-        TEXT_MARGIN,
+        ticks_mark, title_mark, title_reach, LabelRow, Labels, Separators, Title, LABEL_GAP,
+        PIXEL_OFFSET, TEXT_MARGIN,
     },
     nested_band::{NestedBandAxisLevelConfig, NestedLevelRow, NestedLevels},
     opts::{AxisConfig, AxisTicks},
@@ -134,7 +134,7 @@ impl Axis {
             .any(|option| option.name == "band");
         let ticks = ContinuousTicks {
             band,
-            min_spacing: min_tick_spacing(config.side, &config.style, engine),
+            min_spacing: min_tick_spacing(&config.style),
             engine: engine.clone(),
             kept: Mutex::new(VecDeque::new()),
         };
@@ -510,7 +510,9 @@ impl Axis {
                 let tick_scale = band_ticks(&scale, *point);
                 let centers = positions(&tick_scale, categories);
                 let rows = if labels_visible {
-                    vec![row(labels.clone(), centers.clone())]
+                    let mut row = row(labels.clone(), centers.clone());
+                    row.row.angle = self.band_label_angle(labels, &centers, length);
+                    vec![row]
                 } else {
                     Vec::new()
                 };
@@ -532,6 +534,58 @@ impl Axis {
                     rows,
                 }
             }
+        }
+    }
+
+    /// The angle of the labels of a band or point axis at `length`: where the axis is horizontal,
+    /// the first candidate of the style's `label_angles` where its labels keep apart at the step
+    /// between its ticks, else the candidate with the thinnest labels among the others whose labels
+    /// keep apart, or the candidate with the thickest labels when none do, and otherwise the
+    /// style's angle.
+    fn band_label_angle(&self, labels: &Labels, centers: &[f32], length: f32) -> f32 {
+        let style = &self.config.style;
+        if style.label_angles.is_empty() || self.config.side.is_vertical() {
+            return style.label_angle;
+        }
+        let step = match centers {
+            [first, second, ..] => (second - first).abs(),
+            _ => length,
+        };
+        let bounds = labels.bounds.iter().flatten();
+        let widest = bounds
+            .clone()
+            .map(|bounds| bounds.width)
+            .fold(0.0, f32::max);
+        let tallest = bounds.map(|bounds| bounds.height).fold(0.0, f32::max);
+        let mut chosen: Option<(f32, f32)> = None;
+        let mut thickest: Option<(f32, f32)> = None;
+        for (index, &angle) in style.label_angles.iter().enumerate() {
+            let radians = angle.to_radians();
+            let (across, along) = (radians.sin().abs(), radians.cos().abs());
+            // Horizontal labels need their width along the axis. Slanted labels lie in parallel
+            // strips, `step * across` apart, which their height must fit.
+            let apart = match across < 1e-3 {
+                true => widest + LABEL_GAP <= step,
+                false => tallest + LABEL_GAP <= step * across,
+            };
+            // The first candidate, such as horizontal labels, wins wherever its labels keep apart.
+            if apart && index == 0 {
+                return angle;
+            }
+            let thickness = widest * across + tallest * along;
+            if apart && chosen.is_none_or(|(_, thinnest)| thickness < thinnest - 1e-3) {
+                chosen = Some((angle, thickness));
+            }
+            if thickest.is_none_or(|(_, thickness_so_far)| thickness >= thickness_so_far - 1e-3) {
+                thickest = Some((angle, thickness));
+            }
+        }
+        // Where no candidate keeps its labels apart, the thickest one draws, so the labels never
+        // grow thicker as the axis grows longer, and a layout whose length depends on the axis's
+        // thickness, such as a plot that keeps its aspect, settles one way.
+        match chosen.or(thickest) {
+            Some((angle, _)) => angle,
+            None => style.label_angle,
         }
     }
 
@@ -597,7 +651,8 @@ impl ContinuousTicks {
         length: f32,
         overlap: Option<&LabelsOverlap>,
     ) -> (ArrayRef, Option<Arc<TickSet>>) {
-        let fitted = config.style.tick_count.is_none() && config.style.ticks.is_none();
+        let fitted = config.style.tick_count.is_none()
+            && (config.style.ticks.is_none() || config.style.thin_ticks);
         let first = tick_count(&config.style, length, self.min_spacing);
         let fewer = first.unwrap_or(DEFAULT_MAX_TICK_COUNT).ceil() as usize;
         let coarser = (1..fewer).rev().map(|count| Some(count as f64));

@@ -14,7 +14,7 @@ use avenger_style::{
 use avenger_typst_label::LabelEngine;
 
 use super::{entries, guides, GuideInputs, LegendGuide};
-use crate::{fit, style::tree, Registry};
+use crate::{evaluator::fit_defaults, fit, style::tree, Registry};
 
 /// The kind of fit of each scale group of `resolved`.
 fn kinds(resolved: &avenger_chart::resolve::Resolved) -> Vec<avenger_chart::FitKind> {
@@ -112,7 +112,8 @@ fn with_guides<T>(
                 registry: &registry,
                 states: &states,
             };
-            let position = fit::position(&inputs, group, style, &values).unwrap();
+            let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+            let position = fit::position(&inputs, group, defaults, style, &values).unwrap();
             positions.push(Some(position.fitting));
             scales.push(None);
         } else {
@@ -121,13 +122,23 @@ fn with_guides<T>(
                 registry: &registry,
                 states: &states,
             };
-            let scale =
-                fit::non_position(&inputs, group, style, &styles, &values, &mut warnings).unwrap();
+            let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+            let scale = fit::non_position(
+                &inputs,
+                group,
+                defaults,
+                style,
+                &styles,
+                &values,
+                &mut warnings,
+            )
+            .unwrap();
             positions.push(None);
             scales.push(Some(scale));
         }
     }
     let engine = engine();
+    let kinds = kinds(&resolved);
     let inputs = GuideInputs {
         chart,
         resolved: &resolved,
@@ -136,6 +147,7 @@ fn with_guides<T>(
         engine: &engine,
         positions: &positions,
         scales: &scales,
+        kinds: &kinds,
     };
     let guides = guides(&inputs).unwrap();
     check(&guides, &positions)
@@ -196,6 +208,77 @@ fn legends_of_equal_categories_merge() {
     });
 }
 
+/// Two columns whose categories happen to be equal show two legends, since legends merge by the
+/// column that they encode.
+#[test]
+fn legends_of_different_columns_stay_apart() {
+    let table = RecordBatch::try_from_iter([
+        (
+            "flipper",
+            Arc::new(Float64Array::from(vec![181.0, 186.0])) as ArrayRef,
+        ),
+        ("mass", Arc::new(Float64Array::from(vec![3750.0, 3800.0]))),
+        (
+            "species",
+            Arc::new(StringArray::from(vec!["Adelie", "Gentoo"])),
+        ),
+        (
+            "guess",
+            Arc::new(StringArray::from(vec!["Gentoo", "Adelie"])),
+        ),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(
+        table,
+        SymbolMark::builder()
+            .x("flipper")
+            .y("mass")
+            .color("species")
+            .shape("guess"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
+}
+
+/// A legend of more entries than `max-entries` shows one less and an entry that counts the rest.
+#[test]
+fn a_legend_past_its_max_entries_counts_the_rest() {
+    let names: Vec<String> = (0..40).map(|index| format!("c{index:02}")).collect();
+    let table = RecordBatch::try_from_iter([
+        (
+            "x",
+            Arc::new(Float64Array::from_iter_values((0..40).map(f64::from))) as ArrayRef,
+        ),
+        ("name", Arc::new(StringArray::from(names.clone()))),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(table, SymbolMark::builder().x("x").y("x").color("name"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    with_guides(&chart, |guides, _| {
+        let labels = legend_labels(&guides.legends[0].guide);
+        assert_eq!(labels.len(), 30);
+        assert_eq!(labels[..29], names[..29]);
+        assert_eq!(labels[29], "…11 more");
+    });
+}
+
+/// An angle scale draws no legend unless its spec has one.
+#[test]
+fn an_angle_scale_draws_no_legend_by_default() {
+    let symbols = |angle: EncodingBuilder| {
+        let mark = SymbolMark::builder().x("flipper").y("mass").angle(angle);
+        let layer = CartesianLayer::symbol(penguins(), mark);
+        Chart::builder(Plot::cartesian([layer])).build().unwrap()
+    };
+    with_guides(&symbols(Encoding::scaled_field("flipper")), |guides, _| {
+        assert!(guides.legends.is_empty())
+    });
+    let legend = Encoding::scaled_field("flipper").scale(Legend::builder());
+    with_guides(&symbols(legend), |guides, _| {
+        assert_eq!(guides.legends.len(), 1)
+    });
+}
+
 #[test]
 fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     let symbols = CartesianLayer::symbol(
@@ -253,7 +336,15 @@ fn a_position_fit_leaves_room_for_the_reach() {
         registry: &registry,
         states: &states,
     };
-    let position = fit::position(&inputs, group, &styles[nodes.scales[index]], &values).unwrap();
+    let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+    let position = fit::position(
+        &inputs,
+        group,
+        defaults,
+        &styles[nodes.scales[index]],
+        &values,
+    )
+    .unwrap();
     let at = position.fitting.at((0.0, 200.0)).unwrap();
     assert!(at.marks_fit);
     let (low, high) = at.scale.numeric_interval_domain().unwrap();
@@ -283,6 +374,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
     let position = fit::position(
         &inputs,
         &resolved.scales[index],
+        fit_defaults(&resolved, index, &kinds(&resolved)),
         &styles[nodes.scales[index]],
         &[],
     )

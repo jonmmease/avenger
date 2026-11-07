@@ -253,7 +253,8 @@ fn colorbars_label_ticks_with_their_format() {
         .unwrap()
         .marks(COLORBAR_LENGTH)
         .group;
-    let expected: Vec<String> = (0..=10).map(|i| (i * 10).to_string()).collect();
+    // Ticks at least 3.5 label sizes apart along the colorbar.
+    let expected: Vec<String> = (0..=5).map(|i| (i * 20).to_string()).collect();
     assert_eq!(labels(&colorbar), expected);
 }
 
@@ -266,7 +267,7 @@ fn time_colorbars_label_dates() {
         .unwrap()
         .marks(COLORBAR_LENGTH)
         .group;
-    assert_eq!(labels(&colorbar), MONTHS);
+    assert_eq!(labels(&colorbar), ["2024", "April", "July", "October"]);
 }
 
 /// The labels part of `axis` at `length`: each label's text and its position along the axis.

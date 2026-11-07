@@ -48,7 +48,8 @@ message Scale {
   // - dates and timestamps: a time scale, and an ordinal scale on `shape`, `pattern`, and
   //   `stroke_dash`
   // - strings and booleans: on a position, a band scale for bars and rects and a point scale for
-  //   other marks, and elsewhere an ordinal scale
+  //   other marks, a point scale on `size`, `opacity`, `fill_opacity`, `stroke_opacity`, and
+  //   `stroke_width`, which spreads the categories over the range, and elsewhere an ordinal scale
   // - structs of the levels of nested categories: a nested band scale on a position
   //
   // The values are those of the encoding when they are scaled, and otherwise of its first scaled
@@ -84,8 +85,8 @@ message Scale {
   Axis axis = 19 [(avenger.chart.v1.lift) = true];
   // The legend of a non-position scale. When absent, a discrete scale has a symbol legend, a
   // quantize, quantile, or threshold scale has a symbol legend of its bins, a continuous color
-  // scale has a colorbar, and another continuous scale, such as `size`, has a symbol legend of its
-  // ticks. Invalid on the scale of a position channel.
+  // scale has a colorbar, another continuous scale, such as `size`, has a symbol legend of its
+  // ticks, and an `angle` scale has none. Invalid on the scale of a position channel.
   Legend legend = 22 [(avenger.chart.v1.lift) = true];
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
@@ -223,9 +224,9 @@ message PointScale {
 // A band scale of nested categories: structs with one field for each level, outermost first, whose
 // last field is the leaf. The bands of each level nest in the bands of its parent, as the groups
 // and the bars of a grouped bar chart. Every gap is in leaf steps, so a nested band scale of one
-// level places its categories as a band scale with the same options does. Its paddings do not come
-// from the styles. A mark stands in the band of the leaf, or of the level that the `band_level` of
-// its encoding names, as for a band scale.
+// level places its categories as a band scale with the same options does. Its paddings are style
+// fields, as those of a band scale are. A mark stands in the band of the leaf, or of the level that
+// the `band_level` of its encoding names, as for a band scale.
 message NestedBandScale {
   // As for `BandScale.align`.
   optional double align = 1;
@@ -236,11 +237,12 @@ message NestedBandScale {
   // The space between two bands of a level. At the leaf level, a fraction of the step from 0 to 1,
   // as for `BandScale.padding_inner`, and at an outer level, the gap between its groups in leaf
   // steps, at least 0. One entry applies to every level, and more entries apply to one level each,
-  // outermost first. When it is empty, 0.
+  // outermost first. When it is empty, the styles give it, as the `padding-inner` of the scale.
   repeated double padding_inner = 3;
   // The space before the first band of a level and after its last, in leaf steps, at least 0:
   // inside each parent for an inner level, and at the ends of the range for the outermost. One
-  // entry or one for each level, as for `padding_inner`. When it is empty, 0.
+  // entry or one for each level, as for `padding_inner`. When it is empty, the styles give it, as
+  // the `padding-outer` of the scale.
   repeated double padding_outer = 4;
   // Whether the scale rounds the step and the start of the bands to whole pixels, and the leaf band
   // to the nearest pixel. When absent, it does not.
@@ -416,13 +418,23 @@ message DomainFit {
 
 // The `IntervalOptions` of avenger-scales.
 message IntervalFit {
-  // Whether the domain contains zero. When absent, it does not. A pinned end past zero holds, so
-  // the domain does not contain zero.
+  // Whether the domain contains zero. When absent, a linear, a pow, or a symlog scale of `x`, `y`,
+  // or `size` contains zero when one of its encodings asks for it: every encoding except the key of
+  // a bar, an area, or a line, along which the marks stand at their values. A log or a time scale,
+  // a selection domain, and a pinned fit contain no zero by default. A pinned end past zero holds,
+  // so the domain does not contain zero. `false` turns the default off, such as for a scatter plot
+  // whose data lies far from zero.
   optional bool zero = 1;
-  // The tick count of a nice domain, whose ends are round values. When absent, the domain is not
-  // nice. A log scale's nice domain ends on powers of its base, whatever the count. With a pin, the
-  // free end is round, or the radius about a pinned middle.
-  optional double nice = 2;
+  // Whether the domain has nice ends, which are round values, and the tick count that rounds
+  // them. When absent, a linear, a log, a pow, or a symlog scale of `x` or `y` has nice ends at a
+  // count of 10, and another scale has none. A log scale's nice domain ends on powers of its base,
+  // whatever the count. With a pin, the free end is round, or the radius about a pinned middle.
+  oneof nice_ends {
+    // Whether the domain has nice ends, at a tick count of 10. `false` turns the default off.
+    bool nice = 2;
+    // The tick count of nice ends, more than 0. A larger count rounds the ends to finer values.
+    double nice_count = 7;
+  }
   // The domain when there is no data, as an explicit domain holds it. When absent, the scale type
   // gives the domain.
   ValueRef empty = 3;

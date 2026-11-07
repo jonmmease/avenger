@@ -20,10 +20,11 @@ import "avenger/chart/v1/value.proto";
 // `thickness`, `axis_gap`, `max_length`, `label_align`, `label_baseline`, `ticks`, `show_ticks`,
 // `domain_color`, and `show_domain` on a symbol legend.
 //
-// The symbol legends of discrete scales with one owner merge into one legend when the scales hold
-// the same categories in the same order and the legends are equal, so the `color` and the `shape`
-// of one column show one legend, whose swatches take the value of each scale. A legend of a
-// continuous scale does not merge.
+// The symbol legends of discrete scales with one owner merge into one legend when the scales encode
+// the same columns, hold the same categories in the same order, and the legends are equal, so the
+// `color` and the `shape` of one column show one legend, whose swatches take the value of each
+// scale, and two columns whose categories happen to be equal show two. A legend of a continuous
+// scale does not merge.
 message Legend {
   // Whether the scale draws this legend. When absent, it does. `false` draws no legend.
   optional bool show = 23;

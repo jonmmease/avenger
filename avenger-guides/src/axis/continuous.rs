@@ -2,49 +2,34 @@
 //! many an axis of a length shows, which ones it labels, and their label text.
 
 use arrow::{
-    array::{Array, ArrayRef, BooleanArray},
-    compute::filter,
-    datatypes::DataType,
+    array::{Array, ArrayRef, AsArray, BooleanArray, UInt32Array},
+    compute::{filter, take},
+    datatypes::{DataType, Float64Type},
 };
-use avenger_common::types::FontStyle;
 use avenger_scales::{
     error::AvengerScaleError,
     scales::{time, ConfiguredScale},
 };
-use avenger_scenegraph::marks::text::text_style;
 use avenger_typst_label::{LabelEngine, LabelValue};
 
 use super::opts::{AxisStyle, AxisTickInterval, AxisTicks};
-use crate::{error::AvengerGuidesError, GuideSide};
+use crate::error::AvengerGuidesError;
 
 /// The gap between the labels and the title.
 pub(crate) const TITLE_MARGIN: f32 = 2.0;
 pub(crate) const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
-const HORIZONTAL_MIN_TICK_SPACING_PX: f32 = 25.0;
-const VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR: f32 = 1.6;
+/// The default least distance between ticks, in label font sizes.
+const TICK_SPACING_EMS: f32 = 2.5;
 /// How far past the end of its range, in pixels, a value still counts as inside it, since a value
 /// at the end of the domain lands on the end of the range up to rounding.
 const RANGE_SLACK_PX: f64 = 1e-3;
 
-/// The smallest space between ticks that an axis on `side` fits its tick count to: a fixed
-/// spacing along a horizontal axis, and a multiple of the label font's height along a vertical
-/// one.
-pub(crate) fn min_tick_spacing(side: GuideSide, style: &AxisStyle, engine: &LabelEngine) -> f32 {
-    if !side.is_vertical() {
-        return HORIZONTAL_MIN_TICK_SPACING_PX;
-    }
-    let font_height = engine
-        .font_metrics(&text_style(
-            &style.label_font_family,
-            style.label_font_size,
-            style.label_font_weight,
-            FontStyle::Normal,
-            style.label_color,
-        ))
-        .map_or(style.label_font_size, |metrics| {
-            metrics.ascent + metrics.descent
-        });
-    (font_height * VERTICAL_TICK_SPACING_FONT_HEIGHT_FACTOR).max(1.0)
+/// The least distance between ticks that an axis fits its tick count to: the style's spacing, or
+/// 2.5 times the font size of its labels.
+pub(crate) fn min_tick_spacing(style: &AxisStyle) -> f32 {
+    (style.tick_spacing)
+        .unwrap_or(style.label_font_size * TICK_SPACING_EMS)
+        .max(1.0)
 }
 
 /// The style's tick count, or one fitted to an axis of `length` with ticks at least
@@ -52,7 +37,9 @@ pub(crate) fn min_tick_spacing(side: GuideSide, style: &AxisStyle, engine: &Labe
 pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
     style.tick_count.or_else(|| {
         let count = f64::from((length / min_spacing).max(2.0));
-        (count < DEFAULT_MAX_TICK_COUNT).then_some(count)
+        // Thinned ticks take every count, since they thin to the count at any length.
+        let thinned = style.thin_ticks && style.ticks.is_some();
+        (thinned || count < DEFAULT_MAX_TICK_COUNT).then_some(count)
     })
 }
 
@@ -79,7 +66,66 @@ pub(crate) fn axis_ticks(
             return Ok((ticks, labeled));
         }
     };
+    let ticks = match style.thin_ticks {
+        true => {
+            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
+            let step = match &style.ticks {
+                Some(AxisTicks::StartStep(AxisTickInterval::Numeric { step, .. })) => Some(*step),
+                _ => None,
+            };
+            thinned(&ticks, count, step)?
+        }
+        false => ticks,
+    };
     Ok((ticks.clone(), ticks))
+}
+
+/// Every `stride`-th of `ticks`, ascending, at the smallest stride whose kept ticks number no
+/// more than about `count`. For numeric ticks one `step` apart, the kept ticks start at the tick
+/// nearest a whole multiple of `stride * step`, so they land on round values, and otherwise at
+/// the first.
+fn thinned(
+    ticks: &ArrayRef,
+    count: f64,
+    step: Option<f64>,
+) -> Result<ArrayRef, AvengerGuidesError> {
+    let len = ticks.len();
+    let stride = edge_stride(len, count);
+    if stride <= 1 {
+        return Ok(ticks.clone());
+    }
+    let phase = match step.zip(ticks.as_primitive_opt::<Float64Type>()) {
+        Some((step, values)) => {
+            let span = stride as f64 * step;
+            let off = |index: usize| {
+                let value = values.value(index);
+                (value - (value / span).round() * span).abs()
+            };
+            (0..stride.min(len))
+                .min_by(|a, b| off(*a).total_cmp(&off(*b)))
+                .unwrap_or(0)
+        }
+        None => 0,
+    };
+    let indices = UInt32Array::from_iter_values((phase as u32..len as u32).step_by(stride));
+    Ok(take(ticks, &indices, None).map_err(AvengerScaleError::from)?)
+}
+
+/// The stride of the ticks that an axis of about `count` ticks keeps of `edges` ticks: the smallest
+/// of 1, 2, 5, 10, 20, 50, and so on whose kept ticks number no more than the count, plus one.
+fn edge_stride(edges: usize, count: f64) -> usize {
+    let intervals = edges.saturating_sub(1) as f64;
+    let count = count.max(1.0);
+    let mut magnitude = 1;
+    loop {
+        for factor in [1, 2, 5] {
+            let stride = factor * magnitude;
+            if intervals / stride as f64 <= count || stride >= edges.max(1) {
+                return stride;
+            }
+        }
+        magnitude *= 10;
+    }
 }
 
 /// The values that `scale` places inside its range, in their order. A null, a value outside the
@@ -139,6 +185,7 @@ mod tests {
 
     use super::super::opts::AxisStyle;
     use super::*;
+    use crate::GuideSide;
     use arrow::array::{AsArray, Date32Array, Float64Array};
     use arrow::datatypes::Float64Type;
     use avenger_common::types::TextSyntaxMode;
@@ -291,5 +338,54 @@ mod tests {
         let dates = config("#%d*", Some("[#value]"), Default::default());
         let (text, _) = label_text(&start, &scale, &dates);
         assert_eq!(text, [r##"[#("#01*")]"##]);
+    }
+
+    #[test]
+    fn thinned_ticks_keep_every_kth_at_the_tick_count() {
+        // Nine edges of eight bins of width 5.
+        assert_eq!(edge_stride(9, 10.0), 1);
+        assert_eq!(edge_stride(9, 4.0), 2);
+        assert_eq!(edge_stride(9, 3.0), 5);
+        assert_eq!(edge_stride(41, 3.0), 20);
+        let scale = LinearScale::configured((0.0, 40.0), (0.0, 400.0));
+        let edges = Arc::new(Float64Array::from_iter_values(
+            (0..=8).map(|bin| f64::from(bin) * 5.0),
+        )) as ArrayRef;
+        let style = AxisStyle {
+            ticks: Some(AxisTicks::Values(edges)),
+            thin_ticks: true,
+            ..Default::default()
+        };
+        let (ticks, labeled) = axis_ticks(&scale, &style, Some(4.0)).unwrap();
+        assert_eq!(values(&ticks), vec![0.0, 10.0, 20.0, 30.0, 40.0]);
+        assert_eq!(values(&labeled), values(&ticks));
+    }
+
+    #[test]
+    fn thinned_start_step_ticks_cross_the_domain_on_round_values() {
+        // Bins of width 10 tick across a domain of 0 to 100, past the bins of the data.
+        let scale = LinearScale::configured((0.0, 100.0), (0.0, 400.0));
+        let lattice = |start: f64, step: f64| AxisStyle {
+            ticks: Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
+                start,
+                step,
+            })),
+            thin_ticks: true,
+            ..Default::default()
+        };
+        let (ticks, _) = axis_ticks(&scale, &lattice(0.0, 10.0), Some(11.0)).unwrap();
+        assert_eq!(
+            values(&ticks),
+            (0..=10)
+                .map(|bin| f64::from(bin) * 10.0)
+                .collect::<Vec<_>>()
+        );
+        // At about 3 ticks, every 5th edge.
+        let (ticks, _) = axis_ticks(&scale, &lattice(0.0, 10.0), Some(3.0)).unwrap();
+        assert_eq!(values(&ticks), vec![0.0, 50.0, 100.0]);
+        // Bins of width 5 from 15, kept every 2nd, land on multiples of 10 rather than on 15.
+        let scale = LinearScale::configured((15.0, 55.0), (0.0, 400.0));
+        let (ticks, _) = axis_ticks(&scale, &lattice(15.0, 5.0), Some(5.0)).unwrap();
+        assert_eq!(values(&ticks), vec![20.0, 30.0, 40.0, 50.0]);
     }
 }

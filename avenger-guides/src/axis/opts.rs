@@ -23,17 +23,37 @@ pub struct AxisConfig {
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
 pub struct AxisStyle {
-    /// About how many ticks to draw. Without it, the axis fits a count to its length, and a
-    /// continuous axis takes coarser ticks where their labels would overlap. `ticks` replaces it.
+    /// About how many ticks to draw. Without it, the axis fits a count to its length, with ticks
+    /// at least `tick_spacing` apart, and a continuous axis takes coarser ticks where their labels
+    /// would overlap. `ticks` replaces it.
     pub tick_count: Option<f64>,
+    /// The least distance between the ticks of a continuous axis that fits its tick count to its
+    /// length, in pixels, along a horizontal axis and a vertical one alike. When absent, 2.5 times
+    /// the font size of the labels, so the ticks spread with the size of their labels.
+    pub tick_spacing: Option<f32>,
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
     /// band axis takes neither kind.
     pub ticks: Option<AxisTicks>,
+    /// Whether the explicit `ticks` of a continuous axis thin to its length, as the edges of bins
+    /// do: every tick where they stand apart at the axis's tick count, and otherwise every 2nd,
+    /// 5th, 10th, 20th, and so on, starting at the tick nearest a whole multiple of the stride for
+    /// numeric ticks at a start and a step, so the kept ticks land on round values. When false,
+    /// the axis draws every explicit tick.
+    pub thin_ticks: bool,
     pub tick_length: f32,
     pub tick_color: [f32; 4],
     pub labels_visible: bool,
     /// Degrees clockwise.
     pub label_angle: f32,
+    /// The angles, in degrees clockwise, that the labels of a horizontal band or point axis choose
+    /// from at each length, such as 0, 315, and 270: the first where its labels keep apart, else
+    /// the one that draws the thinnest labels among the others whose labels keep apart, or the one
+    /// that draws the thickest labels when none do. Horizontal labels keep apart where
+    /// the widest fits the step between ticks, and slanted labels where the step across their
+    /// slant fits their height, whatever their width. The angle depends only on the length, so a
+    /// layout that measures the axis at one length always finds one thickness, and a shorter
+    /// length never draws thinner labels. When empty, the labels keep `label_angle`.
+    pub label_angles: Vec<f32>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
     pub label_align: Option<TextAlign>,
     /// Without it, labels align to the end nearest their tick, for the axis side and label angle.
@@ -60,11 +80,14 @@ impl Default for AxisStyle {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
         Self {
             tick_count: None,
+            tick_spacing: None,
             ticks: None,
+            thin_ticks: false,
             tick_length: 5.0,
             tick_color: BLACK,
             labels_visible: true,
             label_angle: 0.0,
+            label_angles: Vec::new(),
             label_align: None,
             label_baseline: None,
             label_thinning: LabelThinning::default(),

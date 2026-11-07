@@ -197,13 +197,16 @@ The initial values of the table hold on every node except these, where they depe
 | `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `title-frame` | `plot \| chart` | `chart` | no | `chart` |
-| `label-angle` | `<angle>` | `0` | no | `axis`, `header`, `legend`, `level` |
+| `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `header`, `legend`, `level` |
 | `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `header`, `title`, `attribution` |
 | `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `header`, `axis` |
 | `title-orient` | `top \| bottom \| left \| right` | `top` | no | `header` |
 | `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
 | `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
+| `tick-spacing` | `<length [0,∞]> \| auto` | `auto` | no | `axis` |
+| `thin-ticks` | `true \| false` | `false` | no | `axis` |
+| `max-entries` | `<integer [2,∞]> \| none` | `none` | no | `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
 | `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `header`, `graticule`, `mark` |
 | `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `header` |
@@ -242,8 +245,8 @@ The initial values of the table hold on every node except these, where they depe
 | `range` | `auto \| <output>#` | `auto` | no | `scale` |
 | `unknown` | `auto \| <output>` | `auto` | no | `scale` |
 | `other` | `auto \| <output>` | `auto` | no | `scale` |
-| `padding-inner` | `<number [0,1]>` | `0.1` | no | `scale` |
-| `padding-outer` | `<number [0,∞]>` | `0.05` | no | `scale` |
+| `padding-inner` | `<number [0,∞]> \| <number [0,∞]>{2,8}` | `0.1` | no | `scale` |
+| `padding-outer` | `<number [0,∞]> \| <number [0,∞]>{2,8}` | `0.05` | no | `scale` |
 <!-- /properties -->
 
 ## Diagnostics
@@ -303,4 +306,4 @@ An `@palette` rule defines a palette, and of two rules with one name, the one wi
 
 ## Standard stylesheets
 
-`std:base.css` is the base stylesheet. It gives the look of Vega-Lite 6 on a white background with the font Lato, and its `env()` names are `background`, `foreground`, `accent`, and `font-family`. It is in the user-agent origin whichever stylesheet imports it, so the host theme and the author stylesheets win over it, and it reads the `env()` values of the stylesheet that imports it. Its import takes no layer. `std:reset.css` sets every property of every node to its inherited or initial value in the layer `avenger.reset`, so a document that imports it removes the normal declarations of the base stylesheet and the host theme. `std:vegalite.css` gives the looks of Vega-Lite 6 that the base stylesheet does not, such as hollow symbols and the turned labels of a discrete x axis.
+`std:base.css` is the base stylesheet. It gives Avenger's default look on a white background with the font Lato, and many of its values, such as the palettes and the ranges of scales, come from Vega-Lite 6, and its `env()` names are `background`, `foreground`, `accent`, and `font-family`. It is in the user-agent origin whichever stylesheet imports it, so the host theme and the author stylesheets win over it, and it reads the `env()` values of the stylesheet that imports it. Its import takes no layer. `std:reset.css` sets every property of every node to its inherited or initial value in the layer `avenger.reset`, so a document that imports it removes the normal declarations of the base stylesheet and the host theme. `std:vegalite.css` gives the looks of Vega-Lite 6 that the base stylesheet does not, such as hollow symbols and labels of a discrete x axis that always turn.

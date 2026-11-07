@@ -29,6 +29,7 @@ use avenger_selection::SelectionState;
 use avenger_style::{Cascade, ComputedStyle, ComputedStyles, HostInputs, Property, StyleTree};
 use avenger_typst_label::LabelEngine;
 
+use crate::convert::domain::FitDefaults;
 use crate::{
     convert::{scale::fit_kind, selection},
     encode::{self, at, LayerRows},
@@ -286,6 +287,13 @@ impl ChartEvaluator {
         let mut warnings = self.warnings.clone();
         warnings.extend(styles.warnings().iter().cloned().map(EvalWarning::Style));
         warnings.extend(prepared.warnings.iter().cloned());
+        if solution.explanation().stopped_at_limit {
+            warnings.push(EvalWarning::Fit {
+                path: "root".to_string(),
+                reason: "the layout stopped at its limit of solves, so its parts may not fit"
+                    .to_string(),
+            });
+        }
 
         let plot_ref = &resolved.tree.plots[0];
         let rect = solution
@@ -505,6 +513,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         scales[index] = Some(fit::non_position(
             &fit_inputs,
             group,
+            fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             styles,
             &values,
@@ -573,6 +582,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions[index] = Some(fit::position(
             &fit_inputs,
             group,
+            fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             &values,
         )?);
@@ -589,8 +599,30 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         engine,
         positions: &fittings,
         scales: &scales,
+        kinds,
     })?;
-    let layout = layout::lower(&guides, &styles[nodes.plot]);
+    // A discrete position scale with a `step` gives the plot a natural length along its channel.
+    let mut natural: [Option<f32>; 2] = [None, None];
+    for (index, group) in groups.iter().enumerate() {
+        let Some(position) = &positions[index] else {
+            continue;
+        };
+        let slot = match group.channel {
+            Channel::X => 0,
+            Channel::Y => 1,
+            _ => continue,
+        };
+        let Some(step) = styles[nodes.scales[index]].number(Property::Step) else {
+            continue;
+        };
+        let Ok(at) = position.fitting.at((0.0, 1.0)) else {
+            continue;
+        };
+        if let Some(length) = layout::natural_length(&at.scale, step) {
+            natural[slot] = Some(natural[slot].map_or(length, |known: f32| known.max(length)));
+        }
+    }
+    let layout = layout::lower(&guides, &styles[nodes.plot], natural);
     Ok(Prepared {
         positions,
         scales,
@@ -675,6 +707,45 @@ fn layer_scales<'a>(
         }
     }
     channels
+}
+
+/// The `zero` and the `nice` that the scale group `index` takes where its spec leaves them absent.
+/// A quantitative `x`, `y`, or `size` scale contains zero when one of its members asks for it:
+/// every member except the key of a bar, an area, or a line, along which the marks stand at their
+/// values. A log or a time scale, or a selection domain, contains no zero by default. A
+/// quantitative `x` or `y` scale has nice ends at a count of 10. The key of bars of bins takes
+/// neither.
+pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> FitDefaults {
+    use avenger_chart::proto::{domain, scale::Type};
+    let group = &resolved.scales[index];
+    let scale_type = group.spec.r#type.as_ref();
+    let linear = matches!(
+        scale_type,
+        Some(Type::Linear(_) | Type::Pow(_) | Type::Symlog(_))
+    );
+    let quantitative = linear || matches!(scale_type, Some(Type::Log(_)));
+    let selection = matches!(
+        (group.spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()),
+        Some(domain::Domain::Selection(_))
+    );
+    let asks = |member: &avenger_chart::resolve::Member| {
+        let layer = &resolved.tree.layers[member.layer];
+        let layer_kinds = layer_kinds(resolved, member.layer, kinds);
+        let continuous = |channel| layer_kinds.get(&channel) == Some(&FitKind::Interval);
+        crate::bins::key_channel(layer, continuous) != Some(scale_channel(member.channel))
+    };
+    // The key of bars of bins spans from the least start to the greatest end, without zero or
+    // nice ends, so the outer edges meet the ends of the plot.
+    if crate::bins::edges(resolved, index, kinds).is_some() {
+        return FitDefaults::default();
+    }
+    let zero = linear
+        && !selection
+        && matches!(group.channel, Channel::X | Channel::Y | Channel::Size)
+        && group.members.iter().any(asks);
+    let nice = (quantitative && matches!(group.channel, Channel::X | Channel::Y))
+        .then_some(FitDefaults::NICE);
+    FitDefaults { zero, nice }
 }
 
 /// The kind of fit of the scale of each channel of the layer `layer`, by the groups of its

@@ -60,6 +60,28 @@ pub(crate) fn selection_warnings(
     warnings
 }
 
+/// The `zero` and the `nice` that the interval fit of a scale takes where its spec leaves them
+/// absent.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct FitDefaults {
+    pub(crate) zero: bool,
+    pub(crate) nice: Option<f64>,
+}
+
+impl FitDefaults {
+    /// The tick count of nice ends when a fit gives none: the default nice ends of `x` and `y`,
+    /// and `nice: true`.
+    pub(crate) const NICE: f64 = 10.0;
+
+    fn options(self) -> IntervalOptions {
+        IntervalOptions {
+            zero: self.zero,
+            nice: self.nice,
+            ..Default::default()
+        }
+    }
+}
+
 /// Where a scale's domain comes from at one evaluation.
 #[derive(Clone, Debug)]
 pub(crate) enum DomainSource {
@@ -265,7 +287,12 @@ impl Fit {
 
 /// The fit of a summary or a data domain of `spec`: the options of `kind`, the kind of fit of its
 /// type, with the fields of the spec's fit, or of a selection domain's fallback.
-pub(crate) fn domain_options(chart: &Chart, spec: &proto::Scale, kind: FitKind) -> Fit {
+pub(crate) fn domain_options(
+    chart: &Chart,
+    spec: &proto::Scale,
+    kind: FitKind,
+    defaults: FitDefaults,
+) -> Fit {
     let fit = match spec
         .domain
         .as_ref()
@@ -290,18 +317,28 @@ pub(crate) fn domain_options(chart: &Chart, spec: &proto::Scale, kind: FitKind) 
         }
         (FitKind::Categories, None) => DomainOptions::Categories(CategoryOptions::default()),
         (_, Some(domain_fit::Fit::Interval(interval))) => {
-            DomainOptions::Interval(interval_options(chart, interval))
+            DomainOptions::Interval(interval_options(chart, interval, defaults))
         }
-        _ => DomainOptions::Interval(IntervalOptions::default()),
+        _ => DomainOptions::Interval(defaults.options()),
     };
     Fit { options, preferred }
 }
 
-fn interval_options(chart: &Chart, fit: &proto::IntervalFit) -> IntervalOptions {
+fn interval_options(
+    chart: &Chart,
+    fit: &proto::IntervalFit,
+    defaults: FitDefaults,
+) -> IntervalOptions {
     let value = |value: &proto::ValueRef| chart.value(value).clone();
+    // A pinned end holds, so a pinned fit takes no default zero.
+    let zero = defaults.zero && fit.domain_pin.is_none();
     IntervalOptions {
-        zero: fit.zero.unwrap_or(false),
-        nice: fit.nice,
+        zero: fit.zero.unwrap_or(zero),
+        nice: match fit.nice_ends {
+            None => defaults.nice,
+            Some(interval_fit::NiceEnds::Nice(nice)) => nice.then_some(FitDefaults::NICE),
+            Some(interval_fit::NiceEnds::NiceCount(count)) => Some(count),
+        },
         empty: fit.empty.as_ref().map(|empty| chart.list_elements(empty)),
         pin: fit.domain_pin.as_ref().map(|pin| match pin {
             interval_fit::DomainPin::Low(low) => DomainPin::Low(value(low)),

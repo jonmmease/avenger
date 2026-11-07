@@ -108,6 +108,8 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) positions: &'a [Option<FittingScale>],
     /// The scale of each non-position group, by its position in `Resolved::scales`.
     pub(crate) scales: &'a [Option<ConfiguredScale>],
+    /// The kind of fit of each group, by its position in `Resolved::scales`.
+    pub(crate) kinds: &'a [avenger_chart::FitKind],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -291,6 +293,10 @@ fn axis_style(
     let ticks_shown = visible(tick);
     let mut style = AxisStyle {
         tick_count: axis.number(Property::TickCount).map(f64::from),
+        tick_spacing: axis.number(Property::TickSpacing),
+        // `thin-ticks: true` thins the explicit ticks of the spec, such as `Ticks.values`, to the
+        // axis's length.
+        thin_ticks: axis.boolean(Property::ThinTicks).unwrap_or(false),
         ticks: ticks(chart, spec_ticks),
         tick_length: match ticks_shown {
             true => style_number(tick, Property::TickSize),
@@ -298,7 +304,13 @@ fn axis_style(
         },
         tick_color: paint_color(tick, Property::Stroke),
         labels_visible: visible(label),
-        label_angle: style_number(axis, Property::LabelAngle),
+        // `auto` draws the thinnest labels that keep apart, horizontal, slanted at 315 degrees, or
+        // turned to 270 degrees.
+        label_angle: axis.number(Property::LabelAngle).unwrap_or(0.0),
+        label_angles: match axis.keyword(Property::LabelAngle) {
+            Some("auto") => vec![0.0, 315.0, 270.0],
+            _ => Vec::new(),
+        },
         label_align,
         label_baseline,
         label_color: text_color(label),
@@ -357,7 +369,7 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
         }
         let grid = visible(&styles[nodes.grid]) && !second;
         let title_syntax = text_syntax(spec.title.as_ref().map_or(0, |title| title.syntax));
-        let style = axis_style(
+        let mut style = axis_style(
             inputs.chart,
             &styles[nodes.axis],
             &styles[nodes.title],
@@ -368,6 +380,14 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             spec.ticks.as_ref(),
             title_syntax,
         );
+        // The key axis of bars of bins ticks at the edges of the bins, unless the spec or the
+        // styles give its ticks or their count.
+        if style.ticks.is_none() && style.tick_count.is_none() {
+            if let Some(edges) = crate::bins::edges(inputs.resolved, index, inputs.kinds) {
+                style.ticks = Some(edges);
+                style.thin_ticks = true;
+            }
+        }
         let labels = spec.labels.as_ref();
         let config = AxisConfig {
             side,
@@ -435,6 +455,35 @@ enum Swatch {
     Shape(Vec<String>),
     StrokeDash(Vec<Vec<f32>>),
     Pattern(PatternFills),
+}
+
+impl Swatch {
+    /// Repeats the swatch of the last entry for one more entry, which the legend hides.
+    fn repeat_last(&mut self) {
+        fn repeat<T: Clone>(values: &mut Vec<T>) {
+            if let Some(last) = values.last().cloned() {
+                values.push(last);
+            }
+        }
+        match self {
+            Self::Color(values) | Self::Fill(values) | Self::Stroke(values) => repeat(values),
+            Self::Opacity(values)
+            | Self::Size(values)
+            | Self::StrokeWidth(values)
+            | Self::Angle(values) => repeat(values),
+            Self::Shape(values) => repeat(values),
+            Self::StrokeDash(values) => repeat(values),
+            Self::Pattern(fills) => {
+                let len = match fills.0.value() {
+                    avenger_common::value::ScalarOrArrayValue::Array(values) => values.len(),
+                    avenger_common::value::ScalarOrArrayValue::Scalar(_) => 1,
+                };
+                let mut values = fills.0.as_vec(len, None);
+                values.push(None);
+                *fills = PatternFills(ScalarOrArray::new_array(values));
+            }
+        }
+    }
 }
 
 /// The values of `values` through `scale` as the swatch of `channel`, or `None` for a channel
@@ -637,13 +686,35 @@ fn constant_string(
         .transpose()
 }
 
+/// The distinct columns that the encodings of `group` scale, in order.
+fn scaled_columns(resolved: &Resolved, group: &ScaleGroup) -> Vec<String> {
+    let mut columns: Vec<String> = (group.members.iter())
+        .filter_map(|member| {
+            let encoding = resolved.tree.layers[member.layer]
+                .mark
+                .encoding(member.channel)?;
+            match &encoding.kind {
+                Some(encoding::Kind::ScaledField(name)) => Some(name.clone()),
+                _ => None,
+            }
+        })
+        .collect();
+    columns.sort();
+    columns.dedup();
+    columns
+}
+
 /// A symbol legend before its swatches are made.
 struct LegendDraft {
     /// The scale group of its first scale.
     group: usize,
+    /// Whether the last entry counts the entries past `max-entries`, which draws no swatch.
+    rest: bool,
     spec: proto::Legend,
     /// The categories of a discrete scale, which merge legends with equal categories.
     categories: Option<ArrayRef>,
+    /// The columns that the scale's encodings scale, which merge legends of one column.
+    columns: Vec<String>,
     title: String,
     labels: Vec<String>,
     label_syntax: TextSyntaxMode,
@@ -657,8 +728,9 @@ enum Pending {
 }
 
 /// The legends and the colorbars of the plot, in the order of their scales. Symbol legends whose
-/// scales hold the same categories in the same order and whose specs are equal merge, and their
-/// titles join.
+/// scales encode the same columns and hold the same categories in the same order, and whose specs
+/// are equal, merge, and their titles join, so the `color` and the `shape` of one column show one
+/// legend, and two columns whose categories happen to be equal show two.
 fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
     let mut pending: Vec<Pending> = Vec::new();
     for (index, group) in inputs.resolved.scales.iter().enumerate() {
@@ -682,21 +754,41 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
-                let (values, labels, label_syntax) =
+                let (values, mut labels, label_syntax) =
                     entries(scale, &spec, tick_count, inputs.chart, inputs.engine)?;
-                let Some(swatch) = swatch(group.channel, scale, &values)? else {
+                // A legend longer than `max-entries` ends with an entry that counts the rest.
+                let max_entries = inputs.styles[nodes.legend].integer(Property::MaxEntries);
+                let rest = match max_entries {
+                    Some(max) if labels.len() > max as usize => labels.len() - (max as usize - 1),
+                    _ => 0,
+                };
+                let values = match rest {
+                    0 => values,
+                    rest => {
+                        labels.truncate(labels.len() - rest);
+                        labels.push(format!("…{rest} more"));
+                        values.slice(0, values.len() - rest)
+                    }
+                };
+                let Some(mut swatch) = swatch(group.channel, scale, &values)? else {
                     continue;
                 };
+                if rest > 0 {
+                    swatch.repeat_last();
+                }
                 let title = guide_title(spec.title.as_ref(), || {
                     default_title(inputs.resolved, group, true)
                 });
                 let categories = (scale.scale_impl.summary_kind() == Some(SummaryKind::Categories))
                     .then(|| scale.domain().clone());
+                let columns = scaled_columns(inputs.resolved, group);
                 let merged = pending.iter_mut().find_map(|pending| match pending {
                     // Two scales of one kind of swatch, such as two independent color scales,
                     // keep their legends apart, so each shows its own swatches.
                     Pending::Legend(draft)
                         if draft.spec == spec
+                            && !columns.is_empty()
+                            && draft.columns == columns
                             && matches!((&draft.categories, &categories),
                                 (Some(a), Some(b)) if a.as_ref() == b.as_ref())
                             && !(draft.swatches.iter()).any(|known| {
@@ -720,8 +812,10 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                     }
                     None => pending.push(Pending::Legend(Box::new(LegendDraft {
                         group: index,
+                        rest: rest > 0,
                         spec,
                         categories,
+                        columns,
                         title,
                         labels,
                         label_syntax,
@@ -831,6 +925,9 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         if let Some(opacity) = opacity {
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
         }
+        if draft.rest {
+            swatches.stroke = faded(&swatches.stroke, &shown(len), len);
+        }
         LegendSwatches::Lines(swatches)
     } else {
         let swatch_style = &styles[nodes.swatch];
@@ -910,6 +1007,10 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
             swatches.fill = faded(&swatches.fill, &opacity, len);
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
         }
+        if draft.rest {
+            swatches.fill = faded(&swatches.fill, &shown(len), len);
+            swatches.stroke = faded(&swatches.stroke, &shown(len), len);
+        }
         LegendSwatches::Symbols(swatches)
     };
     let legend_style = &styles[nodes.legend];
@@ -956,6 +1057,16 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         max_length: None,
         offset: offset(legend_style),
     })
+}
+
+/// The opacity of the swatches of a legend of `len` entries whose last entry counts the rest: every
+/// swatch but the last.
+fn shown(len: usize) -> Vec<f32> {
+    let mut opacity = vec![1.0; len];
+    if let Some(last) = opacity.last_mut() {
+        *last = 0.0;
+    }
+    opacity
 }
 
 /// `colors` with their alpha times `opacity`.

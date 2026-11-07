@@ -278,7 +278,10 @@ fn scale_kind(
 ) -> &'static str {
     use proto::scale::Type;
     if kind != FitKind::Categories {
-        return "sequential";
+        return match pins_middle(&group.spec) {
+            true => "diverging",
+            false => "sequential",
+        };
     }
     let kind = match &group.spec.r#type {
         Some(Type::Band(band)) => band.kind,
@@ -299,6 +302,29 @@ fn scale_kind(
         | None => "categorical",
         Some(_) => "ordinal",
     }
+}
+
+/// Whether the interval fit of `spec`'s domain, or of its selection domain's fallback, pins its
+/// middle, as a diverging scale's fit does.
+fn pins_middle(spec: &proto::Scale) -> bool {
+    use proto::{domain, domain_fit, interval_fit, selection_domain};
+    let fit = match (spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()) {
+        Some(domain::Domain::Summary(summary)) => summary.fit.as_ref(),
+        Some(domain::Domain::Data(data)) => data.fit.as_ref(),
+        Some(domain::Domain::Selection(selection)) => match &selection.fallback {
+            Some(selection_domain::Fallback::Summary(summary)) => summary.fit.as_ref(),
+            Some(selection_domain::Fallback::Data(data)) => data.fit.as_ref(),
+            _ => None,
+        },
+        _ => None,
+    };
+    matches!(
+        fit.and_then(|fit| fit.fit.as_ref()),
+        Some(domain_fit::Fit::Interval(proto::IntervalFit {
+            domain_pin: Some(interval_fit::DomainPin::Mid(_)),
+            ..
+        }))
+    )
 }
 
 /// The type of the values of `data_type`, without a dictionary.

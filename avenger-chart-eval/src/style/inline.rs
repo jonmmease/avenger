@@ -110,6 +110,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ("Range", &["values", "palette", "reverse"]),
     ("BandScale", &["padding_inner", "padding_outer"]),
     ("PointScale", &["padding"]),
+    ("NestedBandScale", &["padding_inner", "padding_outer"]),
 ];
 
 /// The values of a range as CSS text: strings as they are, such as colors and shape names,
@@ -688,6 +689,16 @@ pub(crate) fn scale(
             number(tree, Property::PaddingOuter, band.padding_outer);
         }
         Some(Type::Point(point)) => number(tree, Property::PaddingOuter, point.padding),
+        Some(Type::NestedBand(nested)) => {
+            let list = |tree: &mut Styled, property: Property, values: &[f64]| {
+                if !values.is_empty() {
+                    let values: Vec<String> = values.iter().map(f64::to_string).collect();
+                    set(tree, node, property, &values.join(" "));
+                }
+            };
+            list(tree, Property::PaddingInner, &nested.padding_inner);
+            list(tree, Property::PaddingOuter, &nested.padding_outer);
+        }
         _ => {}
     }
 }

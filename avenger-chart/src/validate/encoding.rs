@@ -569,7 +569,9 @@ impl Checker<'_> {
                 if kind.is_none_or(|kind| kind == FitKind::Interval) =>
             {
                 let path = format!("{path}.interval");
-                positive(interval.nice, &format!("{path}.nice"))?;
+                if let Some(interval_fit::NiceEnds::NiceCount(count)) = interval.nice_ends {
+                    positive(Some(count), &format!("{path}.nice_count"))?;
+                }
                 if let Some(empty) = &interval.empty {
                     self.values.list(empty, &format!("{path}.empty"))?;
                 }

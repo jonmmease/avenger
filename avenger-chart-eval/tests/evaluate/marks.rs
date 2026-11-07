@@ -29,13 +29,24 @@ fn symbols_with_a_size_and_a_shape() {
         SymbolMark::builder()
             .x("weight")
             .y(Encoding::scaled_field("mpg").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().nice(5.0)),
+                DataDomain::builder().fit(IntervalFit::builder().nice_count(5.0)),
             )))
             .shape("cylinders")
             .size("count"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&chart, "symbols-size-shape");
+}
+
+/// Categories on `size` take a point scale, which spreads them over the range of sizes.
+#[test]
+fn symbols_sized_by_category() {
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").size("origin"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    render_both(&chart, "symbols-size-category");
 }
 
 #[test]
@@ -107,9 +118,9 @@ fn horizontal_bars() {
     render_both(&chart, "bars-horizontal");
 }
 
-/// A histogram: rects from the start to the end of each bin, with an inset between bins.
+/// A histogram: bars from the start to the end of each bin, which stand `bin-spacing` apart.
 #[test]
-fn rects() {
+fn histogram() {
     let starts: Vec<f64> = (0..8).map(|bin| bin as f64 * 5.0).collect();
     let ends: Vec<f64> = starts.iter().map(|start| start + 5.0).collect();
     let bins = RecordBatch::try_from_iter([
@@ -121,25 +132,15 @@ fn rects() {
         ),
     ])
     .unwrap();
-    let rects = CartesianLayer::rect(
-        bins,
-        RectMark::builder()
-            .inset(1.0)
-            .x("start")
-            .x2("end")
-            .y(Encoding::scaled_field("count").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
-            .y2(0.0),
-    );
-    let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
-    render_both(&chart, "rects-histogram");
+    let bars = CartesianLayer::bar(bins, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render_both(&chart, "bars-histogram");
 }
 
-/// The histogram of `rects` from one column of spans, which gives `x` and `x2`, draws as the
+/// The histogram of `histogram` from one column of spans, which gives `x` and `x2`, draws as the
 /// histogram of two columns, with the column's name as the title of the axis.
 #[test]
-fn rects_of_a_span_column() {
+fn histogram_of_a_span_column() {
     let starts: Vec<f64> = (0..8).map(|bin| bin as f64 * 5.0).collect();
     let ends: Vec<f64> = starts.iter().map(|start| start + 5.0).collect();
     let spans = StructArray::from(vec![
@@ -160,18 +161,75 @@ fn rects_of_a_span_column() {
         ),
     ])
     .unwrap();
-    let rects = CartesianLayer::rect(
+    let bars = CartesianLayer::bar(bins, BarMark::builder().x("bin").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render_both(&chart, "bars-span-histogram");
+}
+
+/// Bins of uneven widths tick at their distinct edges, and uniform bins with an empty bin tick at
+/// the lattice of their width, which keeps the edges of the empty bin.
+#[test]
+fn bins_tick_at_their_edges() {
+    let uneven = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 1.0, 3.0, 10.0])),
+        ("end", numbers(&[1.0, 3.0, 10.0, 25.0])),
+        ("count", numbers(&[4.0, 6.0, 9.0, 3.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(uneven, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-uneven-bins");
+
+    let gapped = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 10.0, 30.0])),
+        ("end", numbers(&[10.0, 20.0, 40.0])),
+        ("count", numbers(&[4.0, 6.0, 2.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(gapped, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-empty-bin");
+}
+
+/// Uniform bins tick across an explicit domain wider than their data, so the empty bins at its
+/// end keep their ticks, and the kept ticks land on round values.
+#[test]
+fn bins_tick_across_their_domain() {
+    let bins = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 10.0, 20.0, 40.0, 50.0, 60.0, 70.0])),
+        ("end", numbers(&[10.0, 20.0, 30.0, 50.0, 60.0, 70.0, 80.0])),
+        ("count", numbers(&[3.0, 7.0, 9.0, 6.0, 4.0, 2.0, 1.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(
         bins,
-        RectMark::builder()
-            .inset(1.0)
-            .x("bin")
-            .y(Encoding::scaled_field("count").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
-            .y2(0.0),
+        BarMark::builder()
+            .x(Encoding::scaled_field("start").scale(Domain::explicit([0.0, 100.0])))
+            .x2("end")
+            .y("count"),
     );
-    let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
-    render_both(&chart, "rects-span-histogram");
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-bins-domain");
+    render(&chart, [240.0, 200.0], "bars-bins-domain-narrow");
+}
+
+/// The bars of a Gantt chart span their value axis, so the axis keeps the ticks of its scale.
+#[test]
+fn a_gantt_chart_keeps_the_ticks_of_its_scale() {
+    let tasks = RecordBatch::try_from_iter([
+        (
+            "task",
+            Arc::new(arrow::array::StringArray::from(vec![
+                "Plan", "Build", "Ship",
+            ])) as ArrayRef,
+        ),
+        ("start", numbers(&[0.0, 3.0, 11.0])),
+        ("end", numbers(&[3.0, 11.0, 13.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(tasks, BarMark::builder().y("task").x("start").x2("end"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 200.0], "bars-gantt");
 }
 
 #[test]

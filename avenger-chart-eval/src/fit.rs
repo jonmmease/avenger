@@ -16,7 +16,7 @@ use avenger_style::{ComputedStyle, ComputedStyles};
 
 use crate::{
     convert::{
-        domain::{domain_options, source, DomainSource, Fit},
+        domain::{domain_options, source, DomainSource, Fit, FitDefaults},
         scale::{fit_kind, range, range_shape, unfitted},
     },
     EvalError, EvalWarning, Registry,
@@ -147,6 +147,7 @@ pub(crate) fn direction(group: &ScaleGroup, kind: FitKind) -> Direction {
 pub(crate) fn position(
     inputs: &FitInputs,
     group: &ScaleGroup,
+    defaults: FitDefaults,
     style: &ComputedStyle,
     values: &[Option<MemberValues>],
 ) -> Result<Position> {
@@ -158,7 +159,7 @@ pub(crate) fn position(
     let spec = &group.spec;
     let unfitted = unfitted(spec, style, registry, &value_type(values))?;
     let kind = fit_kind(spec, registry)?;
-    let fit = domain_options(chart, spec, kind);
+    let fit = domain_options(chart, spec, kind, defaults);
     let (fitting, clip) = match source(chart, group, states)? {
         DomainSource::Explicit(domain) => (explicit(&unfitted, domain, kind, values)?, true),
         DomainSource::Inferred {
@@ -210,6 +211,7 @@ fn explicit(
 pub(crate) fn non_position(
     inputs: &FitInputs,
     group: &ScaleGroup,
+    defaults: FitDefaults,
     style: &ComputedStyle,
     styles: &ComputedStyles,
     values: &[Option<ArrayRef>],
@@ -232,7 +234,7 @@ pub(crate) fn non_position(
             data,
             pin,
         } => {
-            let fit = domain_options(chart, spec, fit_kind(spec, registry)?).pinned(pin);
+            let fit = domain_options(chart, spec, fit_kind(spec, registry)?, defaults).pinned(pin);
             match inferred_summary(&unfitted, &summaries, &data, &values)? {
                 Some(summary) => {
                     let domain = (unfitted.clone().with_range_interval((0.0, 1.0)))

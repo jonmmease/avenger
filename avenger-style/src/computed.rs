@@ -83,6 +83,21 @@ impl ComputedStyle {
         }
     }
 
+    /// The numbers of a property that takes one number or several separated by spaces, such as
+    /// the paddings of the levels of a nested band scale.
+    pub fn numbers(&self, property: Property) -> Option<Vec<f32>> {
+        match self.get(property) {
+            Computed::Number(value) => Some(vec![*value]),
+            Computed::Sequence(items) => (items.iter())
+                .map(|item| match item {
+                    Computed::Number(value) => Some(*value),
+                    _ => None,
+                })
+                .collect(),
+            _ => None,
+        }
+    }
+
     pub fn integer(&self, property: Property) -> Option<i64> {
         match self.get(property) {
             Computed::Integer(value) => Some(*value),

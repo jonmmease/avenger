@@ -323,7 +323,7 @@ fn the_copies_of_one_widget_agree() {
     );
 
     // The fits of data domains merge field by field.
-    let nice = |nice: Option<f64>, zero: Option<bool>| {
+    let nice = |count: Option<f64>, zero: Option<bool>| {
         let mut widget = range_slider();
         if let Some(proto::widget::Kind::RangeSlider(slider)) = widget.kind.as_mut() {
             slider.domain = Some(proto::WidgetDomain {
@@ -331,7 +331,7 @@ fn the_copies_of_one_widget_agree() {
                     proto::WidgetDataDomain {
                         fit: Some(proto::DomainFit {
                             fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                                nice,
+                                nice_ends: count.map(proto::interval_fit::NiceEnds::NiceCount),
                                 zero,
                                 ..Default::default()
                             })),
@@ -358,7 +358,7 @@ fn the_copies_of_one_widget_agree() {
         data.fit,
         Some(proto::DomainFit {
             fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                nice: Some(6.0),
+                nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(6.0)),
                 zero: Some(true),
                 ..Default::default()
             })),

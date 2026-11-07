@@ -402,6 +402,17 @@ fn bars(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
         false => rows.size[0],
     };
     let keys = span(rows, key, key2, key_length)?;
+    // A bar that spans its bin, from a continuous key to the key's partner, gives up half of
+    // `bin-spacing` at each edge along its key, in pixels after the scale, so neighboring bins
+    // stand apart and each bar stays centered on its bin.
+    let binned = rows.has(key2) && rows.kind(key) == Some(avenger_chart::FitKind::Interval);
+    let keys = match binned {
+        true => {
+            let spacing = style_number(rows.style, Property::BinSpacing);
+            inset_spans(keys.0, keys.1, spacing / 2.0, rows.len())
+        }
+        false => keys,
+    };
     let start = rows.numbers(measure)?.unwrap_or_else(|| scalar(0.0));
     let end = match rows.has(measure2) {
         true => rows.numbers(measure2)?.unwrap_or_else(|| scalar(0.0)),

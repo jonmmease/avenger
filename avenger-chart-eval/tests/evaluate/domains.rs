@@ -206,15 +206,15 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
 
 #[test]
 fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
-    // The summary holds the extremes of the data without the reach of their symbols.
+    // The summary holds the extremes of the data without the reach of their symbols, and the fit
+    // leaves the domain at them, without zero or nice ends.
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(
-                Encoding::scaled_field("weight").scale(Domain::summary(SummaryDomain::new(
-                    linear_summary(&[1800.0, 4790.0]),
-                ))),
-            )
+            .x(Encoding::scaled_field("weight").scale(Domain::summary(
+                SummaryDomain::new(linear_summary(&[1800.0, 4790.0]))
+                    .fit(IntervalFit::builder().zero(false).nice(false)),
+            )))
             .y("mpg")
             .size(400.0),
     );

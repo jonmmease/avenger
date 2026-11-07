@@ -18,6 +18,9 @@ const NON_NEGATIVE: Syntax = Syntax::Number {
     min: Some(0.0),
     max: None,
 };
+/// The paddings of a scale: one number, or one for each level of a nested band scale, outermost
+/// first.
+const PADDINGS: Syntax = Syntax::Any(&[NON_NEGATIVE, Syntax::Repeat(&NON_NEGATIVE, 2, 8)]);
 const POSITIVE_INTEGER: Syntax = Syntax::Integer { min: 1 };
 const SIZE_OR_AUTO: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["auto"])]);
 const SIZE_OR_NONE: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["none"])]);
@@ -256,13 +259,16 @@ properties! {
     TitleFrame = "title-frame", false, Syntax::Keywords(&["plot", "chart"]), "chart", &[Chart];
 
     // Guides.
-    LabelAngle = "label-angle", false, Syntax::Angle, "0", &[Axis, Header, Legend, Level];
+    LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Header, Legend, Level];
     Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Header, Title, Attribution];
     LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Header, Axis];
     TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Header];
     Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
     TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
+    TickSpacing = "tick-spacing", false, SIZE_OR_AUTO, "auto", &[Axis];
+    ThinTicks = "thin-ticks", false, Syntax::Boolean, "false", &[Axis];
+    MaxEntries = "max-entries", false, Syntax::Any(&[Syntax::Integer { min: 2 }, Syntax::Keywords(&["none"])]), "none", &[Legend];
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
     LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Header, Graticule, Mark];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
@@ -307,8 +313,8 @@ properties! {
     Range = "range", false, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::OutputList]), "auto", SCALE;
     Unknown = "unknown", false, OUTPUT_OR_AUTO, "auto", SCALE;
     Other = "other", false, OUTPUT_OR_AUTO, "auto", SCALE;
-    PaddingInner = "padding-inner", false, UNIT, "0.1", SCALE;
-    PaddingOuter = "padding-outer", false, NON_NEGATIVE, "0.05", SCALE;
+    PaddingInner = "padding-inner", false, PADDINGS, "0.1", SCALE;
+    PaddingOuter = "padding-outer", false, PADDINGS, "0.05", SCALE;
 }
 
 impl Property {

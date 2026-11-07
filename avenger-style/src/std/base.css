@@ -1,4 +1,5 @@
-/* std:base.css: the look of Vega-Lite 6 on a white background, with the font Lato.
+/* std:base.css: Avenger's default look on a white background, with the font Lato. Many of its
+   values, such as the palettes and the ranges of scales, come from Vega-Lite 6.
    Parameters: env(background), env(foreground), env(accent), env(font-family). */
 
 chart {
@@ -21,7 +22,12 @@ legend > label { max-width: 16rem; }
 /* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a
    continuous scale has about 5 entries. */
 legend { offset: 12; }
-legend[type=symbol] { tick-count: 5; }
+legend[type=symbol] { tick-count: 5; max-entries: 30; }
+legend[type=colorbar] > ramp { max-length: 200; }
+
+/* The ticks of a continuous axis fit their count to a spacing of 2.25 ems, so they spread with
+   the size of the text: 24.75 pixels at the chart's font size, near 2.5 times the labels'. */
+axis { tick-spacing: 2.25em; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
@@ -34,8 +40,12 @@ grid {
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
-/* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
+/* A plot without a size counts at 200 by 200 in a chart that takes its natural size, except
+   along a discrete position scale, whose length is 20 pixels for each step. */
 plot[type=cartesian] { contain-intrinsic-size: 200; }
+scale:is([channel=x], [channel=y]):is([type=band], [type=point], [type=nested_band]) {
+  step: 20;
+}
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
@@ -43,10 +53,14 @@ plot[type=cartesian] {
 }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 
-/* The labels of axes and colorbars keep apart, except those of categories, which all show as in
-   Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
+/* The labels of axes and colorbars keep apart, except those of discrete axes, which all show and
+   slant or turn where they do not fit, and the leaf of a nested band axis takes the axis's label
+   angle. */
 axis, legend[type=colorbar] { label-overlap: parity; }
-axis[kind=categorical] { label-overlap: none; }
+axis:is([kind=categorical], [kind=ordinal]) { label-overlap: none; }
+/* The labels of a discrete x axis read across where each fits its band, and otherwise slant or
+   turn, whichever is thinner and keeps them apart. */
+axis[channel=x]:is([scale=band], [scale=point]) { label-angle: auto; }
 axis > level:last-of-type { label-angle: inherit; }
 
 /* Marks: the accent, and the foreground for rules and texts. */
@@ -57,6 +71,7 @@ mark:is([type=rule], [type=text]) {
 mark[type=text] { font-size: 1.1rem; }
 mark[type=symbol] { stroke: none; stroke-width: 2; }
 mark[type=line] { stroke-width: 2; }
+mark[type=bar] { bin-spacing: 1; }
 mark[type=trail] { size: 2; }
 mark[type=text] { max-lines: none; }
 mark[type=image] { width: 50; height: 50; }
@@ -79,7 +94,7 @@ mark > label {
   font-size: 1.1rem;
 }
 
-/* Scales: the palettes and ranges of Vega-Lite. */
+/* Scales: palettes and ranges, which Vega-Lite also uses. */
 scale[kind=categorical] { scheme: tableau10; }
 scale:is([kind=ordinal], [kind=sequential]) { scheme: blues; }
 scale[kind=sequential]:is([marks~=rect], [marks~=shape]) { scheme: yellowgreenblue; }
@@ -96,6 +111,14 @@ scale[channel=angle] { range: 0, 360; }
 scale[channel=size] { range: 9, 361; }
 scale[channel=size][marks~=text] { range: 8, 40; }
 scale[channel=size][marks~=trail] { range: 1, 10; }
+
+/* Band paddings: the cells of a heatmap touch, and the groups of a nested band scale stand half a
+   bar apart while the bars of a group keep the gap of other bars. */
+scale:is([channel=x], [channel=y])[type=band][marks~=rect]:not([marks~=bar]) {
+  padding-inner: 0;
+  padding-outer: 0;
+}
+scale[type=nested_band] { padding-inner: 0.5 0.1; padding-outer: 0; }
 
 /* Focus: a 2px ring, 2px outside the focused node. */
 :focus-visible {
