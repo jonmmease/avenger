@@ -280,7 +280,8 @@ fn a_mix_of_current_color_tints_each_rows_color() {
     }
 }
 
-/// The bars of the twelve months, whose labels turn where a month is wider than its band.
+/// The bars of the twelve months in their order, whose labels turn where a month is wider than its
+/// band.
 fn months() -> Chart {
     let names = [
         "January",
@@ -309,7 +310,13 @@ fn months() -> Chart {
         ),
     ])
     .unwrap();
-    let bars = CartesianLayer::bar(table, BarMark::builder().x("month").y("rain"));
+    let in_order = Domain::explicit(Value::list(Arc::new(StringArray::from(names.to_vec()))));
+    let bars = CartesianLayer::bar(
+        table,
+        BarMark::builder()
+            .x(Encoding::scaled_field("month").scale(in_order))
+            .y("rain"),
+    );
     Chart::builder(Plot::cartesian([bars])).build().unwrap()
 }
 
