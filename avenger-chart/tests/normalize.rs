@@ -99,31 +99,31 @@ fn keyed_lists_follow_their_keys_with_one_entry_for_each() {
         key: Some(proto::resolve::Key::Channel(channel as i32)),
         sharing: sharing as i32,
     };
-    let guide_rule = |part: proto::GuidePart| proto::GuideRule {
+    let part_rule = |part: proto::Part| proto::PartRule {
         part: part as i32,
-        rule: proto::GuideRuleKind::Keep as i32,
+        rule: proto::PartRuleKind::Keep as i32,
     };
-    let chart = |resolve: Vec<proto::Resolve>, guide_rules: Vec<proto::GuideRule>| {
+    let chart = |resolve: Vec<proto::Resolve>, part_rules: Vec<proto::PartRule>| {
         let mut root = row(vec![plot(vec![symbols(0)]), plot(vec![symbols(0)])]);
         concat_mut(&mut root).resolve = resolve;
         concat_mut(&mut root).layout = Some(proto::ConcatLayout {
-            guide_rules,
+            part_rules,
             ..Default::default()
         });
         parts(root, vec![])
     };
-    use proto::{Channel::*, GuidePart::*, Sharing::*};
+    use proto::{Channel::*, Part::*, Sharing::*};
     let chart = same_chart(
         chart(
             vec![rule(Y, Shared), rule(X, Shared), rule(Y, Shared)],
-            vec![guide_rule(AxisTitle), guide_rule(AxisTicks)],
+            vec![part_rule(AxisTitle), part_rule(AxisTicks)],
         ),
         chart(
             vec![rule(X, Shared), rule(Y, Shared)],
             vec![
-                guide_rule(AxisTicks),
-                guide_rule(AxisTitle),
-                guide_rule(AxisTicks),
+                part_rule(AxisTicks),
+                part_rule(AxisTitle),
+                part_rule(AxisTicks),
             ],
         ),
     );
@@ -131,8 +131,8 @@ fn keyed_lists_follow_their_keys_with_one_entry_for_each() {
         panic!("the root is a concat")
     };
     assert_eq!(root.resolve, vec![rule(X, Shared), rule(Y, Shared)]);
-    let rules = &root.layout.as_ref().unwrap().guide_rules;
-    assert_eq!(rules, &vec![guide_rule(AxisTicks), guide_rule(AxisTitle)]);
+    let rules = &root.layout.as_ref().unwrap().part_rules;
+    assert_eq!(rules, &vec![part_rule(AxisTicks), part_rule(AxisTitle)]);
 }
 
 #[test]

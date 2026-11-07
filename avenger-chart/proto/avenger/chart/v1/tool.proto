@@ -95,10 +95,10 @@ message TooltipField {
   string column = 1;
   // The title of the field. Without it, the field's title is the column's name.
   optional string title = 2;
-  // The pattern of a numeric or temporal value, as for `GuideLabels.format`.
+  // The pattern of a numeric or temporal value, as for `Labels.format`.
   string format = 3;
   // Typst markup for the value, where `#value` is the formatted value, such as `#value km`, as for
-  // `GuideLabels.markup`. An empty markup shows the formatted value as plain text.
+  // `Labels.markup`. An empty markup shows the formatted value as plain text.
   string markup = 4;
 }
 

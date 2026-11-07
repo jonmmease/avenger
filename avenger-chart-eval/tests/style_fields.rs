@@ -74,10 +74,10 @@ const CONTENT: &[(&str, &[&str])] = &[
         "Guide",
         &["axis", "legend", "colorbar", "none", "polar_axis"],
     ),
-    ("GuideRule", &["part", "rule"]),
+    ("PartRule", &["part", "rule"]),
     ("GuideTitle", &["text", "syntax"]),
-    ("GuideLabels", &["format", "markup"]),
-    ("GuideTicks", &["interval", "values"]),
+    ("Labels", &["format", "markup"]),
+    ("Ticks", &["interval", "values"]),
     ("TickInterval", &["numeric", "calendar"]),
     ("NumericTicks", &["start", "step"]),
     (

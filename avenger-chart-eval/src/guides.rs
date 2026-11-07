@@ -11,7 +11,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::MarkType,
-    proto::{self, calendar_ticks, encoding, guide, guide_ticks, tick_interval, Channel},
+    proto::{self, calendar_ticks, encoding, guide, tick_interval, ticks, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
     Chart,
 };
@@ -240,11 +240,11 @@ fn axis_spec(group: &ScaleGroup) -> proto::Axis {
     }
 }
 
-/// The ticks of a `GuideTicks` in place of the scale's: a list of values or an interval.
-fn ticks(chart: &Chart, ticks: Option<&proto::GuideTicks>) -> Option<AxisTicks> {
+/// The ticks of a `Ticks` in place of the scale's: a list of values or an interval.
+fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
     match ticks?.at.as_ref()? {
-        guide_ticks::At::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
-        guide_ticks::At::Interval(interval) => match interval.interval.as_ref()? {
+        ticks::At::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
+        ticks::At::Interval(interval) => match interval.interval.as_ref()? {
             tick_interval::Interval::Numeric(numeric) => {
                 Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
                     start: numeric.start,
@@ -266,7 +266,7 @@ fn ticks(chart: &Chart, ticks: Option<&proto::GuideTicks>) -> Option<AxisTicks> 
                 }))
             }
         },
-        guide_ticks::At::Count(_) => None,
+        ticks::At::Count(_) => None,
     }
 }
 
@@ -280,7 +280,7 @@ fn axis_style(
     tick: &ComputedStyle,
     rule: &ComputedStyle,
     grid: Option<&ComputedStyle>,
-    spec_ticks: Option<&proto::GuideTicks>,
+    spec_ticks: Option<&proto::Ticks>,
     title_syntax: TextSyntaxMode,
 ) -> AxisStyle {
     let label_align = match label.keyword(Property::TextAlign) {

@@ -205,7 +205,7 @@ fn the_specs_of_a_shared_scale_agree() {
         let mut layer = symbols(0);
         scale_of(&mut layer, false).guide = Some(proto::Guide {
             guide: Some(guide::Guide::Axis(proto::Axis {
-                labels: Some(proto::GuideLabels {
+                labels: Some(proto::Labels {
                     format: pattern.to_string(),
                     ..Default::default()
                 }),

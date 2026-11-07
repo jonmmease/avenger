@@ -455,7 +455,7 @@ fn a_pattern_needs_its_syntax() {
     let mut parts = base();
     x_scale(&mut parts.0).guide = Some(proto::Guide {
         guide: Some(guide::Guide::Axis(proto::Axis {
-            labels: Some(proto::GuideLabels {
+            labels: Some(proto::Labels {
                 format: ",.0f".to_string(),
                 ..Default::default()
             }),
@@ -873,14 +873,14 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
 #[test]
 fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     let ticks = |at| proto::Axis {
-        ticks: Some(proto::GuideTicks {
+        ticks: Some(proto::Ticks {
             at: Some(at),
             ..Default::default()
         }),
         ..Default::default()
     };
     invalid(
-        nested(ticks(proto::guide_ticks::At::Count(3.0))),
+        nested(ticks(proto::ticks::At::Count(3.0))),
         &format!("{X}.scale.guide.axis.ticks.count"),
         "ticks at the bands of its leaf",
     );
@@ -898,11 +898,11 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
         parts
     };
     invalid(
-        band(proto::guide_ticks::At::Count(3.0)),
+        band(proto::ticks::At::Count(3.0)),
         &format!("{X}.scale.guide.axis.ticks.count"),
         "only a list of ticks is valid",
     );
-    let mut listed = band(proto::guide_ticks::At::Values(ValueRef { index: 0 }));
+    let mut listed = band(proto::ticks::At::Values(ValueRef { index: 0 }));
     listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
     read(listed).unwrap();
 }

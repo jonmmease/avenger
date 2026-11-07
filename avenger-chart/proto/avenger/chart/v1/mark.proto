@@ -149,7 +149,7 @@ message RuleMark {
 //
 // A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message TextMark {
-  // The pattern of a numeric or temporal `text` value, as for `GuideLabels.format`.
+  // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
   // How each text aligns to its position across its lines. When absent, centered.
   TextAlign align = 2;
@@ -398,7 +398,7 @@ message PolarRuleMark {
 // keeps to its sides of the circle and of the angle on both halves. A text at the center centers on
 // it.
 message PolarTextMark {
-  // The pattern of a numeric or temporal `text` value, as for `GuideLabels.format`.
+  // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 2;
@@ -523,7 +523,7 @@ message GeoRuleMark {
 //
 // A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message GeoTextMark {
-  // The pattern of a numeric or temporal `text` value, as for `GuideLabels.format`.
+  // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
   // How each text aligns to its position across its lines. When absent, centered.
   TextAlign align = 2;

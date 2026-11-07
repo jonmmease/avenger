@@ -1013,7 +1013,7 @@ pub struct WidgetGroup {
     /// The identity of the anchor of the group, or `None` for a group that anchors at the root. A
     /// clause of the widget names the anchor as its owner and its partition.
     pub anchor: Option<Identity>,
-    /// The path of the innermost node that holds every layer of the group, whose guide rules decide
+    /// The path of the innermost node that holds every layer of the group, whose part rules decide
     /// how many times the widget draws.
     pub owner: String,
 }

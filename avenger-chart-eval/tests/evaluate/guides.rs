@@ -85,7 +85,7 @@ fn an_axis_with_explicit_ticks() {
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight").scale(
                 Scale::builder()
-                    .guide(Axis::builder().ticks(GuideTicks::values([2000.0, 3000.0, 4000.0]))),
+                    .guide(Axis::builder().ticks(Ticks::values([2000.0, 3000.0, 4000.0]))),
             ))
             .y(Encoding::scaled_field("mpg")),
     )

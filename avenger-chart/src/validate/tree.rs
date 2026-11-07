@@ -67,7 +67,7 @@ impl Checker<'_> {
             for (index, track) in layout.tracks.iter().enumerate() {
                 track_size(track, &format!("{path}.tracks[{index}]"))?;
             }
-            guide_rules(&layout.guide_rules, &path)?;
+            part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &concat.facet {
             named(
@@ -103,7 +103,7 @@ impl Checker<'_> {
                 track_size(row, &format!("{path}.row"))?;
             }
             non_negative(layout.gap.map(f64::from), &format!("{path}.gap"))?;
-            guide_rules(&layout.guide_rules, &path)?;
+            part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &wrap.facet {
             named(
@@ -698,13 +698,13 @@ fn track_size(track: &proto::Track, path: &str) -> Result<()> {
     }
 }
 
-/// Checks guide rules, keyed by part.
-fn guide_rules(rules: &[proto::GuideRule], path: &str) -> Result<()> {
+/// Checks part rules, keyed by part.
+fn part_rules(rules: &[proto::PartRule], path: &str) -> Result<()> {
     keyed(
         rules,
         |rule| rule.part,
         |a, b| a.rule == b.rule,
-        &format!("{path}.guide_rules"),
-        "guide rules",
+        &format!("{path}.part_rules"),
+        "part rules",
     )
 }

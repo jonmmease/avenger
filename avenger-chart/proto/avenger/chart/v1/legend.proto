@@ -25,7 +25,7 @@ message Legend {
   GuideTitle title = 1;
   // The labels of the entries, where `#value` is the formatted entry, or the formatted range of
   // a bin.
-  GuideLabels labels = 2;
+  Labels labels = 2;
   // The side of the plot that the legend stands on. When absent, the styles give it.
   Side side = 3;
   // How the entries fill the lines along the side.
@@ -103,7 +103,7 @@ message ColorbarAxis {
   GuideTitle title = 1;
   // The side of the plot that the colorbar stands on. When absent, the styles give it.
   Side side = 2;
-  GuideLabels labels = 3;
+  Labels labels = 3;
   // Whether the axis shows its labels. When absent, it shows them.
   optional bool show_labels = 4;
   // The angle of the labels, in degrees clockwise.
@@ -113,7 +113,7 @@ message ColorbarAxis {
   TextAlign label_align = 6;
   // When absent, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 7;
-  GuideTicks ticks = 8;
+  Ticks ticks = 8;
   // The CSS color of the line along the axis.
   string domain_color = 9;
 }

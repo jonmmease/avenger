@@ -155,7 +155,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
             by_key(&mut concat.resolve, rule_order);
             distinct(&mut concat.classes);
             if let Some(layout) = &mut concat.layout {
-                by_key(&mut layout.guide_rules, |rule| rule.part);
+                by_key(&mut layout.part_rules, |rule| rule.part);
                 // Only the outermost concat of a table distributes its free length.
                 if place == Place::Child {
                     layout.horizontal_distribute = 0;
@@ -174,7 +174,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
             by_key(&mut wrap.resolve, rule_order);
             distinct(&mut wrap.classes);
             if let Some(layout) = &mut wrap.layout {
-                by_key(&mut layout.guide_rules, |rule| rule.part);
+                by_key(&mut layout.part_rules, |rule| rule.part);
             }
             default_to_none(&mut wrap.layout);
             if let Some(facet) = &mut wrap.facet {

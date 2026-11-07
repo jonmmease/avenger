@@ -45,7 +45,7 @@ message FacetHeader {
   // wrap have the header at the top, and a column at the right.
   Side side = 2;
   // The labels of the values, such as `Grade #value`.
-  GuideLabels labels = 3;
+  Labels labels = 3;
   // The angle of the labels, in degrees clockwise. When absent, the labels read along the header:
   // level above or below the children, up beside a left header, and down beside a right one.
   optional float label_angle = 4;

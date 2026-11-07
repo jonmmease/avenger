@@ -19,9 +19,8 @@ use super::{
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
-        self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        interval_fit, legend, navigation_limits, polar_layer, range, scale, selection_domain,
-        Channel,
+        self, category_fit, conditional_value, domain, domain_fit, encoding, guide, interval_fit,
+        legend, navigation_limits, polar_layer, range, scale, selection_domain, ticks, Channel,
     },
     resolve::scale_channel,
 };
@@ -816,7 +815,7 @@ impl Checker<'_> {
 
     fn labels(
         &self,
-        labels: Option<&proto::GuideLabels>,
+        labels: Option<&proto::Labels>,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -835,7 +834,7 @@ impl Checker<'_> {
     /// ticks of the scale.
     fn ticks(
         &self,
-        ticks: Option<&proto::GuideTicks>,
+        ticks: Option<&proto::Ticks>,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
@@ -854,7 +853,7 @@ impl Checker<'_> {
             }
             (
                 Type::Band(_) | Type::Point(_),
-                Some(at @ (guide_ticks::At::Count(_) | guide_ticks::At::Interval(_))),
+                Some(at @ (ticks::At::Count(_) | ticks::At::Interval(_))),
             ) => {
                 return Err(fail(
                     format!("{path}.{}", at_name(at)),
@@ -864,11 +863,11 @@ impl Checker<'_> {
             _ => {}
         }
         match &ticks.at {
-            Some(guide_ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
-            Some(guide_ticks::At::Values(values)) => {
+            Some(ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
+            Some(ticks::At::Values(values)) => {
                 self.domain_values(values, domain_type, &format!("{path}.values"))
             }
-            Some(guide_ticks::At::Interval(interval)) => {
+            Some(ticks::At::Interval(interval)) => {
                 tick_interval(interval, &format!("{path}.interval"))
             }
             None => Ok(()),
@@ -1494,11 +1493,11 @@ pub(crate) fn takes_scale(channel: Channel) -> bool {
     )
 }
 
-/// The name of the member of `GuideTicks.at` that `at` holds.
-fn at_name(at: &guide_ticks::At) -> &'static str {
+/// The name of the member of `Ticks.at` that `at` holds.
+fn at_name(at: &ticks::At) -> &'static str {
     match at {
-        guide_ticks::At::Count(_) => "count",
-        guide_ticks::At::Interval(_) => "interval",
-        guide_ticks::At::Values(_) => "values",
+        ticks::At::Count(_) => "count",
+        ticks::At::Interval(_) => "interval",
+        ticks::At::Values(_) => "values",
     }
 }

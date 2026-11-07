@@ -290,7 +290,7 @@ impl Checker<'_> {
     /// Checks the pattern of labels or of a readout for values of the domain's type.
     fn widget_labels(
         &self,
-        labels: Option<&proto::GuideLabels>,
+        labels: Option<&proto::Labels>,
         domain: Option<&DataType>,
         path: &str,
     ) -> Result<()> {

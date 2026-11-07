@@ -48,7 +48,7 @@ import "avenger/chart/v1/tool.proto";
 //
 // A chart can be written in more than one way where the schema cannot rule the other ways out, and
 // the comments say how a reader reads each way. Several repeated fields are keyed, by a name, a
-// column, a channel, a guide part, or an owner, as their comments say: their entries come in any
+// column, a channel, a part, or an owner, as their comments say: their entries come in any
 // order, two equal entries with one key count as one, and two different entries with one key are a
 // conflict, which a reader rejects. The writer of avenger-chart writes one way of each chart, so it
 // encodes equal charts to equal bytes, unless their Arrow data holds equal values in different
@@ -314,7 +314,7 @@ message ConcatLayout {
   // one track of the table take the largest, as `Plot.width` describes, and the shares that concats
   // give one track must be equal.
   repeated Track tracks = 2;
-  // Rules for the guide parts whose rule differs from the default, keyed by part. The default
+  // Rules for the parts whose rule differs from the default, keyed by part. The default
   // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
   // attributions, and widgets, and collapses the labels and the title of a facet header. The rules
   // apply to the guides of the scales that the concat owns: the scales that it shares, and the share
@@ -322,7 +322,7 @@ message ConcatLayout {
   // the concat holds, as `Widget` describes. The rules for the parts of facet headers and for
   // attributions apply to the headers of the facets and to the attributions of the plots below the
   // concat.
-  repeated GuideRule guide_rules = 3;
+  repeated PartRule part_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a
   // share at its maximum. It applies only to the outermost concat of a table, because it sizes the
@@ -379,10 +379,10 @@ message WrapLayout {
   Track row = 3;
   // The space between columns and between rows, in pixels.
   optional float gap = 4;
-  // Rules for the guide parts whose rule differs from the default, as for a concat, except that
+  // Rules for the parts whose rule differs from the default, as for a concat, except that
   // the default merges the title of a facet header, because each child has a header of its own.
   // Collapse runs along the columns and the rows of the wrap.
-  repeated GuideRule guide_rules = 5;
+  repeated PartRule part_rules = 5;
   // Where the wrap puts the height that its rows leave. Its columns fill its width.
   Distribute distribute = 6;
 }

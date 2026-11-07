@@ -61,9 +61,9 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     ("NestedAxisLevel", &["show_labels", "label_angle"]),
     ("GuideTitle", &["style"]),
-    ("GuideLabels", &["style"]),
-    ("GuideTicks", &["count", "length", "color"]),
-    ("GuideGrid", &["show", "color", "width"]),
+    ("Labels", &["style"]),
+    ("Ticks", &["count", "length", "color"]),
+    ("Grid", &["show", "color", "width"]),
     (
         "Legend",
         &[
@@ -466,7 +466,7 @@ fn axis_fields(
         vertical_align(fields.label_baseline),
     );
     if let Some(ticks) = fields.ticks {
-        if let Some(proto::guide_ticks::At::Count(count)) = ticks.at {
+        if let Some(proto::ticks::At::Count(count)) = ticks.at {
             set(tree, axis, Property::TickCount, &count.to_string());
         }
         px(tree, tick, Property::TickSize, ticks.length);
@@ -479,12 +479,12 @@ fn axis_fields(
 struct AxisFields<'a> {
     side: i32,
     title: Option<&'a proto::GuideTitle>,
-    labels: Option<&'a proto::GuideLabels>,
+    labels: Option<&'a proto::Labels>,
     show_labels: Option<bool>,
     label_angle: Option<f32>,
     label_align: i32,
     label_baseline: i32,
-    ticks: Option<&'a proto::GuideTicks>,
+    ticks: Option<&'a proto::Ticks>,
     domain_color: &'a str,
 }
 

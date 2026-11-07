@@ -188,7 +188,7 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 | `projections` | The map plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
 | `matches` | The tracks whose lengths the plots of shared position scales and projections match |
-| `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose guide rules decide how many times it draws |
+| `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose part rules decide how many times it draws |
 
 The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 

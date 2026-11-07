@@ -377,9 +377,8 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
     // stroke.
     let symbols = CartesianLayer::symbol(
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(
-                Scale::builder().guide(Axis::builder().grid(GuideGrid::builder().show(true))),
-            ))
+            .x(Encoding::scaled_field("flipper")
+                .scale(Scale::builder().guide(Axis::builder().grid(Grid::builder().show(true)))))
             .y(Encoding::scaled_field("mass"))
             .color(
                 Encoding::scaled_field("species").scale(

@@ -35,7 +35,7 @@ import "avenger/chart/v1/value.proto";
 // clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`,
 // and leaves `owner` empty for a group that anchors at the root.
 //
-// A concat's guide rules for `GUIDE_PART_WIDGET` decide how many times it draws a widget whose
+// A concat's part rules for `PART_WIDGET` decide how many times it draws a widget whose
 // group it holds: once for the concat by default, once for each lane of plots that line up, or once
 // for each plot of the group, whose drawings show one value and move together. A widget whose group
 // is one plot draws beside that plot.
@@ -102,7 +102,7 @@ message SliderWidget {
   // the step's bin. When absent, the thumb moves continuously.
   ValueRef step = 4;
   // The readout of the thumb's value. When absent, the styles give the readout.
-  GuideLabels readout = 5;
+  Labels readout = 5;
 }
 
 enum SliderComparison {
@@ -130,7 +130,7 @@ message RangeSliderWidget {
   // move continuously.
   ValueRef step = 3;
   // The readouts of the thumbs' values. When absent, the styles give the readouts.
-  GuideLabels readout = 4;
+  Labels readout = 4;
 }
 
 // A radio group of the items of its domain, which writes a set of the chosen item. Its clear state
@@ -141,7 +141,7 @@ message RadioWidget {
   // The items, in their order. Required.
   WidgetDomain domain = 2;
   // The labels of the items. When absent, the styles give them.
-  GuideLabels labels = 3;
+  Labels labels = 3;
   // The label of an item before the others that clears the widget's clause, such as `All
   // regions`, as Typst markup, or empty for no such item.
   string clear_label = 4;
@@ -156,7 +156,7 @@ message CheckboxesWidget {
   // The items, in their order. Required.
   WidgetDomain domain = 2;
   // The labels of the items. When absent, the styles give them.
-  GuideLabels labels = 3;
+  Labels labels = 3;
 }
 
 // A check box, which writes a set of its value when checked, and no clause when unchecked, its
