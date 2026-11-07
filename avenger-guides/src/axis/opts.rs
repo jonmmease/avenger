@@ -125,11 +125,23 @@ pub enum AxisTicks {
     /// continuous axis draws the ones inside its domain at each length, or categories, of which a
     /// band or point axis draws the ones in its domain, in this order. Nulls draw no tick.
     Values(ArrayRef),
-    /// The edges of bins, ascending, in the type of the scale's domain, of which a continuous axis
-    /// draws the ones inside its domain: every edge where they stand apart at the axis's tick
-    /// count, and otherwise every 2nd, 5th, 10th, 20th, and so on from the first, so the ticks
-    /// stay on edges.
-    Edges(ArrayRef),
+    /// The edges of bins, of which a continuous axis draws the ones inside its domain: every edge
+    /// where they stand apart at the axis's tick count, and otherwise every 2nd, 5th, 10th, 20th,
+    /// and so on, so the ticks stay on edges.
+    Edges(BinEdges),
+}
+
+/// The edges of the bins of `AxisTicks::Edges`.
+#[derive(Debug, Clone)]
+pub enum BinEdges {
+    /// Bins of one `width` on the lattice `origin + k * width`, whose edges tick across the whole
+    /// domain, through bins without data and past the bins of the data to the ends of the domain.
+    /// Where the edges crowd, the kept edges are those nearest whole multiples of the stride, such
+    /// as 0, 10, and 20 for bins of width 5 kept every 2nd.
+    Lattice { origin: f64, width: f64 },
+    /// The distinct edges of uneven bins, ascending, in the type of the scale's domain, kept every
+    /// 2nd, 5th, and so on from the first where they crowd.
+    Values(ArrayRef),
 }
 
 /// The start value and the step of `AxisTicks::StartStep`.

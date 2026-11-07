@@ -14,6 +14,7 @@ use avenger_chart::{
     resolve::{Layer, Resolved},
     span, FitKind,
 };
+use avenger_guides::axis::BinEdges;
 
 /// How near two edges, as a fraction of the bin width, count as one.
 const EPSILON: f64 = 1e-9;
@@ -39,13 +40,13 @@ pub(crate) fn key_channel(layer: &Layer, continuous: impl Fn(Channel) -> bool) -
     })
 }
 
-/// The edges of the bins of the bars of the scale group `index`, ascending, when the group is the
-/// continuous numeric key of bars that span their bins: the lattice of uniform bins from the least
-/// start to the greatest end, so the edges of empty bins keep their ticks, or else the distinct
-/// starts and ends. The edges of several bar layers on the scale join, and other layers give none.
+/// The edges of the bins of the bars of the scale group `index`, when the group is the continuous
+/// numeric key of bars that span their bins: the lattice of uniform bins, whose edges tick across
+/// the whole domain, through empty bins and past the bins of the data, or else the distinct starts
+/// and ends. The edges of several bar layers on the scale join, and other layers give none.
 /// `None` for another group, and for a bar spanned on its value axis, as a Gantt chart's tasks
 /// are.
-pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Option<ArrayRef> {
+pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Option<BinEdges> {
     let group = &resolved.scales[index];
     let partner = span::partner(group.channel)?;
     let numeric = matches!(
@@ -87,9 +88,10 @@ pub(crate) fn edges(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> Opt
     if bins.is_empty() {
         return None;
     }
-    Some(Arc::new(Float64Array::from(
-        lattice(&bins).unwrap_or_else(|| distinct(&bins)),
-    )))
+    Some(match lattice(&bins) {
+        Some((origin, width)) => BinEdges::Lattice { origin, width },
+        None => BinEdges::Values(Arc::new(Float64Array::from(distinct(&bins))) as ArrayRef),
+    })
 }
 
 /// The values of the field of `channel` of `layer` as numbers, from its column, or the starts or
@@ -104,15 +106,11 @@ fn values(layer: &Layer, channel: Channel) -> Option<Float64Array> {
     Some(numbers.as_primitive::<Float64Type>().clone())
 }
 
-/// The lattice of uniform bins, from the least start to the greatest end, when every bin has one
-/// width and every start lies on one lattice of that width.
-fn lattice(bins: &[(f64, f64)]) -> Option<Vec<f64>> {
+/// The origin, the least start, and the width of uniform bins, when every bin has one width and
+/// every start lies on one lattice of that width.
+fn lattice(bins: &[(f64, f64)]) -> Option<(f64, f64)> {
     let width = bins[0].1 - bins[0].0;
     let low = bins.iter().map(|bin| bin.0).fold(f64::INFINITY, f64::min);
-    let high = bins
-        .iter()
-        .map(|bin| bin.1)
-        .fold(f64::NEG_INFINITY, f64::max);
     let near = |a: f64, b: f64| (a - b).abs() <= EPSILON * width.abs().max(1.0);
     let uniform = bins.iter().all(|(start, end)| {
         let steps = (start - low) / width;
@@ -121,8 +119,7 @@ fn lattice(bins: &[(f64, f64)]) -> Option<Vec<f64>> {
     if !uniform {
         return None;
     }
-    let count = ((high - low) / width).round() as usize;
-    Some((0..=count).map(|step| low + step as f64 * width).collect())
+    Some((low, width))
 }
 
 /// The distinct starts and ends of `bins`, ascending.
@@ -142,9 +139,9 @@ mod tests {
 
     #[test]
     fn uniform_bins_give_their_lattice_and_uneven_bins_their_edges() {
-        // An empty bin from 10 to 15 keeps its edges.
+        // An empty bin from 10 to 15 lies on the lattice.
         let bins = [(0.0, 5.0), (5.0, 10.0), (15.0, 20.0)];
-        assert_eq!(lattice(&bins), Some(vec![0.0, 5.0, 10.0, 15.0, 20.0]));
+        assert_eq!(lattice(&bins), Some((0.0, 5.0)));
         let uneven = [(0.0, 1.0), (1.0, 3.0), (3.0, 10.0)];
         assert_eq!(lattice(&uneven), None);
         assert_eq!(distinct(&uneven), vec![0.0, 1.0, 3.0, 10.0]);

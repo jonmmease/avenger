@@ -191,6 +191,28 @@ fn bins_tick_at_their_edges() {
     render(&chart, [480.0, 240.0], "bars-empty-bin");
 }
 
+/// Uniform bins tick across an explicit domain wider than their data, so the empty bins at its
+/// end keep their ticks, and the kept ticks land on round values.
+#[test]
+fn bins_tick_across_their_domain() {
+    let bins = RecordBatch::try_from_iter([
+        ("start", numbers(&[0.0, 10.0, 20.0, 40.0, 50.0, 60.0, 70.0])),
+        ("end", numbers(&[10.0, 20.0, 30.0, 50.0, 60.0, 70.0, 80.0])),
+        ("count", numbers(&[3.0, 7.0, 9.0, 6.0, 4.0, 2.0, 1.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(
+        bins,
+        BarMark::builder()
+            .x(Encoding::scaled_field("start").scale(Domain::explicit([0.0, 100.0])))
+            .x2("end")
+            .y("count"),
+    );
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render(&chart, [480.0, 240.0], "bars-bins-domain");
+    render(&chart, [240.0, 200.0], "bars-bins-domain-narrow");
+}
+
 /// The bars of a Gantt chart span their value axis, so the axis keeps the ticks of its scale.
 #[test]
 fn a_gantt_chart_keeps_the_ticks_of_its_scale() {
