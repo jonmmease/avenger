@@ -1,8 +1,9 @@
 # avenger-chart-app
 
 An avenger app that shows an avenger chart and serves the tools that its plots and layers declare.
-`ChartApp::new(chart, cascade, engine)` builds an `AvengerApp<ChartAppState>` with three scenes:
-the chart, the boxes and lassos of selections above it, and the tooltips above them.
+`ChartApp::new(chart, cascade, engine)` builds an `AvengerApp<ChartAppState>` with four scenes:
+the chart, the boxes and lassos of selections above it, the tooltips above them, and the widgets
+above all.
 
 ## Tools
 
@@ -16,6 +17,10 @@ the chart, the boxes and lassos of selections above it, and the tooltips above t
   instances of its own marks. A box with a `cell` selects whole cells and reports its focus to the
   host.
 - A `Tooltip` of a plot or a layer describes the instances of its marks.
+- A widget of a layer draws at the rectangle that the evaluation gave it, and each change of its
+  value writes its clause to its selection. A slider's drag reports as it moves and settles at its
+  end, and each click of a radio group or a check box settles at once. The app draws up to `SLOTS`
+  drawings of widgets.
 - On a plot that declares both a navigation and a box or a lasso, the app's `Mode` decides what a
   drag does.
 

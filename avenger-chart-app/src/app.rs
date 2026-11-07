@@ -15,6 +15,7 @@ use crate::{
     state::{ChartAppState, ChartChange, OnChange, OnFocus, Reports, SelectionFocus},
     tools,
     updates::ChartUpdates,
+    widgets,
 };
 
 /// The app of a chart: the chart, the cascade of its style table, the label engine and the custom
@@ -125,6 +126,8 @@ impl ChartApp {
             self.on_focus,
         )
         .map_err(app_error)?;
+        // The widgets draw in the scene of their tool, which handles their input.
+        state.evaluator.set_draws_widgets(false);
         // The geo plots of every chart that the app installs load their tiles through the cache.
         #[cfg(feature = "geo")]
         if let Some(images) = &self.images {
@@ -140,6 +143,7 @@ impl ChartApp {
             .tool(selections::brushes())
             .tool(tools::tooltips())
             .tool(selections::Focus)
+            .tool(widgets::widgets())
             .build()
             .await?;
         if let Some(images) = self.images {

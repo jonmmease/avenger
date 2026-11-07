@@ -565,6 +565,7 @@ dependencies = [
  "avenger-selection",
  "avenger-style",
  "avenger-typst-label",
+ "avenger-widgets",
  "tokio",
 ]
 
