@@ -334,7 +334,7 @@ fn ticks(chart: &Chart, ticks: Option<&proto::GuideTicks>) -> Option<AxisTicks> 
 
 /// The style of an axis's parts from their computed styles.
 #[allow(clippy::too_many_arguments)]
-fn axis_style(
+pub(crate) fn axis_style(
     chart: &Chart,
     axis: &ComputedStyle,
     title: &ComputedStyle,

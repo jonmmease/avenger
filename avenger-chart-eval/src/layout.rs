@@ -39,6 +39,7 @@ use avenger_style::{Computed, ComputedStyle, ComputedStyles, Property};
 
 use crate::{
     guides::{node_path, Guides, LegendGuide, HEADER_PARTS},
+    polar::Sector,
     style::{
         number as style_number,
         tree::{owner_path, StyleNodes},
@@ -714,8 +715,14 @@ impl Lowering<'_> {
         if let Some(height) = style.number(Property::Height) {
             leaf = leaf.min_height(height).max_height(height);
         }
-        if let Computed::Ratio(ratio) = style.get(Property::AspectRatio) {
-            leaf = leaf.aspect(*ratio);
+        // A polar plot keeps the shape of the box around its part of the circle.
+        match (
+            Sector::of_plot(plot_ref.plot),
+            style.get(Property::AspectRatio),
+        ) {
+            (Some(sector), _) => leaf = leaf.aspect(sector.aspect()),
+            (None, Computed::Ratio(ratio)) => leaf = leaf.aspect(*ratio),
+            (None, _) => {}
         }
         // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
         // takes its natural size, which a host's size or the chart's size stretches.

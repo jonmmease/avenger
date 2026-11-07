@@ -6,13 +6,14 @@ use std::collections::HashMap;
 
 use arrow::datatypes::DataType;
 use avenger_chart::{
-    proto::{self, encoding, guide, layer_tool, node::Node, plot::Coord, select, tool},
+    layer::{CoordKind, LayerRef, MarkMessage},
+    proto::{self, encoding, guide, layer_tool, node::Node, select, tool},
     resolve::{PlotRef, Resolved, ScaleGroup},
     Chart, FitKind,
 };
 use avenger_style::{Element, NodeId, StyleTree};
 
-use crate::EvalWarning;
+use crate::{polar::Sector, EvalWarning};
 
 use super::{
     guide_kind, inline,
@@ -24,6 +25,7 @@ use super::{
 #[derive(Clone, Debug)]
 pub(crate) enum GuideNodes {
     Axis(AxisNodes),
+    PolarAxis(AxisNodes),
     Legend(LegendNodes),
     Colorbar(ColorbarNodes),
 }
@@ -79,7 +81,7 @@ pub(crate) fn owner_path<'a, T>(nodes: &HashMap<String, T>, path: &'a str) -> &'
     }
 }
 
-/// The style tree of `chart`, whose plots are all Cartesian, with its nodes and a warning for each
+/// The style tree of `chart`, whose plots are Cartesian or polar, with its nodes and a warning for each
 /// style field whose text is not a value of its property. `kinds` holds the kind of fit of each
 /// scale group, by its position in `Resolved::scales`.
 pub(crate) fn build(
@@ -111,13 +113,18 @@ pub(crate) fn build(
     for layer in &resolved.tree.layers {
         let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
-        // A Cartesian mark has the same name in both forms.
-        let name = layer.mark.name();
-        tree.set_attribute_forms(node, "type", name, name);
+        tree.set_attribute_forms(node, "type", layer.mark.name(), function_name(layer.mark));
         identify(&mut tree, node, layer.layer.id(), layer.layer.classes());
-        if let avenger_chart::layer::LayerRef::Cartesian(cartesian) = layer.layer {
-            let mark = cartesian.mark.as_ref().expect("a valid layer has a mark");
-            inline::mark(&mut tree, node, mark);
+        match layer.layer {
+            LayerRef::Cartesian(cartesian) => {
+                let mark = cartesian.mark.as_ref().expect("a valid layer has a mark");
+                inline::mark(&mut tree, node, mark);
+            }
+            LayerRef::Polar(polar) => {
+                let mark = polar.mark.as_ref().expect("a valid layer has a mark");
+                inline::polar_mark(&mut tree, node, mark);
+            }
+            LayerRef::Geo(_) => {}
         }
         marks.push(node);
     }
@@ -130,8 +137,8 @@ pub(crate) fn build(
         tree.set_attribute(node, "type", type_name);
         tree.set_attribute(node, "channel", group.channel.field_name());
         tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, *kind));
-        let names = mark_names(resolved, group);
-        tree.set_attribute_forms(node, "marks", names.clone(), names);
+        let [kinds, functions] = mark_names(resolved, group);
+        tree.set_attribute_forms(node, "marks", kinds, functions);
         inline::scale(&mut tree, node, &group.spec, chart);
         scales.push(node);
     }
@@ -208,7 +215,8 @@ fn composition(
     let plot_node = tree.add(chart_node, Element::Plot);
     match kind {
         Node::Plot(plot) => {
-            tree.set_attribute(plot_node, "type", "cartesian");
+            let coord = CoordKind::of(plot).expect("a valid plot has a coordinate system");
+            tree.set_attribute(plot_node, "type", coord.field());
             identify(tree, plot_node, &plot.id, &plot.classes);
             let plot_index = (resolved.tree.plots.iter())
                 .position(|plot_ref| plot_ref.path == path)
@@ -335,6 +343,27 @@ fn guide_nodes(
         tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, kind));
     };
     match guide_kind(group, kind)? {
+        GuideKind::PolarAxis => {
+            let axis = tree.add(owner, Element::Axis);
+            attributes(tree, axis);
+            let nodes = AxisNodes {
+                axis,
+                title: tree.add(axis, Element::Title),
+                label: tree.add(axis, Element::Label),
+                tick: tree.add(axis, Element::Tick),
+                rule: tree.add(axis, Element::Rule),
+                grid: tree.add(axis, Element::Grid),
+                levels: Vec::new(),
+            };
+            if let Some(guide::Guide::PolarAxis(message)) = spec_guide {
+                identify(tree, axis, &message.id, &message.classes);
+                let plot = resolved.tree.layers[group.members[0].layer].plot;
+                let start = (Sector::of_plot(resolved.tree.plots[plot].plot))
+                    .map_or(0.0, |sector| sector.start());
+                inline::polar_axis(tree, &nodes, message, start);
+            }
+            Some(GuideNodes::PolarAxis(nodes))
+        }
         GuideKind::Axis => {
             let axis = tree.add(owner, Element::Axis);
             attributes(tree, axis);
@@ -432,17 +461,31 @@ fn identify(tree: &mut StyleTree, node: NodeId, id: &str, classes: &[String]) {
     }
 }
 
-/// The names of the marks of the layers of a scale group, each once, in tree order, separated by
-/// spaces.
-fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> String {
-    let mut names: Vec<&str> = Vec::new();
+/// The function name of a mark, as avenger-sql names it: its kind with the prefix of its
+/// coordinate system, such as `polar_bar`, and a Cartesian mark's kind as it is.
+fn function_name(mark: &dyn MarkMessage) -> String {
+    match mark.kind() {
+        CoordKind::Cartesian => mark.name().to_string(),
+        kind => format!("{}_{}", kind.field(), mark.name()),
+    }
+}
+
+/// The kinds and the function names of the marks of the layers of a scale group, each once, in
+/// tree order, separated by spaces.
+fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> [String; 2] {
+    let mut kinds: Vec<&str> = Vec::new();
+    let mut functions: Vec<String> = Vec::new();
     for member in &group.members {
-        let name = resolved.tree.layers[member.layer].mark.name();
-        if !names.contains(&name) {
-            names.push(name);
+        let mark = resolved.tree.layers[member.layer].mark;
+        if !kinds.contains(&mark.name()) {
+            kinds.push(mark.name());
+        }
+        let function = function_name(mark);
+        if !functions.contains(&function) {
+            functions.push(function);
         }
     }
-    names.join(" ")
+    [kinds.join(" "), functions.join(" ")]
 }
 
 /// The Arrow type of the values that a scale group maps: of its first member's scaled column or
@@ -517,9 +560,4 @@ fn nested_levels(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> usiz
         Some(DataType::Struct(fields)) => fields.len(),
         _ => 0,
     }
-}
-
-/// Whether a plot is Cartesian, which this evaluator draws.
-pub(crate) fn is_cartesian(plot: &proto::Plot) -> bool {
-    matches!(plot.coord, Some(Coord::Cartesian(_)))
 }

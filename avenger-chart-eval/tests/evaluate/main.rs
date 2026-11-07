@@ -9,5 +9,6 @@ mod domains;
 mod guides;
 mod marks;
 mod overlays;
+mod polar;
 mod selections;
 mod support;
