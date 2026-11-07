@@ -490,3 +490,45 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     assert_eq!(styles[levels[0]].number(Property::LabelAngle), Some(0.0));
     assert_eq!(styles[levels[1]].number(Property::LabelAngle), Some(30.0));
 }
+
+/// A select without a form is an interval, so its store has the `mark` of a box, as an interval
+/// select's does. A lasso's store is a path, and a point selection has no store.
+#[test]
+fn a_select_without_a_form_stores_a_box() {
+    let stores = |select: SelectBuilder| {
+        let symbols = CartesianLayer::symbol(
+            SymbolMark::builder()
+                .x(Encoding::scaled_column("flipper"))
+                .y(Encoding::scaled_column("mass")),
+        )
+        .table(penguins());
+        let chart = Chart::builder()
+            .root(
+                Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+                    .id("plot")
+                    .tools([select.selection("brush")]),
+            )
+            .selections([Selection::builder()
+                .name("brush")
+                .resolution(SelectionResolution::Global)])
+            .infer_scales()
+            .build()
+            .unwrap();
+        let evaluator = evaluator(chart, cascade(""));
+        let tree = evaluator.style_tree();
+        (nodes_of(tree, Element::Mark).into_iter())
+            .filter(|node| attribute(tree, *node, "store") == "brush")
+            .map(|node| attribute(tree, node, "type"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(stores(Select::builder()), ["rect"]);
+    assert_eq!(
+        stores(Select::interval(IntervalSelect::builder())),
+        ["rect"]
+    );
+    assert_eq!(stores(Select::lasso(Vec::<String>::new())), ["path"]);
+    assert_eq!(
+        stores(Select::points(PointSelect::builder().keys(["species"]))),
+        Vec::<String>::new()
+    );
+}

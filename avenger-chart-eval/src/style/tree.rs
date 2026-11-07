@@ -190,8 +190,8 @@ pub(crate) fn build(
         node
     });
 
-    // Each `Select` tool with a box or a lasso has a `mark[store]` for the mark of its selection's
-    // store, which the app draws.
+    // Each `Select` tool with a box, which a select without a form also draws, or a lasso has a
+    // `mark[store]` for the mark of its selection's store, which the app draws.
     let layer_selects = (resolved.tree.layers.iter())
         .flat_map(|layer| layer.layer.tools())
         .filter_map(|tool| match &tool.kind {
@@ -206,7 +206,8 @@ pub(crate) fn build(
         .chain(layer_selects);
     for select in selects {
         let mark = match select.form {
-            Some(select::Form::Interval(_)) => "rect",
+            // A select without a form is an interval on the plot's positional channels.
+            Some(select::Form::Interval(_)) | None => "rect",
             Some(select::Form::Lasso(_)) => "path",
             _ => continue,
         };
