@@ -417,12 +417,18 @@ message DomainFit {
 
 // The `IntervalOptions` of avenger-scales.
 message IntervalFit {
-  // Whether the domain contains zero. When absent, it does not. A pinned end past zero holds, so
-  // the domain does not contain zero.
+  // Whether the domain contains zero. When absent, a linear, a pow, or a symlog scale of `x`, `y`,
+  // or `size` contains zero when one of its encodings asks for it: every encoding except the key of
+  // a bar, an area, or a line, along which the marks stand at their values. A log or a time scale,
+  // a selection domain, and a pinned fit contain no zero by default. A pinned end past zero holds,
+  // so the domain does not contain zero. `false` turns the default off, such as for a scatter plot
+  // whose data lies far from zero.
   optional bool zero = 1;
-  // The tick count of a nice domain, whose ends are round values. When absent, the domain is not
-  // nice. A log scale's nice domain ends on powers of its base, whatever the count. With a pin, the
-  // free end is round, or the radius about a pinned middle.
+  // The tick count of a nice domain, whose ends are round values, at least 0, where 0 gives ends
+  // that are not nice. When absent, a linear, a log, a pow, or a symlog scale of `x` or `y` has
+  // nice ends at a count of 10, and another scale has none. A log scale's nice domain ends on powers
+  // of its base, whatever the count. With a pin, the free end is round, or the radius about a
+  // pinned middle.
   optional double nice = 2;
   // The domain when there is no data, as an explicit domain holds it. When absent, the scale type
   // gives the domain.

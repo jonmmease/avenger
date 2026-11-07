@@ -29,6 +29,7 @@ use avenger_selection::SelectionState;
 use avenger_style::{Cascade, ComputedStyle, ComputedStyles, HostInputs, Property, StyleTree};
 use avenger_typst_label::LabelEngine;
 
+use crate::convert::domain::FitDefaults;
 use crate::{
     convert::{scale::fit_kind, selection},
     encode::{self, at, LayerRows},
@@ -505,6 +506,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         scales[index] = Some(fit::non_position(
             &fit_inputs,
             group,
+            fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             styles,
             &values,
@@ -573,6 +575,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions[index] = Some(fit::position(
             &fit_inputs,
             group,
+            fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             &values,
         )?);
@@ -679,6 +682,55 @@ fn layer_scales<'a>(
 
 /// The kind of fit of the scale of each channel of the layer `layer`, by the groups of its
 /// encodings.
+/// The `zero` and the `nice` that the scale group `index` takes where its spec leaves them absent,
+/// as Vega-Lite gives them. A quantitative `x`, `y`, or `size` scale contains zero when one of its
+/// members asks for it: every member except the key of a bar, an area, or a line, along which the
+/// marks stand at their values. A log or a time scale, or a selection domain, contains no zero by
+/// default. A quantitative `x` or `y` scale has nice ends at a count of 10.
+pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> FitDefaults {
+    use avenger_chart::proto::{cartesian_layer::Mark, domain, scale::Type, Orient};
+    let group = &resolved.scales[index];
+    let scale_type = group.spec.r#type.as_ref();
+    let linear = matches!(
+        scale_type,
+        Some(Type::Linear(_) | Type::Pow(_) | Type::Symlog(_))
+    );
+    let quantitative = linear || matches!(scale_type, Some(Type::Log(_)));
+    let selection = matches!(
+        (group.spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()),
+        Some(domain::Domain::Selection(_))
+    );
+    let asks = |member: &avenger_chart::resolve::Member| {
+        let layer = &resolved.tree.layers[member.layer];
+        let layer_kinds = layer_kinds(resolved, member.layer, kinds);
+        let continuous = |channel| layer_kinds.get(&channel) == Some(&FitKind::Interval);
+        let orient = match cartesian_mark(layer) {
+            Mark::Bar(bar) => Some(bar.orient),
+            Mark::Area(area) => Some(area.orient),
+            Mark::Line(_) => Some(Orient::Vertical as i32),
+            _ => None,
+        };
+        let key = orient.map(
+            |orient| match Orient::try_from(orient).unwrap_or_default() {
+                Orient::Horizontal => Channel::Y,
+                Orient::Vertical => Channel::X,
+                Orient::Unspecified if continuous(Channel::X) && !continuous(Channel::Y) => {
+                    Channel::Y
+                }
+                Orient::Unspecified => Channel::X,
+            },
+        );
+        key != Some(scale_channel(member.channel))
+    };
+    let zero = linear
+        && !selection
+        && matches!(group.channel, Channel::X | Channel::Y | Channel::Size)
+        && group.members.iter().any(asks);
+    let nice = (quantitative && matches!(group.channel, Channel::X | Channel::Y))
+        .then_some(FitDefaults::NICE);
+    FitDefaults { zero, nice }
+}
+
 fn layer_kinds(resolved: &Resolved, layer: usize, kinds: &[FitKind]) -> BTreeMap<Channel, FitKind> {
     let mut channels = BTreeMap::new();
     for (group, kind) in resolved.scales.iter().zip(kinds) {

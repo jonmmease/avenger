@@ -14,7 +14,7 @@ use avenger_style::{
 use avenger_typst_label::LabelEngine;
 
 use super::{entries, guides, GuideInputs, LegendGuide};
-use crate::{fit, style::tree, Registry};
+use crate::{evaluator::fit_defaults, fit, style::tree, Registry};
 
 /// The kind of fit of each scale group of `resolved`.
 fn kinds(resolved: &avenger_chart::resolve::Resolved) -> Vec<avenger_chart::FitKind> {
@@ -112,7 +112,8 @@ fn with_guides<T>(
                 registry: &registry,
                 states: &states,
             };
-            let position = fit::position(&inputs, group, style, &values).unwrap();
+            let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+            let position = fit::position(&inputs, group, defaults, style, &values).unwrap();
             positions.push(Some(position.fitting));
             scales.push(None);
         } else {
@@ -121,8 +122,17 @@ fn with_guides<T>(
                 registry: &registry,
                 states: &states,
             };
-            let scale =
-                fit::non_position(&inputs, group, style, &styles, &values, &mut warnings).unwrap();
+            let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+            let scale = fit::non_position(
+                &inputs,
+                group,
+                defaults,
+                style,
+                &styles,
+                &values,
+                &mut warnings,
+            )
+            .unwrap();
             positions.push(None);
             scales.push(Some(scale));
         }
@@ -253,7 +263,15 @@ fn a_position_fit_leaves_room_for_the_reach() {
         registry: &registry,
         states: &states,
     };
-    let position = fit::position(&inputs, group, &styles[nodes.scales[index]], &values).unwrap();
+    let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
+    let position = fit::position(
+        &inputs,
+        group,
+        defaults,
+        &styles[nodes.scales[index]],
+        &values,
+    )
+    .unwrap();
     let at = position.fitting.at((0.0, 200.0)).unwrap();
     assert!(at.marks_fit);
     let (low, high) = at.scale.numeric_interval_domain().unwrap();
@@ -283,6 +301,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
     let position = fit::position(
         &inputs,
         &resolved.scales[index],
+        fit_defaults(&resolved, index, &kinds(&resolved)),
         &styles[nodes.scales[index]],
         &[],
     )

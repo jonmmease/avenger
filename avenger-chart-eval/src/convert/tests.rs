@@ -15,7 +15,7 @@ use avenger_style::{
 };
 
 use super::{
-    domain::{domain_options, source, DomainSource},
+    domain::{domain_options, source, DomainSource, FitDefaults},
     format,
     scale::{options, range, range_shape, scale_impl, RangeShape, ScaleRange},
     selection::{domain_values, predicate, states, SelectionValues},
@@ -226,7 +226,12 @@ fn explicit_summary_and_data_domains_have_their_sources() {
     };
     assert!(summaries.is_empty());
     assert_eq!(of_data, [true]);
-    let fit = domain_options(&data, &group.spec, FitKind::Interval);
+    let fit = domain_options(
+        &data,
+        &group.spec,
+        FitKind::Interval,
+        FitDefaults::default(),
+    );
     let DomainOptions::Interval(interval) = fit.options else {
         panic!("an interval fit");
     };
@@ -247,7 +252,12 @@ fn a_preferred_order_moves_the_listed_categories_first() {
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let group = x_group(&chart);
-    let fit = domain_options(&chart, &group.spec, FitKind::Categories);
+    let fit = domain_options(
+        &chart,
+        &group.spec,
+        FitKind::Categories,
+        FitDefaults::default(),
+    );
     assert!(matches!(
         fit.options,
         DomainOptions::Categories(ref options) if matches!(options.order, CategoryOrder::Ascending)
