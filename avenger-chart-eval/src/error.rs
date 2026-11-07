@@ -20,6 +20,9 @@ pub enum EvalError {
         syntax: String,
         provided: String,
     },
+    /// A map that does not project: a projection, a geometry, or a fit that avenger-geo rejects.
+    #[error("a map plot: {0}")]
+    Map(String),
     #[error(transparent)]
     Chart(#[from] ChartError),
     #[error(transparent)]

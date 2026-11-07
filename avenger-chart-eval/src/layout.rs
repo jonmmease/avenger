@@ -38,6 +38,7 @@ use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use avenger_style::{Computed, ComputedStyle, ComputedStyles, Property};
 
 use crate::{
+    geo::Maps,
     guides::{node_path, Guides, LegendGuide, HEADER_PARTS},
     polar::Sector,
     style::{
@@ -87,6 +88,9 @@ pub(crate) enum SlabId {
     /// A concat, a wrap, or an empty cell, by its order in the lowering, whose region places the
     /// labels of a facet header.
     Node(usize),
+    /// The labels of the graticule of a map plot on one side: the plot, and the position of the
+    /// side among the labeled sides of its `MapGuide`.
+    Graticule { plot: usize, side: usize },
 }
 
 /// The key of a tag of the layout, which names the slabs that a rule acts on.
@@ -184,6 +188,7 @@ pub(crate) struct Lowering<'a> {
     pub(crate) chart: &'a Chart,
     pub(crate) resolved: &'a Resolved<'a>,
     pub(crate) guides: &'a Guides,
+    pub(crate) maps: &'a Maps,
     pub(crate) nodes: &'a StyleNodes,
     pub(crate) styles: &'a ComputedStyles,
 }
@@ -715,14 +720,26 @@ impl Lowering<'_> {
         if let Some(height) = style.number(Property::Height) {
             leaf = leaf.min_height(height).max_height(height);
         }
-        // A polar plot keeps the shape of the box around its part of the circle.
+        // A polar plot keeps the shape of the box around its part of the circle, and a map plot
+        // the aspect of its map or none.
+        let map = self.maps.guide(plot);
         match (
             Sector::of_plot(plot_ref.plot),
+            map,
             style.get(Property::AspectRatio),
         ) {
-            (Some(sector), _) => leaf = leaf.aspect(sector.aspect()),
-            (None, Computed::Ratio(ratio)) => leaf = leaf.aspect(*ratio),
-            (None, _) => {}
+            (Some(sector), _, _) => leaf = leaf.aspect(sector.aspect()),
+            (None, Some(map), _) => {
+                if let Some(aspect) = map.aspect {
+                    leaf = leaf.aspect(aspect);
+                }
+            }
+            (None, None, Computed::Ratio(ratio)) => leaf = leaf.aspect(*ratio),
+            (None, None, _) => {}
+        }
+        for (side, (guide_side, _)) in map.into_iter().flat_map(|map| &map.labels).enumerate() {
+            let id = ids.slab(SlabId::Graticule { plot, side });
+            leaf = leaf.slab(layout_side(*guide_side), Slab::new().id(id));
         }
         // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
         // takes its natural size, which a host's size or the chart's size stretches.
@@ -853,18 +870,23 @@ fn placement(guides: &Guides, id: &SlabId) -> Option<(GuideSide, f32)> {
             (attribution.side, attribution.offset)
         }
         SlabId::Header { header, .. } => (guides.headers[*header].side, 0.0),
-        SlabId::Plot(_) | SlabId::Node(_) => return None,
+        SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => return None,
     })
 }
 
 /// The answers of a chart's guides to the layout.
 pub(crate) struct Measurer<'a> {
     pub(crate) guides: &'a Guides,
+    pub(crate) maps: &'a Maps,
 }
 
 impl Measurer<'_> {
     fn extent(&self, id: &SlabId, length: f32) -> Option<PartExtent> {
         let guides = self.guides;
+        // The labels of a graticule take the thickness that the graticule measures at any length.
+        if let SlabId::Graticule { plot, side } = id {
+            return Some(self.maps.guide(*plot)?.labels[*side].1.clone());
+        }
         let extent = match id {
             SlabId::Axis { axis, part, .. } => {
                 guides.axes[*axis].axis.extent(AXIS_PARTS[*part], length)
@@ -880,7 +902,7 @@ impl Measurer<'_> {
             SlabId::Header { header, part } => guides.headers[*header]
                 .guide
                 .extent(HEADER_PARTS[*part], length),
-            SlabId::Plot(_) | SlabId::Node(_) => return None,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => return None,
         };
         let (_, offset) = placement(guides, id)?;
         Some(PartExtent {
@@ -1017,7 +1039,7 @@ pub(crate) fn draw(
                     ..group
                 })
             }
-            SlabId::Plot(_) | SlabId::Node(_) => None,
+            SlabId::Plot(_) | SlabId::Node(_) | SlabId::Graticule { .. } => None,
         };
         marks.extend(group.map(SceneMark::from));
     }

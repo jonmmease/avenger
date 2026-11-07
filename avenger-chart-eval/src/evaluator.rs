@@ -33,6 +33,7 @@ use crate::{
     convert::{scale::fit_kind, selection},
     encode::{self, at, LayerRows},
     fit::{self, FitInputs, MemberValues, Position},
+    geo::{self, MapInputs, Maps},
     guides::{self, GuideInputs, Guides},
     layout::{self, Lowered, Lowering, Measurer, SlabId},
     marks,
@@ -96,6 +97,7 @@ struct Prepared {
     reach: Vec<Option<Vec<Reach>>>,
     guides: Guides,
     polars: Polars,
+    maps: Maps,
     lowered: Lowered,
     warnings: Vec<EvalWarning>,
 }
@@ -124,12 +126,15 @@ pub struct ChartEvaluator {
     prepared: Option<Prepared>,
     measured: Option<Measured<SlabId>>,
     warnings: Vec<EvalWarning>,
+    /// The image resolver of the host, which loads the tiles of maps.
+    #[cfg(feature = "geo")]
+    resolver: Option<Arc<dyn avenger_image::ImageResolver>>,
 }
 
 impl ChartEvaluator {
     /// Prepares `chart` with the cascade of its style table, a label engine, and the custom scales
-    /// of `registry`. It fails for a chart with a map plot, and for an empty chart, which this
-    /// version of the evaluator does not draw.
+    /// of `registry`. It fails for an empty chart, which this version of the evaluator does not
+    /// draw, and for a chart with a map plot without the `geo` feature.
     pub fn new(
         chart: Chart,
         cascade: Arc<Cascade>,
@@ -140,8 +145,10 @@ impl ChartEvaluator {
             return Err(EvalError::Unsupported("an empty chart".into()));
         }
         for plot in &chart.resolve().tree.plots {
-            if let Some(Coord::Geo(_)) = plot.plot.coord.as_ref() {
-                return Err(EvalError::Unsupported("a map plot".into()));
+            if let (Some(Coord::Geo(_)), false) = (plot.plot.coord.as_ref(), geo::SUPPORTED) {
+                return Err(EvalError::Unsupported(
+                    "a map plot without the `geo` feature".into(),
+                ));
             }
         }
         crate::convert::format::check(&chart, &engine)?;
@@ -182,7 +189,16 @@ impl ChartEvaluator {
             prepared: None,
             measured: None,
             warnings,
+            #[cfg(feature = "geo")]
+            resolver: None,
         })
+    }
+
+    /// Loads the tiles of the chart's maps through `resolver`, the image resolver of the host.
+    #[cfg(feature = "geo")]
+    pub fn set_image_resolver(&mut self, resolver: Arc<dyn avenger_image::ImageResolver>) {
+        self.resolver = Some(resolver);
+        self.prepared = None;
     }
 
     /// The chart that the evaluator draws.
@@ -226,7 +242,8 @@ impl ChartEvaluator {
         let chart = &self.chart;
         let resolved = chart.resolve();
         if self.prepared.is_none() {
-            self.prepared = Some(prepare(&Inputs {
+            #[allow(unused_mut)]
+            let mut prepared = prepare(&Inputs {
                 chart,
                 resolved: &resolved,
                 nodes: &self.nodes,
@@ -236,7 +253,12 @@ impl ChartEvaluator {
                 states: &self.states,
                 drawn: &self.drawn,
                 kinds: &self.kinds,
-            })?);
+            })?;
+            #[cfg(feature = "geo")]
+            if let Some(resolver) = &self.resolver {
+                prepared.maps.set_image_resolver(resolver.clone())?;
+            }
+            self.prepared = Some(prepared);
         }
         let prepared = self.prepared.as_ref().expect("the chart is prepared");
 
@@ -245,6 +267,7 @@ impl ChartEvaluator {
         let options = layout::solve_options(size, &styles[self.nodes.chart]);
         let mut measurer = Measurer {
             guides: &prepared.guides,
+            maps: &prepared.maps,
         };
         let layout = &prepared.lowered.layout;
         let measured = match (self.measured.take(), size) {
@@ -306,6 +329,7 @@ impl ChartEvaluator {
         // their ranges at its frame, which the plots of a shared scale share.
         let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
         let polar_fits = prepared.polars.fit(&sizes, &mut warnings)?;
+        let map_fits = prepared.maps.fit(&sizes, &mut warnings)?;
         for fit in polar_fits.values() {
             for (group, scale) in [&fit.theta, &fit.radius].into_iter().flatten() {
                 positions[*group].get_or_insert_with(|| scale.clone());
@@ -329,17 +353,18 @@ impl ChartEvaluator {
                     .any(|member| resolved.tree.layers[member.layer].plot == plot_index)
             };
             let polar_fit = polar_fits.get(&plot_index);
-            let clip = match polar_fit {
-                Some(fit) => fit.clip,
-                None => {
-                    (resolved.scales.iter().zip(&prepared.positions)).any(|(group, position)| {
-                        in_plot(group) && position.as_ref().is_some_and(|p| p.clip)
-                    })
-                }
+            let map_fit = map_fits.get(&plot_index);
+            let clip = match (polar_fit, map_fit) {
+                (Some(fit), _) => fit.clip,
+                (_, Some(fit)) => fit.clip(),
+                _ => (resolved.scales.iter().zip(&prepared.positions)).any(|(group, position)| {
+                    in_plot(group) && position.as_ref().is_some_and(|p| p.clip)
+                }),
             };
-            let mut plot_marks: Vec<SceneMark> = match polar_fit {
-                Some(fit) => prepared.polars.backdrop(fit),
-                None => (prepared.guides.plots[plot_index].axes.iter())
+            let mut plot_marks: Vec<SceneMark> = match (polar_fit, map_fit) {
+                (Some(fit), _) => prepared.polars.backdrop(fit),
+                (_, Some(fit)) => prepared.maps.backdrop(plot_index, fit, &mut warnings)?,
+                _ => (prepared.guides.plots[plot_index].axes.iter())
                     .map(|axis| &prepared.guides.axes[*axis])
                     .filter(|axis| axis.grid)
                     .map(|axis| axis.axis.grid(plot_size).into())
@@ -364,6 +389,15 @@ impl ChartEvaluator {
                     size: plot_size,
                     name: format!("{}/{}", plot_ref.name, layer.position),
                 };
+                // A mark at places on a map draws the rows whose places the projection keeps.
+                let mut points = None;
+                let located = map_fit.map(|fit| fit.locate(&rows)).transpose()?;
+                if let Some((kept, located)) = located.flatten() {
+                    if kept.len() != rows.len() {
+                        rows.table = rows.rows(&kept)?;
+                    }
+                    points = Some(located);
+                }
                 rows.masks = encode::masks(
                     &rows,
                     &self.states,
@@ -393,6 +427,11 @@ impl ChartEvaluator {
                         let mark = layer.mark.as_ref().expect("a valid layer has a mark");
                         polar::marks(&rows, mark, fit)?
                     }
+                    (LayerRef::Geo(layer), _) => {
+                        let mark = layer.mark.as_ref().expect("a valid layer has a mark");
+                        let fit = map_fit.expect("a map plot fits its projection");
+                        geo::marks(&rows, mark, fit, points)?
+                    }
                     _ => unreachable!("a plot draws the layers of its coordinate system"),
                 };
                 for drawn in drawn {
@@ -403,9 +442,10 @@ impl ChartEvaluator {
                 }
                 let reach = prepared.reach[index].as_deref();
                 summary_reach(&rows, &resolved, index, reach, &layer.path, &mut warnings)?;
-                let coords = match polar_fit {
-                    Some(fit) => fit.coords(),
-                    None => {
+                let coords = match (polar_fit, map_fit) {
+                    (Some(fit), _) => fit.coords(),
+                    (_, Some(fit)) => fit.coords(),
+                    _ => {
                         let [x, y] = [Channel::X, Channel::Y].map(|channel| {
                             (resolved.scales.iter().enumerate())
                                 .find(|(_, group)| {
@@ -424,12 +464,13 @@ impl ChartEvaluator {
                     coords,
                 });
             }
-            let coords = match polar_fit {
-                Some(fit) => {
+            let coords = match (polar_fit, map_fit) {
+                (Some(fit), _) => {
                     plot_marks.extend(prepared.polars.overlay(fit));
                     fit.coords()
                 }
-                None => {
+                (_, Some(fit)) => fit.coords(),
+                _ => {
                     let [x, y] = [Channel::X, Channel::Y].map(|channel| {
                         (resolved.scales.iter().enumerate())
                             .find(|(_, group)| group.channel == channel && in_plot(group))
@@ -438,11 +479,14 @@ impl ChartEvaluator {
                     PlotCoords::cartesian(plot_size, [x, y])
                 }
             };
-            marks.extend(backdrop(
-                &format!("{}/background", plot_ref.name),
-                &styles[self.nodes.plot(&plot_ref.path).plot],
-                [rect.x, rect.y, rect.width, rect.height],
-            ));
+            // The background and the border of a map plot draw its sphere.
+            if map_fit.is_none() {
+                marks.extend(backdrop(
+                    &format!("{}/background", plot_ref.name),
+                    &styles[self.nodes.plot(&plot_ref.path).plot],
+                    [rect.x, rect.y, rect.width, rect.height],
+                ));
+            }
             marks.push(
                 SceneGroup {
                     name: plot_ref.name.clone(),
@@ -470,6 +514,23 @@ impl ChartEvaluator {
             });
         }
         marks.extend(layout::draw(&prepared.guides, &prepared.lowered, &solution));
+        // The labels of each graticule, in their slabs.
+        for id in &prepared.lowered.slabs {
+            let SlabId::Graticule { plot, side } = *id else {
+                continue;
+            };
+            let (Some(region), Some(fit), Some(guide)) = (
+                solution.region(id),
+                map_fits.get(&plot),
+                prepared.maps.guide(plot),
+            ) else {
+                continue;
+            };
+            let rect = region.content;
+            let slot = [rect.x, rect.y, rect.width, rect.height];
+            let labels = prepared.maps.labels(plot, fit, guide.labels[side].0, slot);
+            marks.extend(labels.map(SceneMark::from));
+        }
         Ok(EvaluatedChart {
             scene: SceneGraph {
                 marks,
@@ -623,6 +684,16 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         unsized_rows,
         &reach,
     )?;
+    let maps = Maps::prepare(
+        &MapInputs {
+            resolved,
+            nodes,
+            styles,
+            engine,
+        },
+        unsized_rows,
+        &reach,
+    )?;
 
     let fittings: Vec<_> = (positions.iter())
         .map(|position| position.as_ref().map(|position| position.fitting.clone()))
@@ -640,6 +711,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         chart,
         resolved,
         guides: &guides,
+        maps: &maps,
         nodes,
         styles,
     });
@@ -649,6 +721,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         reach,
         guides,
         polars,
+        maps,
         lowered,
         warnings,
     })

@@ -1,10 +1,11 @@
 # avenger-chart-eval
 
 The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size. This version
-draws charts of Cartesian and polar plots: their marks, every scale type with every kind of domain,
-axes, polar axes, legends, colorbars, titles, and attributions, in concats, wraps, and facets with
-their headers and empty cells, with the guide rules of compositions and scales that plots share. A
-map plot is `EvalError::Unsupported`.
+draws charts of Cartesian, polar, and map plots: their marks, every scale type with every kind of
+domain, axes, polar axes, graticules, legends, colorbars, titles, and attributions, in concats,
+wraps, and facets with their headers and empty cells, with the guide rules of compositions and
+scales that plots share. Map plots need the `geo` feature, and without it a map plot is
+`EvalError::Unsupported`.
 
 ## Compositions
 
@@ -31,6 +32,20 @@ circle through its point. A scale of `theta` or `radius` draws a polar axis only
 one, with spokes and rings as its grid lines, and its labels have a halo of the plot's background.
 The coordinates of a polar plot are its circle with the scale of `theta` and the scale of `radius`,
 or without a scale of `radius`, the map of fractions of the outer radius to pixels.
+
+## Maps
+
+With the `geo` feature, a map plot projects longitudes and latitudes through an avenger-geo
+projection: one of the typed projections of the format, a custom projection by its typetag name, or
+the coordinates of a planar map. The map plots that share a projection fit one view of the sphere,
+a box, or the data of their layers, inset by the largest reach of their marks past their places,
+at the size of their first plot. A map keeps the aspect of what it fits, or its own, or none. A map
+whose spec has a sphere fills and outlines the outline of its projection with the computed
+background and border of its `plot[type=geo]`, and its graticule takes the styles of its
+`graticule`, `grid`, and `label`, with its labels in slabs of the plot. Tiles load through
+`ChartEvaluator::set_image_resolver`, and a map without a resolver draws without them, with a
+warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps.
+The coordinates of a map plot are its projection, without scales.
 
 ## Preparation and evaluation
 

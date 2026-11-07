@@ -10,7 +10,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::{LayerRef, MarkType},
-    proto::{self, cartesian_layer, polar_layer, Channel},
+    proto::{self, cartesian_layer, geo_layer, polar_layer, Channel},
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::{
@@ -98,7 +98,13 @@ impl<'a> TextFormat<'a> {
                 }),
                 _ => None,
             },
-            LayerRef::Geo(_) => None,
+            LayerRef::Geo(layer) => match layer.mark.as_ref()? {
+                geo_layer::Mark::Text(text) => Some(Self {
+                    format: &text.format,
+                    syntax: text.syntax,
+                }),
+                _ => None,
+            },
         }
     }
 }
@@ -864,41 +870,67 @@ fn image_sources(
 }
 
 fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
+    let x = rows.position(Channel::X)?;
+    let y = rows.position(Channel::Y)?;
+    let mark = match rows.has(Channel::X2) && rows.has(Channel::Y2) {
+        true => {
+            let x2 = rows.position(Channel::X2)?;
+            let y2 = rows.position(Channel::Y2)?;
+            let len = rows.len();
+            let (left, right): (Vec<f32>, Vec<f32>) = (0..len)
+                .map(|row| (at(&x, row).min(at(&x2, row)), at(&x, row).max(at(&x2, row))))
+                .unzip();
+            let (top, bottom): (Vec<f32>, Vec<f32>) = (0..len)
+                .map(|row| (at(&y, row).min(at(&y2, row)), at(&y, row).max(at(&y2, row))))
+                .unzip();
+            let widths = left.iter().zip(&right).map(|(l, r)| r - l).collect();
+            let heights = top.iter().zip(&bottom).map(|(t, b)| b - t).collect();
+            image_mark(
+                rows,
+                ScalarOrArray::new_array(left),
+                ScalarOrArray::new_array(top),
+                Some((
+                    [
+                        ScalarOrArray::new_array(widths),
+                        ScalarOrArray::new_array(heights),
+                    ],
+                    (ImageAlign::Left, ImageBaseline::Top),
+                )),
+            )?
+        }
+        false => image_mark(rows, x, y, None)?,
+    };
+    Ok(mark
+        .map(|mark| Drawn {
+            mark: mark.into(),
+            rows: rows.table.clone(),
+        })
+        .into_iter()
+        .collect())
+}
+
+/// The image mark of a layer's rows at `x` and `y`, aligned as the mark node's computed `align`
+/// and `baseline` say and of the sizes that its channels or its styles give, or in the boxes of
+/// `boxes` with their anchor. `None` for a layer without images.
+#[allow(clippy::type_complexity)]
+pub(crate) fn image_mark(
+    rows: &LayerRows,
+    x: ScalarOrArray<f32>,
+    y: ScalarOrArray<f32>,
+    boxes: Option<([ScalarOrArray<f32>; 2], (ImageAlign, ImageBaseline))>,
+) -> Result<Option<SceneImageMark>> {
     let sizes = image_sizes(rows)?;
     let len = rows.len();
     let convert =
         |values: &ArrayRef, _: Option<&ConfiguredScale>| image_sources(values, &sizes, len);
     let Some(images) = rows.resolve(Channel::Image, &convert)? else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
-    let [width, height] = sizes;
-    let (align, baseline) = image_anchor(rows.style);
-    let x = rows.position(Channel::X)?;
-    let y = rows.position(Channel::Y)?;
-    let (x, y, width, height, align, baseline) = if rows.has(Channel::X2) && rows.has(Channel::Y2) {
-        let x2 = rows.position(Channel::X2)?;
-        let y2 = rows.position(Channel::Y2)?;
-        let len = rows.len();
-        let (left, right): (Vec<f32>, Vec<f32>) = (0..len)
-            .map(|row| (at(&x, row).min(at(&x2, row)), at(&x, row).max(at(&x2, row))))
-            .unzip();
-        let (top, bottom): (Vec<f32>, Vec<f32>) = (0..len)
-            .map(|row| (at(&y, row).min(at(&y2, row)), at(&y, row).max(at(&y2, row))))
-            .unzip();
-        let widths = left.iter().zip(&right).map(|(l, r)| r - l).collect();
-        let heights = top.iter().zip(&bottom).map(|(t, b)| b - t).collect();
-        (
-            ScalarOrArray::new_array(left),
-            ScalarOrArray::new_array(top),
-            ScalarOrArray::new_array(widths),
-            ScalarOrArray::new_array(heights),
-            ImageAlign::Left,
-            ImageBaseline::Top,
-        )
-    } else {
-        (x, y, width, height, align, baseline)
+    let ([width, height], (align, baseline)) = match boxes {
+        Some(boxes) => boxes,
+        None => (sizes, image_anchor(rows.style)),
     };
-    let mark = SceneImageMark {
+    Ok(Some(SceneImageMark {
         name: rows.name.clone(),
         len: rows.len() as u32,
         image: images,
@@ -911,11 +943,7 @@ fn images(rows: &LayerRows) -> Result<Vec<Drawn>> {
         aspect: rows.style.keyword(Property::ObjectFit) != Some("fill"),
         smooth: rows.style.keyword(Property::ImageRendering) != Some("pixelated"),
         ..Default::default()
-    };
-    Ok(vec![Drawn {
-        mark: mark.into(),
-        rows: rows.table.clone(),
-    }])
+    }))
 }
 
 /// The paths of `values`, from SVG path text.
@@ -942,6 +970,19 @@ fn paths(rows: &LayerRows) -> Result<Vec<Drawn>> {
         true => rows.position(Channel::Y)?,
         false => scalar(0.0),
     };
+    Ok(vec![Drawn {
+        mark: path_mark(rows, x, y)?.into(),
+        rows: rows.table.clone(),
+    }])
+}
+
+/// The path mark of a layer's rows, each path with its origin at `x` and `y` and turned by its
+/// `angle` about it.
+pub(crate) fn path_mark(
+    rows: &LayerRows,
+    x: ScalarOrArray<f32>,
+    y: ScalarOrArray<f32>,
+) -> Result<ScenePathMark> {
     let angle = rows.numbers_or(Channel::Angle, Property::Angle)?;
     let len = rows.len();
     let transform = ScalarOrArray::new_array(
@@ -953,7 +994,7 @@ fn paths(rows: &LayerRows) -> Result<Vec<Drawn>> {
             .collect(),
     );
     let (fill, stroke) = rows.paint()?;
-    let mark = ScenePathMark {
+    Ok(ScenePathMark {
         name: rows.name.clone(),
         len: len as u32,
         path: path_values(rows)?,
@@ -966,9 +1007,5 @@ fn paths(rows: &LayerRows) -> Result<Vec<Drawn>> {
         transform,
         fill_pattern: pattern_fills(row_patterns(rows)?),
         ..Default::default()
-    };
-    Ok(vec![Drawn {
-        mark: mark.into(),
-        rows: rows.table.clone(),
-    }])
+    })
 }
