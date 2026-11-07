@@ -41,8 +41,8 @@ pub struct AxisStyle {
     pub label_angle: f32,
     /// The angles, in degrees clockwise, that the labels of a horizontal band or point axis choose
     /// from at each length, such as 0, 315, and 270: the first where its labels keep apart, else
-    /// the one that draws the thinnest labels among the others whose labels keep apart, or the
-    /// last when none do. Horizontal labels keep apart where
+    /// the one that draws the thinnest labels among the others whose labels keep apart, or the one
+    /// that draws the thickest labels when none do. Horizontal labels keep apart where
     /// the widest fits the step between ticks, and slanted labels where the step across their
     /// slant fits their height, whatever their width. The angle depends only on the length, so a
     /// layout that measures the axis at one length always finds one thickness, and a shorter

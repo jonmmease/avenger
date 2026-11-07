@@ -366,3 +366,54 @@ fn turned_labels_end_their_solves_in_a_plot_that_keeps_its_aspect() {
         );
     }
 }
+
+/// Bars of narrow labels, such as `i` and `1`, which stand thinner vertical than horizontal.
+fn letters() -> Chart {
+    let names = [
+        "i", "l", "1", "I", "j", "|", "!", "t", "f", "r", ":", ";", ".", ",",
+    ];
+    let table = RecordBatch::try_from_iter([
+        (
+            "letter",
+            Arc::new(StringArray::from(names.to_vec())) as arrow::array::ArrayRef,
+        ),
+        ("count", numbers(&[1.0; 14])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(table, BarMark::builder().x("letter").y("count"));
+    Chart::builder(Plot::cartesian([bars])).build().unwrap()
+}
+
+/// The axis of short labels never grows thicker as it grows longer: where no angle keeps the
+/// labels apart, they keep the thickest angle rather than standing thinner, so the plot grows
+/// taller as the canvas grows wider, and a plot that keeps its aspect ends its solves.
+#[test]
+fn crowded_short_labels_never_thicken_as_the_axis_grows() {
+    let mut heights = Vec::new();
+    for width in (70..=240).step_by(10) {
+        let evaluated = evaluator(&letters())
+            .evaluate(&host([width as f32, 240.0]))
+            .unwrap();
+        heights.push((width, evaluated.plots[0].rect[3]));
+    }
+    for pair in heights.windows(2) {
+        assert!(pair[1].1 + 0.01 >= pair[0].1, "{heights:?}");
+    }
+    for height in (70..=160).step_by(5) {
+        let mut evaluator = ChartEvaluator::new(
+            letters(),
+            cascade_with("plot { aspect-ratio: 4; }"),
+            engine(),
+            Registry::new(),
+        )
+        .unwrap();
+        let host = HostInputs {
+            height: Some(height as f32),
+            ..Default::default()
+        };
+        let evaluated = evaluator.evaluate(&host).unwrap();
+        let limited = (evaluated.warnings.iter())
+            .any(|warning| matches!(warning, avenger_chart_eval::EvalWarning::Fit { .. }));
+        assert!(!limited, "{height}: {:?}", evaluated.warnings);
+    }
+}

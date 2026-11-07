@@ -540,7 +540,8 @@ impl Axis {
     /// The angle of the labels of a band or point axis at `length`: where the axis is horizontal,
     /// the first candidate of the style's `label_angles` where its labels keep apart at the step
     /// between its ticks, else the candidate with the thinnest labels among the others whose labels
-    /// keep apart, or the last candidate when none do, and otherwise the style's angle.
+    /// keep apart, or the candidate with the thickest labels when none do, and otherwise the
+    /// style's angle.
     fn band_label_angle(&self, labels: &Labels, centers: &[f32], length: f32) -> f32 {
         let style = &self.config.style;
         if style.label_angles.is_empty() || self.config.side.is_vertical() {
@@ -557,6 +558,7 @@ impl Axis {
             .fold(0.0, f32::max);
         let tallest = bounds.map(|bounds| bounds.height).fold(0.0, f32::max);
         let mut chosen: Option<(f32, f32)> = None;
+        let mut thickest: Option<(f32, f32)> = None;
         for (index, &angle) in style.label_angles.iter().enumerate() {
             let radians = angle.to_radians();
             let (across, along) = (radians.sin().abs(), radians.cos().abs());
@@ -574,13 +576,16 @@ impl Axis {
             if apart && chosen.is_none_or(|(_, thinnest)| thickness < thinnest - 1e-3) {
                 chosen = Some((angle, thickness));
             }
+            if thickest.is_none_or(|(_, thickness_so_far)| thickness >= thickness_so_far - 1e-3) {
+                thickest = Some((angle, thickness));
+            }
         }
-        match chosen {
+        // Where no candidate keeps its labels apart, the thickest one draws, so the labels never
+        // grow thicker as the axis grows longer, and a layout whose length depends on the axis's
+        // thickness, such as a plot that keeps its aspect, settles one way.
+        match chosen.or(thickest) {
             Some((angle, _)) => angle,
-            None => *style
-                .label_angles
-                .last()
-                .expect("the candidates are not empty"),
+            None => style.label_angle,
         }
     }
 
