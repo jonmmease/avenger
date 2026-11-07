@@ -283,8 +283,9 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
                 continue;
             };
             let (letter, color) = direction_style(owner.direction);
+            let content = owner_content(owner, &region.content);
             for (index, track) in owner.tracks.iter().enumerate() {
-                let rect = band(owner.direction, track.start, track.length, &region.content);
+                let rect = band(owner.direction, track.start, track.length, &content);
                 let name = format!("track:{}/{letter}{index}", compact_path(&owner.path));
                 self.push_rect(name, rect, color, [0.0; 4], 0.0);
             }
@@ -317,8 +318,12 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
     ) {
         let direction = owner.direction;
         let band = band(direction, gap.start, gap.length, &region.content);
+        // A line of a stack that wraps has a gap only across its own band.
+        let [low, high] = owner.across.unwrap_or([f32::NEG_INFINITY, f32::INFINITY]);
         let pieces: Vec<Rect> = cross_pieces(region, direction)
             .into_iter()
+            .map(|(from, to)| (from.max(low), to.min(high)))
+            .filter(|(from, to)| to > from)
             .map(|(from, to)| match direction {
                 Direction::Horizontal => Rect::new(band.x, from, band.width, to - from),
                 Direction::Vertical => Rect::new(from, band.y, to - from, band.height),
@@ -1076,6 +1081,20 @@ fn empty_hatch() -> PatternFill {
 }
 
 /// The band of a track or gap: its range in `direction`, across the owner's content.
+/// The part of an owner's content that its tracks span: a line's band for a line of a stack
+/// that wraps, or else the whole content.
+fn owner_content(owner: &TrackOwnerExplanation, content: &Rect) -> Rect {
+    match (owner.across, owner.direction) {
+        (None, _) => *content,
+        (Some([start, end]), Direction::Horizontal) => {
+            Rect::new(content.x, start, content.width, end - start)
+        }
+        (Some([start, end]), Direction::Vertical) => {
+            Rect::new(start, content.y, end - start, content.height)
+        }
+    }
+}
+
 fn band(direction: Direction, start: f32, length: f32, content: &Rect) -> Rect {
     match direction {
         Direction::Horizontal => Rect::new(start, content.y, length, content.height),

@@ -17,7 +17,8 @@ pub struct Explanation {
     pub solves: u32,
     /// Whether measured widths or overhangs were still growing when the solves ran out.
     pub stopped_at_limit: bool,
-    /// The leaves whose measured width started another solve.
+    /// The leaves whose measured width started another solve, and the left and right stacks
+    /// whose new lines changed their width.
     pub raised_widths: Vec<RaisedWidth>,
     /// The slabs whose measured overhang started another solve.
     pub raised_overhangs: Vec<RaisedOverhang>,
@@ -89,6 +90,9 @@ pub struct TrackOwnerExplanation {
     pub tracks: Vec<TrackExplanation>,
     /// One per boundary, the gap after track `i` at index `i`.
     pub gaps: Vec<GapExplanation>,
+    /// For a line of a stack that wraps, the start and the end across `direction` of the band
+    /// that its tracks span, and otherwise `None`: the tracks span the owner's content.
+    pub across: Option<[f32; 2]>,
 }
 
 /// Why one track has its size.
@@ -138,7 +142,7 @@ pub enum GapTerm {
     },
 }
 
-/// A measured width that started another solve.
+/// A measured width, or the width of a stack's new lines, that started another solve.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RaisedWidth {
     pub path: Vec<PathStep>,

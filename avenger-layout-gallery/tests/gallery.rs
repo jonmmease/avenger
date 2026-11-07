@@ -5,7 +5,7 @@
 use avenger_layout::diagnostics::{diagnostic_layer, diagnostic_scene};
 use avenger_layout::{
     Column, Direction, Gap, Grid, GridSlot, Layout, Leaf, Measure, Measurement, Overflow, Overlay,
-    Placement, Position, Row, Side, Size, Slab, Solution, SolveOptions, Track, Wrap,
+    Placement, Position, Row, Side, Size, Slab, SlabStack, Solution, SolveOptions, Track, Wrap,
 };
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -93,6 +93,42 @@ fn slabs() {
         .slab(Side::Top, Slab::new().min_height(18.0).id("header"))
         .slab(Side::Top, Slab::new().min_height(26.0).id("title").full());
     render("slabs", &solve(plot, explained(None, None)));
+}
+
+#[test]
+fn wrapped_stacks() {
+    let top = |id: Id, height: f32, length: f32| {
+        Slab::new().id(id).min_height(height).max_content(length)
+    };
+    let right =
+        |id: Id, width: f32, length: f32| Slab::new().id(id).min_width(width).max_content(length);
+    let plot = leaf(260.0, 120.0)
+        .id("plot")
+        .slab_stack(
+            Side::Top,
+            SlabStack::new([
+                top("t1", 14.0, 110.0),
+                top("t2", 20.0, 90.0),
+                top("t3", 16.0, 120.0),
+            ])
+            .id("top stack")
+            .tracks(Track::auto())
+            .gap(Gap::new(10.0))
+            .wrap(Gap::new(6.0)),
+        )
+        .slab_stack(
+            Side::Right,
+            SlabStack::new([
+                right("r1", 30.0, 70.0),
+                right("r2", 24.0, 40.0),
+                right("r3", 36.0, 60.0),
+            ])
+            .id("right stack")
+            .tracks(Track::auto())
+            .gap(Gap::new(10.0))
+            .wrap(Gap::new(6.0)),
+        );
+    render("wrapped_stacks", &solve(plot, explained(None, None)));
 }
 
 #[test]

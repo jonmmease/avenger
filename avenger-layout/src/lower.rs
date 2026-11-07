@@ -108,6 +108,8 @@ pub(crate) struct StackNode {
     /// Each member's track size.
     pub tracks: Vec<TrackSize>,
     pub gap: Gap,
+    /// The gap between lines, for a stack that breaks its members into lines.
+    pub wrap: Option<Gap>,
     pub distribute: Distribute,
     /// The member slab nodes, from the side's start.
     pub members: Vec<usize>,
@@ -539,13 +541,12 @@ fn stack_node<Id: Clone>(
     };
     let gap = stack.gap.clone().unwrap_or_default();
     let along = side.direction().cross();
-    let gaps = gap.min * stack.slabs.len().saturating_sub(1) as f32;
-    let length = stack
-        .slabs
-        .iter()
-        .map(|slab| slab.min.along(along))
-        .sum::<f32>()
-        + gaps;
+    let mins = stack.slabs.iter().map(|slab| slab.min.along(along));
+    // A wrapped stack can put each member on a line of its own.
+    let length = match stack.wrap {
+        Some(_) => mins.fold(0.0f32, f32::max),
+        None => mins.sum::<f32>() + gap.min * stack.slabs.len().saturating_sub(1) as f32,
+    };
     let min = match along {
         Direction::Horizontal => Size::new(length, 0.0),
         Direction::Vertical => Size::new(0.0, length),
@@ -567,6 +568,7 @@ fn stack_node<Id: Clone>(
             all: stack.all.clone(),
             tracks: (0..stack.slabs.len()).map(declared).collect(),
             gap,
+            wrap: stack.wrap.clone(),
             distribute: stack.distribute,
             members: Vec::new(),
         })),

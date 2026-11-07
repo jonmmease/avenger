@@ -190,6 +190,40 @@ assert_eq!(solution.region(&"legend").unwrap().content.height, 80.0);
 assert_eq!(solution.region(&"colorbar").unwrap().content.height, 120.0);
 ```
 
+`wrap(gap)` lets a stack break its members into lines when they do not fit along
+the side, as a row of widgets or legends does. A line breaks before a member
+that would take it past the stack's length, each member at the length its track
+grows toward, or an `fr` track at its base. Each line divides the length by the
+track rules and is as thick as its thickest member. The first line lies nearest
+the host, and `gap` separates the lines. A wrapped stack needs only its longest
+member's minimum along the side. These three widgets fill one row of 300 and
+then start a second row above it:
+
+```rust
+use avenger_layout::{Gap, Layout, Leaf, Side, Size, Slab, SlabStack, SolveOptions, Track};
+
+let widget = |id, length| Slab::new().id(id).min_height(30.0).max_content(length);
+let layout: Layout<&str> = Leaf::new()
+    .id("plot")
+    .min_size(Size::new(300.0, 200.0))
+    .slab_stack(
+        Side::Top,
+        SlabStack::new([widget("a", 140.0), widget("b", 140.0), widget("c", 100.0)])
+            .tracks(Track::auto())
+            .gap(Gap::new(12.0))
+            .wrap(Gap::new(8.0)),
+    )
+    .into();
+let solution = layout.solve(&SolveOptions::default()).unwrap();
+let region = |id| solution.region(&id).unwrap().content;
+assert_eq!(region("b").x, 152.0);
+assert_eq!((region("a").y, region("c").y), (38.0, 0.0));
+assert_eq!(region("plot").y, 68.0);
+```
+
+A left or right stack breaks its lines in the height pass, after the width pass
+gave it its width, so new lines start another solve.
+
 A node's overflow policy determines where space for its slabs and child overflow
 is reserved:
 
@@ -296,7 +330,8 @@ Return `None` for IDs or directions that your measurer does not handle.
 For slabs, `height` and `width` measure thickness only. The input is the slab's
 content length along its side. Use declared sizes or `max_content` for that
 length. A stack's members are measured as slabs, each at its own length, and
-the solver asks each member's `max_content` along its side for its track. For
+the solver asks each member's `max_content` along its side for its track and,
+in a stack that wraps, for its lines. For
 ordinary leaves, the input is the content size in the other direction.
 
 This example models an axis whose labels use two lines below a width of 200:
