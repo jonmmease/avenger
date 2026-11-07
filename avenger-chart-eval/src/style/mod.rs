@@ -1,11 +1,12 @@
 //! The styles of a chart: its style tree, whose nodes stand for the parts of the chart, the inline
-//! styles that the format's style fields give the nodes, and the choice of each scale's guide.
+//! styles that the format's style fields give the nodes, and the choice of each scale's axis or
+//! legend.
 
 pub(crate) mod inline;
 pub(crate) mod tree;
 
 use avenger_chart::{
-    proto::{self, guide, scale, Channel},
+    proto::{self, scale, Channel, LegendForm},
     resolve::ScaleGroup,
     FitKind,
 };
@@ -36,30 +37,37 @@ pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
     kind == FitKind::Interval && !matches!(spec.r#type, Some(scale::Type::Quantize(_)))
 }
 
-/// The guide that a scale group draws, as `Scale.guide` gives it: its own guide, or without
-/// one, an axis for `x` and `y`, a legend for a discrete scale or the bins of a quantize, quantile,
-/// or threshold scale, a colorbar for a continuous color scale, and a legend of the ticks of another
-/// continuous scale. `theta` and `radius` draw no guide in a Cartesian chart.
+/// The axis or the legend that a scale group draws: none when its spec's axis or legend has `show:
+/// false`, an axis for `x` and `y`, and for another channel the legend of its spec's form, or
+/// without one, a colorbar for a continuous color scale and a symbol legend for another scale: the
+/// categories of a discrete scale, the bins of a quantize, quantile, or threshold scale, or the
+/// ticks of another continuous scale. `theta` and `radius` draw no axis in a Cartesian chart.
 pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind> {
-    match group
-        .spec
-        .guide
-        .as_ref()
-        .and_then(|guide| guide.guide.as_ref())
-    {
-        Some(guide::Guide::Axis(_)) => return Some(GuideKind::Axis),
-        Some(guide::Guide::Legend(_)) => return Some(GuideKind::Legend),
-        Some(guide::Guide::Colorbar(_)) => return Some(GuideKind::Colorbar),
-        Some(guide::Guide::None(_) | guide::Guide::PolarAxis(_)) => return None,
-        None => {}
-    }
+    let spec = &group.spec;
     match group.channel {
-        Channel::X | Channel::Y => Some(GuideKind::Axis),
+        Channel::X | Channel::Y => match &spec.axis {
+            Some(axis) if axis.show == Some(false) => None,
+            _ => Some(GuideKind::Axis),
+        },
         Channel::Theta | Channel::Radius => None,
-        Channel::Color | Channel::Fill | Channel::Stroke if is_continuous(&group.spec, kind) => {
-            Some(GuideKind::Colorbar)
+        channel => {
+            let legend = spec.legend.as_ref();
+            if legend.is_some_and(|legend| legend.show == Some(false)) {
+                return None;
+            }
+            let form = legend.map_or(LegendForm::Unspecified, |legend| {
+                LegendForm::try_from(legend.form).unwrap_or_default()
+            });
+            let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);
+            match form {
+                LegendForm::Colorbar => Some(GuideKind::Colorbar),
+                LegendForm::Symbol => Some(GuideKind::Legend),
+                LegendForm::Unspecified if color && is_continuous(spec, kind) => {
+                    Some(GuideKind::Colorbar)
+                }
+                LegendForm::Unspecified => Some(GuideKind::Legend),
+            }
         }
-        _ => Some(GuideKind::Legend),
     }
 }
 

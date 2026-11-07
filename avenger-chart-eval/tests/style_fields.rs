@@ -48,10 +48,10 @@ const CONTENT: &[(&str, &[&str])] = &[
     (
         "Encoding",
         &[
-            "column",
-            "scaled_column",
-            "constant",
-            "scaled_constant",
+            "direct_field",
+            "scaled_field",
+            "direct_value",
+            "scaled_value",
             "scale",
             "conditional",
             "selection_field",
@@ -64,29 +64,26 @@ const CONTENT: &[(&str, &[&str])] = &[
         "ConditionalValue",
         &[
             "predicate",
-            "column",
-            "scaled_column",
-            "constant",
-            "scaled_constant",
+            "direct_field",
+            "scaled_field",
+            "direct_value",
+            "scaled_value",
         ],
     ),
-    (
-        "Guide",
-        &["axis", "legend", "colorbar", "none", "polar_axis"],
-    ),
-    ("GuideRule", &["part", "rule"]),
-    ("GuideTitle", &["text", "syntax"]),
-    ("GuideLabels", &["format", "markup"]),
-    ("GuideTicks", &["interval", "values"]),
+    // Whether a scale draws its axis or legend, and the legend's form, decide which nodes the
+    // style tree holds.
+    ("Axis", &["show"]),
+    ("PartRule", &["part", "rule"]),
+    ("Labels", &["format", "markup"]),
+    ("Ticks", &["interval", "values"]),
     ("TickInterval", &["numeric", "calendar"]),
     ("NumericTicks", &["start", "step"]),
     (
         "CalendarTicks",
         &["start", "months", "days", "milliseconds"],
     ),
-    ("Legend", &["values", "classes", "id"]),
+    ("Legend", &["show", "form", "values", "classes", "id"]),
     ("LegendWrap", &["flow", "grid"]),
-    ("Colorbar", &["classes", "id"]),
     (
         "SymbolMark",
         &[
@@ -281,7 +278,8 @@ const CONTENT: &[(&str, &[&str])] = &[
             "domain",
             "range",
             "family",
-            "guide",
+            "axis",
+            "legend",
             "navigation_limits",
         ],
     ),
@@ -387,6 +385,10 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("TableRef", &["index"]),
 ];
 
+/// The fields of messages that PR 1 maps, which only a later evaluator PR draws: the fields of the
+/// axes of polar plots.
+const DEFERRED_FIELDS: &[(&str, &[&str])] = &[("Axis", &["angle", "label_orient", "route"])];
+
 /// The messages that a later evaluator PR maps, whose nodes PR 1 does not build.
 const DEFERRED: &[(&str, &[&str])] = &[
     (
@@ -410,7 +412,6 @@ const DEFERRED: &[(&str, &[&str])] = &[
             "PolarPlot",
             "PolarLayer",
             "Polar",
-            "PolarAxis",
             "PolarSymbolMark",
             "PolarLineMark",
             "PolarTrailMark",
@@ -513,7 +514,7 @@ fn every_field_is_mapped_content_or_deferred() {
                 !(mapped && content),
                 "`{message}.{field}` is both a style field and content"
             );
-            if !mapped && !content {
+            if !mapped && !content && !listed(DEFERRED_FIELDS, message, field) {
                 unlisted.push(format!("{message}.{field}"));
             }
         }
@@ -523,7 +524,10 @@ fn every_field_is_mapped_content_or_deferred() {
         "fields that are neither mapped nor content: {unlisted:?}"
     );
     // Every listed field exists, so a renamed field cannot hide behind a stale entry.
-    for (message, names) in avenger_chart_eval::STYLE_FIELDS.iter().chain(CONTENT) {
+    for (message, names) in (avenger_chart_eval::STYLE_FIELDS.iter())
+        .chain(CONTENT)
+        .chain(DEFERRED_FIELDS)
+    {
         for name in *names {
             assert!(
                 fields

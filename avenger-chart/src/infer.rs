@@ -6,6 +6,7 @@ use arrow::{
 use crate::{
     layer::{MarkMessage, MarkType},
     proto::{self, conditional_value, domain, encoding, node::Node, plot::Coord, scale, Channel},
+    span,
     validate::{dictionary_values, scaled, takes_scale},
 };
 
@@ -14,9 +15,13 @@ use crate::{
 /// never changes a field that is present, so a producer sets a field to override an inference.
 ///
 /// It infers the scale of each encoding whose value or one of whose conditional values is a
-/// `scaled_column` or a `scaled_constant`: the scale when the encoding has none, its type when it
+/// `scaled_field` or a `scaled_value`: the scale when the encoding has none, its type when it
 /// is absent, and its domain when it is absent. An encoding of plain values has no scale, and the
 /// mark draws its values as they are.
+///
+/// A column of spans on a first position channel, such as `x`, also gives the channel's partner,
+/// `x2`, when the mark takes it and the partner is absent, and its scale takes the type of the
+/// fields of the spans.
 ///
 /// The scale type follows the Arrow type of the values, the channel, and for categories on a
 /// position, the mark:
@@ -30,7 +35,7 @@ use crate::{
 ///
 /// A scale with a type whose domain is absent gets the layer's data domain. Values of another type,
 /// such as times of day and durations, and a column that the layer's table lacks, get no scale
-/// type, and the reader reports the encoding. Fits, guides, titles, styles, and the kinds of
+/// type, and the reader reports the encoding. Fits, axes, legends, titles, styles, and the kinds of
 /// discrete scales stay absent: they are the choice of the producer and the renderer's stylesheets.
 pub(crate) fn infer_scales(
     message: &mut proto::Chart,
@@ -89,6 +94,7 @@ fn node(node: &mut proto::Node, tables: &[RecordBatch], values: &[ArrayRef]) {
 
 fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[ArrayRef]) {
     let mark_type = mark.mark_type();
+    spans(mark, table);
     for channel in mark.channels() {
         let Some(encoding) = mark.encoding_mut(*channel) else {
             continue;
@@ -99,28 +105,24 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
         let column_type = |name: &str| {
             table
                 .and_then(|table| table.schema().field_with_name(name).ok().cloned())
-                .map(|field| field.data_type().clone())
+                .map(|field| span::values_type(field.data_type()))
         };
         let value_type = |value: &proto::ValueRef| {
             (values.get(value.index as usize)).map(|value| value.data_type().clone())
         };
         // The scale takes the type of the encoding's value when it is scaled, and otherwise of the
         // first scaled conditional value.
-        let data_type = match &encoding.value {
-            Some(encoding::Value::ScaledColumn(name)) => column_type(name),
-            Some(encoding::Value::ScaledConstant(value)) => value_type(value),
+        let data_type = match &encoding.kind {
+            Some(encoding::Kind::ScaledField(name)) => column_type(name),
+            Some(encoding::Kind::ScaledValue(value)) => value_type(value),
             _ => {
                 let first =
-                    (encoding.conditional.iter()).find_map(|conditional| {
-                        match &conditional.value {
-                            Some(conditional_value::Value::ScaledColumn(name)) => {
-                                Some(column_type(name))
-                            }
-                            Some(conditional_value::Value::ScaledConstant(value)) => {
-                                Some(value_type(value))
-                            }
-                            _ => None,
+                    (encoding.conditional.iter()).find_map(|conditional| match &conditional.kind {
+                        Some(conditional_value::Kind::ScaledField(name)) => Some(column_type(name)),
+                        Some(conditional_value::Kind::ScaledValue(value)) => {
+                            Some(value_type(value))
                         }
+                        _ => None,
                     });
                 let Some(data_type) = first else {
                     continue;
@@ -136,6 +138,38 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
         if spec.r#type.is_some() && spec.domain.is_none() {
             spec.domain = Some(proto::Domain {
                 domain: Some(domain::Domain::Data(proto::DataDomain::default())),
+            });
+        }
+    }
+}
+
+/// Gives the partner of each first position channel whose field is a column of spans, such as `x2`
+/// of `x`, the same field when the partner is absent, so the partner takes the spans' ends. A
+/// partner that is present stays, and validation checks that it names the same column.
+fn spans(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>) {
+    let Some(table) = table else { return };
+    for channel in mark.channels() {
+        let Some(partner) = span::partner(*channel) else {
+            continue;
+        };
+        let Some(encoding) = mark.encoding(*channel) else {
+            continue;
+        };
+        let Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) =
+            &encoding.kind
+        else {
+            continue;
+        };
+        let spanned = (table.schema().field_with_name(name).ok())
+            .is_some_and(|field| span::is_span(field.data_type()));
+        if !spanned {
+            continue;
+        }
+        let kind = encoding.kind.clone();
+        if let Some(slot @ None) = mark.encoding_slot(partner) {
+            *slot = Some(proto::Encoding {
+                kind,
+                ..Default::default()
             });
         }
     }

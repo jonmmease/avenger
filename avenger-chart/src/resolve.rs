@@ -23,9 +23,9 @@ use crate::{
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The identity of a plot, a layer, a concat, a wrap, a guide, or a facet header with an id: its
-/// id and its partition, the values that apply to every layer and empty cell below it. All of
-/// them share one namespace, and two with one identity are a conflict, so an identity names one
+/// The identity of a plot, a layer, a concat, a wrap, an axis, a legend, or a facet header with an
+/// id: its id and its partition, the values that apply to every layer and empty cell below it. All
+/// of them share one namespace, and two with one identity are a conflict, so an identity names one
 /// part of a chart, and a part of a new chart with the same identity stands for the same part,
 /// whatever its place in the tree.
 #[derive(Clone, Debug)]
@@ -446,8 +446,8 @@ pub(crate) fn projection_sharing(node: &Node) -> Sharing {
         Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
         Node::Plot(_) | Node::Empty(_) => return Sharing::Shared,
     };
-    match rule.map(Sharing::try_from) {
-        Some(Ok(sharing @ (Sharing::Shared | Sharing::Independent))) => sharing,
+    match Sharing::try_from(rule) {
+        Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => sharing,
         _ if facet => Sharing::Shared,
         _ => Sharing::Independent,
     }
@@ -510,17 +510,17 @@ pub struct ScaleGroup {
     /// first.
     pub members: Vec<Member>,
     /// The path of the node that owns the scale: the innermost node that holds every layer of
-    /// the scale, which declares the rules of its guides.
+    /// the scale, which declares the rules of its axis or legend.
     pub owner: String,
     /// The kind of the coordinate system of the plots of a position scale.
     pub kind: Option<CoordKind>,
 }
 
 impl ScaleGroup {
-    /// The identity of the scale's guide, when it has an id: the id, with the partition values
-    /// that every layer of the scale shares.
-    pub fn guide_identity(&self, tree: &Tree) -> Option<Identity> {
-        let id = guide_id(self.spec.guide.as_ref()?)?;
+    /// The identity of the scale's axis or legend, when it has an id: the id, with the partition
+    /// values that every layer of the scale shares.
+    pub fn axis_or_legend_identity(&self, tree: &Tree) -> Option<Identity> {
+        let (id, _) = axis_or_legend_id(&self.spec)?;
         let partitions: Vec<BTreeMap<String, ArrayRef>> = (self.members.iter())
             .map(|member| tree.layers[member.layer].partition.clone())
             .collect();
@@ -530,26 +530,20 @@ impl ScaleGroup {
         })
     }
 
-    /// The path of the guide of the first encoding whose spec gives the guide its id, such as
-    /// `root.plot.cartesian.layers[0].mark.bar.x.scale.guide.axis`.
-    fn guide_path(&self, tree: &Tree, id: &str) -> String {
+    /// The path of the axis or the legend of the first encoding whose spec gives it its id, such
+    /// as `root.plot.cartesian.layers[0].bar.x.scale.axis`.
+    fn axis_or_legend_path(&self, tree: &Tree, id: &str) -> String {
         (self.members.iter())
             .find_map(|member| {
                 let layer = &tree.layers[member.layer];
-                let guide = layer
-                    .mark
-                    .encoding(member.channel)?
-                    .scale
-                    .as_ref()?
-                    .guide
-                    .as_ref()?;
-                (guide_id(guide)? == id).then(|| {
+                let spec = layer.mark.encoding(member.channel)?.scale.as_ref()?;
+                let (found, field) = axis_or_legend_id(spec)?;
+                (found == id).then(|| {
                     format!(
-                        "{}.mark.{}.{}.scale.guide.{}",
+                        "{}.{}.{}.scale.{field}",
                         layer.path,
                         layer.mark.name(),
                         member.channel.field_name(),
-                        guide_name(guide),
                     )
                 })
             })
@@ -572,27 +566,14 @@ impl ScaleGroup {
     }
 }
 
-/// The id of a guide, when it has one.
-fn guide_id(guide: &proto::Guide) -> Option<&str> {
-    let id = match guide.guide.as_ref()? {
-        proto::guide::Guide::Axis(axis) => &axis.id,
-        proto::guide::Guide::PolarAxis(axis) => &axis.id,
-        proto::guide::Guide::Legend(legend) => &legend.id,
-        proto::guide::Guide::Colorbar(colorbar) => &colorbar.id,
-        proto::guide::Guide::None(_) => return None,
+/// The id of a scale's axis or legend, when it has one, with the name of the field that holds it.
+fn axis_or_legend_id(spec: &proto::Scale) -> Option<(&str, &'static str)> {
+    let (id, field) = match (&spec.axis, &spec.legend) {
+        (Some(axis), _) => (&axis.id, "axis"),
+        (None, Some(legend)) => (&legend.id, "legend"),
+        (None, None) => return None,
     };
-    (!id.is_empty()).then_some(id.as_str())
-}
-
-/// The name of the member of a guide's oneof, such as `axis`.
-fn guide_name(guide: &proto::Guide) -> &'static str {
-    match guide.guide {
-        Some(proto::guide::Guide::Axis(_)) => "axis",
-        Some(proto::guide::Guide::PolarAxis(_)) => "polar_axis",
-        Some(proto::guide::Guide::Legend(_)) => "legend",
-        Some(proto::guide::Guide::Colorbar(_)) => "colorbar",
-        Some(proto::guide::Guide::None(_)) | None => "none",
-    }
+    (!id.is_empty()).then_some((id.as_str(), field))
 }
 
 /// An encoding of a scale group: the channel of a layer, and where its part of the domain comes
@@ -876,15 +857,15 @@ pub struct Resolved<'a> {
 }
 
 /// The models of `chart`, whose messages are each valid, from its tree. It fails for a chart whose
-/// shared scales, projections, or tracks conflict, and for a guide whose identity is another
-/// part's.
+/// shared scales, projections, or tracks conflict, and for an axis or a legend whose identity is
+/// another part's.
 pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resolved<'a>> {
     let scales = groups(chart, &tree)?;
     check_groups(&tree, &scales)?;
     let guides: Vec<(Identity, String)> = (scales.iter())
         .filter_map(|group| {
-            let identity = group.guide_identity(&tree)?;
-            let path = group.guide_path(&tree, &identity.id);
+            let identity = group.axis_or_legend_identity(&tree)?;
+            let path = group.axis_or_legend_path(&tree, &identity.id);
             Some((identity, path))
         })
         .collect();
@@ -1013,7 +994,7 @@ pub struct WidgetGroup {
     /// The identity of the anchor of the group, or `None` for a group that anchors at the root. A
     /// clause of the widget names the anchor as its owner and its partition.
     pub anchor: Option<Identity>,
-    /// The path of the innermost node that holds every layer of the group, whose guide rules decide
+    /// The path of the innermost node that holds every layer of the group, whose part rules decide
     /// how many times the widget draws.
     pub owner: String,
 }

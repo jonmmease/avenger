@@ -7,8 +7,9 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/attribution.proto";
+import "avenger/chart/v1/element.proto";
 import "avenger/chart/v1/facet.proto";
-import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/part.proto";
 import "avenger/chart/v1/partition.proto";
 import "avenger/chart/v1/plot.proto";
 import "avenger/chart/v1/resolve.proto";
@@ -48,7 +49,7 @@ import "avenger/chart/v1/tool.proto";
 //
 // A chart can be written in more than one way where the schema cannot rule the other ways out, and
 // the comments say how a reader reads each way. Several repeated fields are keyed, by a name, a
-// column, a channel, a guide part, or an owner, as their comments say: their entries come in any
+// column, a channel, a part, or an owner, as their comments say: their entries come in any
 // order, two equal entries with one key count as one, and two different entries with one key are a
 // conflict, which a reader rejects. The writer of avenger-chart writes one way of each chart, so it
 // encodes equal charts to equal bytes, unless their Arrow data holds equal values in different
@@ -58,14 +59,14 @@ import "avenger/chart/v1/tool.proto";
 // A chart that breaks a rule of the format is invalid, and a reader rejects it, as it rejects a
 // conflict. A reader ignores a field only where a comment says so. These break a rule:
 //
-// - a field or a oneof that a comment marks as required, and is absent
-// - an empty list where a comment asks for at least one entry
+// - a field or a oneof that the `required` or `required_oneof` option of `annotation.proto` marks,
+//   and is absent: a message, a `ValueRef`, or a member of a oneof that is absent, a string or a
+//   list that is empty, or an enum that holds its zero value
 // - a `TableRef` or a `ValueRef` past the end of its list
 // - a column or a value of an Arrow type that is invalid for its field
 // - a name of a selection that the chart does not define
-// - a guide, a fit, or a tool of a kind that a comment says is invalid on its scale or its plot
-// - a value of an enum that the `invalid` option of `annotation.proto` marks, such as
-//   `SHARING_UNSPECIFIED`
+// - an axis, a legend, a fit, or a tool of a kind that a comment says is invalid on its scale or
+//   its plot
 //
 // A field is absent when its message holds no value for it: a message field, a oneof, or an
 // `optional` field that holds nothing, or a plain field that holds its default, which is 0, the
@@ -101,8 +102,8 @@ message Chart {
   // The data tables of the chart, and the `table` of a layer refers to a table by its position in
   // this list. Layers can share one entry or refer to equal copies of a table.
   repeated Table tables = 2;
-  // The root of the tree. Required.
-  Node root = 3;
+  // The root of the tree.
+  Node root = 3 [(avenger.chart.v1.required) = true];
   // The selections of the chart, keyed by name, but two selections with one name are not a
   // conflict: they join into one selection, whose initial clauses are those of both. Their
   // resolutions must be equal.
@@ -130,21 +131,22 @@ message Chart {
   // Standard 35, such as `yyyy-MM-dd`.
   string datetime_format_syntax = 7;
   // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
-  // it draws in, with every plot, guide, gap, and title inside it. A host that draws the chart at a
-  // size of its own, such as a window or a tile of a dashboard, uses that size instead. When
-  // absent, the chart's natural width applies: the widths of its plots, as `Plot.width` describes,
-  // with what stands around them and the padding, where a plot without a `width` counts at the plot
-  // width that the styles give.
+  // it draws in, with every plot, axis, legend, gap, and title inside it. A host that draws the
+  // chart at a size of its own, such as a window or a tile of a dashboard, uses that size instead.
+  // When absent, the chart's natural width applies: the widths of its plots, as `Plot.width`
+  // describes, with what stands around them and the padding, where a plot without a `width` counts
+  // at the plot width that the styles give.
   //
-  // The plots without a `width` share what the padding, the plots with one, the guides, the gaps,
-  // and the titles leave. When the plots with a `width` need more than the chart's width, they keep
-  // their widths, and the chart draws past its width. When they need less and nothing shares the
-  // rest, the space that is left stays after them, unless the outermost concat distributes it.
+  // The plots without a `width` share what the padding, the plots with one, the axes and legends,
+  // the gaps, and the titles leave. When the plots with a `width` need more than the chart's width,
+  // they keep their widths, and the chart draws past its width. When they need less and nothing
+  // shares the rest, the space that is left stays after them, unless the outermost concat
+  // distributes it.
   optional float width = 8;
   // The outer height of the chart, in pixels, as for `width`.
   optional float height = 9;
-  // The space between the edges of the chart's canvas and what it draws, inside its outer size:
-  // the plots, the guides, and the titles fill the canvas less the padding, and the chart's
+  // The space between the edges of the chart's canvas and what it draws, inside its outer size: the
+  // plots, the axes and legends, and the titles fill the canvas less the padding, and the chart's
   // natural size includes it.
   Padding padding = 10;
 }
@@ -173,17 +175,19 @@ message Table {
 }
 
 // A node of the tree. Its id, when it has one, and its partition identify it, and the same holds
-// for a layer, a guide, and a facet header, whose ids share one namespace with the nodes': two of
-// them with one id and one partition are a conflict, whatever their kinds, but two with one id and
-// different partitions are not, so the charts of the facets of one table can give their plots one
-// id. The partition of a guide holds the values that every layer of its scale shares, and the
-// partition of a facet header is its concat's or its wrap's. A clause names the plot or the layer that wrote it by both, and an app carries the
-// views and the selections of a plot to a new chart by both, so the plot of a facet keeps them
-// when a new query reorders the facets or drops some of them. A plot or a layer without an id is
-// named by its path in the tree. An id holds no NUL character, which the name of the owner of a
-// widget's clause begins with in a selection state, so that name equals no id.
+// for a layer, an axis, a legend, and a facet header, whose ids share one namespace with the
+// nodes': two of them with one id and one partition are a conflict, whatever their kinds, but two
+// with one id and different partitions are not, so the charts of the facets of one table can give
+// their plots one id. The partition of an axis or a legend holds the values that every layer of its
+// scale shares, and the partition of a facet header is its concat's or its wrap's. A clause names
+// the plot or the layer that wrote it by both, and an app carries the views and the selections of a
+// plot to a new chart by both, so the plot of a facet keeps them when a new query reorders the
+// facets or drops some of them. A plot or a layer without an id is named by its path in the tree.
+// An id holds no NUL character, which the name of the owner of a widget's clause begins with in a
+// selection state, so that name equals no id.
 message Node {
   oneof node {
+    option (avenger.chart.v1.required_oneof) = true;
     Plot plot = 1;
     Concat concat = 2;
     Wrap wrap = 3;
@@ -248,8 +252,9 @@ message Plot {
   optional float width = 7;
   // The height of the plot's area, in pixels, as for `width`.
   optional float height = 8;
-  // The coordinate system, with its options and the layers that draw into it. Required.
+  // The coordinate system, with its options and the layers that draw into it.
   oneof coord {
+    option (avenger.chart.v1.required_oneof) = true;
     CartesianPlot cartesian = 10;
     PolarPlot polar = 11;
     GeoPlot geo = 12;
@@ -264,7 +269,7 @@ message Concat {
   // An id, or empty, as for a plot.
   string id = 1;
   // Whether the children stand in a row or in a column.
-  Direction direction = 2;
+  Direction direction = 2 [(avenger.chart.v1.required) = true];
   // Nodes of any kind.
   repeated Node children = 3;
   // Rules for the channels whose sharing differs from the default of a concat, in which `x`, `y`,
@@ -278,7 +283,7 @@ message Concat {
   // The sharing of the projections of the map plots below the concat. When absent, each child has
   // its own projection, or with a facet, the children share one. Map plots that share a projection
   // fit one view and get equal sizes, so a place lands at the same position in each of them.
-  optional Sharing projection = 7;
+  Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 8;
   // The partition column that the children split, and the header that labels them. A concat with
@@ -290,8 +295,8 @@ message Concat {
 }
 
 enum Direction {
-  // Not valid.
-  DIRECTION_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  DIRECTION_UNSPECIFIED = 0;
   // Side by side, from left to right.
   DIRECTION_ROW = 1;
   // One above another, from top to bottom.
@@ -314,15 +319,15 @@ message ConcatLayout {
   // one track of the table take the largest, as `Plot.width` describes, and the shares that concats
   // give one track must be equal.
   repeated Track tracks = 2;
-  // Rules for the guide parts whose rule differs from the default, keyed by part. The default
-  // collapses the ticks and the labels of an axis, merges the title of an axis, legends, colorbars,
-  // attributions, and widgets, and collapses the labels and the title of a facet header. The rules
-  // apply to the guides of the scales that the concat owns: the scales that it shares, and the share
+  // Rules for the parts whose rule differs from the default, keyed by part. The default collapses
+  // the ticks and the labels of an axis, merges the title of an axis, legends, attributions, and
+  // widgets, and collapses the labels and the title of a facet header. The rules apply to the axes
+  // and legends of the scales that the concat owns: the scales that it shares, and the share
   // families whose layers are all below it. The rules for widgets apply to the widgets whose groups
   // the concat holds, as `Widget` describes. The rules for the parts of facet headers and for
   // attributions apply to the headers of the facets and to the attributions of the plots below the
   // concat.
-  repeated GuideRule guide_rules = 3;
+  repeated PartRule part_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a
   // share at its maximum. It applies only to the outermost concat of a table, because it sizes the
@@ -357,7 +362,7 @@ message Wrap {
   Title title = 5;
   // The sharing of the projections of the map plots below the wrap, as for a concat. When absent,
   // each child has its own projection, or with a facet, the children share one.
-  optional Sharing projection = 6;
+  Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;
   // The partition column that the children split, and the header that labels each child. A wrap
@@ -379,10 +384,10 @@ message WrapLayout {
   Track row = 3;
   // The space between columns and between rows, in pixels.
   optional float gap = 4;
-  // Rules for the guide parts whose rule differs from the default, as for a concat, except that
+  // Rules for the parts whose rule differs from the default, as for a concat, except that
   // the default merges the title of a facet header, because each child has a header of its own.
   // Collapse runs along the columns and the rows of the wrap.
-  repeated GuideRule guide_rules = 5;
+  repeated PartRule part_rules = 5;
   // Where the wrap puts the height that its rows leave. Its columns fill its width.
   Distribute distribute = 6;
 }
@@ -422,44 +427,4 @@ enum Distribute {
   DISTRIBUTE_SPACE_AROUND = 5;
   // The same length in every gap, before the first track, and after the last.
   DISTRIBUTE_SPACE_EVENLY = 6;
-}
-
-// A title of a node: its text, with an optional subtitle after it, on one side of the node. A title
-// runs along the whole side of the node's box, over the slabs of its guides, and a title at the
-// bottom serves as a caption. A style field that is absent takes its value from the styles.
-message Title {
-  // The text, in the syntax of `syntax`.
-  string text = 1;
-  // When absent, the styles give it.
-  TitleSide side = 2;
-  // How the text engine reads the text and the subtitle.
-  TextSyntax syntax = 3;
-  // The style of the text.
-  TextStyle style = 4;
-  // A line of text after the text, such as the units or the period of the data, or empty for no
-  // subtitle.
-  string subtitle = 5;
-  // The style of the subtitle.
-  TextStyle subtitle_style = 6;
-  // Where the title stands along its side. When absent, the styles give it.
-  TitleAlign align = 7;
-}
-
-enum TitleSide {
-  // Absent, so the styles give the side.
-  TITLE_SIDE_UNSPECIFIED = 0;
-  TITLE_SIDE_TOP = 1;
-  TITLE_SIDE_LEFT = 2;
-  TITLE_SIDE_RIGHT = 3;
-  TITLE_SIDE_BOTTOM = 4;
-}
-
-// A place along a side, in the direction that the title reads: from the left of a title at the
-// top or the bottom, up a title on the left, and down a title on the right.
-enum TitleAlign {
-  // Absent, so the styles give the alignment.
-  TITLE_ALIGN_UNSPECIFIED = 0;
-  TITLE_ALIGN_START = 1;
-  TITLE_ALIGN_CENTER = 2;
-  TITLE_ALIGN_END = 3;
 }

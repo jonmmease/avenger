@@ -47,6 +47,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         "Axis",
         &[
             "title",
+            "show_title",
             "side",
             "labels",
             "show_labels",
@@ -54,49 +55,46 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "label_align",
             "label_baseline",
             "ticks",
+            "show_ticks",
             "domain_color",
+            "show_domain",
             "grid",
+            "show_grid",
             "levels",
         ],
     ),
     ("NestedAxisLevel", &["show_labels", "label_angle"]),
-    ("GuideTitle", &["style"]),
-    ("GuideLabels", &["style"]),
-    ("GuideTicks", &["count", "length", "color"]),
-    ("GuideGrid", &["show", "color", "width"]),
+    ("Labels", &["style"]),
+    ("Ticks", &["count", "length", "color"]),
+    ("Grid", &["color", "width"]),
     (
         "Legend",
         &[
             "title",
+            "show_title",
             "labels",
+            "show_labels",
+            "label_angle",
             "side",
+            "background",
             "wrap",
             "label_padding",
             "column_gap",
             "row_gap",
-            "background",
             "tick_count",
-        ],
-    ),
-    ("LegendGrid", &["columns"]),
-    (
-        "Colorbar",
-        &["axis", "thickness", "axis_gap", "background", "max_length"],
-    ),
-    (
-        "ColorbarAxis",
-        &[
-            "title",
-            "side",
-            "labels",
-            "show_labels",
-            "label_angle",
+            "show_swatches",
+            "thickness",
+            "axis_gap",
+            "max_length",
             "label_align",
             "label_baseline",
             "ticks",
+            "show_ticks",
             "domain_color",
+            "show_domain",
         ],
     ),
+    ("LegendGrid", &["columns"]),
     (
         "Attribution",
         &[
@@ -429,7 +427,7 @@ pub(crate) struct AxisNodes {
     pub(crate) levels: Vec<(NodeId, NodeId)>,
 }
 
-/// The fields that an `Axis` and a `ColorbarAxis` share, on the axis's node and its parts.
+/// The fields that an `Axis` and the axis of a colorbar share, on the axis's node and its parts.
 #[allow(clippy::too_many_arguments)]
 fn axis_fields(
     tree: &mut Styled,
@@ -452,7 +450,10 @@ fn axis_fields(
         label,
         fields.labels.and_then(|labels| labels.style.as_ref()),
     );
+    shown(tree, title, fields.show_title);
     shown(tree, label, fields.show_labels);
+    shown(tree, tick, fields.show_ticks);
+    shown(tree, rule, fields.show_domain);
     keyword(
         tree,
         label,
@@ -466,7 +467,7 @@ fn axis_fields(
         vertical_align(fields.label_baseline),
     );
     if let Some(ticks) = fields.ticks {
-        if let Some(proto::guide_ticks::At::Count(count)) = ticks.at {
+        if let Some(proto::ticks::At::Count(count)) = ticks.at {
             set(tree, axis, Property::TickCount, &count.to_string());
         }
         px(tree, tick, Property::TickSize, ticks.length);
@@ -475,16 +476,19 @@ fn axis_fields(
     color(tree, rule, Property::Stroke, fields.domain_color);
 }
 
-/// The fields of an axis that the two kinds of axes share.
+/// The fields of an axis that an `Axis` and the axis of a colorbar share.
 struct AxisFields<'a> {
     side: i32,
-    title: Option<&'a proto::GuideTitle>,
-    labels: Option<&'a proto::GuideLabels>,
+    title: Option<&'a proto::Title>,
+    show_title: Option<bool>,
+    labels: Option<&'a proto::Labels>,
     show_labels: Option<bool>,
+    show_ticks: Option<bool>,
+    show_domain: Option<bool>,
     label_angle: Option<f32>,
     label_align: i32,
     label_baseline: i32,
-    ticks: Option<&'a proto::GuideTicks>,
+    ticks: Option<&'a proto::Ticks>,
     domain_color: &'a str,
 }
 
@@ -500,17 +504,23 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
         AxisFields {
             side: axis.side,
             title: axis.title.as_ref(),
+            show_title: axis.show_title,
             labels: axis.labels.as_ref(),
             show_labels: axis.show_labels,
-            label_angle: axis.label_angle,
+            show_ticks: axis.show_ticks,
+            show_domain: axis.show_domain,
+            label_angle: match axis.label_turn {
+                Some(proto::axis::LabelTurn::LabelAngle(angle)) => Some(angle),
+                _ => None,
+            },
             label_align: axis.label_align,
             label_baseline: axis.label_baseline,
             ticks: axis.ticks.as_ref(),
             domain_color: &axis.domain_color,
         },
     );
+    shown(tree, nodes.grid, axis.show_grid);
     if let Some(grid) = &axis.grid {
-        shown(tree, nodes.grid, grid.show);
         color(tree, nodes.grid, Property::Stroke, &grid.color);
         px(tree, nodes.grid, Property::StrokeWidth, grid.width);
     }
@@ -550,6 +560,10 @@ pub(crate) fn legend(tree: &mut Styled, nodes: &LegendNodes, legend: &proto::Leg
     if let Some(proto::legend::Entries::TickCount(count)) = legend.entries {
         set(tree, node, Property::TickCount, &count.to_string());
     }
+    deg(tree, node, Property::LabelAngle, legend.label_angle);
+    shown(tree, nodes.title, legend.show_title);
+    shown(tree, nodes.label, legend.show_labels);
+    shown(tree, nodes.swatch, legend.show_swatches);
     text_style(
         tree,
         nodes.title,
@@ -576,33 +590,34 @@ pub(crate) struct ColorbarNodes {
     pub(crate) rule: NodeId,
 }
 
-/// A `Colorbar` on its nodes.
-pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, colorbar: &proto::Colorbar) {
-    px(tree, nodes.ramp, Property::Thickness, colorbar.thickness);
-    px(tree, nodes.ramp, Property::MaxLength, colorbar.max_length);
-    px(tree, nodes.legend, Property::AxisGap, colorbar.axis_gap);
-    background(tree, nodes.legend, colorbar.background.as_ref());
-    if let Some(axis) = &colorbar.axis {
-        axis_fields(
-            tree,
-            nodes.legend,
-            nodes.title,
-            nodes.label,
-            nodes.tick,
-            nodes.rule,
-            AxisFields {
-                side: axis.side,
-                title: axis.title.as_ref(),
-                labels: axis.labels.as_ref(),
-                show_labels: axis.show_labels,
-                label_angle: axis.label_angle,
-                label_align: axis.label_align,
-                label_baseline: axis.label_baseline,
-                ticks: axis.ticks.as_ref(),
-                domain_color: &axis.domain_color,
-            },
-        );
-    }
+/// A `Legend` in the form of a colorbar on its nodes.
+pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto::Legend) {
+    px(tree, nodes.ramp, Property::Thickness, legend.thickness);
+    px(tree, nodes.ramp, Property::MaxLength, legend.max_length);
+    px(tree, nodes.legend, Property::AxisGap, legend.axis_gap);
+    background(tree, nodes.legend, legend.background.as_ref());
+    axis_fields(
+        tree,
+        nodes.legend,
+        nodes.title,
+        nodes.label,
+        nodes.tick,
+        nodes.rule,
+        AxisFields {
+            side: legend.side,
+            title: legend.title.as_ref(),
+            show_title: legend.show_title,
+            labels: legend.labels.as_ref(),
+            show_labels: legend.show_labels,
+            show_ticks: legend.show_ticks,
+            show_domain: legend.show_domain,
+            label_angle: legend.label_angle,
+            label_align: legend.label_align,
+            label_baseline: legend.label_baseline,
+            ticks: legend.ticks.as_ref(),
+            domain_color: &legend.domain_color,
+        },
+    );
 }
 
 /// An `Attribution` on its `attribution` node.

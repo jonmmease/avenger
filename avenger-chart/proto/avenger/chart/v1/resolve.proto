@@ -10,23 +10,24 @@ import "avenger/chart/v1/channel.proto";
 // The sharing of one channel, or of the copies of one widget, among the layers of a plot, or among
 // the children of a concat or a wrap. An inner independent rule wins over an outer shared rule.
 message Resolve {
-  // What the rule shares. Required.
+  // What the rule shares.
   oneof key {
+    option (avenger.chart.v1.required_oneof) = true;
     // A channel that can take a scale: not `x2`, `y2`, `theta2`, and `radius2`, which follow `x`,
     // `y`, `theta`, and `radius`, and not `longitude`, `latitude`, `longitude2`, `latitude2`,
     // `geometry`, `text`, `image`, `path`, and `detail`.
-    Channel channel = 1;
+    Channel channel = 1 [(avenger.chart.v1.required) = true];
     // The key of a widget, as `Widget` describes, not empty. The copies of a key are shared by
     // default on plots, concats, and wraps, with or without a facet.
-    string widget = 3;
+    string widget = 3 [(avenger.chart.v1.required) = true];
   }
   // Whether the channel's scale, or the widget, is shared.
-  Sharing sharing = 2;
+  Sharing sharing = 2 [(avenger.chart.v1.required) = true];
 }
 
 enum Sharing {
-  // Not valid.
-  SHARING_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent, so the field's default applies. A resolve rule's sharing is required.
+  SHARING_UNSPECIFIED = 0;
   // One scale, or one widget, for every layer below the node.
   SHARING_SHARED = 1;
   // One scale, or one widget, for each layer of a plot, or for each child of a concat or a wrap.

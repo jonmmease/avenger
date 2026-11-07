@@ -21,47 +21,32 @@ fn grays(evaluated: &EvaluatedChart) -> Vec<bool> {
 fn a_condition_grays_the_rows_outside_a_brush() {
     // The cars, gray outside the brush, in a plot `plot` with a box of the brush.
     let brushed = |initial: Vec<ClauseBuilder>| {
-        let color = Encoding::scaled_column("origin").conditional([ConditionalValue::constant(
+        let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
+            Predicate::negate(Predicate::selected("brush")),
             "lightgray",
-        )
-        .predicate(Predicate::negate(Predicate::selected(
-            Selected::builder().selection("brush"),
-        )))]);
+        )]);
         let symbols = CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
-                .color(color),
+            cars(),
+            SymbolMark::builder().x("weight").y("mpg").color(color),
         )
-        .table(cars())
         .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let plot = Plot::cartesian([symbols])
             .id("plot")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let brush = Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Union)
-            .initial(initial);
-        Chart::builder()
-            .root(plot)
-            .selections([brush])
-            .infer_scales()
-            .build()
-            .unwrap()
+            .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let brush = Selection::new("brush", SelectionResolution::Union).initial(initial);
+        Chart::builder(plot).selections([brush]).build().unwrap()
     };
 
     let without = brushed(Vec::new());
     let evaluated = render(&without, [320.0, 240.0], "condition-without-brush");
     assert!(grays(&evaluated).iter().all(|gray| !gray));
 
-    let with = brushed(vec![Clause::builder().owner("plot").conditions([
-        ValueRange::builder()
-            .column("weight")
-            .channel(Channel::X)
-            .low(2500.0)
-            .high(3500.0),
-    ])]);
+    let with = brushed(vec![Clause::new([ValueRange::new("weight")
+        .channel(Channel::X)
+        .low(2500.0)
+        .high(3500.0)])
+    .owner("plot")]);
     let evaluated = render(&with, [320.0, 240.0], "condition-with-brush");
     let grays = grays(&evaluated);
     assert!(grays.iter().any(|gray| *gray) && grays.iter().any(|gray| !gray));
@@ -72,40 +57,27 @@ fn a_cyclic_range_selects_across_its_wrap() {
     // The gray rows of the cars, gray outside the brush, whose plot `plot` has a clause of a
     // cyclic range of the weights.
     let rows = |start: f64, end: f64, period: f64| {
-        let color = Encoding::scaled_column("origin").conditional([ConditionalValue::constant(
+        let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
+            Predicate::negate(Predicate::selected("brush")),
             "lightgray",
-        )
-        .predicate(Predicate::negate(Predicate::selected(
-            Selected::builder().selection("brush"),
-        )))]);
+        )]);
         let symbols = CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
-                .color(color),
+            cars(),
+            SymbolMark::builder().x("weight").y("mpg").color(color),
         )
-        .table(cars())
         .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let plot = Plot::cartesian([symbols])
             .id("plot")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let brush = Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Union)
-            .initial([Clause::builder()
-                .owner("plot")
-                .conditions([CyclicRange::builder()
-                    .column("weight")
-                    .start(start)
-                    .end(end)
-                    .period(period)])]);
-        let chart = Chart::builder()
-            .root(plot)
-            .selections([brush])
-            .infer_scales()
-            .build()
-            .unwrap();
+            .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let brush = Selection::new("brush", SelectionResolution::Union).initial([Clause::new([
+            CyclicRange::new("weight")
+                .start(start)
+                .end(end)
+                .period(period),
+        ])
+        .owner("plot")]);
+        let chart = Chart::builder(plot).selections([brush]).build().unwrap();
         grays(&evaluate(&chart, [320.0, 240.0]))
     };
 
@@ -129,47 +101,34 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
     let rows = |resolution: SelectionResolution,
                 predicate: SelectedBuilder,
                 initial: Vec<ClauseBuilder>| {
-        let color = Encoding::scaled_column("origin")
-            .conditional([ConditionalValue::constant("lightgray")
-                .predicate(Predicate::negate(Predicate::selected(predicate)))]);
+        let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
+            Predicate::negate(Predicate::selected(predicate)),
+            "lightgray",
+        )]);
         let symbols = CartesianLayer::symbol(
-            SymbolMark::builder()
-                .x(Encoding::scaled_column("weight"))
-                .y(Encoding::scaled_column("mpg"))
-                .color(color),
+            cars(),
+            SymbolMark::builder().x("weight").y("mpg").color(color),
         )
-        .table(cars())
         .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let plot = Plot::cartesian([symbols])
             .id("plot")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let brush = Selection::builder()
-            .name("brush")
-            .resolution(resolution)
-            .initial(initial);
-        let chart = Chart::builder()
-            .root(plot)
-            .selections([brush])
-            .infer_scales()
-            .build()
-            .unwrap();
+            .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let brush = Selection::new("brush", resolution).initial(initial);
+        let chart = Chart::builder(plot).selections([brush]).build().unwrap();
         grays(&evaluate(&chart, [320.0, 240.0]))
     };
     let predicate = |empty_selects_none: bool, exclude_own: bool| {
-        Selected::builder()
-            .selection("brush")
+        Selected::new("brush")
             .empty_selects_none(empty_selects_none)
             .exclude_own(exclude_own)
     };
     let weights_between = |owner: &str, low: f64, high: f64| {
-        Clause::builder()
-            .owner(owner)
-            .conditions([ValueRange::builder()
-                .column("weight")
-                .channel(Channel::X)
-                .low(low)
-                .high(high)])
+        Clause::new([ValueRange::new("weight")
+            .channel(Channel::X)
+            .low(low)
+            .high(high)])
+        .owner(owner)
     };
 
     // Without clauses, a predicate selects every row, or none when it says so.
@@ -221,37 +180,22 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
 #[test]
 fn a_test_of_a_missing_column_selects_no_row_and_warns() {
     // A clause of the layer `points` that tests a column `price`, which the table lacks.
-    let color =
-        Encoding::scaled_column("origin").conditional([ConditionalValue::constant("lightgray")
-            .predicate(Predicate::negate(Predicate::selected(
-                Selected::builder().selection("brush"),
-            )))]);
+    let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
+        Predicate::negate(Predicate::selected("brush")),
+        "lightgray",
+    )]);
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(color),
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color(color),
     )
-    .table(cars())
     .id("points")
-    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+    .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let plot = Plot::cartesian([symbols])
         .id("plot")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let brush = Selection::builder()
-        .name("brush")
-        .resolution(SelectionResolution::Union)
-        .initial([Clause::builder()
-            .owner("points")
-            .conditions([Condition::set([SetColumn::builder()
-                .column("price")
-                .values([1.0])])])]);
-    let chart = Chart::builder()
-        .root(plot)
-        .selections([brush])
-        .infer_scales()
-        .build()
-        .unwrap();
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let brush = Selection::new("brush", SelectionResolution::Union)
+        .initial([Clause::new([Condition::set([SetColumn::new("price", [1.0])])]).owner("points")]);
+    let chart = Chart::builder(plot).selections([brush]).build().unwrap();
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
     assert!(grays(&evaluated).iter().all(|gray| *gray));
@@ -264,42 +208,27 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
     // `plot` whose layer `points` also has a box of the brush.
     let chart = |initial: Vec<ClauseBuilder>| {
         let symbols = CartesianLayer::symbol(
+            cars(),
             SymbolMark::builder()
-                .x(Encoding::scaled_column("weight").scale(
-                    Scale::builder().domain(
-                        SelectionDomain::builder()
-                            .selection("brush")
-                            .channel(Channel::X)
-                            .data(DataDomain::builder()),
-                    ),
-                ))
-                .y(Encoding::scaled_column("mpg")),
+                .x(Encoding::scaled_field("weight").scale(Domain::selection(
+                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
+                )))
+                .y("mpg"),
         )
-        .table(cars())
         .id("points")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let plot = Plot::cartesian([symbols])
             .id("plot")
-            .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-        let brush = Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Union)
-            .initial(initial);
-        Chart::builder()
-            .root(plot)
-            .selections([brush])
-            .infer_scales()
-            .build()
-            .unwrap()
+            .tools([Select::interval("brush", IntervalSelect::builder())]);
+        let brush = Selection::new("brush", SelectionResolution::Union).initial(initial);
+        Chart::builder(plot).selections([brush]).build().unwrap()
     };
     let weights_between = |owner: &str, low: f64, high: f64| {
-        Clause::builder()
-            .owner(owner)
-            .conditions([ValueRange::builder()
-                .column("weight")
-                .channel(Channel::X)
-                .low(low)
-                .high(high)])
+        Clause::new([ValueRange::new("weight")
+            .channel(Channel::X)
+            .low(low)
+            .high(high)])
+        .owner(owner)
     };
 
     let fallback = domain(&evaluate(&chart(Vec::new()), [320.0, 240.0]), 0);
@@ -315,22 +244,16 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
 /// column, so the selected rows draw in its colors and the legend lists its categories.
 #[test]
 fn a_conditional_value_alone_fits_its_scales_domain() {
-    let color = Encoding::constant("lightgray")
-        .conditional([ConditionalValue::scaled_column("origin")
-            .predicate(Predicate::selected(Selected::builder().selection("brush")))]);
+    let color = Encoding::direct_value("lightgray").conditional([ConditionalValue::scaled_field(
+        Predicate::selected("brush"),
+        "origin",
+    )]);
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(color),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Global)])
-        .infer_scales()
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color(color),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols]))
+        .selections([Selection::new("brush", SelectionResolution::Global)])
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -356,43 +279,32 @@ fn a_conditional_value_alone_fits_its_scales_domain() {
 /// domain, which takes its fallback for both.
 #[test]
 fn a_union_open_at_both_ends_takes_the_fallback_domain() {
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight").scale(
-                Scale::builder().domain(
-                    SelectionDomain::builder()
-                        .selection("brush")
-                        .channel(Channel::X)
-                        .data(DataDomain::builder()),
-                ),
-            ))
-            .y(Encoding::scaled_column("mpg")),
-    )
-    .table(cars())
-    .id("points")
-    .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+    let symbols =
+        CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("weight").scale(Domain::selection(
+                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
+                )))
+                .y("mpg"),
+        )
+        .id("points")
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let plot = Plot::cartesian([symbols])
         .id("plot")
-        .tools([Select::interval(IntervalSelect::builder()).selection("brush")]);
+        .tools([Select::interval("brush", IntervalSelect::builder())]);
     let clause = |owner: &str, range: ValueRangeBuilder| {
-        Clause::builder()
-            .owner(owner)
-            .conditions([range.column("weight").channel(Channel::X)])
+        Clause::new([range.channel(Channel::X)]).owner(owner)
     };
     let chart = |initial: Vec<ClauseBuilder>| {
-        Chart::builder()
-            .root(plot.clone())
-            .selections([Selection::builder()
-                .name("brush")
-                .resolution(SelectionResolution::Union)
-                .initial(initial)])
-            .infer_scales()
+        Chart::builder(plot.clone())
+            .selections([Selection::new("brush", SelectionResolution::Union).initial(initial)])
             .build()
             .unwrap()
     };
     let open = chart(vec![
-        clause("plot", ValueRange::builder().high(3000.0)),
-        clause("points", ValueRange::builder().low(2500.0)),
+        clause("plot", ValueRange::new("weight").high(3000.0)),
+        clause("points", ValueRange::new("weight").low(2500.0)),
     ]);
     let x = |evaluated: &EvaluatedChart| {
         let [x, _] = evaluated.plots[0]

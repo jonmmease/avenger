@@ -11,7 +11,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::MarkType,
-    proto::{self, calendar_ticks, encoding, guide, guide_ticks, tick_interval, Channel},
+    proto::{self, calendar_ticks, encoding, tick_interval, ticks, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
     Chart,
 };
@@ -201,9 +201,9 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
         else {
             continue;
         };
-        let title = match (&encoding.title, &encoding.value) {
+        let title = match (&encoding.title, &encoding.kind) {
             (Some(title), _) => title.clone(),
-            (None, Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)))
+            (None, Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)))
                 if columns =>
             {
                 name.clone()
@@ -218,8 +218,8 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
 }
 
 /// The title of a guide: its own text, or the default title of its scale.
-fn guide_title(title: Option<&proto::GuideTitle>, default: impl FnOnce() -> String) -> String {
-    match title.and_then(|title| title.text.clone()) {
+fn guide_title(title: Option<&proto::Title>, default: impl FnOnce() -> String) -> String {
+    match title.map(|title| title.text.clone()) {
         Some(text) => text,
         None => default(),
     }
@@ -229,22 +229,14 @@ fn guide_title(title: Option<&proto::GuideTitle>, default: impl FnOnce() -> Stri
 // Axes
 
 fn axis_spec(group: &ScaleGroup) -> proto::Axis {
-    match group
-        .spec
-        .guide
-        .as_ref()
-        .and_then(|guide| guide.guide.as_ref())
-    {
-        Some(guide::Guide::Axis(axis)) => axis.clone(),
-        _ => proto::Axis::default(),
-    }
+    group.spec.axis.clone().unwrap_or_default()
 }
 
-/// The ticks of a `GuideTicks` in place of the scale's: a list of values or an interval.
-fn ticks(chart: &Chart, ticks: Option<&proto::GuideTicks>) -> Option<AxisTicks> {
+/// The ticks of a `Ticks` in place of the scale's: a list of values or an interval.
+fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
     match ticks?.at.as_ref()? {
-        guide_ticks::At::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
-        guide_ticks::At::Interval(interval) => match interval.interval.as_ref()? {
+        ticks::At::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
+        ticks::At::Interval(interval) => match interval.interval.as_ref()? {
             tick_interval::Interval::Numeric(numeric) => {
                 Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
                     start: numeric.start,
@@ -266,7 +258,7 @@ fn ticks(chart: &Chart, ticks: Option<&proto::GuideTicks>) -> Option<AxisTicks> 
                 }))
             }
         },
-        guide_ticks::At::Count(_) => None,
+        ticks::At::Count(_) => None,
     }
 }
 
@@ -280,7 +272,7 @@ fn axis_style(
     tick: &ComputedStyle,
     rule: &ComputedStyle,
     grid: Option<&ComputedStyle>,
-    spec_ticks: Option<&proto::GuideTicks>,
+    spec_ticks: Option<&proto::Ticks>,
     title_syntax: TextSyntaxMode,
 ) -> AxisStyle {
     let label_align = match label.keyword(Property::TextAlign) {
@@ -594,8 +586,8 @@ fn constant_value<'c>(
     channel: Channel,
 ) -> Option<&'c ArrayRef> {
     let encoding = mark.encoding(channel)?;
-    match &encoding.value {
-        Some(encoding::Value::Constant(value)) if encoding.conditional.is_empty() => {
+    match &encoding.kind {
+        Some(encoding::Kind::DirectValue(value)) if encoding.conditional.is_empty() => {
             Some(chart.value(value))
         }
         _ => None,
@@ -686,15 +678,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 pending.push(Pending::Colorbar(colorbar(inputs, index, group, scale)?));
             }
             Some(Some(GuideNodes::Legend(nodes))) => {
-                let spec = match group
-                    .spec
-                    .guide
-                    .as_ref()
-                    .and_then(|guide| guide.guide.as_ref())
-                {
-                    Some(guide::Guide::Legend(legend)) => legend.clone(),
-                    _ => proto::Legend::default(),
-                };
+                let spec = group.spec.legend.clone().unwrap_or_default();
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
@@ -1000,16 +984,7 @@ fn colorbar(
         unreachable!("a colorbar has the nodes of one");
     };
     let styles = inputs.styles;
-    let spec = match group
-        .spec
-        .guide
-        .as_ref()
-        .and_then(|guide| guide.guide.as_ref())
-    {
-        Some(guide::Guide::Colorbar(colorbar)) => colorbar.clone(),
-        _ => proto::Colorbar::default(),
-    };
-    let axis_spec = spec.axis.clone().unwrap_or_default();
+    let axis_spec = group.spec.legend.clone().unwrap_or_default();
     let legend_style = &styles[nodes.legend];
     let side = side(legend_style);
     let style = axis_style(

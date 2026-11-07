@@ -10,7 +10,12 @@ use arrow::array::{
 };
 use prost::bytes::Bytes;
 
-use crate::{codec::list_value, proto, ChartError};
+use crate::{
+    codec::list_value,
+    proto,
+    validate::{is_position, scaled, scales_numbers, scales_strings, takes_scale},
+    ChartError, MarkMessage,
+};
 
 /// A value of a field that takes a `ValueRef`: an array of one element, such as a scalar or a list.
 #[derive(Clone, Debug)]
@@ -105,6 +110,74 @@ impl<T: ListItem, const N: usize> IntoValue for [T; N] {
 impl<T: ListItem + Clone> IntoValue for &[T] {
     fn into_value(self) -> Value {
         Value::list(T::array(self.to_vec()))
+    }
+}
+
+/// The values that the setter of an encoding of a channel takes: an [`EncodingBuilder`], an
+/// [`Encoding`], a string, which names a column, or a number or a bool, which is one value.
+///
+/// A string is a `scaled_field` on a channel that has a scale or follows the scale of its partner,
+/// such as `x`, `color`, or `x2`, and a `direct_field` on a channel of direct values, such as
+/// `text` or `longitude`, as the `channel_scale` option of the channel's value in `channel.proto`
+/// says. A number is a `scaled_value` on a position of a coordinate system with a scale, a data
+/// value such as the place of a reference line on `x`, and a `direct_value` on any other channel,
+/// which the mark draws as it is, such as a size of `100.0`, as the `position` option says. A bool
+/// is a direct value. A direct number on a position is `Encoding::direct_value(..)`, a data value
+/// on another channel is `Encoding::scaled_value(..)`, and a string constant, such as a CSS color,
+/// is `Encoding::direct_value(..)`.
+///
+/// [`EncodingBuilder`]: crate::proto::EncodingBuilder
+/// [`Encoding`]: crate::proto::Encoding
+pub trait IntoEncoding {
+    /// The encoding of `channel`.
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder;
+}
+
+impl IntoEncoding for proto::EncodingBuilder {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
+        self
+    }
+}
+
+impl IntoEncoding for proto::Encoding {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
+        self.into()
+    }
+}
+
+impl IntoEncoding for &str {
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+        match scales_strings(channel) {
+            true => proto::Encoding::scaled_field(self),
+            false => proto::Encoding::direct_field(self),
+        }
+    }
+}
+
+impl IntoEncoding for String {
+    fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+        self.as_str().into_encoding(channel)
+    }
+}
+
+macro_rules! numbers {
+    ($($rust:ty),* $(,)?) => {$(
+        impl IntoEncoding for $rust {
+            fn into_encoding(self, channel: proto::Channel) -> proto::EncodingBuilder {
+                match scales_numbers(channel) {
+                    true => proto::Encoding::scaled_value(self),
+                    false => proto::Encoding::direct_value(self),
+                }
+            }
+        }
+    )*};
+}
+
+numbers!(f64, f32, i64, i32, u32);
+
+impl IntoEncoding for bool {
+    fn into_encoding(self, _channel: proto::Channel) -> proto::EncodingBuilder {
+        proto::Encoding::direct_value(self)
     }
 }
 
@@ -249,3 +322,86 @@ pub(crate) trait Build {
 pub(crate) trait Renumber {
     fn renumber(&mut self, values: u32, tables: u32);
 }
+
+/// Hides the axis of `scale`, keeping its other fields.
+fn hide_axis(scale: &mut proto::Scale) {
+    scale.axis.get_or_insert_with(Default::default).show = Some(false);
+}
+
+/// Hides the legend of `scale`, keeping its other fields.
+fn hide_legend(scale: &mut proto::Scale) {
+    scale.legend.get_or_insert_with(Default::default).show = Some(false);
+}
+
+impl proto::ScaleBuilder {
+    /// Draws no axis for the scale: sets `axis.show` to `false`.
+    pub fn no_axis(mut self) -> Self {
+        hide_axis(&mut self.message);
+        self
+    }
+
+    /// Draws no legend for the scale: sets `legend.show` to `false`.
+    pub fn no_legend(mut self) -> Self {
+        hide_legend(&mut self.message);
+        self
+    }
+}
+
+impl proto::EncodingBuilder {
+    /// Draws no axis for the encoding's scale: sets `axis.show` of its scale to `false`, and
+    /// gives the encoding a scale when it has none, whose type and domain the reader infers. The
+    /// encoding has a scaled value, as every encoding with a scale does.
+    pub fn no_axis(mut self) -> Self {
+        hide_axis(self.message.scale.get_or_insert_with(Default::default));
+        self
+    }
+
+    /// Draws no legend for the encoding's scale, as [`no_axis`](Self::no_axis) draws no axis.
+    pub fn no_legend(mut self) -> Self {
+        hide_legend(self.message.scale.get_or_insert_with(Default::default));
+        self
+    }
+}
+
+/// Hides the axes and the legends of the scales of the encodings of `mark`: the axis of each
+/// scaled position and the legend of each other scaled channel with a scale of its own.
+fn hide_guides(mark: &mut dyn MarkMessage) {
+    for channel in mark.channels() {
+        let Some(encoding) = mark.encoding_mut(*channel) else {
+            continue;
+        };
+        if !takes_scale(*channel) || !scaled(encoding) {
+            continue;
+        }
+        let scale = encoding.scale.get_or_insert_with(Default::default);
+        match is_position(*channel) {
+            true => hide_axis(scale),
+            false => hide_legend(scale),
+        }
+    }
+}
+
+macro_rules! no_guides {
+    ($($builder:ty),* $(,)?) => {$(
+        impl $builder {
+            /// Draws no axes and no legends for the scales of the plot's layers so far: hides the
+            /// axis of each scaled position and the legend of each other scaled channel. A scale
+            /// that the plot shares with another plot draws none there either, since the merged
+            /// spec hides them.
+            pub fn no_guides(mut self) -> Self {
+                for layer in &mut self.message.layers {
+                    if let Some(mark) = layer.mark.as_mut() {
+                        hide_guides(mark);
+                    }
+                }
+                self
+            }
+        }
+    )*};
+}
+
+no_guides!(
+    proto::CartesianPlotBuilder,
+    proto::PolarPlotBuilder,
+    proto::GeoPlotBuilder,
+);

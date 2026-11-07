@@ -1,17 +1,20 @@
 //! Generates the prost messages of package `avenger.chart.v1` from the files in
 //! `proto/avenger/chart/v1/` with the vendored `protoc`, so that a build needs no system `protoc`.
 //!
-//! It also reads the descriptors of the messages and generates three files:
+//! It also reads the descriptors of the messages and generates these files:
 //!
 //! - `walk.rs`: impls of `VisitValues` for each message that holds a `ValueRef`, of `VisitTables`
-//!   for each message that holds a `TableRef`, and of `VisitEnums` for each message that holds an
-//!   enum field, directly or through its fields, and `enum_error`, which checks the value of an
-//!   enum field: a value that its enum declares, and not a value that the `invalid` option of
-//!   `annotation.proto` marks.
+//!   for each message that holds a `TableRef`, of `VisitEnums` for each message that holds an enum
+//!   field, and of `VisitRequired` for each message that holds a field or a oneof that the options
+//!   of `annotation.proto` require, directly or through their fields, and `enum_error`, which
+//!   checks that the value of an enum field is a value that its enum declares.
+//! - `channels.rs`: `takes_scale`, from the `channel_scale` option of the values of `Channel`.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
 //! - `merge.rs`: an impl of `MergeFields` for each message that the specs of a shared scale merge
-//!   field by field: the guides, the options of the scale types, and the fits.
+//!   field by field: the axes, the legends, the options of the scale types, and the fits.
+//! - `builders.rs` and `prelude.rs`: the builders of the messages, as `codegen/builders.rs`
+//!   describes.
 //!
 //! It fails when a field of a mark breaks a law of the format: an `Encoding` field has the name of
 //! a `Channel` value, lowercase and without the prefix, and the number 100 plus that value, and
@@ -21,6 +24,8 @@ use std::{collections::BTreeSet, fmt::Write, path::PathBuf};
 
 use prost::Message;
 
+#[path = "codegen/annotations.rs"]
+mod annotations;
 #[path = "codegen/builders.rs"]
 mod builders;
 use prost_types::{
@@ -35,15 +40,15 @@ const PROTOS: [&str; 26] = [
     "cartesian",
     "channel",
     "chart",
+    "element",
     "encoding",
     "facet",
     "geo",
-    "guide",
-    "guide_element",
     "tool",
     "legend",
     "mark",
     "option",
+    "part",
     "partition",
     "plot",
     "polar",
@@ -88,12 +93,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
     }
     messages.enum_visitors(&mut walk);
-    let bytes = std::fs::read(&descriptors)?;
-    enum_error(&mut walk, &set, &invalid_values(&bytes)?);
+    enum_error(&mut walk, &set);
+    let annotations = annotations::Annotations::read(&std::fs::read(&descriptors)?)?;
+    check_annotations(&annotations)?;
+    annotations::required_visitors(&mut walk, &set, &messages, &annotations)?;
     std::fs::write(out.join("walk.rs"), walk)?;
+    std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
-    std::fs::write(out.join("builders.rs"), builders::builders(&set, &messages))?;
+    std::fs::write(
+        out.join("builders.rs"),
+        builders::builders(&set, &messages, &annotations),
+    )?;
     std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
     Ok(())
 }
@@ -246,6 +257,11 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
             "encoding_mut(&mut self, channel: Channel) -> Option<&mut Encoding>",
             &|variant, _, _| format!("Self::{variant}(mark) => mark.encoding_mut(channel)"),
         );
+        method(
+            &mut code,
+            "encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>>",
+            &|variant, _, _| format!("Self::{variant}(mark) => mark.encoding_slot(channel)"),
+        );
         code.push_str("}\n\n");
     }
 
@@ -321,75 +337,61 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
         }
         writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
     }
+    writeln!(
+        code,
+        "    /// The field of the encoding of `channel`, to set, or `None` when the mark does not take the\n    /// channel in a field of its own.\n    pub fn encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>> {{\n        match channel {{"
+    )
+    .unwrap();
+    for ((_, holder), variant) in taken.iter().zip(&variants) {
+        if let Holder::Field(field) = holder {
+            writeln!(
+                code,
+                "            Channel::{variant} => Some(&mut self.{field}),"
+            )
+            .unwrap();
+        }
+    }
+    writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
     code.push_str("}\n\n");
 }
 
-/// The parts of the descriptors that hold the options of enum values. `prost_types` drops the
-/// extensions of options when it decodes, so these messages decode the `invalid` option of
-/// `annotation.proto` by its field number.
-mod annotations {
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct FileSet {
-        #[prost(message, repeated, tag = "1")]
-        pub file: Vec<File>,
+/// Fails unless the options of `annotation.proto` are on the fields that hold them, one of each
+/// kind, so a change to how the options decode cannot drop them all.
+fn check_annotations(annotations: &annotations::Annotations) -> Result<(), String> {
+    let field = |message: &str, field: &str| (format!("{PACKAGE}.{message}"), field.to_string());
+    let checks = [
+        (
+            annotations
+                .required
+                .contains(&field("ConditionalValue", "predicate")),
+            "`required` on `ConditionalValue.predicate`",
+        ),
+        (
+            annotations.required_oneof.contains(&field("Node", "node")),
+            "`required_oneof` on `Node.node`",
+        ),
+        (
+            annotations.lift.contains(&field("Scale", "domain")),
+            "`lift` on `Scale.domain`",
+        ),
+        (
+            annotations.channel_scale.contains_key("CHANNEL_X"),
+            "`channel_scale` on `CHANNEL_X`",
+        ),
+        (
+            annotations.positions.contains("CHANNEL_X"),
+            "`position` on `CHANNEL_X`",
+        ),
+    ];
+    match checks.iter().find(|(found, _)| !found) {
+        Some((_, option)) => Err(format!("the descriptors hold the option {option}")),
+        None => Ok(()),
     }
-
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct File {
-        #[prost(message, repeated, tag = "5")]
-        pub enum_type: Vec<Enum>,
-    }
-
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct Enum {
-        #[prost(string, optional, tag = "1")]
-        pub name: Option<String>,
-        #[prost(message, repeated, tag = "2")]
-        pub value: Vec<Value>,
-    }
-
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct Value {
-        #[prost(int32, optional, tag = "2")]
-        pub number: Option<i32>,
-        #[prost(message, optional, tag = "3")]
-        pub options: Option<ValueOptions>,
-    }
-
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct ValueOptions {
-        #[prost(bool, optional, tag = "50000")]
-        pub invalid: Option<bool>,
-    }
-}
-
-/// The values that the `invalid` option marks, by the full name of their enum and their number,
-/// from the bytes of the descriptor set.
-fn invalid_values(bytes: &[u8]) -> Result<BTreeSet<(String, i32)>, prost::DecodeError> {
-    let set = annotations::FileSet::decode(bytes)?;
-    let mut invalid = BTreeSet::new();
-    for file in &set.file {
-        for enumeration in &file.enum_type {
-            for value in &enumeration.value {
-                if value.options.as_ref().and_then(|options| options.invalid) == Some(true) {
-                    invalid.insert((
-                        format!(
-                            "{PACKAGE}.{}",
-                            enumeration.name.as_deref().unwrap_or_default()
-                        ),
-                        value.number.unwrap_or_default(),
-                    ));
-                }
-            }
-        }
-    }
-    Ok(invalid)
 }
 
 /// The code of `enum_error`, which takes the full name of an enum and a value of a field of it,
-/// and returns why the value is not valid, or `None`: a value that the enum does not declare, or
-/// one that the `invalid` option marks.
-fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<(String, i32)>) {
+/// and returns why the value is not valid, or `None` for a value that the enum declares.
+fn enum_error(code: &mut String, set: &FileDescriptorSet) {
     let enums: Vec<(String, &EnumDescriptorProto)> = (set.file.iter())
         .flat_map(|file| &file.enum_type)
         .map(|enumeration| (format!("{PACKAGE}.{}", enumeration.name()), enumeration))
@@ -400,10 +402,8 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<(St
     code.push_str("pub(crate) fn enum_error(name: &str, value: i32) -> Option<&'static str> {\n");
     code.push_str("    match name {\n");
     for (name, enumeration) in &enums {
-        let is_invalid = |number: i32| invalid.contains(&(name.clone(), number));
         let mut declared: Vec<i32> = (enumeration.value.iter())
             .map(|value| value.number())
-            .filter(|number| !is_invalid(*number))
             .collect();
         declared.sort_unstable();
         // The declared values as patterns, with each run of consecutive values as a range.
@@ -417,18 +417,6 @@ fn enum_error(code: &mut String, set: &FileDescriptorSet, invalid: &BTreeSet<(St
         }
         let short = enumeration.name();
         writeln!(code, "        \"{name}\" => match value {{").unwrap();
-        for value in (enumeration.value.iter()).filter(|value| is_invalid(value.number())) {
-            let reason = match value.number() {
-                0 => format!("is absent, and a value of `{short}` is required"),
-                _ => format!("is `{}`, which is not a valid value", value.name()),
-            };
-            writeln!(
-                code,
-                "            {} => Some(\"{reason}\"),",
-                value.number()
-            )
-            .unwrap();
-        }
         writeln!(code, "            {} => None,", numbers.join(" | ")).unwrap();
         writeln!(
             code,
@@ -501,10 +489,10 @@ impl<'a> Messages<'a> {
         }
     }
 
-    /// The messages that the specs of a shared scale merge field by field: the guides, the
-    /// messages of the scale types, and the fits, with the messages that they hold.
+    /// The messages that the specs of a shared scale merge field by field: the axes, the legends,
+    /// the messages of the scale types, and the fits, with the messages that they hold.
     fn merged(&self) -> BTreeSet<String> {
-        let mut merged: BTreeSet<String> = ["Guide", "DomainFit", "Widget"]
+        let mut merged: BTreeSet<String> = ["Axis", "Legend", "DomainFit", "Widget"]
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();

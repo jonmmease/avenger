@@ -185,6 +185,19 @@ pub(crate) enum SelectionValues {
     Set(ArrayRef),
 }
 
+/// Whether a clause of `state` holds a range or a set through `channel`, which a selection domain
+/// of `channel` takes its values from.
+pub(crate) fn has_channel(state: &SelectionState, channel: Channel) -> bool {
+    let label = Some(channel.field_name().to_string());
+    (state.clauses.iter())
+        .flat_map(|clause| &clause.conditions)
+        .any(|condition| match condition {
+            Condition::Range { channel, .. } => *channel == label,
+            Condition::Set { channels, .. } => channels.contains(&label),
+            _ => false,
+        })
+}
+
 /// The values of the clauses of `state` for `channel`, or `None` when its clauses give none, or
 /// an intersect selection's ranges or sets do not meet.
 pub(crate) fn domain_values(

@@ -11,26 +11,26 @@ use crate::support::*;
 fn bars_with_a_line_on_an_independent_y() {
     // Both layers keep the months in their order. The bars' band scale and the line's point
     // scale merge into a band scale, and the line stands at the middle of each band.
-    let months_in_order = || {
-        Encoding::scaled_column("month")
-            .scale(Scale::builder().domain(Domain::explicit(Value::list(Arc::new(months())))))
-    };
-    let bars = CartesianLayer::bar(BarMark::builder().x(months_in_order()).y(
-        Encoding::scaled_column("precipitation").scale(
-            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
-        ),
-    ))
-    .table(weather());
+    let months_in_order =
+        || Encoding::scaled_field("month").scale(Domain::explicit(Value::list(Arc::new(months()))));
+    let bars = CartesianLayer::bar(
+        weather(),
+        BarMark::builder()
+            .x(months_in_order())
+            .y(Encoding::scaled_field("precipitation").scale(Domain::data(
+                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
+            ))),
+    );
     let line = CartesianLayer::line(
+        weather(),
         LineMark::builder()
             .x(months_in_order())
-            .y(Encoding::scaled_column("temperature"))
-            .color(Encoding::constant("#e45756")),
-    )
-    .table(weather());
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([bars, line]))
-        .resolve([Resolve::channel(Channel::Y).sharing(Sharing::Independent)]);
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+            .y("temperature")
+            .color(Encoding::direct_value("#e45756")),
+    );
+    let plot =
+        Plot::cartesian([bars, line]).resolve([Resolve::channel(Sharing::Independent, Channel::Y)]);
+    let chart = Chart::builder(plot).build().unwrap();
     render_both(&chart, "overlay-dual-axis");
 
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -55,24 +55,14 @@ fn bars_with_a_line_on_an_independent_y() {
 #[test]
 fn a_line_over_its_symbols() {
     let line = CartesianLayer::line(
-        LineMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("symbol")),
-    )
-    .table(series());
+        series(),
+        LineMark::builder().x("date").y("value").color("symbol"),
+    );
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("symbol")),
-    )
-    .table(series());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([line, symbols]),
-        ))
-        .infer_scales()
+        series(),
+        SymbolMark::builder().x("date").y("value").color("symbol"),
+    );
+    let chart = Chart::builder(Plot::cartesian([line, symbols]))
         .build()
         .unwrap();
     render_both(&chart, "overlay-line-symbols");
@@ -83,22 +73,16 @@ fn an_overlay_with_independent_colors() {
     // The legend of the line's series stands before the colorbar of the symbols' values, in the
     // order of the layers.
     let line = CartesianLayer::line(
-        LineMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("symbol")),
-    )
-    .table(series());
+        series(),
+        LineMark::builder().x("date").y("value").color("symbol"),
+    );
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("date"))
-            .y(Encoding::scaled_column("value"))
-            .color(Encoding::scaled_column("value")),
-    )
-    .table(series());
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([line, symbols]))
-        .resolve([Resolve::channel(Channel::Color).sharing(Sharing::Independent)]);
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+        series(),
+        SymbolMark::builder().x("date").y("value").color("value"),
+    );
+    let plot = Plot::cartesian([line, symbols])
+        .resolve([Resolve::channel(Sharing::Independent, Channel::Color)]);
+    let chart = Chart::builder(plot).build().unwrap();
     render_both(&chart, "overlay-independent-colors");
 }
 
@@ -106,40 +90,31 @@ fn an_overlay_with_independent_colors() {
 fn bars_share_y_with_a_rule_of_their_mean() {
     let bars = || {
         CartesianLayer::bar(
+            categories(),
             BarMark::builder()
-                .x(Encoding::scaled_column("category"))
-                .y(Encoding::scaled_column("amount").scale(
-                    Scale::builder()
-                        .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
-                )),
+                .x("category")
+                .y(Encoding::scaled_field("amount").scale(Domain::data(
+                    DataDomain::builder().fit(IntervalFit::builder().zero(true)),
+                ))),
         )
-        .table(categories())
     };
     let mean = || {
         let table = RecordBatch::try_from_iter([("mean", numbers(&[58.5]))]).unwrap();
         CartesianLayer::rule(
+            table,
             RuleMark::builder()
-                .y(Encoding::scaled_column("mean"))
-                .color(Encoding::constant("#e45756")),
+                .y("mean")
+                .color(Encoding::direct_value("#e45756")),
         )
-        .table(table)
     };
 
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([bars(), mean()]),
-        ))
-        .infer_scales()
+    let chart = Chart::builder(Plot::cartesian([bars(), mean()]))
         .build()
         .unwrap();
     render_both(&chart, "overlay-bars-mean");
 
     // With the rule first, the bars' fit, which contains zero, is still the merged fit.
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([mean(), bars()]),
-        ))
-        .infer_scales()
+    let chart = Chart::builder(Plot::cartesian([mean(), bars()]))
         .build()
         .unwrap();
     let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -151,25 +126,17 @@ fn bars_share_y_with_a_rule_of_their_mean() {
 fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
     // The summary covers mpg from 0 to 30, and the rows of the second layer reach past 40.
     let summarized = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg").scale(
-                Scale::builder()
-                    .domain(SummaryDomain::builder().value(linear_summary(&[0.0, 30.0]))),
-            )),
-    )
-    .table(cars());
-    let rows = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([summarized, rows]),
-        ))
-        .infer_scales()
+            .x("weight")
+            .y(
+                Encoding::scaled_field("mpg").scale(Domain::summary(SummaryDomain::new(
+                    linear_summary(&[0.0, 30.0]),
+                ))),
+            ),
+    );
+    let rows = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([summarized, rows]))
         .build()
         .unwrap();
 

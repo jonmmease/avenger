@@ -78,8 +78,8 @@ fn member_values(
     (group.members.iter())
         .map(|member| {
             let layer = &resolved.tree.layers[member.layer];
-            match layer.mark.encoding(member.channel)?.value.as_ref()? {
-                encoding::Value::ScaledColumn(name) => layer.table.column_by_name(name).cloned(),
+            match layer.mark.encoding(member.channel)?.kind.as_ref()? {
+                encoding::Kind::ScaledField(name) => layer.table.column_by_name(name).cloned(),
                 _ => None,
             }
         })
@@ -154,17 +154,13 @@ fn legend_labels(guide: &LegendGuide) -> Vec<String> {
 #[test]
 fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
     let symbols = CartesianLayer::symbol(
+        penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("flipper")
+            .y("mass")
+            .color("species"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         let sides: Vec<GuideSide> = guides.axes.iter().map(|axis| axis.side).collect();
         assert!(
@@ -183,18 +179,14 @@ fn axes_stand_on_their_sides_and_a_discrete_legend_lists_its_categories() {
 #[test]
 fn legends_of_equal_categories_merge() {
     let symbols = CartesianLayer::symbol(
+        penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species"))
-            .shape(Encoding::scaled_column("species")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("flipper")
+            .y("mass")
+            .color("species")
+            .shape("species"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         assert_eq!(guides.legends.len(), 1);
         assert_eq!(
@@ -207,18 +199,14 @@ fn legends_of_equal_categories_merge() {
 #[test]
 fn a_continuous_fill_draws_a_colorbar_and_a_size_a_legend_of_ticks() {
     let symbols = CartesianLayer::symbol(
+        penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .fill(Encoding::scaled_column("mass"))
-            .size(Encoding::scaled_column("flipper")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("flipper")
+            .y("mass")
+            .fill("mass")
+            .size("flipper"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         assert_eq!(guides.legends.len(), 2);
         assert!(matches!(guides.legends[0].guide, LegendGuide::Colorbar(_)));
@@ -233,17 +221,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
         vec![10.0, 20.0],
         Arc::new(StringArray::from(vec!["a", "b", "c"])),
     );
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let (values, labels, _) =
         entries(&threshold, &Legend::default(), Some(5.0), &chart, &engine()).unwrap();
     assert_eq!(values.len(), 3);
@@ -254,17 +233,8 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
 /// symbol's reach.
 #[test]
 fn a_position_fit_leaves_room_for_the_reach() {
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let resolved = chart.resolve();
     let (style_tree, nodes, _) = tree::build(&chart, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
@@ -292,18 +262,14 @@ fn a_position_fit_leaves_room_for_the_reach() {
 
     // An explicit domain clips its plot.
     let symbols = CartesianLayer::symbol(
+        penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper").scale(
+            .x(Encoding::scaled_field("flipper").scale(
                 Scale::linear(LinearScale::builder()).domain(Domain::explicit([150.0, 250.0])),
             ))
-            .y(Encoding::scaled_column("mass")),
-    )
-    .table(penguins());
-    let clipped = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .y("mass"),
+    );
+    let clipped = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let resolved = clipped.resolve();
     let (style_tree, nodes, _) = tree::build(&clipped, &resolved, &kinds(&resolved));
     let styles = styles_of(&style_tree);
@@ -332,21 +298,19 @@ fn a_position_fit_leaves_room_for_the_reach() {
 fn legends_of_two_scales_of_one_channel_stay_apart() {
     let layer = || {
         CartesianLayer::symbol(
+            penguins(),
             SymbolMark::builder()
-                .x(Encoding::scaled_column("flipper"))
-                .y(Encoding::scaled_column("mass"))
-                .color(Encoding::scaled_column("species")),
+                .x("flipper")
+                .y("mass")
+                .color("species"),
         )
-        .table(penguins())
     };
-    let chart = Chart::builder()
-        .root(
-            Plot::cartesian(CartesianPlot::builder().layers([layer(), layer()]))
-                .resolve([Resolve::channel(Channel::Color).sharing(Sharing::Independent)]),
-        )
-        .infer_scales()
-        .build()
-        .unwrap();
+    let chart = Chart::builder(
+        Plot::cartesian([layer(), layer()])
+            .resolve([Resolve::channel(Sharing::Independent, Channel::Color)]),
+    )
+    .build()
+    .unwrap();
     with_guides(&chart, |guides, _| assert_eq!(guides.legends.len(), 2));
 }
 
@@ -370,18 +334,14 @@ fn swatch_shapes(group: &avenger_scenegraph::marks::group::SceneGroup) -> Vec<St
 #[test]
 fn a_legend_draws_the_constant_shape_of_its_marks() {
     let symbols = CartesianLayer::symbol(
+        penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("flipper"))
-            .y(Encoding::scaled_column("mass"))
-            .color(Encoding::scaled_column("species"))
-            .shape(Encoding::constant("square")),
-    )
-    .table(penguins());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("flipper")
+            .y("mass")
+            .color("species")
+            .shape(Encoding::direct_value("square")),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     with_guides(&chart, |guides, _| {
         let LegendGuide::Legend(legend) = &guides.legends[0].guide else {
             panic!("a symbol legend");

@@ -184,6 +184,10 @@ impl ChartEvaluator {
                     ),
                 }
             }));
+            warnings.extend(crate::convert::domain::selection_warnings(
+                &resolved.scales,
+                &states,
+            ));
             (tree, nodes, drawn, kinds, warnings)
         };
         Ok(Self {
@@ -622,16 +626,19 @@ fn member_values(
     let Some(encoding) = mark.encoding(channel) else {
         return Ok(None);
     };
-    let base = match encoding.value.as_ref() {
-        Some(encoding::Value::ScaledColumn(name)) => table.column_by_name(name).cloned(),
-        Some(encoding::Value::ScaledConstant(value)) => Some(chart.value(value).clone()),
-        Some(encoding::Value::Column(_) | encoding::Value::Constant(_)) | None => None,
+    let base = match encoding.kind.as_ref() {
+        Some(encoding::Kind::ScaledField(name)) => (table.column_by_name(name))
+            .map(|column| avenger_chart::span::channel_values(column, channel)),
+        Some(encoding::Kind::ScaledValue(value)) => Some(chart.value(value).clone()),
+        Some(encoding::Kind::DirectField(_) | encoding::Kind::DirectValue(_)) | None => None,
     };
     let conditionals = (encoding.conditional.iter()).filter_map(|conditional| {
-        match conditional.value.as_ref()? {
-            conditional_value::Value::ScaledColumn(name) => table.column_by_name(name).cloned(),
-            conditional_value::Value::ScaledConstant(value) => Some(chart.value(value).clone()),
-            conditional_value::Value::Column(_) | conditional_value::Value::Constant(_) => None,
+        match conditional.kind.as_ref()? {
+            conditional_value::Kind::ScaledField(name) => table.column_by_name(name).cloned(),
+            conditional_value::Kind::ScaledValue(value) => Some(chart.value(value).clone()),
+            conditional_value::Kind::DirectField(_) | conditional_value::Kind::DirectValue(_) => {
+                None
+            }
         }
     });
     let sources: Vec<ArrayRef> = base.into_iter().chain(conditionals).collect();

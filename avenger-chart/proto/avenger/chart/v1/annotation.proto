@@ -1,5 +1,7 @@
-// The options that annotate the messages and the enums of the format, which code generators and
-// validators read from the descriptors.
+// The options that annotate the fields, the oneofs, and the enum values of the format, which code
+// generators and validators read from the descriptors. The builders of avenger-chart take the
+// required fields and oneofs as the arguments of their constructors, and its reader checks them
+// before its other rules.
 
 syntax = "proto3";
 
@@ -7,9 +9,39 @@ package avenger.chart.v1;
 
 import "google/protobuf/descriptor.proto";
 
+extend google.protobuf.FieldOptions {
+  // The field always holds a value: a message or a `ValueRef` is present, a string is not empty, a
+  // repeated field has an item or more, and an enum holds a value other than its zero value. On a
+  // member of a oneof, the rule applies when the oneof holds the member.
+  bool required = 50001;
+  // A builder of the field's message converts from the field's type, with only this field set,
+  // so `.scale(Domain::explicit(..))` builds a scale with that domain. A type that two lifted
+  // fields of one message take converts to neither.
+  bool lift = 50003;
+}
+
+extend google.protobuf.OneofOptions {
+  // The oneof always holds a member.
+  bool required_oneof = 50002;
+}
+
 extend google.protobuf.EnumValueOptions {
-  // Marks a value that no field of its enum may hold, such as the zero value of an enum whose
-  // fields always hold a value. A plain enum field that is left out holds the zero value, so a
-  // field of such an enum must be given one of the other values.
-  bool invalid = 50000;
+  // How a channel of the `Channel` enum relates to scales, which decides what a string means in
+  // the builder of its encoding. When absent, the channel takes no scale.
+  ChannelScale channel_scale = 50004;
+  // Marks a position channel of a coordinate system, such as `x`, `theta`, or `longitude`. A
+  // number in the builder of an encoding of a position with a scale is a scaled value, a data value
+  // such as the place of a reference line, and on any other channel a direct value.
+  bool position = 50005;
+}
+
+// How a channel relates to scales, which decides what a string means in a builder.
+enum ChannelScale {
+  // The channel takes no scale: its values are direct, and a string names a direct field.
+  CHANNEL_SCALE_NONE = 0;
+  // The channel has a scale of its own, and a string names a scaled field.
+  CHANNEL_SCALE_OWN = 1;
+  // The channel follows the scale of its partner, such as `x2` the scale of `x`, and a string
+  // names a scaled field.
+  CHANNEL_SCALE_PARTNER = 2;
 }

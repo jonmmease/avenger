@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/value.proto";
 
 // The value of a column that selects a node's rows from the data that a facet grid splits, such as
@@ -25,7 +26,7 @@ import "avenger/chart/v1/value.proto";
 // the female charts is then `sex` Female, which the facet of the column reads.
 message PartitionValue {
   // The name of the partition column.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.required) = true];
   // The value, in the type of the column.
-  ValueRef value = 2;
+  ValueRef value = 2 [(avenger.chart.v1.required) = true];
 }

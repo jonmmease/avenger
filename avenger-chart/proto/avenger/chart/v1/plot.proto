@@ -5,6 +5,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/cartesian.proto";
 import "avenger/chart/v1/geo.proto";
 import "avenger/chart/v1/mark.proto";
@@ -19,7 +20,7 @@ message CartesianPlot {
   // The options of the coordinate system. When absent, the plot takes the defaults of each option.
   Cartesian options = 1;
   // The layers, at least one, each drawn over the ones before it.
-  repeated CartesianLayer layers = 2;
+  repeated CartesianLayer layers = 2 [(avenger.chart.v1.required) = true];
 }
 
 // One mark of a Cartesian plot over one data table.
@@ -28,14 +29,15 @@ message CartesianLayer {
   // stylesheet selects it with `#id`, with CSS escapes for an id that is not a CSS identifier.
   string id = 1;
   // The layer's table.
-  TableRef table = 2;
+  TableRef table = 2 [(avenger.chart.v1.required) = true];
   // The tools of the layer, in the order of their declarations, which act on the layer's marks
   // only, such as a tooltip of one layer. A layer that declares a tool has an id.
   repeated LayerTool tools = 3;
   // The partition values of the layer, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 4;
-  // The mark. Required.
+  // The mark.
   oneof mark {
+    option (avenger.chart.v1.required_oneof) = true;
     SymbolMark symbol = 10;
     LineMark line = 11;
     TrailMark trail = 12;
@@ -59,7 +61,7 @@ message PolarPlot {
   // The options of the coordinate system. When absent, the plot takes the defaults of each option.
   Polar options = 1;
   // The layers, at least one, each drawn over the ones before it.
-  repeated PolarLayer layers = 2;
+  repeated PolarLayer layers = 2 [(avenger.chart.v1.required) = true];
 }
 
 // One mark of a polar plot over one data table, as for `CartesianLayer`.
@@ -67,13 +69,14 @@ message PolarLayer {
   // As for `CartesianLayer.id`.
   string id = 1;
   // The layer's table.
-  TableRef table = 2;
+  TableRef table = 2 [(avenger.chart.v1.required) = true];
   // As for `CartesianLayer.tools`.
   repeated LayerTool tools = 3;
   // As for `CartesianLayer.partition`.
   repeated PartitionValue partition = 4;
-  // The mark. Required.
+  // The mark.
   oneof mark {
+    option (avenger.chart.v1.required_oneof) = true;
     PolarSymbolMark symbol = 10;
     PolarLineMark line = 11;
     PolarTrailMark trail = 12;
@@ -93,10 +96,10 @@ message PolarLayer {
 // A map plot: its options and its layers. The layers share the plot's projection, because they
 // draw into one plot.
 message GeoPlot {
-  // The options of the coordinate system. Required, because the surface of a map has no default.
-  Geo options = 1;
+  // The options of the coordinate system, which a map needs, since its surface has no default.
+  Geo options = 1 [(avenger.chart.v1.required) = true];
   // The layers, at least one, each drawn over the ones before it.
-  repeated GeoLayer layers = 2;
+  repeated GeoLayer layers = 2 [(avenger.chart.v1.required) = true];
 }
 
 // One mark of a map plot over one data table, as for `CartesianLayer`.
@@ -104,13 +107,14 @@ message GeoLayer {
   // As for `CartesianLayer.id`.
   string id = 1;
   // The layer's table.
-  TableRef table = 2;
+  TableRef table = 2 [(avenger.chart.v1.required) = true];
   // As for `CartesianLayer.tools`.
   repeated LayerTool tools = 3;
   // As for `CartesianLayer.partition`.
   repeated PartitionValue partition = 4;
-  // The mark. Required.
+  // The mark.
   oneof mark {
+    option (avenger.chart.v1.required_oneof) = true;
     GeoSymbolMark symbol = 10;
     GeoLineMark line = 11;
     GeoTrailMark trail = 12;

@@ -6,7 +6,8 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
-import "avenger/chart/v1/guide.proto";
+import "avenger/chart/v1/axis.proto";
+import "avenger/chart/v1/legend.proto";
 import "avenger/chart/v1/option.proto";
 import "avenger/chart/v1/value.proto";
 
@@ -20,15 +21,15 @@ import "avenger/chart/v1/value.proto";
 // of their domains, and each option of the type that is present in both specs must be equal. A
 // range, a field of a fit, or an option that is present in one spec and absent in another takes the
 // present value, so bars, whose measure's fit contains zero, share a scale with a rule of their
-// mean, and the domain contains zero. The guide follows the rule of the options: a guide that is
-// present in one spec and absent in another is the guide of both, two guides must be of one kind,
-// and each field that is present in both, in the guide and in its nested messages, must be equal,
-// except that the classes of the guides join. Every guide of the shared scale draws the merged
-// guide. The domains of the layers are of one
-// kind: summary and data domains merge, explicit domains must be equal, and selection domains must
-// be equal. A layer with an explicit or a selection domain and a layer with a domain of another
-// kind are a conflict, so a chart gives them independent scales, through a resolve rule or
-// different families.
+// mean, and the domain contains zero. The axis and the legend follow the rule of the options: an
+// axis that is present in one spec and absent in another is the axis of both, and each field that
+// is present in both, in the axis and in its nested messages, must be equal, except that the
+// classes of the axes join, and the same for the legend. Every axis of the shared scale draws the
+// merged axis, and every legend the merged legend. The domains of the layers are of one kind:
+// summary and data domains merge, explicit domains must be equal, and selection domains must be
+// equal. A layer with an explicit or a selection domain and a layer with a domain of another kind
+// are a conflict, so a chart gives them independent scales, through a resolve rule or different
+// families.
 //
 // The plots whose layers share `x` or `y` get equal lengths along it, so a value lies as far from
 // the start of each plot. Plots of a shared `x` in different columns of a table each stand in one
@@ -39,8 +40,20 @@ import "avenger/chart/v1/value.proto";
 // plots whose layers share `radius` draw it at one outer radius, the smallest of theirs, so a value
 // lies as far from the center of each.
 message Scale {
-  // The type of the scale and its options. Required. An option that is absent takes the default
-  // that its comment gives.
+  // The type of the scale and its options. An option that is absent takes the default that its
+  // comment gives. When the type is absent, the reader infers it from the type of the values, the
+  // channel, and for categories on a position, the mark:
+  //
+  // - numbers: a linear scale, and an ordinal scale on `shape`, `pattern`, and `stroke_dash`
+  // - dates and timestamps: a time scale, and an ordinal scale on `shape`, `pattern`, and
+  //   `stroke_dash`
+  // - strings and booleans: on a position, a band scale for bars and rects and a point scale for
+  //   other marks, and elsewhere an ordinal scale
+  // - structs of the levels of nested categories: a nested band scale on a position
+  //
+  // The values are those of the encoding when they are scaled, and otherwise of its first scaled
+  // conditional value. Values of another type, such as durations, have no inferred type, and a
+  // chart that leaves their type absent is invalid.
   oneof type {
     LinearScale linear = 1;
     LogScale log = 2;
@@ -57,19 +70,23 @@ message Scale {
     // A scale that an app adds to its renderer.
     CustomScale custom = 15;
   }
-  // Where the domain comes from. Required.
-  Domain domain = 16;
+  // Where the domain comes from. When absent, and the scale has a type, the reader infers the data
+  // domain of the layer with no fit.
+  Domain domain = 16 [(avenger.chart.v1.lift) = true];
   // The range. When absent, the styles give the range of a non-position channel, and the plot gives
   // the range of a position channel, whose `Range` holds only `reverse`.
-  Range range = 17;
+  Range range = 17 [(avenger.chart.v1.lift) = true];
   // The share family. Layers whose specs name one family for a channel share one scale, in
   // addition to the scales that resolve rules share.
   string family = 18;
-  // The guide. When absent, `x` and `y` have an axis, `theta` and `radius` have no guide, a
-  // discrete scale of another channel has a legend, a quantize, quantile, or threshold scale has a
-  // legend of its bins, a continuous color scale has a colorbar, and another continuous scale, such
-  // as `size`, has a legend of its ticks. A `PolarAxis` gives `theta` or `radius` an axis.
-  Guide guide = 19;
+  // The axis of a position scale. When absent, `x` and `y` have an axis and `theta` and `radius`
+  // have none. Invalid on the scale of another channel.
+  Axis axis = 19 [(avenger.chart.v1.lift) = true];
+  // The legend of a non-position scale. When absent, a discrete scale has a symbol legend, a
+  // quantize, quantile, or threshold scale has a symbol legend of its bins, a continuous color
+  // scale has a colorbar, and another continuous scale, such as `size`, has a symbol legend of its
+  // ticks. Invalid on the scale of a position channel.
+  Legend legend = 22 [(avenger.chart.v1.lift) = true];
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
   // custom scale. When absent, a view moves freely.
@@ -238,8 +255,8 @@ message NestedBandScale {
 }
 
 enum NestScope {
-  // Not valid.
-  NEST_SCOPE_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent, so the level is free, as `NEST_SCOPE_FREE` describes.
+  NEST_SCOPE_UNSPECIFIED = 0;
   // Each parent has room for the children that it has.
   NEST_SCOPE_FREE = 1;
   // Each parent has a slot for every child of the level, so the slots line up across parents.
@@ -282,7 +299,7 @@ message ThresholdScale {}
 // reports an error that names it.
 message CustomScale {
   // The name of the type.
-  string type = 1;
+  string type = 1 [(avenger.chart.v1.required) = true];
   // The options of the scale, keyed by name. The scale checks their names and their values.
   repeated NamedOption options = 2;
 }
@@ -355,7 +372,7 @@ message SummaryDomain {
   // the size scale of symbols. When a combination shares a non-position scale that the extents
   // depend on, the shared scale can differ from the producer's, and the layer's marks can reach
   // past the edges of its plot. The renderer then reports that the marks do not fit.
-  ValueRef value = 1;
+  ValueRef value = 1 [(avenger.chart.v1.required) = true];
   // How the domain fits the summary.
   DomainFit fit = 2;
 }
@@ -369,12 +386,13 @@ message DataDomain {
 // A domain from the values of a selection.
 message SelectionDomain {
   // The name of the selection.
-  string selection = 1;
+  string selection = 1 [(avenger.chart.v1.required) = true];
   // The channel whose conditions give the domain: the ranges that projected through this
   // channel, and the values of the set columns that did.
-  Channel channel = 2;
+  Channel channel = 2 [(avenger.chart.v1.required) = true];
   // The domain when the selection gives no values.
   oneof fallback {
+    option (avenger.chart.v1.required_oneof) = true;
     // An explicit domain, as for `Domain.explicit`.
     ValueRef explicit = 3;
     // A summary domain, as for `Domain.summary`.
@@ -432,7 +450,7 @@ message CategoryFit {
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.
-    CategorySort sort = 1;
+    CategorySort sort = 1 [(avenger.chart.v1.required) = true];
     // A list of categories that come first, in its order, before the other categories of the data,
     // ascending. Listed categories without data are not in the domain. A preferred order is invalid
     // on a nested band scale.
@@ -441,8 +459,8 @@ message CategoryFit {
 }
 
 enum CategorySort {
-  // Not valid.
-  CATEGORY_SORT_UNSPECIFIED = 0 [(avenger.chart.v1.invalid) = true];
+  // Absent. Every field of this enum is required, so none holds this value.
+  CATEGORY_SORT_UNSPECIFIED = 0;
   // From the least category to the greatest, in the order of their values.
   CATEGORY_SORT_ASCENDING = 1;
   // From the greatest category to the least.

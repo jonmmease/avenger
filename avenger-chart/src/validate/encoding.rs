@@ -1,6 +1,6 @@
 //! The rules of marks and their encodings: the channels that a mark needs, the values and the
-//! scales of encodings, the domains, fits, ranges, and guides of scales, and the patterns that
-//! format their labels.
+//! scales of encodings, the domains, fits, ranges, axes, and legends of scales, and the patterns
+//! that format their labels.
 
 use std::collections::HashMap;
 
@@ -13,17 +13,18 @@ use arrow::{
 };
 
 use super::{
-    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, within,
-    Checker, Result,
+    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, title,
+    within, Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     proto::{
-        self, category_fit, conditional_value, domain, domain_fit, encoding, guide, guide_ticks,
-        interval_fit, legend, navigation_limits, polar_layer, range, scale, selection_domain,
-        Channel,
+        self, axis, category_fit, conditional_value, domain, domain_fit, encoding, interval_fit,
+        legend, navigation_limits, polar_layer, range, scale, selection_domain, ticks, Channel,
+        LegendForm,
     },
     resolve::scale_channel,
+    span,
 };
 
 /// The kind of fit of a scale type.
@@ -131,10 +132,8 @@ fn ticked(scale_type: &scale::Type) -> bool {
 impl Checker<'_> {
     /// Checks a layer's mark against its table.
     pub(super) fn layer(&self, layer: LayerRef, table: &RecordBatch, path: &str) -> Result<()> {
-        let mark = layer
-            .mark()
-            .ok_or_else(|| fail(format!("{path}.mark"), "the mark of a layer is required"))?;
-        let mark_path = format!("{path}.mark.{}", mark.name());
+        let mark = layer.mark().expect(REQUIRED);
+        let mark_path = format!("{path}.{}", mark.name());
         for (channel, encoding) in mark.encodings() {
             let path = format!("{mark_path}.{}", channel.field_name());
             let first = scale_channel(channel);
@@ -163,26 +162,8 @@ impl Checker<'_> {
                     ));
                 }
             }
+            spans(mark, channel, encoding, table, &path)?;
             self.encoding(encoding, channel, layer.kind(), table, &path)?;
-        }
-        let required: &[Channel] = match mark.mark_type() {
-            MarkType::Text => &[Channel::Text],
-            MarkType::Image => &[Channel::Image],
-            MarkType::Path => &[Channel::Path],
-            MarkType::Shape => &[Channel::Geometry],
-            MarkType::Rule if layer.kind() == CoordKind::Geo => {
-                &[Channel::Longitude, Channel::Latitude]
-            }
-            _ => &[],
-        };
-        if let Some(missing) = required
-            .iter()
-            .find(|channel| mark.encoding(**channel).is_none())
-        {
-            return Err(fail(
-                &mark_path,
-                format!("a `{}` mark needs `{}`", mark.name(), missing.field_name()),
-            ));
         }
         if mark.mark_type() == MarkType::Rect {
             rect_spans(mark, layer.kind(), &mark_path)?;
@@ -211,14 +192,14 @@ impl Checker<'_> {
         table: &RecordBatch,
         path: &str,
     ) -> Result<DataType> {
-        Ok(match encoding.value.as_ref() {
-            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
-                column(table, name, path)?.data_type().clone()
+        Ok(match encoding.kind.as_ref() {
+            Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
+                span::values_type(column(table, name, path)?.data_type())
             }
-            Some(encoding::Value::Constant(value) | encoding::Value::ScaledConstant(value)) => {
+            Some(encoding::Kind::DirectValue(value) | encoding::Kind::ScaledValue(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
             }
-            None => return Err(fail(path, "the value of an encoding is required")),
+            None => unreachable!("{REQUIRED}"),
         })
     }
 
@@ -232,11 +213,11 @@ impl Checker<'_> {
     ) -> Result<DataType> {
         for (index, conditional) in encoding.conditional.iter().enumerate() {
             let path = format!("{path}.conditional[{index}]");
-            match &conditional.value {
-                Some(conditional_value::Value::ScaledColumn(name)) => {
+            match &conditional.kind {
+                Some(conditional_value::Kind::ScaledField(name)) => {
                     return Ok(column(table, name, &path)?.data_type().clone())
                 }
-                Some(conditional_value::Value::ScaledConstant(value)) => {
+                Some(conditional_value::Kind::ScaledValue(value)) => {
                     return Ok(self.values.scalar(value, &path)?.data_type().clone())
                 }
                 _ => {}
@@ -253,12 +234,11 @@ impl Checker<'_> {
         table: &RecordBatch,
         path: &str,
     ) -> Result<()> {
-        let value = (encoding.value.as_ref())
-            .ok_or_else(|| fail(path, "the value of an encoding is required"))?;
+        let value = encoding.kind.as_ref().expect(REQUIRED);
         let value_type = self.value_type(encoding, table, path)?;
         if channel == Channel::Geometry {
             let geoarrow = match value {
-                encoding::Value::Column(name) => (table.schema().field_with_name(name).ok())
+                encoding::Kind::DirectField(name) => (table.schema().field_with_name(name).ok())
                     .and_then(|field| field.extension_type_name().map(str::to_string))
                     .is_some_and(|extension| extension.starts_with("geoarrow.")),
                 _ => false,
@@ -276,8 +256,8 @@ impl Checker<'_> {
         {
             return Err(fail(
                 path,
-                "a Cartesian position is a `scaled_column` or a `scaled_constant`, which go through \
-                 the scale of `x` or `y`",
+                "a Cartesian position is a `scaled_field` or a `scaled_value`, which go through the \
+                 scale of `x` or `y`",
             ));
         }
         let scaled = scaled(encoding);
@@ -286,7 +266,7 @@ impl Checker<'_> {
             return Err(fail(
                 path,
                 format!(
-                    "`{}` takes no scale, so its values are a `column` or a `constant`",
+                    "`{}` takes no scale, so its values are a `direct_field` or a `direct_value`",
                     channel.field_name()
                 ),
             ));
@@ -301,13 +281,13 @@ impl Checker<'_> {
             Some(_) if !scaled => {
                 return Err(fail(
                     path,
-                    "an encoding without a `scaled_column` or a `scaled_constant` has no scale",
+                    "an encoding without a `scaled_field` or a `scaled_value` has no scale",
                 ))
             }
             None if scaled && !paired => {
                 return Err(fail(
                     path,
-                    "a `scaled_column` or a `scaled_constant` goes through the channel's scale",
+                    "a `scaled_field` or a `scaled_value` goes through the channel's scale",
                 ))
             }
             _ => {}
@@ -334,26 +314,27 @@ impl Checker<'_> {
         }
         for (index, conditional) in encoding.conditional.iter().enumerate() {
             let path = format!("{path}.conditional[{index}]");
-            let predicate = (conditional.predicate.as_ref())
-                .ok_or_else(|| fail(&path, "the predicate of a conditional value is required"))?;
+            let predicate = conditional.predicate.as_ref().expect(REQUIRED);
             self.predicate(predicate, &format!("{path}.predicate"))?;
-            match (conditional.value.as_ref())
-                .ok_or_else(|| fail(&path, "the value of a conditional value is required"))?
-            {
-                conditional_value::Value::Column(name) => {
-                    raw_values(channel, column(table, name, &path)?.data_type(), &path)?;
+            match conditional.kind.as_ref().expect(REQUIRED) {
+                conditional_value::Kind::DirectField(name) => {
+                    raw_values(
+                        channel,
+                        &span::values_type(column(table, name, &path)?.data_type()),
+                        &path,
+                    )?;
                 }
-                conditional_value::Value::ScaledColumn(name) => {
+                conditional_value::Kind::ScaledField(name) => {
                     column(table, name, &path)?;
                 }
-                conditional_value::Value::Constant(value) => {
+                conditional_value::Kind::DirectValue(value) => {
                     raw_values(
                         channel,
                         self.values.scalar(value, &path)?.data_type(),
                         &path,
                     )?;
                 }
-                conditional_value::Value::ScaledConstant(value) => {
+                conditional_value::Kind::ScaledValue(value) => {
                     self.values.scalar(value, &path)?;
                 }
             }
@@ -416,12 +397,6 @@ impl Checker<'_> {
             Some(domain::Domain::Selection(selection)) => {
                 let path = format!("{path}.domain.selection");
                 self.selection(&selection.selection, &format!("{path}.selection"))?;
-                if selection.channel == Channel::Unspecified as i32 {
-                    return Err(fail(
-                        format!("{path}.channel"),
-                        "a selection domain names its channel",
-                    ));
-                }
                 match selection.fallback.as_ref() {
                     Some(selection_domain::Fallback::Explicit(value)) => {
                         Some(self.explicit(value, scale_type, &format!("{path}.explicit"))?)
@@ -434,12 +409,7 @@ impl Checker<'_> {
                         self.data(data, scale_type, &format!("{path}.data"))?;
                         None
                     }
-                    None => {
-                        return Err(fail(
-                            &path,
-                            "the fallback of a selection domain is required",
-                        ))
-                    }
+                    None => unreachable!("{REQUIRED}"),
                 }
             }
         };
@@ -483,18 +453,16 @@ impl Checker<'_> {
             }
             positive(navigation.min_span, &format!("{path}.min_span"))?;
         }
-        if let Some(guide) = spec.guide.as_ref().and_then(|guide| guide.guide.as_ref()) {
-            let domain_type = explicit
-                .as_ref()
-                .map_or(value_type, |array| array.data_type());
-            self.guide(
-                guide,
-                channel,
-                kind,
-                scale_type,
-                domain_type,
-                &format!("{path}.guide"),
-            )?;
+        let domain_type = explicit
+            .as_ref()
+            .map_or(value_type, |array| array.data_type());
+        if let Some(axis) = &spec.axis {
+            let path = format!("{path}.axis");
+            self.axis(axis, channel, kind, scale_type, domain_type, &path)?;
+        }
+        if let Some(legend) = &spec.legend {
+            let path = format!("{path}.legend");
+            self.legend(legend, channel, scale_type, domain_type, &path)?;
         }
         Ok(())
     }
@@ -659,105 +627,143 @@ impl Checker<'_> {
         }
     }
 
-    fn guide(
+    /// Checks an axis: valid on `x` or `y` of a Cartesian plot and on `theta` or `radius` of a polar
+    /// plot, without the fields that the other kind of plot draws.
+    fn axis(
         &self,
-        guide: &guide::Guide,
+        axis: &proto::Axis,
         channel: Channel,
         kind: CoordKind,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        match guide {
-            guide::Guide::Axis(axis) => {
-                if kind != CoordKind::Cartesian || !matches!(channel, Channel::X | Channel::Y) {
-                    return Err(fail(
-                        path,
-                        "an axis is the guide of `x` or `y` of a Cartesian plot",
-                    ));
+        let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
+        title(axis.title.as_ref(), &format!("{path}.title"), false)?;
+        let polar_orient = matches!(axis.label_turn, Some(axis::LabelTurn::LabelOrient(_)));
+        match (kind, channel) {
+            (CoordKind::Cartesian, Channel::X | Channel::Y) => {
+                if axis.angle.is_some() {
+                    return invalid("angle", "an angle is valid only on the axis of `radius`");
                 }
-                let path = format!("{path}.axis");
-                classes(&axis.classes, &path)?;
-                self.axis(axis, scale_type, domain_type, &path)
+                if axis.route != 0 {
+                    return invalid("route", "a route is valid only on the axis of a polar plot");
+                }
+                if polar_orient {
+                    return invalid(
+                        "label_orient",
+                        "an orient of labels is valid only on the axis of a polar plot",
+                    );
+                }
             }
-            guide::Guide::PolarAxis(axis) => {
-                let path = format!("{path}.polar_axis");
-                if !matches!(channel, Channel::Theta | Channel::Radius) {
-                    return Err(fail(
-                        &path,
-                        "a polar axis is the guide of `theta` or `radius`",
-                    ));
+            (CoordKind::Polar, Channel::Theta | Channel::Radius) => {
+                let cartesian = [
+                    ("title", axis.title.is_some()),
+                    ("show_title", axis.show_title.is_some()),
+                    ("side", axis.side != 0),
+                    ("label_align", axis.label_align != 0),
+                    ("label_baseline", axis.label_baseline != 0),
+                    ("levels", !axis.levels.is_empty()),
+                ];
+                if let Some((field, _)) = cartesian.iter().find(|(_, set)| *set) {
+                    return invalid(field, "the axis of a polar plot draws no such part");
                 }
                 if axis.angle.is_some() && channel != Channel::Radius {
-                    return Err(fail(
-                        format!("{path}.angle"),
-                        "an angle is valid only on a polar axis of `radius`",
-                    ));
-                }
-                classes(&axis.classes, &path)?;
-                self.labels(axis.labels.as_ref(), domain_type, &path)?;
-                self.ticks(axis.ticks.as_ref(), scale_type, domain_type, &path)
-            }
-            guide::Guide::Legend(legend) => {
-                let path = format!("{path}.legend");
-                classes(&legend.classes, &path)?;
-                if is_position(channel) {
-                    return Err(fail(
-                        &path,
-                        "a legend is the guide of a channel other than a position",
-                    ));
-                }
-                if !ticked(scale_type) && legend.entries.is_some() {
-                    return Err(fail(
-                        &path,
-                        "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
-                         count or values",
-                    ));
-                }
-                match &legend.entries {
-                    Some(legend::Entries::TickCount(count)) => {
-                        positive(Some(*count), &format!("{path}.tick_count"))?
-                    }
-                    Some(legend::Entries::Values(values)) => {
-                        self.domain_values(values, domain_type, &format!("{path}.values"))?
-                    }
-                    None => {}
-                }
-                self.labels(legend.labels.as_ref(), domain_type, &path)
-            }
-            guide::Guide::Colorbar(colorbar) => {
-                let path = format!("{path}.colorbar");
-                classes(&colorbar.classes, &path)?;
-                if !matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke)
-                    || !ticked(scale_type)
-                {
-                    return Err(fail(
-                        &path,
-                        "a colorbar is the guide of a linear, log, pow, symlog, or time scale of a \
-                         color channel",
-                    ));
-                }
-                match &colorbar.axis {
-                    Some(axis) => {
-                        self.colorbar_axis(axis, scale_type, domain_type, &format!("{path}.axis"))
-                    }
-                    None => Ok(()),
+                    return invalid("angle", "an angle is valid only on the axis of `radius`");
                 }
             }
-            guide::Guide::None(_) => Ok(()),
+            _ => {
+                return Err(fail(
+                    path,
+                    "an axis is valid on `x` or `y` of a Cartesian plot, and on `theta` or \
+                     `radius` of a polar plot",
+                ))
+            }
         }
+        classes(&axis.classes, path)?;
+        self.labels(axis.labels.as_ref(), domain_type, path)?;
+        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)?;
+        self.levels(&axis.levels, scale_type, domain_type, path)
     }
 
-    fn axis(
+    /// Checks a legend: valid on a channel other than a position, as a symbol legend or as a
+    /// colorbar of a continuous color scale, without the fields of the other form.
+    fn legend(
         &self,
-        axis: &proto::Axis,
+        legend: &proto::Legend,
+        channel: Channel,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)?;
-        self.levels(&axis.levels, scale_type, domain_type, path)
+        if is_position(channel) {
+            return Err(fail(
+                path,
+                "a legend is valid on a channel other than a position",
+            ));
+        }
+        classes(&legend.classes, path)?;
+        title(legend.title.as_ref(), &format!("{path}.title"), false)?;
+        let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);
+        let colorbar = match LegendForm::try_from(legend.form).unwrap_or_default() {
+            LegendForm::Colorbar => true,
+            LegendForm::Symbol => false,
+            LegendForm::Unspecified => color && ticked(scale_type),
+        };
+        let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
+        if colorbar {
+            if !color || !ticked(scale_type) {
+                return Err(fail(
+                    path,
+                    "a colorbar is the legend of a linear, log, pow, symlog, or time scale of a \
+                     color channel",
+                ));
+            }
+            let symbol = [
+                ("wrap", legend.wrap.is_some()),
+                ("label_padding", legend.label_padding.is_some()),
+                ("column_gap", legend.column_gap.is_some()),
+                ("row_gap", legend.row_gap.is_some()),
+                ("entries", legend.entries.is_some()),
+                ("show_swatches", legend.show_swatches.is_some()),
+            ];
+            if let Some((field, _)) = symbol.iter().find(|(_, set)| *set) {
+                return invalid(field, "a colorbar has no such part");
+            }
+            self.ticks(legend.ticks.as_ref(), scale_type, domain_type, path)?;
+        } else {
+            let colorbar_only = [
+                ("thickness", legend.thickness.is_some()),
+                ("axis_gap", legend.axis_gap.is_some()),
+                ("max_length", legend.max_length.is_some()),
+                ("label_align", legend.label_align != 0),
+                ("label_baseline", legend.label_baseline != 0),
+                ("ticks", legend.ticks.is_some()),
+                ("show_ticks", legend.show_ticks.is_some()),
+                ("domain_color", !legend.domain_color.is_empty()),
+                ("show_domain", legend.show_domain.is_some()),
+            ];
+            if let Some((field, _)) = colorbar_only.iter().find(|(_, set)| *set) {
+                return invalid(field, "a symbol legend has no such part");
+            }
+            if !ticked(scale_type) && legend.entries.is_some() {
+                return Err(fail(
+                    path,
+                    "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
+                     count or values",
+                ));
+            }
+            match &legend.entries {
+                Some(legend::Entries::TickCount(count)) => {
+                    positive(Some(*count), &format!("{path}.tick_count"))?
+                }
+                Some(legend::Entries::Values(values)) => {
+                    self.domain_values(values, domain_type, &format!("{path}.values"))?
+                }
+                None => {}
+            }
+        }
+        self.labels(legend.labels.as_ref(), domain_type, path)
     }
 
     /// Checks the levels of an axis: valid only on the axis of a nested band scale, with at most
@@ -803,20 +809,9 @@ impl Checker<'_> {
         Ok(())
     }
 
-    fn colorbar_axis(
-        &self,
-        axis: &proto::ColorbarAxis,
-        scale_type: &scale::Type,
-        domain_type: &DataType,
-        path: &str,
-    ) -> Result<()> {
-        self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.ticks(axis.ticks.as_ref(), scale_type, domain_type, path)
-    }
-
     fn labels(
         &self,
-        labels: Option<&proto::GuideLabels>,
+        labels: Option<&proto::Labels>,
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
@@ -835,7 +830,7 @@ impl Checker<'_> {
     /// ticks of the scale.
     fn ticks(
         &self,
-        ticks: Option<&proto::GuideTicks>,
+        ticks: Option<&proto::Ticks>,
         scale_type: &scale::Type,
         domain_type: &DataType,
         path: &str,
@@ -854,7 +849,7 @@ impl Checker<'_> {
             }
             (
                 Type::Band(_) | Type::Point(_),
-                Some(at @ (guide_ticks::At::Count(_) | guide_ticks::At::Interval(_))),
+                Some(at @ (ticks::At::Count(_) | ticks::At::Interval(_))),
             ) => {
                 return Err(fail(
                     format!("{path}.{}", at_name(at)),
@@ -864,11 +859,11 @@ impl Checker<'_> {
             _ => {}
         }
         match &ticks.at {
-            Some(guide_ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
-            Some(guide_ticks::At::Values(values)) => {
+            Some(ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
+            Some(ticks::At::Values(values)) => {
                 self.domain_values(values, domain_type, &format!("{path}.values"))
             }
-            Some(guide_ticks::At::Interval(interval)) => {
+            Some(ticks::At::Interval(interval)) => {
                 tick_interval(interval, &format!("{path}.interval"))
             }
             None => Ok(()),
@@ -1232,8 +1227,8 @@ fn one_value_per_series(mark: &dyn MarkMessage, table: &RecordBatch, path: &str)
         ],
         _ => return Ok(()),
     };
-    let column_of = |channel: Channel| match &mark.encoding(channel)?.value {
-        Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+    let column_of = |channel: Channel| match &mark.encoding(channel)?.kind {
+        Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
             table.column_by_name(name).cloned()
         }
         _ => None,
@@ -1366,8 +1361,14 @@ fn ascends(array: &ArrayRef, path: &str) -> Result<()> {
 }
 
 fn column<'b>(table: &'b RecordBatch, name: &str, path: &str) -> Result<&'b ArrayRef> {
-    (table.column_by_name(name))
-        .ok_or_else(|| fail(path, format!("the layer's table has no column `{name}`")))
+    (table.column_by_name(name)).ok_or_else(|| {
+        fail(
+            path,
+            format!(
+                "the layer's table has no column `{name}`. For a constant, use a `direct_value`"
+            ),
+        )
+    })
 }
 
 /// Checks where the mark of a position channel stands in its band: `band_position` from 0 to 1
@@ -1426,79 +1427,101 @@ fn levels(value_type: &DataType) -> usize {
     }
 }
 
-pub(crate) fn is_position(channel: Channel) -> bool {
-    matches!(
-        channel,
-        Channel::X
-            | Channel::Y
-            | Channel::X2
-            | Channel::Y2
-            | Channel::Longitude
-            | Channel::Latitude
-            | Channel::Longitude2
-            | Channel::Latitude2
-            | Channel::Geometry
-            | Channel::Theta
-            | Channel::Radius
-            | Channel::Theta2
-            | Channel::Radius2
-    )
-}
-
 /// Whether `value` goes through the channel's scale.
-fn is_scaled(value: &encoding::Value) -> bool {
+fn is_scaled(value: &encoding::Kind) -> bool {
     matches!(
         value,
-        encoding::Value::ScaledColumn(_) | encoding::Value::ScaledConstant(_)
+        encoding::Kind::ScaledField(_) | encoding::Kind::ScaledValue(_)
     )
 }
 
 /// Whether the value of `encoding` or one of its conditional values goes through the channel's
 /// scale.
 pub(crate) fn scaled(encoding: &proto::Encoding) -> bool {
-    encoding.value.as_ref().is_some_and(is_scaled)
+    encoding.kind.as_ref().is_some_and(is_scaled)
         || (encoding.conditional.iter()).any(|conditional| {
             matches!(
-                conditional.value,
+                conditional.kind,
                 Some(
-                    conditional_value::Value::ScaledColumn(_)
-                        | conditional_value::Value::ScaledConstant(_)
+                    conditional_value::Kind::ScaledField(_)
+                        | conditional_value::Kind::ScaledValue(_)
                 )
             )
         })
 }
 
-/// Whether a channel can take a scale: not the second channels of pairs, which follow the first,
-/// and not the channels of raw values.
-pub(crate) fn takes_scale(channel: Channel) -> bool {
-    !matches!(
-        channel,
-        Channel::Unspecified
-            | Channel::X2
-            | Channel::Y2
-            | Channel::Theta2
-            | Channel::Radius2
-            | Channel::Longitude
-            | Channel::Latitude
-            | Channel::Longitude2
-            | Channel::Latitude2
-            | Channel::Geometry
-            | Channel::Text
-            | Channel::Image
-            | Channel::Path
-            | Channel::FontWeight
-            | Channel::FontStyle
-            | Channel::Width
-            | Channel::Height
-            | Channel::Detail
-    )
+include!(concat!(env!("OUT_DIR"), "/channels.rs"));
+
+/// Checks an encoding of a column of spans: it is on a position channel with a partner, such as
+/// `x` or `x2`, of a mark that takes the partner, and the pair names the one column, so the first
+/// channel takes the starts and the partner the ends.
+fn spans(
+    mark: &dyn MarkMessage,
+    channel: Channel,
+    encoding: &proto::Encoding,
+    table: &RecordBatch,
+    path: &str,
+) -> Result<()> {
+    let name = match &encoding.kind {
+        Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => name,
+        _ => return Ok(()),
+    };
+    let spanned =
+        (table.column_by_name(name)).is_some_and(|column| span::is_span(column.data_type()));
+    if !spanned {
+        return Ok(());
+    }
+    let first = scale_channel(channel);
+    let Some(partner) = span::partner(first) else {
+        return Err(fail(
+            path,
+            format!(
+                "a column of spans gives a position and its partner, such as `x` and `x2`, and \
+                 `{}` has no partner",
+                channel.field_name()
+            ),
+        ));
+    };
+    if !mark.channels().contains(&partner) {
+        return Err(fail(
+            path,
+            format!(
+                "a `{}` mark takes no `{}`, so it takes no column of spans on `{}`",
+                mark.name(),
+                partner.field_name(),
+                first.field_name()
+            ),
+        ));
+    }
+    let field = |channel: Channel| {
+        mark.encoding(channel)
+            .and_then(|encoding| match &encoding.kind {
+                Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => {
+                    Some(name.as_str())
+                }
+                _ => None,
+            })
+    };
+    if field(first) != Some(name) || field(partner) != Some(name) {
+        return Err(fail(
+            path,
+            format!(
+                "the column of spans `{name}` gives `{}` and `{}`, so they name it both, or `{}` \
+                 is absent",
+                first.field_name(),
+                partner.field_name(),
+                partner.field_name()
+            ),
+        ));
+    }
+    Ok(())
 }
 
-/// The name of the member of `GuideTicks.at` that `at` holds.
-fn at_name(at: &guide_ticks::At) -> &'static str {
+/// The name of the member of `Ticks.at` that `at` holds.
+fn at_name(at: &ticks::At) -> &'static str {
     match at {
-        guide_ticks::At::Count(_) => "count",
-        guide_ticks::At::Interval(_) => "interval",
-        guide_ticks::At::Values(_) => "values",
+        ticks::At::Count(_) => "count",
+        ticks::At::Interval(_) => "interval",
+        ticks::At::Values(_) => "values",
     }
 }

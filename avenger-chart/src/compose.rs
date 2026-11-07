@@ -13,57 +13,34 @@ use arrow::{
 
 use crate::{
     builder::{PartitionOrder, Parts, Syntaxes, Value},
-    infer::infer_scales,
     layer::CoordKind,
     proto::{
         self, node::Node, plot::Coord, ChartBuilder, NodeBuilder, PartitionValue,
-        PartitionValueBuilder, PlotBuilder,
+        PartitionValueBuilder, Plot, PlotBuilder,
     },
     Chart, ChartError, FORMAT_VERSION,
 };
 
 impl Chart {
-    /// A builder of a chart that sets no field, the builder of the message
+    /// A builder of a chart with its root, the builder of the message
     /// [`proto::Chart`](crate::proto::Chart), whose [`build`](ChartBuilder::build) returns a
-    /// checked chart.
-    pub fn builder() -> ChartBuilder {
-        ChartBuilder::default()
+    /// checked chart. The root is a node, such as a plot, a concat, or a finished chart.
+    pub fn builder(root: impl Into<NodeBuilder>) -> ChartBuilder {
+        proto::Chart::new(root)
     }
 }
 
 impl ChartBuilder {
-    /// Asks [`build`](Self::build) to infer the absent scales of the whole tree: for each encoding
-    /// whose value or one of whose conditional values is a `scaled_column` or a `scaled_constant`,
-    /// the scale when the encoding has none, its type when it is absent, and its domain when it is
-    /// absent. It applies at `build`, wherever it stands in the chain, and it never changes a field
-    /// that is set.
-    ///
-    /// The scale type follows the Arrow type of the values, the channel, and for categories on a
-    /// position, the mark: numbers take a linear scale, except on `shape`, `pattern`, and
-    /// `stroke_dash`, which take an ordinal one; dates and timestamps take a time scale; strings
-    /// and booleans take a band scale on a position of a bar or a rect, a point scale on another
-    /// position, and an ordinal scale elsewhere; and structs of paths take a nested band scale on a
-    /// position. An absent domain is the layer's data domain. Fits, guides, titles, and styles
-    /// stay absent.
-    pub fn infer_scales(mut self) -> Self {
-        self.infer_scales = true;
-        self
-    }
-
     /// The chart: the builder's message with the version of the format, the tables and the values
     /// that its references refer to, and the selections and the format syntaxes of the charts that
-    /// it embeds, after the inference that the builder asks for, checked against every rule of the
-    /// format and in its canonical form.
+    /// it embeds, read as [`Chart::from_parts`] reads a chart: with its absent scales inferred,
+    /// checked against every rule of the format, and in its canonical form.
     ///
     /// The selections of the embedded charts join the builder's own. A format syntax that the
     /// builder or one embedded chart sets is the chart's, and two different syntaxes are an error.
     /// The width, the height, and the padding of an embedded chart do not carry over.
     pub fn build(self) -> Result<Chart, ChartError> {
-        let ChartBuilder {
-            mut message,
-            parts,
-            infer_scales: infer,
-        } = self;
+        let ChartBuilder { mut message, parts } = self;
         parts.error("")?;
         for embedded in &parts.syntaxes {
             agree(
@@ -82,9 +59,6 @@ impl ChartBuilder {
         message.selections.extend(parts.selections);
         message.version = FORMAT_VERSION;
         let (tables, streams): (Vec<RecordBatch>, Vec<_>) = parts.tables.into_iter().unzip();
-        if infer {
-            infer_scales(&mut message, &tables, &parts.values);
-        }
         Chart::read_parts(message, tables, streams, parts.values)
     }
 }
@@ -227,11 +201,17 @@ impl proto::Node {
                 let value = key.slice(indices[0] as usize, 1);
                 let rows = take_record_batch(batch, &UInt32Array::from(indices))?;
                 let node: NodeBuilder = cell(rows)?.into();
-                Ok(node.partition([PartitionValue::builder()
-                    .column(column)
-                    .value(Value::scalar(value))]))
+                Ok(node.partition([PartitionValue::new(column, Value::scalar(value))]))
             })
             .collect()
+    }
+}
+
+impl Plot {
+    /// A builder of a plot of the layers of `plots`, which gives the plot its coordinate system,
+    /// as [`PlotBuilder::overlay`] describes.
+    pub fn overlay(plots: impl IntoIterator<Item = impl Into<NodeBuilder>>) -> PlotBuilder {
+        PlotBuilder::default().overlay(plots)
     }
 }
 

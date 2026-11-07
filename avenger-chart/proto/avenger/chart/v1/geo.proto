@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/option.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
@@ -16,8 +17,9 @@ import "avenger/chart/v1/style.proto";
 // The map plots that share a projection merge their data and show one view, so their surfaces,
 // their fits, their aspects, and their navigation must be equal.
 message Geo {
-  // The coordinates that the projection takes. Required.
+  // The coordinates that the projection takes.
   oneof surface {
+    option (avenger.chart.v1.required_oneof) = true;
     Spherical spherical = 1;
     Planar planar = 2;
   }
@@ -74,8 +76,9 @@ enum PanMode {
 
 // Longitudes and latitudes in degrees, through a projection.
 message Spherical {
-  // The projection, with its parameters. Required.
+  // The projection, with its parameters.
   oneof projection {
+    option (avenger.chart.v1.required_oneof) = true;
     NoParameters equal_earth = 1;
     NoParameters natural_earth1 = 2;
     NoParameters robinson = 3;
@@ -163,7 +166,7 @@ message HammerProjection {
 // name reports an error that names it.
 message CustomProjection {
   // The name of the projection.
-  string name = 1;
+  string name = 1 [(avenger.chart.v1.required) = true];
   // The parameters of the projection, keyed by name. The projection checks their names and their
   // values.
   repeated NamedOption parameters = 2;
@@ -319,7 +322,7 @@ message SphereStyle {
 message TileLayer {
   // The URL of each tile, with `{z}`, `{x}`, and `{y}` for its zoom, column, and row, such as
   // `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
-  string url_template = 1;
+  string url_template = 1 [(avenger.chart.v1.required) = true];
   // The lowest zoom that the server has. When absent, 0.
   optional uint32 min_zoom = 2;
   // The highest zoom that the server has. When absent, 19.

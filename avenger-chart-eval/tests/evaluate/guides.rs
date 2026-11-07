@@ -9,36 +9,28 @@ use crate::support::*;
 #[test]
 fn titles_and_attributions() {
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
-    )
-    .table(cars());
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols]))
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    );
+    let plot = Plot::cartesian([symbols])
         .title(
-            Title::builder()
-                .text("Fuel economy")
+            Title::new("Fuel economy")
                 .subtitle("By weight and origin")
                 .align(TitleAlign::Start),
         )
         .attribution(Attribution::builder().credits(["Source: StatLib"]));
-    let chart = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let chart = Chart::builder(plot).build().unwrap();
     render_both(&chart, "title-subtitle-attribution");
 
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
-    )
-    .table(cars());
-    let plot = Plot::cartesian(CartesianPlot::builder().layers([symbols])).title(
-        Title::builder()
-            .text("Figure 1: heavier cars travel fewer miles on a gallon.")
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    );
+    let plot = Plot::cartesian([symbols]).title(
+        Title::new("Figure 1: heavier cars travel fewer miles on a gallon.")
             .side(TitleSide::Bottom),
     );
-    let caption = Chart::builder().root(plot).infer_scales().build().unwrap();
+    let caption = Chart::builder(plot).build().unwrap();
     render_both(&caption, "caption");
 }
 
@@ -46,75 +38,54 @@ fn titles_and_attributions() {
 fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(
-                Encoding::scaled_column("mpg")
-                    .scale(Scale::threshold().domain(Domain::explicit([20.0, 30.0]))),
-            ),
-    )
-    .table(cars());
-    let threshold = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color(
+            Encoding::scaled_field("mpg")
+                .scale(Scale::threshold().domain(Domain::explicit([20.0, 30.0]))),
+        ),
+    );
+    let threshold = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&threshold, "legend-threshold");
 
     // A color and a shape of one column share one legend.
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin"))
-            .shape(Encoding::scaled_column("origin")),
-    )
-    .table(cars());
-    let merged = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("weight")
+            .y("mpg")
+            .color("origin")
+            .shape("origin"),
+    );
+    let merged = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&merged, "legend-color-shape");
 }
 
 #[test]
 fn an_axis_with_explicit_ticks() {
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight").scale(
-                Scale::builder()
-                    .guide(Axis::builder().ticks(GuideTicks::values([2000.0, 3000.0, 4000.0]))),
-            ))
-            .y(Encoding::scaled_column("mpg")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x(Encoding::scaled_field("weight")
+                .scale(Axis::builder().ticks(Ticks::values([2000.0, 3000.0, 4000.0]))))
+            .y("mpg"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&chart, "axis-explicit-ticks");
 }
 
 #[test]
 fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(
-                Encoding::scaled_column("mpg")
-                    .scale(Scale::builder().guide(Colorbar::builder().max_length(120.0))),
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color(
+            Encoding::scaled_field("mpg").scale(
+                Legend::builder()
+                    .form(LegendForm::Colorbar)
+                    .max_length(120.0),
             ),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+        ),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render(&chart, [320.0, 480.0], "colorbar-longest-length");
 }
 
@@ -122,18 +93,14 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
 fn legends_draw_the_constant_colors_of_their_marks() {
     // A size legend of red symbols shows red symbols.
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .size(Encoding::scaled_column("count"))
-            .color(Encoding::constant("#e45756")),
-    )
-    .table(cars());
-    let symbols = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("weight")
+            .y("mpg")
+            .size("count")
+            .color(Encoding::direct_value("#e45756")),
+    );
+    let symbols = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let red = [228.0 / 255.0, 87.0 / 255.0, 86.0 / 255.0, 1.0];
     let fills = legend_symbol_fills(&evaluate(&symbols, [320.0, 240.0]));
     assert!(!fills.is_empty());
@@ -148,19 +115,15 @@ fn legends_draw_the_constant_colors_of_their_marks() {
 
     // A dash legend of green lines shows green dashes.
     let lines = CartesianLayer::line(
+        cars(),
         LineMark::builder()
-            .x(Encoding::scaled_column("year"))
-            .y(Encoding::scaled_column("mpg"))
-            .detail(Encoding::column("origin"))
-            .stroke_dash(Encoding::scaled_column("origin"))
-            .color(Encoding::constant("#54a24b")),
-    )
-    .table(cars());
-    let lines = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("year")
+            .y("mpg")
+            .detail("origin")
+            .stroke_dash("origin")
+            .color(Encoding::direct_value("#54a24b")),
+    );
+    let lines = Chart::builder(Plot::cartesian([lines])).build().unwrap();
     render_both(&lines, "legend-constant-color-lines");
 }
 
@@ -168,17 +131,10 @@ fn legends_draw_the_constant_colors_of_their_marks() {
 #[test]
 fn a_hidden_guide_draws_nothing() {
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let texts = scene_texts(&evaluate(&chart, [320.0, 240.0]).scene.marks);
     assert!(texts.contains(&"Europe".to_string()) && texts.contains(&"weight".to_string()));
@@ -197,18 +153,14 @@ fn a_hidden_guide_draws_nothing() {
 #[test]
 fn a_symbol_fills_with_a_tint_of_its_color_and_strokes_in_it() {
     let symbols = CartesianLayer::symbol(
+        cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin"))
-            .size(Encoding::constant(100.0)),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("weight")
+            .y("mpg")
+            .color("origin")
+            .size(100.0),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let css = "mark[type=symbol] {
         fill: color-mix(in srgb, currentColor 50%, white);
         stroke: currentColor;
@@ -266,17 +218,10 @@ fn close(a: &ColorOrGradient, b: [f32; 4]) -> bool {
 #[test]
 fn a_mix_of_current_color_tints_each_rows_color() {
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("weight"))
-            .y(Encoding::scaled_column("mpg"))
-            .color(Encoding::scaled_column("origin")),
-    )
-    .table(cars());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
 
     let css = "mark[type=symbol] { fill: color-mix(in srgb, currentColor 50%, white); }";
     let mut tinted =

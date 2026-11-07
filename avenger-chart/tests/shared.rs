@@ -10,9 +10,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    proto::{
-        self, guide, node, plot, scale, track, CartesianLayer, Encoding, Node, Plot, ValueRef,
-    },
+    proto::{self, node, plot, scale, track, CartesianLayer, Encoding, Node, Plot, ValueRef},
     Chart,
 };
 use support::*;
@@ -203,14 +201,12 @@ fn the_specs_of_a_shared_scale_agree() {
 
     let format = |pattern: &str| {
         let mut layer = symbols(0);
-        scale_of(&mut layer, false).guide = Some(proto::Guide {
-            guide: Some(guide::Guide::Axis(proto::Axis {
-                labels: Some(proto::GuideLabels {
-                    format: pattern.to_string(),
-                    ..Default::default()
-                }),
+        scale_of(&mut layer, false).axis = Some(proto::Axis {
+            labels: Some(proto::Labels {
+                format: pattern.to_string(),
                 ..Default::default()
-            })),
+            }),
+            ..Default::default()
         });
         layer
     };
@@ -219,7 +215,7 @@ fn the_specs_of_a_shared_scale_agree() {
     invalid(
         chart_parts.clone(),
         "root.plot.cartesian.layers[1]",
-        "guide.axis.labels.format",
+        "axis.labels.format",
     );
     chart_parts.0.root = Some(plot(vec![format(",.0f"), symbols(0)]));
     let chart = read(chart_parts).unwrap();
@@ -229,7 +225,7 @@ fn the_specs_of_a_shared_scale_agree() {
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
     assert!(
-        x.spec.guide.is_some(),
+        x.spec.axis.is_some(),
         "the merged spec takes the guide that one spec sets"
     );
 }
@@ -429,11 +425,11 @@ fn map_plots_that_share_a_projection_agree() {
                     table: Some(proto::TableRef { index: 0 }),
                     mark: Some(proto::geo_layer::Mark::Symbol(proto::GeoSymbolMark {
                         longitude: Some(Encoding {
-                            value: Some(proto::encoding::Value::Column("a".to_string())),
+                            kind: Some(proto::encoding::Kind::DirectField("a".to_string())),
                             ..Default::default()
                         }),
                         latitude: Some(Encoding {
-                            value: Some(proto::encoding::Value::Column("b".to_string())),
+                            kind: Some(proto::encoding::Kind::DirectField("b".to_string())),
                             ..Default::default()
                         }),
                         ..Default::default()
@@ -453,7 +449,7 @@ fn map_plots_that_share_a_projection_agree() {
         ],
     );
     read(parts(row.clone(), vec![])).unwrap();
-    concat_mut(&mut row).projection = Some(proto::Sharing::Shared as i32);
+    concat_mut(&mut row).projection = proto::Sharing::Shared as i32;
     invalid(
         parts(row, vec![]),
         "root.concat.children[1].plot",
@@ -755,11 +751,9 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
         spec.domain = Some(proto::Domain {
             domain: Some(proto::domain::Domain::Data(proto::DataDomain::default())),
         });
-        spec.guide = Some(proto::Guide {
-            guide: Some(guide::Guide::Axis(proto::Axis {
-                classes: classes.iter().map(|class| class.to_string()).collect(),
-                ..Default::default()
-            })),
+        spec.axis = Some(proto::Axis {
+            classes: classes.iter().map(|class| class.to_string()).collect(),
+            ..Default::default()
         });
         layer
     };
@@ -791,8 +785,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
         panic!("the shared scale is a band scale")
     };
     assert_eq!(band.kind, proto::ScaleKind::Ordinal as i32);
-    let Some(guide::Guide::Axis(axis)) = x.spec.guide.as_ref().and_then(|g| g.guide.as_ref())
-    else {
+    let Some(axis) = x.spec.axis.as_ref() else {
         panic!("the shared scale has an axis")
     };
     assert_eq!(axis.classes, vec!["a".to_string(), "b".to_string()]);
@@ -803,11 +796,9 @@ fn shared_scales_agree_on_the_ids_of_their_guides() {
     let axis = |id: &str| {
         let mut layer = symbols(0);
         let spec = scale_of(&mut layer, false);
-        spec.guide = Some(proto::Guide {
-            guide: Some(guide::Guide::Axis(proto::Axis {
-                id: id.to_string(),
-                ..Default::default()
-            })),
+        spec.axis = Some(proto::Axis {
+            id: id.to_string(),
+            ..Default::default()
         });
         layer
     };
@@ -822,8 +813,7 @@ fn shared_scales_agree_on_the_ids_of_their_guides() {
     let x = (groups.iter())
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
-    let Some(guide::Guide::Axis(axis)) = x.spec.guide.as_ref().and_then(|g| g.guide.as_ref())
-    else {
+    let Some(axis) = x.spec.axis.as_ref() else {
         panic!("the shared scale has an axis")
     };
     assert_eq!(axis.id, "time");
@@ -831,19 +821,17 @@ fn shared_scales_agree_on_the_ids_of_their_guides() {
 
 /// Symbols whose `x` axis, or `y` axis when `y`, has `id`.
 fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
-    scale_of(&mut layer, y).guide = Some(proto::Guide {
-        guide: Some(guide::Guide::Axis(proto::Axis {
-            id: id.to_string(),
-            ..Default::default()
-        })),
+    scale_of(&mut layer, y).axis = Some(proto::Axis {
+        id: id.to_string(),
+        ..Default::default()
     });
     layer
 }
 
 #[test]
 fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
-    let x_axis = "root.plot.cartesian.layers[0].mark.symbol.x.scale.guide.axis";
-    let y_axis = "root.plot.cartesian.layers[0].mark.symbol.y.scale.guide.axis";
+    let x_axis = "root.plot.cartesian.layers[0].symbol.x.scale.axis";
+    let y_axis = "root.plot.cartesian.layers[0].symbol.y.scale.axis";
     read(parts(
         plot_with("sales", vec![], vec![with_axis(symbols(0), false, "time")]),
         vec![],
@@ -923,7 +911,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
         let chart = read(facet(sharing)).unwrap();
         let resolved = chart.resolve();
         let identities: Vec<String> = (resolved.scales.iter())
-            .filter_map(|group| group.guide_identity(&resolved.tree))
+            .filter_map(|group| group.axis_or_legend_identity(&resolved.tree))
             .map(|identity| identity.name())
             .collect();
         let expected: &[&str] = match sharing {
@@ -943,7 +931,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
     );
     invalid(
         parts(plain, vec![]),
-        "root.concat.children[1].plot.cartesian.layers[0].mark.symbol.y.scale.guide.axis",
+        "root.concat.children[1].plot.cartesian.layers[0].symbol.y.scale.axis",
         "have one id and one partition, `measure`",
     );
 }

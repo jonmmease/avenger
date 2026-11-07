@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/value.proto";
@@ -19,35 +20,45 @@ import "avenger/chart/v1/value.proto";
 // the number 100 plus the channel's value in `Channel`. The comment of a channel's field says what
 // the channel means for the mark when the comment of the channel does not.
 message Encoding {
-  // The value of the channel. A `scaled_` value goes through the channel's scale, and a plain value
-  // is drawn as it is, in the form that the comment of the channel gives, even in an encoding that
-  // has a scale.
-  oneof value {
+  // What the channel draws: a field, a column of the layer's table, or a value, one constant. A
+  // `scaled_` field or value goes through the channel's scale, and a `direct_` one is drawn as it
+  // is, in the form that the comment of the channel gives, even in an encoding that has a scale.
+  // Each value says which, so one encoding can hold both, such as a scaled field with a
+  // conditional direct value that grays the rows outside a brush.
+  //
+  // A field of a position channel with a partner, `x`, `y`, `theta`, or `radius`, can name a
+  // column of spans: structs of exactly a `start` and an `end` field, in that order, of one
+  // numeric or temporal type, such as the bins of a histogram. The column gives the channel its
+  // starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark takes the
+  // partner, and the partner is absent, which the reader fills with the same field, or names the
+  // same column.
+  oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
     // The name of a column of the layer's table, whose values the mark draws as they are, such as
     // CSS colors.
-    string column = 2;
+    string direct_field = 2;
     // The name of a column of the layer's table, whose values go through the channel's scale.
-    string scaled_column = 3;
+    string scaled_field = 3;
     // A value that the mark draws as it is, in the form that the comment of the channel gives, such
     // as a CSS color.
-    ValueRef constant = 4;
+    ValueRef direct_value = 4;
     // A data value that goes through the channel's scale, such as the position of a reference
     // line.
-    ValueRef scaled_constant = 5;
+    ValueRef scaled_value = 5;
   }
-  // The scale of the channel, which maps the `scaled_column` and `scaled_constant` values of the
+  // The scale of the channel, which maps the `scaled_field` and `scaled_value` values of the
   // encoding and of its conditional values to what the mark draws. An encoding has a scale exactly
-  // when its value or one of its conditional values is a `scaled_` value, and a reader requires its
-  // type and its domain. Scale inference fills in a scale, a type, or a domain that a producer
-  // leaves out.
+  // when its value or one of its conditional values is a `scaled_` value. When it is absent, the
+  // reader infers it, with the type and the domain that `Scale.type` and `Scale.domain` describe,
+  // so a scale is needed only to set its fields.
   //
   // `x` and `y` take `scaled_` values only, because the axes and the fit of the plot need a scale.
   // The second channels of pairs, `x2`, `y2`, `theta2`, and `radius2`, never have a scale of their
   // own: their `scaled_` values go through the scale of `x`, `y`, `theta`, or `radius`, so they are
   // `scaled_` values exactly when the first channel has a scale. `longitude`, `latitude`,
   // `longitude2`, `latitude2`, `geometry`, `text`, `image`, `path`, and `detail` take no scale, so
-  // their values are plain. An encoding of any other channel without a scale has no guide and
-  // joins no shared scale.
+  // their values are direct. An encoding of any other channel without a scale has no axis or
+  // legend and joins no shared scale.
   Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // conditional value whose predicate selects it, and the value of the encoding when none does.
@@ -62,12 +73,13 @@ message Encoding {
   // an interval selection records its range. When it is empty, a selection records the encoded
   // column. It is absent on the second channels of the pairs.
   string selection_field = 8;
-  // The title of the encoded values in the guide of the channel's scale. When absent, the title of
-  // a column is its name, and a constant or a scaled constant has none. An empty title gives the
-  // guide no title from this encoding. A guide whose own title is absent takes the distinct titles
-  // of the encodings of its scale, in tree order, joined by `, `, so a plot of `count` bars and a
-  // `mean` rule titles its shared `y` axis `count, mean`, and it draws no title when they give
-  // none. An encoding without a scale has no guide, so it has no title.
+  // The title of the encoded values in the axis or the legend of the channel's scale. When absent,
+  // the title of a field is the name of its column, and a value has none. An empty title gives the
+  // axis or the legend no title from this encoding. An axis or a legend whose own title is absent
+  // takes the distinct titles of the encodings of its scale, in tree order, joined by `, `, so a
+  // plot of `count` bars and a `mean` rule titles its shared `y` axis `count, mean`, and it draws
+  // no title when they give none. An encoding without a scale has no axis or legend, so it has no
+  // title.
   optional string title = 9;
   // Where the mark of a position channel stands in its band, from 0 at the start of the band to 1
   // at its end, on a band or a nested band scale. When absent, a point mark, such as a symbol, a
@@ -92,16 +104,18 @@ message Encoding {
 // A value of a channel for the rows that a predicate selects.
 message ConditionalValue {
   // The predicate that selects the rows that take this value.
-  Predicate predicate = 1;
-  oneof value {
-    // The name of a column whose values the mark draws as they are, as for `Encoding.column`.
-    string column = 2;
+  Predicate predicate = 1 [(avenger.chart.v1.required) = true];
+  // What the rows that the predicate selects draw, as for `Encoding.kind`.
+  oneof kind {
+    option (avenger.chart.v1.required_oneof) = true;
+    // The name of a column whose values the mark draws as they are, as for `Encoding.direct_field`.
+    string direct_field = 2;
     // The name of a column whose values go through the channel's scale, as for
-    // `Encoding.scaled_column`.
-    string scaled_column = 3;
-    // A value that the mark draws as it is, as for `Encoding.constant`.
-    ValueRef constant = 4;
-    // A data value that goes through the channel's scale, as for `Encoding.scaled_constant`.
-    ValueRef scaled_constant = 5;
+    // `Encoding.scaled_field`.
+    string scaled_field = 3;
+    // A value that the mark draws as it is, as for `Encoding.direct_value`.
+    ValueRef direct_value = 4;
+    // A data value that goes through the channel's scale, as for `Encoding.scaled_value`.
+    ValueRef scaled_value = 5;
   }
 }

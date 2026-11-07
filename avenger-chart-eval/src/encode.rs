@@ -38,12 +38,13 @@ pub(crate) type Result<T> = std::result::Result<T, EvalError>;
 pub(crate) fn drawn_rows(mark: &cartesian_layer::Mark, table: &RecordBatch) -> Result<RecordBatch> {
     let mark: &dyn avenger_chart::layer::MarkMessage = mark;
     let positions = [Channel::X, Channel::Y, Channel::X2, Channel::Y2];
-    let columns: Vec<&ArrayRef> = mark
+    let columns: Vec<ArrayRef> = mark
         .encodings()
         .filter(|(channel, _)| positions.contains(channel))
-        .filter_map(|(_, encoding)| match &encoding.value {
-            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
-                table.column_by_name(name)
+        .filter_map(|(channel, encoding)| match &encoding.kind {
+            Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
+                let column = table.column_by_name(name)?;
+                Some(avenger_chart::span::channel_values(column, channel))
             }
             _ => None,
         })
@@ -69,21 +70,21 @@ enum Source<'a> {
 }
 
 impl<'a> Source<'a> {
-    fn of_encoding(value: &'a encoding::Value) -> Self {
+    fn of_encoding(value: &'a encoding::Kind) -> Self {
         match value {
-            encoding::Value::Column(name) => Self::Column(name),
-            encoding::Value::ScaledColumn(name) => Self::ScaledColumn(name),
-            encoding::Value::Constant(value) => Self::Constant(value),
-            encoding::Value::ScaledConstant(value) => Self::Scaled(value),
+            encoding::Kind::DirectField(name) => Self::Column(name),
+            encoding::Kind::ScaledField(name) => Self::ScaledColumn(name),
+            encoding::Kind::DirectValue(value) => Self::Constant(value),
+            encoding::Kind::ScaledValue(value) => Self::Scaled(value),
         }
     }
 
-    fn of_conditional(value: &'a conditional_value::Value) -> Self {
+    fn of_conditional(value: &'a conditional_value::Kind) -> Self {
         match value {
-            conditional_value::Value::Column(name) => Self::Column(name),
-            conditional_value::Value::ScaledColumn(name) => Self::ScaledColumn(name),
-            conditional_value::Value::Constant(value) => Self::Constant(value),
-            conditional_value::Value::ScaledConstant(value) => Self::Scaled(value),
+            conditional_value::Kind::DirectField(name) => Self::Column(name),
+            conditional_value::Kind::ScaledField(name) => Self::ScaledColumn(name),
+            conditional_value::Kind::DirectValue(value) => Self::Constant(value),
+            conditional_value::Kind::ScaledValue(value) => Self::Scaled(value),
         }
     }
 }
@@ -179,22 +180,27 @@ impl<'a> LayerRows<'a> {
         arrow::compute::take(value, &UInt32Array::from(vec![0; self.len()]), None).ok()
     }
 
-    fn array(&self, source: Source) -> Result<ArrayRef> {
+    /// The values of `source` on `channel`, which takes the starts or the ends of a column of
+    /// spans.
+    fn array(&self, channel: Channel, source: Source) -> Result<ArrayRef> {
         match source {
-            Source::Column(name) | Source::ScaledColumn(name) => Ok(self
-                .column(name)
-                .expect("a valid layer's table or partition has its columns")),
+            Source::Column(name) | Source::ScaledColumn(name) => {
+                let column = (self.column(name))
+                    .expect("a valid layer's table or partition has its columns");
+                Ok(avenger_chart::span::channel_values(&column, channel))
+            }
             Source::Constant(value) | Source::Scaled(value) => Ok(self.chart.value(value).clone()),
         }
     }
 
     fn convert<T: Clone + Sync>(
         &self,
+        channel: Channel,
         source: Source,
         scale: Option<&ConfiguredScale>,
         convert: Convert<T>,
     ) -> Result<ScalarOrArray<T>> {
-        let values = self.array(source)?;
+        let values = self.array(channel, source)?;
         // A plain value is drawn as it is, even in an encoding that has a scale.
         let scale = match source {
             Source::Column(_) | Source::Constant(_) => None,
@@ -218,11 +224,11 @@ impl<'a> LayerRows<'a> {
             return Ok(None);
         };
         let value = encoding
-            .value
+            .kind
             .as_ref()
             .expect("a valid encoding has a value");
         let scale = self.scale_for(channel);
-        let base = self.convert(Source::of_encoding(value), scale, convert)?;
+        let base = self.convert(channel, Source::of_encoding(value), scale, convert)?;
         if encoding.conditional.is_empty() {
             return Ok(Some(base));
         }
@@ -231,11 +237,11 @@ impl<'a> LayerRows<'a> {
         let alternatives: Vec<Vec<T>> = (encoding.conditional.iter())
             .map(|conditional| {
                 let value = conditional
-                    .value
+                    .kind
                     .as_ref()
                     .expect("a valid condition has a value");
                 Ok(self
-                    .convert(Source::of_conditional(value), scale, convert)?
+                    .convert(channel, Source::of_conditional(value), scale, convert)?
                     .as_vec(len, None))
             })
             .collect::<Result<_>>()?;
@@ -286,12 +292,17 @@ impl<'a> LayerRows<'a> {
         };
         let scale = self.scale_for(channel);
         let mut values = Vec::new();
-        if let Some(value) = &encoding.value {
-            values.push(self.convert(Source::of_encoding(value), scale, convert)?);
+        if let Some(value) = &encoding.kind {
+            values.push(self.convert(channel, Source::of_encoding(value), scale, convert)?);
         }
         for conditional in &encoding.conditional {
-            if let Some(value) = &conditional.value {
-                values.push(self.convert(Source::of_conditional(value), scale, convert)?);
+            if let Some(value) = &conditional.kind {
+                values.push(self.convert(
+                    channel,
+                    Source::of_conditional(value),
+                    scale,
+                    convert,
+                )?);
             }
         }
         Ok(values)
@@ -542,8 +553,8 @@ impl<'a> LayerRows<'a> {
             Channel::Detail,
         ]
         .into_iter()
-        .filter_map(|channel| match &self.encoding(channel)?.value {
-            Some(encoding::Value::Column(name) | encoding::Value::ScaledColumn(name)) => {
+        .filter_map(|channel| match &self.encoding(channel)?.kind {
+            Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 self.column(name)
             }
             _ => None,

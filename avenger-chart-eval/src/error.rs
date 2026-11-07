@@ -47,4 +47,7 @@ pub enum EvalWarning {
     /// Marks at `path` that reach past the edges of their plot, because no domain of a position
     /// scale keeps them inside at the plot's size.
     Fit { path: String, reason: String },
+    /// A domain of the scale at `path` that takes its fallback, such as a selection domain whose
+    /// selection's clauses give no values through its channel.
+    Domain { path: String, reason: String },
 }

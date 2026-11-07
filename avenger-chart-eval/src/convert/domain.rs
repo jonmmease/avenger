@@ -20,10 +20,45 @@ use avenger_scales::scales::domain_summary::{
 };
 use avenger_selection::SelectionState;
 
-use super::selection::{domain_values, SelectionValues};
-use crate::EvalError;
+use super::selection::{domain_values, has_channel, SelectionValues};
+use crate::{EvalError, EvalWarning};
 
 type Result<T> = std::result::Result<T, EvalError>;
+
+/// The warnings of the selection domains of `groups` whose selections in `states` have clauses
+/// and none of them gives a range or a set through the domain's channel, so the domain takes its
+/// fallback, as an initial clause written without its channel does.
+pub(crate) fn selection_warnings(
+    groups: &[ScaleGroup],
+    states: &BTreeMap<String, SelectionState>,
+) -> Vec<EvalWarning> {
+    let mut warnings = Vec::new();
+    for group in groups {
+        let Some(domain::Domain::Selection(selection)) =
+            (group.spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref())
+        else {
+            continue;
+        };
+        let Some(state) = states.get(&selection.selection) else {
+            continue;
+        };
+        let channel = Channel::try_from(selection.channel).unwrap_or_default();
+        if state.clauses.is_empty() || has_channel(state, channel) {
+            continue;
+        }
+        warnings.push(EvalWarning::Domain {
+            path: format!("the {} scale", group.channel.field_name()),
+            reason: format!(
+                "the clauses of `{}` give no range or set through `{}`, so the domain of `{}` \
+                 takes its fallback",
+                selection.selection,
+                channel.field_name(),
+                group.channel.field_name()
+            ),
+        });
+    }
+    warnings
+}
 
 /// Where a scale's domain comes from at one evaluation.
 #[derive(Clone, Debug)]

@@ -111,26 +111,16 @@ fn scale_types_follow_values_channels_and_marks() {
         (Channel::Shape, "name", Some("ordinal")),
     ];
     for (channel, column, expected) in cases {
-        let mark = SymbolMark::builder().y(Encoding::scaled_column("number"));
+        let mark = SymbolMark::builder().y("number");
         let mark = match channel {
-            Channel::X => mark.x(Encoding::scaled_column(column)),
-            Channel::Color => mark
-                .x(Encoding::scaled_column("number"))
-                .color(Encoding::scaled_column(column)),
-            Channel::Size => mark
-                .x(Encoding::scaled_column("number"))
-                .size(Encoding::scaled_column(column)),
-            Channel::Shape => mark
-                .x(Encoding::scaled_column("number"))
-                .shape(Encoding::scaled_column(column)),
+            Channel::X => mark.x(column),
+            Channel::Color => mark.x("number").color(column),
+            Channel::Size => mark.x("number").size(column),
+            Channel::Shape => mark.x("number").shape(column),
             other => panic!("the cases do not encode {other:?}"),
         };
-        let chart = Chart::builder()
-            .root(Plot::cartesian(
-                CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
-            ))
-            .infer_scales()
-            .build();
+        let chart =
+            Chart::builder(Plot::cartesian([CartesianLayer::symbol(table(), mark)])).build();
         let Some(expected) = expected else {
             // Values without a scale type leave the type absent, and the chart is invalid.
             match chart {
@@ -165,17 +155,8 @@ fn scale_types_follow_values_channels_and_marks() {
         );
     }
     // Categories on a position of a bar are bands.
-    let bars = CartesianLayer::bar(
-        BarMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let bars = CartesianLayer::bar(table(), BarMark::builder().x("name").y("number"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     assert_eq!(
         type_name(&encoding(chart.message(), Channel::X)),
         Some("band")
@@ -185,14 +166,10 @@ fn scale_types_follow_values_channels_and_marks() {
 #[test]
 fn present_fields_and_plain_values_stay() {
     let mark = SymbolMark::builder()
-        .x(Encoding::scaled_column("number").scale(Scale::log(LogScale::builder().base(2.0))))
-        .y(Encoding::scaled_column("number"))
-        .color(Encoding::column("name"));
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([CartesianLayer::symbol(mark).table(table())]),
-        ))
-        .infer_scales()
+        .x(Encoding::scaled_field("number").scale(Scale::log(LogScale::builder().base(2.0))))
+        .y("number")
+        .color(Encoding::direct_field("name"));
+    let chart = Chart::builder(Plot::cartesian([CartesianLayer::symbol(table(), mark)]))
         .build()
         .unwrap();
     let message = chart.message();
@@ -214,51 +191,26 @@ fn present_fields_and_plain_values_stay() {
     assert!(encoding(message, Channel::Color).scale.is_none());
     // Fits, guides, and titles stay absent.
     let y = encoding(message, Channel::Y);
-    assert!(y.scale.as_ref().unwrap().guide.is_none());
+    assert!(y.scale.as_ref().unwrap().axis.is_none());
     assert!(y.title.is_none());
 }
 
 #[test]
 fn inferring_twice_changes_nothing() {
     let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number"))
-            .color(Encoding::scaled_column("number")),
-    )
-    .table(table());
-    let once = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
-    let twice = Chart::builder()
-        .root(once.clone())
-        .infer_scales()
-        .build()
-        .unwrap();
+        table(),
+        SymbolMark::builder().x("name").y("number").color("number"),
+    );
+    let once = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let twice = Chart::builder(once.clone()).build().unwrap();
     assert_eq!(once, twice);
 }
 
 #[test]
 fn layers_with_inferred_scales_share_them() {
-    let bars = CartesianLayer::bar(
-        BarMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
-    )
-    .table(table());
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("name"))
-            .y(Encoding::scaled_column("number")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(
-            CartesianPlot::builder().layers([bars, symbols]),
-        ))
-        .infer_scales()
+    let bars = CartesianLayer::bar(table(), BarMark::builder().x("name").y("number"));
+    let symbols = CartesianLayer::symbol(table(), SymbolMark::builder().x("name").y("number"));
+    let chart = Chart::builder(Plot::cartesian([bars, symbols]))
         .build()
         .unwrap();
     let scales = chart.resolve().scales;

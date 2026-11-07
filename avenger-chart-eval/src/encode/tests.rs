@@ -121,17 +121,13 @@ fn colors(
 #[test]
 fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
     let lines = CartesianLayer::line(
+        table(),
         LineMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::column("group")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([lines])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("a")
+            .y("b")
+            .color(Encoding::direct_field("group")),
+    );
+    let chart = Chart::builder(Plot::cartesian([lines])).build().unwrap();
     let mark = first_mark(&chart);
     let (styles, node) = mark_style("line", "");
     let (partition, engine) = (BTreeMap::new(), engine());
@@ -149,17 +145,8 @@ fn series_group_rows_by_their_color_in_the_order_of_first_rows() {
 
 #[test]
 fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
-    let bars = CartesianLayer::bar(
-        BarMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let bars = CartesianLayer::bar(table(), BarMark::builder().x("a").y("b"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     let mark = first_mark(&chart);
     let (styles, node) = mark_style("bar", "");
     let (partition, engine) = (BTreeMap::new(), engine());
@@ -190,23 +177,17 @@ fn a_baseline_stands_at_zero_inside_the_range_or_at_its_start() {
 #[test]
 fn the_first_conditional_value_that_selects_a_row_wins() {
     // Gray, unless the first of two conditional values that selects a row gives it red or blue.
-    let selected = |color: &str| {
-        ConditionalValue::constant(color)
-            .predicate(Predicate::selected(Selected::builder().selection("brush")))
-    };
+    let selected =
+        |color: &str| ConditionalValue::direct_value(Predicate::selected("brush"), color);
     let symbols = CartesianLayer::symbol(
+        table(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::constant("gray").conditional([selected("red"), selected("blue")])),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .selections([Selection::builder()
-            .name("brush")
-            .resolution(SelectionResolution::Global)])
-        .infer_scales()
+            .x("a")
+            .y("b")
+            .color(Encoding::direct_value("gray").conditional([selected("red"), selected("blue")])),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols]))
+        .selections([Selection::new("brush", SelectionResolution::Global)])
         .build()
         .unwrap();
     let mark = first_mark(&chart);
@@ -243,17 +224,13 @@ fn the_first_conditional_value_that_selects_a_row_wins() {
 #[test]
 fn paints_follow_the_computed_styles_and_the_color_channel() {
     let symbols = CartesianLayer::symbol(
+        table(),
         SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .color(Encoding::constant("red")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+            .x("a")
+            .y("b")
+            .color(Encoding::direct_value("red")),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mark = first_mark(&chart);
     let (partition, engine) = (BTreeMap::new(), engine());
     // A filled symbol takes the color as its fill, and the base stylesheet strokes none.
@@ -301,18 +278,8 @@ fn paints_follow_the_computed_styles_and_the_color_channel() {
 
 #[test]
 fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
-    let symbols = CartesianLayer::symbol(
-        SymbolMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .size(Encoding::constant(100.0)),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([symbols])))
-        .infer_scales()
-        .build()
-        .unwrap();
+    let symbols = CartesianLayer::symbol(table(), SymbolMark::builder().x("a").y("b").size(100.0));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mark = first_mark(&chart);
     let (styles, node) = mark_style("symbol", "");
     let (partition, engine) = (BTreeMap::new(), engine());
@@ -333,17 +300,12 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
     }
 
     let texts = CartesianLayer::text(
-        TextMark::builder()
-            .x(Encoding::scaled_column("a"))
-            .y(Encoding::scaled_column("b"))
-            .text(Encoding::constant("Gentoo")),
-    )
-    .table(table());
-    let chart = Chart::builder()
-        .root(Plot::cartesian(CartesianPlot::builder().layers([texts])))
-        .infer_scales()
-        .build()
-        .unwrap();
+        table(),
+        TextMark::new(Encoding::direct_value("Gentoo"))
+            .x("a")
+            .y("b"),
+    );
+    let chart = Chart::builder(Plot::cartesian([texts])).build().unwrap();
     let mark = first_mark(&chart);
     let (styles, node) = mark_style("text", "");
     let texts = rows(

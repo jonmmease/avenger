@@ -3,7 +3,9 @@
 
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
-use super::{classes, fail, keyed, named, non_negative, positive, size, within, Checker, Result};
+use super::{
+    classes, fail, keyed, non_negative, positive, size, title, within, Checker, Result, REQUIRED,
+};
 use crate::{
     layer::{CoordKind, LayerRef},
     proto::{
@@ -50,6 +52,7 @@ impl Checker<'_> {
     fn concat(&self, concat: &proto::Concat, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&concat.partition, path)?;
         classes(&concat.classes, path)?;
+        title(concat.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&concat.resolve, path)?;
         if let Some(layout) = &concat.layout {
             let path = format!("{path}.layout");
@@ -67,16 +70,13 @@ impl Checker<'_> {
             for (index, track) in layout.tracks.iter().enumerate() {
                 track_size(track, &format!("{path}.tracks[{index}]"))?;
             }
-            guide_rules(&layout.guide_rules, &path)?;
+            part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &concat.facet {
-            named(
-                &facet.column,
-                &format!("{path}.facet.column"),
-                "the column of a facet",
-            )?;
             if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                classes(&header.classes, &format!("{path}.facet.shown"))?;
+                let path = format!("{path}.facet.shown");
+                classes(&header.classes, &path)?;
+                title(header.title.as_ref(), &format!("{path}.title"), false)?;
             }
         }
         let scope = scope.with(&concat.partition, false);
@@ -89,6 +89,7 @@ impl Checker<'_> {
     fn wrap(&self, wrap: &proto::Wrap, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&wrap.partition, path)?;
         classes(&wrap.classes, path)?;
+        title(wrap.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&wrap.resolve, path)?;
         if let Some(layout) = &wrap.layout {
             let path = format!("{path}.layout");
@@ -103,16 +104,13 @@ impl Checker<'_> {
                 track_size(row, &format!("{path}.row"))?;
             }
             non_negative(layout.gap.map(f64::from), &format!("{path}.gap"))?;
-            guide_rules(&layout.guide_rules, &path)?;
+            part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &wrap.facet {
-            named(
-                &facet.column,
-                &format!("{path}.facet.column"),
-                "the column of a facet",
-            )?;
             if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                classes(&header.classes, &format!("{path}.facet.shown"))?;
+                let path = format!("{path}.facet.shown");
+                classes(&header.classes, &path)?;
+                title(header.title.as_ref(), &format!("{path}.title"), false)?;
             }
         }
         let scope = scope.with(&wrap.partition, true);
@@ -125,6 +123,7 @@ impl Checker<'_> {
     fn plot(&self, plot: &proto::Plot, path: &str, scope: &Scope) -> Result<()> {
         self.partition(&plot.partition, path)?;
         classes(&plot.classes, path)?;
+        title(plot.title.as_ref(), &format!("{path}.title"), true)?;
         self.resolve(&plot.resolve, path)?;
         size(plot.width, &format!("{path}.width"))?;
         size(plot.height, &format!("{path}.height"))?;
@@ -148,8 +147,7 @@ impl Checker<'_> {
                 &format!("{path}.line_gap"),
             )?;
         }
-        let kind = CoordKind::of(plot)
-            .ok_or_else(|| fail(path, "the coordinate system of a plot is required"))?;
+        let kind = CoordKind::of(plot).expect(REQUIRED);
         let coord_path = format!("{path}.{}", kind.field());
         match plot
             .coord
@@ -182,22 +180,11 @@ impl Checker<'_> {
                 }
             }
             Coord::Geo(geo) => {
-                let options = (geo.options.as_ref()).ok_or_else(|| {
-                    fail(
-                        format!("{coord_path}.options"),
-                        "the options of a map plot are required",
-                    )
-                })?;
+                let options = geo.options.as_ref().expect(REQUIRED);
                 self.geo_options(options, &format!("{coord_path}.options"))?;
             }
         }
         let layers = LayerRef::of(plot);
-        if layers.is_empty() {
-            return Err(fail(
-                format!("{coord_path}.layers"),
-                "a plot has a layer or more",
-            ));
-        }
         // The partition columns of the plot: those of its ancestors and its own, and those that
         // every layer declares with one value.
         let mut scope = scope.with(&plot.partition, false);
@@ -207,12 +194,7 @@ impl Checker<'_> {
             .collect();
         for (index, layer) in layers.iter().enumerate() {
             let path = format!("{coord_path}.layers[{index}]");
-            let table = tables[index].ok_or_else(|| {
-                fail(
-                    format!("{path}.table"),
-                    "a layer always refers to its table",
-                )
-            })?;
+            let table = tables[index].expect(REQUIRED);
             self.partition(layer.partition(), &path)?;
             let layer_scope = scope.with(layer.partition(), false);
             for (position, tool) in layer.tools().iter().enumerate() {
@@ -228,7 +210,7 @@ impl Checker<'_> {
                         &layer_scope,
                         &format!("{path}.select"),
                     )?,
-                    None => return Err(fail(&path, "the kind of a tool is required")),
+                    None => unreachable!("{REQUIRED}"),
                 }
             }
             if !layer.tools().is_empty() && layer.id().is_empty() {
@@ -271,7 +253,7 @@ impl Checker<'_> {
                 Some(tool::Kind::Select(select)) => {
                     self.select(select, kind, &tables, &scope, &format!("{path}.select"))?
                 }
-                None => return Err(fail(&path, "the kind of a tool is required")),
+                None => unreachable!("{REQUIRED}"),
             }
         }
         if !plot.tools.is_empty() && plot.id.is_empty() {
@@ -286,12 +268,7 @@ impl Checker<'_> {
                 self.spherical(spherical, &format!("{path}.spherical"))?
             }
             Some(geo::Surface::Planar(_)) => {}
-            None => {
-                return Err(fail(
-                    path,
-                    "the surface of a map is required: spherical or planar coordinates",
-                ))
-            }
+            None => unreachable!("{REQUIRED}"),
         }
         if let Some(geo::Aspect::AspectRatio(ratio)) = geo.aspect {
             positive(Some(f64::from(ratio)), &format!("{path}.aspect_ratio"))?;
@@ -344,11 +321,6 @@ impl Checker<'_> {
                 }
             }
             Some(spherical::Projection::Custom(custom)) => {
-                named(
-                    &custom.name,
-                    &format!("{path}.custom.name"),
-                    "the name of a custom projection",
-                )?;
                 keyed(
                     &custom.parameters,
                     |parameter| parameter.name.clone(),
@@ -358,7 +330,7 @@ impl Checker<'_> {
                 )?;
             }
             Some(_) => {}
-            None => return Err(fail(path, "the projection of a spherical map is required")),
+            None => unreachable!("{REQUIRED}"),
         }
         if let Some(rotation) = &spherical.rotate {
             if ![rotation.lambda, rotation.phi, rotation.gamma]
@@ -428,11 +400,6 @@ impl Checker<'_> {
         }
         if let Some(tiles) = &spherical.tiles {
             let path = format!("{path}.tiles");
-            named(
-                &tiles.url_template,
-                &format!("{path}.url_template"),
-                "the URL template of tiles",
-            )?;
             if tiles.tile_size == Some(0) {
                 return Err(fail(
                     format!("{path}.tile_size"),
@@ -457,11 +424,6 @@ impl Checker<'_> {
         let mut keys = Vec::with_capacity(partition.len());
         for (index, value) in partition.iter().enumerate() {
             let path = format!("{path}[{index}]");
-            named(
-                &value.column,
-                &format!("{path}.column"),
-                "the column of a partition value",
-            )?;
             keys.push((
                 value.column.clone(),
                 self.values.key(value.value.as_ref(), &path)?,
@@ -496,10 +458,8 @@ impl Checker<'_> {
                         ));
                     }
                 }
-                Some(proto::resolve::Key::Widget(key)) => {
-                    named(key, &format!("{at}.widget"), "the key of a widget")?;
-                }
-                None => return Err(fail(at, "the key of a resolve rule is required")),
+                Some(proto::resolve::Key::Widget(_)) => {}
+                None => unreachable!("{REQUIRED}"),
             }
             keys.push((rule.key.clone(), rule.sharing));
         }
@@ -698,13 +658,13 @@ fn track_size(track: &proto::Track, path: &str) -> Result<()> {
     }
 }
 
-/// Checks guide rules, keyed by part.
-fn guide_rules(rules: &[proto::GuideRule], path: &str) -> Result<()> {
+/// Checks part rules, keyed by part.
+fn part_rules(rules: &[proto::PartRule], path: &str) -> Result<()> {
     keyed(
         rules,
         |rule| rule.part,
         |a, b| a.rule == b.rule,
-        &format!("{path}.guide_rules"),
-        "guide rules",
+        &format!("{path}.part_rules"),
+        "part rules",
     )
 }

@@ -9,7 +9,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 
-use super::{classes, dictionary_values, fail, named, tree::Scope, Checker, Result};
+use super::{classes, dictionary_values, fail, title, tree::Scope, Checker, Result, REQUIRED};
 use crate::proto::{self, domain_fit, widget, widget_domain, SliderComparison};
 
 /// Whether a widget's domain is an interval, for a slider, or items, for a radio group and a check
@@ -52,10 +52,9 @@ impl Checker<'_> {
         scope: &Scope,
         path: &str,
     ) -> Result<()> {
-        named(&declared.key, &format!("{path}.key"), "the key of a widget")?;
         classes(&declared.classes, path)?;
-        let kind = (declared.kind.as_ref())
-            .ok_or_else(|| fail(path, "the kind of a widget is required"))?;
+        title(declared.title.as_ref(), &format!("{path}.title"), false)?;
+        let kind = declared.kind.as_ref().expect(REQUIRED);
         let kind_path = format!("{path}.{}", kind_name(kind));
         let column = self.target(declared.target(), table, scope, &kind_path)?;
         match kind {
@@ -153,19 +152,8 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<Option<DataType>> {
         let path = format!("{path}.target");
-        let target =
-            target.ok_or_else(|| fail(&path, "the target of a widget that selects is required"))?;
-        named(
-            &target.selection,
-            &format!("{path}.selection"),
-            "the selection of a widget",
-        )?;
+        let target = target.expect(REQUIRED);
         self.selection(&target.selection, &format!("{path}.selection"))?;
-        named(
-            &target.column,
-            &format!("{path}.column"),
-            "the column of a widget",
-        )?;
         match table.column_by_name(&target.column) {
             Some(column) => Ok(Some(dictionary_values(column.data_type()).clone())),
             None if scope.partition.contains(&target.column) => Ok(None),
@@ -188,8 +176,7 @@ impl Checker<'_> {
         column: Option<&DataType>,
         path: &str,
     ) -> Result<Option<DataType>> {
-        let domain = (domain.and_then(|domain| domain.domain.as_ref()))
-            .ok_or_else(|| fail(path, "the domain of a widget is required"))?;
+        let domain = (domain.and_then(|domain| domain.domain.as_ref())).expect(REQUIRED);
         let (values, fit) = match domain {
             widget_domain::Domain::Explicit(values) => {
                 let path = format!("{path}.explicit");
@@ -290,7 +277,7 @@ impl Checker<'_> {
     /// Checks the pattern of labels or of a readout for values of the domain's type.
     fn widget_labels(
         &self,
-        labels: Option<&proto::GuideLabels>,
+        labels: Option<&proto::Labels>,
         domain: Option<&DataType>,
         path: &str,
     ) -> Result<()> {

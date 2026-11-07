@@ -5,24 +5,17 @@ use std::collections::HashSet;
 
 use arrow::datatypes::DataType;
 
-use super::{fail, named, Checker, Result};
+use super::{fail, named, Checker, Result, REQUIRED};
 use crate::{
     proto::{self, condition, predicate},
     Chart,
 };
 
-/// Checks the selections of `chart` and returns their names.
-pub(super) fn selections(chart: &Chart) -> Result<HashSet<&str>> {
-    let mut names = HashSet::new();
-    for (index, selection) in chart.message.selections.iter().enumerate() {
-        named(
-            &selection.name,
-            &format!("selections[{index}].name"),
-            "the name of a selection",
-        )?;
-        names.insert(selection.name.as_str());
-    }
-    Ok(names)
+/// The names of the selections of `chart`.
+pub(super) fn selections(chart: &Chart) -> HashSet<&str> {
+    (chart.message.selections.iter())
+        .map(|selection| selection.name.as_str())
+        .collect()
 }
 
 impl Checker<'_> {
@@ -45,34 +38,15 @@ impl Checker<'_> {
                 "the owner of a clause",
             )?;
         }
-        if clause.conditions.is_empty() {
-            return Err(fail(
-                format!("{path}.conditions"),
-                "a clause has a condition or more",
-            ));
-        }
         self.partition(&clause.partition, path)?;
         for (index, condition) in clause.conditions.iter().enumerate() {
             let path = format!("{path}.conditions[{index}]");
-            match (condition.kind.as_ref())
-                .ok_or_else(|| fail(&path, "the kind of a condition is required"))?
-            {
+            match condition.kind.as_ref().expect(REQUIRED) {
                 condition::Kind::Set(set) => {
                     let path = format!("{path}.set");
-                    if set.columns.is_empty() {
-                        return Err(fail(
-                            format!("{path}.columns"),
-                            "a set has a column or more",
-                        ));
-                    }
                     let mut length = None;
                     for (position, column) in set.columns.iter().enumerate() {
                         let path = format!("{path}.columns[{position}]");
-                        named(
-                            &column.column,
-                            &format!("{path}.column"),
-                            "the column of a condition",
-                        )?;
                         let values = self
                             .values
                             .list(column.values.as_ref(), &format!("{path}.values"))?;
@@ -87,11 +61,6 @@ impl Checker<'_> {
                 }
                 condition::Kind::Range(range) => {
                     let path = format!("{path}.range");
-                    named(
-                        &range.column,
-                        &format!("{path}.column"),
-                        "the column of a condition",
-                    )?;
                     let low = (range.low.as_ref())
                         .map(|low| self.values.scalar(Some(low), &format!("{path}.low")))
                         .transpose()?;
@@ -120,22 +89,6 @@ impl Checker<'_> {
                 }
                 condition::Kind::Polygon(polygon) => {
                     let path = format!("{path}.polygon");
-                    named(
-                        &polygon.x_column,
-                        &format!("{path}.x_column"),
-                        "the column of a condition",
-                    )?;
-                    named(
-                        &polygon.y_column,
-                        &format!("{path}.y_column"),
-                        "the column of a condition",
-                    )?;
-                    if polygon.vertices.is_empty() {
-                        return Err(fail(
-                            format!("{path}.vertices"),
-                            "a polygon condition has a polygon or more",
-                        ));
-                    }
                     for (position, vertices) in polygon.vertices.iter().enumerate() {
                         let path = format!("{path}.vertices[{position}]");
                         let vertices = self.values.list(vertices, &path)?;
@@ -151,11 +104,6 @@ impl Checker<'_> {
                 }
                 condition::Kind::CyclicRange(range) => {
                     let path = format!("{path}.cyclic_range");
-                    named(
-                        &range.column,
-                        &format!("{path}.column"),
-                        "the column of a condition",
-                    )?;
                     if !(range.start.is_finite() && range.end.is_finite()) {
                         return Err(fail(&path, "a cyclic range has finite ends"));
                     }
@@ -172,9 +120,7 @@ impl Checker<'_> {
     }
 
     pub(super) fn predicate(&self, predicate: &proto::Predicate, path: &str) -> Result<()> {
-        match (predicate.predicate.as_ref())
-            .ok_or_else(|| fail(path, "the kind of a predicate is required"))?
-        {
+        match predicate.predicate.as_ref().expect(REQUIRED) {
             predicate::Predicate::Selected(selected) => {
                 self.selection(&selected.selection, &format!("{path}.selected.selection"))
             }

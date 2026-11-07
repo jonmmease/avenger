@@ -1,4 +1,4 @@
-// The sides of a plot, which the guides of several coordinate systems use.
+// The sides of a plot, which the axes and legends of several coordinate systems use.
 
 syntax = "proto3";
 

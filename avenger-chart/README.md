@@ -41,7 +41,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_chart::{
-    proto::{self, cartesian_layer, domain, encoding, node, plot, scale},
+    proto::{self, cartesian_layer, encoding, node, plot},
     Chart, ChartError, FORMAT_VERSION,
 };
 
@@ -56,16 +56,9 @@ let columns: Vec<ArrayRef> = vec![
 ];
 let table = RecordBatch::try_new(Arc::new(schema), columns)?;
 
-// A scatter plot of `a` against `b`, each through a linear scale fitted to the data.
+// A scatter plot of `a` against `b`. The reader infers a linear scale of each, fitted to the data.
 let column = |name: &str| proto::Encoding {
-    value: Some(encoding::Value::ScaledColumn(name.to_string())),
-    scale: Some(proto::Scale {
-        r#type: Some(scale::Type::Linear(proto::LinearScale::default())),
-        domain: Some(proto::Domain {
-            domain: Some(domain::Domain::Data(proto::DataDomain::default())),
-        }),
-        ..Default::default()
-    }),
+    kind: Some(encoding::Kind::ScaledField(name.to_string())),
     ..Default::default()
 };
 let layer = proto::CartesianLayer {
@@ -111,34 +104,56 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 
 ## Producing charts
 
-Each message `Foo` of `proto` has a builder, `FooBuilder`, from `Foo::builder()`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. Each field and each oneof member has one method, named after it, with the field's comment as its documentation:
+Each message `Foo` of `proto` has a builder, `FooBuilder`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. The constructors take the content that the `required` and `required_oneof` options of `annotation.proto` mark as required, so a builder cannot leave it out:
+
+| Message | Constructors |
+|---|---|
+| No required content | `Foo::builder()`, such as `BarMark::builder()` |
+| Required fields | `Foo::new(..)`, with the required fields in the order of their numbers, such as `Selection::new("brush", SelectionResolution::Global)` |
+| A required oneof | One constructor for each member, which takes the required fields first and the member last, such as `ConditionalValue::direct_value(predicate, "lightgray")` or `CartesianLayer::symbol(table, mark)` |
+
+Each member of a oneof that is not required also has a constructor, which takes the required fields first, such as `Scale::band(..)` or `Select::interval("brush", ..)`. A member whose message has no fields takes no argument, such as `Scale::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`.
+
+Each field and member that is not required content has one method, named after it, with the field's comment as its documentation:
 
 | Field | Method takes |
 |---|---|
 | A scalar | Its exact Rust type, `impl Into<String>` for a string, or `impl Into<Bytes>` for bytes |
-| An `optional` scalar | The inner type, which it sets as `Some` |
 | An enum | The Rust enum, such as `Orient::Vertical` |
-| A message | `impl Into` of its builder: the builder, the message, or a member of a message that is only a oneof, such as a `DataDomain` for a `Domain` |
+| An encoding of a channel | `impl IntoEncoding`: a string, a number, a bool, or an `EncodingBuilder` |
+| Another message | `impl Into` of its builder |
 | A `TableRef` | A `RecordBatch` |
 | A `ValueRef` | `impl IntoValue`: a Rust scalar, which becomes one element of its own Arrow type, an array, a `Vec`, or a slice of them, which becomes a list, or a `builder::Value` of any Arrow type |
 | A repeated field | `impl IntoIterator` of the items, which it appends |
 
-Each oneof member also has a constructor on its message, such as `Encoding::scaled_column("count")` or `Plot::cartesian(..)`. A member whose message has no fields takes no argument, such as `Scale::quantile()`, and a member whose message has one repeated field takes its items, such as `Predicate::all([..])`. A field named after a Rust keyword has a method with a trailing underscore, such as `CustomScale::type_`.
+An encoding holds one of four kinds of values: a `scaled_field` or a `direct_field`, a column of the layer's table, and a `scaled_value` or a `direct_value`, one value. A scaled value goes through the channel's scale, and a direct value is what the mark draws, such as a CSS color. A string names a column: a scaled field on a channel that has a scale or follows the scale of its partner, such as `x`, `color`, or `x2`, and a direct field on a channel of direct values, such as `text`, `longitude`, or `width`, as the `channel_scale` option of the channel's value says. A number is a scaled value on a position of a coordinate system with a scale, such as `.x(2.5)` for a reference line at 2.5 in the data, and a direct value on any other channel, such as `.size(100.0)`, as the `position` option of the channel's value says. A bool is a direct value. Any other value is explicit, such as `Encoding::direct_value("#e45756")`, since `.color("#e45756")` names a column, and the error of a missing column says so.
 
-A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which checks it and puts it in the canonical form. `ChartBuilder::infer_scales` asks `build` to infer the absent scale of each encoding of a `scaled_column` or a `scaled_constant`, and the absent type and domain of its scale, by the conventions that the common charting tools share: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. Inference leaves `zero`, `nice`, sort orders, guides, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set. The builder of any other message builds alone when it holds no data, such as a scale for a unit test.
+A builder converts from other types where the conversion is unambiguous:
+
+- A message whose only required content is one field converts from that field's argument, so `Plot::cartesian([layer])`, `Predicate::selected("brush")`, and `Scale::custom("dots")` build the message with that field.
+- A message with one oneof and no required field converts from each member that is a message of its own type, so `.scale(BandScale::builder())` and `Chart::builder(plot)` set the member.
+- A scale converts from its domain, its range, its axis, and its legend, the fields that the `lift` option marks, so `.scale(Domain::explicit([0.0, 10.0]))` and `.scale(Axis::builder().show_grid(true))` set that field. A conversion is one step, so it takes part in no other conversion.
+
+`EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and map plots hides the axes and the legends of the scales of the plot's layers.
+
+A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which infers its absent scales, checks it, and puts it in the canonical form, as every reader does. A builder of a message other than a chart builds alone when it holds no data, such as a scale for a unit test.
+
+The reader infers the absent scale of each encoding of a scaled value, and the absent type and domain of its scale, so a chart that another language writes gets the defaults that a builder's chart gets: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. The comments of `Scale.type` and `Scale.domain` give the rules. Inference leaves fits, sort orders, axes, legends, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set.
+
+A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale`, and the `channel_scale` and `position` options of the values of `Channel`.
 
 The builders also compose charts:
 
 | Method | What it does |
 |---|---|
 | `From<Chart> for NodeBuilder` | A finished chart as a node, such as a child of a concat or a wrap, whose selections join the chart's and whose format syntaxes must agree with the chart's; its tables keep their IPC streams, and its width, height, and padding do not carry over |
-| `PlotBuilder::overlay` | Plots whose layers join the plot, after its own, where the plot's own fields win and the overlaid plots' fields must agree |
+| `Plot::overlay`, `PlotBuilder::overlay` | Plots whose layers join the plot, after its own, where the plot's own fields win and the overlaid plots' fields must agree |
 | `NodeBuilder::partition` | Partition values on the node's member, such as the cell of a finished chart in a facet |
 | `Node::partitions` | One node for each value of a column of a table, in the order in which the values appear or sorted, from the rows that hold the value |
 
 Every error of a builder, such as two overlaid plots with different titles, is a `ChartError::Invalid` at the path of its field in the chart.
 
-`use avenger_chart::prelude::*` imports everything that building a chart takes: the checked `Chart`, every message and its builder, every enum of the format, `Value`, `IntoValue`, `PartitionOrder`, and `ChartError`. The prelude names the message `proto::Chart`, the wire form of a chart, `ChartMessage`, so `Chart` is the checked chart, whose `Chart::builder()` builds one.
+`use avenger_chart::prelude::*` imports everything that building a chart takes: the checked `Chart`, every message and its builder, every enum of the format, `Value`, `IntoValue`, `IntoEncoding`, `PartitionOrder`, and `ChartError`. The prelude names the message `proto::Chart`, the wire form of a chart, `ChartMessage`, so `Chart` is the checked chart, whose `Chart::builder(root)` builds one.
 
 ```rust
 use std::sync::Arc;
@@ -155,24 +170,18 @@ let table = RecordBatch::try_from_iter([
 ])?;
 
 // Bars of `count` by `species`: a band scale of the species and a linear scale of the counts,
-// which inference infers, and whose domain contains zero.
+// which the reader infers, and whose domain contains zero.
+let fit = DataDomain::builder().fit(IntervalFit::builder().zero(true));
 let bars = CartesianLayer::bar(
+    table,
     BarMark::builder()
-        .x(Encoding::scaled_column("species"))
-        .y(Encoding::scaled_column("count").scale(
-            Scale::builder().domain(DataDomain::builder().fit(IntervalFit::builder().zero(true))),
-        )),
-)
-.table(table);
-let chart = Chart::builder()
-    .root(Plot::cartesian(CartesianPlot::builder().layers([bars])))
-    .infer_scales()
-    .build()?;
+        .x("species")
+        .y(Encoding::scaled_field("count").scale(Scale::builder().domain(fit))),
+);
+let chart = Chart::builder(Plot::cartesian([bars])).build()?;
 
 // Two copies of the chart side by side, which share one table.
-let both = Chart::builder()
-    .root(Concat::builder().direction(Direction::Row).children([chart.clone(), chart]))
-    .build()?;
+let both = Chart::builder(Concat::new(Direction::Row).children([chart.clone(), chart])).build()?;
 assert_eq!(both.tables().len(), 1);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -184,15 +193,15 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 | Field of `Resolved` | What it holds |
 |---|---|
 | `tree` | The plots, the layers, and the concats, wraps, and facet headers with ids, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
-| `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs, the node that owns the scale's guides, and the identity of its guide |
+| `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs, the node that owns the scale's axis or legend, and its identity |
 | `projections` | The map plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
 | `matches` | The tracks whose lengths the plots of shared position scales and projections match |
-| `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose guide rules decide how many times it draws |
+| `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose part rules decide how many times it draws |
 
 The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 
-Plots, layers, concats, wraps, guides, and facet headers share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
+Plots, layers, concats, wraps, axes, legends, and facet headers share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
 
 A widget is not one of these parts. Layers declare widgets under keys, which repeat: the declarations of one key are copies, and the resolve rules decide how many widgets they make, as they decide how many scales the encodings of a channel make. A widget's identity is its key with its anchor, the child or the layer that an independent rule made its group for, so a widget that the whole chart shares is its key alone, and the widgets of the facets of a facet grid are its key with each facet's plot. A widget's clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`, so it keeps its value across chart updates as a brush does.
 

@@ -1,26 +1,61 @@
-// The elements that guides share: titles, labels, ticks, and grid lines. Each field means the same
-// in every guide that has the element.
+// The elements that plots, axes, legends, facet headers, and widgets share: titles, labels,
+// ticks, and grid lines. Each field means the same in every message that has the element.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The title of a guide. A style field that is absent takes its value from the styles.
-message GuideTitle {
-  // The text, or empty for no title. When absent, the guide gives its default title.
-  optional string text = 1;
-  // How the text engine reads the text.
-  TextSyntax syntax = 2;
+// The title of a plot, a concat, a wrap, an axis, a legend, a facet header, or a widget. A style
+// field that is absent takes its value from the styles. The title of a node, which is a plot, a
+// concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
+// along the whole side of the node's box, over the slabs of its axes and legends, and a title at
+// the bottom serves as a caption. The fields that place the title of a node and give its subtitle,
+// `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another
+// element, which stands where its axis, legend, header, or widget puts it.
+message Title {
+  // The text, in the syntax of `syntax`.
+  string text = 1 [(avenger.chart.v1.required) = true];
+  // When absent, the styles give it.
+  TitleSide side = 2;
+  // How the text engine reads the text and the subtitle.
+  TextSyntax syntax = 3;
   // The style of the text.
-  TextStyle style = 3;
+  TextStyle style = 4;
+  // A line of text after the text, such as the units or the period of the data, or empty for no
+  // subtitle.
+  string subtitle = 5;
+  // The style of the subtitle.
+  TextStyle subtitle_style = 6;
+  // Where the title stands along its side. When absent, the styles give it.
+  TitleAlign align = 7;
 }
 
-// The labels of a guide: of the ticks of an axis, the entries of a legend, or the values of a facet
-// header. A style field that is absent takes its value from the styles.
-message GuideLabels {
+enum TitleSide {
+  // Absent, so the styles give the side.
+  TITLE_SIDE_UNSPECIFIED = 0;
+  TITLE_SIDE_TOP = 1;
+  TITLE_SIDE_LEFT = 2;
+  TITLE_SIDE_RIGHT = 3;
+  TITLE_SIDE_BOTTOM = 4;
+}
+
+// A place along a side, in the direction that the title reads: from the left of a title at the
+// top or the bottom, up a title on the left, and down a title on the right.
+enum TitleAlign {
+  // Absent, so the styles give the alignment.
+  TITLE_ALIGN_UNSPECIFIED = 0;
+  TITLE_ALIGN_START = 1;
+  TITLE_ALIGN_CENTER = 2;
+  TITLE_ALIGN_END = 3;
+}
+
+// The labels of the ticks of an axis, the entries of a legend, or the values of a facet header. A
+// style field that is absent takes its value from the styles.
+message Labels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
   // `Chart.datetime_format_syntax`. An empty pattern takes the default of the text engine's
@@ -34,7 +69,7 @@ message GuideLabels {
 }
 
 // The ticks of an axis. A style field that is absent takes its value from the styles.
-message GuideTicks {
+message Ticks {
   // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
   // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
   // of a nested band scale, which ticks at the bands of its leaf, none is.
@@ -56,9 +91,7 @@ message GuideTicks {
 
 // The grid lines of a plot at the ticks of an axis. A style field that is absent takes its value
 // from the styles.
-message GuideGrid {
-  // Whether the plot draws grid lines at the ticks.
-  optional bool show = 1;
+message Grid {
   // A CSS color.
   string color = 2;
   // The width of each grid line, in pixels.
@@ -68,6 +101,7 @@ message GuideGrid {
 // Ticks at a start and each whole multiple of a step before and after it.
 message TickInterval {
   oneof interval {
+    option (avenger.chart.v1.required_oneof) = true;
     NumericTicks numeric = 1;
     CalendarTicks calendar = 2;
   }
@@ -85,6 +119,7 @@ message CalendarTicks {
   // The first tick, in milliseconds since the Unix epoch.
   int64 start = 1;
   oneof step {
+    option (avenger.chart.v1.required_oneof) = true;
     // A tick every this many months, more than 0.
     int32 months = 2;
     // A tick every this many days, more than 0.
