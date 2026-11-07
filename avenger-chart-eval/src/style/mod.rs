@@ -55,7 +55,8 @@ pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind>
             if legend.is_some_and(|legend| legend.show == Some(false)) {
                 return None;
             }
-            // An angle scale draws no legend unless its spec has one, as in Vega-Lite.
+            // An angle scale draws no legend unless its spec has one, since the angles of its
+            // marks show its values.
             if channel == Channel::Angle && legend.is_none() {
                 return None;
             }

@@ -709,14 +709,12 @@ fn layer_scales<'a>(
     channels
 }
 
-/// The kind of fit of the scale of each channel of the layer `layer`, by the groups of its
-/// encodings.
-/// The `zero` and the `nice` that the scale group `index` takes where its spec leaves them absent,
-/// as Vega-Lite gives them. A quantitative `x`, `y`, or `size` scale contains zero when one of its
-/// members asks for it: every member except the key of a bar, an area, or a line, along which the
-/// marks stand at their values. A log or a time scale, or a selection domain, contains no zero by
-/// default. A quantitative `x` or `y` scale has nice ends at a count of 10. The key of bars of
-/// bins takes neither.
+/// The `zero` and the `nice` that the scale group `index` takes where its spec leaves them absent.
+/// A quantitative `x`, `y`, or `size` scale contains zero when one of its members asks for it:
+/// every member except the key of a bar, an area, or a line, along which the marks stand at their
+/// values. A log or a time scale, or a selection domain, contains no zero by default. A
+/// quantitative `x` or `y` scale has nice ends at a count of 10. The key of bars of bins takes
+/// neither.
 pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> FitDefaults {
     use avenger_chart::proto::{domain, scale::Type};
     let group = &resolved.scales[index];
@@ -750,6 +748,8 @@ pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind])
     FitDefaults { zero, nice }
 }
 
+/// The kind of fit of the scale of each channel of the layer `layer`, by the groups of its
+/// encodings.
 fn layer_kinds(resolved: &Resolved, layer: usize, kinds: &[FitKind]) -> BTreeMap<Channel, FitKind> {
     let mut channels = BTreeMap::new();
     for (group, kind) in resolved.scales.iter().zip(kinds) {

@@ -52,8 +52,9 @@ plot[type=cartesian] {
 }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 
-/* The labels of axes and colorbars keep apart, except those of discrete axes, which all show as in
-   Vega-Lite, and the leaf of a nested band axis takes the axis's label angle. */
+/* The labels of axes and colorbars keep apart, except those of discrete axes, which all show and
+   slant or turn where they do not fit, and the leaf of a nested band axis takes the axis's label
+   angle. */
 axis, legend[type=colorbar] { label-overlap: parity; }
 axis:is([kind=categorical], [kind=ordinal]) { label-overlap: none; }
 /* The labels of a discrete x axis read across where each fits its band, and otherwise slant or

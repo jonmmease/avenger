@@ -61,7 +61,7 @@ pub(crate) fn selection_warnings(
 }
 
 /// The `zero` and the `nice` that the interval fit of a scale takes where its spec leaves them
-/// absent, as Vega-Lite's defaults give them.
+/// absent.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct FitDefaults {
     pub(crate) zero: bool,
