@@ -59,15 +59,20 @@ fn table() -> RecordBatch {
     .unwrap()
 }
 
-/// The mark of the first layer of `chart`, as the chart holds it.
-fn first_mark(chart: &Chart) -> cartesian_layer::Mark {
+/// The first layer of `chart`, as the chart holds it.
+fn first_layer(chart: &Chart) -> &CartesianLayer {
     match &chart.root().node {
         Some(node::Node::Plot(plot)) => match &plot.coord {
-            Some(plot::Coord::Cartesian(cartesian)) => cartesian.layers[0].mark.clone().unwrap(),
+            Some(plot::Coord::Cartesian(cartesian)) => &cartesian.layers[0],
             _ => unreachable!(),
         },
         _ => unreachable!(),
     }
+}
+
+/// The mark of the first layer of `chart`.
+fn first_mark(chart: &Chart) -> cartesian_layer::Mark {
+    first_layer(chart).mark.clone().unwrap()
 }
 
 /// The rows of `mark` of `chart`, with its style, its scales, and its masks.
@@ -82,6 +87,7 @@ fn rows<'a>(
 ) -> LayerRows<'a> {
     LayerRows {
         chart,
+        layer: avenger_chart::layer::LayerRef::Cartesian(first_layer(chart)),
         mark,
         style: &styles[node],
         styles,
@@ -330,7 +336,7 @@ fn a_symbol_reaches_half_its_width_and_a_text_its_bounds() {
         text_reach[0]
     );
     assert!(matches!(
-        crate::marks::marks(&texts).unwrap()[0].mark,
+        crate::marks::marks(&texts, &mark).unwrap()[0].mark,
         avenger_scenegraph::marks::mark::SceneMark::Text(_)
     ));
 }

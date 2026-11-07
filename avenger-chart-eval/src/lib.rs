@@ -15,6 +15,7 @@ mod fit;
 mod guides;
 mod layout;
 mod marks;
+mod polar;
 mod reach;
 mod registry;
 mod style;

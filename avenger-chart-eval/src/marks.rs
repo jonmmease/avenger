@@ -8,7 +8,10 @@ use arrow::{
     compute::cast,
     datatypes::DataType,
 };
-use avenger_chart::proto::{self, cartesian_layer, Channel};
+use avenger_chart::{
+    layer::{LayerRef, MarkType},
+    proto::{self, cartesian_layer, polar_layer, Channel},
+};
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     pattern::{PatternFill, PatternFills},
@@ -48,10 +51,10 @@ pub(crate) struct Drawn {
     pub(crate) rows: arrow::array::RecordBatch,
 }
 
-/// The scene marks of a layer.
-pub(crate) fn marks(rows: &LayerRows) -> Result<Vec<Drawn>> {
+/// The scene marks of a layer of a Cartesian plot, whose mark is `mark`.
+pub(crate) fn marks(rows: &LayerRows, mark: &cartesian_layer::Mark) -> Result<Vec<Drawn>> {
     use cartesian_layer::Mark;
-    match rows.mark {
+    match mark {
         Mark::Symbol(_) => symbols(rows),
         Mark::Line(_) => lines(rows),
         Mark::Trail(_) => trails(rows),
@@ -59,14 +62,49 @@ pub(crate) fn marks(rows: &LayerRows) -> Result<Vec<Drawn>> {
         Mark::Bar(bar) => bars(rows, bar.orient),
         Mark::Rect(_) => rects(rows),
         Mark::Rule(_) => rules(rows),
-        Mark::Text(text) => texts(rows, text),
+        Mark::Text(text) => texts(rows, TextFormat::of(text)),
         Mark::Image(_) => images(rows),
         Mark::Path(_) => paths(rows),
     }
 }
 
+/// The content fields of a text mark that the texts of its rows read: the pattern of numeric and
+/// temporal values and the syntax of the texts.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TextFormat<'a> {
+    pub(crate) format: &'a str,
+    pub(crate) syntax: i32,
+}
+
+impl<'a> TextFormat<'a> {
+    fn of(text: &'a proto::TextMark) -> Self {
+        Self {
+            format: &text.format,
+            syntax: text.syntax,
+        }
+    }
+
+    /// The format of the text mark of `layer`, or `None` for a layer of another mark.
+    pub(crate) fn of_layer(layer: LayerRef<'a>) -> Option<Self> {
+        match layer {
+            LayerRef::Cartesian(layer) => match layer.mark.as_ref()? {
+                cartesian_layer::Mark::Text(text) => Some(Self::of(text)),
+                _ => None,
+            },
+            LayerRef::Polar(layer) => match layer.mark.as_ref()? {
+                polar_layer::Mark::Text(text) => Some(Self {
+                    format: &text.format,
+                    syntax: text.syntax,
+                }),
+                _ => None,
+            },
+            LayerRef::Geo(_) => None,
+        }
+    }
+}
+
 /// The patterns of each row as a scene mark takes them.
-fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> PatternFills {
+pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> PatternFills {
     match patterns {
         Some(patterns) => PatternFills(patterns),
         None => PatternFills::default(),
@@ -74,7 +112,7 @@ fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>) -> Patter
 }
 
 /// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node.
-fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
+pub(crate) fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
     if let Some(patterns) = rows.patterns(Channel::Pattern)? {
         return Ok(Some(patterns));
     }
@@ -131,7 +169,7 @@ pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
 }
 
 /// The stroke width of a mark whose stroke shows, or none.
-fn stroke_width(rows: &LayerRows) -> Result<Option<f32>> {
+pub(crate) fn stroke_width(rows: &LayerRows) -> Result<Option<f32>> {
     Ok(match rows.strokes()? {
         true => Some(style_number(rows.style, Property::StrokeWidth)),
         false => None,
@@ -139,13 +177,26 @@ fn stroke_width(rows: &LayerRows) -> Result<Option<f32>> {
 }
 
 fn symbols(rows: &LayerRows) -> Result<Vec<Drawn>> {
+    let mark = symbol_mark(rows, rows.position(Channel::X)?, rows.position(Channel::Y)?)?;
+    Ok(vec![Drawn {
+        mark: mark.into(),
+        rows: rows.table.clone(),
+    }])
+}
+
+/// The symbol mark of a layer's rows at `x` and `y`.
+pub(crate) fn symbol_mark(
+    rows: &LayerRows,
+    x: ScalarOrArray<f32>,
+    y: ScalarOrArray<f32>,
+) -> Result<SceneSymbolMark> {
     let (fill, stroke) = rows.paint()?;
     let (shapes, shape_index) = shapes(&shape_names(rows)?)?;
-    let mark = SceneSymbolMark {
+    Ok(SceneSymbolMark {
         name: rows.name.clone(),
         len: rows.len() as u32,
-        x: rows.position(Channel::X)?,
-        y: rows.position(Channel::Y)?,
+        x,
+        y,
         fill,
         stroke,
         stroke_width: match rows.numbers(Channel::StrokeWidth)? {
@@ -162,11 +213,7 @@ fn symbols(rows: &LayerRows) -> Result<Vec<Drawn>> {
         angle: rows.numbers_or(Channel::Angle, Property::Angle)?,
         fill_pattern: pattern_fills(row_patterns(rows)?),
         ..Default::default()
-    };
-    Ok(vec![Drawn {
-        mark: mark.into(),
-        rows: rows.table.clone(),
-    }])
+    })
 }
 
 fn lines(rows: &LayerRows) -> Result<Vec<Drawn>> {
@@ -478,10 +525,10 @@ enum Text {
 
 pub(crate) fn text_values(
     rows: &LayerRows,
-    text: &proto::TextMark,
+    text: TextFormat,
 ) -> Result<(ScalarOrArray<String>, TextSyntaxMode)> {
     let engine = rows.engine;
-    let format = text.format.as_str();
+    let format = text.format;
     let formatted = rows
         .resolve(
             Channel::Text,
@@ -593,7 +640,7 @@ pub(crate) fn font_style(style: &ComputedStyle) -> FontStyle {
 /// The scene text mark of a layer's rows at `x` and `y`.
 pub(crate) fn text_mark(
     rows: &LayerRows,
-    text: &proto::TextMark,
+    text: TextFormat,
     x: ScalarOrArray<f32>,
     y: ScalarOrArray<f32>,
 ) -> Result<SceneTextMark> {
@@ -684,7 +731,7 @@ fn font_styles(
     Ok(ScalarOrArray::new_array(styles))
 }
 
-fn texts(rows: &LayerRows, text: &proto::TextMark) -> Result<Vec<Drawn>> {
+fn texts(rows: &LayerRows, text: TextFormat) -> Result<Vec<Drawn>> {
     let mark = text_mark(
         rows,
         text,
@@ -774,7 +821,7 @@ fn own_sizes(rows: &LayerRows) -> Result<Vec<Option<(f32, f32)>>> {
 /// Why an image does not draw: an `auto` size of a URL image, whose size is unknown before it
 /// loads.
 pub(crate) fn image_warning(rows: &LayerRows) -> Result<Option<String>> {
-    if !matches!(rows.mark, cartesian_layer::Mark::Image(_)) || spans(rows) {
+    if rows.mark.mark_type() != MarkType::Image || spans(rows) {
         return Ok(None);
     }
     let auto = |channel: Channel, property: Property| {

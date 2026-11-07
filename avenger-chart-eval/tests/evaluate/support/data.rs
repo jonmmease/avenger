@@ -264,3 +264,114 @@ pub(crate) fn linear_summary(values: &[f64]) -> Value {
         .unwrap();
     Value::scalar(Arc::new(summary.to_arrow()))
 }
+
+/// The six categories with their shares of the total amount as a pie lays them out: the start, the
+/// end, and the middle of each slice, from 0 to 1.
+pub(crate) fn slices() -> RecordBatch {
+    let amounts = [28.0, 55.0, 43.0, 91.0, 81.0, 53.0];
+    let total: f64 = amounts.iter().sum();
+    let mut start = 0.0;
+    let (mut starts, mut ends, mut middles) = (Vec::new(), Vec::new(), Vec::new());
+    for amount in amounts {
+        let end = start + amount / total;
+        starts.push(start);
+        ends.push(end);
+        middles.push((start + end) / 2.0);
+        start = end;
+    }
+    RecordBatch::try_from_iter([
+        (
+            "category",
+            Arc::new(StringArray::from(vec!["A", "B", "C", "D", "E", "F"])) as ArrayRef,
+        ),
+        ("amount", numbers(&amounts)),
+        ("start", numbers(&starts)),
+        ("end", numbers(&ends)),
+        ("middle", numbers(&middles)),
+    ])
+    .unwrap()
+}
+
+/// Two series over five skills of a radar chart, in the order of the skills around the circle,
+/// each closed by repeating its first row at its end.
+pub(crate) fn skills() -> RecordBatch {
+    let skills = ["Armor", "Power", "Range", "Speed", "Stealth"];
+    let values = [[2.0, 3.0, 5.0, 4.0, 4.0], [4.0, 5.0, 3.0, 2.0, 1.0]];
+    let (mut names, mut skill, mut value) = (Vec::new(), Vec::new(), Vec::new());
+    for (series, row) in ["Scout", "Tank"].iter().zip(values) {
+        for index in (0..skills.len()).chain([0]) {
+            names.push(*series);
+            skill.push(skills[index]);
+            value.push(row[index]);
+        }
+    }
+    RecordBatch::try_from_iter([
+        ("unit", Arc::new(StringArray::from(names)) as ArrayRef),
+        ("skill", Arc::new(StringArray::from(skill))),
+        ("value", numbers(&value)),
+    ])
+    .unwrap()
+}
+
+/// The nodes of a two-level hierarchy as a sunburst lays them out: each node's share of the total
+/// as its start and end, from 0 to 1, its ring as its inner and outer radius, as fractions of the
+/// outer radius, and its name.
+pub(crate) fn hierarchy() -> RecordBatch {
+    // The parents and their children, with the amount of each child.
+    let tree = [
+        (
+            "Fruit",
+            &[("Apple", 30.0), ("Pear", 20.0), ("Plum", 10.0)][..],
+        ),
+        ("Vegetables", &[("Kale", 25.0), ("Leek", 15.0)][..]),
+        (
+            "Grains",
+            &[("Rice", 20.0), ("Oats", 10.0), ("Rye", 5.0)][..],
+        ),
+    ];
+    let total: f64 = (tree.iter())
+        .flat_map(|(_, children)| children.iter().map(|(_, amount)| amount))
+        .sum();
+    let mut columns: [Vec<f64>; 4] = Default::default();
+    let mut names = Vec::new();
+    let mut parents = Vec::new();
+    let mut start = 0.0;
+    for (parent, children) in tree {
+        let sum: f64 = children.iter().map(|(_, amount)| amount).sum();
+        let end = start + sum / total;
+        for (column, value) in columns.iter_mut().zip([start, end, 0.25, 0.6]) {
+            column.push(value);
+        }
+        names.push(parent);
+        parents.push(parent);
+        let mut child_start = start;
+        for (child, amount) in children {
+            let child_end = child_start + amount / total;
+            for (column, value) in columns.iter_mut().zip([child_start, child_end, 0.6, 1.0]) {
+                column.push(value);
+            }
+            names.push(*child);
+            parents.push(parent);
+            child_start = child_end;
+        }
+        start = end;
+    }
+    let middles: Vec<f64> = (columns[0].iter().zip(&columns[1]))
+        .map(|(start, end)| (start + end) / 2.0)
+        .collect();
+    let rings: Vec<f64> = (columns[2].iter().zip(&columns[3]))
+        .map(|(inner, outer)| (inner + outer) / 2.0)
+        .collect();
+    let [starts, ends, inners, outers] = columns;
+    RecordBatch::try_from_iter([
+        ("name", Arc::new(StringArray::from(names)) as ArrayRef),
+        ("parent", Arc::new(StringArray::from(parents))),
+        ("start", numbers(&starts)),
+        ("end", numbers(&ends)),
+        ("middle", numbers(&middles)),
+        ("inner", numbers(&inners)),
+        ("outer", numbers(&outers)),
+        ("ring", numbers(&rings)),
+    ])
+    .unwrap()
+}

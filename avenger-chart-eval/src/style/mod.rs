@@ -27,6 +27,8 @@ pub(crate) fn color(style: &ComputedStyle, property: Property) -> [f32; 4] {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GuideKind {
     Axis,
+    /// The axis of `theta` or `radius` in a polar plot.
+    PolarAxis,
     Legend,
     Colorbar,
 }
@@ -38,10 +40,11 @@ pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
 }
 
 /// The axis or the legend that a scale group draws: none when its spec's axis or legend has `show:
-/// false`, an axis for `x` and `y`, and for another channel the legend of its spec's form, or
-/// without one, a colorbar for a continuous color scale and a symbol legend for another scale: the
-/// categories of a discrete scale, the bins of a quantize, quantile, or threshold scale, or the
-/// ticks of another continuous scale. `theta` and `radius` draw no axis in a Cartesian chart.
+/// false`, an axis for `x` and `y`, a polar axis for `theta` and `radius` only when their spec has
+/// an axis, and for another channel the legend of its spec's form, or without one, a colorbar for a
+/// continuous color scale and a symbol legend for another scale: the categories of a discrete
+/// scale, the bins of a quantize, quantile, or threshold scale, or the ticks of another continuous
+/// scale.
 pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind> {
     let spec = &group.spec;
     match group.channel {
@@ -49,7 +52,10 @@ pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind>
             Some(axis) if axis.show == Some(false) => None,
             _ => Some(GuideKind::Axis),
         },
-        Channel::Theta | Channel::Radius => None,
+        Channel::Theta | Channel::Radius => match &spec.axis {
+            Some(axis) if axis.show != Some(false) => Some(GuideKind::PolarAxis),
+            _ => None,
+        },
         channel => {
             let legend = spec.legend.as_ref();
             if legend.is_some_and(|legend| legend.show == Some(false)) {

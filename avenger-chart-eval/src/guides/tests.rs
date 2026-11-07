@@ -113,7 +113,7 @@ fn with_guides<T>(
                 states: &states,
             };
             let defaults = fit_defaults(&resolved, index, &kinds(&resolved));
-            let position = fit::position(&inputs, group, defaults, style, &values).unwrap();
+            let position = fit::position(&inputs, group, defaults, style, &values, false).unwrap();
             positions.push(Some(position.fitting));
             scales.push(None);
         } else {
@@ -343,6 +343,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         defaults,
         &styles[nodes.scales[index]],
         &values,
+        false,
     )
     .unwrap();
     let at = position.fitting.at((0.0, 200.0)).unwrap();
@@ -377,6 +378,7 @@ fn a_position_fit_leaves_room_for_the_reach() {
         fit_defaults(&resolved, index, &kinds(&resolved)),
         &styles[nodes.scales[index]],
         &[],
+        false,
     )
     .unwrap();
     assert!(position.clip);
