@@ -33,13 +33,14 @@ use prost_types::{
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
 };
 
-const PROTOS: [&str; 25] = [
+const PROTOS: [&str; 26] = [
     "annotation",
     "attribution",
     "axis",
     "cartesian",
     "channel",
     "chart",
+    "element",
     "encoding",
     "facet",
     "geo",

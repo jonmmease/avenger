@@ -6,7 +6,7 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
-import "avenger/chart/v1/part.proto";
+import "avenger/chart/v1/element.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/value.proto";

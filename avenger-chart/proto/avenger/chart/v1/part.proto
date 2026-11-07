@@ -1,8 +1,7 @@
-// The parts that stand beside plots and the rules of a concat for them. The titles, labels, ticks,
-// and grid lines that plots, axes, legends, facet headers, and widgets share are here, and each
-// field means the same in every part that has it. Axes are in `axis.proto`, legends in
-// `legend.proto`, and facet headers in `facet.proto`. The rules of a concat keep, collapse, or
-// merge the parts of axes, legends, facet headers, attributions, and widgets.
+// The parts that stand beside plots, which the rules of a concat keep, collapse, or merge: the
+// parts of axes, legends, facet headers, attributions, and widgets. Axes are in `axis.proto`,
+// legends in `legend.proto`, facet headers in `facet.proto`, and the elements that they share in
+// `element.proto`.
 //
 // The format calls the parts of a scale its axis and its legend, and keeps the name guide for the
 // guides of a coordinate system, such as the graticule of a map.
@@ -12,128 +11,6 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
-import "avenger/chart/v1/style.proto";
-import "avenger/chart/v1/value.proto";
-
-// The title of a plot, a concat, a wrap, an axis, a legend, a facet header, or a widget. A style
-// field that is absent takes its value from the styles. The title of a node, which is a plot, a
-// concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
-// along the whole side of the node's box, over the slabs of its axes and legends, and a title at
-// the bottom serves as a caption. The fields that place the title of a node and give its subtitle,
-// `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another part,
-// which stands where its part puts it.
-message Title {
-  // The text, in the syntax of `syntax`.
-  string text = 1 [(avenger.chart.v1.required) = true];
-  // When absent, the styles give it.
-  TitleSide side = 2;
-  // How the text engine reads the text and the subtitle.
-  TextSyntax syntax = 3;
-  // The style of the text.
-  TextStyle style = 4;
-  // A line of text after the text, such as the units or the period of the data, or empty for no
-  // subtitle.
-  string subtitle = 5;
-  // The style of the subtitle.
-  TextStyle subtitle_style = 6;
-  // Where the title stands along its side. When absent, the styles give it.
-  TitleAlign align = 7;
-}
-
-enum TitleSide {
-  // Absent, so the styles give the side.
-  TITLE_SIDE_UNSPECIFIED = 0;
-  TITLE_SIDE_TOP = 1;
-  TITLE_SIDE_LEFT = 2;
-  TITLE_SIDE_RIGHT = 3;
-  TITLE_SIDE_BOTTOM = 4;
-}
-
-// A place along a side, in the direction that the title reads: from the left of a title at the
-// top or the bottom, up a title on the left, and down a title on the right.
-enum TitleAlign {
-  // Absent, so the styles give the alignment.
-  TITLE_ALIGN_UNSPECIFIED = 0;
-  TITLE_ALIGN_START = 1;
-  TITLE_ALIGN_CENTER = 2;
-  TITLE_ALIGN_END = 3;
-}
-
-// The labels of the ticks of an axis, the entries of a legend, or the values of a facet header. A
-// style field that is absent takes its value from the styles.
-message Labels {
-  // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
-  // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
-  // `Chart.datetime_format_syntax`. An empty pattern takes the default of the text engine's
-  // formatter, which needs no syntax. Other values, such as strings, show as text.
-  string format = 1;
-  // Typst markup for each label, as `TEXT_SYNTAX_TYPST` reads it, where `#value` is the formatted
-  // value, such as `#value m/s`. An empty markup shows the formatted value as plain text.
-  string markup = 2;
-  // The style of the labels.
-  TextStyle style = 3;
-}
-
-// The ticks of an axis. A style field that is absent takes its value from the styles.
-message Ticks {
-  // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
-  // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
-  // of a nested band scale, which ticks at the bands of its leaf, none is.
-  oneof at {
-    // About how many ticks of the scale to draw.
-    double count = 1;
-    // Ticks at a start and fixed steps, in place of the ticks of the scale.
-    TickInterval interval = 2;
-    // A list of these ticks in the type of the scale's domain, in place of the ticks of the scale:
-    // numbers, dates, or timestamps, or categories of a band or point scale, which the axis labels
-    // in its order.
-    ValueRef values = 3;
-  }
-  // The length of each tick, in pixels.
-  optional float length = 4;
-  // A CSS color.
-  string color = 5;
-}
-
-// The grid lines of a plot at the ticks of an axis. A style field that is absent takes its value
-// from the styles.
-message Grid {
-  // A CSS color.
-  string color = 2;
-  // The width of each grid line, in pixels.
-  optional float width = 3;
-}
-
-// Ticks at a start and each whole multiple of a step before and after it.
-message TickInterval {
-  oneof interval {
-    option (avenger.chart.v1.required_oneof) = true;
-    NumericTicks numeric = 1;
-    CalendarTicks calendar = 2;
-  }
-}
-
-message NumericTicks {
-  // A tick, which the other ticks step from.
-  double start = 1;
-  // The distance between two ticks, more than 0.
-  double step = 2;
-}
-
-// Ticks of a time scale. Months and days step in the civil time of the scale.
-message CalendarTicks {
-  // The first tick, in milliseconds since the Unix epoch.
-  int64 start = 1;
-  oneof step {
-    option (avenger.chart.v1.required_oneof) = true;
-    // A tick every this many months, more than 0.
-    int32 months = 2;
-    // A tick every this many days, more than 0.
-    int32 days = 3;
-    // A tick every this many milliseconds, more than 0.
-    int64 milliseconds = 4;
-  }
-}
 
 // A part of the axis or the legend of a scale, of a facet header, or a widget, which the part rules
 // of a concat keep, collapse, or merge.
@@ -146,18 +23,16 @@ enum Part {
   PART_AXIS_LABELS = 2;
   // The title of an axis.
   PART_AXIS_TITLE = 3;
-  // A symbol legend.
+  // A legend, a symbol legend or a colorbar.
   PART_LEGEND = 4;
-  // A colorbar.
-  PART_COLORBAR = 5;
   // The labels of a facet header, with its rule and ticks.
-  PART_HEADER_LABELS = 6;
+  PART_HEADER_LABELS = 5;
   // The title of a facet header.
-  PART_HEADER_TITLE = 7;
+  PART_HEADER_TITLE = 6;
   // The attribution of a plot.
-  PART_ATTRIBUTION = 8;
+  PART_ATTRIBUTION = 7;
   // A widget, as `Widget` describes.
-  PART_WIDGET = 9;
+  PART_WIDGET = 8;
 }
 
 // The rule of one part among the plots of a concat.
