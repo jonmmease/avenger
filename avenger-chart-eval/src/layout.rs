@@ -13,6 +13,7 @@ use avenger_layout::{
     Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Side, Size, Slab, SlabStack,
     Solution, SolveOptions, Track,
 };
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
 use avenger_style::{Computed, ComputedStyle, Property};
 
@@ -49,8 +50,28 @@ fn layout_side(side: GuideSide) -> Side {
     }
 }
 
-/// The plot's leaf with the slabs of its guides.
-pub(crate) fn lower(guides: &Guides, plot: &ComputedStyle) -> Layout<SlabId> {
+/// The natural length of a discrete position scale whose step is `step` pixels: the step times the
+/// length of its range in steps, with its paddings, or `None` for a continuous scale.
+pub(crate) fn natural_length(scale: &ConfiguredScale, step: f32) -> Option<f32> {
+    use avenger_scales::scales::{band, nested_band::NestedBandLayout, point};
+    let config = &scale.config;
+    let span = match scale.scale_impl.scale_type() {
+        "band" => band::span(config),
+        "point" => point::span(config),
+        "nested_band" => NestedBandLayout::from_config(config).ok()?.span(),
+        _ => return None,
+    };
+    (span > 0.0).then_some(step * span as f32)
+}
+
+/// The plot's leaf with the slabs of its guides. `natural` holds the natural width and height that
+/// discrete position scales with a `step` give the plot, which take the place of its
+/// `contain-intrinsic-size` along their directions.
+pub(crate) fn lower(
+    guides: &Guides,
+    plot: &ComputedStyle,
+    natural: [Option<f32>; 2],
+) -> Layout<SlabId> {
     let mut leaf = Leaf::new().id(SlabId::Plot);
     if let Some(width) = plot.number(Property::Width) {
         leaf = leaf.min_width(width).max_width(width);
@@ -64,8 +85,8 @@ pub(crate) fn lower(guides: &Guides, plot: &ComputedStyle) -> Layout<SlabId> {
     // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
     // takes its natural size, which a host's size or the chart's size stretches.
     let intrinsic = [
-        plot.number(Property::ContainIntrinsicWidth),
-        plot.number(Property::ContainIntrinsicHeight),
+        natural[0].or(plot.number(Property::ContainIntrinsicWidth)),
+        natural[1].or(plot.number(Property::ContainIntrinsicHeight)),
     ];
     if intrinsic.iter().any(Option::is_some) {
         let [width, height] = intrinsic.map(|size| size.unwrap_or(0.0));

@@ -99,6 +99,8 @@ pub struct NestedBandLayout {
     field_names: Vec<String>,
     leaf_level: usize,
     leaf_bandwidth: f64,
+    /// The length of the range in leaf steps.
+    span: f64,
     axis_bands: Vec<Vec<NestedBandAxisBand>>,
     /// The index in `axis_bands[level]` of each band that a domain path reaches, by level and key.
     band_index: HashMap<(usize, Vec<Vec<u8>>), usize>,
@@ -129,6 +131,12 @@ impl NestedBandLayout {
 
     pub fn leaf_bandwidth(&self) -> f64 {
         self.leaf_bandwidth
+    }
+
+    /// The length of the range in leaf steps: the bands of every level and their paddings, so a
+    /// scale whose leaf step is `s` pixels fills a range of `s` times the span.
+    pub fn span(&self) -> f64 {
+        self.span
     }
 
     /// The band at `level` of each path of `values`, a struct array of paths with the fields of
@@ -792,6 +800,7 @@ impl LayoutBuilder {
         let mut layout = NestedBandLayout {
             field_names: self.field_names.clone(),
             leaf_level: self.leaf_level(),
+            span,
             leaf_bandwidth: if round {
                 leaf_bandwidth.round()
             } else {

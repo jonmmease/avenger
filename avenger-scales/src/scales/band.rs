@@ -353,6 +353,17 @@ pub fn bandwidth(config: &ScaleConfig) -> Result<f64, AvengerScaleError> {
     }
 }
 
+/// The length of the range in steps: the bands and their paddings, so a scale whose step is `s`
+/// pixels fills a range of `s` times the span.
+pub fn span(config: &ScaleConfig) -> f64 {
+    let (padding_inner, padding_outer) = band_padding(config);
+    bandspace(
+        config.domain.len(),
+        Some(padding_inner),
+        Some(padding_outer),
+    )
+}
+
 /// Returns the distance between the starts of adjacent bands.
 ///
 /// The step size is calculated based on the range, domain size, and padding settings.

@@ -22,10 +22,12 @@ instance, and reads the initial clauses of the selections.
 - `warnings`, such as a plot that is too small for its marks.
 
 The chart draws at the host's size, at the chart's `width` and `height` in a dimension where the
-host gives none, and at its natural size in a dimension without either, where a plot without a
-size counts at its computed `contain-intrinsic-size`. avenger-layout places the
-plot and the parts of its axes and legends, each position scale fits its domain to the plot's length with
-room for the reach of its marks, and the marks encode their rows through the fitted scales.
+host gives none, and at its natural size in a dimension without either, where a plot without a size
+counts at its computed `contain-intrinsic-size`, or along a band, a point, or a nested band position
+scale with a `step`, at the step times the steps of the scale, so a bar chart of 40 categories draws
+wider than one of 3. avenger-layout places the plot and the parts of its axes and legends, each
+position scale fits its domain to the plot's length with room for the reach of its marks, and the
+marks encode their rows through the fitted scales.
 
 ```rust
 use std::sync::Arc;

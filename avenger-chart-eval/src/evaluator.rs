@@ -593,7 +593,28 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions: &fittings,
         scales: &scales,
     })?;
-    let layout = layout::lower(&guides, &styles[nodes.plot]);
+    // A discrete position scale with a `step` gives the plot a natural length along its channel.
+    let mut natural: [Option<f32>; 2] = [None, None];
+    for (index, group) in groups.iter().enumerate() {
+        let Some(position) = &positions[index] else {
+            continue;
+        };
+        let slot = match group.channel {
+            Channel::X => 0,
+            Channel::Y => 1,
+            _ => continue,
+        };
+        let Some(step) = styles[nodes.scales[index]].number(Property::Step) else {
+            continue;
+        };
+        let Ok(at) = position.fitting.at((0.0, 1.0)) else {
+            continue;
+        };
+        if let Some(length) = layout::natural_length(&at.scale, step) {
+            natural[slot] = Some(natural[slot].map_or(length, |known: f32| known.max(length)));
+        }
+    }
+    let layout = layout::lower(&guides, &styles[nodes.plot], natural);
     Ok(Prepared {
         positions,
         scales,

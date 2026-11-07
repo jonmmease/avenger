@@ -39,8 +39,12 @@ grid {
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),
             env(background, white));
 }
-/* A plot without a size counts at 200 by 200 in a chart that takes its natural size. */
+/* A plot without a size counts at 200 by 200 in a chart that takes its natural size, except
+   along a discrete position scale, whose length is 20 pixels for each step. */
 plot[type=cartesian] { contain-intrinsic-size: 200; }
+scale:is([channel=x], [channel=y]):is([type=band], [type=point], [type=nested_band]) {
+  step: 20;
+}
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 2 / 15),

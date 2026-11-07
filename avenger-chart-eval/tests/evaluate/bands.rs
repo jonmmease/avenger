@@ -3,10 +3,11 @@
 
 use std::sync::Arc;
 
-use arrow::array::RecordBatch;
+use arrow::array::{RecordBatch, StringArray};
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, Registry};
 use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_style::HostInputs;
 
 use crate::support::*;
 
@@ -241,6 +242,34 @@ fn grouped_bars_take_the_paddings_of_the_styles() {
     let bars = CartesianLayer::bar(sales, BarMark::builder().x("key").y("sales"));
     let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     render(&chart, [320.0, 240.0], "grouped-bars-styles");
+}
+
+/// A chart at its natural size draws a band scale at 20 pixels a step, so bars of 40 categories
+/// stand wider than bars of 3, and a continuous direction keeps its 200 pixels.
+#[test]
+fn a_band_scale_gives_its_plot_a_natural_length_of_its_steps() {
+    let natural = |count: usize| {
+        let names: Vec<String> = (0..count).map(|index| format!("c{index}")).collect();
+        let table = RecordBatch::try_from_iter([
+            (
+                "name",
+                Arc::new(StringArray::from(names)) as arrow::array::ArrayRef,
+            ),
+            ("value", numbers(&vec![1.0; count])),
+        ])
+        .unwrap();
+        let bars = CartesianLayer::bar(table, BarMark::builder().x("name").y("value"));
+        let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+        let evaluated = evaluator(&chart).evaluate(&HostInputs::default()).unwrap();
+        let [_, _, width, height] = evaluated.plots[0].rect;
+        (width, height)
+    };
+    let (three, height) = natural(3);
+    let (forty, _) = natural(40);
+    // A band scale of n categories spans n - 0.1 + 2 * 0.05 steps.
+    assert!((three - 20.0 * 3.0).abs() < 1.0, "{three}");
+    assert!((forty - 20.0 * 40.0).abs() < 1.0, "{forty}");
+    assert!((height - 200.0).abs() < 1.0, "{height}");
 }
 
 #[test]

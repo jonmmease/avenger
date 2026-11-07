@@ -45,6 +45,16 @@ use super::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PointScale;
 
+/// The length of the range in steps: the spaces between the points and the padding at the ends, so
+/// a scale whose step is `s` pixels fills a range of `s` times the span.
+pub fn span(config: &ScaleConfig) -> f64 {
+    super::band::bandspace(
+        config.domain.len(),
+        Some(1.0),
+        Some(config.option_f64("padding", 0.0)),
+    )
+}
+
 impl PointScale {
     /// A point scale onto `range` with no domain yet. Scaling needs a domain, which
     /// [`ConfiguredScale::fit_domain`] fits to data.
