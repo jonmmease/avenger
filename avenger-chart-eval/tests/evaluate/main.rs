@@ -4,6 +4,7 @@
 //! A changed image is written to `tests/output/`; accept it by copying it to `tests/baselines/`.
 
 mod bands;
+mod compositions;
 mod domains;
 mod guides;
 mod marks;

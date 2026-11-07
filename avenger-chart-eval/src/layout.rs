@@ -1,43 +1,149 @@
-//! The layout of a chart of one plot: the lowering of the plot and its guides to an avenger-layout
-//! tree, the `Measure` that answers each slab with the extent of its guide, and the drawing of each
-//! guide in its slab.
+//! The lowering of a chart to an avenger-layout tree, the `Measure` that answers each slab with the
+//! extent of its guide, and the drawing of each guide in the slab that represents it.
 //!
-//! The plot is a `Leaf` with a slab for each part of each axis nearest the plot, then a stack of
-//! the legends and colorbars of each side, then the attribution, and outermost the title, which
-//! runs the whole side. A guide's computed `offset` widens its slab on the side of the plot, so the
-//! guide stands that far from what is inside it, and an axis's offset widens the slab of its
-//! ticks, which moves its labels and title with it.
+//! A concat lowers to a `Row` or a `Column` on the tracks of its table, a wrap to a `Wrap` whose
+//! children each start a table of their own, an empty child to a `Leaf` that keeps its track, and
+//! a plot to a `Leaf` with a slab for each part of each axis nearest the plot, a stack of legends
+//! for each owner of its legends, its attribution, and outermost the headers and the title that it
+//! holds. Each slab of a guide of a scale has a tag of its scale and its part, and the owner of the
+//! scale declares the rule of the tag from its guide rules, so the guides of a shared scale
+//! collapse or merge. A concat or a wrap whose rule merges a legend holds it beyond its headers,
+//! and the owner of a shared `x` or `y` whose plots stand in several tracks matches the lengths of
+//! those tracks.
+//!
+//! A facet header is a slab for its labels and a slab for its title on the node that holds it: the
+//! concat with the facet, or each child of a wrap with a facet. The headers of a concat's column
+//! collapse below the innermost node that holds them all, which also matches the thickness of their
+//! labels, and the titles of a wrap's headers merge on the wrap.
+//!
+//! A guide's computed `offset` widens its slab on the side of what is inside it, so the guide
+//! stands that far from it.
 
-use avenger_guides::{axis::AxisPart, GuideSide, PartExtent};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    fmt,
+};
+
+use avenger_chart::{
+    proto::{self, node::Node, track, GuidePart, GuideRuleKind},
+    resolve::Resolved,
+    Chart,
+};
+use avenger_guides::{axis::AxisPart, facet::FacetGuidePart, GuideSide, PartExtent};
 use avenger_layout::{
-    Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Side, Size, Slab, SlabStack,
-    Solution, SolveOptions, Track,
+    Column, Direction, Distribute, Edges, Gap, Layout, Leaf, Measure, Measurement, Row, Side, Size,
+    Slab, SlabStack, Solution, SolveOptions, Tag, Track, Wrap,
 };
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use avenger_style::{Computed, ComputedStyle, Property};
+use avenger_style::{Computed, ComputedStyle, ComputedStyles, Property};
 
 use crate::{
-    guides::{Guides, LegendGuide},
-    style::number as style_number,
+    guides::{node_path, Guides, LegendGuide, HEADER_PARTS},
+    style::{
+        number as style_number,
+        tree::{owner_path, StyleNodes},
+    },
 };
 
 /// The parts of an axis, from the plot outward, which stand in a slab each.
 pub(crate) const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
 
-/// The id of a node of a chart's layout: the plot, or a slab of one of its guides.
+/// The guide parts of the axis parts of [`AXIS_PARTS`], in their order.
+const AXIS_RULE_PARTS: [GuidePart; 3] = [
+    GuidePart::AxisTicks,
+    GuidePart::AxisLabels,
+    GuidePart::AxisTitle,
+];
+
+/// The guide parts of the header parts of [`HEADER_PARTS`], in their order.
+const HEADER_RULE_PARTS: [GuidePart; 2] = [GuidePart::HeaderLabels, GuidePart::HeaderTitle];
+
+/// The id of a node of a chart's layout: a plot, a concat, a wrap, an empty cell, or a slab of one
+/// of the guides.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum SlabId {
-    Plot,
-    /// A part of an axis: the position of the axis in `Guides::axes`, and the position of the part
-    /// in [`AXIS_PARTS`].
+    /// A plot, by its position in `Tree::plots`.
+    Plot(usize),
+    /// A part of an axis of a plot: the plot, the axis in `Guides::axes`, and the part in
+    /// [`AXIS_PARTS`].
     Axis {
+        plot: usize,
         axis: usize,
         part: usize,
     },
-    /// A legend or a colorbar, by its position in `Guides::legends`.
-    Legend(usize),
-    Title,
+    /// A legend or a colorbar of a plot, by its position in `Guides::legends`.
+    Legend { plot: usize, legend: usize },
+    /// A legend or a colorbar that a concat or a wrap holds for the plots below it, because its
+    /// rule merges the legend.
+    HeldLegend(usize),
+    /// A title, by its position in `Guides::titles`.
+    Title(usize),
+    /// An attribution, by its position in `Guides::attributions`.
+    Attribution(usize),
+    /// A part of a facet header: the header in `Guides::headers`, and the part in
+    /// [`HEADER_PARTS`].
+    Header { header: usize, part: usize },
+    /// A concat, a wrap, or an empty cell, by its order in the lowering, whose region places the
+    /// labels of a facet header.
+    Node(usize),
+}
+
+/// The key of a tag of the layout, which names the slabs that a rule acts on.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum TagKey {
+    /// The ticks or the labels of the axes of a scale group, which draw one scale.
+    Axis {
+        group: usize,
+        part: usize,
+    },
+    /// The titles of the axes at a position on a side of their plots, from the plot out, which
+    /// collapse and merge wherever equal titles line up, whatever their scales.
+    AxisTitle {
+        position: usize,
+    },
+    /// The stacks of the legends of one owner on one side of one part.
+    Legends {
+        owner: String,
+        side: GuideSide,
+        part: GuidePart,
+    },
+    /// The stack of the legends of the scales of one plot on one side.
+    PlotLegends {
+        plot: String,
+        side: GuideSide,
+    },
+    /// A part of the headers of a facet's column, or of a wrap's children.
+    Header {
+        name: String,
+        part: usize,
+    },
     Attribution,
+    /// The tracks whose lengths a shared position scale matches, in a direction.
+    Track {
+        direction: usize,
+    },
+}
+
+impl fmt::Display for TagKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TagKey::Axis { group, part } => write!(f, "axis {group} {part}"),
+            TagKey::AxisTitle { position } => write!(f, "axis title {position}"),
+            TagKey::Legends { owner, side, part } => {
+                write!(f, "legends {owner} {side:?} {}", part.as_str_name())
+            }
+            TagKey::PlotLegends { plot, side } => write!(f, "plot legends {plot} {side:?}"),
+            TagKey::Header { name, part } => write!(f, "header {name} {part}"),
+            TagKey::Attribution => f.write_str("attribution"),
+            TagKey::Track { direction } => write!(f, "track {direction}"),
+        }
+    }
+}
+
+impl From<TagKey> for Tag {
+    fn from(key: TagKey) -> Self {
+        Tag::from(key.to_string())
+    }
 }
 
 fn layout_side(side: GuideSide) -> Side {
@@ -49,86 +155,658 @@ fn layout_side(side: GuideSide) -> Side {
     }
 }
 
-/// The plot's leaf with the slabs of its guides.
-pub(crate) fn lower(guides: &Guides, plot: &ComputedStyle) -> Layout<SlabId> {
-    let mut leaf = Leaf::new().id(SlabId::Plot);
-    if let Some(width) = plot.number(Property::Width) {
-        leaf = leaf.min_width(width).max_width(width);
+/// The rule of a guide part among the plots of a concat or a wrap: its rule in `rules`, or the
+/// default, which collapses the ticks and the labels of an axis and the labels and the title of a
+/// facet header, and merges the title of an axis, legends, colorbars, and attributions. A wrap
+/// merges the titles of its children's headers by default, because each child has a header of its
+/// own.
+fn rule(rules: &[proto::GuideRule], part: GuidePart, wrap: bool) -> GuideRuleKind {
+    let set = (rules.iter())
+        .find(|rule| rule.part == part as i32)
+        .and_then(|rule| GuideRuleKind::try_from(rule.rule).ok());
+    match (set, part) {
+        (Some(rule), _) => rule,
+        (None, GuidePart::HeaderTitle) if wrap => GuideRuleKind::Merge,
+        (
+            None,
+            GuidePart::AxisTicks
+            | GuidePart::AxisLabels
+            | GuidePart::HeaderLabels
+            | GuidePart::HeaderTitle,
+        ) => GuideRuleKind::Collapse,
+        (None, _) => GuideRuleKind::Merge,
     }
-    if let Some(height) = plot.number(Property::Height) {
-        leaf = leaf.min_height(height).max_height(height);
-    }
-    if let Computed::Ratio(ratio) = plot.get(Property::AspectRatio) {
-        leaf = leaf.aspect(*ratio);
-    }
-    // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
-    // takes its natural size, which a host's size or the chart's size stretches.
-    let intrinsic = [
-        plot.number(Property::ContainIntrinsicWidth),
-        plot.number(Property::ContainIntrinsicHeight),
-    ];
-    if intrinsic.iter().any(Option::is_some) {
-        let [width, height] = intrinsic.map(|size| size.unwrap_or(0.0));
-        leaf = leaf.max_content(Size::new(width, height));
-    }
-    for (axis, guide) in guides.axes.iter().enumerate() {
-        for part in 0..AXIS_PARTS.len() {
-            leaf = leaf.slab(
-                layout_side(guide.side),
-                Slab::new().id(SlabId::Axis { axis, part }),
-            );
-        }
-    }
-    let mut sides: Vec<(GuideSide, Vec<usize>)> = Vec::new();
-    for (index, legend) in guides.legends.iter().enumerate() {
-        match sides.iter_mut().find(|(side, _)| *side == legend.side) {
-            Some((_, members)) => members.push(index),
-            None => sides.push((legend.side, vec![index])),
-        }
-    }
-    for (side, members) in sides {
-        leaf = leaf.slab_stack(layout_side(side), legend_stack(guides, &members));
-    }
-    if let Some(attribution) = &guides.attribution {
-        leaf = leaf.slab(
-            layout_side(attribution.side),
-            Slab::new().id(SlabId::Attribution),
-        );
-    }
-    if let Some(title) = &guides.title {
-        leaf = leaf.slab(
-            layout_side(title.side),
-            Slab::new().id(SlabId::Title).full(),
-        );
-    }
-    leaf.into()
 }
 
-/// A stack of the legends `members` along their side, apart by the largest offset among them. A
-/// legend takes the length that its entries need, and a colorbar shares the rest, up to its longest
-/// length.
-fn legend_stack(guides: &Guides, members: &[usize]) -> SlabStack<SlabId> {
-    let mut slabs = Vec::with_capacity(members.len());
-    let mut tracks = Vec::with_capacity(members.len());
-    let mut gap: f32 = 0.0;
-    for index in members {
-        let legend = &guides.legends[*index];
-        let mut slab = Slab::new().id(SlabId::Legend(*index));
-        if let Some(length) = legend.max_length {
-            slab = slab.max_length(length);
+/// What the lowering reads.
+pub(crate) struct Lowering<'a> {
+    pub(crate) chart: &'a Chart,
+    pub(crate) resolved: &'a Resolved<'a>,
+    pub(crate) guides: &'a Guides,
+    pub(crate) nodes: &'a StyleNodes,
+    pub(crate) styles: &'a ComputedStyles,
+}
+
+/// A lowered chart: its layout, the ids of the slabs of its guides in tree order, and the id of
+/// each plot, concat, wrap, and empty cell, by its path.
+pub(crate) struct Lowered {
+    pub(crate) layout: Layout<SlabId>,
+    pub(crate) slabs: Vec<SlabId>,
+    pub(crate) nodes: HashMap<String, SlabId>,
+}
+
+/// The ids that the lowering hands out.
+#[derive(Default)]
+struct Ids {
+    slabs: Vec<SlabId>,
+    nodes: HashMap<String, SlabId>,
+    count: usize,
+}
+
+impl Ids {
+    fn slab(&mut self, id: SlabId) -> SlabId {
+        self.slabs.push(id);
+        id
+    }
+
+    fn node(&mut self, path: &str) -> SlabId {
+        let id = SlabId::Node(self.count);
+        self.count += 1;
+        self.nodes.insert(path.to_string(), id);
+        id
+    }
+}
+
+/// A slab or a stack that a node hosts beyond its own guides.
+enum Hosted {
+    Slab(Slab<SlabId>),
+    Stack(SlabStack<SlabId>),
+}
+
+/// A rule that a concat or a wrap declares for a tag.
+enum Rule {
+    Kind(GuideRuleKind),
+    /// A match of the tag.
+    Match,
+}
+
+/// The layout of a chart.
+pub(crate) fn lower(lowering: &Lowering) -> Lowered {
+    let mut ids = Ids::default();
+    let layout = lowering.node(lowering.chart.root(), "root", true, &mut ids);
+    Lowered {
+        layout,
+        slabs: ids.slabs,
+        nodes: ids.nodes,
+    }
+}
+
+/// The node at the path `path` of a plot, a concat, a wrap, or an empty cell, such as
+/// `root.concat.children[1].plot`.
+fn node_at<'a>(chart: &'a Chart, path: &str) -> Option<&'a proto::Node> {
+    let mut node = chart.root();
+    let mut steps = path.split('.').skip(1).peekable();
+    while let Some(kind) = steps.next() {
+        let Some(step) = steps.next() else {
+            return Some(node);
+        };
+        let index: usize = step
+            .strip_prefix("children[")?
+            .strip_suffix(']')?
+            .parse()
+            .ok()?;
+        node = match (&node.node, kind) {
+            (Some(Node::Concat(concat)), "concat") => concat.children.get(index)?,
+            (Some(Node::Wrap(wrap)), "wrap") => wrap.children.get(index)?,
+            _ => return None,
+        };
+    }
+    Some(node)
+}
+
+/// The guide rules of the concat or the wrap at `path`, and whether it is a wrap, or `None` for
+/// another node.
+fn node_rules<'a>(chart: &'a Chart, path: &str) -> Option<(&'a [proto::GuideRule], bool)> {
+    match &node_at(chart, path)?.node {
+        Some(Node::Concat(concat)) => Some((
+            (concat.layout.as_ref()).map_or(&[][..], |layout| &layout.guide_rules[..]),
+            false,
+        )),
+        Some(Node::Wrap(wrap)) => Some((
+            (wrap.layout.as_ref()).map_or(&[][..], |layout| &layout.guide_rules[..]),
+            true,
+        )),
+        _ => None,
+    }
+}
+
+/// The track that a size of the format lowers to.
+fn track(size: Option<&track::Size>) -> Track {
+    match size {
+        Some(track::Size::Length(length)) => Track::px(*length),
+        Some(track::Size::Share(proto::Share {
+            weight,
+            max: Some(max),
+        })) => Track::fr_max(weight.unwrap_or(1.0), *max),
+        Some(track::Size::Share(share)) => Track::fr(share.weight.unwrap_or(1.0)),
+        None => Track::fr(1.0),
+    }
+}
+
+fn distribute(value: i32) -> Option<Distribute> {
+    match proto::Distribute::try_from(value) {
+        Ok(proto::Distribute::Start) => Some(Distribute::Start),
+        Ok(proto::Distribute::Center) => Some(Distribute::Center),
+        Ok(proto::Distribute::End) => Some(Distribute::End),
+        Ok(proto::Distribute::SpaceBetween) => Some(Distribute::SpaceBetween),
+        Ok(proto::Distribute::SpaceAround) => Some(Distribute::SpaceAround),
+        Ok(proto::Distribute::SpaceEvenly) => Some(Distribute::SpaceEvenly),
+        _ => None,
+    }
+}
+
+impl Lowering<'_> {
+    /// The path of the node that owns the scale group `group`.
+    fn owner(&self, group: usize) -> &str {
+        owner_path(&self.nodes.nodes, &self.resolved.scales[group].owner)
+    }
+
+    /// The computed style of the `plot` of the node at `path`.
+    fn plot_style(&self, path: &str) -> &ComputedStyle {
+        &self.styles[self.nodes.nodes[path].plot]
+    }
+
+    /// The node in the slot `slot`, which is the root of its table when `table_root` holds.
+    fn node(
+        &self,
+        node: &proto::Node,
+        slot: &str,
+        table_root: bool,
+        ids: &mut Ids,
+    ) -> Layout<SlabId> {
+        let path = node_path(node, slot);
+        match node.node.as_ref().expect("a valid node has a kind") {
+            Node::Concat(concat) => self.concat(concat, slot, &path, table_root, ids),
+            Node::Wrap(wrap) => self.wrap(wrap, &path, ids),
+            Node::Plot(_) => {
+                let plot = (self.resolved.tree.plots.iter())
+                    .position(|plot| plot.path == path)
+                    .expect("the tree has every plot");
+                self.plot(plot, ids)
+            }
+            Node::Empty(_) => {
+                let mut leaf = Leaf::new().id(ids.node(&path));
+                for (side, hosted) in self.host_slabs(&path, ids) {
+                    leaf = match hosted {
+                        Hosted::Slab(slab) => leaf.slab(side, slab),
+                        Hosted::Stack(stack) => leaf.slab_stack(side, stack),
+                    };
+                }
+                leaf.into()
+            }
         }
-        tracks.push(match legend.guide {
-            LegendGuide::Legend(_) => Track::auto(),
-            LegendGuide::Colorbar(_) => Track::fr(1.0),
-        });
-        slabs.push(slab);
-        gap = gap.max(legend.offset);
     }
-    let mut stack = SlabStack::new(slabs).gap(Gap::new(gap));
-    for (index, track) in tracks.into_iter().enumerate() {
-        stack = stack.track(index, track);
+
+    /// The slabs that the node at `path` hosts beyond its own guides: the headers that it holds,
+    /// nearest first, the legends that it merges for the plots below it, and then its title, which
+    /// runs along the whole side.
+    fn host_slabs(&self, path: &str, ids: &mut Ids) -> Vec<(Side, Hosted)> {
+        let mut slabs = Vec::new();
+        for (index, header) in self.guides.headers.iter().enumerate() {
+            if header.host != path {
+                continue;
+            }
+            for (part, header_part) in HEADER_PARTS.into_iter().enumerate() {
+                let id = ids.slab(SlabId::Header {
+                    header: index,
+                    part,
+                });
+                slabs.push((
+                    layout_side(header.side),
+                    Hosted::Slab(
+                        Slab::new()
+                            .id(id)
+                            .tag(TagKey::Header {
+                                name: header.name.clone(),
+                                part,
+                            })
+                            .content_key(header.guide.content_key(header_part)),
+                    ),
+                ));
+            }
+        }
+        let mut sides: Vec<(GuideSide, Vec<usize>)> = Vec::new();
+        for (index, legend) in self.guides.legends.iter().enumerate() {
+            if self.owner(legend.group) != path || !self.held(index) {
+                continue;
+            }
+            match sides.iter_mut().find(|(side, _)| *side == legend.side) {
+                Some((_, members)) => members.push(index),
+                None => sides.push((legend.side, vec![index])),
+            }
+        }
+        for (side, members) in sides {
+            let stack = self.legend_stack(&members, SlabId::HeldLegend, ids);
+            slabs.push((layout_side(side), Hosted::Stack(stack)));
+        }
+        if let Some(index) = self.guides.title_of.get(path) {
+            let id = ids.slab(SlabId::Title(*index));
+            slabs.push((
+                layout_side(self.guides.titles[*index].side),
+                Hosted::Slab(Slab::new().id(id).full()),
+            ));
+        }
+        slabs
     }
-    stack
+
+    /// Whether the concat or the wrap that owns the scales of a legend holds it, because its rule
+    /// merges the legend: one legend stands on the node for the plots below it.
+    fn held(&self, legend: usize) -> bool {
+        let legend = &self.guides.legends[legend];
+        match node_rules(self.chart, self.owner(legend.group)) {
+            Some((rules, wrap)) => rule(rules, legend.part(), wrap) == GuideRuleKind::Merge,
+            None => false,
+        }
+    }
+
+    /// A stack of the legends `members` along their side, apart by the largest offset among them,
+    /// with the id of each from `id`. A legend takes the length that its entries need, and a
+    /// colorbar shares the rest, up to its longest length.
+    fn legend_stack(
+        &self,
+        members: &[usize],
+        id: impl Fn(usize) -> SlabId,
+        ids: &mut Ids,
+    ) -> SlabStack<SlabId> {
+        let mut slabs = Vec::new();
+        let mut tracks = Vec::new();
+        let mut gap: f32 = 0.0;
+        for index in members {
+            let legend = &self.guides.legends[*index];
+            let id = ids.slab(id(*index));
+            let mut slab = Slab::new().id(id).content_key(format!("legend {index}"));
+            if let Some(length) = legend.max_length {
+                slab = slab.max_length(length);
+            }
+            tracks.push(match legend.guide {
+                LegendGuide::Legend(_) => Track::auto(),
+                LegendGuide::Colorbar(_) => Track::fr(1.0),
+            });
+            slabs.push(slab);
+            gap = gap.max(legend.offset);
+        }
+        let key = (members.iter())
+            .map(|index| index.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut stack = SlabStack::new(slabs)
+            .gap(Gap::new(gap))
+            .content_key(format!("legends {key}"));
+        for (index, track) in tracks.into_iter().enumerate() {
+            stack = stack.track(index, track);
+        }
+        stack
+    }
+
+    /// The gap between the children of the composition at `path`.
+    fn gap(&self, path: &str) -> Gap {
+        let style = self.plot_style(path);
+        let row = style_number(style, Property::RowGap);
+        let column = style_number(style, Property::ColumnGap);
+        Gap::new(row.max(column))
+    }
+
+    fn concat(
+        &self,
+        concat: &proto::Concat,
+        slot: &str,
+        path: &str,
+        table_root: bool,
+        ids: &mut Ids,
+    ) -> Layout<SlabId> {
+        let id = ids.node(path);
+        let along = match proto::Direction::try_from(concat.direction) {
+            Ok(proto::Direction::Column) => 1,
+            _ => 0,
+        };
+        let children: Vec<Layout<SlabId>> = (concat.children.iter().enumerate())
+            .map(|(index, child)| {
+                self.node(child, &format!("{path}.children[{index}]"), false, ids)
+            })
+            .collect();
+        let gap = self.gap(path);
+        // Each track that the concat spans, with the size that the table gives it and the tag of
+        // a match, so every sequence of the table declares it alike.
+        let mut tracks = Vec::new();
+        if let Some(place) = self.resolved.tables.place(slot) {
+            for (offset, index) in place.tracks[along].clone().enumerate() {
+                let size = self.resolved.tables.size(place.table, along, index);
+                let matched = (self.resolved.matches.tracks).contains(&(place.table, along, index));
+                if size.is_none() && !matched {
+                    continue;
+                }
+                let mut track = track(size);
+                if matched {
+                    track = track.tag(TagKey::Track { direction: along });
+                }
+                tracks.push((offset, track));
+            }
+        }
+        let layout = concat.layout.as_ref();
+        let rules = self.rules(
+            path,
+            layout.map_or(&[][..], |layout| &layout.guide_rules[..]),
+            false,
+        );
+        let matched = self.matched(path);
+        // Only the outermost sequence of a table sizes its tracks, so only it distributes.
+        let distributions = match (table_root, layout) {
+            (true, Some(layout)) => [
+                distribute(layout.horizontal_distribute),
+                distribute(layout.vertical_distribute),
+            ],
+            _ => [None, None],
+        };
+        let slabs = self.host_slabs(path, ids);
+        macro_rules! sequence {
+            ($sequence:expr) => {{
+                let mut sequence = $sequence.id(id).gap(gap);
+                for (index, track) in tracks {
+                    sequence = sequence.track(index, track);
+                }
+                for (tag, rule) in rules {
+                    sequence = match rule {
+                        Rule::Kind(GuideRuleKind::Collapse) => sequence.collapse_tag(tag),
+                        Rule::Kind(GuideRuleKind::Merge) => sequence.merge_tag(tag),
+                        Rule::Match => sequence.match_tag(tag),
+                        Rule::Kind(_) => sequence,
+                    };
+                }
+                for tag in matched {
+                    sequence = sequence.match_tag(tag);
+                }
+                for (direction, distribute) in [Direction::Horizontal, Direction::Vertical]
+                    .into_iter()
+                    .zip(distributions)
+                {
+                    if let Some(distribute) = distribute {
+                        sequence = sequence.distribute(direction, distribute);
+                    }
+                }
+                for (side, hosted) in slabs {
+                    sequence = match hosted {
+                        Hosted::Slab(slab) => sequence.slab(side, slab),
+                        Hosted::Stack(stack) => sequence.slab_stack(side, stack),
+                    };
+                }
+                sequence.into()
+            }};
+        }
+        match along {
+            0 => sequence!(Row::new(children)),
+            _ => sequence!(Column::new(children)),
+        }
+    }
+
+    /// A wrap, whose children each start a table of their own in one cell.
+    fn wrap(&self, wrap: &proto::Wrap, path: &str, ids: &mut Ids) -> Layout<SlabId> {
+        let id = ids.node(path);
+        let children: Vec<Layout<SlabId>> = (wrap.children.iter().enumerate())
+            .map(|(index, child)| self.node(child, &format!("{path}.children[{index}]"), true, ids))
+            .collect();
+        let style = self.plot_style(path);
+        let mut node = Wrap::new(children)
+            .id(id)
+            .min_column(style.number(Property::MinColumnWidth).unwrap_or(0.0))
+            .gap(self.gap(path));
+        if let Computed::Number(columns) = style.get(Property::MaxColumns) {
+            node = node.max_columns(*columns as usize);
+        }
+        let layout = wrap.layout.as_ref();
+        if let Some(layout) = layout {
+            if let Some(row) = &layout.row {
+                node = node.rows(track(row.size.as_ref()));
+            }
+            if let Some(distribute) = distribute(layout.distribute) {
+                node = node.distribute(distribute);
+            }
+        }
+        let rules = self.rules(
+            path,
+            layout.map_or(&[][..], |layout| &layout.guide_rules[..]),
+            true,
+        );
+        for (tag, rule) in rules {
+            node = match rule {
+                Rule::Kind(GuideRuleKind::Collapse) => node.collapse_tag(tag),
+                Rule::Kind(GuideRuleKind::Merge) => node.merge_tag(tag),
+                Rule::Match => node.match_tag(tag),
+                Rule::Kind(_) => node,
+            };
+        }
+        for tag in self.matched(path) {
+            node = node.match_tag(tag);
+        }
+        for (side, hosted) in self.host_slabs(path, ids) {
+            node = match hosted {
+                Hosted::Slab(slab) => node.slab(side, slab),
+                Hosted::Stack(stack) => node.slab_stack(side, stack),
+            };
+        }
+        node.into()
+    }
+
+    /// The tags of the tracks whose lengths the node at `path` matches.
+    fn matched(&self, path: &str) -> Vec<TagKey> {
+        (self.resolved.matches.owners.iter())
+            .filter(|(owner, _)| owner_path(&self.nodes.nodes, owner) == path)
+            .map(|(_, direction)| TagKey::Track {
+                direction: *direction,
+            })
+            .collect()
+    }
+
+    /// The rules that the concat or the wrap at `path` declares: those of the parts of the guides
+    /// of the scales that it owns and of the headers that it owns, and of the axis titles and the
+    /// attributions of the plots below it. It matches the thickness of the labels of the headers
+    /// that it owns, so the titles beyond headers with and without a rule line up.
+    fn rules(&self, path: &str, rules: &[proto::GuideRule], wrap: bool) -> Vec<(TagKey, Rule)> {
+        // Each tag with at most one rule of a kind and one match, in the order of their names.
+        let mut declared: BTreeMap<(String, bool), (TagKey, Rule)> = BTreeMap::new();
+        let mut declare = |tag: TagKey, matched: bool, rule: Rule| {
+            declared.insert((tag.to_string(), matched), (tag, rule));
+        };
+        for axis in &self.guides.axes {
+            if self.owner(axis.group) != path {
+                continue;
+            }
+            for (part, kind) in AXIS_RULE_PARTS.into_iter().enumerate() {
+                if kind != GuidePart::AxisTitle {
+                    declare(
+                        TagKey::Axis {
+                            group: axis.group,
+                            part,
+                        },
+                        false,
+                        Rule::Kind(rule(rules, kind, wrap)),
+                    );
+                }
+            }
+        }
+        for position in 0..self.title_positions() {
+            declare(
+                TagKey::AxisTitle { position },
+                false,
+                Rule::Kind(rule(rules, GuidePart::AxisTitle, wrap)),
+            );
+        }
+        for (index, legend) in self.guides.legends.iter().enumerate() {
+            if self.owner(legend.group) == path && !self.held(index) {
+                let part = legend.part();
+                declare(
+                    TagKey::Legends {
+                        owner: path.to_string(),
+                        side: legend.side,
+                        part,
+                    },
+                    false,
+                    Rule::Kind(rule(rules, part, wrap)),
+                );
+            }
+        }
+        for header in &self.guides.headers {
+            if header.owner != path {
+                continue;
+            }
+            for (part, kind) in HEADER_RULE_PARTS.into_iter().enumerate() {
+                let tag = TagKey::Header {
+                    name: header.name.clone(),
+                    part,
+                };
+                declare(tag, false, Rule::Kind(rule(rules, kind, header.wrap)));
+            }
+            let labels = TagKey::Header {
+                name: header.name.clone(),
+                part: 0,
+            };
+            declare(labels, true, Rule::Match);
+        }
+        declare(
+            TagKey::Attribution,
+            false,
+            Rule::Kind(rule(rules, GuidePart::Attribution, wrap)),
+        );
+        declared.into_values().collect()
+    }
+
+    /// The most axes on one side of a plot, which is the number of axis title tags.
+    fn title_positions(&self) -> usize {
+        (self.guides.plots.iter())
+            .flat_map(|plot| (plot.axes.iter()).map(|&axis| self.position(&plot.axes, axis) + 1))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The position of the axis `axis` among the axes `axes` of a plot on its side, from the plot
+    /// out.
+    fn position(&self, axes: &[usize], axis: usize) -> usize {
+        let side = self.guides.axes[axis].side;
+        (axes.iter())
+            .take_while(|&&other| other != axis)
+            .filter(|&&other| self.guides.axes[other].side == side)
+            .count()
+    }
+
+    /// The leaf of a plot with its guides: the slabs of its axes nearest the plot, then a stack of
+    /// the legends and colorbars of each owner and part on each side that has some, then its
+    /// attribution, and the headers and the title that it holds, outermost.
+    fn plot(&self, plot: usize, ids: &mut Ids) -> Layout<SlabId> {
+        let guides = self.guides;
+        let plot_guides = &guides.plots[plot];
+        let plot_ref = &self.resolved.tree.plots[plot];
+        let id = SlabId::Plot(plot);
+        ids.nodes.insert(plot_ref.path.clone(), id);
+        let style = self.plot_style(&plot_ref.path);
+        let mut leaf = Leaf::new().id(id);
+        if let Some(width) = style.number(Property::Width) {
+            leaf = leaf.min_width(width).max_width(width);
+        }
+        if let Some(height) = style.number(Property::Height) {
+            leaf = leaf.min_height(height).max_height(height);
+        }
+        if let Computed::Ratio(ratio) = style.get(Property::AspectRatio) {
+            leaf = leaf.aspect(*ratio);
+        }
+        // The computed `contain-intrinsic-size` is the size that the plot counts at in a chart that
+        // takes its natural size, which a host's size or the chart's size stretches.
+        let intrinsic = [
+            style.number(Property::ContainIntrinsicWidth),
+            style.number(Property::ContainIntrinsicHeight),
+        ];
+        if intrinsic.iter().any(Option::is_some) {
+            let [width, height] = intrinsic.map(|size| size.unwrap_or(0.0));
+            leaf = leaf.max_content(Size::new(width, height));
+        }
+        for &axis_index in &plot_guides.axes {
+            let axis = &guides.axes[axis_index];
+            for (part, kind) in AXIS_RULE_PARTS.into_iter().enumerate() {
+                let id = ids.slab(SlabId::Axis {
+                    plot,
+                    axis: axis_index,
+                    part,
+                });
+                let (tag, key) = match kind {
+                    GuidePart::AxisTitle => (
+                        TagKey::AxisTitle {
+                            position: self.position(&plot_guides.axes, axis_index),
+                        },
+                        format!("axis title {}", axis.title_key),
+                    ),
+                    _ => (
+                        TagKey::Axis {
+                            group: axis.group,
+                            part,
+                        },
+                        format!("axis {axis_index} {part}"),
+                    ),
+                };
+                leaf = leaf.slab(
+                    layout_side(axis.side),
+                    Slab::new().id(id).tag(tag).content_key(key),
+                );
+            }
+        }
+        // The legends of the scales that the plot owns stand in one stack on each side, and those
+        // of each node that owns a scale of the plot and keeps or collapses its legends stand in a
+        // stack for each side and part, which follows the node's rule for the part.
+        let mut stacks: Vec<(TagKey, GuideSide, Vec<usize>)> = Vec::new();
+        for &legend_index in &plot_guides.legends {
+            if self.held(legend_index) {
+                continue;
+            }
+            let legend = &guides.legends[legend_index];
+            let owner = self.owner(legend.group);
+            let tag = match owner == plot_ref.path {
+                true => TagKey::PlotLegends {
+                    plot: plot_ref.path.clone(),
+                    side: legend.side,
+                },
+                false => TagKey::Legends {
+                    owner: owner.to_string(),
+                    side: legend.side,
+                    part: legend.part(),
+                },
+            };
+            match stacks.iter_mut().find(|(known, _, _)| *known == tag) {
+                Some((_, _, members)) => members.push(legend_index),
+                None => stacks.push((tag, legend.side, vec![legend_index])),
+            }
+        }
+        for (tag, side, members) in stacks {
+            let stack = self
+                .legend_stack(&members, |legend| SlabId::Legend { plot, legend }, ids)
+                .tag(tag);
+            leaf = leaf.slab_stack(layout_side(side), stack);
+        }
+        if let Some(index) = plot_guides.attribution {
+            let attribution = &guides.attributions[index];
+            let id = ids.slab(SlabId::Attribution(index));
+            leaf = leaf.slab(
+                layout_side(attribution.side),
+                Slab::new()
+                    .id(id)
+                    .tag(TagKey::Attribution)
+                    .content_key(attribution.attribution.content_key()),
+            );
+        }
+        for (side, hosted) in self.host_slabs(&plot_ref.path, ids) {
+            leaf = match hosted {
+                Hosted::Slab(slab) => leaf.slab(side, slab),
+                Hosted::Stack(stack) => leaf.slab_stack(side, stack),
+            };
+        }
+        leaf.into()
+    }
 }
 
 /// The options of the solve: the size of each dimension that the host or the chart gives, and the
@@ -151,23 +829,24 @@ pub(crate) fn solve_options(size: [Option<f32>; 2], chart: &ComputedStyle) -> So
 /// The side of the guide of a slab, and its offset from what stands inside it.
 fn placement(guides: &Guides, id: &SlabId) -> Option<(GuideSide, f32)> {
     Some(match id {
-        SlabId::Axis { axis, part } => {
+        SlabId::Axis { axis, part, .. } => {
             let axis = &guides.axes[*axis];
             (axis.side, if *part == 0 { axis.offset } else { 0.0 })
         }
-        SlabId::Legend(index) => {
-            let legend = &guides.legends[*index];
+        SlabId::Legend { legend, .. } | SlabId::HeldLegend(legend) => {
+            let legend = &guides.legends[*legend];
             (legend.side, legend.offset)
         }
-        SlabId::Title => {
-            let title = guides.title.as_ref()?;
+        SlabId::Title(index) => {
+            let title = &guides.titles[*index];
             (title.side, title.offset)
         }
-        SlabId::Attribution => {
-            let attribution = guides.attribution.as_ref()?;
+        SlabId::Attribution(index) => {
+            let attribution = &guides.attributions[*index];
             (attribution.side, attribution.offset)
         }
-        SlabId::Plot => return None,
+        SlabId::Header { header, .. } => (guides.headers[*header].side, 0.0),
+        SlabId::Plot(_) | SlabId::Node(_) => return None,
     })
 }
 
@@ -180,16 +859,21 @@ impl Measurer<'_> {
     fn extent(&self, id: &SlabId, length: f32) -> Option<PartExtent> {
         let guides = self.guides;
         let extent = match id {
-            SlabId::Axis { axis, part } => {
+            SlabId::Axis { axis, part, .. } => {
                 guides.axes[*axis].axis.extent(AXIS_PARTS[*part], length)
             }
-            SlabId::Legend(index) => match &guides.legends[*index].guide {
-                LegendGuide::Legend(legend) => legend.extent(length),
-                LegendGuide::Colorbar(colorbar) => colorbar.extent(length),
-            },
-            SlabId::Title => guides.title.as_ref()?.title.extent(length),
-            SlabId::Attribution => guides.attribution.as_ref()?.attribution.extent(length),
-            SlabId::Plot => return None,
+            SlabId::Legend { legend, .. } | SlabId::HeldLegend(legend) => {
+                match &guides.legends[*legend].guide {
+                    LegendGuide::Legend(legend) => legend.extent(length),
+                    LegendGuide::Colorbar(colorbar) => colorbar.extent(length),
+                }
+            }
+            SlabId::Title(index) => guides.titles[*index].title.extent(length),
+            SlabId::Attribution(index) => guides.attributions[*index].attribution.extent(length),
+            SlabId::Header { header, part } => guides.headers[*header]
+                .guide
+                .extent(HEADER_PARTS[*part], length),
+            SlabId::Plot(_) | SlabId::Node(_) => return None,
         };
         let (_, offset) = placement(guides, id)?;
         Some(PartExtent {
@@ -214,10 +898,10 @@ impl Measure<SlabId> for Measurer<'_> {
 
     /// A legend's length with its entries on as few lines as its wrap allows, along its side.
     fn max_content(&mut self, id: &SlabId, direction: Direction) -> Option<f32> {
-        let SlabId::Legend(index) = id else {
+        let (SlabId::Legend { legend, .. } | SlabId::HeldLegend(legend)) = id else {
             return None;
         };
-        let slot = &self.guides.legends[*index];
+        let slot = &self.guides.legends[*legend];
         let LegendGuide::Legend(legend) = &slot.guide else {
             return None;
         };
@@ -229,7 +913,7 @@ impl Measure<SlabId> for Measurer<'_> {
     }
 }
 
-/// `slot` without the offset on its side nearest the plot.
+/// `slot` without the offset on its side nearest what stands inside it.
 fn past_offset(slot: [f32; 4], side: GuideSide, offset: f32) -> [f32; 4] {
     let [x, y, width, height] = slot;
     match side {
@@ -240,20 +924,23 @@ fn past_offset(slot: [f32; 4], side: GuideSide, offset: f32) -> [f32; 4] {
     }
 }
 
-/// The guides of the chart, each drawn in its slab of `solution`.
-pub(crate) fn draw(guides: &Guides, solution: &Solution<SlabId>) -> Vec<SceneMark> {
-    let mut ids: Vec<SlabId> = Vec::new();
-    for axis in 0..guides.axes.len() {
-        ids.extend((0..AXIS_PARTS.len()).map(|part| SlabId::Axis { axis, part }));
-    }
-    ids.extend((0..guides.legends.len()).map(SlabId::Legend));
-    ids.extend([SlabId::Attribution, SlabId::Title]);
+/// The guides of a chart, each drawn once, in the slab that represents its slabs.
+pub(crate) fn draw(
+    guides: &Guides,
+    lowered: &Lowered,
+    solution: &Solution<SlabId>,
+) -> Vec<SceneMark> {
+    let mut drawn = HashSet::new();
     let mut marks = Vec::new();
-    for id in ids {
-        let (Some(region), Some((side, offset))) = (solution.region(&id), placement(guides, &id))
+    for id in &lowered.slabs {
+        let (Some(region), Some((side, offset))) =
+            (solution.representative(id), placement(guides, id))
         else {
             continue;
         };
+        if !drawn.insert(region.path.clone()) {
+            continue;
+        }
         let rect = region.content;
         let slot = past_offset([rect.x, rect.y, rect.width, rect.height], side, offset);
         let length = match side.is_vertical() {
@@ -261,38 +948,69 @@ pub(crate) fn draw(guides: &Guides, solution: &Solution<SlabId>) -> Vec<SceneMar
             false => slot[2],
         };
         let group = match id {
-            SlabId::Axis { axis, part } => {
-                let axis = &guides.axes[axis].axis;
-                (axis.part(AXIS_PARTS[part], length)).map(|group| SceneGroup {
+            SlabId::Axis { axis, part, .. } => {
+                let axis = &guides.axes[*axis].axis;
+                (axis.part(AXIS_PARTS[*part], length)).map(|group| SceneGroup {
                     origin: axis.origin(slot),
                     ..group
                 })
             }
-            SlabId::Legend(index) => Some(match &guides.legends[index].guide {
-                LegendGuide::Legend(legend) => SceneGroup {
-                    origin: legend.origin(slot),
-                    ..legend.marks(length).group
-                },
-                LegendGuide::Colorbar(colorbar) => SceneGroup {
-                    origin: colorbar.origin(slot),
-                    ..colorbar.marks(length).group
-                },
-            }),
-            SlabId::Title => guides.title.as_ref().and_then(|title| {
-                let title = &title.title;
+            SlabId::Legend { legend, .. } | SlabId::HeldLegend(legend) => {
+                Some(match &guides.legends[*legend].guide {
+                    LegendGuide::Legend(legend) => SceneGroup {
+                        origin: legend.origin(slot),
+                        ..legend.marks(length).group
+                    },
+                    LegendGuide::Colorbar(colorbar) => SceneGroup {
+                        origin: colorbar.origin(slot),
+                        ..colorbar.marks(length).group
+                    },
+                })
+            }
+            SlabId::Title(index) => {
+                let title = &guides.titles[*index].title;
                 (title.part(length)).map(|group| SceneGroup {
                     origin: title.origin(slot),
                     ..group
                 })
-            }),
-            SlabId::Attribution => guides.attribution.as_ref().and_then(|attribution| {
-                let attribution = &attribution.attribution;
+            }
+            SlabId::Attribution(index) => {
+                let attribution = &guides.attributions[*index].attribution;
                 (attribution.part(length)).map(|group| SceneGroup {
                     origin: attribution.origin(slot),
                     ..group
                 })
-            }),
-            SlabId::Plot => None,
+            }
+            SlabId::Header { header, part } => {
+                // The slab that draws the labels labels the children of its own header, which line
+                // up with those of the headers that it stands for.
+                let header = match &region.id {
+                    Some(SlabId::Header { header, .. }) => *header,
+                    _ => *header,
+                };
+                let header_guide = &guides.headers[header];
+                let guide = &header_guide.guide;
+                let group = match HEADER_PARTS[*part] {
+                    FacetGuidePart::Labels => {
+                        let bands: Option<Vec<[f32; 2]>> = (header_guide.children.iter())
+                            .map(|child| {
+                                let child = solution.region(lowered.nodes.get(child)?)?.content;
+                                Some(match side.is_vertical() {
+                                    true => [child.y - rect.y, child.y + child.height - rect.y],
+                                    false => [child.x - rect.x, child.x + child.width - rect.x],
+                                })
+                            })
+                            .collect();
+                        bands.and_then(|bands| guide.labels(&bands))
+                    }
+                    FacetGuidePart::Title => guide.title(length),
+                };
+                group.map(|group| SceneGroup {
+                    origin: guide.origin(slot),
+                    ..group
+                })
+            }
+            SlabId::Plot(_) | SlabId::Node(_) => None,
         };
         marks.extend(group.map(SceneMark::from));
     }

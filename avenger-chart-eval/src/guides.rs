@@ -1,8 +1,9 @@
-//! The guides of a chart of one plot: an axis of each position scale that has one, the legends
-//! and colorbars of its other scales, the plot's title, and its attribution, each configured from
-//! the computed styles of its nodes and the content fields of the format.
+//! The guides of a chart: an axis of each position scale that has one in each of its plots, the
+//! legends and colorbars of the other scales, the titles of plots, concats, and wraps, the
+//! attribution of each plot, and the facet headers of concats and wraps, each configured from the
+//! computed styles of its nodes and the content fields of the format.
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
 use arrow::{
     array::{ArrayRef, AsArray, Float64Array},
@@ -24,6 +25,7 @@ use avenger_common::{
 use avenger_guides::{
     attribution::{Attribution, AttributionAlign, AttributionConfig},
     axis::{Axis, AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, NestedBandAxisLevelConfig},
+    facet::{FacetGuide, FacetGuideConfig, FacetGuidePart, FacetGuideStyle},
     legend::{
         Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendStyle, LegendSwatches,
         LegendWrap, LineSwatches, SymbolSwatches,
@@ -39,8 +41,11 @@ use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValue
 
 use crate::{
     marks::{font_family, font_style, font_weight},
-    style::tree::{GuideNodes, StyleNodes},
     style::{color as style_color, number as style_number},
+    style::{
+        inline::{AxisNodes, HeaderNodes},
+        tree::{self, owner_path, GuideNodes, StyleNodes},
+    },
     EvalError,
 };
 
@@ -56,6 +61,8 @@ pub(crate) struct AxisGuide {
     pub(crate) grid: bool,
     /// The computed `offset` of its `axis` node: its distance from the plot.
     pub(crate) offset: f32,
+    /// What its title draws, so equal titles of different scales collapse and merge.
+    pub(crate) title_key: String,
 }
 
 /// A legend or a colorbar.
@@ -66,6 +73,8 @@ pub(crate) enum LegendGuide {
 
 /// A legend or a colorbar on its side of the plot, with the longest length of a colorbar.
 pub(crate) struct LegendSlot {
+    /// The position of its first scale group in `Resolved::scales`, whose owner holds it.
+    pub(crate) group: usize,
     pub(crate) guide: LegendGuide,
     pub(crate) side: GuideSide,
     pub(crate) max_length: Option<f32>,
@@ -74,26 +83,79 @@ pub(crate) struct LegendSlot {
     pub(crate) offset: f32,
 }
 
-/// The plot's title on its side, with its distance from what stands inside it.
+impl LegendSlot {
+    /// The guide part of the legend, whose rule a concat or a wrap declares.
+    pub(crate) fn part(&self) -> proto::GuidePart {
+        match self.guide {
+            LegendGuide::Legend(_) => proto::GuidePart::Legend,
+            LegendGuide::Colorbar(_) => proto::GuidePart::Colorbar,
+        }
+    }
+}
+
+/// The title of a plot, a concat, or a wrap on its side, with its distance from what stands inside
+/// it.
 pub(crate) struct TitleGuide {
     pub(crate) title: Title,
     pub(crate) side: GuideSide,
     pub(crate) offset: f32,
 }
 
-/// The plot's attribution on its side, with its distance from what stands inside it.
+/// A plot's attribution on its side, with its distance from what stands inside it.
 pub(crate) struct AttributionGuide {
     pub(crate) attribution: Attribution,
     pub(crate) side: GuideSide,
     pub(crate) offset: f32,
 }
 
-/// The guides of a chart of one plot.
+/// The guides that a plot shows: its axes, in the order of its position groups, the legends of its
+/// scales, and its attribution.
+#[derive(Default)]
+pub(crate) struct PlotGuides {
+    /// Positions in `Guides::axes`.
+    pub(crate) axes: Vec<usize>,
+    /// Positions in `Guides::legends`.
+    pub(crate) legends: Vec<usize>,
+    /// The position of its attribution in `Guides::attributions`.
+    pub(crate) attribution: Option<usize>,
+}
+
+/// The header of a facet: the facet guide of a concat over the values of its children, which the
+/// concat's slabs hold, or of a child of a wrap over its one value, which the child's slabs hold.
+pub(crate) struct HeaderGuide {
+    pub(crate) guide: FacetGuide,
+    pub(crate) side: GuideSide,
+    /// The path of the node whose slabs hold the header.
+    pub(crate) host: String,
+    /// The paths of the nodes that the labels label, in the order of the values.
+    pub(crate) children: Vec<String>,
+    /// The name of the header's tags: the facet's column for the header of a concat, so the
+    /// headers of one column collapse, and the path of the wrap for the headers of its children,
+    /// whose titles merge on the wrap.
+    pub(crate) name: String,
+    /// The path of the node that declares the rules of the header's tags: the innermost node that
+    /// holds every header of the facet's column, or the wrap.
+    pub(crate) owner: String,
+    /// Whether the header labels a child of a wrap.
+    pub(crate) wrap: bool,
+}
+
+/// The parts of a facet header, in the order of their slabs from the children.
+pub(crate) const HEADER_PARTS: [FacetGuidePart; 2] =
+    [FacetGuidePart::Labels, FacetGuidePart::Title];
+
+/// The prepared guides of a chart. A guide of a scale that several plots share is prepared once,
+/// and each plot shows it.
 pub(crate) struct Guides {
     pub(crate) axes: Vec<AxisGuide>,
     pub(crate) legends: Vec<LegendSlot>,
-    pub(crate) title: Option<TitleGuide>,
-    pub(crate) attribution: Option<AttributionGuide>,
+    pub(crate) titles: Vec<TitleGuide>,
+    /// The title of each plot, concat, and wrap that has one, by its path.
+    pub(crate) title_of: HashMap<String, usize>,
+    pub(crate) attributions: Vec<AttributionGuide>,
+    /// The guides of each plot, in the order of `Tree::plots`.
+    pub(crate) plots: Vec<PlotGuides>,
+    pub(crate) headers: Vec<HeaderGuide>,
 }
 
 /// What the guides read: the chart, its models, its style nodes and their computed styles, the
@@ -340,29 +402,64 @@ fn axis_style(
 /// The axes of the position groups that have one, with the side of each from the computed
 /// `orient` of its `axis` node. A second axis of a direction whose side meets the first's stands
 /// on the other side, and draws no grid lines.
-fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
+fn axes(inputs: &GuideInputs) -> Result<(Vec<AxisGuide>, Vec<Vec<usize>>)> {
     let mut axes: Vec<AxisGuide> = Vec::new();
-    for (index, group) in inputs.resolved.scales.iter().enumerate() {
-        let Some(Some(GuideNodes::Axis(nodes))) = inputs.nodes.guides.get(index) else {
-            continue;
-        };
-        let Some(Some(fitting)) = inputs.positions.get(index) else {
-            continue;
-        };
+    let mut plots: Vec<Vec<usize>> = vec![Vec::new(); inputs.resolved.tree.plots.len()];
+    for (plot_index, plot_axes) in plots.iter_mut().enumerate() {
+        // The axes of the plot so far, by channel and side.
+        let mut seen: Vec<(Channel, GuideSide)> = Vec::new();
+        for (index, group) in inputs.resolved.scales.iter().enumerate() {
+            let in_plot = (group.members.iter())
+                .any(|member| inputs.resolved.tree.layers[member.layer].plot == plot_index);
+            if !in_plot {
+                continue;
+            }
+            let Some(Some(GuideNodes::Axis(nodes))) = inputs.nodes.guides.get(index) else {
+                continue;
+            };
+            let Some(Some(fitting)) = inputs.positions.get(index) else {
+                continue;
+            };
+            // `display: none` on the axis hides its parts and its grid lines.
+            if inputs.styles[nodes.axis].is_hidden() {
+                continue;
+            }
+            // The second scale of a channel in a plot has its axis on the other side.
+            let mut side = side(&inputs.styles[nodes.axis]);
+            let first = seen.iter().find(|(channel, _)| *channel == group.channel);
+            let second = first.is_some();
+            if first.is_some_and(|(_, first)| *first == side) {
+                side = opposite(side);
+            }
+            seen.push((group.channel, side));
+            let existing = (axes.iter()).position(|axis| axis.group == index && axis.side == side);
+            let axis = match existing {
+                Some(axis) => axis,
+                None => {
+                    axes.push(axis(inputs, index, group, nodes, fitting, side, second)?);
+                    axes.len() - 1
+                }
+            };
+            plot_axes.push(axis);
+        }
+    }
+    Ok((axes, plots))
+}
+
+/// The axis of the position group `group`, at `index`, on `side`, which is the second axis of its
+/// channel in its plot when `second` holds, without grid lines.
+fn axis(
+    inputs: &GuideInputs,
+    index: usize,
+    group: &ScaleGroup,
+    nodes: &AxisNodes,
+    fitting: &FittingScale,
+    side: GuideSide,
+    second: bool,
+) -> Result<AxisGuide> {
+    {
         let styles = inputs.styles;
-        // `display: none` on the axis hides its parts and its grid lines.
-        if styles[nodes.axis].is_hidden() {
-            continue;
-        }
         let spec = axis_spec(group);
-        let mut side = side(&styles[nodes.axis]);
-        let first = axes
-            .iter()
-            .find(|axis| inputs.resolved.scales[axis.group].channel == group.channel);
-        let second = first.is_some();
-        if first.is_some_and(|first| first.side == side) {
-            side = opposite(side);
-        }
         let grid = visible(&styles[nodes.grid]) && !second;
         let title_syntax = text_syntax(spec.title.as_ref().map_or(0, |title| title.syntax));
         let style = axis_style(
@@ -417,15 +514,15 @@ fn axes(inputs: &GuideInputs) -> Result<Vec<AxisGuide>> {
             }
             _ => Axis::continuous(fitting.clone(), &title, &config, engine)?,
         };
-        axes.push(AxisGuide {
+        Ok(AxisGuide {
             group: index,
             side,
             axis,
             grid,
             offset: offset(&styles[nodes.axis]),
-        });
+            title_key: format!("{side:?} {title}"),
+        })
     }
-    Ok(axes)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -708,11 +805,17 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 });
                 let categories = (scale.scale_impl.summary_kind() == Some(SummaryKind::Categories))
                     .then(|| scale.domain().clone());
+                let owner = owner_path(&inputs.nodes.nodes, &group.owner);
                 let merged = pending.iter_mut().find_map(|pending| match pending {
                     // Two scales of one kind of swatch, such as two independent color scales,
-                    // keep their legends apart, so each shows its own swatches.
+                    // keep their legends apart, so each shows its own swatches, and only the
+                    // legends of one owner merge.
                     Pending::Legend(draft)
                         if draft.spec == spec
+                            && owner_path(
+                                &inputs.nodes.nodes,
+                                &inputs.resolved.scales[draft.group].owner,
+                            ) == owner
                             && matches!((&draft.categories, &categories),
                                 (Some(a), Some(b)) if a.as_ref() == b.as_ref())
                             && !(draft.swatches.iter()).any(|known| {
@@ -967,6 +1070,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     };
     let legend = Legend::new(&config, inputs.engine)?;
     Ok(LegendSlot {
+        group: draft.group,
         guide: LegendGuide::Legend(Box::new(legend)),
         side,
         max_length: None,
@@ -1043,6 +1147,7 @@ fn colorbar(
     });
     let colorbar = Colorbar::new(scale, &title, &config, inputs.engine)?;
     Ok(LegendSlot {
+        group: index,
         guide: LegendGuide::Colorbar(Box::new(colorbar)),
         side,
         max_length: ramp.number(Property::MaxLength),
@@ -1064,14 +1169,15 @@ fn title_text_style(style: &ComputedStyle, syntax: TextSyntaxMode) -> TitleTextS
     }
 }
 
-/// The plot's title, with its subtitle, from the computed styles of their nodes.
-fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
-    let plot = inputs.resolved.tree.plots[0].plot;
-    let (Some(title), Some(node)) = (&plot.title, inputs.nodes.title) else {
+/// The title of the plot, concat, or wrap at `path`, with its subtitle, from the computed styles
+/// of their nodes.
+fn title(inputs: &GuideInputs, path: &str, title: &proto::Title) -> Result<Option<TitleGuide>> {
+    let node = &inputs.nodes.nodes[path];
+    let Some(title_node) = node.title else {
         return Ok(None);
     };
     let styles = inputs.styles;
-    let style = &styles[node];
+    let style = &styles[title_node];
     if style.is_hidden() {
         return Ok(None);
     }
@@ -1087,10 +1193,7 @@ fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
         Some("end") => TitleAlign::End,
         _ => TitleAlign::Start,
     };
-    let subtitle_style = inputs
-        .nodes
-        .subtitle
-        .map(|node| title_text_style(&styles[node], syntax));
+    let subtitle_style = (node.subtitle).map(|node| title_text_style(&styles[node], syntax));
     let config = TitleConfig {
         side,
         align,
@@ -1098,7 +1201,7 @@ fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
         subtitle: subtitle_style.unwrap_or_else(|| TitleConfig::default().subtitle),
         ..TitleConfig::default()
     };
-    let subtitle_hidden = (inputs.nodes.subtitle).is_some_and(|node| styles[node].is_hidden());
+    let subtitle_hidden = (node.subtitle).is_some_and(|node| styles[node].is_hidden());
     let subtitle =
         (!title.subtitle.is_empty() && !subtitle_hidden).then_some(title.subtitle.as_str());
     Ok(Some(TitleGuide {
@@ -1108,10 +1211,10 @@ fn title(inputs: &GuideInputs) -> Result<Option<TitleGuide>> {
     }))
 }
 
-/// The plot's attribution, from the computed style of its node.
-fn attribution(inputs: &GuideInputs) -> Result<Option<AttributionGuide>> {
-    let plot = inputs.resolved.tree.plots[0].plot;
-    let (Some(spec), Some(node)) = (&plot.attribution, inputs.nodes.attribution) else {
+/// The attribution of the plot at `plot` in `Tree::plots`, from the computed style of its node.
+fn attribution(inputs: &GuideInputs, plot: usize) -> Result<Option<AttributionGuide>> {
+    let spec = &inputs.resolved.tree.plots[plot].plot.attribution;
+    let (Some(spec), Some(node)) = (spec, inputs.nodes.attributions[plot]) else {
         return Ok(None);
     };
     let style = &inputs.styles[node];
@@ -1146,13 +1249,244 @@ fn attribution(inputs: &GuideInputs) -> Result<Option<AttributionGuide>> {
     }))
 }
 
-/// The guides of a chart of one plot.
+// ---------------------------------------------------------------------------------------------
+// Facet headers
+
+/// The facet headers of the concat or the wrap `node` at `path`, and of the nodes below it.
+fn facet_headers(
+    inputs: &GuideInputs,
+    node: &proto::Node,
+    path: &str,
+    headers: &mut Vec<HeaderGuide>,
+) -> Result<()> {
+    use proto::node::Node;
+    let (kind, children, facet) = match &node.node {
+        Some(Node::Concat(concat)) => ("concat", &concat.children[..], concat.facet.as_ref()),
+        Some(Node::Wrap(wrap)) => ("wrap", &wrap.children[..], wrap.facet.as_ref()),
+        _ => return Ok(()),
+    };
+    let path = format!("{path}.{kind}");
+    let child_slot = |index: usize| format!("{path}.children[{index}]");
+    let child_paths: Vec<String> = (children.iter().enumerate())
+        .map(|(index, child)| node_path(child, &child_slot(index)))
+        .collect();
+    if let (Some(facet), Some(nodes)) = (facet, inputs.nodes.headers.get(&path)) {
+        let header = tree::shown_header(facet).expect("a header node has a shown header");
+        if !inputs.styles[nodes.header].is_hidden() {
+            match kind {
+                "concat" => {
+                    let guide = facet_guide(inputs, &child_paths, facet, header, nodes)?;
+                    headers.push(HeaderGuide {
+                        side: side(&inputs.styles[nodes.header]),
+                        guide,
+                        host: path.clone(),
+                        children: child_paths.clone(),
+                        name: facet.column.clone(),
+                        owner: String::new(),
+                        wrap: false,
+                    });
+                }
+                _ => {
+                    for child in &child_paths {
+                        let guide =
+                            facet_guide(inputs, std::slice::from_ref(child), facet, header, nodes)?;
+                        headers.push(HeaderGuide {
+                            side: side(&inputs.styles[nodes.header]),
+                            guide,
+                            host: child.clone(),
+                            children: vec![child.clone()],
+                            name: path.clone(),
+                            owner: path.clone(),
+                            wrap: true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    for (index, child) in children.iter().enumerate() {
+        facet_headers(inputs, child, &child_slot(index), headers)?;
+    }
+    Ok(())
+}
+
+/// The path of the node `node` in the slot `slot`, such as `root.concat.children[1].plot`.
+pub(crate) fn node_path(node: &proto::Node, slot: &str) -> String {
+    use proto::node::Node;
+    let kind = match node.node.as_ref().expect("a valid node has a kind") {
+        Node::Plot(_) => "plot",
+        Node::Concat(_) => "concat",
+        Node::Wrap(_) => "wrap",
+        Node::Empty(_) => "empty",
+    };
+    format!("{slot}.{kind}")
+}
+
+/// The facet guide of a header over the values of `facet`'s column in the partitions of the nodes
+/// at `children`, in their order, from the computed styles of the header's nodes.
+fn facet_guide(
+    inputs: &GuideInputs,
+    children: &[String],
+    facet: &proto::Facet,
+    header: &proto::FacetHeader,
+    nodes: &HeaderNodes,
+) -> Result<FacetGuide> {
+    let partitions = &inputs.resolved.tree.partitions;
+    let values: Vec<&dyn arrow::array::Array> = (children.iter())
+        .map(|child| {
+            partitions[child]
+                .get(&facet.column)
+                .expect("each child of a facet holds a value of its column")
+                .as_ref()
+        })
+        .collect();
+    let values = arrow::compute::concat(&values)?;
+    let styles = inputs.styles;
+    let header_style = &styles[nodes.header];
+    let label = &styles[nodes.label];
+    let title_style = &styles[nodes.title];
+    let rule = &styles[nodes.rule];
+    let title_syntax = text_syntax(header.title.as_ref().map_or(0, |title| title.syntax));
+    let style = FacetGuideStyle {
+        label_padding: style_number(header_style, Property::LabelPadding),
+        label_angle: header_style.number(Property::LabelAngle),
+        label_color: text_color(label),
+        label_font_family: font_family(label),
+        label_font_size: label.font_size(),
+        label_font_weight: font_weight(label),
+        tick_length: style_number(&styles[nodes.tick], Property::TickSize),
+        rule_color: paint_color(rule, Property::Stroke),
+        rule_width: style_number(rule, Property::StrokeWidth),
+        title_visible: visible(title_style),
+        title_syntax,
+        title_color: text_color(title_style),
+        title_font_family: font_family(title_style),
+        title_font_size: title_style.font_size(),
+        title_font_weight: font_weight(title_style),
+        ..FacetGuideStyle::default()
+    };
+    let labels = header.labels.as_ref();
+    let config = FacetGuideConfig {
+        side: side(header_style),
+        label_format: labels.map_or_else(String::new, |labels| labels.format.clone()),
+        label: labels
+            .map(|labels| labels.markup.clone())
+            .filter(|markup| !markup.is_empty()),
+        style,
+    };
+    let title = guide_title(header.title.as_ref(), || facet.column.clone());
+    Ok(FacetGuide::new(&values, &title, &config, inputs.engine)?)
+}
+
+/// The titles of the plot, concat, or wrap `node` in the slot `slot` and of the nodes below it,
+/// by path.
+fn node_titles(
+    inputs: &GuideInputs,
+    node: &proto::Node,
+    slot: &str,
+    titles: &mut Vec<TitleGuide>,
+    title_of: &mut HashMap<String, usize>,
+) -> Result<()> {
+    use proto::node::Node;
+    let path = node_path(node, slot);
+    let (spec, children) = match node.node.as_ref().expect("a valid node has a kind") {
+        Node::Plot(plot) => (plot.title.as_ref(), &[][..]),
+        Node::Concat(concat) => (concat.title.as_ref(), &concat.children[..]),
+        Node::Wrap(wrap) => (wrap.title.as_ref(), &wrap.children[..]),
+        Node::Empty(_) => return Ok(()),
+    };
+    if let Some(spec) = spec {
+        if let Some(guide) = title(inputs, &path, spec)? {
+            titles.push(guide);
+            title_of.insert(path.clone(), titles.len() - 1);
+        }
+    }
+    for (index, child) in children.iter().enumerate() {
+        node_titles(
+            inputs,
+            child,
+            &format!("{path}.children[{index}]"),
+            titles,
+            title_of,
+        )?;
+    }
+    Ok(())
+}
+
+/// The innermost common ancestor of the nodes at `a` and `b`, by their paths.
+fn common(a: &str, b: &str) -> String {
+    let a: Vec<&str> = a.split('.').collect();
+    let b: Vec<&str> = b.split('.').collect();
+    (a.iter())
+        .zip(&b)
+        .take_while(|(a, b)| a == b)
+        .map(|(a, _)| *a)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// The guides of a chart: the axes of each plot, the legends and colorbars of the other scales,
+/// the titles of plots, concats, and wraps, the attribution of each plot, and the facet headers.
 pub(crate) fn guides(inputs: &GuideInputs) -> Result<Guides> {
+    let (axes, plot_axes) = axes(inputs)?;
+    let legends = legends(inputs)?;
+    let tree = &inputs.resolved.tree;
+    let mut plots: Vec<PlotGuides> = (plot_axes.into_iter())
+        .map(|axes| PlotGuides {
+            axes,
+            ..PlotGuides::default()
+        })
+        .collect();
+    // A legend shows in each plot of its scales, and its owner's rules decide how many draw.
+    for (index, legend) in legends.iter().enumerate() {
+        let mut shown: Vec<usize> = Vec::new();
+        for member in &inputs.resolved.scales[legend.group].members {
+            let plot = tree.layers[member.layer].plot;
+            if !shown.contains(&plot) {
+                shown.push(plot);
+            }
+        }
+        for plot in shown {
+            plots[plot].legends.push(index);
+        }
+    }
+    let mut attributions = Vec::new();
+    for (index, plot) in plots.iter_mut().enumerate() {
+        if let Some(attribution) = attribution(inputs, index)? {
+            attributions.push(attribution);
+            plot.attribution = Some(attributions.len() - 1);
+        }
+    }
+    let mut titles = Vec::new();
+    let mut title_of = HashMap::new();
+    node_titles(
+        inputs,
+        inputs.chart.root(),
+        "root",
+        &mut titles,
+        &mut title_of,
+    )?;
+    let mut headers = Vec::new();
+    facet_headers(inputs, inputs.chart.root(), "root", &mut headers)?;
+    // The headers of a facet's column collapse below the innermost node that holds them all.
+    let mut owners: HashMap<String, String> = HashMap::new();
+    for header in headers.iter().filter(|header| !header.wrap) {
+        owners
+            .entry(header.name.clone())
+            .and_modify(|owner| *owner = common(owner, &header.host))
+            .or_insert_with(|| header.host.clone());
+    }
+    for header in headers.iter_mut().filter(|header| !header.wrap) {
+        header.owner = owners[&header.name].clone();
+    }
     Ok(Guides {
-        axes: axes(inputs)?,
-        legends: legends(inputs)?,
-        title: title(inputs)?,
-        attribution: attribution(inputs)?,
+        axes,
+        legends,
+        titles,
+        title_of,
+        attributions,
+        plots,
+        headers,
     })
 }
 
