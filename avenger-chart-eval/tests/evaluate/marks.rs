@@ -118,9 +118,9 @@ fn horizontal_bars() {
     render_both(&chart, "bars-horizontal");
 }
 
-/// A histogram: rects from the start to the end of each bin, with an inset between bins.
+/// A histogram: bars from the start to the end of each bin, which stand `bin-spacing` apart.
 #[test]
-fn rects() {
+fn histogram() {
     let starts: Vec<f64> = (0..8).map(|bin| bin as f64 * 5.0).collect();
     let ends: Vec<f64> = starts.iter().map(|start| start + 5.0).collect();
     let bins = RecordBatch::try_from_iter([
@@ -132,25 +132,15 @@ fn rects() {
         ),
     ])
     .unwrap();
-    let rects = CartesianLayer::rect(
-        bins,
-        RectMark::builder()
-            .inset(1.0)
-            .x("start")
-            .x2("end")
-            .y(Encoding::scaled_field("count").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
-            .y2(0.0),
-    );
-    let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
-    render_both(&chart, "rects-histogram");
+    let bars = CartesianLayer::bar(bins, BarMark::builder().x("start").x2("end").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render_both(&chart, "bars-histogram");
 }
 
-/// The histogram of `rects` from one column of spans, which gives `x` and `x2`, draws as the
+/// The histogram of `histogram` from one column of spans, which gives `x` and `x2`, draws as the
 /// histogram of two columns, with the column's name as the title of the axis.
 #[test]
-fn rects_of_a_span_column() {
+fn histogram_of_a_span_column() {
     let starts: Vec<f64> = (0..8).map(|bin| bin as f64 * 5.0).collect();
     let ends: Vec<f64> = starts.iter().map(|start| start + 5.0).collect();
     let spans = StructArray::from(vec![
@@ -171,18 +161,9 @@ fn rects_of_a_span_column() {
         ),
     ])
     .unwrap();
-    let rects = CartesianLayer::rect(
-        bins,
-        RectMark::builder()
-            .inset(1.0)
-            .x("bin")
-            .y(Encoding::scaled_field("count").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
-            .y2(0.0),
-    );
-    let chart = Chart::builder(Plot::cartesian([rects])).build().unwrap();
-    render_both(&chart, "rects-span-histogram");
+    let bars = CartesianLayer::bar(bins, BarMark::builder().x("bin").y("count"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render_both(&chart, "bars-span-histogram");
 }
 
 #[test]
