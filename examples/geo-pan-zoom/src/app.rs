@@ -40,7 +40,7 @@ use avenger_typst_label::LabelEngine;
 use avenger_widgets::{Checkbox, RadioGroup, Widgets};
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 
-use crate::maps::{self, Drawn, Layers, Legends, MapSpec, INK, LABEL_SIDES, MUTED};
+use crate::plots::{self, Drawn, GeoPlotSpec, Layers, Legends, INK, LABEL_SIDES, MUTED};
 
 /// OpenStreetMap's tiles.
 pub const OSM_TILES: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -68,12 +68,12 @@ const USER_AGENT: &str = concat!(
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/// The shortest that a short window makes a map.
-const MIN_MAP_HEIGHT: f32 = 160.0;
+/// The shortest that a short window makes a geo plot.
+const MIN_PLOT_HEIGHT: f32 = 160.0;
 
-/// A map's state: its projection now, the size it was drawn at, and its drawing.
-struct MapState {
-    spec: Arc<MapSpec>,
+/// A geo plot's state: its projection now, the size it was drawn at, and its drawing.
+struct GeoPlotState {
+    spec: Arc<GeoPlotSpec>,
     /// The map's projection, clipped to its rectangle, or `None` until the map is fitted.
     projection: Option<Projection>,
     /// The map's rectangle in the window, from the last layout.
@@ -86,7 +86,7 @@ struct MapState {
     tiles: Option<TileLayer>,
 }
 
-impl MapState {
+impl GeoPlotState {
     /// The scales that the map zooms between at `projection`: from its zoom-out limit, to where
     /// its tiles reach their source's deepest zoom at the view's center, or for a map of
     /// countries, 400 times its fitted scale.
@@ -127,7 +127,7 @@ pub enum DragMode {
 pub struct AppState {
     engine: LabelEngine,
     layers: Arc<Layers>,
-    maps: Vec<MapState>,
+    plots: Vec<GeoPlotState>,
     legends: Arc<Legends>,
     credits: Arc<Attribution>,
     /// Window cursor position used by the readouts, or `None` outside the window.
@@ -153,10 +153,10 @@ impl AppState {
             .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
             .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()));
         let layers = Layers::read().expect("the embedded layers read");
-        let maps = maps::maps(&engine)
+        let plots = plots::plots(&engine)
             .expect("the maps prepare")
             .into_iter()
-            .map(|spec| MapState {
+            .map(|spec| GeoPlotState {
                 spec: Arc::new(spec),
                 projection: None,
                 rect: Rect::new(0.0, 0.0, 0.0, 0.0),
@@ -202,7 +202,7 @@ impl AppState {
         Self {
             engine,
             layers: Arc::new(layers),
-            maps,
+            plots,
             legends: Arc::new(legends),
             credits: Arc::new(credits),
             cursor: None,
@@ -218,11 +218,11 @@ impl AppState {
     /// Prefetch the tiles that zooming map `index` one tile zoom in or out at `anchor` would
     /// show, within the map's scales, from the map's view now.
     fn prefetch_zooms(&self, index: usize, anchor: [f64; 2]) {
-        let map = &self.maps[index];
-        let (Some(tiles), Some(projection)) = (&map.tiles, &map.projection) else {
+        let plot = &self.plots[index];
+        let (Some(tiles), Some(projection)) = (&plot.tiles, &plot.projection) else {
             return;
         };
-        let (min, max) = map.scales(projection);
+        let (min, max) = plot.scales(projection);
         let scale = projection.view.map_or(1.0, |view| view.scale);
         let views: Vec<Projector> = [2.0, 0.5]
             .into_iter()
@@ -230,7 +230,7 @@ impl AppState {
             .filter(|factor| (factor - 1.0).abs() > 1e-6)
             .filter_map(|factor| {
                 projection
-                    .zoom(map.spec.mode, anchor, factor)
+                    .zoom(plot.spec.mode, anchor, factor)
                     .and_then(|zoomed| zoomed.build())
                     .ok()
             })
@@ -255,12 +255,12 @@ impl AppState {
             .collect()
     }
 
-    /// The map under `position` in the window, with the position in the map's frame.
-    fn map_at(&self, position: [f32; 2]) -> Option<(usize, [f64; 2])> {
-        self.maps.iter().enumerate().find_map(|(index, map)| {
-            map.rect
+    /// The geo plot under `position` in the window, with the position in the plot's frame.
+    fn plot_at(&self, position: [f32; 2]) -> Option<(usize, [f64; 2])> {
+        self.plots.iter().enumerate().find_map(|(index, plot)| {
+            plot.rect
                 .contains(position)
-                .then(|| (index, local(map.rect, position)))
+                .then(|| (index, local(plot.rect, position)))
         })
     }
 }
@@ -276,7 +276,7 @@ fn local(rect: Rect, position: [f32; 2]) -> [f64; 2] {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Id {
     Header,
-    Map(usize),
+    Plot(usize),
     Labels(usize, GuideSide),
     Readout(usize),
     Continents,
@@ -305,10 +305,10 @@ fn layout(state: &AppState) -> Layout<Id> {
             Id::Depth => stack.track(track, Track::px(140.0)),
             _ => stack.track(track, Track::auto()),
         });
-    let leaves = state.maps.iter().enumerate().map(|(index, map)| {
+    let leaves = state.plots.iter().enumerate().map(|(index, plot)| {
         let mut leaf = Leaf::new()
-            .id(Id::Map(index))
-            .aspect(map.spec.graticule.aspect())
+            .id(Id::Plot(index))
+            .aspect(plot.spec.graticule.aspect())
             .padding(Edges::new(0.0, 24.0, 0.0, 0.0))
             .overflow_direction(Direction::Vertical, Overflow::Contain)
             .place(Direction::Horizontal, Placement::stretch(Position::Center))
@@ -350,22 +350,24 @@ fn answer(extent: PartExtent) -> Measurement {
     Measurement::over(extent.thickness, extent.holds).with_overhang(extent.overhang)
 }
 
-/// Measures the maps at their fitted aspects, no taller than `max_map_height`, the graticules'
+/// Measures the maps at their fitted aspects, no taller than `max_plot_height`, the graticules'
 /// labels at every view, the legends and the credits.
 struct Guides<'a> {
     state: &'a AppState,
-    max_map_height: f32,
+    max_plot_height: f32,
 }
 
 impl Measure<Id> for Guides<'_> {
     fn height(&mut self, id: &Id, width: f32) -> Option<Measurement> {
-        let maps = &self.state.maps;
+        let plots = &self.state.plots;
         match id {
-            Id::Map(index) => Some(Measurement::over(
-                (width / maps[*index].spec.graticule.aspect()).min(self.max_map_height),
+            Id::Plot(index) => Some(Measurement::over(
+                (width / plots[*index].spec.graticule.aspect()).min(self.max_plot_height),
                 width..=width,
             )),
-            Id::Labels(index, side) => Some(answer(maps[*index].spec.graticule.view_extent(*side))),
+            Id::Labels(index, side) => {
+                Some(answer(plots[*index].spec.graticule.view_extent(*side)))
+            }
             Id::Credits => Some(answer(self.state.credits.extent(width))),
             _ => None,
         }
@@ -375,7 +377,7 @@ impl Measure<Id> for Guides<'_> {
         let legends = &self.state.legends;
         match id {
             Id::Labels(index, side) => Some(answer(
-                self.state.maps[*index].spec.graticule.view_extent(*side),
+                self.state.plots[*index].spec.graticule.view_extent(*side),
             )),
             Id::Continents => Some(answer(legends.continents.extent(height))),
             Id::Magnitude => Some(answer(legends.magnitude.extent(height))),
@@ -413,9 +415,9 @@ fn text(source: &str, x: f32, y: f32, size: f32, weight: FontWeight, color: [f32
     .into()
 }
 
-/// The map scene. Navigation defers tree rebuilding until a gesture settles.
+/// The geo plots' scene. Navigation defers tree rebuilding until a gesture settles.
 /// Tooltips skip the stale tree during movement.
-const MAPS: &str = "maps";
+const PLOTS: &str = "plots";
 
 /// The coordinate readouts above the maps. A separate scene lets cursor movement
 /// update readouts without rebuilding the maps or their hit-testing tree.
@@ -439,14 +441,14 @@ const TOOLTIPS: &str = "tooltips";
 /// Selection scene above all other scenes.
 const SELECTION: &str = "selection";
 
-/// Draws maps and coordinate readouts from the current projections and cursor position, and
-/// places the controls for the `Widgets` tool to draw.
-struct Maps {
+/// Draws the geo plots and coordinate readouts from the current projections and cursor
+/// position, and places the controls for the `Widgets` tool to draw.
+struct Plots {
     controls: Widgets<AppState>,
 }
 
 #[async_trait::async_trait]
-impl AppBuild<AppState> for Maps {
+impl AppBuild<AppState> for Plots {
     /// Declare map and readout scenes with tile-prefetch and cursor-tracking streams.
     fn scenes(&self) -> Vec<Scene<AppState>> {
         let rest = EventStreamConfig {
@@ -466,7 +468,7 @@ impl AppBuild<AppState> for Maps {
             ..Default::default()
         };
         vec![
-            Scene::new(MAPS, 0).stream(rest, PrefetchAtRest),
+            Scene::new(PLOTS, 0).stream(rest, PrefetchAtRest),
             Scene::new(READOUTS, 10).stream(follow, FollowCursor),
         ]
     }
@@ -477,19 +479,19 @@ impl AppBuild<AppState> for Maps {
         state: &mut AppState,
         scenes: &mut Scenes<'_>,
     ) -> Result<(), AvengerAppError> {
-        if scenes.requested(MAPS) {
+        if scenes.requested(PLOTS) {
             let scene = make_scene_graph(state, scenes.size(), &self.controls)
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
             // Every map draws the same earthquakes and countries, so each map's marks share their
             // rows. A map of tiles draws no countries, and their rows pair with nothing.
             let mut data = SceneData::new();
-            for index in 0..state.maps.len() {
-                data.insert(maps::quakes(index), state.layers.quake_rows.clone());
-                data.insert(maps::countries(index), state.layers.country_rows.clone());
+            for index in 0..state.plots.len() {
+                data.insert(plots::quakes(index), state.layers.quake_rows.clone());
+                data.insert(plots::countries(index), state.layers.country_rows.clone());
             }
-            scenes.set(MAPS, BuiltScene { scene, data })?;
+            scenes.set(PLOTS, BuiltScene { scene, data })?;
         }
-        if scenes.requested(READOUTS) || scenes.changed(MAPS) {
+        if scenes.requested(READOUTS) || scenes.changed(PLOTS) {
             scenes.set(READOUTS, readouts(state, scenes.size()).into())?;
         }
         Ok(())
@@ -498,15 +500,15 @@ impl AppBuild<AppState> for Maps {
 
 /// The readouts in a window of `size`.
 fn readouts(state: &AppState, size: [f32; 2]) -> SceneGraph {
-    let over = state.cursor.and_then(|position| state.map_at(position));
-    let marks = (state.maps.iter().enumerate())
-        .filter_map(|(index, map)| {
-            let [x, y] = map.readout_at?;
+    let over = state.cursor.and_then(|position| state.plot_at(position));
+    let marks = (state.plots.iter().enumerate())
+        .filter_map(|(index, plot)| {
+            let [x, y] = plot.readout_at?;
             let place =
-                (over.filter(|&(over, _)| over == index)).and_then(|(_, point)| place(map, point));
+                (over.filter(|&(over, _)| over == index)).and_then(|(_, point)| place(plot, point));
             let (line, color) = match &place {
                 Some(line) => (line.as_str(), INK),
-                None => (map.spec.hint, MUTED),
+                None => (plot.spec.hint, MUTED),
             };
             Some(text(line, x, y, 12.0, FontWeight::NORMAL, color))
         })
@@ -524,7 +526,7 @@ fn readouts(state: &AppState, size: [f32; 2]) -> SceneGraph {
 /// magnitude, depth, and date beside it, and a country's name and continent beside the cursor.
 fn tooltips(count: usize) -> Tooltips<AppState> {
     let quakes = InstanceTarget::nearest(10.0)
-        .with_marks((0..count).map(maps::quakes))
+        .with_marks((0..count).map(plots::quakes))
         .with_title(
             TooltipField::new("magnitude")
                 .with_label_format(".1f")
@@ -540,7 +542,7 @@ fn tooltips(count: usize) -> Tooltips<AppState> {
                 .with_label_format("%-d %B %Y"),
         ]);
     let countries = InstanceTarget::exact()
-        .with_marks((0..count).map(maps::countries))
+        .with_marks((0..count).map(plots::countries))
         .with_anchor(TooltipAnchor::Pointer)
         .with_title("name")
         .with_fields([TooltipField::new("continent").with_title("Continent")]);
@@ -556,13 +558,13 @@ fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::
         padding: Edges::all(24.0),
         ..SolveOptions::default()
     };
-    let solve = |max_map_height: f32| {
+    let solve = |max_plot_height: f32| {
         layout(state)
             .measure(
                 &options,
                 &mut Guides {
                     state,
-                    max_map_height,
+                    max_plot_height,
                 },
             )
             .map(|measured| measured.into_solution())
@@ -572,10 +574,10 @@ fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::
     if excess <= 0.0 {
         return Ok(solution);
     }
-    let cells: Vec<Rect> = (0..state.maps.len())
+    let cells: Vec<Rect> = (0..state.plots.len())
         .filter_map(|index| {
             solution
-                .region(&Id::Map(index))
+                .region(&Id::Plot(index))
                 .map(|region| region.content)
         })
         .collect();
@@ -584,7 +586,7 @@ fn solve(state: &AppState, size: [f32; 2]) -> Result<Solution<Id>, Box<dyn std::
     rows.dedup_by(|a, b| (*a - *b).abs() < 0.5);
     let tallest = cells.iter().map(|cell| cell.height).fold(0.0, f32::max);
     Ok(solve(
-        (tallest - excess / rows.len() as f32).max(MIN_MAP_HEIGHT),
+        (tallest - excess / rows.len() as f32).max(MIN_PLOT_HEIGHT),
     )?)
 }
 
@@ -608,7 +610,7 @@ fn make_scene_graph(
     let mut marks: Vec<SceneMark> = vec![SceneRectMark {
         width: Some(width.into()),
         height: Some(height.into()),
-        fill: ColorOrGradient::Color(maps::rgb(0xf7f8fa)).into(),
+        fill: ColorOrGradient::Color(plots::rgb(0xf7f8fa)).into(),
         ..Default::default()
     }
     .into()];
@@ -649,36 +651,36 @@ fn make_scene_graph(
             .collect()
     };
 
-    for index in 0..state.maps.len() {
-        let rect = region(Id::Map(index)).content;
+    for index in 0..state.plots.len() {
+        let rect = region(Id::Plot(index)).content;
         let size = [rect.width, rect.height];
-        let map = &mut state.maps[index];
+        let plot = &mut state.plots[index];
         // A map without area draws nothing and keeps its view for when it has area again.
         if !(rect.width >= 1.0 && rect.height >= 1.0) {
-            map.readout_at = None;
+            plot.readout_at = None;
             continue;
         }
         // A resized map scales its view with its rectangle, so it shows the same part of the
         // world. A map without a projection is fitted. The state changes only once the new
         // projection is made.
-        let projection = match &map.projection {
-            Some(projection) if [map.rect.width, map.rect.height] == size => projection.clone(),
-            Some(projection) if map.rect.width > 0.0 => {
-                let factor = f64::from(rect.width / map.rect.width);
+        let projection = match &plot.projection {
+            Some(projection) if [plot.rect.width, plot.rect.height] == size => projection.clone(),
+            Some(projection) if plot.rect.width > 0.0 => {
+                let factor = f64::from(rect.width / plot.rect.width);
                 projection
                     .zoom(PanMode::Translate, [0.0, 0.0], factor)?
                     .with_clip_extent(Some([[0.0, 0.0], size.map(f64::from)]))
             }
-            _ => map.spec.fitted(size)?,
+            _ => plot.spec.fitted(size)?,
         };
-        map.rect = rect;
-        let drawn = match &map.drawn {
+        plot.rect = rect;
+        let drawn = match &plot.drawn {
             Some((drawn_at, drawn)) if same_view(drawn_at, &projection) => drawn.clone(),
-            _ => Arc::new(maps::draw(
+            _ => Arc::new(plots::draw(
                 index,
-                &map.spec,
+                &plot.spec,
                 &state.layers,
-                map.tiles.as_ref(),
+                plot.tiles.as_ref(),
                 &projection,
                 size,
             )?),
@@ -687,20 +689,20 @@ fn make_scene_graph(
         let rings = if selected.is_empty() {
             None
         } else {
-            Some(maps::rings(
+            Some(plots::rings(
                 &state.layers,
                 &projection.build()?,
                 &selected,
                 size,
             ))
         };
-        map.projection = Some(projection.clone());
-        map.drawn = Some((projection, drawn.clone()));
+        plot.projection = Some(projection.clone());
+        plot.drawn = Some((projection, drawn.clone()));
 
         // The title stands in the cell's padding, over the map, which can be narrower than its
         // cell in a short window.
         marks.push(text(
-            map.spec.title,
+            plot.spec.title,
             rect.x,
             rect.y - 8.0,
             15.0,
@@ -717,7 +719,7 @@ fn make_scene_graph(
                         width: Some(rect.width.into()),
                         height: Some(rect.height.into()),
                         fill: ColorOrGradient::Color([0.0; 4]).into(),
-                        stroke: ColorOrGradient::Color(maps::rgb(0xb8c4d0)).into(),
+                        stroke: ColorOrGradient::Color(plots::rgb(0xb8c4d0)).into(),
                         stroke_width: 1.0.into(),
                         interactive: Some(false),
                         ..Default::default()
@@ -734,7 +736,7 @@ fn make_scene_graph(
         for (side, part) in LABEL_SIDES.iter().zip(&drawn.parts) {
             if let Some(mut part) = part.clone() {
                 let slab = region(Id::Labels(index, *side)).content;
-                part.origin = map
+                part.origin = plot
                     .spec
                     .graticule
                     .origin(*side, [slab.x, slab.y, slab.width, slab.height]);
@@ -743,7 +745,7 @@ fn make_scene_graph(
         }
         // The readouts' scene draws the readout, since it changes with nearly every move.
         let readout = region(Id::Readout(index)).content;
-        state.maps[index].readout_at = Some([rect.x, readout.y + 16.0]);
+        state.plots[index].readout_at = Some([rect.x, readout.y + 16.0]);
     }
 
     let slot = |rect: Rect| [rect.x, rect.y, rect.width, rect.height];
@@ -778,10 +780,10 @@ fn make_scene_graph(
     })
 }
 
-/// The longitude and latitude under `point` in `map`'s frame, or `None` off the map.
-fn place(map: &MapState, point: [f64; 2]) -> Option<String> {
-    let projector = map.projection.as_ref()?.build().ok()?;
-    maps::readout(&projector, point.map(|v| v as f32))
+/// The longitude and latitude under `point` in `plot`'s frame, or `None` off the map.
+fn place(plot: &GeoPlotState, point: [f64; 2]) -> Option<String> {
+    let projector = plot.projection.as_ref()?.build().ok()?;
+    plots::readout(&projector, point.map(|v| v as f32))
 }
 
 /// Tracks cursor changes and requests readout updates.
@@ -818,7 +820,9 @@ impl EventStreamHandler<AppState> for PrefetchAtRest {
         state: &mut AppState,
         _trees: &SceneTrees<'_>,
     ) -> Rebuild {
-        if let Some((index, anchor)) = event.position().and_then(|position| state.map_at(position))
+        if let Some((index, anchor)) = event
+            .position()
+            .and_then(|position| state.plot_at(position))
         {
             state.prefetch_zooms(index, anchor);
         }
@@ -846,9 +850,14 @@ pub async fn start() {
     .await;
 }
 
-/// The maps' rectangles, by map index.
-fn map_areas(state: &AppState) -> Vec<(usize, Rect)> {
-    state.maps.iter().map(|map| map.rect).enumerate().collect()
+/// The geo plots' rectangles, by plot index.
+fn plot_areas(state: &AppState) -> Vec<(usize, Rect)> {
+    state
+        .plots
+        .iter()
+        .map(|plot| plot.rect)
+        .enumerate()
+        .collect()
 }
 
 /// A box and a lasso over the maps of `count`, in the Box and Lasso modes. Each keeps one
@@ -865,38 +874,38 @@ fn brushes(count: usize) -> Brushes<AppState> {
         Some(ids.value(datum.row))
     };
     let geo_box = KeyedIntervalBrush::xy("box")
-        .areas(map_areas)
-        .coords(map_coords)
+        .areas(plot_areas)
+        .coords(plot_coords)
         .value(|s, _| s.brush)
         .on_change(|s, _, brush| {
             s.brush = brush;
-            Rebuild::scene(MAPS)
+            Rebuild::scene(PLOTS)
         })
-        .on_settle(|_, _, _| Rebuild::tree(MAPS))
+        .on_settle(|_, _, _| Rebuild::tree(PLOTS))
         .active(|s| s.drag == DragMode::Box);
     let lasso = KeyedLassoBrush::new("lasso")
-        .areas(map_areas)
-        .coords(map_coords)
-        .instances(Instances::marks((0..count).map(maps::quakes)).id(id))
+        .areas(plot_areas)
+        .coords(plot_coords)
+        .instances(Instances::marks((0..count).map(plots::quakes)).id(id))
         .value(|s, _| s.lasso.clone())
         .on_change(|s, _, lasso| {
             s.lasso = lasso;
-            Rebuild::scene(MAPS)
+            Rebuild::scene(PLOTS)
         })
-        .on_settle(|_, _, _| Rebuild::tree(MAPS))
+        .on_settle(|_, _, _| Rebuild::tree(PLOTS))
         .active(|s| s.drag == DragMode::Lasso);
     Brushes::new(BRUSHES, 5).with(geo_box).with(lasso)
 }
 
-/// The coordinates of the map `map` through its cartographic projection, without scales, or
+/// The coordinates of the geo plot `plot` through its cartographic projection, without scales, or
 /// `None` while it has no projection.
-fn map_coords(state: &AppState, &map: &usize) -> Option<PlotCoords> {
-    let map = &state.maps[map];
-    let projector = map.projection.as_ref()?.build().ok()?;
+fn plot_coords(state: &AppState, &plot: &usize) -> Option<PlotCoords> {
+    let plot = &state.plots[plot];
+    let projector = plot.projection.as_ref()?.build().ok()?;
     Some(PlotCoords::new(
         Arc::new(GeoProjection::new(
             projector,
-            [map.rect.width, map.rect.height],
+            [plot.rect.width, plot.rect.height],
         )),
         [None, None],
     ))
@@ -934,26 +943,26 @@ fn controls() -> Widgets<AppState> {
 /// Configure map and readout scenes, navigation for each map, brushes over the maps, the
 /// controls, and tooltip and text selection scenes above them.
 fn builder(state: AppState) -> AppBuilder<AppState> {
-    let count = state.maps.len();
+    let count = state.plots.len();
     let engine = state.engine.clone();
     let controls = controls();
-    let maps = Maps {
+    let plots = Plots {
         controls: controls.clone(),
     };
     // Each map pans and zooms in its rectangle and its mode, within its scales, and a
     // double-click fits it to its rectangle again.
     let navigation = KeyedGeoPanZoom::new(
-        MAPS,
-        map_areas,
-        |s: &mut AppState, &map: &usize| s.maps[map].projection.as_mut(),
-        |s, &map| s.maps[map].spec.mode,
+        PLOTS,
+        plot_areas,
+        |s: &mut AppState, &plot: &usize| s.plots[plot].projection.as_mut(),
+        |s, &plot| s.plots[plot].spec.mode,
     )
-    .with_home(|s, &map| {
-        let map = &s.maps[map];
-        map.spec.fitted([map.rect.width, map.rect.height]).ok()
+    .with_home(|s, &plot| {
+        let plot = &s.plots[plot];
+        plot.spec.fitted([plot.rect.width, plot.rect.height]).ok()
     })
-    .with_scale_limits(|s, &map, projection| s.maps[map].scales(projection));
-    AvengerApp::builder(state, maps, engine)
+    .with_scale_limits(|s, &plot, projection| s.plots[plot].scales(projection));
+    AvengerApp::builder(state, plots, engine)
         .size([1240.0, 720.0])
         .tool(navigation)
         .tool(brushes(count))

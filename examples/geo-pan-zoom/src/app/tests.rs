@@ -50,13 +50,13 @@ fn a_drag_keeps_the_readout_on_its_place() {
         &mut app,
         [WindowEvent::WindowResize(WindowResizeEvent { size })],
     );
-    let rect = app.state().maps[1].rect;
+    let rect = app.state().plots[1].rect;
     let start = [rect.x + rect.width / 2.0, rect.y + rect.height / 2.0];
     std::thread::sleep(Duration::from_millis(20));
     let hover = pollster::block_on(app.update(&moved(start), Instant::now()));
     assert_eq!(hover.scenes, [READOUTS_SCENE, TOOLTIPS_SCENE]);
     let place = readout(&app, 1);
-    assert_ne!(place, app.state().maps[1].spec.hint);
+    assert_ne!(place, app.state().plots[1].spec.hint);
 
     let end = [start[0] + 25.0, start[1] + 15.0];
     update(&mut app, [mouse(ElementState::Pressed), moved(end)]);
@@ -98,13 +98,13 @@ fn rings(app: &AvengerApp<AppState>) -> usize {
 fn a_box_selects_earthquakes() {
     let mut app = large_app();
     app.state_mut().drag = DragMode::Box;
-    let before = app.state().maps[1].projection.clone().unwrap();
-    let rect = app.state().maps[1].rect;
+    let before = app.state().plots[1].projection.clone().unwrap();
+    let rect = app.state().plots[1].rect;
     let start = [rect.x + rect.width * 0.3, rect.y + rect.height * 0.3];
     let end = [rect.x + rect.width * 0.7, rect.y + rect.height * 0.6];
     let (pressed, released) = (mouse(ElementState::Pressed), mouse(ElementState::Released));
     update(&mut app, [moved(start), pressed, moved(end), released]);
-    let after = app.state().maps[1].projection.clone().unwrap();
+    let after = app.state().plots[1].projection.clone().unwrap();
     assert!(same_view(&before, &after));
     let Some(brush) = app.state().brush else {
         panic!("the maps have a box");

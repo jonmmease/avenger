@@ -1,4 +1,5 @@
-//! The maps: their data, their projections and pan modes, how each is drawn, and the legends.
+//! The geo plots: their data, their projections and pan modes, how each is drawn, and the
+//! legends.
 
 use std::error::Error;
 use std::io::Cursor;
@@ -21,8 +22,8 @@ use avenger_guides::legend::{
 };
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{
-    geometry_marks, make_sphere_marks, GeometryStyle, Graticule, GraticuleConfig, GraticuleStyle,
-    MapFrame, SphereStyle, TileLayer,
+    geometry_marks, make_sphere_marks, GeoFrame, GeometryStyle, Graticule, GraticuleConfig,
+    GraticuleStyle, SphereStyle, TileLayer,
 };
 use avenger_scales::scales::linear::LinearScale;
 use avenger_scales::scales::ordinal::OrdinalScale;
@@ -202,8 +203,8 @@ impl Layers {
     }
 }
 
-/// A map: its projection before any gesture, the mode it pans in, and its graticule.
-pub struct MapSpec {
+/// A geo plot: its projection before any gesture, the mode it pans in, and its graticule.
+pub struct GeoPlotSpec {
     pub title: &'static str,
     /// How the map pans, shown under it until the cursor is over it.
     pub hint: &'static str,
@@ -216,7 +217,7 @@ pub struct MapSpec {
     pub graticule: Graticule,
 }
 
-impl MapSpec {
+impl GeoPlotSpec {
     /// The home projection fitted to a map of `size`, clipped to it.
     pub fn fitted(&self, size: [f32; 2]) -> Result<Projection, Box<dyn Error>> {
         let rect = [[0.0, 0.0], [f64::from(size[0]), f64::from(size[1])]];
@@ -235,7 +236,7 @@ impl MapSpec {
 }
 
 /// A globe and a Web Mercator world map, which pan in the sphere and longitude modes.
-pub fn maps(engine: &LabelEngine) -> Result<Vec<MapSpec>, Box<dyn Error>> {
+pub fn plots(engine: &LabelEngine) -> Result<Vec<GeoPlotSpec>, Box<dyn Error>> {
     let globe = Projection::new(Orthographic).with_rotate([170.0, -10.0, 0.0]);
     let world = Projection::new(Mercator);
     let specs = [
@@ -263,7 +264,7 @@ pub fn maps(engine: &LabelEngine) -> Result<Vec<MapSpec>, Box<dyn Error>> {
         .map(|(title, hint, summary, home, mode, zoom_out)| {
             let config = GraticuleConfig {
                 graticule: avenger_geo::Graticule::default().with_step(30.0),
-                frame: MapFrame::Rectangle,
+                frame: GeoFrame::Rectangle,
                 label_sides: LABEL_SIDES.to_vec(),
                 label_format: ".0f".into(),
                 style: GraticuleStyle {
@@ -276,7 +277,7 @@ pub fn maps(engine: &LabelEngine) -> Result<Vec<MapSpec>, Box<dyn Error>> {
                 },
             };
             let graticule = Graticule::new(&home, &summary, &config, engine)?;
-            Ok(MapSpec {
+            Ok(GeoPlotSpec {
                 title,
                 hint,
                 home,
@@ -358,7 +359,7 @@ pub fn countries(index: usize) -> String {
 /// over `tiles` when there are tiles, or else with the countries.
 pub fn draw(
     index: usize,
-    spec: &MapSpec,
+    spec: &GeoPlotSpec,
     layers: &Layers,
     tiles: Option<&TileLayer>,
     projection: &Projection,
