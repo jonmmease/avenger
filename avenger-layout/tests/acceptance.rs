@@ -2379,6 +2379,47 @@ fn a_side_legend_wraps_into_columns_without_making_its_row_taller() {
     assert_eq!(content(solution, "plot"), Rect::new(0.0, 0.0, 300.0, 120.0));
 }
 
+/// A map that keeps an aspect of 2 beside a legend of ten 20 px entries in 50 px columns, as many
+/// columns as the legend's length needs, in a 400 by 300 canvas.
+fn map_beside_legend(legend: Slab<Id>) -> (Rect, Rect, bool) {
+    let layout: L = leaf(0.0, 0.0)
+        .id("map")
+        .aspect(2.0)
+        .slab(Side::Right, legend.id("legend"))
+        .into();
+    let mut measure = Measurer::widths(|id, height| {
+        (id == "legend").then(|| {
+            let per_column = (height / 20.0).floor().max(1.0);
+            Measurement::from((10.0 / per_column).ceil() * 50.0)
+        })
+    });
+    let measured = layout
+        .measure(&explained(400.0, 300.0), &mut measure)
+        .unwrap();
+    let solution = measured.solution();
+    (
+        content(solution, "map"),
+        content(solution, "legend"),
+        solution.explanation().stopped_at_limit,
+    )
+}
+
+#[test]
+fn a_slab_along_the_space_runs_past_a_content_that_keeps_its_aspect() {
+    // Along the map's content, the legend gets the height that the aspect leaves the map, needs a
+    // second column there, and narrows the map.
+    let (map, legend, stopped) = map_beside_legend(Slab::new());
+    assert!(!stopped);
+    assert_eq!(map, Rect::new(0.0, 0.0, 300.0, 150.0));
+    assert_eq!(legend, Rect::new(300.0, 0.0, 100.0, 150.0));
+
+    // Along the space, the legend runs the canvas's height below the map in one column.
+    let (map, legend, stopped) = map_beside_legend(Slab::new().space());
+    assert!(!stopped);
+    assert_eq!(map, Rect::new(0.0, 0.0, 350.0, 175.0));
+    assert_eq!(legend, Rect::new(350.0, 0.0, 50.0, 300.0));
+}
+
 // --- overhang ---
 
 /// X labels 12 high that reach 4 px past their plot's start and 20 past its end.

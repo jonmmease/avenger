@@ -1760,6 +1760,11 @@ impl<'a, 's, Id: Clone + Eq + Hash> Solver<'a, 's, Id> {
             } else {
                 match extent {
                     Extent::Content => content,
+                    Extent::Space => {
+                        let state = &self.states[direction.index()];
+                        let space = state.boxed[host].1 - state.contain[host][1];
+                        (content.0, content.1.max(space))
+                    }
                     Extent::Full => (
                         content.0 - self.corner(direction, host, 0),
                         content.1 + self.corner(direction, host, 1),
