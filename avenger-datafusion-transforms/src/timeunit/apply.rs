@@ -15,7 +15,7 @@ use datafusion::arrow::datatypes::{
     TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
     TimestampSecondType,
 };
-use datafusion::common::{Result, plan_err};
+use datafusion::common::{Result, ScalarValue, plan_err};
 
 pub(crate) fn ticks_of(a: &ArrayRef) -> Result<Vec<i64>> {
     Ok(match a.data_type() {
@@ -176,6 +176,73 @@ pub(super) fn check_range(
         );
     }
     Ok(())
+}
+
+/// The units of one unit and calendar over values of one type, one at a time. `impute`
+/// fills the gaps of a sequence of units with it, so its units are those of `timeunit`.
+pub(crate) struct UnitSequence {
+    pub(super) cal: Calendar,
+    pub(super) dt: DataType,
+    pub(super) unit: Unit,
+}
+
+impl UnitSequence {
+    pub(crate) fn new(dt: &DataType, o: &TimeUnitOptions, unit: Unit) -> Result<Self> {
+        let o = TimeUnitOptions {
+            unit: Some(unit),
+            ..o.clone()
+        };
+        if unit.is_fiscal() && o.fiscal_year_start.is_none() {
+            return plan_err!("the unit '{}' needs 'fiscal_year_start'", unit.text());
+        }
+        Ok(Self {
+            cal: Calendar::new(dt, &o)?,
+            dt: dt.clone(),
+            unit,
+        })
+    }
+
+    /// Makes the table of the offsets of a named zone for the instants from `lo` to `hi`.
+    pub(crate) fn prepare(&mut self, lo: i64, hi: i64) {
+        if self.cal.clock.is_named() {
+            self.cal
+                .clock
+                .prepare(self.cal.kind.secs(lo), self.cal.kind.secs(hi));
+        }
+    }
+
+    /// The unit that contains `t`, as the ticks `[start, end)`.
+    pub(crate) fn unit_at(&mut self, t: i64) -> Result<(i64, i64)> {
+        check_range(&self.cal, &self.dt, &[t], 0..1, Some(self.unit))?;
+        Ok(match self.unit {
+            Unit::Trunc(tr, k) => self.cal.bounds(t, tr, k),
+            Unit::Collapse(c) => {
+                let (s, e) = self.cal.collapse(t, c);
+                (self.cal.instant(s), self.cal.instant(e))
+            }
+        })
+    }
+}
+
+/// The calendar options of the metadata tag of a `timeunit` result: `week_start` and
+/// `fiscal_year_start`, or the defaults without a tag.
+pub(crate) fn options_of_tag(tag: Option<&str>) -> Result<TimeUnitOptions> {
+    // The JSON value of a key: up to the next comma or brace.
+    let value = |key: &str| -> Option<&str> {
+        let tag = tag?;
+        let at = tag.find(&format!("\"{key}\":"))? + key.len() + 3;
+        tag[at..].split([',', '}']).next()
+    };
+    let mut pairs = Vec::new();
+    if let Some(v) = value("week_start") {
+        pairs.push(ScalarValue::from("week_start"));
+        pairs.push(ScalarValue::from(v.trim_matches('"')));
+    }
+    if let Some(v) = value("fiscal_year_start") {
+        pairs.push(ScalarValue::from("fiscal_year_start"));
+        pairs.push(ScalarValue::Int64(v.parse().ok()));
+    }
+    TimeUnitOptions::parse(&pairs)
 }
 
 pub(super) fn apply_unit(

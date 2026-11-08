@@ -224,7 +224,8 @@ fn numbers(name: &str, v: &ScalarValue) -> Result<Vec<f64>> {
 // The bin algorithm
 // ---------------------------------------------------------------------------------------
 
-/// The bins of an extent: values in [start, end] go to bins of size `step` from `start`.
+/// The bins of an extent: values in [start, end] go to bins of size `step` from `start`. As
+/// a struct, it is also a sequence for the `fill_gaps` argument of `impute`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BinParams {
     pub start: f64,
