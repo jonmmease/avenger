@@ -1304,7 +1304,7 @@ fn next_sub(l: NaiveDateTime, unit: Trunc, k: u32) -> NaiveDateTime {
 // Applying units to arrays
 // ---------------------------------------------------------------------------------------
 
-fn ticks_of(a: &ArrayRef) -> Result<Vec<i64>> {
+pub(crate) fn ticks_of(a: &ArrayRef) -> Result<Vec<i64>> {
     Ok(match a.data_type() {
         DataType::Date32 => a
             .as_primitive::<Date32Type>()
@@ -1331,7 +1331,7 @@ fn ticks_of(a: &ArrayRef) -> Result<Vec<i64>> {
     })
 }
 
-fn temporal(dt: &DataType, v: Vec<i64>) -> ArrayRef {
+pub(crate) fn temporal(dt: &DataType, v: Vec<i64>) -> ArrayRef {
     match dt {
         DataType::Date32 => Arc::new(Date32Array::from(
             v.into_iter().map(|x| x as i32).collect::<Vec<_>>(),
@@ -1480,6 +1480,70 @@ fn check_range(
         );
     }
     Ok(())
+}
+
+/// The units of one unit and calendar over values of one type, one at a time. `impute`
+/// fills the gaps of a sequence of units with it, so its units are those of `timeunit`.
+pub(crate) struct UnitSequence {
+    cal: Calendar,
+    dt: DataType,
+    unit: Unit,
+}
+
+impl UnitSequence {
+    pub(crate) fn new(dt: &DataType, o: &TimeUnitOptions, unit: Unit) -> Result<Self> {
+        let o = TimeUnitOptions {
+            unit: Some(unit),
+            ..o.clone()
+        };
+        if unit.is_fiscal() && o.fiscal_year_start.is_none() {
+            return plan_err!("the unit '{}' needs 'fiscal_year_start'", unit.text());
+        }
+        Ok(Self {
+            cal: Calendar::new(dt, &o)?,
+            dt: dt.clone(),
+            unit,
+        })
+    }
+
+    /// Makes the table of the offsets of a named zone for the instants from `lo` to `hi`.
+    pub(crate) fn prepare(&mut self, lo: i64, hi: i64) {
+        if self.cal.clock.is_named() {
+            self.cal
+                .clock
+                .prepare(self.cal.kind.secs(lo), self.cal.kind.secs(hi));
+        }
+    }
+
+    /// The unit that contains `t`, as the ticks `[start, end)`.
+    pub(crate) fn unit_at(&mut self, t: i64) -> Result<(i64, i64)> {
+        check_range(&self.cal, &self.dt, &[t], 0..1, Some(self.unit))?;
+        Ok(match self.unit {
+            Unit::Trunc(tr, k) => self.cal.bounds(t, tr, k),
+            Unit::Collapse(c) => {
+                let (s, e) = self.cal.collapse(t, c);
+                (self.cal.instant(s), self.cal.instant(e))
+            }
+        })
+    }
+}
+
+/// The calendar options of the metadata tag of a `timeunit` result: `week_start` and
+/// `fiscal_year_start`, or the defaults without a tag.
+pub(crate) fn options_of_tag(tag: Option<&str>) -> Result<TimeUnitOptions> {
+    let value = |key: &str| -> Option<String> {
+        let tag = tag?;
+        let at = tag.find(&format!("\"{key}\":\""))? + key.len() + 4;
+        Some(tag[at..].split('"').next()?.to_string())
+    };
+    let mut pairs = Vec::new();
+    for key in ["week_start", "fiscal_year_start"] {
+        if let Some(v) = value(key) {
+            pairs.push(ScalarValue::from(key));
+            pairs.push(ScalarValue::from(v));
+        }
+    }
+    TimeUnitOptions::parse(&pairs)
 }
 
 fn apply_unit(

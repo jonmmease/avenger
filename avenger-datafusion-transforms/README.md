@@ -18,10 +18,10 @@ SELECT * FROM impute((SELECT month, region, units FROM sales), month, [region], 
 | `stack` | `struct<start, end>` | Vega's stack transform. The `center` offset centers each stack on zero. |
 | `timeunit` | `struct<start, end, unit>` | A calendar unit in the time zone of the value's type, chosen for each window partition or given with `'unit'`. Units include fiscal quarters and years, and collapsing units such as `'month_of_year'`. |
 | `lump` | `struct<value, other, weight>` | Keeps the top categories, or the categories that a condition keeps, and lumps the rest into an Other group. The `'by'` and `'keep'` options are SQL. |
-| `impute` | the input's rows, then the added rows | Adds the rows that each group lacks, with a constant or a statistic over a frame. |
+| `impute` | the input's rows, then the added rows | Adds the rows that each group lacks, with a constant or a statistic over a frame. `fill_gaps` adds the bins, time units, or dates that no row has, and `partition_by` imputes partitions separately. |
 
 The options of the window functions are pairs of a name and a constant after the first argument, because DataFusion 55's named arguments can omit only the last parameters. The scalar form of `timeunit` is `__timeunit`: DataFusion plans a scalar function before a window function of the same name and drops its `OVER` clause, so `timeunit::sql` renames calls without `OVER`.
 
 ## Tests
 
-The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, the rules against the window evaluators, and `impute` and `lump` against equivalent SQL.
+The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, the rules against the window evaluators, `impute` and `lump` against equivalent SQL, and the gaps and partitions of `impute`.

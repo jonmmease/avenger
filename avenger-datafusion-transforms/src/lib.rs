@@ -23,7 +23,7 @@
 //! `bin1`.
 //!
 //! - `bin(x, ..options) OVER (..)`: the window function that users call.
-//! - `bin_params(lo, hi, ..options)`: the start, stop, and step of the bins of an extent,
+//! - `bin_params(lo, hi, ..options)`: the `start`, `end`, and `step` of the bins of an extent,
 //!   for axes, scale domains, and empty bins.
 //! - `__bin_apply(x, params)`: internal; bins each value by the result of `bin_params`.
 //!
@@ -284,12 +284,13 @@ pub(crate) fn literals(exprs: &[Expr]) -> Result<Vec<ScalarValue>> {
 // The Vega algorithm
 // ---------------------------------------------------------------------------------------
 
-/// The bins that the Vega bin transform uses: values in [start, stop] go to bins of size
-/// `step` from `start`.
+/// The bins that the Vega bin transform uses: values in [start, end] go to bins of size
+/// `step` from `start`. Vega calls `end` the stop. As a struct, it is also a sequence for
+/// the `fill_gaps` argument of `impute`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BinParams {
     pub start: f64,
-    pub stop: f64,
+    pub end: f64,
     pub step: f64,
 }
 
@@ -347,7 +348,11 @@ pub fn bin_params(lo: f64, hi: f64, o: &BinOptions) -> BinParams {
         start += d;
         stop += d;
     }
-    BinParams { start, stop, step }
+    BinParams {
+        start,
+        end: stop,
+        step,
+    }
 }
 
 /// `Math.log` and `Math.pow` of the Vega algorithm, from the `libm` crate, so that the bins
@@ -382,7 +387,11 @@ const EPSILON: f64 = 1e-14;
 
 /// The bin of a value, as `bin0` and `bin1` of the Vega bin transform.
 pub fn apply(v: f64, p: &BinParams) -> (f64, f64) {
-    let BinParams { start, stop, step } = *p;
+    let BinParams {
+        start,
+        end: stop,
+        step,
+    } = *p;
     let b = if v.is_nan() {
         f64::NAN
     } else if v < start {
@@ -411,7 +420,7 @@ pub fn bin_fields() -> Fields {
 pub fn params_fields() -> Fields {
     Fields::from(vec![
         Field::new("start", DataType::Float64, false),
-        Field::new("stop", DataType::Float64, false),
+        Field::new("end", DataType::Float64, false),
         Field::new("step", DataType::Float64, false),
     ])
 }
@@ -617,12 +626,12 @@ impl ScalarUDFImpl for BinParamsUdf {
             } else {
                 BinParams {
                     start: 0.0,
-                    stop: 0.0,
+                    end: 0.0,
                     step: 0.0,
                 }
             };
             cols[0].push(p.start);
-            cols[1].push(p.stop);
+            cols[1].push(p.end);
             cols[2].push(p.step);
             valid.push(ok);
         }
@@ -661,7 +670,7 @@ fn params_of(p: &StructArray, i: usize) -> Option<BinParams> {
     let f = |j: usize| p.column(j).as_primitive::<Float64Type>().value(i);
     Some(BinParams {
         start: f(0),
-        stop: f(1),
+        end: f(1),
         step: f(2),
     })
 }
@@ -812,7 +821,7 @@ impl OptimizerRule for BinWindowRewrite {
                     let fields = params_fields();
                     let value = ScalarStructBuilder::new()
                         .with_scalar(fields[0].clone(), ScalarValue::from(p.start))
-                        .with_scalar(fields[1].clone(), ScalarValue::from(p.stop))
+                        .with_scalar(fields[1].clone(), ScalarValue::from(p.end))
                         .with_scalar(fields[2].clone(), ScalarValue::from(p.step))
                         .build()?;
                     params[i] = Some(lit(value));

@@ -8,8 +8,9 @@
 //! The first argument is the input, a subquery. A table name works only for a table that the
 //! statement reads elsewhere, because DataFusion resolves the tables of a statement before it
 //! plans the statement. Then come the key column, the group columns (a list, `[]`, or one
-//! column without brackets), and the value column. The named arguments are `value`, `method` (`'mean'`, `'median'`, `'min'`, `'max'`, or
-//! `'gap'`), `frame => [lo, hi]`, `keys => [...]`, `extra_keys => [...]`, and `flag => name`.
+//! column without brackets), and the value column. The named arguments are `value`, `method`
+//! (`'mean'`, `'median'`, `'min'`, `'max'`, or `'gap'`), `frame => [lo, hi]`, `keys => [...]`,
+//! `extra_keys => [...]`, `fill_gaps`, `partition_by`, and `flag => name`.
 //!
 //! For each group (the distinct combinations of the group columns) and each key value, the
 //! function adds a row when the group has no row with that key. The key values are `keys`,
@@ -17,10 +18,28 @@
 //! the group columns, and the imputed value; their other columns are NULL. Existing rows
 //! stay as they are. `flag` adds a boolean column that is true in added rows.
 //!
-//! The key values come from the input and the arguments only: the bins of a bin key that no
-//! row has, and the units of a time unit key that no row has, are not key values. Added rows
-//! follow the input rows, by group in the order in which the groups first occur, then in key
-//! order.
+//! `fill_gaps` adds the gaps of the key sequence to the key values: the bins, time units,
+//! dates, or numbers between the keys that no row has. Its value is a sequence
+//! `{start, end, step}`, or a shorthand:
+//!
+//! - `true` for the struct of `bin` (`{start, end}`, whose width is the step) and of
+//!   `timeunit` (`{start, end, unit}`, whose unit and calendar are the step).
+//! - A unit, such as `'month'`, for a DATE or a timestamp key. Weeks start on Monday, and a
+//!   fiscal unit needs a key from `timeunit`, which carries the fiscal year start.
+//! - A struct with any of `start`, `end`, and `step`; a field that it leaves out comes from
+//!   the keys. `bin_params(...)` is a sequence of the bins of one mesh. A number key needs a
+//!   `step`.
+//!
+//! The range is half-open, `[start, end)`. Keys outside it stay key values, and impute fills no
+//! gaps outside it. The intervals of a partition must have one width and one alignment, and the
+//! time units one unit.
+//!
+//! `partition_by` names columns whose values impute separately: each partition has its own key
+//! values, groups, and gaps. The input is hash partitioned on them, so partitions run in
+//! parallel. Without it, the input is one partition.
+//!
+//! Added rows follow the input rows of their partition, by group in the order in which the
+//! groups first occur, then in key order.
 //!
 //! Three parts:
 //!
@@ -42,7 +61,7 @@ use datafusion::arrow::array::{
     Array, ArrayRef, AsArray, BooleanArray, Float64Array, RecordBatch, RecordBatchOptions,
     UInt32Array, new_null_array,
 };
-use datafusion::arrow::compute::{cast, concat, concat_batches, take};
+use datafusion::arrow::compute::{cast, concat, concat_batches, take, take_record_batch};
 use datafusion::arrow::datatypes::{DataType, Field, Float64Type, Schema, SchemaRef};
 use datafusion::arrow::row::{RowConverter, SortField};
 use datafusion::catalog::Session;
@@ -52,6 +71,7 @@ use datafusion::common::{
     Span,
 };
 use datafusion::execution::context::QueryPlanner;
+use datafusion::execution::memory_pool::MemoryConsumer;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::execution_props::ExecutionProps;
 use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
@@ -62,6 +82,7 @@ use datafusion::logical_expr::{
     ColumnarValue, Expr, Extension, LogicalPlan, LogicalPlanBuilder, UserDefinedLogicalNode,
     UserDefinedLogicalNodeCore,
 };
+use datafusion::physical_expr::expressions::Column as PhysicalColumn;
 use datafusion::physical_expr::{EquivalenceProperties, PhysicalExpr, create_physical_expr};
 use datafusion::physical_plan::execution_plan::EmissionType;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
@@ -74,7 +95,10 @@ use datafusion::sql::sqlparser::ast::{
     Expr as SqlExpr, FunctionArg, FunctionArgExpr, Ident, ObjectName, Spanned, TableFactor, Value,
 };
 use datafusion::sql::sqlparser::tokenizer::Span as SqlSpan;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
+
+mod gaps;
+pub use gaps::{GapKind, Gaps, Step};
 
 // ---------------------------------------------------------------------------------------
 // The fill
@@ -136,12 +160,16 @@ pub struct ImputeNode {
     pub input: LogicalPlan,
     pub key: Column,
     pub groupby: Vec<Column>,
+    /// `partition_by => [...]`: the partitions that impute separately.
+    pub partition_by: Vec<Column>,
     pub val: Column,
     pub fill: Fill,
     /// `keys => [...]`, of the type of the key.
     pub keys: Option<Vec<ScalarValue>>,
     /// `extra_keys => [...]`, of the type of the key.
     pub extra_keys: Vec<ScalarValue>,
+    /// `fill_gaps => ...`.
+    pub gaps: Option<Gaps>,
     pub flag: Option<String>,
     pub schema: DFSchemaRef,
 }
@@ -158,21 +186,26 @@ impl ImputeNode {
         input: LogicalPlan,
         key: Column,
         groupby: Vec<Column>,
+        partition_by: Vec<Column>,
         val: Column,
         fill: Fill,
         keys: Option<Vec<ScalarValue>>,
         extra_keys: Vec<ScalarValue>,
+        gaps: Option<Gaps>,
         flag: Option<String>,
     ) -> Result<Self> {
-        let schema = output_schema(input.schema(), &key, &groupby, flag.as_deref())?;
+        let carried: Vec<Column> = groupby.iter().chain(&partition_by).cloned().collect();
+        let schema = output_schema(input.schema(), &key, &carried, flag.as_deref())?;
         Ok(Self {
             input,
             key,
             groupby,
+            partition_by,
             val,
             fill,
             keys,
             extra_keys,
+            gaps,
             flag,
             schema,
         })
@@ -227,6 +260,7 @@ impl UserDefinedLogicalNodeCore for ImputeNode {
     fn expressions(&self) -> Vec<Expr> {
         let mut exprs = vec![Expr::Column(self.key.clone())];
         exprs.extend(self.groupby.iter().cloned().map(Expr::Column));
+        exprs.extend(self.partition_by.iter().cloned().map(Expr::Column));
         exprs.push(Expr::Column(self.val.clone()));
         exprs
     }
@@ -245,6 +279,13 @@ impl UserDefinedLogicalNodeCore for ImputeNode {
         }
         if !self.extra_keys.is_empty() {
             write!(f, ", extra_keys={}", self.extra_keys.len())?;
+        }
+        if !self.partition_by.is_empty() {
+            let parts: Vec<_> = self.partition_by.iter().map(|c| c.to_string()).collect();
+            write!(f, ", partition_by=[{}]", parts.join(", "))?;
+        }
+        if let Some(gaps) = &self.gaps {
+            write!(f, ", fill_gaps={gaps:?}")?;
         }
         if let Some(flag) = &self.flag {
             write!(f, ", flag={flag}")?;
@@ -274,14 +315,17 @@ impl UserDefinedLogicalNodeCore for ImputeNode {
         } else {
             input
         };
+        let g = self.groupby.len();
         Self::try_new(
             input,
             columns[0].clone(),
-            columns[1..n - 1].to_vec(),
+            columns[1..1 + g].to_vec(),
+            columns[1 + g..n - 1].to_vec(),
             columns[n - 1].clone(),
             self.fill.clone(),
             self.keys.clone(),
             self.extra_keys.clone(),
+            self.gaps.clone(),
             self.flag.clone(),
         )
     }
@@ -482,7 +526,16 @@ fn plan_impute(
                 arg: FunctionArgExpr::Expr(e),
                 ..
             } => {
-                const NAMES: [&str; 6] = ["value", "method", "frame", "keys", "extra_keys", "flag"];
+                const NAMES: [&str; 8] = [
+                    "value",
+                    "method",
+                    "frame",
+                    "keys",
+                    "extra_keys",
+                    "fill_gaps",
+                    "partition_by",
+                    "flag",
+                ];
                 if !NAMES.iter().any(|n| is_named(&name, n)) {
                     return Err(err_at(
                         name.span,
@@ -588,6 +641,8 @@ fn plan_impute(
     let mut frame = None;
     let mut keys = None;
     let mut extra_keys = Vec::new();
+    let mut gaps: Option<(Gaps, SqlSpan)> = None;
+    let mut partition_by: Vec<Column> = Vec::new();
     let mut flag = None;
     for (name, e) in named {
         let span = e.span();
@@ -684,6 +739,46 @@ fn plan_impute(
             }
             "keys" => keys = Some(constant_list(ctx, "keys", e, &key_type)?),
             "extra_keys" => extra_keys = constant_list(ctx, "extra_keys", e, &key_type)?,
+            "fill_gaps" => {
+                let not_constant = |e: DataFusionError| {
+                    err_at(
+                        span,
+                        format!("`fill_gaps` must be a constant: {}", e.strip_backtrace()),
+                    )
+                };
+                let expr = ctx
+                    .sql_to_expr(e, &DFSchema::empty())
+                    .map_err(not_constant)?;
+                let v = constant(&expr).map_err(not_constant)?;
+                if let Some(g) = Gaps::plan(&v, &key_type).map_err(|m| err_at(span, m))? {
+                    gaps = Some((g, span));
+                }
+            }
+            "partition_by" => {
+                let exprs = match e {
+                    SqlExpr::Array(a) => a.elem,
+                    e => vec![e],
+                };
+                for e in exprs {
+                    let pspan = e.span();
+                    let c = column(ctx, "partition column", e, &schema)?;
+                    if c == key || c == val || groupby.contains(&c) {
+                        return Err(err_at(
+                            pspan,
+                            format!(
+                                "the partition column {c} of impute is also the key, the value column, or a group column"
+                            ),
+                        ));
+                    }
+                    if partition_by.contains(&c) {
+                        return Err(err_at(
+                            pspan,
+                            format!("the partition column {c} of impute is given twice"),
+                        ));
+                    }
+                    partition_by.push(c);
+                }
+            }
             "flag" => {
                 let SqlExpr::Identifier(id) = e else {
                     return Err(err_at(
@@ -704,6 +799,13 @@ fn plan_impute(
         }
     }
 
+    if let (Some((_, span)), Some(_)) = (&gaps, &keys) {
+        return Err(err_at(
+            *span,
+            "`fill_gaps` adds to the key values of the rows, which `keys` replaces; give one of them",
+        ));
+    }
+    let gaps = gaps.map(|(g, _)| g);
     let fill = match (value, method) {
         (Some(_), Some((_, span))) => {
             return Err(err_at(
@@ -739,10 +841,12 @@ fn plan_impute(
                         input,
                         key,
                         groupby,
+                        partition_by,
                         val,
                         Fill::Gap,
                         keys,
                         extra_keys,
+                        gaps,
                         flag,
                     );
                 }
@@ -771,7 +875,18 @@ fn plan_impute(
             }
         }
     };
-    ImputeNode::try_new(input, key, groupby, val, fill, keys, extra_keys, flag)
+    ImputeNode::try_new(
+        input,
+        key,
+        groupby,
+        partition_by,
+        val,
+        fill,
+        keys,
+        extra_keys,
+        gaps,
+        flag,
+    )
 }
 
 fn table_scan(ctx: &mut dyn RelationPlannerContext, name: ObjectName) -> Result<LogicalPlan> {
@@ -794,45 +909,45 @@ fn table_scan(ctx: &mut dyn RelationPlannerContext, name: ObjectName) -> Result<
 // Execution
 // ---------------------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub struct ImputeExec {
-    input: Arc<dyn ExecutionPlan>,
+/// What `ImputeExec` imputes: the columns, by index, and the arguments.
+#[derive(Debug, Clone)]
+struct Spec {
     key: usize,
     groups: Vec<usize>,
+    partitions: Vec<usize>,
     val: usize,
     fill: Fill,
     keys: Option<Vec<ScalarValue>>,
     extra_keys: Vec<ScalarValue>,
+    gaps: Option<Gaps>,
+}
+
+#[derive(Debug)]
+pub struct ImputeExec {
+    input: Arc<dyn ExecutionPlan>,
+    spec: Spec,
     schema: SchemaRef,
     properties: Arc<PlanProperties>,
 }
 
 impl ImputeExec {
-    #[allow(clippy::too_many_arguments)]
-    fn new(
-        input: Arc<dyn ExecutionPlan>,
-        key: usize,
-        groups: Vec<usize>,
-        val: usize,
-        fill: Fill,
-        keys: Option<Vec<ScalarValue>>,
-        extra_keys: Vec<ScalarValue>,
-        schema: SchemaRef,
-    ) -> Self {
+    fn new(input: Arc<dyn ExecutionPlan>, spec: Spec, schema: SchemaRef) -> Self {
+        // With partitions, each task imputes the partitions of its input, which keep their
+        // hash partitioning; the flag column follows the input's columns.
+        let partitioning = if spec.partitions.is_empty() {
+            Partitioning::UnknownPartitioning(1)
+        } else {
+            input.properties().output_partitioning().clone()
+        };
         let properties = Arc::new(PlanProperties::new(
             EquivalenceProperties::new(schema.clone()),
-            Partitioning::UnknownPartitioning(1),
+            partitioning,
             EmissionType::Final,
             input.properties().boundedness,
         ));
         Self {
             input,
-            key,
-            groups,
-            val,
-            fill,
-            keys,
-            extra_keys,
+            spec,
             schema,
             properties,
         }
@@ -841,11 +956,19 @@ impl ImputeExec {
 
 impl DisplayAs for ImputeExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = &self.spec;
         write!(
             f,
             "ImputeExec: key={}, groups={:?}, val={}, fill={:?}",
-            self.key, self.groups, self.val, self.fill
-        )
+            s.key, s.groups, s.val, s.fill
+        )?;
+        if !s.partitions.is_empty() {
+            write!(f, ", partitions={:?}", s.partitions)?;
+        }
+        if let Some(g) = &s.gaps {
+            write!(f, ", fill_gaps={g:?}")?;
+        }
+        Ok(())
     }
 }
 
@@ -857,7 +980,22 @@ impl ExecutionPlan for ImputeExec {
         &self.properties
     }
     fn input_distribution_requirements(&self) -> InputDistributionRequirements {
-        InputDistributionRequirements::new(vec![Distribution::SinglePartition])
+        let distribution = if self.spec.partitions.is_empty() {
+            Distribution::SinglePartition
+        } else {
+            let schema = self.input.schema();
+            Distribution::KeyPartitioned(
+                self.spec
+                    .partitions
+                    .iter()
+                    .map(|&i| {
+                        Arc::new(PhysicalColumn::new(schema.field(i).name(), i))
+                            as Arc<dyn PhysicalExpr>
+                    })
+                    .collect(),
+            )
+        };
+        InputDistributionRequirements::new(vec![distribution])
     }
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
@@ -884,12 +1022,7 @@ impl ExecutionPlan for ImputeExec {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         Ok(Arc::new(Self::new(
             children[0].clone(),
-            self.key,
-            self.groups.clone(),
-            self.val,
-            self.fill.clone(),
-            self.keys.clone(),
-            self.extra_keys.clone(),
+            self.spec.clone(),
             self.schema.clone(),
         )))
     }
@@ -899,29 +1032,26 @@ impl ExecutionPlan for ImputeExec {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let batch_size = context.session_config().batch_size().max(1);
-        let input = self.input.execute(partition, context)?;
+        let reservation =
+            MemoryConsumer::new(format!("ImputeExec[{partition}]")).register(context.memory_pool());
+        let mut input = self.input.execute(partition, context)?;
         let input_schema = self.input.schema();
         let schema = self.schema.clone();
-        let (key, groups, val) = (self.key, self.groups.clone(), self.val);
-        let (fill, keys, extra_keys) = (
-            self.fill.clone(),
-            self.keys.clone(),
-            self.extra_keys.clone(),
-        );
+        let spec = self.spec.clone();
         let out = schema.clone();
         let stream = futures::stream::once(async move {
-            let batches: Vec<RecordBatch> = input.try_collect().await?;
+            let mut batches = Vec::new();
+            while let Some(batch) = input.next().await {
+                let batch = batch?;
+                reservation.try_grow(batch.get_array_memory_size())?;
+                batches.push(batch);
+            }
             let input = concat_batches(&input_schema, &batches)?;
-            impute_batch(
-                &input,
-                key,
-                &groups,
-                val,
-                &fill,
-                keys.as_deref(),
-                &extra_keys,
-                out,
-            )
+            drop(batches);
+            let key_field = input_schema.field(spec.key).clone();
+            let result = impute_partitions(&input, &spec, &key_field, out);
+            drop(reservation);
+            result
         })
         .flat_map(move |result| {
             let parts: Vec<Result<RecordBatch>> = match result {
@@ -938,6 +1068,59 @@ impl ExecutionPlan for ImputeExec {
     }
 }
 
+/// Imputes each partition of the rows of one task: the rows of one value of the partition
+/// columns, in the order in which the values first occur.
+fn impute_partitions(
+    input: &RecordBatch,
+    spec: &Spec,
+    key_field: &Field,
+    out_schema: SchemaRef,
+) -> Result<RecordBatch> {
+    // The partition columns are constant within a partition, so they group with the groups,
+    // and added rows take them from a row of their group.
+    let groups: Vec<usize> = spec
+        .groups
+        .iter()
+        .chain(&spec.partitions)
+        .copied()
+        .collect();
+    if spec.partitions.is_empty() {
+        return impute_batch(input, spec, &groups, key_field, out_schema);
+    }
+    let columns: Vec<ArrayRef> = spec
+        .partitions
+        .iter()
+        .map(|&i| input.column(i).clone())
+        .collect();
+    let conv = RowConverter::new(
+        columns
+            .iter()
+            .map(|c| SortField::new(c.data_type().clone()))
+            .collect(),
+    )?;
+    let mut index: HashMap<Vec<u8>, usize> = HashMap::new();
+    let mut rows: Vec<Vec<u32>> = Vec::new();
+    for (i, b) in row_bytes(&conv, &columns)?.into_iter().enumerate() {
+        let p = *index.entry(b).or_insert_with(|| {
+            rows.push(Vec::new());
+            rows.len() - 1
+        });
+        rows[p].push(i as u32);
+    }
+    let mut outputs = Vec::with_capacity(rows.len());
+    for r in rows {
+        let part = take_record_batch(input, &UInt32Array::from(r))?;
+        outputs.push(impute_batch(
+            &part,
+            spec,
+            &groups,
+            key_field,
+            out_schema.clone(),
+        )?);
+    }
+    Ok(concat_batches(&out_schema, &outputs)?)
+}
+
 /// Owned row bytes, to hash and compare values of any type.
 fn row_bytes(conv: &RowConverter, columns: &[ArrayRef]) -> Result<Vec<Vec<u8>>> {
     let rows = conv.convert_columns(columns)?;
@@ -951,6 +1134,8 @@ fn key_values(
     key: &ArrayRef,
     keys: Option<&[ScalarValue]>,
     extra: &[ScalarValue],
+    gaps: Option<&Gaps>,
+    key_field: &Field,
 ) -> Result<ArrayRef> {
     let conv = RowConverter::new(vec![SortField::new(key.data_type().clone())])?;
     let distinct = |a: &ArrayRef, skip: &HashSet<Vec<u8>>| -> Result<Vec<u32>> {
@@ -991,26 +1176,41 @@ fn key_values(
         }
         None => {
             let all = concat(&[key.as_ref(), extra.as_ref()])?;
-            let idx = distinct(&all, &HashSet::new())?;
-            sorted(take(&all, &UInt32Array::from(idx), None)?)
+            let observed = take(
+                &all,
+                &UInt32Array::from(distinct(&all, &HashSet::new())?),
+                None,
+            )?;
+            let all = match gaps {
+                Some(g) => concat(&[observed.as_ref(), g.keys(&observed, key_field)?.as_ref()])?,
+                None => observed,
+            };
+            sorted(take(
+                &all,
+                &UInt32Array::from(distinct(&all, &HashSet::new())?),
+                None,
+            )?)
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn impute_batch(
     input: &RecordBatch,
-    key: usize,
+    spec: &Spec,
     groups: &[usize],
-    val: usize,
-    fill: &Fill,
-    keys: Option<&[ScalarValue]>,
-    extra_keys: &[ScalarValue],
+    key_field: &Field,
     out_schema: SchemaRef,
 ) -> Result<RecordBatch> {
+    let (key, val, fill) = (spec.key, spec.val, &spec.fill);
     let n = input.num_rows();
     let key_col = input.column(key);
-    let domain = key_values(key_col, keys, extra_keys)?;
+    let domain = key_values(
+        key_col,
+        spec.keys.as_deref(),
+        &spec.extra_keys,
+        spec.gaps.as_ref(),
+        key_field,
+    )?;
     let key_conv = RowConverter::new(vec![SortField::new(key_col.data_type().clone())])?;
     let domain_index: HashMap<Vec<u8>, usize> =
         row_bytes(&key_conv, std::slice::from_ref(&domain))?
@@ -1193,15 +1393,25 @@ impl ExtensionPlanner for ImputeExtensionPlanner {
             .iter()
             .map(|c| schema.index_of_column(c))
             .collect::<Result<Vec<_>>>()?;
+        let partitions = n
+            .partition_by
+            .iter()
+            .map(|c| schema.index_of_column(c))
+            .collect::<Result<Vec<_>>>()?;
         let val = schema.index_of_column(&n.val)?;
-        Ok(Some(Arc::new(ImputeExec::new(
-            physical_inputs[0].clone(),
+        let spec = Spec {
             key,
             groups,
+            partitions,
             val,
-            n.fill.clone(),
-            n.keys.clone(),
-            n.extra_keys.clone(),
+            fill: n.fill.clone(),
+            keys: n.keys.clone(),
+            extra_keys: n.extra_keys.clone(),
+            gaps: n.gaps.clone(),
+        };
+        Ok(Some(Arc::new(ImputeExec::new(
+            physical_inputs[0].clone(),
+            spec,
             Arc::new(n.schema.as_arrow().clone()),
         ))))
     }
