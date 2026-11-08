@@ -32,7 +32,8 @@ pub use state::{
     Carry, Fit, Fitted, ProjectionIdentity, ScaleIdentity, ScaleNavigation, UpdateOptions, Views,
 };
 pub use widgets::{
-    Control, ControlState, ControlView, EvaluatedWidget, SliderComparison, WidgetSpec, WidgetValue,
+    Control, ControlState, ControlView, EvaluatedWidget, SliderComparison, WidgetSpec,
+    WidgetTarget, WidgetValue,
 };
 
 /// Compiles the README's examples.

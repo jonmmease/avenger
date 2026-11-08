@@ -52,20 +52,21 @@ coordinates of a geo plot are its projection, without scales.
 
 A widget of a layer draws where a legend would: on the side that its declaration or the computed
 `orient` of its `widget` node gives, `offset` apart from the plot, on the node that holds the
-copies of its key. The node draws it once, or once beside each plot of the group when its guide rule
-for `GUIDE_PART_WIDGET` keeps it. The widgets on one side share a line along it, in their order,
+copies of its key. The node draws it once, or once beside each plot of the group when its part rule
+for `PART_WIDGET` keeps it. The widgets on one side share a line along it, in their order,
 apart by their largest offset, and a widget that would pass the side's length starts a new line
 farther out. The evaluator fits the domain once, when it prepares the chart:
 the explicit values, the summaries of the copies, or the target's column in the drawn rows of the
 copies' layers, with zero when the fit asks for it. A slider runs between the least and the
 greatest number, and a radio group and a check box list list the distinct values in ascending
-order. The `widget` node gives the font, the color of the text, and with `accent-color`, the color
-of the checked and filled parts.
+order, and a mode widget lists the chart's modes with their labels. The `widget` node gives the
+font, the color of the text, and with `accent-color`, the color of the checked and filled parts.
 
 A widget's value is the clause of its identity in the state of its selection, and its clear state
-writes no clause. `EvaluatedChart::widgets` holds each widget with its spec, its style, and the
-rectangle of each drawing. `EvaluatedWidget::value` reads the value from a selection's state, and
-`EvaluatedWidget::write` writes the clause of a value to it. A `Control` is the avenger-widgets
+writes no clause. A mode widget's value is the chart's mode. `EvaluatedChart::widgets` holds each
+widget with its target, its spec, its style, and the rectangle of each drawing.
+`ChartEvaluator::widget_value` reads a widget's value, and `ChartEvaluator::write_widget` writes the
+clause of a value to its selection, or sets the chart's mode. A `Control` is the avenger-widgets
 control of a widget's spec over any state, which the evaluator draws over the value alone, and an
 app over its own state. `ChartEvaluator::set_draws_widgets(false)` leaves the drawings out of the
 scene for an app that draws its own at the widgets' rectangles.
@@ -74,7 +75,9 @@ scene for an app that draws its own at the widgets' rectangles.
 
 An evaluation reads a state that changes without a new chart. `set_selections` replaces the clauses
 of the selections, which the conditional values of encodings take at the next evaluation, and a
-scale whose domain reads a selection fits again. `scale_view_mut` gives the view of a continuous
+scale whose domain reads a selection fits again. `set_mode` sets the chart's mode, which `mode`
+reads: the first mode of the chart until a mode is set, and `is_active` tells whether a tool that
+names modes is active in it. `scale_view_mut` gives the view of a continuous
 scale of `x` or `y`, which keeps its domain at every size, shows on its axes, and clips its plots,
 and `projection_view_mut` gives the view of a geo plot's projection, which scales and moves with the
 plot's fit as the plots resize. An evaluation drops a view that did not move. A scale has an
@@ -84,8 +87,8 @@ family of its spec or from the id of its first geo plot.
 `PreparedChart::new` prepares a chart on any thread, and `ChartEvaluator::install` installs it with
 `UpdateOptions`: a `Fit` that refits, keeps, or extends the fitted domain of each scale and
 projection that carries over by identity, `Views` that keep or drop the views, and a `Carry` that
-keeps or resets the clauses of each selection. A chart whose style tree equals the old one keeps the
-computed styles.
+keeps or resets the clauses of each selection. The mode stays while the new chart declares it. A
+chart whose style tree equals the old one keeps the computed styles.
 
 ## Preparation and evaluation
 

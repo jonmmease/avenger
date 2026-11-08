@@ -56,6 +56,15 @@ impl Checker<'_> {
         title(declared.title.as_ref(), &format!("{path}.title"), false)?;
         let kind = declared.kind.as_ref().expect(REQUIRED);
         let kind_path = format!("{path}.{}", kind_name(kind));
+        if let widget::Kind::Mode(_) = kind {
+            if self.chart.message.modes.is_empty() {
+                return Err(fail(
+                    kind_path,
+                    "a chart with a mode widget has a mode or more",
+                ));
+            }
+            return Ok(());
+        }
         let column = self.target(declared.target(), table, scope, &kind_path)?;
         match kind {
             widget::Kind::Slider(slider) => {
@@ -139,6 +148,7 @@ impl Checker<'_> {
                 let value = self.values.scalar(checkbox.value.as_ref(), &path)?;
                 same_type(value.data_type(), column.as_ref(), &path)
             }
+            widget::Kind::Mode(_) => unreachable!("a mode widget returned before its target"),
         }
     }
 
@@ -298,6 +308,7 @@ fn kind_name(kind: &widget::Kind) -> &'static str {
         widget::Kind::Radio(_) => "radio",
         widget::Kind::Checkboxes(_) => "checkboxes",
         widget::Kind::Checkbox(_) => "checkbox",
+        widget::Kind::Mode(_) => "mode",
     }
 }
 

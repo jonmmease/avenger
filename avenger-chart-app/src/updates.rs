@@ -21,8 +21,6 @@ use avenger_selection::SelectionState;
 use avenger_style::Cascade;
 use avenger_typst_label::LabelEngine;
 
-use crate::state::Mode;
-
 /// An update of a chart app: a new chart with what the app carries over from the chart that it
 /// replaces, new style inputs as the cascade of a style table, or both. The chart carries the
 /// fitted domain of each scale and the fit of each projection ([`Fit`]), the views of pans and
@@ -113,7 +111,7 @@ enum Command {
         chart: Option<u64>,
         styles: Option<Arc<Cascade>>,
     },
-    Mode(Mode),
+    Mode(String),
     /// The state of a selection, or `None` to clear it.
     Selection(String, Option<SelectionState>),
 }
@@ -123,7 +121,7 @@ enum Command {
 pub(crate) enum Applied {
     Chart(Box<PreparedUpdate>),
     Styles(Arc<Cascade>),
-    Mode(Mode),
+    Mode(String),
     Selection(String, Option<SelectionState>),
 }
 
@@ -210,9 +208,10 @@ impl ChartUpdates {
         }
     }
 
-    /// Sets the interaction mode.
-    pub fn set_mode(&self, mode: Mode) {
-        self.command(Command::Mode(mode));
+    /// Sets the chart's mode to the mode named `name`, as a mode widget does. A name that the
+    /// chart does not declare leaves the chart in its first mode, and the app reports no change.
+    pub fn set_mode(&self, name: impl Into<String>) {
+        self.command(Command::Mode(name.into()));
     }
 
     /// Sets the state of the selection `name`, such as to restore a saved selection. The app

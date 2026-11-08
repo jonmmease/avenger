@@ -75,8 +75,8 @@ pub(crate) fn navigation() -> KeyedPanZoom<ChartAppState, Identity> {
     })
 }
 
-/// The index of the plot with `identity` in the last evaluation, and the first navigation that it
-/// declares.
+/// The index of the plot with `identity` in the last evaluation, and its navigation, when the
+/// navigation is active in the chart's mode.
 pub(crate) fn navigation_of<'a>(
     state: &'a ChartAppState,
     identity: &Identity,
@@ -87,7 +87,9 @@ pub(crate) fn navigation_of<'a>(
         .tools
         .iter()
         .find_map(|declared| match &declared.kind {
-            Some(tool::Kind::Navigate(navigate)) => Some(navigate),
+            Some(tool::Kind::Navigate(navigate)) if state.evaluator.is_active(&declared.modes) => {
+                Some(navigate)
+            }
             _ => None,
         })?;
     Some((declared.index, navigate))
@@ -347,7 +349,7 @@ fn settled_projection(state: &mut ChartAppState, identity: &Identity) {
 }
 
 /// The tool of tooltips, which describes the instances of the marks of each plot and layer that
-/// declares a `Tooltip`, on a scene above the chart. A layer's tooltip describes its own marks.
+/// declares a `Tooltip` that is active in the chart's mode, on a scene above the chart. A layer's tooltip describes its own marks.
 pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
     Tooltips::new(TOOLTIP_SCENE, 2).targets(|state: &ChartAppState| {
         (state.declaring())
@@ -355,7 +357,9 @@ pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
                 let marks = declared.marks.clone();
                 (declared.tools.iter())
                     .filter_map(move |tool| match &tool.kind {
-                        Some(tool::Kind::Tooltip(tooltip)) => {
+                        Some(tool::Kind::Tooltip(tooltip))
+                            if state.evaluator.is_active(&tool.modes) =>
+                        {
                             Some(target(tooltip).with_marks(marks.clone()))
                         }
                         _ => None,

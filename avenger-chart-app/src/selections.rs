@@ -38,7 +38,7 @@ use avenger_scales::scalar::Scalar;
 use avenger_selection::{Condition, PixelGrid};
 
 use crate::{
-    state::{ChartAppState, ChartChange, FocusDimension, Mode, SelectionFocus},
+    state::{ChartAppState, ChartChange, FocusDimension, SelectionFocus},
     tools::label,
     BRUSH_SCENE, CHART_SCENE, TOOLTIP_SCENE,
 };
@@ -91,15 +91,13 @@ struct Declared<'a> {
     marks: Vec<String>,
     coords: &'a PlotCoords,
     select: &'a proto::Select,
-    /// Whether its plot also declares a navigation, so that its boxes and lassos take presses in
-    /// `Mode::Select` alone.
-    navigates: bool,
+    /// Whether it is active in the chart's mode, so that its brush takes presses. An inactive box
+    /// or lasso still draws.
+    active: bool,
 }
 
 fn declared(state: &ChartAppState) -> impl Iterator<Item = Declared<'_>> {
     state.declaring().flat_map(move |declaration| {
-        let navigates =
-            crate::tools::navigation_of(state, &plot_identity(declaration.plot)).is_some();
         let crate::state::Declared {
             index,
             plot,
@@ -119,19 +117,11 @@ fn declared(state: &ChartAppState) -> impl Iterator<Item = Declared<'_>> {
                     marks: marks.clone(),
                     coords,
                     select,
-                    navigates,
+                    active: state.evaluator.is_active(&declared.modes),
                 }),
                 _ => None,
             })
             .collect::<Vec<_>>()
-    })
-}
-
-/// The identity of `plot`, or an identity that no plot has for a plot without one.
-fn plot_identity(plot: &EvaluatedPlot) -> Identity {
-    plot.identity.clone().unwrap_or(Identity {
-        id: String::new(),
-        partition: Default::default(),
     })
 }
 
@@ -186,20 +176,15 @@ fn grids(declared: &Declared, covers: [bool; 2]) -> [Option<PixelGrid>; 2] {
 /// last area under a press.
 fn focus_at(state: &ChartAppState, at: [f32; 2]) -> Option<SelectionFocus> {
     let mut found = None;
-    for navigates in [false, true] {
-        if !active(navigates)(state) {
-            continue;
+    for (area, rect) in areas(state, Form::Points, true) {
+        if rect.contains(at) {
+            found = focus_of(state, &area, Form::Points).or(found);
         }
-        for (area, rect) in areas(state, Form::Points, navigates) {
+    }
+    for covers in [[true, false], [false, true], [true, true]] {
+        for (area, rect) in areas(state, Form::Interval(covers), true) {
             if rect.contains(at) {
-                found = focus_of(state, &area, Form::Points).or(found);
-            }
-        }
-        for covers in [[true, false], [false, true], [true, true]] {
-            for (area, rect) in areas(state, Form::Interval(covers), navigates) {
-                if rect.contains(at) {
-                    found = focus_of(state, &area, Form::Interval(covers)).or(found);
-                }
+                found = focus_of(state, &area, Form::Interval(covers)).or(found);
             }
         }
     }
@@ -306,29 +291,26 @@ impl ToolHandler<ChartAppState, ()> for FollowFocus {
 }
 
 /// The tool of the selections, on a scene between the chart and its tooltips: a box brush for
-/// each set of dimensions, a lasso brush, and a brush of lassos with a key, each for the plots
-/// that also declare a navigation and for the others, and a point brush.
+/// each set of dimensions, a lasso brush, and a brush of lassos with a key, each for the
+/// selections that are active in the chart's mode, which take presses, and for the others, which
+/// only draw, and a point brush for the active point selections. An active box or lasso takes the
+/// presses on its plot over the plot's navigation, which pans and zooms below it.
 pub(crate) fn brushes() -> Brushes<ChartAppState> {
     let mut brushes = Brushes::new(BRUSH_SCENE, 1);
-    for navigates in [false, true] {
+    for active in [false, true] {
         for covers in [[true, false], [false, true], [true, true]] {
-            brushes = brushes.with(interval(covers, navigates));
+            brushes = brushes.with(interval(covers, active));
         }
-        brushes = brushes.with(lasso(navigates));
-        brushes = brushes.with(keyed_lasso(navigates));
+        brushes = brushes.with(lasso(active));
+        brushes = brushes.with(keyed_lasso(active));
     }
     brushes.with(points())
 }
 
-/// Whether a brush for plots that do or do not declare navigation takes presses.
-fn active(navigates: bool) -> impl Fn(&ChartAppState) -> bool + Send + Sync + 'static {
-    move |state| !navigates || state.mode == Mode::Select
-}
-
-/// The rectangles of the plots that declare a selection of `kind` and do or do not declare a
-/// navigation. A box or a lasso needs the plot's projection, and a dimension that it covers needs a
+/// The rectangles of the plots and layers that declare a selection of `kind` that is or is not
+/// active in the chart's mode. A box or a lasso needs the plot's projection, and a dimension that it covers needs a
 /// column that the plot records and a continuous scale, or no scale, as a geo plot's longitude has.
-fn areas(state: &ChartAppState, kind: Form, navigates: bool) -> Vec<(Area, Rect)> {
+fn areas(state: &ChartAppState, kind: Form, active: bool) -> Vec<(Area, Rect)> {
     // A lasso, with a key or without, draws its path through both dimensions.
     let covers = match kind {
         Form::Interval(covers) => covers,
@@ -343,7 +325,7 @@ fn areas(state: &ChartAppState, kind: Form, navigates: bool) -> Vec<(Area, Rect)
             && scale.is_none_or(|scale| scale.numeric_interval_domain().is_ok())
     };
     declared(state)
-        .filter(|declared| form(declared) == kind && declared.navigates == navigates)
+        .filter(|declared| form(declared) == kind && declared.active == active)
         .filter(|declared| {
             (0..2).all(|dimension| !covers[dimension] || usable(declared, dimension))
         })
@@ -366,17 +348,17 @@ fn satisfied(state: &ChartAppState, index: usize, condition: &Condition) -> bool
     state.evaluator.satisfies(index, condition).unwrap_or(false)
 }
 
-/// The brush of boxes on the dimensions that `covers`, for the plots that do or do not declare a
-/// navigation.
-fn interval(covers: [bool; 2], navigates: bool) -> KeyedIntervalBrush<ChartAppState, Area> {
-    let id = format!("box {covers:?} {navigates}");
+/// The brush of boxes on the dimensions that `covers`, for the boxes that are or are not active
+/// in the chart's mode.
+fn interval(covers: [bool; 2], active: bool) -> KeyedIntervalBrush<ChartAppState, Area> {
+    let id = format!("box {covers:?} {active}");
     let brush = match covers {
         [true, false] => KeyedIntervalBrush::x(&id),
         [false, true] => KeyedIntervalBrush::y(&id),
         _ => KeyedIntervalBrush::xy(&id),
     };
     brush
-        .areas(move |state| areas(state, Form::Interval(covers), navigates))
+        .areas(move |state| areas(state, Form::Interval(covers), active))
         .coords(coords)
         .cells(move |state, area| {
             let declared = declaration(state, area, |kind| kind == Form::Interval(covers));
@@ -393,7 +375,7 @@ fn interval(covers: [bool; 2], navigates: bool) -> KeyedIntervalBrush<ChartAppSt
             write_interval(state, area, covers, interval, true);
             Rebuild::tree(CHART_SCENE)
         })
-        .active(active(navigates))
+        .active(move |_| active)
 }
 
 /// The box of the plot of `area` on the dimensions that `covers`: the ranges of the clause of the
@@ -533,10 +515,10 @@ fn write_interval(
     });
 }
 
-/// The brush of lassos, for the plots that do or do not declare a navigation.
-fn lasso(navigates: bool) -> KeyedLassoBrush<ChartAppState, Area, ()> {
-    KeyedLassoBrush::new(&format!("lasso {navigates}"))
-        .areas(move |state| areas(state, Form::Lasso, navigates))
+/// The brush of lassos, for the lassos that are or are not active in the chart's mode.
+fn lasso(active: bool) -> KeyedLassoBrush<ChartAppState, Area, ()> {
+    KeyedLassoBrush::new(&format!("lasso {active}"))
+        .areas(move |state| areas(state, Form::Lasso, active))
         .coords(coords)
         .value(|state, area| Lasso {
             polygons: shown_polygons(state, area).unwrap_or_default(),
@@ -550,7 +532,7 @@ fn lasso(navigates: bool) -> KeyedLassoBrush<ChartAppState, Area, ()> {
             write_lasso(state, area, &lasso, true);
             Rebuild::tree(CHART_SCENE)
         })
-        .active(active(navigates))
+        .active(move |_| active)
 }
 
 /// The polygons of the plot of `area`: those of the clause of the selection that the plot shows,
@@ -651,11 +633,7 @@ fn keys(select: &proto::Select) -> Option<&[String]> {
 /// key columns.
 fn points() -> KeyedPointBrush<ChartAppState, Area, Vec<Scalar>> {
     KeyedPointBrush::new()
-        .areas(|state| {
-            ([false, true].into_iter())
-                .flat_map(|navigates| areas(state, Form::Points, navigates))
-                .collect()
-        })
+        .areas(|state| areas(state, Form::Points, true))
         .instances(|state, area| keyed_instances(state, area, Form::Points))
         .value(points_of)
         .on_change(|state, area, values| {
@@ -761,11 +739,11 @@ fn write_keys(
     });
 }
 
-/// The brush of lassos with a key, for the plots that do or do not declare a navigation, which
-/// select the instances inside their paths by their values of the key columns.
-fn keyed_lasso(navigates: bool) -> KeyedLassoBrush<ChartAppState, Area, Vec<Scalar>> {
-    KeyedLassoBrush::new(&format!("keyed lasso {navigates}"))
-        .areas(move |state| areas(state, Form::KeyedLasso, navigates))
+/// The brush of lassos with a key, for the lassos that are or are not active in the chart's mode,
+/// which select the instances inside their paths by their values of the key columns.
+fn keyed_lasso(active: bool) -> KeyedLassoBrush<ChartAppState, Area, Vec<Scalar>> {
+    KeyedLassoBrush::new(&format!("keyed lasso {active}"))
+        .areas(move |state| areas(state, Form::KeyedLasso, active))
         .coords(coords)
         .instances_in(|state, area| keyed_instances(state, area, Form::KeyedLasso))
         .value(shown_keyed_lasso)
@@ -777,7 +755,7 @@ fn keyed_lasso(navigates: bool) -> KeyedLassoBrush<ChartAppState, Area, Vec<Scal
             write_keyed_lasso(state, area, lasso, true);
             Rebuild::tree(CHART_SCENE)
         })
-        .active(active(navigates))
+        .active(move |_| active)
 }
 
 /// The lasso of `area`: the keys that the selection holds for its plot, and the paths that wrote

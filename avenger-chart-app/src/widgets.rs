@@ -1,6 +1,6 @@
 //! The widgets of a chart in its app: a `Widgets` tool of slots, each of which draws one drawing of
 //! one widget of the last evaluation at its rectangle, and writes the widget's clause to its
-//! selection as its value changes.
+//! selection, or sets the chart's mode, as its value changes.
 //!
 //! A `Widgets` tool holds a fixed set of widgets, and a chart update can change the widgets of the
 //! chart, so the tool holds [`SLOTS`] slots, and the slot at a position draws the drawing at that
@@ -15,14 +15,13 @@ use avenger_eventstream::{
 };
 use avenger_layout::{Direction, Rect};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_selection::SelectionState;
 use avenger_widgets::{
     Placed, Widget, WidgetContext, WidgetError, WidgetEvent, WidgetStyle, Widgets,
 };
 
 use crate::{
     state::{ChartAppState, ChartChange},
-    CHART_SCENE, WIDGET_SCENE,
+    BRUSH_SCENE, CHART_SCENE, TOOLTIP_SCENE, WIDGET_SCENE,
 };
 
 /// The number of drawings of widgets that an app draws, beyond which it draws none.
@@ -55,7 +54,7 @@ impl WidgetControls {
                     "{:?} {:?} {:?} {:?} {:?} {:?}",
                     widget.key,
                     widget.anchor,
-                    widget.selection,
+                    widget.target,
                     widget.title,
                     widget.spec,
                     widget.style
@@ -82,7 +81,7 @@ impl WidgetControls {
 }
 
 /// The control of the widget `index` of the app, which reads its value from the widget's clause
-/// and writes its clause.
+/// or the chart's mode and writes its clause or the mode.
 fn control(index: usize, widget: &EvaluatedWidget) -> Control<ChartAppState> {
     Control::new(
         &widget.owner(),
@@ -100,31 +99,39 @@ impl ChartAppState {
         &self.controls.widgets
     }
 
-    /// The value of the widget `index`, from its clause.
+    /// The value of the widget `index`, from its clause or the chart's mode.
     fn widget_value(&self, index: usize) -> WidgetValue {
-        let widget = &self.controls.widgets[index];
-        widget.value(self.evaluator.selections().get(&widget.selection))
+        self.evaluator.widget_value(&self.controls.widgets[index])
     }
 
-    /// Writes the clause of the widget `index` for `value` to its selection, and reports the
-    /// selection, as settled when `settled` holds or the widget is not a slider, whose gesture
-    /// settles at its end.
+    /// Writes `value` of the widget `index`: its clause to its selection, or the chart's mode.
+    /// Reports the selection or the mode, as settled when `settled` holds or the widget is not a
+    /// slider, whose gesture settles at its end.
     fn write_widget(&mut self, index: usize, value: WidgetValue, settled: bool) -> Rebuild {
-        let widget = &self.controls.widgets[index];
-        let name = widget.selection.clone();
-        let mut selections = self.evaluator.selections().clone();
-        let resolution = self.resolution(&name);
-        let state = (selections.entry(name.clone()))
-            .or_insert_with(|| SelectionState::new(resolution, Vec::new()));
-        widget.write(state, &value);
+        let widget = self.controls.widgets[index].clone();
+        let mode = self.evaluator.mode().map(str::to_string);
+        let written = self.evaluator.write_widget(&widget, &value);
         let slider = matches!(value, WidgetValue::Number(_) | WidgetValue::Range(_));
-        self.evaluator.set_selections(selections);
-        self.touch(&name);
+        let mode = match written {
+            Some(name) => {
+                self.touch(&name);
+                None
+            }
+            None => {
+                (self.evaluator.mode().map(str::to_string)).filter(|now| Some(now) != mode.as_ref())
+            }
+        };
         self.report(ChartChange {
             settled: settled || !slider,
+            mode: mode.clone(),
             ..ChartChange::default()
         });
-        Rebuild::scene(CHART_SCENE)
+        match mode {
+            // A new mode changes the tools that are active: the handles of the boxes and the
+            // tooltips that show.
+            Some(_) => Rebuild::scene(BRUSH_SCENE).and_scene(TOOLTIP_SCENE),
+            None => Rebuild::scene(CHART_SCENE),
+        }
     }
 }
 

@@ -17,6 +17,9 @@ message Tool {
     Tooltip tooltip = 2;
     Select select = 3;
   }
+  // The names of the modes of `Chart.modes` in which the tool is active, each once. Empty makes
+  // the tool active in every mode, as in a chart without modes.
+  repeated string modes = 4;
 }
 
 // A tool that a layer declares, which acts on the marks of the layer only: a tooltip of its
@@ -28,6 +31,23 @@ message LayerTool {
     Tooltip tooltip = 2;
     Select select = 3;
   }
+  // The names of the modes in which the tool is active, as for `Tool.modes`.
+  repeated string modes = 4;
+}
+
+// A mode of the chart, which decides the tools that are active: a tool is active in the modes that
+// it names, or in every mode when it names none. The chart is in one mode at a time, its first
+// mode until a mode widget or the host sets another, so a chart whose plot declares a navigation
+// in a mode `pan` and a box in a mode `box` pans or draws boxes by its mode.
+//
+// On a plot whose box or lasso is active with its navigation, a drag draws the box or the lasso,
+// and the wheel zooms.
+message Mode {
+  // The name, which tools name in their `modes`. The modes have their own namespace, apart from
+  // the ids of nodes and the names of selections.
+  string name = 1 [(avenger.chart.v1.required) = true];
+  // The label of the mode in a mode widget, as Typst markup. Empty labels the mode with its name.
+  string label = 2;
 }
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
@@ -121,7 +141,8 @@ enum TooltipAnchor {
 
 // A gesture on the plot writes the plot's clause to a selection of the chart. A plot or a layer
 // owns one clause of a selection, so two of its `Select` tools that write one selection are a
-// conflict.
+// conflict when they are active in one mode. In modes apart, such as a box in one mode and a lasso
+// in another, each replaces the owner's clause.
 message Select {
   // The name of the selection, which the chart defines.
   string selection = 1 [(avenger.chart.v1.required) = true];

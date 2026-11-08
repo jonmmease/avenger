@@ -39,7 +39,7 @@ impl AppBuild<ChartAppState> for ChartBuild {
             match applied {
                 Applied::Chart(update) => state.install(*update).map_err(app_error)?,
                 Applied::Styles(cascade) => state.evaluator.set_cascade(cascade),
-                Applied::Mode(mode) => state.mode = mode,
+                Applied::Mode(mode) => state.evaluator.set_mode(mode),
                 Applied::Selection(name, selection) => state.set_selection(&name, selection),
             }
         }

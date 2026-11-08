@@ -73,8 +73,10 @@ fn a_slider_stands_above_its_plot_at_the_value_of_its_clause() {
     };
     assert_eq!(*comparison, Comparison::AtLeast);
     assert_eq!(*domain, [1800.0, 1800.0 + 23.0 * 130.0]);
-    let filter = evaluator(&chart).selections().get("filter").cloned();
-    assert_eq!(widget.value(filter.as_ref()), WidgetValue::Number(2500.0));
+    assert_eq!(
+        evaluator(&chart).widget_value(widget),
+        WidgetValue::Number(2500.0)
+    );
     // The widget stands above the plot.
     let [rect] = &widget.rects[..] else {
         panic!("one drawing: {:?}", widget.rects);
@@ -99,7 +101,7 @@ fn a_radio_group_and_a_check_box_list_list_their_items() {
     let evaluated = render(&chart, [480.0, 320.0], "widget-radio-checkboxes");
 
     assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
-    let filter = evaluator(&chart).selections().get("filter").cloned();
+    let evaluator = evaluator(&chart);
     let [radio, checkboxes] = &evaluated.widgets[..] else {
         panic!("two widgets: {:#?}", evaluated.widgets);
     };
@@ -108,10 +110,10 @@ fn a_radio_group_and_a_check_box_list_list_their_items() {
     };
     assert_eq!(labels, &["Europe", "Japan", "USA"]);
     assert_eq!(clear.as_deref(), Some("All"));
-    assert_eq!(radio.value(filter.as_ref()), WidgetValue::Item(Some(1)));
+    assert_eq!(evaluator.widget_value(radio), WidgetValue::Item(Some(1)));
     // Without a clause, every box is checked.
     assert_eq!(
-        checkboxes.value(filter.as_ref()),
+        evaluator.widget_value(checkboxes),
         WidgetValue::Items(vec![0, 1, 2])
     );
     // Both stand right of the plot, the check box list below the radio group.
@@ -192,15 +194,15 @@ fn a_range_slider_and_a_check_box_stand_below_their_plot() {
     let evaluated = render(&chart, [360.0, 320.0], "widget-range-checkbox");
 
     assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
-    let filter = evaluator(&chart).selections().get("filter").cloned();
+    let evaluator = evaluator(&chart);
     let [range, checkbox] = &evaluated.widgets[..] else {
         panic!("two widgets: {:#?}", evaluated.widgets);
     };
     assert_eq!(
-        range.value(filter.as_ref()),
+        evaluator.widget_value(range),
         WidgetValue::Range([20.0, 35.0])
     );
-    assert_eq!(checkbox.value(filter.as_ref()), WidgetValue::Checked(true));
+    assert_eq!(evaluator.widget_value(checkbox), WidgetValue::Checked(true));
     let plot = plot_rect(&evaluated);
     assert!(range.rects[0][1] >= plot[1] + plot[3], "{range:?}");
     assert!(checkbox.rects[0][1] >= range.rects[0][1] + range.rects[0][3]);
@@ -224,8 +226,10 @@ fn a_widget_writes_the_clause_that_gives_its_value() {
     let chart = cars_with(vec![slider, radio, checkboxes, range], Vec::new(), None);
     let evaluated = evaluate(&chart, [480.0, 480.0]);
     let mut evaluator = evaluator(&chart);
-    let mut filter = evaluator.selections()["filter"].clone();
-    assert!(filter.clauses.is_empty());
+    let filter = |evaluator: &avenger_chart_eval::ChartEvaluator| {
+        evaluator.selections()["filter"].clauses.clone()
+    };
+    assert!(filter(&evaluator).is_empty());
 
     let values = [
         WidgetValue::Number(3000.0),
@@ -235,17 +239,16 @@ fn a_widget_writes_the_clause_that_gives_its_value() {
     ];
     for (widget, value) in evaluated.widgets.iter().zip(&values) {
         // The clear state of each writes no clause.
-        let clear = widget.value(None);
+        let clear = evaluator.widget_value(widget);
         assert!(widget.clause_for(&clear).is_none(), "{}", widget.key);
-        widget.write(&mut filter, value);
-        assert_eq!(&widget.value(Some(&filter)), value, "{}", widget.key);
+        let written = evaluator.write_widget(widget, value);
+        assert_eq!(written.as_deref(), Some("filter"));
+        assert_eq!(&evaluator.widget_value(widget), value, "{}", widget.key);
     }
-    assert_eq!(filter.clauses.len(), 4);
+    let clauses = filter(&evaluator);
+    assert_eq!(clauses.len(), 4);
     // The range slider's end at the end of its domain is open.
-    let mpg = filter
-        .clauses
-        .iter()
-        .find(|clause| clause.owner.contains("mpg"));
+    let mpg = clauses.iter().find(|clause| clause.owner.contains("mpg"));
     let Some(avenger_selection::Condition::Range { ends, .. }) =
         mpg.map(|clause| &clause.conditions[0])
     else {
@@ -253,19 +256,18 @@ fn a_widget_writes_the_clause_that_gives_its_value() {
     };
     assert!(ends.is_null(0) && ends.is_valid(1));
 
-    // The clauses filter the rows that a condition on the selection grays.
-    evaluator.set_selections([("filter".to_string(), filter.clone())].into());
+    // A new evaluation shows the values that the clauses give.
     let evaluated_again = evaluator.evaluate(&host([480.0, 480.0])).unwrap();
     assert_eq!(
-        evaluated_again.widgets[1].value(Some(&filter)),
+        evaluator.widget_value(&evaluated_again.widgets[1]),
         WidgetValue::Item(Some(2))
     );
 
     // Writing the clear state removes a clause.
     let radio = &evaluated.widgets[1];
-    radio.write(&mut filter, &WidgetValue::Item(None));
-    assert_eq!(filter.clauses.len(), 3);
-    assert_eq!(radio.value(Some(&filter)), WidgetValue::Item(None));
+    evaluator.write_widget(radio, &WidgetValue::Item(None));
+    assert_eq!(filter(&evaluator).len(), 3);
+    assert_eq!(evaluator.widget_value(radio), WidgetValue::Item(None));
 }
 
 #[test]
@@ -358,4 +360,58 @@ fn a_stylesheet_colors_and_places_widgets() {
         "{:?}",
         widget.rects
     );
+}
+
+#[test]
+fn a_mode_widget_sets_the_mode_that_decides_the_active_tools() {
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    )
+    .widgets([Widget::mode("drag").side(Side::Right)]);
+    let tools = [
+        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
+        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
+    ];
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
+        .number_format_syntax("d3")
+        .selections([Selection::new("filter", SelectionResolution::Global)])
+        .modes([Mode::new("pan").label("Pan"), Mode::new("box").label("Box")])
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(&chart);
+    let evaluated = evaluator.evaluate(&host([480.0, 320.0])).unwrap();
+    assert_image(&evaluated, "widget-mode");
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let [widget] = &evaluated.widgets[..] else {
+        panic!("one widget: {:#?}", evaluated.widgets);
+    };
+    assert_eq!(widget.target, avenger_chart_eval::WidgetTarget::Mode);
+    assert_eq!(widget.title, "");
+    let WidgetSpec::Mode { modes, labels } = &widget.spec else {
+        panic!("a mode widget: {:?}", widget.spec);
+    };
+    assert_eq!(modes, &["pan", "box"]);
+    assert_eq!(labels, &["Pan", "Box"]);
+
+    // The chart starts in its first mode, where the navigation is active and the box is not.
+    let [pan, select] = [vec!["pan".to_string()], vec!["box".to_string()]];
+    assert_eq!(evaluator.mode(), Some("pan"));
+    assert_eq!(evaluator.widget_value(widget), WidgetValue::Item(Some(0)));
+    assert!(evaluator.is_active(&pan) && !evaluator.is_active(&select));
+    assert!(evaluator.is_active(&[]));
+
+    // The widget sets the mode and writes no clause.
+    assert_eq!(
+        evaluator.write_widget(widget, &WidgetValue::Item(Some(1))),
+        None
+    );
+    assert_eq!(evaluator.mode(), Some("box"));
+    assert_eq!(evaluator.widget_value(widget), WidgetValue::Item(Some(1)));
+    assert!(!evaluator.is_active(&pan) && evaluator.is_active(&select));
+    assert!(evaluator.selections()["filter"].clauses.is_empty());
+
+    // A mode that the chart does not declare leaves it in its first mode.
+    evaluator.set_mode("lasso");
+    assert_eq!(evaluator.mode(), Some("pan"));
 }

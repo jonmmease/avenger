@@ -1,5 +1,5 @@
 // The widgets of layers: sliders, range sliders, radio groups, check box lists, and check boxes
-// that write clauses of the chart's selections.
+// that write clauses of the chart's selections, and mode widgets that set the chart's mode.
 
 syntax = "proto3";
 
@@ -44,7 +44,8 @@ message Widget {
   // The key, which lines the declaration up with the other copies of the widget. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
   string key = 1 [(avenger.chart.v1.required) = true];
-  // The title. When absent, the title is the name of the target's column.
+  // The title. When absent, the title is the name of the target's column, and a mode widget has
+  // no title.
   Title title = 2;
   // Whether the widget shows its title. When absent, the styles decide.
   optional bool show_title = 5;
@@ -60,6 +61,8 @@ message Widget {
   // condition over its target's column, named with `CHANNEL_UNSPECIFIED`. In its clear state, a
   // widget writes no clause, so it does not constrain the rows, including the rows whose value is
   // null or outside its domain.
+  //
+  // A mode widget writes no clause: it sets the chart's mode.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
     SliderWidget slider = 10;
@@ -67,6 +70,7 @@ message Widget {
     RadioWidget radio = 12;
     CheckboxesWidget checkboxes = 13;
     CheckboxWidget checkbox = 14;
+    ModeWidget mode = 15;
   }
 }
 
@@ -170,6 +174,12 @@ message CheckboxWidget {
   // The value in the type of the column, such as `true`.
   ValueRef value = 2 [(avenger.chart.v1.required) = true];
 }
+
+// A radio group of the modes of `Chart.modes`, in their order, labeled with their labels, which
+// sets the chart's mode. It writes no clause, so it has no target and no domain, and it draws the
+// chart's mode. Copies of a mode widget agree as copies of the other kinds do. A chart with a mode
+// widget has at least one mode.
+message ModeWidget {}
 
 // Where a widget's domain comes from: the extent of a slider's thumbs, or the items of a radio
 // group or a check box list. The values of each kind are in the type of the target's column, and

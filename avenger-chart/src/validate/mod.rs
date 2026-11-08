@@ -118,6 +118,20 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// Checks the modes of a tool at `path`: each names a mode of the chart, once.
+    fn tool_modes(&self, modes: &[String], path: &str) -> Result<()> {
+        for (index, name) in modes.iter().enumerate() {
+            let path = format!("{path}[{index}]");
+            if !(self.chart.message.modes.iter()).any(|mode| &mode.name == name) {
+                return Err(fail(path, format!("the chart has no mode `{name}`")));
+            }
+            if modes[..index].contains(name) {
+                return Err(fail(path, format!("the tool names the mode `{name}` once")));
+            }
+        }
+        Ok(())
+    }
+
     /// Fails for a pattern of numbers or of dates and datetimes, for values of `data_type`, in a
     /// chart that does not name the syntax of such patterns.
     fn pattern(&self, pattern: &str, data_type: &DataType, path: &str) -> Result<()> {

@@ -46,7 +46,9 @@ use crate::{
     },
     style::tree::{self, StyleNodes},
     style::{color as style_color, number as style_number},
-    widgets::{self, EvaluatedWidget, PreparedWidget, WidgetInputs},
+    widgets::{
+        self, EvaluatedWidget, PreparedWidget, WidgetInputs, WidgetSpec, WidgetTarget, WidgetValue,
+    },
     EvalError, EvalWarning, Registry,
 };
 
@@ -719,7 +721,7 @@ impl ChartEvaluator {
             };
             let prepared_widget = &prepared.widgets[widget];
             let evaluated = &prepared_widget.evaluated;
-            let value = evaluated.value(self.state.selections.get(&evaluated.selection));
+            let value = self.widget_value(evaluated);
             let (drawn, rect) = prepared_widget.draw(&self.engine, &value, slot)?;
             if self.draws_widgets {
                 marks.push(
@@ -754,7 +756,8 @@ impl ChartEvaluator {
 impl ChartEvaluator {
     /// Installs `prepared` in place of the chart, and carries the state of the old chart by
     /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
-    /// and the clauses of its selections, as they stand at the installation. A scale carries over
+    /// the clauses of its selections, as they stand at the installation, and the mode, which stands
+    /// while the new chart declares it. A scale carries over
     /// when the new chart has a scale with its identity and its kind of fit, and a projection when
     /// the new chart has a projection with its identity. The new chart keeps the computed styles
     /// of the old one when their style trees are equal.
@@ -842,6 +845,7 @@ impl ChartEvaluator {
             views,
             carried,
             projections,
+            mode: self.state.mode.take(),
         };
         self.prepared = None;
         self.measured = None;
@@ -907,6 +911,62 @@ impl ChartEvaluator {
         let resolved = self.chart.resolve();
         if (resolved.scales.iter()).any(|group| state::selection_domain(&group.spec)) {
             self.prepared = None;
+        }
+    }
+
+    /// The chart's mode: the mode that a mode widget or [`ChartEvaluator::set_mode`] set while the
+    /// chart declares it, or else the chart's first mode, or `None` for a chart without modes.
+    pub fn mode(&self) -> Option<&str> {
+        let modes = &self.chart.message().modes;
+        let declared = |name: &&str| modes.iter().any(|mode| mode.name == *name);
+        (self.state.mode.as_deref().filter(declared))
+            .or_else(|| modes.first().map(|mode| mode.name.as_str()))
+    }
+
+    /// Sets the chart's mode to the mode named `name`. A name that the chart does not declare
+    /// leaves the chart in its first mode until a chart that declares it is installed.
+    pub fn set_mode(&mut self, name: impl Into<String>) {
+        self.state.mode = Some(name.into());
+    }
+
+    /// Whether a tool that names `modes` is active in the chart's mode: in every mode when it names
+    /// none, as in a chart without modes.
+    pub fn is_active(&self, modes: &[String]) -> bool {
+        modes.is_empty()
+            || self
+                .mode()
+                .is_some_and(|mode| modes.iter().any(|name| name == mode))
+    }
+
+    /// The value that `widget`, a widget of an evaluation of the chart, shows: from its clause in
+    /// the state of its selection, or the chart's mode.
+    pub fn widget_value(&self, widget: &EvaluatedWidget) -> WidgetValue {
+        let state = (widget.selection()).and_then(|name| self.state.selections.get(name));
+        widget.value(state, self.mode())
+    }
+
+    /// Writes `value` of `widget`, a widget of an evaluation of the chart: its clause to its
+    /// selection, in place of its clause, or no clause in its clear state, or the chart's mode.
+    /// Returns the name of the selection that it wrote, or `None` for a mode widget.
+    pub fn write_widget(
+        &mut self,
+        widget: &EvaluatedWidget,
+        value: &WidgetValue,
+    ) -> Option<String> {
+        match (&widget.target, &widget.spec, value) {
+            (WidgetTarget::Selection { selection, .. }, _, _) => {
+                let mut states = self.state.selections.clone();
+                widget.write(states.get_mut(selection)?, value);
+                self.set_selections(states);
+                Some(selection.clone())
+            }
+            (WidgetTarget::Mode, WidgetSpec::Mode { modes, .. }, WidgetValue::Item(Some(item))) => {
+                if let Some(name) = modes.get(*item) {
+                    self.set_mode(name.clone());
+                }
+                None
+            }
+            (WidgetTarget::Mode, _, _) => None,
         }
     }
 

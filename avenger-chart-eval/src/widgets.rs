@@ -1,8 +1,9 @@
 //! The widgets of a chart: the controls that layers declare under keys, which write clauses of the
-//! chart's selections. The copies of one key that share a widget are its group, whose spec, domain,
-//! and title the evaluator prepares once, and whose value is the clause of its identity in the
-//! state of its selection. A widget draws once on the node that holds its group, or once beside
-//! each plot of the group when the node's guide rule for widgets keeps it.
+//! chart's selections or set the chart's mode. The copies of one key that share a widget are its
+//! group, whose spec, domain, and title the evaluator prepares once, and whose value is the clause
+//! of its identity in the state of its selection, or the chart's mode. A widget draws once on the
+//! node that holds its group, or once beside each plot of the group when the node's part rule for
+//! widgets keeps it.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -80,6 +81,11 @@ pub enum WidgetSpec {
     },
     /// One check box, which writes `value` while it is checked.
     Checkbox { value: ArrayRef },
+    /// One of the chart's `modes`, with a label for each, which sets the chart's mode.
+    Mode {
+        modes: Vec<String>,
+        labels: Vec<String>,
+    },
 }
 
 /// The value that a widget shows: what the clause of its identity holds, or its clear state.
@@ -89,7 +95,8 @@ pub enum WidgetValue {
     Number(f64),
     /// The ends of a range slider.
     Range([f64; 2]),
-    /// The position of the item of a radio group, or `None` for its clearing item.
+    /// The position of the item of a radio group, or `None` for its clearing item, or the position
+    /// of the mode of a mode widget.
     Item(Option<usize>),
     /// The positions of the checked items of a check box list.
     Items(Vec<usize>),
@@ -97,15 +104,24 @@ pub enum WidgetValue {
     Checked(bool),
 }
 
-/// A widget of an evaluation: its identity, the selection and the column that it writes, its
-/// title, its spec, its style, and the rectangle of each of its drawings in the scene.
+/// What a widget writes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WidgetTarget {
+    /// The widget's clause of `selection`, over `column`.
+    Selection { selection: String, column: String },
+    /// The chart's mode.
+    Mode,
+}
+
+/// A widget of an evaluation: its identity, what it writes, its title, its spec, its style, and
+/// the rectangle of each of its drawings in the scene.
 #[derive(Clone, Debug)]
 pub struct EvaluatedWidget {
     pub key: String,
     /// The anchor of the widget's group, or `None` for a group that anchors at the root.
     pub anchor: Option<Identity>,
-    pub selection: String,
-    pub column: String,
+    pub target: WidgetTarget,
+    /// The title, or empty for a widget without one.
     pub title: String,
     pub spec: WidgetSpec,
     pub style: WidgetStyle,
@@ -122,28 +138,49 @@ impl EvaluatedWidget {
         )
     }
 
+    /// The name of the selection that the widget writes, or `None` for a mode widget.
+    pub fn selection(&self) -> Option<&str> {
+        match &self.target {
+            WidgetTarget::Selection { selection, .. } => Some(selection),
+            WidgetTarget::Mode => None,
+        }
+    }
+
     /// The clause of the widget in `state`, the state of its selection.
     pub fn clause<'a>(&self, state: Option<&'a SelectionState>) -> Option<&'a Clause> {
         let position = self.position(state?)?;
         Some(&state?.clauses[position])
     }
 
-    /// The value that the widget shows for `state`, the state of its selection.
-    pub fn value(&self, state: Option<&SelectionState>) -> WidgetValue {
-        self.spec.value(&self.column, self.clause(state))
+    /// The value that the widget shows for `state`, the state of its selection, and `mode`, the
+    /// chart's mode.
+    pub(crate) fn value(&self, state: Option<&SelectionState>, mode: Option<&str>) -> WidgetValue {
+        match (&self.target, &self.spec) {
+            (WidgetTarget::Mode, WidgetSpec::Mode { modes, .. }) => {
+                WidgetValue::Item(modes.iter().position(|name| Some(name.as_str()) == mode))
+            }
+            (WidgetTarget::Selection { column, .. }, spec) => {
+                spec.value(column, self.clause(state))
+            }
+            (WidgetTarget::Mode, _) => WidgetValue::Item(None),
+        }
     }
 
-    /// The clause that the widget writes for `value`, or `None` in its clear state.
+    /// The clause that the widget writes for `value`, or `None` in its clear state and for a mode
+    /// widget.
     pub fn clause_for(&self, value: &WidgetValue) -> Option<Clause> {
+        let WidgetTarget::Selection { column, .. } = &self.target else {
+            return None;
+        };
         let mut clause = Clause::new(self.owner());
         clause.partition = self.partition();
-        clause.conditions = self.spec.conditions(&self.column, value)?;
+        clause.conditions = self.spec.conditions(column, value)?;
         Some(clause)
     }
 
     /// Writes the widget's clause for `value` to `state`, the state of its selection, in place of
     /// its clause, or removes its clause in its clear state.
-    pub fn write(&self, state: &mut SelectionState, value: &WidgetValue) {
+    pub(crate) fn write(&self, state: &mut SelectionState, value: &WidgetValue) {
         let position = self.position(state);
         match (position, self.clause_for(value)) {
             (Some(position), Some(clause)) => state.clauses[position] = clause,
@@ -197,7 +234,8 @@ fn texts(values: &ArrayRef) -> Vec<String> {
 
 impl WidgetSpec {
     /// The value that the widget shows for `clause`, its clause over `column`: the clause's range
-    /// or set, or the clear state without a clause.
+    /// or set, or the clear state without a clause. A mode widget, whose value is the chart's mode
+    /// and not a clause, shows no mode.
     pub fn value(&self, column: &str, clause: Option<&Clause>) -> WidgetValue {
         let condition = clause.and_then(|clause| {
             (clause.conditions.iter()).find(|condition| condition.columns() == [column])
@@ -241,11 +279,12 @@ impl WidgetSpec {
                 None => (0..items.len()).collect(),
             }),
             Self::Checkbox { .. } => WidgetValue::Checked(set.is_some()),
+            Self::Mode { .. } => WidgetValue::Item(None),
         }
     }
 
     /// The conditions that the widget writes over `column` for `value`, or `None` in its clear
-    /// state. A slider writes a range whose end at the end of its domain is open, so the range
+    /// state and for a mode widget. A slider writes a range whose end at the end of its domain is open, so the range
     /// keeps the rows past the domain, and the other widgets write a set.
     pub fn conditions(&self, column: &str, value: &WidgetValue) -> Option<Vec<Condition>> {
         let range = |low: Option<f64>, high: Option<f64>, exclude_end: bool| {
@@ -309,6 +348,7 @@ pub(crate) fn kind_name(kind: &widget::Kind) -> &'static str {
         widget::Kind::Radio(_) => "radio",
         widget::Kind::Checkboxes(_) => "checkboxes",
         widget::Kind::Checkbox(_) => "checkbox",
+        widget::Kind::Mode(_) => "mode",
     }
 }
 
@@ -351,8 +391,8 @@ pub enum ControlView {
 }
 
 impl<State: Send + Sync + 'static> Control<State> {
-    /// The control named `id` and titled `title` of `spec`, which reads its value from the state
-    /// with `read` and writes each new value with `write`. A slider's gesture, which writes many
+    /// The control named `id` and titled `title` of `spec`, without a title when `title` is empty,
+    /// which reads its value from the state with `read` and writes each new value with `write`. A slider's gesture, which writes many
     /// values, ends with `settle` and its last value, and each change of the other kinds is a
     /// gesture of its own, which `write` alone ends.
     pub fn new(
@@ -373,7 +413,10 @@ impl<State: Send + Sync + 'static> Control<State> {
                 readout,
                 ..
             } => {
-                let mut slider = Slider::new(id, domain[0]..=domain[1]).label(title);
+                let mut slider = Slider::new(id, domain[0]..=domain[1]);
+                if !title.is_empty() {
+                    slider = slider.label(title);
+                }
                 if !readout.is_empty() {
                     slider = slider.readout(readout);
                 }
@@ -396,7 +439,10 @@ impl<State: Send + Sync + 'static> Control<State> {
                 step,
                 readout,
             } => {
-                let mut slider = RangeSlider::new(id, domain[0]..=domain[1]).label(title);
+                let mut slider = RangeSlider::new(id, domain[0]..=domain[1]);
+                if !title.is_empty() {
+                    slider = slider.label(title);
+                }
                 if !readout.is_empty() {
                     slider = slider.readout(readout);
                 }
@@ -415,38 +461,66 @@ impl<State: Send + Sync + 'static> Control<State> {
                 )
             }
             WidgetSpec::Radio { labels, clear, .. } => {
-                let clearing = clear.iter().map(|label| (None, label.clone()));
-                let items =
-                    (labels.iter().enumerate()).map(|(index, label)| (Some(index), label.clone()));
-                Self::Radio(
-                    RadioGroup::new(id, clearing.chain(items))
-                        .label(title)
-                        .direction(RadioDirection::Column)
+                Self::Radio(radio(id, title, labels, clear.as_deref(), read, write))
+            }
+            WidgetSpec::Mode { labels, .. } => {
+                Self::Radio(radio(id, title, labels, None, read, write))
+            }
+            WidgetSpec::Checkboxes { labels, .. } => {
+                let mut list = CheckboxList::new(id, labels.iter().cloned().enumerate());
+                if !title.is_empty() {
+                    list = list.label(title);
+                }
+                Self::Checkboxes(
+                    list.direction(RadioDirection::Column)
                         .value(move |state| match read(state) {
-                            WidgetValue::Item(item) => item,
-                            _ => None,
+                            WidgetValue::Items(items) => items,
+                            _ => Vec::new(),
                         })
-                        .on_change(move |state, item| write(state, WidgetValue::Item(item))),
+                        .on_change(move |state, items| write(state, WidgetValue::Items(items))),
                 )
             }
-            WidgetSpec::Checkboxes { labels, .. } => Self::Checkboxes(
-                CheckboxList::new(id, labels.iter().cloned().enumerate())
-                    .label(title)
-                    .direction(RadioDirection::Column)
-                    .value(move |state| match read(state) {
-                        WidgetValue::Items(items) => items,
-                        _ => Vec::new(),
-                    })
-                    .on_change(move |state, items| write(state, WidgetValue::Items(items))),
-            ),
-            WidgetSpec::Checkbox { .. } => Self::Checkbox(
-                Checkbox::new(id)
-                    .label(title)
-                    .value(move |state| matches!(read(state), WidgetValue::Checked(true)))
-                    .on_change(move |state, checked| write(state, WidgetValue::Checked(checked))),
-            ),
+            WidgetSpec::Checkbox { .. } => {
+                let mut checkbox = Checkbox::new(id);
+                if !title.is_empty() {
+                    checkbox = checkbox.label(title);
+                }
+                Self::Checkbox(
+                    checkbox
+                        .value(move |state| matches!(read(state), WidgetValue::Checked(true)))
+                        .on_change(move |state, checked| {
+                            write(state, WidgetValue::Checked(checked))
+                        }),
+                )
+            }
         }
     }
+}
+
+/// A radio group named `id` and titled `title`, without a title when `title` is empty, of an item
+/// for each of `labels`, after an item labeled `clear` that clears it, which reads its value with
+/// `read` and writes it with `write`.
+fn radio<State: Send + Sync + 'static>(
+    id: &str,
+    title: &str,
+    labels: &[String],
+    clear: Option<&str>,
+    read: Read<State>,
+    write: Write<State>,
+) -> RadioGroup<State, Option<usize>> {
+    let clearing = clear.map(|label| (None, label.to_string()));
+    let items = (labels.iter().enumerate()).map(|(index, label)| (Some(index), label.clone()));
+    let mut radio = RadioGroup::new(id, clearing.into_iter().chain(items));
+    if !title.is_empty() {
+        radio = radio.label(title);
+    }
+    radio
+        .direction(RadioDirection::Column)
+        .value(move |state| match read(state) {
+            WidgetValue::Item(item) => item,
+            _ => None,
+        })
+        .on_change(move |state, item| write(state, WidgetValue::Item(item)))
 }
 
 /// Evaluates `$body` with the control of `$control` bound to `$inner`.
@@ -659,7 +733,7 @@ pub(crate) struct PreparedWidget {
     pub(crate) side: GuideSide,
     /// The gap between the widget and what stands inside it.
     pub(crate) offset: f32,
-    /// The path of the node that holds the widget's group, whose guide rule for widgets decides how
+    /// The path of the node that holds the widget's group, whose part rule for widgets decides how
     /// many times it draws.
     pub(crate) owner: String,
     /// The plots of the layers of the group, by their positions in `Tree::plots`.
@@ -813,6 +887,18 @@ fn spec(chart: &Chart, group: &WidgetGroup, drawn: &[RecordBatch]) -> Result<Wid
                 items,
             }
         }
+        widget::Kind::Mode(_) => {
+            let modes = &chart.message().modes;
+            WidgetSpec::Mode {
+                modes: modes.iter().map(|mode| mode.name.clone()).collect(),
+                labels: (modes.iter())
+                    .map(|mode| match mode.label.is_empty() {
+                        true => mode.name.clone(),
+                        false => mode.label.clone(),
+                    })
+                    .collect(),
+            }
+        }
         widget::Kind::Checkbox(checkbox) => WidgetSpec::Checkbox {
             value: checkbox.value.as_ref().map_or_else(
                 || new_null_array(&DataType::Null, 1),
@@ -831,9 +917,6 @@ pub(crate) fn widgets(
     let mut prepared = Vec::new();
     for (index, group) in inputs.resolved.widgets.iter().enumerate() {
         let style = inputs.styles[index];
-        let Some(target) = group.widget.target() else {
-            continue;
-        };
         if style.is_hidden() {
             continue;
         }
@@ -851,14 +934,23 @@ pub(crate) fn widgets(
                 continue;
             }
         };
-        let title = (group.widget.title.as_ref())
-            .map(|title| title.text.clone())
-            .unwrap_or_else(|| target.column.clone());
+        let target = match group.widget.target() {
+            Some(target) => WidgetTarget::Selection {
+                selection: target.selection.clone(),
+                column: target.column.clone(),
+            },
+            None => WidgetTarget::Mode,
+        };
+        // A widget without a title takes the name of its column, and a mode widget has none.
+        let title = match (&group.widget.title, &target) {
+            (Some(title), _) => title.text.clone(),
+            (None, WidgetTarget::Selection { column, .. }) => column.clone(),
+            (None, WidgetTarget::Mode) => String::new(),
+        };
         let evaluated = EvaluatedWidget {
             key: group.key.clone(),
             anchor: group.anchor.clone(),
-            selection: target.selection.clone(),
-            column: target.column.clone(),
+            target,
             title,
             spec,
             style: widget_style(style),

@@ -1136,7 +1136,8 @@ pub(crate) fn widget_owner(tree: &Tree, layer: &Layer, key: &str) -> Option<Iden
 }
 
 impl proto::Widget {
-    /// The selection and the column that the widget's kind writes.
+    /// The selection and the column that the widget's kind writes, or `None` for a mode widget,
+    /// which sets the chart's mode.
     pub fn target(&self) -> Option<&proto::WidgetTarget> {
         use proto::widget::Kind;
         match self.kind.as_ref()? {
@@ -1145,10 +1146,12 @@ impl proto::Widget {
             Kind::Radio(radio) => radio.target.as_ref(),
             Kind::Checkboxes(checkboxes) => checkboxes.target.as_ref(),
             Kind::Checkbox(checkbox) => checkbox.target.as_ref(),
+            Kind::Mode(_) => None,
         }
     }
 
-    /// The domain of the widget's kind, or `None` for a check box, which has none.
+    /// The domain of the widget's kind, or `None` for a check box or a mode widget, which have
+    /// none.
     pub fn domain(&self) -> Option<&proto::widget_domain::Domain> {
         use proto::widget::Kind;
         let domain = match self.kind.as_ref()? {
@@ -1156,7 +1159,7 @@ impl proto::Widget {
             Kind::RangeSlider(slider) => slider.domain.as_ref(),
             Kind::Radio(radio) => radio.domain.as_ref(),
             Kind::Checkboxes(checkboxes) => checkboxes.domain.as_ref(),
-            Kind::Checkbox(_) => None,
+            Kind::Checkbox(_) | Kind::Mode(_) => None,
         };
         domain?.domain.as_ref()
     }

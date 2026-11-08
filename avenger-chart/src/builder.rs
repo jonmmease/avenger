@@ -201,13 +201,14 @@ pub(crate) struct Syntaxes {
 }
 
 /// What a builder collects beside its message: the tables with their kept IPC streams and the
-/// values that its references refer to, the selections and the format syntaxes of the charts that
-/// it embeds, and the errors that its setters found, each at its path from the builder.
+/// values that its references refer to, the selections, the modes, and the format syntaxes of the
+/// charts that it embeds, and the errors that its setters found, each at its path from the builder.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Parts {
     pub(crate) tables: Vec<(RecordBatch, Option<Bytes>)>,
     pub(crate) values: Vec<ArrayRef>,
     pub(crate) selections: Vec<proto::Selection>,
+    pub(crate) modes: Vec<proto::Mode>,
     pub(crate) syntaxes: Vec<Syntaxes>,
     pub(crate) errors: Vec<(String, String)>,
     /// The path of the first table, value, or chart, for the error of a `build` below `Chart`.
@@ -265,10 +266,12 @@ impl Parts {
             tables: own_tables,
             values: own_values,
             selections,
+            modes,
             syntaxes,
             errors,
             datum,
         } = parts;
+        self.modes.extend(modes);
         self.tables.extend(own_tables);
         self.values.extend(own_values);
         for mut selection in selections {

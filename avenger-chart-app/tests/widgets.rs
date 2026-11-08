@@ -143,8 +143,9 @@ async fn a_click_on_an_item_of_a_radio_group_writes_its_clause() {
     send(&mut app, click([at[0], at[1]])).await;
 
     let widget = &app.state().widgets()[0];
-    let filter = app.state().evaluator().selections().get("filter");
-    assert_eq!(widget.value(filter), WidgetValue::Item(Some(1)));
+    let evaluator = app.state().evaluator();
+    assert_eq!(evaluator.widget_value(widget), WidgetValue::Item(Some(1)));
+    let filter = evaluator.selections().get("filter");
     let clauses = &filter.unwrap().clauses;
     assert_eq!(clauses.len(), 1);
     assert_eq!(clauses[0].owner, widget.owner());
@@ -176,8 +177,7 @@ async fn a_drag_of_a_slider_writes_its_clause_and_settles_at_its_end() {
     send(&mut app, drag(from, to)).await;
 
     let widget = &app.state().widgets()[0];
-    let filter = app.state().evaluator().selections().get("filter");
-    let WidgetValue::Number(value) = widget.value(filter) else {
+    let WidgetValue::Number(value) = app.state().evaluator().widget_value(widget) else {
         panic!("a slider's value");
     };
     assert!(value > 1800.0, "{value}");
@@ -209,4 +209,39 @@ async fn a_new_chart_with_other_widgets_draws_them() {
     updates.send(ChartUpdate::new(cars_with(cars(), Vec::new())));
     refresh_until(&mut app, |app| app.state().widgets().is_empty()).await;
     assert!(marks(&scene(&app, false)).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_on_a_mode_sets_the_mode_that_decides_what_a_drag_does() {
+    let tools = [
+        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
+        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
+    ];
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"))
+        .widgets([Widget::mode("drag").side(Side::Right)]);
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
+        .selections([Selection::new("filter", SelectionResolution::Global)])
+        .modes([Mode::new("pan").label("Pan"), Mode::new("box").label("Box")])
+        .build()
+        .unwrap();
+    let (mut app, _, changes) = app(chart).await;
+    assert_eq!(app.state().mode(), Some("pan"));
+    let at = text_at(&scene(&app, false), "Box").expect("the mode's label");
+    send(&mut app, click(at)).await;
+    assert_eq!(app.state().mode(), Some("box"));
+    let last = changes.lock().unwrap().last().cloned();
+    assert_eq!(last.and_then(|change| change.mode).as_deref(), Some("box"));
+
+    // In the mode `box`, a drag draws a box and pans nothing.
+    let fitted = domains(&app, 0);
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let (from, to) = (
+        [x + width * 0.25, y + height * 0.25],
+        [x + width * 0.6, y + height * 0.75],
+    );
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    send(&mut app, drag(from, to)).await;
+    assert_eq!(domains(&app, 0), fitted);
+    let clauses = &app.state().evaluator().selections()["filter"].clauses;
+    assert_eq!(clauses.len(), 1);
 }
