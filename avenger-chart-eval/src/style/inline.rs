@@ -17,6 +17,22 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ("Chart", &["padding"]),
     ("Padding", &["top", "right", "bottom", "left"]),
     ("Plot", &["width", "height"]),
+    ("ConcatLayout", &["gap"]),
+    ("WrapLayout", &["min_column_width", "max_columns", "gap"]),
+    (
+        "Facet",
+        &[
+            "title",
+            "show_title",
+            "side",
+            "labels",
+            "label_angle",
+            "label_padding",
+            "tick_length",
+            "rule_color",
+            "rule_width",
+        ],
+    ),
     ("Cartesian", &["aspect_ratio"]),
     ("Title", &["side", "align", "style", "subtitle_style"]),
     (
@@ -305,6 +321,70 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
         {
             set(tree, node, Property::AspectRatio, &format!("{ratio} / 1"));
         }
+    }
+}
+
+/// `ConcatLayout.gap` on the `plot` of a concat.
+pub(crate) fn concat(tree: &mut Styled, node: NodeId, concat: &proto::Concat) {
+    if let Some(layout) = &concat.layout {
+        px(tree, node, Property::RowGap, layout.gap);
+        px(tree, node, Property::ColumnGap, layout.gap);
+    }
+}
+
+/// `WrapLayout.gap`, `min_column_width`, and `max_columns` on the `plot` of a wrap.
+pub(crate) fn wrap(tree: &mut Styled, node: NodeId, wrap: &proto::Wrap) {
+    let Some(layout) = &wrap.layout else {
+        return;
+    };
+    px(tree, node, Property::RowGap, layout.gap);
+    px(tree, node, Property::ColumnGap, layout.gap);
+    px(
+        tree,
+        node,
+        Property::MinColumnWidth,
+        layout.min_column_width,
+    );
+    if let Some(columns) = layout.max_columns {
+        set(tree, node, Property::MaxColumns, &columns.to_string());
+    }
+}
+
+/// The nodes of a facet and its parts.
+#[derive(Clone, Debug)]
+pub(crate) struct FacetNodes {
+    pub(crate) facet: NodeId,
+    pub(crate) title: NodeId,
+    pub(crate) label: NodeId,
+    pub(crate) tick: NodeId,
+    pub(crate) rule: NodeId,
+}
+
+/// A `Facet` on its nodes.
+pub(crate) fn facet(tree: &mut Styled, nodes: &FacetNodes, facet: &proto::Facet) {
+    keyword(tree, nodes.facet, Property::Orient, side(facet.side));
+    deg(tree, nodes.facet, Property::LabelAngle, facet.label_angle);
+    px(
+        tree,
+        nodes.facet,
+        Property::LabelPadding,
+        facet.label_padding,
+    );
+    text_style(
+        tree,
+        nodes.title,
+        facet.title.as_ref().and_then(|title| title.style.as_ref()),
+    );
+    shown(tree, nodes.title, facet.show_title);
+    text_style(
+        tree,
+        nodes.label,
+        (facet.labels.as_ref()).and_then(|labels| labels.style.as_ref()),
+    );
+    px(tree, nodes.tick, Property::TickSize, facet.tick_length);
+    for node in [nodes.tick, nodes.rule] {
+        color(tree, node, Property::Stroke, &facet.rule_color);
+        px(tree, node, Property::StrokeWidth, facet.rule_width);
     }
 }
 
