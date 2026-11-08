@@ -6,6 +6,7 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/channel.proto";
+import "avenger/chart/v1/element.proto";
 
 // A tool that a plot declares, which turns gestures on the plot into changes of its views and of
 // the chart's selections.
@@ -55,15 +56,16 @@ message Tooltip {
     ExactFind exact = 1;
     NearestFind nearest = 2;
   }
-  // The field of the header, a bold first line beside a swatch of the instance's color. Without
-  // it, the tooltip has no header.
-  TooltipField header = 3;
+  // The field of the title, whose value is a bold first line beside a swatch of the instance's
+  // color. Its own `title` is invalid, since the title shows only the value. Without it, the
+  // tooltip has no title.
+  TooltipField title = 3;
   // The fields of the rows of the tooltip, in order. Empty shows a row for each column of the
   // instance's row.
   repeated TooltipField fields = 4;
   // Where the tooltip stands.
   TooltipAnchor anchor = 5;
-  // Whether the header leaves out the swatch of the instance's color, for marks whose color says
+  // Whether the title leaves out the swatch of the instance's color, for marks whose color says
   // nothing about the instance.
   bool hide_swatch = 6;
 }
@@ -92,17 +94,15 @@ enum NearestMetric {
   NEAREST_METRIC_ALONG_Y = 3;
 }
 
-// A column of an instance's row that a tooltip shows.
+// A column of an instance's row that a tooltip shows: its title, and the label of its value.
 message TooltipField {
   // A column of the instance's row.
   string column = 1;
   // The title of the field. Without it, the field's title is the column's name.
   optional string title = 2;
-  // The pattern of a numeric or temporal value, as for `Labels.format`.
-  string format = 3;
-  // Typst markup for the value, where `#value` is the formatted value, such as `#value km`, as for
-  // `Labels.markup`. An empty markup shows the formatted value as plain text.
-  string markup = 4;
+  // How the value reads: the pattern and the markup of its label, as for the labels of an axis.
+  // Its `style` is invalid, since a tooltip's text takes the tooltip's style.
+  Labels labels = 3;
 }
 
 // Where a tooltip stands.

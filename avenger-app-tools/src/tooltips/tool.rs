@@ -139,7 +139,7 @@ impl<State> Tooltips<State> {
     }
 }
 
-/// What a tooltip of `datum` shows for `target`: its header field's value, and a row for each of
+/// What a tooltip of `datum` shows for `target`: its title field's value, and a row for each of
 /// its fields.
 fn content(
     target: &InstanceTarget,
@@ -147,7 +147,7 @@ fn content(
     swatch: Option<[f32; 4]>,
     engine: &LabelEngine,
 ) -> Result<Content, AvengerTooltipError> {
-    let header = match &target.header {
+    let title = match &target.title {
         Some(field) => Some(value(datum, field, engine)?),
         None => None,
     };
@@ -156,7 +156,7 @@ fn content(
         .map(|field| Ok((field.title().to_string(), value(datum, field, engine)?)))
         .collect::<Result<_, AvengerTooltipError>>()?;
     Ok(Content {
-        header,
+        title,
         swatch,
         rows,
     })

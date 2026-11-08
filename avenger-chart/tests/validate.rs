@@ -652,6 +652,57 @@ fn tools_fit_their_plot() {
     read(parts).unwrap();
 }
 
+/// A tooltip's title shows only its field's value, and the labels of tooltip fields take the
+/// tooltip's style.
+#[test]
+fn a_tooltip_title_has_no_field_title_and_its_labels_no_style() {
+    let tooltip = |tooltip: proto::Tooltip| {
+        let mut parts = base();
+        let plot = plot_mut(&mut parts.0);
+        plot.id = "scatter".to_string();
+        plot.tools = vec![proto::Tool {
+            kind: Some(tool::Kind::Tooltip(tooltip)),
+        }];
+        parts
+    };
+    let field = |title: Option<&str>, labels: Option<proto::Labels>| proto::TooltipField {
+        column: "a".to_string(),
+        title: title.map(str::to_string),
+        labels,
+    };
+    let markup = proto::Labels {
+        markup: "#value km".to_string(),
+        ..Default::default()
+    };
+    read(tooltip(proto::Tooltip {
+        title: Some(field(None, Some(markup.clone()))),
+        fields: vec![field(Some("A"), Some(markup))],
+        ..Default::default()
+    }))
+    .unwrap();
+
+    invalid(
+        tooltip(proto::Tooltip {
+            title: Some(field(Some("A"), None)),
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.title.title",
+        "shows only its value",
+    );
+    let styled = proto::Labels {
+        style: Some(proto::TextStyle::default()),
+        ..Default::default()
+    };
+    invalid(
+        tooltip(proto::Tooltip {
+            fields: vec![field(None, Some(styled))],
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.fields[0].labels.style",
+        "takes the tooltip's style",
+    );
+}
+
 #[test]
 fn selections_set_their_resolution_and_their_clauses_hold_conditions() {
     let mut parts = base();

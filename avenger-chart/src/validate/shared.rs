@@ -95,16 +95,12 @@ impl Checker<'_> {
                 }
             }
         }
-        if let (Some(proto::facet::Header::Shown(header)), Some(data_type)) =
-            (&facet.header, &data_type)
-        {
-            if let Some(labels) = &header.labels {
-                self.pattern(
-                    &labels.format,
-                    data_type,
-                    &format!("{path}.facet.shown.labels.format"),
-                )?;
-            }
+        if let (Some(labels), Some(data_type)) = (&facet.labels, &data_type) {
+            self.pattern(
+                &labels.format,
+                data_type,
+                &format!("{path}.facet.labels.format"),
+            )?;
         }
         Ok(())
     }

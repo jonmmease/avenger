@@ -23,7 +23,7 @@ use crate::{
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The identity of a plot, a layer, a concat, a wrap, an axis, a legend, or a facet header with an
+/// The identity of a plot, a layer, a concat, a wrap, an axis, a legend, or a facet with an
 /// id: its id and its partition, the values that apply to every layer and empty cell below it. All
 /// of them share one namespace, and two with one identity are a conflict, so an identity names one
 /// part of a chart, and a part of a new chart with the same identity stands for the same part,
@@ -133,20 +133,20 @@ pub struct Layer<'a> {
     pub partition: BTreeMap<String, ArrayRef>,
 }
 
-/// A concat, a wrap, or a facet header of a chart with an id.
+/// A concat, a wrap, or a facet of a chart with an id.
 pub struct NodeRef {
     pub path: String,
     pub identity: Identity,
 }
 
-/// The plots, the layers, and the identified concats, wraps, and facet headers of a chart, in
+/// The plots, the layers, and the identified concats, wraps, and facets of a chart, in
 /// tree order.
 pub struct Tree<'a> {
     pub plots: Vec<PlotRef<'a>>,
     pub layers: Vec<Layer<'a>>,
     pub nodes: Vec<NodeRef>,
-    /// The facet headers with ids, each with the partition of its concat or wrap.
-    pub headers: Vec<NodeRef>,
+    /// The facets with ids, each with the partition of its concat or wrap.
+    pub facets: Vec<NodeRef>,
     /// The partition of each node, by its path, such as `root.concat.children[1].plot`: the
     /// values that apply to every layer and empty cell below it.
     pub partitions: HashMap<String, BTreeMap<String, ArrayRef>>,
@@ -155,7 +155,7 @@ pub struct Tree<'a> {
 impl<'a> Tree<'a> {
     /// The tree of `chart`, a chart whose messages are each valid. It fails for a layer or an
     /// empty cell that gets two different values of one partition column, and for two plots,
-    /// layers, concats, wraps, or facet headers with one identity.
+    /// layers, concats, wraps, or facets with one identity.
     pub(crate) fn new(chart: &'a Chart) -> Result<Self> {
         let mut walk = Walk {
             chart,
@@ -164,7 +164,7 @@ impl<'a> Tree<'a> {
                 plots: Vec::new(),
                 layers: Vec::new(),
                 nodes: Vec::new(),
-                headers: Vec::new(),
+                facets: Vec::new(),
                 partitions: HashMap::new(),
             },
         };
@@ -174,7 +174,7 @@ impl<'a> Tree<'a> {
         Ok(tree)
     }
 
-    /// The identities of the plots, the layers, the concats, the wraps, and the facet headers with
+    /// The identities of the plots, the layers, the concats, the wraps, and the facets with
     /// ids, with their paths.
     pub fn identities(&self) -> impl Iterator<Item = (&Identity, &str)> {
         (self.plots.iter())
@@ -184,7 +184,7 @@ impl<'a> Tree<'a> {
                     .filter_map(|layer| Some((layer.identity.as_ref()?, layer.path.as_str()))),
             )
             .chain(
-                (self.nodes.iter().chain(&self.headers))
+                (self.nodes.iter().chain(&self.facets))
                     .map(|node| (&node.identity, node.path.as_str())),
             )
     }
@@ -349,16 +349,12 @@ impl<'a> Walk<'a> {
                 }
                 let partition = common(&leaves).expect("the node has a leaf");
                 self.tree.partitions.insert(path.clone(), partition.clone());
-                if let Some(proto::Facet {
-                    header: Some(proto::facet::Header::Shown(header)),
-                    ..
-                }) = facet
-                {
-                    if !header.id.is_empty() {
-                        self.tree.headers.push(NodeRef {
-                            path: format!("{path}.facet.shown"),
+                if let Some(facet) = facet {
+                    if !facet.id.is_empty() {
+                        self.tree.facets.push(NodeRef {
+                            path: format!("{path}.facet"),
                             identity: Identity {
-                                id: header.id.clone(),
+                                id: facet.id.clone(),
                                 partition: partition.clone(),
                             },
                         });

@@ -30,12 +30,12 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `mark` | The marks of a layer, or the box or the lasso that a selection tool draws | `type`, `store` |
 | `axis` | An axis | `channel`, `scale`, `kind` |
 | `legend` | A legend or a colorbar | `type`, `channel`, `scale`, `kind` |
-| `header` | The header of a facet | `type` |
+| `facet` | The title and the labels of a facet | `type` |
 | `scale` | A scale, which is not drawn | `type`, `channel`, `kind`, `marks` |
 | `attribution` | The credits of a plot's sources | |
 | `graticule` | The graticule of a map | |
 | `level` | A level of the axis of a nested band scale | |
-| `label`, `tick`, `rule`, `grid` | The parts of an axis, a header, a colorbar, or a graticule, and the labels of marks | |
+| `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule, and the labels of marks | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
 | `item`, `group`, `entry` | Virtual nodes: a mark item, a group of items, and a legend entry | |
 | `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
@@ -51,7 +51,7 @@ The attributes have these values:
 | `mark[type]` | Two forms: the kind of the mark, such as `bar`, `symbol`, or `shape`, and its name with the prefix of its coordinate system, such as `polar_bar` or `geo_shape`. A Cartesian mark has the same name in both forms. |
 | `mark[store]` | The name of the selection whose box or lasso the mark draws |
 | `legend[type]` | `colorbar` for the legend of a continuous color scale, and `symbol` for every other legend |
-| `header[type]` | `row`, `col`, or `by`, the facet that the header labels |
+| `facet[type]` | `row`, `col`, or `by`, the kind of the facet: rows, columns, or a wrapped grid |
 | `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, or `checkbox` |
 | `widget[key]` | The key of the widget, which its copies share |
 | `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dash` |
@@ -112,7 +112,7 @@ The language has the properties of this table. A declaration on a node whose ele
 
 The initial values of the table hold on every node except these, where they depend on the node:
 
-- `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a header and a title
+- `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet and a title
 - `direction`: `horizontal` on a legend at the top or the bottom
 - `axes`: `outer` on a facet
 - `columns`: `none` on an `hconcat`
@@ -197,10 +197,10 @@ The initial values of the table hold on every node except these, where they depe
 | `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `title-frame` | `plot \| chart` | `chart` | no | `chart` |
-| `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `header`, `legend`, `level` |
-| `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `header`, `title`, `attribution` |
-| `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `header`, `axis` |
-| `title-orient` | `top \| bottom \| left \| right` | `top` | no | `header` |
+| `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `facet`, `legend`, `level` |
+| `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `facet`, `title`, `attribution` |
+| `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `facet`, `axis` |
+| `title-orient` | `top \| bottom \| left \| right` | `top` | no | `facet` |
 | `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
 | `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
@@ -208,9 +208,9 @@ The initial values of the table hold on every node except these, where they depe
 | `thin-ticks` | `true \| false` | `false` | no | `axis` |
 | `max-entries` | `<integer [2,∞]> \| none` | `none` | no | `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
-| `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `header`, `graticule`, `mark` |
-| `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `header` |
-| `offset` | `<length>` | `0` | no | `axis`, `legend`, `header`, `title`, `attribution` |
+| `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `facet`, `graticule`, `mark` |
+| `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `facet` |
+| `offset` | `<length>` | `0` | no | `axis`, `legend`, `facet`, `title`, `attribution` |
 | `label-offset` | `<length>` | `0` | no | `axis`, `mark` |
 | `min-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
 | `max-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |

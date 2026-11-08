@@ -1,4 +1,4 @@
-//! A tooltip's box, with its header, rows, and swatch, placed beside its anchor, and the outline
+//! A tooltip's box, with its title, rows, and swatch, placed beside its anchor, and the outline
 //! of its instance.
 
 use avenger_color::ColorOrGradient;
@@ -25,11 +25,11 @@ use super::error::AvengerTooltipError;
 pub struct TooltipStyle {
     pub font_family: String,
     pub font_size: f32,
-    /// The color of the header and the values.
+    /// The color of the title and the values.
     pub color: [f32; 4],
-    /// The color of the rows' titles.
-    pub title_color: [f32; 4],
-    pub header_font_weight: FontWeight,
+    /// The color of the rows' titles, the titles of their fields.
+    pub field_title_color: [f32; 4],
+    pub title_font_weight: FontWeight,
     pub fill: [f32; 4],
     pub stroke: [f32; 4],
     pub stroke_width: f32,
@@ -38,9 +38,9 @@ pub struct TooltipStyle {
     pub padding: f32,
     /// The space between the box's lines.
     pub row_gap: f32,
-    /// The space between a row's title and its value, and between the swatch and the header.
+    /// The space between a row's title and its value, and between the swatch and the title.
     pub column_gap: f32,
-    /// The side of the swatch beside the header.
+    /// The side of the swatch beside the title.
     pub swatch_size: f32,
     /// How far a data-anchored box's callout reaches from the box to the instance's edge.
     pub callout: f32,
@@ -59,8 +59,8 @@ impl Default for TooltipStyle {
             font_family: "sans-serif".to_string(),
             font_size: 12.0,
             color: [0.12, 0.12, 0.12, 1.0],
-            title_color: [0.4, 0.4, 0.4, 1.0],
-            header_font_weight: FontWeight::BOLD,
+            field_title_color: [0.4, 0.4, 0.4, 1.0],
+            title_font_weight: FontWeight::BOLD,
             fill: [1.0, 1.0, 1.0, 1.0],
             stroke: [0.7, 0.7, 0.7, 1.0],
             stroke_width: 1.0,
@@ -78,11 +78,11 @@ impl Default for TooltipStyle {
     }
 }
 
-/// What a tooltip shows: its header, beside a swatch of its instance's color, and its rows'
+/// What a tooltip shows: its title, beside a swatch of its instance's color, and its rows'
 /// titles and values.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Content {
-    pub(crate) header: Option<Text>,
+    pub(crate) title: Option<Text>,
     pub(crate) swatch: Option<[f32; 4]>,
     pub(crate) rows: Vec<(String, Text)>,
 }
@@ -150,7 +150,7 @@ pub(crate) fn tooltip(
     })
 }
 
-/// The box's size, and its swatch and text with the box's top left corner at 0: the header, then
+/// The box's size, and its swatch and text with the box's top left corner at 0: the title, then
 /// each row's title on the left and its value on the right.
 fn lay_out(
     content: &Content,
@@ -172,23 +172,23 @@ fn lay_out(
             font_weight: ScalarOrArray::new_scalar(weight),
             ..Default::default()
         };
-    let header = (content.header.as_ref()).map(|header| {
-        let lines = vec![header.text.clone()];
-        let weight = style.header_font_weight;
+    let title = (content.title.as_ref()).map(|title| {
+        let lines = vec![title.text.clone()];
+        let weight = style.title_font_weight;
         text(
-            "tooltip_header",
+            "tooltip_title",
             lines,
-            header.syntax,
+            title.syntax,
             style.color,
             weight,
             TextAlign::Left,
         )
     });
-    let header_bounds = match &header {
-        Some(header) => Some(bounds(header, engine)?[0]),
+    let title_bounds = match &title {
+        Some(title) => Some(bounds(title, engine)?[0]),
         None => None,
     };
-    let titles: Vec<String> = content
+    let field_titles: Vec<String> = content
         .rows
         .iter()
         .map(|(title, _)| title.clone())
@@ -196,11 +196,11 @@ fn lay_out(
     let (values, values_syntax) = column(content.rows.iter().map(|(_, value)| value));
     let normal = FontWeight::NORMAL;
     let plain = TextSyntaxMode::Plain;
-    let mut titles = text(
-        "tooltip_titles",
-        titles,
+    let mut field_titles = text(
+        "tooltip_field_titles",
+        field_titles,
         plain,
-        style.title_color,
+        style.field_title_color,
         normal,
         TextAlign::Left,
     );
@@ -212,23 +212,24 @@ fn lay_out(
         normal,
         TextAlign::Right,
     );
-    let (title_bounds, value_bounds) = (bounds(&titles, engine)?, bounds(&values, engine)?);
+    let field_title_bounds = bounds(&field_titles, engine)?;
+    let value_bounds = bounds(&values, engine)?;
 
     let widest = |bounds: &[TextBounds]| bounds.iter().map(|b| b.width).fold(0.0, f32::max);
-    let swatch = content.swatch.filter(|_| header.is_some());
-    let header_x = pad + swatch.map_or(0.0, |_| style.swatch_size + style.column_gap);
-    let header_width = header_bounds.map_or(0.0, |bounds| header_x - pad + bounds.width);
+    let swatch = content.swatch.filter(|_| title.is_some());
+    let title_x = pad + swatch.map_or(0.0, |_| style.swatch_size + style.column_gap);
+    let title_width = title_bounds.map_or(0.0, |bounds| title_x - pad + bounds.width);
     let rows_width = if content.rows.is_empty() {
         0.0
     } else {
-        widest(&title_bounds) + style.column_gap + widest(&value_bounds)
+        widest(&field_title_bounds) + style.column_gap + widest(&value_bounds)
     };
-    let width = 2.0 * pad + header_width.max(rows_width);
+    let width = 2.0 * pad + title_width.max(rows_width);
 
     let mut marks: Vec<SceneMark> = Vec::new();
     let mut y = pad;
     let mut lines = 0;
-    if let (Some(mut header), Some(bounds)) = (header, header_bounds) {
+    if let (Some(mut title), Some(bounds)) = (title, title_bounds) {
         if let Some(color) = swatch {
             let swatch = SceneRectMark {
                 name: "tooltip_swatch".to_string(),
@@ -242,24 +243,24 @@ fn lay_out(
             };
             marks.push(swatch.into());
         }
-        header.x = header_x.into();
-        header.y = y.into();
-        marks.push(header.into());
+        title.x = title_x.into();
+        title.y = y.into();
+        marks.push(title.into());
         y += bounds.height + style.row_gap;
         lines += 1;
     }
     let mut row_y = Vec::with_capacity(content.rows.len());
-    for (title, value) in title_bounds.iter().zip(&value_bounds) {
+    for (field_title, value) in field_title_bounds.iter().zip(&value_bounds) {
         row_y.push(y);
-        y += title.height.max(value.height) + style.row_gap;
+        y += field_title.height.max(value.height) + style.row_gap;
         lines += 1;
     }
     if !row_y.is_empty() {
-        titles.x = pad.into();
-        titles.y = row_y.clone().into();
+        field_titles.x = pad.into();
+        field_titles.y = row_y.clone().into();
         values.x = (width - pad).into();
         values.y = row_y.into();
-        marks.push(titles.into());
+        marks.push(field_titles.into());
         marks.push(values.into());
     }
     let height = if lines == 0 {

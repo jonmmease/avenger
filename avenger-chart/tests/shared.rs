@@ -84,7 +84,7 @@ fn the_children_of_a_facet_hold_its_column_and_share_alike() {
         let mut root = concat(proto::Direction::Row, children);
         concat_mut(&mut root).facet = Some(proto::Facet {
             column: "species".to_string(),
-            header: None,
+            ..Default::default()
         });
         root
     };
@@ -829,7 +829,7 @@ fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
 }
 
 #[test]
-fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
+fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_facets() {
     let x_axis = "root.plot.cartesian.layers[0].symbol.x.scale.axis";
     let y_axis = "root.plot.cartesian.layers[0].symbol.y.scale.axis";
     read(parts(
@@ -863,7 +863,7 @@ fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
         &format!("`{x_axis}` and `{y_axis}` have one id"),
     );
 
-    // A facet header and its concat.
+    // A facet and its concat.
     let mut root = concat(
         proto::Direction::Row,
         vec![plot_with("", vec![value("species", 0)], vec![symbols(0)])],
@@ -872,15 +872,13 @@ fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_headers() {
     node.id = "species".to_string();
     node.facet = Some(proto::Facet {
         column: "species".to_string(),
-        header: Some(proto::facet::Header::Shown(proto::FacetHeader {
-            id: "species".to_string(),
-            ..Default::default()
-        })),
+        id: "species".to_string(),
+        ..Default::default()
     });
     invalid(
         parts(root, strings(&["Adelie"])),
-        "root.concat.facet.shown",
-        "`root.concat` and `root.concat.facet.shown` have one id",
+        "root.concat.facet",
+        "`root.concat` and `root.concat.facet` have one id",
     );
 }
 
@@ -898,7 +896,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
         let node = concat_mut(&mut root);
         node.facet = Some(proto::Facet {
             column: "species".to_string(),
-            header: None,
+            ..Default::default()
         });
         node.resolve = vec![proto::Resolve {
             key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),

@@ -41,7 +41,7 @@ elements! {
     Mark = "mark",
     Axis = "axis",
     Legend = "legend",
-    Header = "header",
+    Facet = "facet",
     Scale = "scale",
     Attribution = "attribution",
     Graticule = "graticule",
@@ -91,7 +91,7 @@ impl Element {
             Element::Axis => &["channel", "scale", "kind"],
             Element::Legend => &["type", "channel", "scale", "kind"],
             Element::Scale => &["type", "channel", "kind", "marks"],
-            Element::Header => &["type"],
+            Element::Facet => &["type"],
             Element::Widget => &["type", "key"],
             _ => &[],
         }

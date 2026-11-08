@@ -1,6 +1,6 @@
 // The parts that stand beside plots, which the rules of a concat keep, collapse, or merge: the
-// parts of axes, legends, facet headers, attributions, and widgets. Axes are in `axis.proto`,
-// legends in `legend.proto`, facet headers in `facet.proto`, and the elements that they share in
+// parts of axes, legends, facets, attributions, and widgets. Axes are in `axis.proto`,
+// legends in `legend.proto`, facets in `facet.proto`, and the elements that they share in
 // `element.proto`.
 //
 // The format calls the parts of a scale its axis and its legend, and keeps the name guide for the
@@ -12,7 +12,7 @@ package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
 
-// A part of the axis or the legend of a scale, of a facet header, or a widget, which the part rules
+// A part of the axis or the legend of a scale, of a facet, or a widget, which the part rules
 // of a concat keep, collapse, or merge.
 enum Part {
   // Absent. Every field of this enum is required, so none holds this value.
@@ -25,10 +25,10 @@ enum Part {
   PART_AXIS_TITLE = 3;
   // A legend, a symbol legend or a colorbar.
   PART_LEGEND = 4;
-  // The labels of a facet header, with its rule and ticks.
-  PART_HEADER_LABELS = 5;
-  // The title of a facet header.
-  PART_HEADER_TITLE = 6;
+  // The labels of a facet, with its rule and ticks.
+  PART_FACET_LABELS = 5;
+  // The title of a facet.
+  PART_FACET_TITLE = 6;
   // The attribution of a plot.
   PART_ATTRIBUTION = 7;
   // A widget, as `Widget` describes.
