@@ -56,14 +56,8 @@ impl Checker<'_> {
         title(declared.title.as_ref(), &format!("{path}.title"), false)?;
         let kind = declared.kind.as_ref().expect(REQUIRED);
         let kind_path = format!("{path}.{}", kind_name(kind));
-        if let widget::Kind::Mode(_) = kind {
-            if self.chart.message.modes.is_empty() {
-                return Err(fail(
-                    kind_path,
-                    "a chart with a mode widget has a mode or more",
-                ));
-            }
-            return Ok(());
+        if let widget::Kind::Mode(mode) = kind {
+            return self.mode_widget(mode, &kind_path);
         }
         let column = self.target(declared.target(), table, scope, &kind_path)?;
         match kind {
@@ -150,6 +144,30 @@ impl Checker<'_> {
             }
             widget::Kind::Mode(_) => unreachable!("a mode widget returned before its target"),
         }
+    }
+
+    /// Checks that the group or the toggle of a mode widget at `path` is one of the chart's.
+    fn mode_widget(&self, widget: &proto::ModeWidget, path: &str) -> Result<()> {
+        let modes = &self.chart.message.modes;
+        match widget.modes.as_ref().expect(REQUIRED) {
+            proto::mode_widget::Modes::Group(group) => {
+                if !modes.iter().any(|mode| &mode.group == group) {
+                    return Err(fail(
+                        format!("{path}.group"),
+                        format!("the chart has no group of modes `{group}`"),
+                    ));
+                }
+            }
+            proto::mode_widget::Modes::Toggle(toggle) => {
+                if !(modes.iter()).any(|mode| &mode.name == toggle && mode.group.is_empty()) {
+                    return Err(fail(
+                        format!("{path}.toggle"),
+                        format!("the chart has no toggle `{toggle}`, a mode without a group"),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Checks the target of a widget's kind at `path`, the kind's path, and returns the type of its

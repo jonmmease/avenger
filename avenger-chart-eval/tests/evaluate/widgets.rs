@@ -363,12 +363,17 @@ fn a_stylesheet_colors_and_places_widgets() {
 }
 
 #[test]
-fn a_mode_widget_sets_the_mode_that_decides_the_active_tools() {
+fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder().x("weight").y("mpg").color("origin"),
     )
-    .widgets([Widget::mode("drag").side(Side::Right)]);
+    .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
+    .id("points")
+    .widgets([
+        Widget::mode("drag", ModeWidget::group("drag")).side(Side::Right),
+        Widget::mode("tooltips", ModeWidget::toggle("tooltips")).side(Side::Right),
+    ]);
     let tools = [
         ToolBuilder::from(Navigate::builder()).modes(["pan"]),
         ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
@@ -376,42 +381,62 @@ fn a_mode_widget_sets_the_mode_that_decides_the_active_tools() {
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
         .number_format_syntax("d3")
         .selections([Selection::new("filter", SelectionResolution::Global)])
-        .modes([Mode::new("pan").label("Pan"), Mode::new("box").label("Box")])
+        .modes([
+            Mode::new("pan").label("Pan").group("drag"),
+            Mode::new("box").label("Box").group("drag"),
+            Mode::new("tooltips").label("Tooltips").on(true),
+        ])
         .build()
         .unwrap();
     let mut evaluator = evaluator(&chart);
     let evaluated = evaluator.evaluate(&host([480.0, 320.0])).unwrap();
     assert_image(&evaluated, "widget-mode");
     assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
-    let [widget] = &evaluated.widgets[..] else {
-        panic!("one widget: {:#?}", evaluated.widgets);
+    let [group, toggle] = &evaluated.widgets[..] else {
+        panic!("two widgets: {:#?}", evaluated.widgets);
     };
-    assert_eq!(widget.target, avenger_chart_eval::WidgetTarget::Mode);
-    assert_eq!(widget.title, "");
-    let WidgetSpec::Mode { modes, labels } = &widget.spec else {
-        panic!("a mode widget: {:?}", widget.spec);
+    assert_eq!(group.target, avenger_chart_eval::WidgetTarget::Modes);
+    // A widget of a group has no title, and a widget of a toggle takes the toggle's label.
+    assert_eq!(
+        (group.title.as_str(), toggle.title.as_str()),
+        ("", "Tooltips")
+    );
+    let WidgetSpec::ModeGroup { modes, labels } = &group.spec else {
+        panic!("a widget of a group: {:?}", group.spec);
     };
     assert_eq!(modes, &["pan", "box"]);
     assert_eq!(labels, &["Pan", "Box"]);
 
-    // The chart starts in its first mode, where the navigation is active and the box is not.
-    let [pan, select] = [vec!["pan".to_string()], vec!["box".to_string()]];
-    assert_eq!(evaluator.mode(), Some("pan"));
-    assert_eq!(evaluator.widget_value(widget), WidgetValue::Item(Some(0)));
+    // The group starts in its first mode, and the toggle on.
+    let [pan, select, tooltips] = ["pan", "box", "tooltips"].map(|mode| vec![mode.to_string()]);
+    assert_eq!(evaluator.modes(), ["pan", "tooltips"]);
+    assert_eq!(evaluator.widget_value(group), WidgetValue::Item(Some(0)));
+    assert_eq!(evaluator.widget_value(toggle), WidgetValue::Checked(true));
     assert!(evaluator.is_active(&pan) && !evaluator.is_active(&select));
-    assert!(evaluator.is_active(&[]));
+    assert!(evaluator.is_active(&tooltips) && evaluator.is_active(&[]));
 
-    // The widget sets the mode and writes no clause.
+    // The widgets turn the modes and write no clause.
     assert_eq!(
-        evaluator.write_widget(widget, &WidgetValue::Item(Some(1))),
+        evaluator.write_widget(group, &WidgetValue::Item(Some(1))),
         None
     );
-    assert_eq!(evaluator.mode(), Some("box"));
-    assert_eq!(evaluator.widget_value(widget), WidgetValue::Item(Some(1)));
+    assert_eq!(
+        evaluator.write_widget(toggle, &WidgetValue::Checked(false)),
+        None
+    );
+    assert_eq!(evaluator.modes(), ["box"]);
+    assert_eq!(evaluator.widget_value(group), WidgetValue::Item(Some(1)));
+    assert_eq!(evaluator.widget_value(toggle), WidgetValue::Checked(false));
     assert!(!evaluator.is_active(&pan) && evaluator.is_active(&select));
+    assert!(!evaluator.is_active(&tooltips));
     assert!(evaluator.selections()["filter"].clauses.is_empty());
 
-    // A mode that the chart does not declare leaves it in its first mode.
-    evaluator.set_mode("lasso");
-    assert_eq!(evaluator.mode(), Some("pan"));
+    // A mode of a group stays on until another of its group turns on.
+    evaluator.set_mode("box", false);
+    assert_eq!(evaluator.modes(), ["box"]);
+    evaluator.set_mode("pan", true);
+    assert_eq!(evaluator.modes(), ["pan"]);
+    // A mode that the chart does not declare is off.
+    evaluator.set_mode("lasso", true);
+    assert_eq!(evaluator.modes(), ["pan"]);
 }

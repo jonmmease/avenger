@@ -769,7 +769,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("Tool", &["navigate", "tooltip", "select", "modes"]),
     ("LayerTool", &["tooltip", "select", "modes"]),
-    ("Mode", &["name", "label"]),
+    ("Mode", &["name", "label", "group", "on"]),
     ("Navigate", &["channels"]),
     (
         "Tooltip",
@@ -809,6 +809,7 @@ const DEFERRED: &[(&str, &[&str])] = &[(
         "RadioWidget",
         "CheckboxesWidget",
         "CheckboxWidget",
+        "ModeWidget",
         "WidgetDomain",
         "WidgetSummaryDomain",
         "WidgetDataDomain",

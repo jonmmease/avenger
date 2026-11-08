@@ -1,5 +1,6 @@
 // The widgets of layers: sliders, range sliders, radio groups, check box lists, and check boxes
-// that write clauses of the chart's selections, and mode widgets that set the chart's mode.
+// that write clauses of the chart's selections, and mode widgets that turn the chart's modes on and
+// off.
 
 syntax = "proto3";
 
@@ -44,8 +45,8 @@ message Widget {
   // The key, which lines the declaration up with the other copies of the widget. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
   string key = 1 [(avenger.chart.v1.required) = true];
-  // The title. When absent, the title is the name of the target's column, and a mode widget has
-  // no title.
+  // The title. When absent, the title is the name of the target's column, the title of a mode
+  // widget of a toggle is the toggle's label, and a mode widget of a group has no title.
   Title title = 2;
   // Whether the widget shows its title. When absent, the styles decide.
   optional bool show_title = 5;
@@ -62,7 +63,7 @@ message Widget {
   // widget writes no clause, so it does not constrain the rows, including the rows whose value is
   // null or outside its domain.
   //
-  // A mode widget writes no clause: it sets the chart's mode.
+  // A mode widget writes no clause: it turns the chart's modes on and off.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
     SliderWidget slider = 10;
@@ -175,11 +176,20 @@ message CheckboxWidget {
   ValueRef value = 2 [(avenger.chart.v1.required) = true];
 }
 
-// A radio group of the modes of `Chart.modes`, in their order, labeled with their labels, which
-// sets the chart's mode. It writes no clause, so it has no target and no domain, and it draws the
-// chart's mode. Copies of a mode widget agree as copies of the other kinds do. A chart with a mode
-// widget has at least one mode.
-message ModeWidget {}
+// A widget of the chart's modes, which turns them on and off and draws whether they are on. It
+// writes no clause, so it has no selection and no domain. Copies of a mode widget agree as copies
+// of the other kinds do.
+message ModeWidget {
+  // The modes that the widget turns on and off.
+  oneof modes {
+    option (avenger.chart.v1.required_oneof) = true;
+    // The name of a group of `Chart.modes`, which the widget draws as a radio group of the group's
+    // modes, in their order, labeled with their labels.
+    string group = 1;
+    // The name of a toggle of `Chart.modes`, which the widget draws as a check box.
+    string toggle = 2;
+  }
+}
 
 // Where a widget's domain comes from: the extent of a slider's thumbs, or the items of a radio
 // group or a check box list. The values of each kind are in the type of the target's column, and

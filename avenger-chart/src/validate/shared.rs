@@ -106,16 +106,16 @@ impl Checker<'_> {
         Ok(())
     }
 
-    /// Checks that the modes with one name, which join, have equal labels.
+    /// Checks that the modes with one name, which join, are equal.
     fn joined_modes(&self) -> Result<()> {
         let modes = &self.chart.message.modes;
         for (index, mode) in modes.iter().enumerate() {
             let first = modes[..index].iter().find(|first| first.name == mode.name);
-            if first.is_some_and(|first| first.label != mode.label) {
+            if first.is_some_and(|first| first != mode) {
                 return Err(fail(
-                    format!("modes[{index}].label"),
+                    format!("modes[{index}]"),
                     format!(
-                        "the modes named `{}` join, and their labels differ, which is a conflict",
+                        "the modes named `{}` join, and they differ, which is a conflict",
                         mode.name
                     ),
                 ));
@@ -159,7 +159,7 @@ impl Checker<'_> {
                     _ => None,
                 })
                 .collect();
-            once_each(&selects, &plot.path)?;
+            once_each(&selects, &self.chart.message.modes, &plot.path)?;
             let selections = selects.iter().map(|(selection, _)| *selection).collect();
             if let Some(identity) = &plot.identity {
                 writers.push((identity, selections, &plot.path));
@@ -174,7 +174,7 @@ impl Checker<'_> {
                     _ => None,
                 })
                 .collect();
-            once_each(&selects, &layer.path)?;
+            once_each(&selects, &self.chart.message.modes, &layer.path)?;
             let selections: Vec<&str> = selects.iter().map(|(selection, _)| *selection).collect();
             if let Some(identity) = &layer.identity {
                 writers.push((identity, selections, &layer.path));
@@ -271,7 +271,7 @@ impl Checker<'_> {
             Some(group) if group.widget.target().is_none() => Err(fail(
                 path,
                 format!(
-                    "the widget `{}` sets the chart's mode and writes no clause",
+                    "the widget `{}` sets the chart's modes and writes no clause",
                     clause.widget
                 ),
             )),
@@ -337,21 +337,31 @@ fn rules(resolve: &[proto::Resolve]) -> Vec<(Option<crate::resolve::Shares<'_>>,
 }
 
 /// Fails when two of `selects`, the selections of the `Select` tools of one owner with the modes of
-/// each tool, write one selection in one mode: a plot or a layer owns one clause of a selection.
-/// A tool without modes is active in every mode.
-fn once_each(selects: &[(&str, &[String])], path: &str) -> Result<()> {
-    for (index, (selection, modes)) in selects.iter().enumerate() {
-        let shares_a_mode = |other: &[String]| {
-            modes.is_empty() || other.is_empty() || modes.iter().any(|mode| other.contains(mode))
-        };
+/// each tool, write one selection and can be active at once: a plot or a layer owns one clause of
+/// a selection. Two tools are never active at once when every mode that they name is of one group
+/// of `modes` and no mode is named by both.
+fn once_each(selects: &[(&str, &[String])], modes: &[proto::Mode], path: &str) -> Result<()> {
+    let group = |name: &String| {
+        (modes.iter())
+            .find(|mode| &mode.name == name)
+            .map(|mode| mode.group.as_str())
+            .filter(|group| !group.is_empty())
+    };
+    let apart = |a: &[String], b: &[String]| {
+        let first = a.first().and_then(group);
+        first.is_some()
+            && a.iter().chain(b).all(|name| group(name) == first)
+            && !a.iter().any(|name| b.contains(name))
+    };
+    for (index, (selection, own)) in selects.iter().enumerate() {
         if (selects[..index].iter())
-            .any(|(other, other_modes)| other == selection && shares_a_mode(other_modes))
+            .any(|(other, theirs)| other == selection && !apart(own, theirs))
         {
             return Err(fail(
                 path,
                 format!(
-                    "two `Select` tools of one owner write the selection `{selection}` in one \
-                     mode, which is a conflict"
+                    "two `Select` tools of one owner write the selection `{selection}` and can be \
+                     active at once, which is a conflict"
                 ),
             ));
         }

@@ -756,8 +756,8 @@ impl ChartEvaluator {
 impl ChartEvaluator {
     /// Installs `prepared` in place of the chart, and carries the state of the old chart by
     /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
-    /// the clauses of its selections, as they stand at the installation, and the mode, which stands
-    /// while the new chart declares it. A scale carries over
+    /// the clauses of its selections, as they stand at the installation, and the modes that a
+    /// widget or the host turned on or off, which stand while the new chart declares them. A scale carries over
     /// when the new chart has a scale with its identity and its kind of fit, and a projection when
     /// the new chart has a projection with its identity. The new chart keeps the computed styles
     /// of the old one when their style trees are equal.
@@ -845,7 +845,7 @@ impl ChartEvaluator {
             views,
             carried,
             projections,
-            mode: self.state.mode.take(),
+            modes: std::mem::take(&mut self.state.modes),
         };
         self.prepared = None;
         self.measured = None;
@@ -914,39 +914,72 @@ impl ChartEvaluator {
         }
     }
 
-    /// The chart's mode: the mode that a mode widget or [`ChartEvaluator::set_mode`] set while the
-    /// chart declares it, or else the chart's first mode, or `None` for a chart without modes.
-    pub fn mode(&self) -> Option<&str> {
+    /// The names of the chart's modes that are on, in the chart's order: one mode of each group,
+    /// the first until a mode widget or [`ChartEvaluator::set_mode`] turns on another, and each
+    /// toggle that is on.
+    pub fn modes(&self) -> Vec<&str> {
+        (self.chart.message().modes.iter())
+            .map(|mode| mode.name.as_str())
+            .filter(|name| self.is_on(name))
+            .collect()
+    }
+
+    /// Whether the chart's mode `name` is on. A mode that the chart does not declare is off.
+    pub fn is_on(&self, name: &str) -> bool {
         let modes = &self.chart.message().modes;
-        let declared = |name: &&str| modes.iter().any(|mode| mode.name == *name);
-        (self.state.mode.as_deref().filter(declared))
-            .or_else(|| modes.first().map(|mode| mode.name.as_str()))
+        let Some(mode) = modes.iter().find(|mode| mode.name == name) else {
+            return false;
+        };
+        let set = |mode: &avenger_chart::proto::Mode| self.state.modes.get(&mode.name).copied();
+        if mode.group.is_empty() {
+            return set(mode).unwrap_or(mode.on);
+        }
+        let mut group = modes.iter().filter(|other| other.group == mode.group);
+        let first = group.clone().next();
+        let on = group.find(|other| set(other) == Some(true)).or(first);
+        on.is_some_and(|on| on.name == name)
     }
 
-    /// Sets the chart's mode to the mode named `name`. A name that the chart does not declare
-    /// leaves the chart in its first mode until a chart that declares it is installed.
-    pub fn set_mode(&mut self, name: impl Into<String>) {
-        self.state.mode = Some(name.into());
+    /// Turns the chart's mode `name` on or off. Turning on a mode of a group turns off the other
+    /// modes of the group, and turning one off does nothing, since a mode of each group is on. A
+    /// mode that the chart does not declare keeps its state until a chart that declares it is
+    /// installed.
+    pub fn set_mode(&mut self, name: impl Into<String>, on: bool) {
+        let name = name.into();
+        let modes = &self.chart.message().modes;
+        let group = (modes.iter())
+            .find(|mode| mode.name == name)
+            .map(|mode| mode.group.as_str())
+            .filter(|group| !group.is_empty());
+        match (group, on) {
+            (Some(_), false) => {}
+            (Some(group), true) => {
+                for mode in modes.iter().filter(|mode| mode.group == group) {
+                    self.state.modes.remove(&mode.name);
+                }
+                self.state.modes.insert(name, true);
+            }
+            (None, on) => {
+                self.state.modes.insert(name, on);
+            }
+        }
     }
 
-    /// Whether a tool that names `modes` is active in the chart's mode: in every mode when it names
-    /// none, as in a chart without modes.
+    /// Whether a tool that names `modes` is active: while one of them is on, or always when it
+    /// names none, as in a chart without modes.
     pub fn is_active(&self, modes: &[String]) -> bool {
-        modes.is_empty()
-            || self
-                .mode()
-                .is_some_and(|mode| modes.iter().any(|name| name == mode))
+        modes.is_empty() || modes.iter().any(|name| self.is_on(name))
     }
 
     /// The value that `widget`, a widget of an evaluation of the chart, shows: from its clause in
-    /// the state of its selection, or the chart's mode.
+    /// the state of its selection, or whether the chart's modes are on.
     pub fn widget_value(&self, widget: &EvaluatedWidget) -> WidgetValue {
         let state = (widget.selection()).and_then(|name| self.state.selections.get(name));
-        widget.value(state, self.mode())
+        widget.value(state, |name| self.is_on(name))
     }
 
     /// Writes `value` of `widget`, a widget of an evaluation of the chart: its clause to its
-    /// selection, in place of its clause, or no clause in its clear state, or the chart's mode.
+    /// selection, in place of its clause, or no clause in its clear state, or the chart's modes.
     /// Returns the name of the selection that it wrote, or `None` for a mode widget.
     pub fn write_widget(
         &mut self,
@@ -960,13 +993,17 @@ impl ChartEvaluator {
                 self.set_selections(states);
                 Some(selection.clone())
             }
-            (WidgetTarget::Mode, WidgetSpec::Mode { modes, .. }, WidgetValue::Item(Some(item))) => {
-                if let Some(name) = modes.get(*item) {
-                    self.set_mode(name.clone());
+            (WidgetTarget::Modes, WidgetSpec::ModeGroup { modes, .. }, WidgetValue::Item(item)) => {
+                if let Some(name) = item.and_then(|item| modes.get(item)) {
+                    self.set_mode(name.clone(), true);
                 }
                 None
             }
-            (WidgetTarget::Mode, _, _) => None,
+            (WidgetTarget::Modes, WidgetSpec::ModeToggle { mode }, WidgetValue::Checked(on)) => {
+                self.set_mode(mode.clone(), *on);
+                None
+            }
+            (WidgetTarget::Modes, _, _) => None,
         }
     }
 

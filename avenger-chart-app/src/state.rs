@@ -1,6 +1,6 @@
 //! The state of a chart app: its chart prepared to evaluate, the plots of its last evaluation, the
 //! registry of the tools that its plots and layers declare, and the callbacks that hear its
-//! changes. The chart's mode, which decides the tools that are active, is the evaluator's.
+//! changes. The chart's modes, which decide the tools that are active, are the evaluator's.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -41,8 +41,8 @@ pub struct ChartChange {
     pub projections: Vec<(ProjectionIdentity, ProjectionView)>,
     /// Each selection that the gesture wrote, by name, with all of its clauses.
     pub selections: Vec<(String, Vec<Clause>)>,
-    /// The chart's mode, when a mode widget set it.
-    pub mode: Option<String>,
+    /// The names of the chart's modes that are on, when a mode widget turned one on or off.
+    pub modes: Option<Vec<String>>,
     /// Whether the gesture ended, at a release, a click, a double click, or a wheel that stopped.
     pub settled: bool,
 }
@@ -55,12 +55,12 @@ impl ChartChange {
             .map(|(_, clauses)| clauses.as_slice())
     }
 
-    /// Whether the change holds no domain, no projection, no selection, and no mode.
+    /// Whether the change holds no domain, no projection, no selection, and no modes.
     fn is_empty(&self) -> bool {
         self.domains.is_empty()
             && self.projections.is_empty()
             && self.selections.is_empty()
-            && self.mode.is_none()
+            && self.modes.is_none()
     }
 }
 
@@ -177,7 +177,7 @@ pub(crate) fn wrote(owner: &Identity, clause: &Clause) -> bool {
 }
 
 /// The state of a chart app: the chart, prepared to evaluate at any size with the views of its
-/// scales, the clauses of its selections, and its mode, and the plots of its last evaluation.
+/// scales, the clauses of its selections, and its modes, and the plots of its last evaluation.
 pub struct ChartAppState {
     pub(crate) evaluator: ChartEvaluator,
     /// The tools of the chart's plots and layers.
@@ -253,10 +253,9 @@ impl ChartAppState {
         &self.warnings
     }
 
-    /// The chart's mode, which decides the tools that are active, or `None` for a chart without
-    /// modes.
-    pub fn mode(&self) -> Option<&str> {
-        self.evaluator.mode()
+    /// The names of the chart's modes that are on, which decide the tools that are active.
+    pub fn modes(&self) -> Vec<&str> {
+        self.evaluator.modes()
     }
 
     /// Installs `update` in place of the current chart, which carries the views of its scales and

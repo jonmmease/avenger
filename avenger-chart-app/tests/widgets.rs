@@ -212,25 +212,47 @@ async fn a_new_chart_with_other_widgets_draws_them() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_click_on_a_mode_sets_the_mode_that_decides_what_a_drag_does() {
+async fn clicks_on_mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     let tools = [
         ToolBuilder::from(Navigate::builder()).modes(["pan"]),
         ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
     ];
     let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"))
-        .widgets([Widget::mode("drag").side(Side::Right)]);
+        .id("points")
+        .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
+        .widgets([
+            Widget::mode("drag", ModeWidget::group("drag")).side(Side::Right),
+            Widget::mode("tooltips", ModeWidget::toggle("tooltips")).side(Side::Right),
+        ]);
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
         .selections([Selection::new("filter", SelectionResolution::Global)])
-        .modes([Mode::new("pan").label("Pan"), Mode::new("box").label("Box")])
+        .modes([
+            Mode::new("pan").label("Pan").group("drag"),
+            Mode::new("box").label("Box").group("drag"),
+            Mode::new("tooltips").label("Tooltips").on(true),
+        ])
         .build()
         .unwrap();
     let (mut app, _, changes) = app(chart).await;
-    assert_eq!(app.state().mode(), Some("pan"));
+    assert_eq!(app.state().modes(), ["pan", "tooltips"]);
+    let last_modes = || {
+        let last = changes.lock().unwrap().last().cloned();
+        last.and_then(|change| change.modes)
+    };
     let at = text_at(&scene(&app, false), "Box").expect("the mode's label");
     send(&mut app, click(at)).await;
-    assert_eq!(app.state().mode(), Some("box"));
-    let last = changes.lock().unwrap().last().cloned();
-    assert_eq!(last.and_then(|change| change.mode).as_deref(), Some("box"));
+    assert_eq!(app.state().modes(), ["box", "tooltips"]);
+    assert_eq!(
+        last_modes(),
+        Some(vec!["box".to_string(), "tooltips".to_string()])
+    );
+
+    // The check box turns the tooltips off.
+    let at = text_at(&scene(&app, false), "Tooltips").expect("the toggle's label");
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    send(&mut app, click(at)).await;
+    assert_eq!(app.state().modes(), ["box"]);
+    assert_eq!(last_modes(), Some(vec!["box".to_string()]));
 
     // In the mode `box`, a drag draws a box and pans nothing.
     let fitted = domains(&app, 0);

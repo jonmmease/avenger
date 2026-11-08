@@ -1,6 +1,6 @@
 //! The widgets of a chart in its app: a `Widgets` tool of slots, each of which draws one drawing of
 //! one widget of the last evaluation at its rectangle, and writes the widget's clause to its
-//! selection, or sets the chart's mode, as its value changes.
+//! selection, or turns the chart's modes on and off, as its value changes.
 //!
 //! A `Widgets` tool holds a fixed set of widgets, and a chart update can change the widgets of the
 //! chart, so the tool holds [`SLOTS`] slots, and the slot at a position draws the drawing at that
@@ -81,8 +81,8 @@ impl WidgetControls {
     }
 }
 
-/// The control of the widget `index` of the app, which reads its value from the widget's clause
-/// or the chart's mode and writes its clause or the mode.
+/// The control of the widget `index` of the app, which reads its value from the widget's clause or
+/// the chart's modes and writes its clause or the modes.
 fn control(index: usize, widget: &EvaluatedWidget) -> Control<ChartAppState> {
     Control::new(
         widget,
@@ -98,38 +98,40 @@ impl ChartAppState {
         &self.controls.widgets
     }
 
-    /// The value of the widget `index`, from its clause or the chart's mode.
+    /// The value of the widget `index`, from its clause or the chart's modes.
     fn widget_value(&self, index: usize) -> WidgetValue {
         self.evaluator.widget_value(&self.controls.widgets[index])
     }
 
-    /// Writes `value` of the widget `index`: its clause to its selection, or the chart's mode.
-    /// Reports the selection or the mode, as settled when `settled` holds or the widget is not a
-    /// slider, whose gesture settles at its end.
+    /// Writes `value` of the widget `index`: its clause to its selection, or the chart's modes.
+    /// Reports the selection or the modes that are on, as settled when `settled` holds or the
+    /// widget is not a slider, whose gesture settles at its end.
     fn write_widget(&mut self, index: usize, value: WidgetValue, settled: bool) -> Rebuild {
         let widget = self.controls.widgets[index].clone();
-        let mode = self.evaluator.mode().map(str::to_string);
+        let on = |state: &Self| -> Vec<String> {
+            state.modes().into_iter().map(str::to_string).collect()
+        };
+        let before = on(self);
         let written = self.evaluator.write_widget(&widget, &value);
         let slider = matches!(value, WidgetValue::Number(_) | WidgetValue::Range(_));
-        let mode = match written {
+        let modes = match written {
             Some(name) => {
                 self.touch(&name);
                 None
             }
-            None => {
-                (self.evaluator.mode().map(str::to_string)).filter(|now| Some(now) != mode.as_ref())
-            }
+            None => Some(on(self)).filter(|after| *after != before),
         };
+        let turned = modes.is_some();
         self.report(ChartChange {
             settled: settled || !slider,
-            mode: mode.clone(),
+            modes,
             ..ChartChange::default()
         });
-        match mode {
-            // A new mode changes the tools that are active: the handles of the boxes and the
+        match turned {
+            // New modes change the tools that are active: the handles of the boxes and the
             // tooltips that show.
-            Some(_) => Rebuild::scene(BRUSH_SCENE).and_scene(TOOLTIP_SCENE),
-            None => Rebuild::scene(CHART_SCENE),
+            true => Rebuild::scene(BRUSH_SCENE).and_scene(TOOLTIP_SCENE),
+            false => Rebuild::scene(CHART_SCENE),
         }
     }
 }

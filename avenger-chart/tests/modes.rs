@@ -1,4 +1,5 @@
-//! The modes of a chart: the tools that name them, their joins, and the widgets that set them.
+//! The modes of a chart: their groups and toggles, the tools that name them, their joins, and the
+//! widgets that turn them on and off.
 
 mod support;
 
@@ -18,6 +19,15 @@ fn modal(widgets: Vec<WidgetBuilder>) -> ChartBuilder {
         .selections([Selection::new("brush", SelectionResolution::Global)])
 }
 
+/// The modes `pan` and `box` of the group `drag`, and the toggle `tooltips`, which is on.
+fn drag_modes() -> [ModeBuilder; 3] {
+    [
+        Mode::new("pan").label("Pan").group("drag"),
+        Mode::new("box").label("Box").group("drag"),
+        Mode::new("tooltips").on(true),
+    ]
+}
+
 #[track_caller]
 fn invalid(built: Result<Chart, ChartError>, path: &str, reason: &str) {
     match built {
@@ -32,16 +42,16 @@ fn invalid(built: Result<Chart, ChartError>, path: &str, reason: &str) {
     }
 }
 
+fn names(chart: &Chart) -> Vec<&str> {
+    (chart.message().modes.iter())
+        .map(|mode| mode.name.as_str())
+        .collect()
+}
+
 #[test]
 fn tools_name_the_modes_of_their_chart() {
-    let chart = modal(Vec::new())
-        .modes([Mode::new("pan").label("Pan"), Mode::new("box")])
-        .build()
-        .unwrap();
-    let names: Vec<&str> = (chart.message().modes.iter())
-        .map(|mode| mode.name.as_str())
-        .collect();
-    assert_eq!(names, ["pan", "box"]);
+    let chart = modal(Vec::new()).modes(drag_modes()).build().unwrap();
+    assert_eq!(names(&chart), ["pan", "box", "tooltips"]);
 
     // A tool names a mode of the chart, once.
     invalid(
@@ -64,6 +74,18 @@ fn tools_name_the_modes_of_their_chart() {
         "root.plot.tools[0].modes[1]",
         "names the mode `pan` once",
     );
+
+    // A mode of a group is on when it is the first of its group.
+    invalid(
+        modal(Vec::new())
+            .modes([
+                Mode::new("pan").group("drag"),
+                Mode::new("box").group("drag").on(true),
+            ])
+            .build(),
+        "modes[1].on",
+        "first of its group",
+    );
 }
 
 #[test]
@@ -72,10 +94,7 @@ fn modes_with_one_name_join_at_the_first() {
         .modes([Mode::new("box"), Mode::new("pan"), Mode::new("box")])
         .build()
         .unwrap();
-    let names: Vec<&str> = (chart.message().modes.iter())
-        .map(|mode| mode.name.as_str())
-        .collect();
-    assert_eq!(names, ["box", "pan"]);
+    assert_eq!(names(&chart), ["box", "pan"]);
 
     // An embedded chart's modes join the embedding builder's, after them.
     let inner = modal(Vec::new())
@@ -86,48 +105,54 @@ fn modes_with_one_name_join_at_the_first() {
         .modes([Mode::new("box"), Mode::new("lasso")])
         .build()
         .unwrap();
-    let names: Vec<&str> = (outer.message().modes.iter())
-        .map(|mode| mode.name.as_str())
-        .collect();
-    assert_eq!(names, ["box", "lasso", "pan"]);
+    assert_eq!(names(&outer), ["box", "lasso", "pan"]);
 
-    // Two modes of one name with different labels are a conflict.
-    invalid(
-        modal(Vec::new())
-            .modes([
-                Mode::new("pan"),
-                Mode::new("box"),
-                Mode::new("pan").label("Drag"),
-            ])
-            .build(),
-        "modes[2].label",
-        "their labels differ",
-    );
+    // Two modes of one name that differ are a conflict.
+    for other in [
+        Mode::new("pan").label("Drag"),
+        Mode::new("pan").group("drag"),
+    ] {
+        invalid(
+            modal(Vec::new())
+                .modes([Mode::new("pan"), Mode::new("box"), other])
+                .build(),
+            "modes[2]",
+            "they differ",
+        );
+    }
 }
 
 #[test]
-fn a_mode_widget_sets_the_mode_of_a_chart_with_modes() {
-    let chart = modal(vec![Widget::mode("drag")])
-        .modes([Mode::new("pan"), Mode::new("box")])
-        .build()
-        .unwrap();
-    let group = &chart.resolve().widgets[0];
-    assert!(group.widget.target().is_none());
-    assert!(group.widget.domain().is_none());
+fn a_mode_widget_turns_a_group_or_a_toggle_of_its_chart() {
+    let widgets = vec![
+        Widget::mode("drag", ModeWidget::group("drag")),
+        Widget::mode("tooltips", ModeWidget::toggle("tooltips")),
+    ];
+    let chart = modal(widgets).modes(drag_modes()).build().unwrap();
+    for group in &chart.resolve().widgets {
+        assert!(group.widget.target().is_none());
+        assert!(group.widget.domain().is_none());
+    }
 
-    // A chart with a mode widget has a mode or more.
-    let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"))
-        .widgets([Widget::mode("drag")]);
+    // The group or the toggle is one of the chart's.
+    let one = |widget: ModeWidgetBuilder| modal(vec![Widget::mode("drag", widget)]);
+    let path = "root.plot.cartesian.layers[0].widgets[0].mode";
     invalid(
-        Chart::builder(Plot::cartesian([symbols])).build(),
-        "root.plot.cartesian.layers[0].widgets[0].mode",
-        "has a mode or more",
+        one(ModeWidget::group("zoom")).modes(drag_modes()).build(),
+        &format!("{path}.group"),
+        "no group of modes `zoom`",
+    );
+    // A mode of a group is not a toggle.
+    invalid(
+        one(ModeWidget::toggle("pan")).modes(drag_modes()).build(),
+        &format!("{path}.toggle"),
+        "no toggle `pan`",
     );
 
     // A mode widget writes no clause.
     let clause = Clause::new([Condition::range(ValueRange::new("a").low(1.0))]).widget("drag");
-    let built = modal(vec![Widget::mode("drag")])
-        .modes([Mode::new("pan"), Mode::new("box")])
+    let built = one(ModeWidget::group("drag"))
+        .modes(drag_modes())
         .selections([
             Selection::new("brush", SelectionResolution::Global),
             Selection::new("filter", SelectionResolution::Union).initial([clause]),
@@ -135,14 +160,14 @@ fn a_mode_widget_sets_the_mode_of_a_chart_with_modes() {
         .build();
     match built {
         Err(ChartError::Invalid { reason, .. }) => {
-            assert!(reason.contains("sets the chart's mode"), "{reason}")
+            assert!(reason.contains("sets the chart's modes"), "{reason}")
         }
         other => panic!("a clause of a mode widget is invalid: {other:?}"),
     }
 }
 
 #[test]
-fn a_box_and_a_lasso_of_one_selection_take_modes_apart() {
+fn a_box_and_a_lasso_of_one_selection_take_modes_of_one_group_apart() {
     let plot = |lasso_modes: Vec<&str>| {
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
         let tools = [
@@ -151,12 +176,17 @@ fn a_box_and_a_lasso_of_one_selection_take_modes_apart() {
         ];
         Chart::builder(Plot::cartesian([symbols]).id("plot").tools(tools))
             .selections([Selection::new("brush", SelectionResolution::Global)])
-            .modes([Mode::new("box"), Mode::new("lasso")])
+            .modes([
+                Mode::new("box").group("drag"),
+                Mode::new("lasso").group("drag"),
+                Mode::new("freehand"),
+            ])
             .build()
     };
     plot(vec!["lasso"]).unwrap();
-    // A lasso that is active in the mode of the box, or in every mode, is a conflict.
-    for modes in [vec!["box", "lasso"], vec![]] {
-        invalid(plot(modes), "root.plot", "in one mode, which is a conflict");
+    // A lasso that can be active with the box is a conflict: in the box's mode, in every mode, or
+    // in a toggle, which can be on in any mode of the group.
+    for modes in [vec!["box", "lasso"], vec![], vec!["freehand"]] {
+        invalid(plot(modes), "root.plot", "can be active at once");
     }
 }

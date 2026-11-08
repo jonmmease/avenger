@@ -76,7 +76,7 @@ pub(crate) fn navigation() -> KeyedPanZoom<ChartAppState, Identity> {
 }
 
 /// The index of the plot with `identity` in the last evaluation, and its navigation, when the
-/// navigation is active in the chart's mode.
+/// navigation is active in the chart's modes.
 pub(crate) fn navigation_of<'a>(
     state: &'a ChartAppState,
     identity: &Identity,
@@ -349,7 +349,7 @@ fn settled_projection(state: &mut ChartAppState, identity: &Identity) {
 }
 
 /// The tool of tooltips, which describes the instances of the marks of each plot and layer that
-/// declares a `Tooltip` that is active in the chart's mode, on a scene above the chart. A layer's tooltip describes its own marks.
+/// declares a `Tooltip` that is active in the chart's modes, on a scene above the chart. A layer's tooltip describes its own marks.
 pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
     Tooltips::new(TOOLTIP_SCENE, 2).targets(|state: &ChartAppState| {
         (state.declaring())

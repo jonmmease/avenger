@@ -150,10 +150,10 @@ message Chart {
   // natural size includes it.
   Padding padding = 10;
   // The modes of the chart, in order, which decide the tools that are active, as `Mode`
-  // describes. The first mode is the chart's mode until a mode widget or the host sets another.
-  // Two modes with one name are not a conflict: they join into one mode at the place of the first,
-  // as the modes of two charts that combine join, and their labels must be equal. Empty, the chart
-  // has no modes, and every tool is active.
+  // describes: in each group, the first mode is on until a mode widget or the host turns on
+  // another, and each toggle is on or off as it says. Two modes with one name are not a conflict:
+  // they join into one mode at the place of the first, as the modes of two charts that combine
+  // join, and they must be equal. Empty, the chart has no modes, and every tool is active.
   repeated Mode modes = 11;
 }
 

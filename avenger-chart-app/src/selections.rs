@@ -91,7 +91,7 @@ struct Declared<'a> {
     marks: Vec<String>,
     coords: &'a PlotCoords,
     select: &'a proto::Select,
-    /// Whether it is active in the chart's mode, so that its brush takes presses. An inactive box
+    /// Whether it is active in the chart's modes, so that its brush takes presses. An inactive box
     /// or lasso still draws.
     active: bool,
 }
@@ -292,7 +292,7 @@ impl ToolHandler<ChartAppState, ()> for FollowFocus {
 
 /// The tool of the selections, on a scene between the chart and its tooltips: a box brush for
 /// each set of dimensions, a lasso brush, and a brush of lassos with a key, each for the
-/// selections that are active in the chart's mode, which take presses, and for the others, which
+/// selections that are active in the chart's modes, which take presses, and for the others, which
 /// only draw, and a point brush for the active point selections. An active box or lasso takes the
 /// presses on its plot over the plot's navigation, which pans and zooms below it.
 pub(crate) fn brushes() -> Brushes<ChartAppState> {
@@ -308,7 +308,7 @@ pub(crate) fn brushes() -> Brushes<ChartAppState> {
 }
 
 /// The rectangles of the plots and layers that declare a selection of `kind` that is or is not
-/// active in the chart's mode. A box or a lasso needs the plot's projection, and a dimension that it covers needs a
+/// active in the chart's modes. A box or a lasso needs the plot's projection, and a dimension that it covers needs a
 /// column that the plot records and a continuous scale, or no scale, as a geo plot's longitude has.
 fn areas(state: &ChartAppState, kind: Form, active: bool) -> Vec<(Area, Rect)> {
     // A lasso, with a key or without, draws its path through both dimensions.
@@ -515,7 +515,7 @@ fn write_interval(
     });
 }
 
-/// The brush of lassos, for the lassos that are or are not active in the chart's mode.
+/// The brush of lassos, for the lassos that are or are not active in the chart's modes.
 fn lasso(active: bool) -> KeyedLassoBrush<ChartAppState, Area, ()> {
     KeyedLassoBrush::new(&format!("lasso {active}"))
         .areas(move |state| areas(state, Form::Lasso, active))
@@ -739,7 +739,7 @@ fn write_keys(
     });
 }
 
-/// The brush of lassos with a key, for the lassos that are or are not active in the chart's mode,
+/// The brush of lassos with a key, for the lassos that are or are not active in the chart's modes,
 /// which select the instances inside their paths by their values of the key columns.
 fn keyed_lasso(active: bool) -> KeyedLassoBrush<ChartAppState, Area, Vec<Scalar>> {
     KeyedLassoBrush::new(&format!("keyed lasso {active}"))

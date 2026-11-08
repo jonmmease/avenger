@@ -1,7 +1,7 @@
 //! The widgets of a chart: the controls that layers declare under keys, which write clauses of the
-//! chart's selections or set the chart's mode. The copies of one key that share a widget are its
+//! chart's selections or turn the chart's modes on and off. The copies of one key that share a widget are its
 //! group, whose spec, domain, and title the evaluator prepares once, and whose value is the clause
-//! of its identity in the state of its selection, or the chart's mode. A widget draws once on the
+//! of its identity in the state of its selection, or whether the chart's modes are on. A widget draws once on the
 //! node that holds its group, or once beside each plot of the group when the node's part rule for
 //! widgets keeps it.
 
@@ -81,11 +81,14 @@ pub enum WidgetSpec {
     },
     /// One check box, which writes `value` while it is checked.
     Checkbox { value: ArrayRef },
-    /// One of the chart's `modes`, with a label for each, which sets the chart's mode.
-    Mode {
+    /// One of the `modes` of a group of the chart's modes, with a label for each, which turns on
+    /// the chosen mode.
+    ModeGroup {
         modes: Vec<String>,
         labels: Vec<String>,
     },
+    /// One check box, which turns the toggle `mode` on and off.
+    ModeToggle { mode: String },
 }
 
 /// The value that a widget shows: what the clause of its identity holds, or its clear state.
@@ -96,7 +99,7 @@ pub enum WidgetValue {
     /// The ends of a range slider.
     Range([f64; 2]),
     /// The position of the item of a radio group, or `None` for its clearing item, or the position
-    /// of the mode of a mode widget.
+    /// of the mode that is on in the group of a mode widget.
     Item(Option<usize>),
     /// The positions of the checked items of a check box list.
     Items(Vec<usize>),
@@ -109,8 +112,8 @@ pub enum WidgetValue {
 pub enum WidgetTarget {
     /// The widget's clause of `selection`, over `column`.
     Selection { selection: String, column: String },
-    /// The chart's mode.
-    Mode,
+    /// The chart's modes.
+    Modes,
 }
 
 /// A widget of an evaluation: its identity, what it writes, its title, its spec, its style, and
@@ -145,7 +148,7 @@ impl EvaluatedWidget {
     pub fn selection(&self) -> Option<&str> {
         match &self.target {
             WidgetTarget::Selection { selection, .. } => Some(selection),
-            WidgetTarget::Mode => None,
+            WidgetTarget::Modes => None,
         }
     }
 
@@ -155,17 +158,24 @@ impl EvaluatedWidget {
         Some(&state?.clauses[position])
     }
 
-    /// The value that the widget shows for `state`, the state of its selection, and `mode`, the
-    /// chart's mode.
-    pub(crate) fn value(&self, state: Option<&SelectionState>, mode: Option<&str>) -> WidgetValue {
+    /// The value that the widget shows for `state`, the state of its selection, with `on`, which
+    /// tells whether a mode of the chart is on.
+    pub(crate) fn value(
+        &self,
+        state: Option<&SelectionState>,
+        on: impl Fn(&str) -> bool,
+    ) -> WidgetValue {
         match (&self.target, &self.spec) {
-            (WidgetTarget::Mode, WidgetSpec::Mode { modes, .. }) => {
-                WidgetValue::Item(modes.iter().position(|name| Some(name.as_str()) == mode))
+            (WidgetTarget::Modes, WidgetSpec::ModeGroup { modes, .. }) => {
+                WidgetValue::Item(modes.iter().position(|name| on(name)))
+            }
+            (WidgetTarget::Modes, WidgetSpec::ModeToggle { mode }) => {
+                WidgetValue::Checked(on(mode))
             }
             (WidgetTarget::Selection { column, .. }, spec) => {
                 spec.value(column, self.clause(state))
             }
-            (WidgetTarget::Mode, _) => WidgetValue::Item(None),
+            (WidgetTarget::Modes, _) => WidgetValue::Item(None),
         }
     }
 
@@ -237,8 +247,8 @@ fn texts(values: &ArrayRef) -> Vec<String> {
 
 impl WidgetSpec {
     /// The value that the widget shows for `clause`, its clause over `column`: the clause's range
-    /// or set, or the clear state without a clause. A mode widget, whose value is the chart's mode
-    /// and not a clause, shows no mode.
+    /// or set, or the clear state without a clause. A mode widget, whose value is whether the
+    /// chart's modes are on and not a clause, shows no mode on.
     pub fn value(&self, column: &str, clause: Option<&Clause>) -> WidgetValue {
         let condition = clause.and_then(|clause| {
             (clause.conditions.iter()).find(|condition| condition.columns() == [column])
@@ -282,13 +292,14 @@ impl WidgetSpec {
                 None => (0..items.len()).collect(),
             }),
             Self::Checkbox { .. } => WidgetValue::Checked(set.is_some()),
-            Self::Mode { .. } => WidgetValue::Item(None),
+            Self::ModeGroup { .. } => WidgetValue::Item(None),
+            Self::ModeToggle { .. } => WidgetValue::Checked(false),
         }
     }
 
     /// The conditions that the widget writes over `column` for `value`, or `None` in its clear
-    /// state and for a mode widget. A slider writes a range whose end at the end of its domain is open, so the range
-    /// keeps the rows past the domain, and the other widgets write a set.
+    /// state and for a mode widget. A slider writes a range whose end at the end of its domain is
+    /// open, so the range keeps the rows past the domain, and the other widgets write a set.
     pub fn conditions(&self, column: &str, value: &WidgetValue) -> Option<Vec<Condition>> {
         let range = |low: Option<f64>, high: Option<f64>, exclude_end: bool| {
             (low.is_some() || high.is_some()).then(|| Condition::Range {
@@ -472,7 +483,7 @@ impl<State: Send + Sync + 'static> Control<State> {
                 let clear = clear.as_deref();
                 Self::Radio(radio(id, title, labels, clear, direction, read, write))
             }
-            WidgetSpec::Mode { labels, .. } => {
+            WidgetSpec::ModeGroup { labels, .. } => {
                 Self::Radio(radio(id, title, labels, None, direction, read, write))
             }
             WidgetSpec::Checkboxes { labels, .. } => {
@@ -489,7 +500,7 @@ impl<State: Send + Sync + 'static> Control<State> {
                         .on_change(move |state, items| write(state, WidgetValue::Items(items))),
                 )
             }
-            WidgetSpec::Checkbox { .. } => {
+            WidgetSpec::Checkbox { .. } | WidgetSpec::ModeToggle { .. } => {
                 let mut checkbox = Checkbox::new(id);
                 if !title.is_empty() {
                     checkbox = checkbox.label(title);
@@ -897,16 +908,20 @@ fn spec(chart: &Chart, group: &WidgetGroup, drawn: &[RecordBatch]) -> Result<Wid
                 items,
             }
         }
-        widget::Kind::Mode(_) => {
-            let modes = &chart.message().modes;
-            WidgetSpec::Mode {
-                modes: modes.iter().map(|mode| mode.name.clone()).collect(),
-                labels: (modes.iter())
-                    .map(|mode| match mode.label.is_empty() {
-                        true => mode.name.clone(),
-                        false => mode.label.clone(),
-                    })
-                    .collect(),
+        widget::Kind::Mode(widget) => {
+            match widget.modes.as_ref().ok_or("the widget has no modes")? {
+                proto::mode_widget::Modes::Group(group) => {
+                    let modes: Vec<&proto::Mode> = (chart.message().modes.iter())
+                        .filter(|mode| &mode.group == group)
+                        .collect();
+                    WidgetSpec::ModeGroup {
+                        modes: modes.iter().map(|mode| mode.name.clone()).collect(),
+                        labels: modes.iter().map(|mode| mode_label(mode)).collect(),
+                    }
+                }
+                proto::mode_widget::Modes::Toggle(toggle) => WidgetSpec::ModeToggle {
+                    mode: toggle.clone(),
+                },
             }
         }
         widget::Kind::Checkbox(checkbox) => WidgetSpec::Checkbox {
@@ -916,6 +931,14 @@ fn spec(chart: &Chart, group: &WidgetGroup, drawn: &[RecordBatch]) -> Result<Wid
             ),
         },
     })
+}
+
+/// The label of `mode`: its own, or its name.
+fn mode_label(mode: &proto::Mode) -> String {
+    match mode.label.is_empty() {
+        true => mode.name.clone(),
+        false => mode.label.clone(),
+    }
 }
 
 /// The widgets of a chart, with a warning for each widget that does not draw, such as a slider
@@ -949,13 +972,19 @@ pub(crate) fn widgets(
                 selection: target.selection.clone(),
                 column: target.column.clone(),
             },
-            None => WidgetTarget::Mode,
+            None => WidgetTarget::Modes,
         };
-        // A widget without a title takes the name of its column, and a mode widget has none.
-        let title = match (&group.widget.title, &target) {
-            (Some(title), _) => title.text.clone(),
-            (None, WidgetTarget::Selection { column, .. }) => column.clone(),
-            (None, WidgetTarget::Mode) => String::new(),
+        // A widget without a title takes the name of its column, a mode widget of a toggle takes
+        // the toggle's label, and a mode widget of a group has none.
+        let title = match (&group.widget.title, &target, &spec) {
+            (Some(title), _, _) => title.text.clone(),
+            (None, WidgetTarget::Selection { column, .. }, _) => column.clone(),
+            (None, WidgetTarget::Modes, WidgetSpec::ModeToggle { mode }) => {
+                (inputs.chart.message().modes.iter())
+                    .find(|declared| &declared.name == mode)
+                    .map_or_else(|| mode.clone(), mode_label)
+            }
+            (None, WidgetTarget::Modes, _) => String::new(),
         };
         let side = side_of(group.widget.side, style);
         let evaluated = EvaluatedWidget {

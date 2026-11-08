@@ -17,8 +17,9 @@ message Tool {
     Tooltip tooltip = 2;
     Select select = 3;
   }
-  // The names of the modes of `Chart.modes` in which the tool is active, each once. Empty makes
-  // the tool active in every mode, as in a chart without modes.
+  // The names of the modes of `Chart.modes` in which the tool is active, each once: the tool is
+  // active while one of them is on. Empty makes the tool active always, as in a chart without
+  // modes.
   repeated string modes = 4;
 }
 
@@ -35,10 +36,14 @@ message LayerTool {
   repeated string modes = 4;
 }
 
-// A mode of the chart, which decides the tools that are active: a tool is active in the modes that
-// it names, or in every mode when it names none. The chart is in one mode at a time, its first
-// mode until a mode widget or the host sets another, so a chart whose plot declares a navigation
-// in a mode `pan` and a box in a mode `box` pans or draws boxes by its mode.
+// A mode of the chart, which is on or off and decides the tools that are active: a tool is active
+// while one of the modes that it names is on, or always when it names none.
+//
+// The modes of one group exclude each other: one of them is on at a time, the group's first until
+// a mode widget or the host turns on another. So a chart whose plot declares a navigation in a
+// mode `pan` and a box in a mode `box`, both of the group `drag`, pans or draws boxes by its mode.
+// A mode without a group is a toggle, which turns on and off by itself, such as a mode `tooltips`
+// that a chart's tooltips name.
 //
 // On a plot whose box or lasso is active with its navigation, a drag draws the box or the lasso,
 // and the wheel zooms.
@@ -48,6 +53,12 @@ message Mode {
   string name = 1 [(avenger.chart.v1.required) = true];
   // The label of the mode in a mode widget, as Typst markup. Empty labels the mode with its name.
   string label = 2;
+  // The name of the group of the mode, whose modes exclude each other, or empty for a toggle. The
+  // groups have their own namespace, apart from the names of the modes.
+  string group = 3;
+  // Whether a toggle is on until a mode widget or the host turns it off. A mode of a group is on
+  // when it is the first of its group, so it does not set `on`.
+  bool on = 4;
 }
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
@@ -141,8 +152,9 @@ enum TooltipAnchor {
 
 // A gesture on the plot writes the plot's clause to a selection of the chart. A plot or a layer
 // owns one clause of a selection, so two of its `Select` tools that write one selection are a
-// conflict when they are active in one mode. In modes apart, such as a box in one mode and a lasso
-// in another, each replaces the owner's clause.
+// conflict when they can be active at once. Two that name modes of one group, and no mode that
+// both name, are never active at once, such as a box in one mode of a group and a lasso in
+// another, and each replaces the owner's clause.
 message Select {
   // The name of the selection, which the chart defines.
   string selection = 1 [(avenger.chart.v1.required) = true];

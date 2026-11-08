@@ -80,6 +80,14 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
             non_negative(value.map(f64::from), &format!("padding.{side}"))?;
         }
     }
+    for (index, mode) in message.modes.iter().enumerate() {
+        if !mode.group.is_empty() && mode.on {
+            return Err(fail(
+                format!("modes[{index}].on"),
+                "a mode of a group is on when it is the first of its group, so it does not set `on`",
+            ));
+        }
+    }
     let selections = selection::selections(chart);
     let checker = Checker {
         chart,

@@ -68,7 +68,7 @@ impl ChartApp {
         self
     }
 
-    /// The handle through which the host sends updates, the mode, and selections.
+    /// The handle through which the host sends updates, modes, and selections.
     pub fn updates(mut self, updates: &ChartUpdates) -> Self {
         self.updates = updates.clone();
         self
