@@ -168,7 +168,7 @@ pub(crate) struct GuideInputs<'a> {
 // Computed styles
 
 /// The computed color of `property` of a node as a paint: a color, or transparent for none.
-fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
+pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
     match style.paint(property) {
         Paint::Color(color) => color,
         Paint::Contrast { otherwise } => otherwise,
@@ -177,7 +177,7 @@ fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
 }
 
 /// The computed text color of a node: its `fill`, which `auto` makes its `color`.
-fn text_color(style: &ComputedStyle) -> [f32; 4] {
+pub(crate) fn text_color(style: &ComputedStyle) -> [f32; 4] {
     match style.paint(Property::Fill) {
         Paint::None => style_color(style, Property::Color),
         _ => paint_color(style, Property::Fill),
@@ -226,7 +226,7 @@ fn offset(style: &ComputedStyle) -> f32 {
     style_number(style, Property::Offset)
 }
 
-fn visible(style: &ComputedStyle) -> bool {
+pub(crate) fn visible(style: &ComputedStyle) -> bool {
     !style.is_hidden()
 }
 

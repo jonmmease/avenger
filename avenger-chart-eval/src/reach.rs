@@ -194,8 +194,8 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
         _ => None,
     };
     let text = match rows.layer {
-        LayerRef::Cartesian(_) => TextFormat::of_layer(rows.layer),
-        _ => None,
+        LayerRef::Polar(_) => None,
+        _ => TextFormat::of_layer(rows.layer),
     };
     match rows.mark.mark_type() {
         MarkType::Symbol => {
