@@ -1,0 +1,11 @@
+{
+  "name": "avenger-vega-transforms-reference",
+  "private": true,
+  "type": "module",
+  "scripts": {"generate": "node generate.mjs"},
+  "engines": {"node": "20.19.6"},
+  "dependencies": {
+    "vega-statistics": "2.0.0",
+    "vega-time": "3.1.0"
+  }
+}

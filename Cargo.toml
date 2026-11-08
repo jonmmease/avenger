@@ -38,6 +38,7 @@ members = [
     "avenger-widgets",
     "avenger-datafusion-rasterize",
     "avenger-datafusion-aggregate-state",
+    "avenger-datafusion-transforms",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
