@@ -39,6 +39,7 @@ members = [
     "avenger-widgets",
     "avenger-datafusion-rasterize",
     "avenger-datafusion-aggregate-state",
+    "avenger-datafusion-transforms",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
@@ -112,6 +113,7 @@ lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
 image = { version = "0.25.6", default-features = false, features = ["png"] }
 lazy_static = "1.5.0"
+libm = "0.2.16"
 pyo3 = "0.25.1"
 pythonize = "0.25.0"
 tracing = "0.1.41"
