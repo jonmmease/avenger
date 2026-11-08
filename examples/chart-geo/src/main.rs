@@ -7,14 +7,15 @@
 //! own projection: a drag turns the globe as a trackball turns, and a sideways drag turns the world
 //! map. The wheel zooms either.
 //!
-//! The chart has three modes, Pan, Box, and Lasso, and a mode widget above the maps chooses one. In
-//! the Pan mode, a drag pans a map. In the Box mode, a drag draws a box between two meridians and
+//! The chart has three modes of the group `drag`, Pan, Box, and Lasso, and a mode widget above the
+//! maps chooses one. In the Pan mode, a drag pans a map. In the Box mode, a drag draws a box between two meridians and
 //! two parallels, and in the Lasso mode, a drag draws a closed path around earthquakes. The box and
 //! the lasso write the selection `quakes`, whose resolution is global, so both maps draw the one
 //! box or lasso, and both ring the earthquakes inside it. A click clears it. The wheel zooms in
 //! every mode, and a double click returns a map to its first view.
 //!
-//! The tooltip of an earthquake near the pointer shows its magnitude, its depth, and its date.
+//! The tooltip of an earthquake near the pointer shows its magnitude, its depth, and its date, while
+//! the toggle Tooltips is on. A check box beside the modes turns it on and off.
 //!
 //! The example fetches the tiles with its own User-Agent and keeps them on disk in
 //! `target/chart-geo-tiles`, as OpenStreetMap's tile usage policy asks. `--svg <PATH>` writes the
@@ -63,7 +64,7 @@ const USER_AGENT: &str = concat!(
 const QUAKES: &str = "quakes";
 
 /// The size of the window.
-const SIZE: [f32; 2] = [1200.0, 720.0];
+const SIZE: [f32; 2] = [1200.0, 540.0];
 
 /// Earthquake depth, shallow to deep.
 const DEPTHS: [&str; 5] = ["#f46d43", "#d53e4f", "#9e0142", "#5e3c99", "#2d004b"];
@@ -147,7 +148,7 @@ fn tooltip() -> TooltipBuilder {
 
 /// The layers of a map `id`: the plate boundaries, colored by kind, and the earthquakes, sized by
 /// magnitude, colored by depth, and ringed inside the selection, with the tooltip of an earthquake
-/// and the widget of the chart's modes.
+/// while the toggle `tooltips` is on, and the widgets of the chart's modes.
 fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuilder; 2] {
     let boundaries = GeoLayer::shape(
         plates.clone(),
@@ -189,8 +190,11 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
             ),
     )
     .id(format!("{id} quakes"))
-    .tools([LayerToolBuilder::from(tooltip())])
-    .widgets([Widget::mode("drag")]);
+    .tools([LayerToolBuilder::from(tooltip()).modes(["tooltips"])])
+    .widgets([
+        Widget::mode("drag", ModeWidget::group("drag")),
+        Widget::mode("tooltips", ModeWidget::toggle("tooltips")),
+    ]);
     [boundaries, earthquakes]
 }
 
@@ -204,8 +208,15 @@ fn tools() -> [ToolBuilder; 3] {
     ]
 }
 
-/// A map `id` titled `title` in the projection of `spherical`, which pans in `pan_mode` and zooms
-/// out to `min_zoom` of its fitted scale, over OpenStreetMap's tiles.
+/// The lines of longitude and latitude every 30 degrees.
+fn graticule() -> GraticuleBuilder {
+    Graticule::builder()
+        .longitude_step(30.0)
+        .latitude_step(30.0)
+}
+
+/// A map `id` titled `title` in the projection of `spherical`, with its graticule, which pans in
+/// `pan_mode` and zooms out to `min_zoom` of its fitted scale, over OpenStreetMap's tiles.
 fn map(
     id: &str,
     title: &str,
@@ -215,11 +226,6 @@ fn map(
 ) -> PlotBuilder {
     let options = Geo::spherical(
         spherical
-            .graticule(
-                Graticule::builder()
-                    .longitude_step(30.0)
-                    .latitude_step(30.0),
-            )
             .sphere(SphereStyle::builder())
             .tiles(TileLayer::new(OSM_TILES)),
     )
@@ -237,14 +243,17 @@ fn map(
         .attribution(Attribution::builder().credits(["© OpenStreetMap contributors"]))
 }
 
-/// The chart: the globe beside the world map, with the modes Pan, Box, and Lasso.
+/// The chart: the globe beside the world map, with the modes Pan, Box, and Lasso of the group
+/// `drag`, and the toggle Tooltips.
 fn chart() -> Chart {
     let globe = map(
         "globe",
         "Pacific Ring of Fire",
+        // The globe's lines are unlabeled, since their labels crowd its edge.
         Spherical::orthographic()
             .rotate(Rotation::builder().lambda(170.0).phi(-10.0))
-            .fit_sphere(),
+            .fit_sphere()
+            .graticule(graticule().label_sides(LabelSides::builder())),
         PanMode::Sphere,
         0.6,
     );
@@ -252,27 +261,37 @@ fn chart() -> Chart {
     let world = map(
         "world",
         "The world",
-        Spherical::mercator().fit_box(
-            LonLatBox::builder()
-                .west(-180.0)
-                .south(-65.0)
-                .east(180.0)
-                .north(80.0),
-        ),
+        Spherical::mercator()
+            .fit_box(
+                LonLatBox::builder()
+                    .west(-180.0)
+                    .south(-65.0)
+                    .east(180.0)
+                    .north(80.0),
+            )
+            .graticule(graticule()),
         PanMode::Longitude,
         1.0,
     );
-    Chart::builder(Concat::new(Direction::Row).children([globe, world]))
-        .number_format_syntax("d3")
-        .datetime_format_syntax("d3")
-        .selections([Selection::new(QUAKES, SelectionResolution::Global)])
-        .modes([
-            Mode::new("pan").label("Pan"),
-            Mode::new("box").label("Box"),
-            Mode::new("lasso").label("Lasso"),
-        ])
-        .build()
-        .unwrap()
+    // The world map's column is the wider, since the map is wider than it is tall.
+    let share = |weight: f32| Track::builder().share(Share::builder().weight(weight));
+    let layout = ConcatLayout::builder().tracks([share(1.0), share(1.6)]);
+    Chart::builder(
+        Concat::new(Direction::Row)
+            .layout(layout)
+            .children([globe, world]),
+    )
+    .number_format_syntax("d3")
+    .datetime_format_syntax("d3")
+    .selections([Selection::new(QUAKES, SelectionResolution::Global)])
+    .modes([
+        Mode::new("pan").label("Pan").group("drag"),
+        Mode::new("box").label("Box").group("drag"),
+        Mode::new("lasso").label("Lasso").group("drag"),
+        Mode::new("tooltips").label("Tooltips").on(true),
+    ])
+    .build()
+    .unwrap()
 }
 
 fn engine() -> LabelEngine {
@@ -319,11 +338,11 @@ fn tile_cache() -> ImageCache {
     })
 }
 
-/// Prints the mode that a click on the mode widget set, and the count of the clauses of the
-/// selection when a box or a lasso settles.
+/// Prints the modes that are on after a click on a mode widget, and the count of the conditions
+/// of the selection when a box or a lasso settles.
 fn report(change: &ChartChange) {
-    if let Some(mode) = &change.mode {
-        println!("mode: {mode}");
+    if let Some(modes) = &change.modes {
+        println!("modes: {}", modes.join(", "));
     }
     if let Some(clauses) = change.selection(QUAKES) {
         match clauses.first() {
