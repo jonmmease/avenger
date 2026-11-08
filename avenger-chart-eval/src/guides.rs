@@ -63,6 +63,32 @@ pub(crate) struct AxisGuide {
     pub(crate) offset: f32,
     /// What its title draws, so equal titles of different scales collapse and merge.
     pub(crate) title_key: String,
+    /// Its title and its configuration, from which it rebuilds to show a view.
+    title: String,
+    config: AxisConfig,
+    /// The domain of the view that it shows, or `None` for the fitted domain.
+    pub(crate) view: Option<ArrayRef>,
+    /// The revision of what it shows, which the content keys of its slabs hold, so the layout
+    /// measures it again when it shows a new view.
+    pub(crate) revision: u64,
+}
+
+impl AxisGuide {
+    /// Shows `view`, a scale whose domain replaces the fitted domain of `fitting`, or the fitted
+    /// domain without one, at `revision`. An axis of categories shows no view.
+    pub(crate) fn set_view(
+        &mut self,
+        view: Option<&ConfiguredScale>,
+        fitting: &FittingScale,
+        revision: u64,
+        engine: &LabelEngine,
+    ) -> Result<()> {
+        let fitting = view.map_or_else(|| fitting.clone(), FittingScale::from);
+        self.axis = Axis::continuous(fitting, &self.title, &self.config, engine)?;
+        self.view = view.map(|view| view.domain().clone());
+        self.revision = revision;
+        Ok(())
+    }
 }
 
 /// A legend or a colorbar.
@@ -523,6 +549,10 @@ fn axis(
             grid,
             offset: offset(&styles[nodes.axis]),
             title_key: format!("{side:?} {title}"),
+            title,
+            config,
+            view: None,
+            revision: 0,
         })
     }
 }

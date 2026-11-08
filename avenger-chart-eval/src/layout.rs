@@ -761,7 +761,7 @@ impl Lowering<'_> {
                             group: axis.group,
                             part,
                         },
-                        format!("axis {axis_index} {part}"),
+                        format!("axis {axis_index} {part} {}", axis.revision),
                     ),
                 };
                 slabs.push((
