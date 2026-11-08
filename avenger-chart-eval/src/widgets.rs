@@ -125,6 +125,9 @@ pub struct EvaluatedWidget {
     pub title: String,
     pub spec: WidgetSpec,
     pub style: WidgetStyle,
+    /// The side of the plot or the concat that the widget stands on, along which the items of a
+    /// radio group or a check box list run.
+    pub side: GuideSide,
     /// The left, top, width, and height of each drawing.
     pub rects: Vec<[f32; 4]>,
 }
@@ -391,18 +394,23 @@ pub enum ControlView {
 }
 
 impl<State: Send + Sync + 'static> Control<State> {
-    /// The control named `id` and titled `title` of `spec`, without a title when `title` is empty,
-    /// which reads its value from the state with `read` and writes each new value with `write`. A slider's gesture, which writes many
+    /// The control of `widget`, named by its owner and titled by its title, without a title when
+    /// its title is empty, whose items, for a radio group or a check box list, run along its side.
+    /// It reads its value from the state with `read` and writes each new value with `write`. A slider's gesture, which writes many
     /// values, ends with `settle` and its last value, and each change of the other kinds is a
     /// gesture of its own, which `write` alone ends.
     pub fn new(
-        id: &str,
-        title: &str,
-        spec: &WidgetSpec,
+        widget: &EvaluatedWidget,
         read: impl Fn(&State) -> WidgetValue + Send + Sync + 'static,
         write: impl Fn(&mut State, WidgetValue) -> Rebuild + Send + Sync + 'static,
         settle: impl Fn(&mut State, WidgetValue) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
+        let owner = widget.owner();
+        let (id, title, spec) = (owner.as_str(), widget.title.as_str(), &widget.spec);
+        let direction = match widget.side.is_vertical() {
+            true => RadioDirection::Column,
+            false => RadioDirection::Row,
+        };
         let read: Read<State> = Arc::new(read);
         let write: Write<State> = Arc::new(write);
         let settle: Write<State> = Arc::new(settle);
@@ -461,10 +469,11 @@ impl<State: Send + Sync + 'static> Control<State> {
                 )
             }
             WidgetSpec::Radio { labels, clear, .. } => {
-                Self::Radio(radio(id, title, labels, clear.as_deref(), read, write))
+                let clear = clear.as_deref();
+                Self::Radio(radio(id, title, labels, clear, direction, read, write))
             }
             WidgetSpec::Mode { labels, .. } => {
-                Self::Radio(radio(id, title, labels, None, read, write))
+                Self::Radio(radio(id, title, labels, None, direction, read, write))
             }
             WidgetSpec::Checkboxes { labels, .. } => {
                 let mut list = CheckboxList::new(id, labels.iter().cloned().enumerate());
@@ -472,7 +481,7 @@ impl<State: Send + Sync + 'static> Control<State> {
                     list = list.label(title);
                 }
                 Self::Checkboxes(
-                    list.direction(RadioDirection::Column)
+                    list.direction(direction)
                         .value(move |state| match read(state) {
                             WidgetValue::Items(items) => items,
                             _ => Vec::new(),
@@ -498,13 +507,14 @@ impl<State: Send + Sync + 'static> Control<State> {
 }
 
 /// A radio group named `id` and titled `title`, without a title when `title` is empty, of an item
-/// for each of `labels`, after an item labeled `clear` that clears it, which reads its value with
-/// `read` and writes it with `write`.
+/// for each of `labels`, after an item labeled `clear` that clears it, in `direction`, which reads
+/// its value with `read` and writes it with `write`.
 fn radio<State: Send + Sync + 'static>(
     id: &str,
     title: &str,
     labels: &[String],
     clear: Option<&str>,
+    direction: RadioDirection,
     read: Read<State>,
     write: Write<State>,
 ) -> RadioGroup<State, Option<usize>> {
@@ -515,7 +525,7 @@ fn radio<State: Send + Sync + 'static>(
         radio = radio.label(title);
     }
     radio
-        .direction(RadioDirection::Column)
+        .direction(direction)
         .value(move |state| match read(state) {
             WidgetValue::Item(item) => item,
             _ => None,
@@ -947,6 +957,7 @@ pub(crate) fn widgets(
             (None, WidgetTarget::Selection { column, .. }) => column.clone(),
             (None, WidgetTarget::Mode) => String::new(),
         };
+        let side = side_of(group.widget.side, style);
         let evaluated = EvaluatedWidget {
             key: group.key.clone(),
             anchor: group.anchor.clone(),
@@ -954,17 +965,15 @@ pub(crate) fn widgets(
             title,
             spec,
             style: widget_style(style),
+            side,
             rects: Vec::new(),
         };
         let control = Control::new(
-            &evaluated.owner(),
-            &evaluated.title,
-            &evaluated.spec,
+            &evaluated,
             WidgetValue::clone,
             |_, _| Rebuild::none(),
             |_, _| Rebuild::none(),
         );
-        let side = side_of(group.widget.side, style);
         let cx = WidgetContext {
             engine: inputs.engine,
             style: &evaluated.style,

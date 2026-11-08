@@ -51,13 +51,14 @@ impl WidgetControls {
         let described = (widgets.iter())
             .map(|widget| {
                 format!(
-                    "{:?} {:?} {:?} {:?} {:?} {:?}",
+                    "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
                     widget.key,
                     widget.anchor,
                     widget.target,
                     widget.title,
                     widget.spec,
-                    widget.style
+                    widget.style,
+                    widget.side
                 )
             })
             .collect::<Vec<_>>()
@@ -84,9 +85,7 @@ impl WidgetControls {
 /// or the chart's mode and writes its clause or the mode.
 fn control(index: usize, widget: &EvaluatedWidget) -> Control<ChartAppState> {
     Control::new(
-        &widget.owner(),
-        &widget.title,
-        &widget.spec,
+        widget,
         move |state: &ChartAppState| state.widget_value(index),
         move |state: &mut ChartAppState, value| state.write_widget(index, value, false),
         move |state: &mut ChartAppState, value| state.write_widget(index, value, true),

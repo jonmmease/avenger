@@ -518,9 +518,12 @@ impl Lowering<'_> {
             if let Some(length) = legend.max_length {
                 slab = slab.max_length(length);
             }
-            tracks.push(match legend.guide {
-                LegendGuide::Legend(_) => Track::auto(),
-                LegendGuide::Colorbar(_) => Track::fr(1.0),
+            // A colorbar's track stops at its longest length, so the legends after it stand
+            // beside its end.
+            tracks.push(match (&legend.guide, legend.max_length) {
+                (LegendGuide::Legend(_), _) => Track::auto(),
+                (LegendGuide::Colorbar(_), Some(length)) => Track::fr_max(1.0, length),
+                (LegendGuide::Colorbar(_), None) => Track::fr(1.0),
             });
             slabs.push(slab);
             gap = gap.max(legend.offset);
