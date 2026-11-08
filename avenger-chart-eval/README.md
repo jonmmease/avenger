@@ -48,11 +48,38 @@ computed background and border of its `plot[type=geo]`, and its graticule takes 
 warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps. The
 coordinates of a geo plot are its projection, without scales.
 
+## Widgets
+
+A widget of a layer draws where a legend would: on the side that its declaration or the computed
+`orient` of its `widget` node gives, `offset` apart from the plot, on the node that holds the
+copies of its key. The node draws it once, or once beside each plot of the group when its part rule
+for `PART_WIDGET` keeps it. The widgets on one side share a line along it, in their order,
+apart by their largest offset, and a widget that would pass the side's length starts a new line
+farther out. The evaluator fits the domain once, when it prepares the chart:
+the explicit values, the summaries of the copies, or the target's column in the drawn rows of the
+copies' layers, with zero when the fit asks for it. A slider runs between the least and the
+greatest number, and a radio group and a check box list list the distinct values in ascending
+order. A mode widget of a group lists the group's modes with their labels, and a mode widget of a
+toggle is a check box. The `widget` node gives the
+font, the color of the text, and with `accent-color`, the color of the checked and filled parts.
+
+A widget's value is the clause of its identity in the state of its selection, and its clear state
+writes no clause. A mode widget's value is the mode that is on in its group, or whether its toggle
+is on. `EvaluatedChart::widgets` holds each
+widget with its target, its spec, its style, and the rectangle of each drawing.
+`ChartEvaluator::widget_value` reads a widget's value, and `ChartEvaluator::write_widget` writes the
+clause of a value to its selection, or turns the chart's modes on and off. A `Control` is the avenger-widgets
+control of a widget's spec over any state, which the evaluator draws over the value alone, and an
+app over its own state. `ChartEvaluator::set_draws_widgets(false)` leaves the drawings out of the
+scene for an app that draws its own at the widgets' rectangles.
+
 ## State and updates
 
 An evaluation reads a state that changes without a new chart. `set_selections` replaces the clauses
 of the selections, which the conditional values of encodings take at the next evaluation, and a
-scale whose domain reads a selection fits again. `scale_view_mut` gives the view of a continuous
+scale whose domain reads a selection fits again. `set_mode` turns a mode on or off, and `modes` lists the
+modes that are on: one mode of each group, the group's first until another turns on, and each
+toggle that is on. `is_active` tells whether a tool that names modes is active. `scale_view_mut` gives the view of a continuous
 scale of `x` or `y`, which keeps its domain at every size, shows on its axes, and clips its plots,
 and `projection_view_mut` gives the view of a geo plot's projection, which scales and moves with the
 plot's fit as the plots resize. An evaluation drops a view that did not move. A scale has an
@@ -62,8 +89,8 @@ family of its spec or from the id of its first geo plot.
 `PreparedChart::new` prepares a chart on any thread, and `ChartEvaluator::install` installs it with
 `UpdateOptions`: a `Fit` that refits, keeps, or extends the fitted domain of each scale and
 projection that carries over by identity, `Views` that keep or drop the views, and a `Carry` that
-keeps or resets the clauses of each selection. A chart whose style tree equals the old one keeps the
-computed styles.
+keeps or resets the clauses of each selection. The modes that a widget or the host turned stay while the new chart declares them. A
+chart whose style tree equals the old one keeps the computed styles.
 
 ## Preparation and evaluation
 
@@ -175,8 +202,9 @@ and the failures of the crates that draw a chart. A warning is a part of the cha
 not as the chart says:
 
 - `EvalWarning::Style`, a value of the styles that does not draw as written.
-- `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget, whose initial
-  clause still applies, a condition on a column that the layer does not have, the text of a style
+- `EvalWarning::NotDrawn`, a part that the evaluator draws without, such as a widget whose domain
+  holds no values, whose initial clause still applies, a condition on a column that the layer does
+  not have, the text of a style
   field that is not a value of its property, such as a color that CSS does not name, a percentage
   `size` of a mark without a band, or an `auto` size of a URL image.
 - `EvalWarning::Fit`, marks that reach past the edges of their plot, because the plot is too small

@@ -1,6 +1,6 @@
 # avenger-chart
 
-The avenger chart format and its reader. A chart is a protobuf message of package `avenger.chart.v1`: a tree of plots, concats, and wraps over Arrow data tables, with the selections that its plots and widgets write and read. A chart holds no runtime state and no size of its own, so a renderer draws it at any size, and a chart renders the same after a round trip through bytes. The crate depends on prost, Arrow, and thiserror only.
+The avenger chart format and its reader. A chart is a protobuf message of package `avenger.chart.v1`: a tree of plots, concats, and wraps over Arrow data tables, with the selections that its plots and widgets write and read, and the modes that decide which of its tools are active. A chart holds no runtime state and no size of its own, so a renderer draws it at any size, and a chart renders the same after a round trip through bytes. The crate depends on prost, Arrow, and thiserror only.
 
 ## The format
 
@@ -8,7 +8,7 @@ The `.proto` files are in `proto/avenger/chart/v1/`, and their comments are the 
 
 The data tables are Arrow IPC streams inside the message. A layer refers to its table by a `TableRef`, the position of the table in `Chart.tables`. The other Arrow values of a chart, such as constants, explicit domains, domain summaries, and partition values, are scalars that the fields of the message refer to by a `ValueRef`, so each value keeps its exact Arrow type.
 
-The schema decides the shape of a chart: a scale always has a type, a plot always has a coordinate system, and the oneofs hold the kinds of each. A rule that spans messages accepts each way of writing one chart that has one meaning. Keyed lists, such as resolve rules and partition values, come in any order, and two equal entries with one key count as one. Partition values can be declared on any node above the layers that hold them. Selections with one name join. Equal copies of a table can stand in for one table. Two different entries with one key are a conflict, as are two layers whose shared scale has specs that disagree, and two copies of one widget that disagree.
+The schema decides the shape of a chart: a scale always has a type, a plot always has a coordinate system, and the oneofs hold the kinds of each. A rule that spans messages accepts each way of writing one chart that has one meaning. Keyed lists, such as resolve rules and partition values, come in any order, and two equal entries with one key count as one. Partition values can be declared on any node above the layers that hold them. Selections with one name join, and so do modes with one name. Equal copies of a table can stand in for one table. Two different entries with one key are a conflict, as are two layers whose shared scale has specs that disagree, and two copies of one widget that disagree.
 
 ## Reading a chart
 

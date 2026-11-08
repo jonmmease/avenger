@@ -56,6 +56,7 @@ fn target_of(widget: &mut proto::Widget) -> &mut proto::WidgetTarget {
         Kind::Radio(radio) => &mut radio.target,
         Kind::Checkboxes(checkboxes) => &mut checkboxes.target,
         Kind::Checkbox(checkbox) => &mut checkbox.target,
+        Kind::Mode(_) => panic!("a mode widget has no target"),
     };
     target.as_mut().expect("the kind has a target")
 }

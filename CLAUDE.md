@@ -88,7 +88,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-eventstream`: Event handling system
 - `avenger-app`: Application framework
 - `avenger-app-tools`: Reusable app tools (tooltips, pan and zoom)
-- `avenger-widgets`: Controls (buttons, check boxes, radio groups, sliders, text inputs, group boxes) drawn by a `Widgets` tool and placed by the app's layout
+- `avenger-widgets`: Controls (buttons, check boxes, check box lists, radio groups, sliders, range sliders, text inputs, group boxes), drawn by a `Widgets` tool behind the `app` feature and placed by the app's layout, or drawn on their own
 - `avenger-chart-eval`: The evaluation of avenger charts at any size: the style tree and its computed styles, scales and domains from the format, marks, guides, the layout, and the scene graph
 - `avenger-chart-app`: An avenger app of a chart: the tools that its plots and layers declare, and one handle of updates of its chart, its styles, its mode, and its selections
 - `avenger-style`: The CSS style language of charts: stylesheets, their checks against the vocabulary of the style tree, and property values

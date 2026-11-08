@@ -581,6 +581,7 @@ fn a_partition_column_of_every_layer_is_a_column_of_the_plot() {
                 proto::IntervalSelect::default(),
             )),
         })),
+        ..Default::default()
     };
     if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
         cartesian.layers.push(symbols(0));

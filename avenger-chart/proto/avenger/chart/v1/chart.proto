@@ -149,6 +149,12 @@ message Chart {
   // plots, the axes and legends, and the titles fill the canvas less the padding, and the chart's
   // natural size includes it.
   Padding padding = 10;
+  // The modes of the chart, in order, which decide the tools that are active, as `Mode`
+  // describes: in each group, the first mode is on until a mode widget or the host turns on
+  // another, and each toggle is on or off as it says. Two modes with one name are not a conflict:
+  // they join into one mode at the place of the first, as the modes of two charts that combine
+  // join, and they must be equal. Empty, the chart has no modes, and every tool is active.
+  repeated Mode modes = 11;
 }
 
 // The space on each side of a box, in pixels, each at least 0 and finite. A side that is absent

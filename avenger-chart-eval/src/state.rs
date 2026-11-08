@@ -326,6 +326,9 @@ pub(crate) struct EvaluationState {
     pub(crate) carried: BTreeMap<usize, Carried>,
     /// The views and the carried fits of the projections of geo plots.
     pub(crate) projections: geo::ProjectionState,
+    /// The modes that a mode widget or the host turned on or off, by name, in place of their
+    /// initial states while the chart declares them.
+    pub(crate) modes: BTreeMap<String, bool>,
 }
 
 /// A fitted domain that an update carries from the old chart to a scale group of the new one,

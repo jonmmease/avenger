@@ -7,6 +7,7 @@
 //!   hold it
 //! - joins the selections with one name, orders the selections by name, and orders the initial
 //!   clauses of each by the tree order of their owners
+//! - joins the modes with one name at the place of the first, keeping the order of the modes
 //! - orders each other keyed list by its key, with one entry for each key
 //! - leaves out the fields that a reader ignores, and the messages whose comments say that leaving
 //!   them out means the default of each of their fields, when every field is at its default
@@ -60,6 +61,7 @@ pub(crate) fn tree(chart: &mut Chart) {
     let root = (chart.message.root.as_mut()).expect("a valid chart has a root");
     hoist.node(root, "root", &BTreeMap::new());
     selections(&mut chart.message.selections, &owners, &chart.values);
+    modes(&mut chart.message.modes);
     (chart.tables, chart.streams) =
         canonical_tables(&mut chart.message, &chart.tables, &chart.streams);
     chart.values = canonical_values(&mut chart.message, &chart.values);
@@ -381,7 +383,7 @@ fn widgets(widgets: &mut [proto::Widget]) {
             Some(Kind::RangeSlider(slider)) => slider.domain.as_mut(),
             Some(Kind::Radio(radio)) => radio.domain.as_mut(),
             Some(Kind::Checkboxes(checkboxes)) => checkboxes.domain.as_mut(),
-            Some(Kind::Checkbox(_)) | None => None,
+            Some(Kind::Checkbox(_) | Kind::Mode(_)) | None => None,
         };
         match domain.and_then(|domain| domain.domain.as_mut()) {
             Some(Domain::Summary(summary)) => empty_fit(&mut summary.fit),
@@ -403,6 +405,17 @@ fn empty_fit(fit: &mut Option<proto::DomainFit>) {
     if empty {
         *fit = None;
     }
+}
+
+/// Joins the modes with one name into the first, whose labels are equal in a valid chart.
+fn modes(modes: &mut Vec<proto::Mode>) {
+    let mut joined: Vec<proto::Mode> = Vec::new();
+    for mode in std::mem::take(modes) {
+        if !joined.iter().any(|known| known.name == mode.name) {
+            joined.push(mode);
+        }
+    }
+    *modes = joined;
 }
 
 /// Joins the selections with one name, orders them by name, and orders the initial clauses of

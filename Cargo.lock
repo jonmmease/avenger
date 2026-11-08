@@ -565,6 +565,7 @@ dependencies = [
  "avenger-selection",
  "avenger-style",
  "avenger-typst-label",
+ "avenger-widgets",
  "tokio",
 ]
 
@@ -577,6 +578,7 @@ dependencies = [
  "avenger-color",
  "avenger-common",
  "avenger-coords",
+ "avenger-eventstream",
  "avenger-format",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
@@ -593,6 +595,7 @@ dependencies = [
  "avenger-style",
  "avenger-svg",
  "avenger-typst-label",
+ "avenger-widgets",
  "geo-traits",
  "geo-types",
  "geoarrow-array",
@@ -1553,6 +1556,54 @@ dependencies = [
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-scenegraph",
+ "avenger-style",
+ "avenger-svg",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
+name = "chart-geo"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-image",
+ "avenger-scenegraph",
+ "avenger-selection",
+ "avenger-style",
+ "avenger-svg",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
+name = "chart-widgets"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-scenegraph",
+ "avenger-selection",
  "avenger-style",
  "avenger-svg",
  "avenger-typst-label",

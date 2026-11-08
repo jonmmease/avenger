@@ -112,7 +112,7 @@ The language has the properties of this table. A declaration on a node whose ele
 
 The initial values of the table hold on every node except these, where they depend on the node:
 
-- `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet and a title
+- `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet, a title, and a widget
 - `direction`: `horizontal` on a legend at the top or the bottom
 - `axes`: `outer` on a facet
 - `columns`: `none` on an `hconcat`
@@ -198,7 +198,7 @@ The initial values of the table hold on every node except these, where they depe
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
 | `title-frame` | `plot \| chart` | `chart` | no | `chart` |
 | `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `facet`, `legend`, `level` |
-| `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `facet`, `title`, `attribution` |
+| `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
 | `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `facet`, `axis` |
 | `title-orient` | `top \| bottom \| left \| right` | `top` | no | `facet` |
 | `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
@@ -210,7 +210,7 @@ The initial values of the table hold on every node except these, where they depe
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
 | `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `facet`, `graticule`, `mark` |
 | `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `facet` |
-| `offset` | `<length>` | `0` | no | `axis`, `legend`, `facet`, `title`, `attribution` |
+| `offset` | `<length>` | `0` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
 | `label-offset` | `<length>` | `0` | no | `axis`, `mark` |
 | `min-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
 | `max-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |

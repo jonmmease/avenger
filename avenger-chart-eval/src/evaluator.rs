@@ -46,6 +46,9 @@ use crate::{
     },
     style::tree::{self, StyleNodes},
     style::{color as style_color, number as style_number},
+    widgets::{
+        self, EvaluatedWidget, PreparedWidget, WidgetInputs, WidgetSpec, WidgetTarget, WidgetValue,
+    },
     EvalError, EvalWarning, Registry,
 };
 
@@ -58,6 +61,8 @@ pub struct EvaluatedChart {
     /// The rows of each mark's table that draw its instances, by the mark's name.
     pub data: SceneData,
     pub plots: Vec<EvaluatedPlot>,
+    /// The widgets that draw, with the rectangles of their drawings.
+    pub widgets: Vec<EvaluatedWidget>,
     pub warnings: Vec<EvalWarning>,
 }
 
@@ -109,6 +114,7 @@ struct Prepared {
     geo_plots: GeoPlots,
     /// The natural width and height of each plot, which a lowering after a view takes again.
     natural: Vec<[Option<f32>; 2]>,
+    widgets: Vec<PreparedWidget>,
     lowered: Lowered,
     warnings: Vec<EvalWarning>,
 }
@@ -149,6 +155,8 @@ pub struct ChartEvaluator {
     revision: u64,
     /// The rectangle of each plot at the last evaluation.
     rects: Vec<avenger_layout::Rect>,
+    /// Whether the scene holds the drawings of the widgets.
+    draws_widgets: bool,
     /// The image resolver of the host, which loads the tiles of geo plots.
     #[cfg(feature = "geo")]
     resolver: Option<Arc<dyn avenger_image::ImageResolver>>,
@@ -197,17 +205,6 @@ impl PreparedChart {
             let drawn = (resolved.tree.layers.iter())
                 .map(|layer| encode::drawn_rows(layer.mark, layer.table))
                 .collect::<Result<Vec<_>>>()?;
-            warnings.extend((resolved.widgets.iter()).map(|group| {
-                let member = &group.members[0];
-                let layer = &resolved.tree.layers[member.layer];
-                EvalWarning::NotDrawn {
-                    path: format!("{}.widgets[{}]", layer.path, member.index),
-                    reason: format!(
-                        "the widget `{}` does not draw yet, but its initial clause applies",
-                        group.key
-                    ),
-                }
-            }));
             warnings.extend(crate::convert::domain::selection_warnings(
                 &resolved.scales,
                 &states,
@@ -287,6 +284,7 @@ impl ChartEvaluator {
             },
             revision: 0,
             rects: Vec::new(),
+            draws_widgets: true,
             #[cfg(feature = "geo")]
             resolver: None,
         })
@@ -316,12 +314,20 @@ impl ChartEvaluator {
         }
     }
 
+    /// Sets whether the scene holds the drawings of the widgets, as it does by default. An app that
+    /// draws the widgets in a scene of its own leaves them out and places its own at the
+    /// rectangles of [`EvaluatedChart::widgets`].
+    pub fn set_draws_widgets(&mut self, draws: bool) {
+        self.draws_widgets = draws;
+    }
+
     /// The style tree of the chart, whose nodes stand for its parts.
     pub fn style_tree(&self) -> &StyleTree {
         &self.tree
     }
 
-    /// The warnings of preparing the chart, such as widgets that do not draw yet.
+    /// The warnings of preparing the chart, such as style fields whose text is not a value of
+    /// their property.
     pub fn warnings(&self) -> &[EvalWarning] {
         &self.warnings
     }
@@ -394,6 +400,7 @@ impl ChartEvaluator {
                 resolved: &resolved,
                 guides: &prepared.guides,
                 geo_plots: &prepared.geo_plots,
+                widgets: &prepared.widgets,
                 nodes: &self.nodes,
                 styles,
                 natural: &prepared.natural,
@@ -407,6 +414,7 @@ impl ChartEvaluator {
         let mut measurer = Measurer {
             guides: &prepared.guides,
             geo_plots: &prepared.geo_plots,
+            widgets: &prepared.widgets,
         };
         let layout = &prepared.lowered.layout;
         let measured = match (self.measured.take(), size) {
@@ -703,6 +711,30 @@ impl ChartEvaluator {
                 .labels(plot, fit, guide.labels[side].0, slot);
             marks.extend(labels.map(SceneMark::from));
         }
+        // Each drawing of each widget, in its slab, at the value of its clause.
+        let mut widgets: Vec<EvaluatedWidget> = (prepared.widgets.iter())
+            .map(|widget| widget.evaluated.clone())
+            .collect();
+        for (id, slot) in layout::widget_slots(&prepared.widgets, &prepared.lowered, &solution) {
+            let (SlabId::Widget { widget, .. } | SlabId::HeldWidget(widget)) = id else {
+                continue;
+            };
+            let prepared_widget = &prepared.widgets[widget];
+            let evaluated = &prepared_widget.evaluated;
+            let value = self.widget_value(evaluated);
+            let (drawn, rect) = prepared_widget.draw(&self.engine, &value, slot)?;
+            if self.draws_widgets {
+                marks.push(
+                    SceneGroup {
+                        name: format!("widget {}", evaluated.key),
+                        marks: drawn,
+                        ..Default::default()
+                    }
+                    .into(),
+                );
+            }
+            widgets[widget].rects.push(rect);
+        }
         self.rects = rects;
         Ok(EvaluatedChart {
             scene: SceneGraph {
@@ -713,6 +745,7 @@ impl ChartEvaluator {
             },
             data,
             plots,
+            widgets,
             warnings,
         })
     }
@@ -723,7 +756,8 @@ impl ChartEvaluator {
 impl ChartEvaluator {
     /// Installs `prepared` in place of the chart, and carries the state of the old chart by
     /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
-    /// and the clauses of its selections, as they stand at the installation. A scale carries over
+    /// the clauses of its selections, as they stand at the installation, and the modes that a
+    /// widget or the host turned on or off, which stand while the new chart declares them. A scale carries over
     /// when the new chart has a scale with its identity and its kind of fit, and a projection when
     /// the new chart has a projection with its identity. The new chart keeps the computed styles
     /// of the old one when their style trees are equal.
@@ -811,6 +845,7 @@ impl ChartEvaluator {
             views,
             carried,
             projections,
+            modes: std::mem::take(&mut self.state.modes),
         };
         self.prepared = None;
         self.measured = None;
@@ -876,6 +911,99 @@ impl ChartEvaluator {
         let resolved = self.chart.resolve();
         if (resolved.scales.iter()).any(|group| state::selection_domain(&group.spec)) {
             self.prepared = None;
+        }
+    }
+
+    /// The names of the chart's modes that are on, in the chart's order: one mode of each group,
+    /// the first until a mode widget or [`ChartEvaluator::set_mode`] turns on another, and each
+    /// toggle that is on.
+    pub fn modes(&self) -> Vec<&str> {
+        (self.chart.message().modes.iter())
+            .map(|mode| mode.name.as_str())
+            .filter(|name| self.is_on(name))
+            .collect()
+    }
+
+    /// Whether the chart's mode `name` is on. A mode that the chart does not declare is off.
+    pub fn is_on(&self, name: &str) -> bool {
+        let modes = &self.chart.message().modes;
+        let Some(mode) = modes.iter().find(|mode| mode.name == name) else {
+            return false;
+        };
+        let set = |mode: &avenger_chart::proto::Mode| self.state.modes.get(&mode.name).copied();
+        if mode.group.is_empty() {
+            return set(mode).unwrap_or(mode.on);
+        }
+        let mut group = modes.iter().filter(|other| other.group == mode.group);
+        let first = group.clone().next();
+        let on = group.find(|other| set(other) == Some(true)).or(first);
+        on.is_some_and(|on| on.name == name)
+    }
+
+    /// Turns the chart's mode `name` on or off. Turning on a mode of a group turns off the other
+    /// modes of the group, and turning one off does nothing, since a mode of each group is on. A
+    /// mode that the chart does not declare keeps its state until a chart that declares it is
+    /// installed.
+    pub fn set_mode(&mut self, name: impl Into<String>, on: bool) {
+        let name = name.into();
+        let modes = &self.chart.message().modes;
+        let group = (modes.iter())
+            .find(|mode| mode.name == name)
+            .map(|mode| mode.group.as_str())
+            .filter(|group| !group.is_empty());
+        match (group, on) {
+            (Some(_), false) => {}
+            (Some(group), true) => {
+                for mode in modes.iter().filter(|mode| mode.group == group) {
+                    self.state.modes.remove(&mode.name);
+                }
+                self.state.modes.insert(name, true);
+            }
+            (None, on) => {
+                self.state.modes.insert(name, on);
+            }
+        }
+    }
+
+    /// Whether a tool that names `modes` is active: while one of them is on, or always when it
+    /// names none, as in a chart without modes.
+    pub fn is_active(&self, modes: &[String]) -> bool {
+        modes.is_empty() || modes.iter().any(|name| self.is_on(name))
+    }
+
+    /// The value that `widget`, a widget of an evaluation of the chart, shows: from its clause in
+    /// the state of its selection, or whether the chart's modes are on.
+    pub fn widget_value(&self, widget: &EvaluatedWidget) -> WidgetValue {
+        let state = (widget.selection()).and_then(|name| self.state.selections.get(name));
+        widget.value(state, |name| self.is_on(name))
+    }
+
+    /// Writes `value` of `widget`, a widget of an evaluation of the chart: its clause to its
+    /// selection, in place of its clause, or no clause in its clear state, or the chart's modes.
+    /// Returns the name of the selection that it wrote, or `None` for a mode widget.
+    pub fn write_widget(
+        &mut self,
+        widget: &EvaluatedWidget,
+        value: &WidgetValue,
+    ) -> Option<String> {
+        match (&widget.target, &widget.spec, value) {
+            (WidgetTarget::Selection { selection, .. }, _, _) => {
+                let mut states = self.state.selections.clone();
+                widget.write(states.get_mut(selection)?, value);
+                self.set_selections(states);
+                Some(selection.clone())
+            }
+            (WidgetTarget::Modes, WidgetSpec::ModeGroup { modes, .. }, WidgetValue::Item(item)) => {
+                if let Some(name) = item.and_then(|item| modes.get(item)) {
+                    self.set_mode(name.clone(), true);
+                }
+                None
+            }
+            (WidgetTarget::Modes, WidgetSpec::ModeToggle { mode }, WidgetValue::Checked(on)) => {
+                self.set_mode(mode.clone(), *on);
+                None
+            }
+            (WidgetTarget::Modes, _, _) => None,
         }
     }
 
@@ -1377,11 +1505,22 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             *plot = Some(plot.map_or(length, |known: f32| known.max(length)));
         }
     }
+    let widgets = widgets::widgets(
+        &WidgetInputs {
+            chart,
+            resolved,
+            drawn,
+            styles: (nodes.widgets.iter()).map(|node| &styles[*node]).collect(),
+            engine,
+        },
+        &mut warnings,
+    );
     let lowered = layout::lower(&Lowering {
         chart,
         resolved,
         guides: &guides,
         geo_plots: &geo_plots,
+        widgets: &widgets,
         nodes,
         styles,
         natural: &natural,
@@ -1394,6 +1533,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         polars,
         geo_plots,
         natural,
+        widgets,
         lowered,
         warnings,
     })

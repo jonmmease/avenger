@@ -625,6 +625,7 @@ fn each_value_is_one_element() {
 fn tools_fit_their_plot() {
     let navigate = || proto::Tool {
         kind: Some(tool::Kind::Navigate(proto::Navigate::default())),
+        ..Default::default()
     };
     let mut parts = base();
     plot_mut(&mut parts.0).tools = vec![navigate()];
@@ -642,6 +643,7 @@ fn tools_fit_their_plot() {
             selection: "brush".to_string(),
             ..Default::default()
         })),
+        ..Default::default()
     }];
     invalid(
         parts.clone(),
@@ -666,6 +668,7 @@ fn a_tooltip_title_has_no_field_title_and_its_labels_no_style() {
         plot.id = "scatter".to_string();
         plot.tools = vec![proto::Tool {
             kind: Some(tool::Kind::Tooltip(tooltip)),
+            ..Default::default()
         }];
         parts
     };
@@ -1008,6 +1011,7 @@ fn target_of(widget: &mut proto::Widget) -> &mut Option<proto::WidgetTarget> {
         Kind::Radio(radio) => &mut radio.target,
         Kind::Checkboxes(checkboxes) => &mut checkboxes.target,
         Kind::Checkbox(checkbox) => &mut checkbox.target,
+        Kind::Mode(_) => panic!("a mode widget has no target"),
     }
 }
 

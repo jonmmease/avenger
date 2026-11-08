@@ -89,6 +89,7 @@ impl Chart {
             width: message.width.take(),
             height: message.height.take(),
             padding: message.padding.take(),
+            modes: std::mem::take(&mut message.modes),
             ..Default::default()
         };
 

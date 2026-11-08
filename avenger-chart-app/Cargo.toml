@@ -25,14 +25,15 @@ avenger-layout = { path = "../avenger-layout" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-style = { path = "../avenger-style" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label" }
+avenger-widgets = { path = "../avenger-widgets" }
 
 [dev-dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
-avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
 

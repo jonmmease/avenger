@@ -221,6 +221,7 @@ pub fn selecting() -> Node {
             form: Some(select::Form::Interval(proto::IntervalSelect::default())),
             ..Default::default()
         })),
+        ..Default::default()
     }];
     node
 }

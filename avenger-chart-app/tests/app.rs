@@ -13,8 +13,7 @@ use arrow::array::{Float64Array, RecordBatch, StringArray};
 use avenger_app::app::AvengerApp;
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
-    ChartApp, ChartAppState, ChartChange, ChartUpdate, ChartUpdates, Fit, Mode, Reports,
-    ScaleIdentity,
+    ChartApp, ChartAppState, ChartChange, ChartUpdate, ChartUpdates, Fit, Reports, ScaleIdentity,
 };
 use avenger_eventstream::window::ElementState;
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -58,7 +57,8 @@ fn weight_family() -> ScaleBuilder {
     Scale::builder().family("weight")
 }
 
-/// A scatter plot `plot` of the cars, with `tools`.
+/// A scatter plot `plot` of the cars, with `tools`, in a chart with the modes `pan` and `box` of
+/// the group `drag`.
 fn scatter(cars: RecordBatch, tools: Vec<ToolBuilder>) -> Chart {
     let color = Encoding::scaled_field("origin").conditional([ConditionalValue::direct_value(
         Predicate::negate(Predicate::selected("brush")),
@@ -70,6 +70,10 @@ fn scatter(cars: RecordBatch, tools: Vec<ToolBuilder>) -> Chart {
     );
     Chart::builder(Plot::cartesian([symbols]).id("plot").tools(tools))
         .selections([Selection::new("brush", SelectionResolution::Union)])
+        .modes([
+            Mode::new("pan").group("drag"),
+            Mode::new("box").group("drag"),
+        ])
         .build()
         .unwrap()
 }
@@ -266,8 +270,8 @@ async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_mode_decides_whether_a_drag_pans_or_draws_a_box() {
     let tools = vec![
-        ToolBuilder::from(Navigate::builder()),
-        Select::interval("brush", IntervalSelect::builder()).into(),
+        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
+        ToolBuilder::from(Select::interval("brush", IntervalSelect::builder())).modes(["box"]),
     ];
     let (mut app, updates, _) = app(scatter(cars(), tools)).await;
     let fitted = domains(&app, 0);
@@ -284,14 +288,41 @@ async fn the_mode_decides_whether_a_drag_pans_or_draws_a_box() {
 
     // The next press stands apart from the last release, so it is no double click.
     std::thread::sleep(Duration::from_millis(600));
-    updates.set_mode(Mode::Select);
+    updates.set_mode("box", true);
     app.refresh().await;
-    assert_eq!(app.state().mode(), Mode::Select);
+    assert_eq!(app.state().modes(), ["box"]);
+    let panned = domains(&app, 0);
     send(&mut app, drag(from, to)).await;
     assert_eq!(
         app.state().evaluator().selections()["brush"].clauses.len(),
         1
     );
+    assert_eq!(domains(&app, 0), panned);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_active_box_takes_the_drag_and_the_navigation_the_wheel() {
+    // Both tools are active in every mode.
+    let tools = vec![
+        ToolBuilder::from(Navigate::builder()),
+        Select::interval("brush", IntervalSelect::builder()).into(),
+    ];
+    let (mut app, _, _) = app(scatter(cars(), tools)).await;
+    let fitted = domains(&app, 0);
+    let [x, y, width, height] = app.state().plots()[0].rect;
+    let (from, to) = (
+        [x + width * 0.25, y + height * 0.25],
+        [x + width * 0.6, y + height * 0.75],
+    );
+    send(&mut app, drag(from, to)).await;
+    assert_eq!(domains(&app, 0), fitted);
+    assert_eq!(
+        app.state().evaluator().selections()["brush"].clauses.len(),
+        1
+    );
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    assert_ne!(domains(&app, 0), fitted);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -324,14 +355,14 @@ async fn updates_apply_in_the_order_of_their_calls_and_a_newer_chart_overtakes_a
     let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
     // An older chart, a mode, and a newer chart that overtakes the older one.
     updates.send(scatter(cars_of(&["USA"]), navigate()));
-    updates.set_mode(Mode::Select);
+    updates.set_mode("box", true);
     updates.send(scatter(cars_of(&["Japan"]), navigate()));
     let japan = cars_of(&["Japan"]).num_rows();
     refresh_until(&mut app, |app| {
         app.state().chart().tables()[0].num_rows() == japan
     })
     .await;
-    assert_eq!(app.state().mode(), Mode::Select);
+    assert_eq!(app.state().modes(), ["box"]);
     assert!(updates.error().is_none());
 }
 
@@ -352,9 +383,9 @@ async fn a_chart_that_fails_to_prepare_keeps_the_chart_and_reports_its_error() {
         cars().num_rows()
     );
     // A later mode still applies.
-    updates.set_mode(Mode::Select);
+    updates.set_mode("box", true);
     app.refresh().await;
-    assert_eq!(app.state().mode(), Mode::Select);
+    assert_eq!(app.state().modes(), ["box"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

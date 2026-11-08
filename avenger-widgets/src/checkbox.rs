@@ -260,7 +260,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
 }
 
 /// A check mark in the box `frame`.
-fn check([x, y, size, _]: [f32; 4], color: [f32; 4]) -> ScenePathMark {
+pub(crate) fn check([x, y, size, _]: [f32; 4], color: [f32; 4]) -> ScenePathMark {
     let at = |u: f32, v: f32| point(x + u * size, y + v * size);
     let mut path = Path::builder();
     path.begin(at(0.24, 0.52));

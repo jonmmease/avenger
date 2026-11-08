@@ -24,6 +24,7 @@ avenger-chart = { path = "../avenger-chart" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-coords = { path = "../avenger-coords" }
+avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
@@ -36,6 +37,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-selection = { path = "../avenger-selection" }
 avenger-style = { path = "../avenger-style" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
+avenger-widgets = { path = "../avenger-widgets", default-features = false }
 geo-traits = { workspace = true, optional = true }
 geo-types = { workspace = true, optional = true }
 geoarrow-array = { workspace = true, optional = true }

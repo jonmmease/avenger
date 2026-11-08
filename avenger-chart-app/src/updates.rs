@@ -21,8 +21,6 @@ use avenger_selection::SelectionState;
 use avenger_style::Cascade;
 use avenger_typst_label::LabelEngine;
 
-use crate::state::Mode;
-
 /// An update of a chart app: a new chart with what the app carries over from the chart that it
 /// replaces, new style inputs as the cascade of a style table, or both. The chart carries the
 /// fitted domain of each scale and the fit of each projection ([`Fit`]), the views of pans and
@@ -113,17 +111,18 @@ enum Command {
         chart: Option<u64>,
         styles: Option<Arc<Cascade>>,
     },
-    Mode(Mode),
+    Mode(String, bool),
     /// The state of a selection, or `None` to clear it.
     Selection(String, Option<SelectionState>),
 }
 
-/// What the app applies at a build: a prepared chart, new style inputs, a mode, or the state of a
+/// What the app applies at a build: a prepared chart, new style inputs, a mode on or off, or the
+/// state of a
 /// selection, in the order of the calls.
 pub(crate) enum Applied {
     Chart(Box<PreparedUpdate>),
     Styles(Arc<Cascade>),
-    Mode(Mode),
+    Mode(String, bool),
     Selection(String, Option<SelectionState>),
 }
 
@@ -149,7 +148,7 @@ struct Queue {
 }
 
 /// The one handle through which a host changes a chart app, from any thread: updates of the chart
-/// and of the style inputs, the interaction mode, and the states of selections. The app applies
+/// and of the style inputs, the chart's modes, and the states of selections. The app applies
 /// them in the order of the calls at its builds. It prepares each new chart as a job of its
 /// runtime, so a native host gives the built app a multi-thread runtime with
 /// `AvengerApp::with_runtime`. Updates that wait together merge: a newer chart overtakes the
@@ -210,9 +209,12 @@ impl ChartUpdates {
         }
     }
 
-    /// Sets the interaction mode.
-    pub fn set_mode(&self, mode: Mode) {
-        self.command(Command::Mode(mode));
+    /// Turns the chart's mode `name` on or off, as a mode widget does: turning on a mode of a group
+    /// turns off the group's other modes, and turning one off does nothing. A mode that the chart
+    /// does not declare is off until a chart that declares it is installed. The app reports no
+    /// change.
+    pub fn set_mode(&self, name: impl Into<String>, on: bool) {
+        self.command(Command::Mode(name.into(), on));
     }
 
     /// Sets the state of the selection `name`, such as to restore a saved selection. The app
@@ -298,7 +300,7 @@ impl ChartUpdates {
         let mut applied = Vec::new();
         while let Some(command) = queue.commands.pop_front() {
             match command {
-                Command::Mode(mode) => applied.push(Applied::Mode(mode)),
+                Command::Mode(mode, on) => applied.push(Applied::Mode(mode, on)),
                 Command::Selection(name, state) => applied.push(Applied::Selection(name, state)),
                 Command::Update { chart, styles } => {
                     if let Some(styles) = styles {

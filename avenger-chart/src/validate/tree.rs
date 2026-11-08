@@ -195,6 +195,7 @@ impl Checker<'_> {
             let layer_scope = scope.with(layer.partition(), false);
             for (position, tool) in layer.tools().iter().enumerate() {
                 let path = format!("{path}.tools[{position}]");
+                self.tool_modes(&tool.modes, &format!("{path}.modes"))?;
                 match tool.kind.as_ref() {
                     Some(layer_tool::Kind::Tooltip(tooltip)) => {
                         self.tooltip(tooltip, &[table], &layer_scope, &format!("{path}.tooltip"))?
@@ -220,6 +221,7 @@ impl Checker<'_> {
         let mut navigations = 0;
         for (index, tool) in plot.tools.iter().enumerate() {
             let path = format!("{path}.tools[{index}]");
+            self.tool_modes(&tool.modes, &format!("{path}.modes"))?;
             match tool.kind.as_ref() {
                 Some(tool::Kind::Navigate(navigate)) => {
                     navigations += 1;

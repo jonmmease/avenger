@@ -356,7 +356,7 @@ pub(crate) fn merge_widget(
             Kind::RangeSlider(slider) => slider.domain.take(),
             Kind::Radio(radio) => radio.domain.take(),
             Kind::Checkboxes(checkboxes) => checkboxes.domain.take(),
-            Kind::Checkbox(_) => None,
+            Kind::Checkbox(_) | Kind::Mode(_) => None,
         }
     };
     let restore =
@@ -366,7 +366,7 @@ pub(crate) fn merge_widget(
             Some(Kind::RangeSlider(slider)) => slider.domain = value,
             Some(Kind::Radio(radio)) => radio.domain = value,
             Some(Kind::Checkboxes(checkboxes)) => checkboxes.domain = value,
-            Some(Kind::Checkbox(_)) | None => {}
+            Some(Kind::Checkbox(_) | Kind::Mode(_)) | None => {}
         };
     let mut rest = other.clone();
     let column = merged.column().to_string();
@@ -390,6 +390,7 @@ fn target_mut(widget: &mut proto::Widget) -> Option<&mut proto::WidgetTarget> {
         Kind::Radio(radio) => radio.target.as_mut(),
         Kind::Checkboxes(checkboxes) => checkboxes.target.as_mut(),
         Kind::Checkbox(checkbox) => checkbox.target.as_mut(),
+        Kind::Mode(_) => None,
     }
 }
 

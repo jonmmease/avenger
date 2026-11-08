@@ -18,6 +18,7 @@ impl Checker<'_> {
         let tree = Tree::new(self.chart)?;
         self.facets(self.chart.root(), "root", &tree)?;
         self.joined_selections()?;
+        self.joined_modes()?;
         let resolved = resolve::resolve_tree(self.chart, tree)?;
         self.clauses(&resolved.tree, &resolved.widgets)?;
         Ok(())
@@ -105,6 +106,24 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// Checks that the modes with one name, which join, are equal.
+    fn joined_modes(&self) -> Result<()> {
+        let modes = &self.chart.message.modes;
+        for (index, mode) in modes.iter().enumerate() {
+            let first = modes[..index].iter().find(|first| first.name == mode.name);
+            if first.is_some_and(|first| first != mode) {
+                return Err(fail(
+                    format!("modes[{index}]"),
+                    format!(
+                        "the modes named `{}` join, and they differ, which is a conflict",
+                        mode.name
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// Checks that the selections with one name, which join, have equal resolutions.
     fn joined_selections(&self) -> Result<()> {
         let selections = &self.chart.message.selections;
@@ -132,25 +151,31 @@ impl Checker<'_> {
         // The selections that each plot and each layer write, with their identities.
         let mut writers: Vec<(&Identity, Vec<&str>, &str)> = Vec::new();
         for plot in &tree.plots {
-            let selections: Vec<&str> = (plot.plot.tools.iter())
+            let selects: Vec<(&str, &[String])> = (plot.plot.tools.iter())
                 .filter_map(|tool| match &tool.kind {
-                    Some(tool::Kind::Select(select)) => Some(select.selection.as_str()),
+                    Some(tool::Kind::Select(select)) => {
+                        Some((select.selection.as_str(), tool.modes.as_slice()))
+                    }
                     _ => None,
                 })
                 .collect();
-            once_each(&selections, &plot.path)?;
+            once_each(&selects, &self.chart.message.modes, &plot.path)?;
+            let selections = selects.iter().map(|(selection, _)| *selection).collect();
             if let Some(identity) = &plot.identity {
                 writers.push((identity, selections, &plot.path));
             }
         }
         for layer in &tree.layers {
-            let selections: Vec<&str> = (layer.layer.tools().iter())
+            let selects: Vec<(&str, &[String])> = (layer.layer.tools().iter())
                 .filter_map(|tool| match &tool.kind {
-                    Some(layer_tool::Kind::Select(select)) => Some(select.selection.as_str()),
+                    Some(layer_tool::Kind::Select(select)) => {
+                        Some((select.selection.as_str(), tool.modes.as_slice()))
+                    }
                     _ => None,
                 })
                 .collect();
-            once_each(&selections, &layer.path)?;
+            once_each(&selects, &self.chart.message.modes, &layer.path)?;
+            let selections: Vec<&str> = selects.iter().map(|(selection, _)| *selection).collect();
             if let Some(identity) = &layer.identity {
                 writers.push((identity, selections, &layer.path));
             }
@@ -243,6 +268,13 @@ impl Checker<'_> {
             (group.widget.target()).map_or("", |target| target.selection.as_str())
         }
         match group {
+            Some(group) if group.widget.target().is_none() => Err(fail(
+                path,
+                format!(
+                    "the widget `{}` sets the chart's modes and writes no clause",
+                    clause.widget
+                ),
+            )),
             Some(group) if writes(group) == selection.name => Ok(()),
             Some(group) => Err(fail(
                 path,
@@ -304,14 +336,33 @@ fn rules(resolve: &[proto::Resolve]) -> Vec<(Option<crate::resolve::Shares<'_>>,
     rules
 }
 
-/// Fails when `selections` names one selection twice: a plot or a layer owns one clause of a
-/// selection.
-fn once_each(selections: &[&str], path: &str) -> Result<()> {
-    for (index, selection) in selections.iter().enumerate() {
-        if selections[..index].contains(selection) {
+/// Fails when two of `selects`, the selections of the `Select` tools of one owner with the modes of
+/// each tool, write one selection and can be active at once: a plot or a layer owns one clause of
+/// a selection. Two tools are never active at once when every mode that they name is of one group
+/// of `modes` and no mode is named by both.
+fn once_each(selects: &[(&str, &[String])], modes: &[proto::Mode], path: &str) -> Result<()> {
+    let group = |name: &String| {
+        (modes.iter())
+            .find(|mode| &mode.name == name)
+            .map(|mode| mode.group.as_str())
+            .filter(|group| !group.is_empty())
+    };
+    let apart = |a: &[String], b: &[String]| {
+        let first = a.first().and_then(group);
+        first.is_some()
+            && a.iter().chain(b).all(|name| group(name) == first)
+            && !a.iter().any(|name| b.contains(name))
+    };
+    for (index, (selection, own)) in selects.iter().enumerate() {
+        if (selects[..index].iter())
+            .any(|(other, theirs)| other == selection && !apart(own, theirs))
+        {
             return Err(fail(
                 path,
-                format!("two `Select` tools of one owner write the selection `{selection}`, which is a conflict"),
+                format!(
+                    "two `Select` tools of one owner write the selection `{selection}` and can be \
+                     active at once, which is a conflict"
+                ),
             ));
         }
     }

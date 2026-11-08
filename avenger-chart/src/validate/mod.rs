@@ -80,6 +80,14 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
             non_negative(value.map(f64::from), &format!("padding.{side}"))?;
         }
     }
+    for (index, mode) in message.modes.iter().enumerate() {
+        if !mode.group.is_empty() && mode.on {
+            return Err(fail(
+                format!("modes[{index}].on"),
+                "a mode of a group is on when it is the first of its group, so it does not set `on`",
+            ));
+        }
+    }
     let selections = selection::selections(chart);
     let checker = Checker {
         chart,
@@ -114,6 +122,20 @@ impl Checker<'_> {
     fn selection(&self, name: &str, path: &str) -> Result<()> {
         if !self.selections.contains(name) {
             return Err(fail(path, format!("the chart has no selection `{name}`")));
+        }
+        Ok(())
+    }
+
+    /// Checks the modes of a tool at `path`: each names a mode of the chart, once.
+    fn tool_modes(&self, modes: &[String], path: &str) -> Result<()> {
+        for (index, name) in modes.iter().enumerate() {
+            let path = format!("{path}[{index}]");
+            if !(self.chart.message.modes.iter()).any(|mode| &mode.name == name) {
+                return Err(fail(path, format!("the chart has no mode `{name}`")));
+            }
+            if modes[..index].contains(name) {
+                return Err(fail(path, format!("the tool names the mode `{name}` once")));
+            }
         }
         Ok(())
     }

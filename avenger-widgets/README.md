@@ -120,7 +120,9 @@ let points = widgets
 | `Button` | Activates on a left-button release inside it. | Enter activates on press, and Space on release. Escape cancels a pending press. A held key activates once. |
 | `Checkbox` | Toggles on a left-button release inside it. | Space toggles on release. Escape cancels a pending press. |
 | `RadioGroup` | Selects an item when a press begins and ends on it. | Arrow keys move the selection and wrap at either end. |
+| `CheckboxList` | Toggles an item when a press begins and ends on it. | Arrow keys move between the items and wrap at either end, and Space toggles the item. |
 | `Slider` | Pressing or dragging on the track sets the value at the pointer. | Arrow keys move one step, Page Up and Page Down move ten steps, and Home and End select the endpoints. |
+| `RangeSlider` | A press moves the nearer thumb to the pointer, and a drag moves it without passing the other. | As a slider's keys, for the thumb that moved last, as far as the other thumb allows. |
 | `TextInput` | A press places the caret. A drag or a press with Shift selects, a double press selects a word, and a triple press selects all. A drag after a double press selects whole words. | Typing, editing and clipboard keys, as [Edit text](#edit-text) lists. |
 | `GroupBox` | Consumes presses inside it that miss its widgets. | None. It isn't a Tab stop. |
 

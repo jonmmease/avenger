@@ -32,11 +32,11 @@ impl Chart {
 
 impl ChartBuilder {
     /// The chart: the builder's message with the version of the format, the tables and the values
-    /// that its references refer to, and the selections and the format syntaxes of the charts that
-    /// it embeds, read as [`Chart::from_parts`] reads a chart: with its absent scales inferred,
+    /// that its references refer to, and the selections, the modes, and the format syntaxes of the
+    /// charts that it embeds, read as [`Chart::from_parts`] reads a chart: with its absent scales inferred,
     /// checked against every rule of the format, and in its canonical form.
     ///
-    /// The selections of the embedded charts join the builder's own. A format syntax that the
+    /// The selections and the modes of the embedded charts join the builder's own, after them. A format syntax that the
     /// builder or one embedded chart sets is the chart's, and two different syntaxes are an error.
     /// The width, the height, and the padding of an embedded chart do not carry over.
     pub fn build(self) -> Result<Chart, ChartError> {
@@ -57,6 +57,7 @@ impl ChartBuilder {
             )?;
         }
         message.selections.extend(parts.selections);
+        message.modes.extend(parts.modes);
         message.version = FORMAT_VERSION;
         let (tables, streams): (Vec<RecordBatch>, Vec<_>) = parts.tables.into_iter().unzip();
         Chart::read_parts(message, tables, streams, parts.values)
@@ -86,7 +87,7 @@ fn agree(known: &mut String, syntax: &str, field: &str, path: &str) -> Result<()
 }
 
 /// A finished chart as a node: its root, with its tables, their IPC streams, its values, its
-/// selections, and its format syntaxes, which [`ChartBuilder::build`] merges.
+/// selections, its modes, and its format syntaxes, which [`ChartBuilder::build`] merges.
 impl From<Chart> for NodeBuilder {
     fn from(chart: Chart) -> Self {
         let Chart {
@@ -100,6 +101,7 @@ impl From<Chart> for NodeBuilder {
             tables: tables.into_iter().zip(streams).collect(),
             values,
             selections: std::mem::take(&mut message.selections),
+            modes: std::mem::take(&mut message.modes),
             syntaxes: vec![Syntaxes {
                 path: String::new(),
                 number: message.number_format_syntax,
