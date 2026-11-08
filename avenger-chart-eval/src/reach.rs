@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use avenger_chart::{
+    layer::{LayerRef, MarkType},
     proto::{cartesian_layer, Channel},
     FitKind,
 };
@@ -18,7 +19,9 @@ use lyon_path::{geom::euclid::default::Transform2D, geom::Angle, Path};
 
 use crate::{
     encode::{at, numbers, strings, LayerRows, Result},
-    marks::{image_anchor, image_sizes, path_array, path_values, shape_names, text_mark},
+    marks::{
+        image_anchor, image_sizes, path_array, path_values, shape_names, text_mark, TextFormat,
+    },
     style::number as style_number,
 };
 
@@ -151,9 +154,8 @@ fn angles(rows: &LayerRows) -> Result<Vec<Vec<f32>>> {
 
 /// The reach of the mark of each drawn row of `rows`, over every value that its encodings and
 /// their conditional values can give it, or `None` for a mark that reaches no farther than its
-/// position.
+/// position. A text of a polar plot, whose reach turns with its angle, has none here.
 pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
-    use cartesian_layer::Mark;
     let len = rows.len();
     // Half the widest stroke of each row, of the `stroke_width` channel or the computed
     // `stroke-width`, when a choice of the conditional values of the paints and the opacities
@@ -184,8 +186,19 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             false => vec![0.0; len],
         })
     };
-    match rows.mark {
-        Mark::Symbol(_) => {
+    let bar = match rows.layer {
+        LayerRef::Cartesian(layer) => match &layer.mark {
+            Some(cartesian_layer::Mark::Bar(bar)) => Some(bar),
+            _ => None,
+        },
+        _ => None,
+    };
+    let text = match rows.layer {
+        LayerRef::Cartesian(_) => TextFormat::of_layer(rows.layer),
+        _ => None,
+    };
+    match rows.mark.mark_type() {
+        MarkType::Symbol => {
             let sizes = largest(
                 &rows.alternatives(Channel::Size, &numbers)?,
                 len,
@@ -215,7 +228,10 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             }
             Ok(Some(reach))
         }
-        Mark::Text(text) => {
+        MarkType::Text => {
+            let Some(text) = text else {
+                return Ok(None);
+            };
             let font_sizes = largest(
                 &rows.alternatives(Channel::Size, &numbers)?,
                 len,
@@ -247,7 +263,7 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
             }
             Ok(Some(reach))
         }
-        Mark::Path(_) => {
+        MarkType::Path => {
             let mut alternatives = rows.alternatives(Channel::Path, &path_array)?;
             if alternatives.is_empty() {
                 alternatives = vec![path_values(rows)?];
@@ -269,7 +285,7 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
                     .collect(),
             ))
         }
-        Mark::Image(_) if !(rows.has(Channel::X2) && rows.has(Channel::Y2)) => {
+        MarkType::Image if !(rows.has(Channel::X2) && rows.has(Channel::Y2)) => {
             // The largest size of each row bounds its image at every selection, and an image
             // that does not draw reaches nowhere.
             let [own_widths, own_heights] = image_sizes(rows)?;
@@ -307,7 +323,10 @@ pub(crate) fn reach(rows: &LayerRows) -> Result<Option<Vec<Reach>>> {
                     .collect(),
             ))
         }
-        Mark::Bar(bar) => {
+        MarkType::Bar => {
+            let Some(bar) = bar else {
+                return Ok(None);
+            };
             // A bar at a continuous key without a second position is as thick as the computed
             // `continuous-size`, about its key.
             let horizontal = rows.horizontal(bar.orient);

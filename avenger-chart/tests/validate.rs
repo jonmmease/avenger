@@ -170,8 +170,10 @@ fn enum_fields_hold_declared_values() {
     read(parts).unwrap();
 }
 
+/// `x` and `y` take a scaled field or a scaled value through their scale, or a direct number,
+/// which is a fraction of the plot.
 #[test]
-fn x_and_y_take_a_scaled_field_or_a_scaled_value_through_a_scale() {
+fn x_and_y_take_scaled_values_through_a_scale_or_direct_numbers() {
     let mut parts = base();
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind =
         Some(encoding::Kind::ScaledField("missing".to_string()));
@@ -188,7 +190,9 @@ fn x_and_y_take_a_scaled_field_or_a_scaled_value_through_a_scale() {
         ..Default::default()
     });
     parts.2 = vec![Arc::new(Float64Array::from(vec![1.0]))];
-    invalid(parts, X, "a `scaled_field` or a `scaled_value`");
+    read(parts.clone()).unwrap();
+    parts.2 = vec![Arc::new(StringArray::from(vec!["right"]))];
+    invalid(parts, X, "`x` values without a scale cannot have type Utf8");
 }
 
 #[test]

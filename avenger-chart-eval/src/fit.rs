@@ -143,13 +143,16 @@ pub(crate) fn direction(group: &ScaleGroup, kind: FitKind) -> Direction {
 }
 
 /// The fitting scale of a position group, from its spec, its `scale` node's computed style, the
-/// selection states, and the values of its members with the reach of their marks.
+/// selection states, and the values of its members with the reach of their marks. A group that
+/// `wraps` around whole circles, whose range ends where it starts, leaves the space between two
+/// categories after its last, so each category takes one equal step.
 pub(crate) fn position(
     inputs: &FitInputs,
     group: &ScaleGroup,
     defaults: FitDefaults,
     style: &ComputedStyle,
     values: &[Option<MemberValues>],
+    wraps: bool,
 ) -> Result<Position> {
     let FitInputs {
         chart,
@@ -157,7 +160,20 @@ pub(crate) fn position(
         states,
     } = *inputs;
     let spec = &group.spec;
-    let unfitted = unfitted(spec, style, registry, &value_type(values))?;
+    let mut unfitted = unfitted(spec, style, registry, &value_type(values))?;
+    if wraps {
+        let wrapped = match unfitted.scale_impl.scale_type() {
+            "band" => Some((
+                "padding_outer",
+                unfitted.config.option_f64("padding_inner", 0.0) / 2.0,
+            )),
+            "point" => Some(("padding", 0.5)),
+            _ => None,
+        };
+        if let Some((name, padding)) = wrapped {
+            (unfitted.config.options).insert(name.to_string(), padding.into());
+        }
+    }
     let kind = fit_kind(spec, registry)?;
     let fit = domain_options(chart, spec, kind, defaults);
     let (fitting, clip) = match source(chart, group, states)? {

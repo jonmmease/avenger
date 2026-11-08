@@ -257,6 +257,58 @@ fn rules() {
     render_both(&chart, "rules");
 }
 
+/// A direct position is a fraction of the plot, so a text at 1 on `x` and `y` stands at the plot's
+/// top right corner, and one at 0 at its bottom left corner, at every size of the chart.
+#[test]
+fn direct_positions_are_fractions_of_the_plot() {
+    let corner = |text: &str, at: f64| {
+        let table = RecordBatch::try_from_iter([(
+            "one",
+            Arc::new(arrow::array::Int64Array::from(vec![1])) as arrow::array::ArrayRef,
+        )])
+        .unwrap();
+        CartesianLayer::text(
+            table,
+            TextMark::new(Encoding::direct_value(text))
+                .x(Encoding::direct_value(at))
+                .y(Encoding::direct_value(at)),
+        )
+    };
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let chart = Chart::builder(Plot::cartesian([
+        symbols,
+        corner("top right", 1.0),
+        corner("bottom left", 0.0),
+    ]))
+    .build()
+    .unwrap();
+    for size in [[320.0, 240.0], [640.0, 360.0]] {
+        let evaluated = evaluate(&chart, size);
+        let [x, y, width, height] = evaluated.plots[0].rect;
+        let texts = scene_text_positions(&evaluated.scene.marks);
+        let at = |label: &str| {
+            (texts.iter())
+                .find(|(text, _)| text == label)
+                .map(|(_, position)| *position)
+                .unwrap()
+        };
+        let near =
+            |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 0.01 && (a[1] - b[1]).abs() < 0.01;
+        assert!(
+            near(at("top right"), [x + width, y]),
+            "{:?} {:?}",
+            at("top right"),
+            evaluated.plots[0].rect
+        );
+        assert!(
+            near(at("bottom left"), [x, y + height]),
+            "{:?} {:?}",
+            at("bottom left"),
+            evaluated.plots[0].rect
+        );
+    }
+}
+
 #[test]
 fn texts() {
     let texts = CartesianLayer::text(

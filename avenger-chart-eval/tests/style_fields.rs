@@ -11,7 +11,7 @@ use prost::Message;
 /// selections.
 const CONTENT: &[(&str, &[&str])] = &[
     ("Attribution", &["credits"]),
-    ("Axis", &["classes", "id"]),
+    ("Axis", &["classes", "id", "route"]),
     ("NestedAxisLevel", &["title", "format"]),
     (
         "Chart",
@@ -280,6 +280,157 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("StringList", &["values"]),
     ("PartitionValue", &["column", "value"]),
     ("CartesianPlot", &["options", "layers"]),
+    ("PolarPlot", &["options", "layers"]),
+    (
+        "PolarLayer",
+        &[
+            "id",
+            "table",
+            "tools",
+            "partition",
+            "symbol",
+            "line",
+            "trail",
+            "area",
+            "bar",
+            "rect",
+            "rule",
+            "text",
+            "classes",
+            "widgets",
+        ],
+    ),
+    ("Polar", &["start_angle", "end_angle", "inner_radius"]),
+    (
+        "PolarSymbolMark",
+        &[
+            "theta",
+            "radius",
+            "color",
+            "fill",
+            "stroke",
+            "opacity",
+            "fill_opacity",
+            "stroke_opacity",
+            "stroke_width",
+            "size",
+            "shape",
+            "angle",
+            "pattern",
+        ],
+    ),
+    (
+        "PolarLineMark",
+        &[
+            "route",
+            "theta",
+            "radius",
+            "color",
+            "stroke",
+            "opacity",
+            "stroke_opacity",
+            "stroke_width",
+            "stroke_dash",
+            "detail",
+        ],
+    ),
+    (
+        "PolarTrailMark",
+        &[
+            "route", "theta", "radius", "color", "stroke", "opacity", "size", "detail",
+        ],
+    ),
+    (
+        "PolarAreaMark",
+        &[
+            "orient",
+            "route",
+            "theta",
+            "radius",
+            "theta2",
+            "radius2",
+            "color",
+            "fill",
+            "stroke",
+            "opacity",
+            "fill_opacity",
+            "stroke_opacity",
+            "stroke_width",
+            "stroke_dash",
+            "pattern",
+            "detail",
+        ],
+    ),
+    (
+        "PolarBarMark",
+        &[
+            "orient",
+            "route",
+            "theta",
+            "radius",
+            "theta2",
+            "radius2",
+            "color",
+            "fill",
+            "stroke",
+            "opacity",
+            "fill_opacity",
+            "stroke_opacity",
+            "stroke_width",
+            "pattern",
+        ],
+    ),
+    (
+        "PolarRectMark",
+        &[
+            "route",
+            "theta",
+            "radius",
+            "theta2",
+            "radius2",
+            "color",
+            "fill",
+            "stroke",
+            "opacity",
+            "fill_opacity",
+            "stroke_opacity",
+            "stroke_width",
+            "pattern",
+        ],
+    ),
+    (
+        "PolarRuleMark",
+        &[
+            "route",
+            "theta",
+            "radius",
+            "theta2",
+            "radius2",
+            "color",
+            "stroke",
+            "opacity",
+            "stroke_width",
+            "stroke_dash",
+        ],
+    ),
+    (
+        "PolarTextMark",
+        &[
+            "format",
+            "syntax",
+            "theta",
+            "radius",
+            "text",
+            "color",
+            "fill",
+            "opacity",
+            "size",
+            "angle",
+            "font_weight",
+            "font_style",
+            "width",
+        ],
+    ),
     (
         "CartesianLayer",
         &[
@@ -426,28 +577,11 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("TableRef", &["index"]),
 ];
 
-/// The fields of messages that PR 1 maps, which only a later evaluator PR draws: the fields of the
-/// axes of polar plots.
-const DEFERRED_FIELDS: &[(&str, &[&str])] = &[("Axis", &["angle", "label_orient", "route"])];
+/// The fields of messages that the evaluator maps, which only a later evaluator PR draws.
+const DEFERRED_FIELDS: &[(&str, &[&str])] = &[];
 
 /// The messages that a later evaluator PR maps, whose nodes PR 1 does not build.
 const DEFERRED: &[(&str, &[&str])] = &[
-    (
-        "PR 3, polar plots",
-        &[
-            "PolarPlot",
-            "PolarLayer",
-            "Polar",
-            "PolarSymbolMark",
-            "PolarLineMark",
-            "PolarTrailMark",
-            "PolarAreaMark",
-            "PolarBarMark",
-            "PolarRectMark",
-            "PolarRuleMark",
-            "PolarTextMark",
-        ],
-    ),
     (
         "PR 4, maps",
         &[

@@ -8,7 +8,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::{LayerRef, MarkMessage},
-    proto::{cartesian_layer, encoding, node::Node, plot::Coord, Channel},
+    proto::{encoding, node::Node, plot::Coord, Channel},
     resolve::{scale_channel, Identity, Layer, PlotRef, Resolved},
     Chart, FitKind,
 };
@@ -37,6 +37,7 @@ use crate::{
     guides::{self, GuideInputs, Guides},
     layout::{self, Lowered, Lowering, Measurer, SlabId},
     marks,
+    polar::{self, PolarInputs, Polars},
     reach::{self, Reach},
     style::tree::{self, StyleNodes},
     style::{color as style_color, number as style_number},
@@ -95,6 +96,7 @@ struct Prepared {
     /// The reach of each drawn row of each layer.
     reach: Vec<Option<Vec<Reach>>>,
     guides: Guides,
+    polars: Polars,
     lowered: Lowered,
     warnings: Vec<EvalWarning>,
 }
@@ -125,18 +127,10 @@ pub struct ChartEvaluator {
     warnings: Vec<EvalWarning>,
 }
 
-/// The mark of a layer of a Cartesian plot.
-fn cartesian_mark<'a>(layer: &Layer<'a>) -> &'a cartesian_layer::Mark {
-    match layer.layer {
-        LayerRef::Cartesian(layer) => layer.mark.as_ref().expect("a valid layer has a mark"),
-        _ => unreachable!("a Cartesian plot draws Cartesian layers"),
-    }
-}
-
 impl ChartEvaluator {
     /// Prepares `chart` with the cascade of its style table, a label engine, and the custom scales
-    /// of `registry`. It fails for a chart with a polar plot or a map plot, and for an empty chart,
-    /// which this version of the evaluator does not draw.
+    /// of `registry`. It fails for a chart with a map plot, and for an empty chart, which this
+    /// version of the evaluator does not draw.
     pub fn new(
         chart: Chart,
         cascade: Arc<Cascade>,
@@ -147,23 +141,20 @@ impl ChartEvaluator {
             return Err(EvalError::Unsupported("an empty chart".into()));
         }
         for plot in &chart.resolve().tree.plots {
-            match plot.plot.coord.as_ref() {
-                Some(Coord::Polar(_)) => return Err(EvalError::Unsupported("a polar plot".into())),
-                Some(Coord::Geo(_)) => return Err(EvalError::Unsupported("a map plot".into())),
-                _ => {}
+            if let Some(Coord::Geo(_)) = plot.plot.coord.as_ref() {
+                return Err(EvalError::Unsupported("a map plot".into()));
             }
         }
         crate::convert::format::check(&chart, &engine)?;
         let states = selection::states(&chart)?;
         let (tree, nodes, drawn, kinds, warnings) = {
             let resolved = chart.resolve();
-            debug_assert!((resolved.tree.plots.iter()).all(|plot| tree::is_cartesian(plot.plot)));
             let kinds = (resolved.scales.iter())
                 .map(|group| fit_kind(&group.spec, &registry))
                 .collect::<Result<Vec<_>>>()?;
             let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
             let drawn = (resolved.tree.layers.iter())
-                .map(|layer| encode::drawn_rows(cartesian_mark(layer), layer.table))
+                .map(|layer| encode::drawn_rows(layer.mark, layer.table))
                 .collect::<Result<Vec<_>>>()?;
             warnings.extend((resolved.widgets.iter()).map(|group| {
                 let member = &group.members[0];
@@ -294,14 +285,17 @@ impl ChartEvaluator {
             })
             .collect();
 
-        // Each position scale fits at the size of its first plot: the plots of a shared scale
-        // stand in matched tracks of one length.
+        // Each position scale of a Cartesian plot fits at the size of its first plot: the plots of
+        // a shared scale stand in matched tracks of one length.
         let mut positions: Vec<Option<ConfiguredScale>> = vec![None; resolved.scales.len()];
         for (index, position) in prepared.positions.iter().enumerate() {
             let Some(position) = position else {
                 continue;
             };
             let group = &resolved.scales[index];
+            if matches!(group.channel, Channel::Theta | Channel::Radius) {
+                continue;
+            }
             let plot = resolved.tree.layers[group.members[0].layer].plot;
             let rect = rects[plot];
             let length = match group.channel {
@@ -320,6 +314,15 @@ impl ChartEvaluator {
             }
             positions[index] = Some(at.scale);
         }
+        // Each polar plot fits its circle at its size, and the scales of `theta` and `radius` take
+        // their ranges at its frame, which the plots of a shared scale share.
+        let sizes: Vec<[f32; 2]> = rects.iter().map(|rect| [rect.width, rect.height]).collect();
+        let polar_fits = prepared.polars.fit(&sizes, &mut warnings)?;
+        for fit in polar_fits.values() {
+            for (group, scale) in [&fit.theta, &fit.radius].into_iter().flatten() {
+                positions[*group].get_or_insert_with(|| scale.clone());
+            }
+        }
 
         let canvas = solution.size();
         let mut marks: Vec<SceneMark> = Vec::new();
@@ -337,22 +340,30 @@ impl ChartEvaluator {
                 (group.members.iter())
                     .any(|member| resolved.tree.layers[member.layer].plot == plot_index)
             };
-            let clip =
-                (resolved.scales.iter().zip(&prepared.positions)).any(|(group, position)| {
-                    in_plot(group) && position.as_ref().is_some_and(|p| p.clip)
-                });
-            let mut plot_marks: Vec<SceneMark> = (prepared.guides.plots[plot_index].axes.iter())
-                .map(|axis| &prepared.guides.axes[*axis])
-                .filter(|axis| axis.grid)
-                .map(|axis| axis.axis.grid(plot_size).into())
-                .collect();
+            let polar_fit = polar_fits.get(&plot_index);
+            let clip = match polar_fit {
+                Some(fit) => fit.clip,
+                None => {
+                    (resolved.scales.iter().zip(&prepared.positions)).any(|(group, position)| {
+                        in_plot(group) && position.as_ref().is_some_and(|p| p.clip)
+                    })
+                }
+            };
+            let mut plot_marks: Vec<SceneMark> = match polar_fit {
+                Some(fit) => prepared.polars.backdrop(fit),
+                None => (prepared.guides.plots[plot_index].axes.iter())
+                    .map(|axis| &prepared.guides.axes[*axis])
+                    .filter(|axis| axis.grid)
+                    .map(|axis| axis.axis.grid(plot_size).into())
+                    .collect(),
+            };
             let mut layers = Vec::with_capacity(plot_ref.layers.len());
             for index in plot_ref.layers.clone() {
                 let layer = &resolved.tree.layers[index];
-                let mark = cartesian_mark(layer);
                 let mut rows = LayerRows {
                     chart,
-                    mark,
+                    layer: layer.layer,
+                    mark: layer.mark,
                     style: &styles[self.nodes.marks[index]],
                     styles,
                     node: self.nodes.marks[index],
@@ -366,7 +377,6 @@ impl ChartEvaluator {
                     name: format!("{}/{}", plot_ref.name, layer.position),
                 };
                 rows.masks = encode::masks(
-                    mark,
                     &rows,
                     &self.states,
                     &owners(plot_ref, layer),
@@ -389,9 +399,17 @@ impl ChartEvaluator {
                     });
                 }
                 let mut names = Vec::new();
-                let drawn = match hidden {
-                    true => Vec::new(),
-                    false => marks::marks(&rows)?,
+                let drawn = match (hidden, layer.layer, polar_fit) {
+                    (true, _, _) => Vec::new(),
+                    (false, LayerRef::Cartesian(cartesian), _) => {
+                        let mark = cartesian.mark.as_ref().expect("a valid layer has a mark");
+                        marks::marks(&rows, mark)?
+                    }
+                    (false, LayerRef::Polar(layer), Some(fit)) => {
+                        let mark = layer.mark.as_ref().expect("a valid layer has a mark");
+                        polar::marks(&rows, mark, fit)?
+                    }
+                    _ => unreachable!("a plot draws the layers of its coordinate system"),
                 };
                 for drawn in drawn {
                     let name = drawn.mark.mark_name().to_string();
@@ -401,25 +419,41 @@ impl ChartEvaluator {
                 }
                 let reach = prepared.reach[index].as_deref();
                 summary_reach(&rows, &resolved, index, reach, &layer.path, &mut warnings)?;
-                let [x, y] = [Channel::X, Channel::Y].map(|channel| {
-                    (resolved.scales.iter().enumerate())
-                        .find(|(_, group)| {
-                            (group.members.iter())
-                                .any(|member| member.layer == index && member.channel == channel)
-                        })
-                        .and_then(|(group, _)| positions[group].clone())
-                });
+                let coords = match polar_fit {
+                    Some(fit) => fit.coords(),
+                    None => {
+                        let [x, y] = [Channel::X, Channel::Y].map(|channel| {
+                            (resolved.scales.iter().enumerate())
+                                .find(|(_, group)| {
+                                    (group.members.iter()).any(|member| {
+                                        member.layer == index && member.channel == channel
+                                    })
+                                })
+                                .and_then(|(group, _)| positions[group].clone())
+                        });
+                        PlotCoords::cartesian(plot_size, [x, y])
+                    }
+                };
                 layers.push(EvaluatedLayer {
                     path: layer.path.clone(),
                     marks: names,
-                    coords: PlotCoords::cartesian(plot_size, [x, y]),
+                    coords,
                 });
             }
-            let [x, y] = [Channel::X, Channel::Y].map(|channel| {
-                (resolved.scales.iter().enumerate())
-                    .find(|(_, group)| group.channel == channel && in_plot(group))
-                    .and_then(|(group, _)| positions[group].clone())
-            });
+            let coords = match polar_fit {
+                Some(fit) => {
+                    plot_marks.extend(prepared.polars.overlay(fit));
+                    fit.coords()
+                }
+                None => {
+                    let [x, y] = [Channel::X, Channel::Y].map(|channel| {
+                        (resolved.scales.iter().enumerate())
+                            .find(|(_, group)| group.channel == channel && in_plot(group))
+                            .and_then(|(group, _)| positions[group].clone())
+                    });
+                    PlotCoords::cartesian(plot_size, [x, y])
+                }
+            };
             marks.extend(backdrop(
                 &format!("{}/background", plot_ref.name),
                 &styles[self.nodes.plot(&plot_ref.path).plot],
@@ -447,7 +481,7 @@ impl ChartEvaluator {
                 name: plot_ref.name.clone(),
                 identity: plot_ref.identity.clone(),
                 rect: [rect.x, rect.y, rect.width, rect.height],
-                coords: PlotCoords::cartesian(plot_size, [x, y]),
+                coords,
                 layers,
             });
         }
@@ -530,25 +564,29 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         )?);
     }
 
+    // The rows of each layer at no size, with the non-position scales.
     let no_positions = vec![None; groups.len()];
-    let reach = (layers.iter().enumerate())
-        .map(|(index, layer)| {
-            reach::reach(&LayerRows {
-                chart,
-                mark: cartesian_mark(layer),
-                style: &styles[nodes.marks[index]],
-                styles,
-                node: nodes.marks[index],
-                table: drawn[index].clone(),
-                partition: &layer.partition,
-                scales: layer_scales(resolved, index, &no_positions, &scales),
-                masks: BTreeMap::new(),
-                kinds: layer_kinds(resolved, index, kinds),
-                engine,
-                size: [0.0, 0.0],
-                name: String::new(),
-            })
-        })
+    let unsized_rows = |index: usize| {
+        let layer = &layers[index];
+        LayerRows {
+            chart,
+            layer: layer.layer,
+            mark: layer.mark,
+            style: &styles[nodes.marks[index]],
+            styles,
+            node: nodes.marks[index],
+            table: drawn[index].clone(),
+            partition: &layer.partition,
+            scales: layer_scales(resolved, index, &no_positions, &scales),
+            masks: BTreeMap::new(),
+            kinds: layer_kinds(resolved, index, kinds),
+            engine,
+            size: [0.0, 0.0],
+            name: String::new(),
+        }
+    };
+    let reach = (0..layers.len())
+        .map(|index| reach::reach(&unsized_rows(index)))
         .collect::<Result<Vec<_>>>()?;
 
     let mut positions: Vec<Option<Position>> = vec![None; groups.len()];
@@ -558,6 +596,9 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         }
         // The domain of `x` or `y` fits the reach of the marks of its own rows, toward its lower
         // values and its higher ones, which depend on the direction of the scale along the plot.
+        // The reach of the marks of a polar plot is in pixels across the plot, which its outer
+        // radius takes instead.
+        let along_plot = matches!(group.channel, Channel::X | Channel::Y);
         let reversed = match group.channel {
             Channel::Y => fit::direction(group, kinds[index]) == Direction::Forward,
             _ => fit::direction(group, kinds[index]) == Direction::Reverse,
@@ -576,7 +617,8 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             // another, so each source's values take the reach of their rows.
             let along = match &reach[member.layer] {
                 Some(reach)
-                    if !reach.is_empty()
+                    if along_plot
+                        && !reach.is_empty()
                         && member_values.len() % reach.len() == 0
                         && member.summary.is_none() =>
                 {
@@ -594,8 +636,21 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             &values,
+            polar::wraps(resolved, group),
         )?);
     }
+    let polars = Polars::prepare(
+        &PolarInputs {
+            chart,
+            resolved,
+            nodes,
+            styles,
+            engine,
+            positions: &positions,
+        },
+        unsized_rows,
+        &reach,
+    )?;
 
     let fittings: Vec<_> = (positions.iter())
         .map(|position| position.as_ref().map(|position| position.fitting.clone()))
@@ -649,6 +704,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         scales,
         reach,
         guides,
+        polars,
         lowered,
         warnings,
     })

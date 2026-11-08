@@ -1,10 +1,10 @@
 # avenger-chart-eval
 
 The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size. This version draws
-charts of Cartesian plots: their 10 marks, every scale type with every kind of domain, axes, symbol
-legends, colorbars, titles, and attributions, in concats, wraps, and facets with their titles and
-labels, with empty cells, the part rules of compositions, and scales that plots share. A polar plot
-and a map plot are `EvalError::Unsupported`.
+charts of Cartesian and polar plots: their marks, every scale type with every kind of domain, axes,
+polar axes, symbol legends, colorbars, titles, and attributions, in concats, wraps, and facets with
+their titles and labels, with empty cells, the part rules of compositions, and scales that plots
+share. A map plot is `EvalError::Unsupported`.
 
 ## Compositions
 
@@ -18,6 +18,20 @@ where they line up, and merges axis titles, legends, colorbars, and attributions
 labels the children of its concat, or each child of its wrap, with the values of its column in their
 partitions, beside the facet's title. The titles of concats and wraps run along their side,
 outermost.
+
+## Polar plots
+
+A polar plot draws its part of the circle inside its box, which keeps the shape of the box around
+that part: a square for a whole circle, and twice as wide as tall for a half circle. The outer
+radius is the largest at which the box holds the circle, the labels of its polar axes, and its
+symbols and texts at their points, found by a fixed-point iteration because the labels of the axes
+change with the radius. The polar plots that share a scale take the smallest outer radius among
+them, so a value draws at one distance from each center. A text lies beside its point as its
+computed `text-orient`, `radius-side`, and `theta-side` say, and a tangential text curves along the
+circle through its point. A scale of `theta` or `radius` draws a polar axis only when its spec sets
+one, with spokes and rings as its grid lines, and its labels have a halo of the plot's background.
+The coordinates of a polar plot are its circle with the scale of `theta` and the scale of `radius`,
+or without a scale of `radius`, the map of fractions of the outer radius to pixels.
 
 ## Preparation and evaluation
 

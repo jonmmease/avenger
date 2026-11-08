@@ -14,7 +14,8 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 use avenger_chart::{
-    proto::{self, cartesian_layer, conditional_value, encoding, Channel},
+    layer::{LayerRef, MarkMessage},
+    proto::{self, conditional_value, encoding, Channel},
     resolve::scale_channel,
     Chart, FitKind,
 };
@@ -35,9 +36,8 @@ use crate::{convert::selection::predicate, EvalError, EvalWarning};
 pub(crate) type Result<T> = std::result::Result<T, EvalError>;
 
 /// The rows of `table` that draw an instance: those whose encoded position columns hold values.
-pub(crate) fn drawn_rows(mark: &cartesian_layer::Mark, table: &RecordBatch) -> Result<RecordBatch> {
-    let mark: &dyn avenger_chart::layer::MarkMessage = mark;
-    let positions = [Channel::X, Channel::Y, Channel::X2, Channel::Y2];
+pub(crate) fn drawn_rows(mark: &dyn MarkMessage, table: &RecordBatch) -> Result<RecordBatch> {
+    let positions = mark.kind().pairs().concat();
     let columns: Vec<ArrayRef> = mark
         .encodings()
         .filter(|(channel, _)| positions.contains(channel))
@@ -121,7 +121,9 @@ pub(crate) fn scalar<T: Clone + Sync>(value: T) -> ScalarOrArray<T> {
 /// conditional values, and the computed style of its `mark` node.
 pub(crate) struct LayerRows<'a> {
     pub(crate) chart: &'a Chart,
-    pub(crate) mark: &'a cartesian_layer::Mark,
+    /// The layer, whose `mark` oneof holds the options of its mark.
+    pub(crate) layer: LayerRef<'a>,
+    pub(crate) mark: &'a dyn MarkMessage,
     /// The computed style of the layer's `mark` node.
     pub(crate) style: &'a ComputedStyle,
     /// The computed styles of the chart, with the layer's `mark` node, which resolve a paint of
@@ -151,12 +153,8 @@ impl<'a> LayerRows<'a> {
         self.table.num_rows()
     }
 
-    fn message(&self) -> &dyn avenger_chart::layer::MarkMessage {
-        self.mark
-    }
-
     pub(crate) fn encoding(&self, channel: Channel) -> Option<&proto::Encoding> {
-        self.message().encoding(channel)
+        self.mark.encoding(channel)
     }
 
     pub(crate) fn has(&self, channel: Channel) -> bool {
@@ -308,8 +306,26 @@ impl<'a> LayerRows<'a> {
         Ok(values)
     }
 
+    /// The numbers of `channel`. A direct position of a Cartesian mark is a fraction of the plot
+    /// along its dimension, from the left to the right for `x` and `x2`, and from the bottom to the
+    /// top for `y` and `y2`, which the numbers give in pixels from the plot's top left corner.
     pub(crate) fn numbers(&self, channel: Channel) -> Result<Option<ScalarOrArray<f32>>> {
-        self.resolve(channel, &numbers)
+        let fraction = match (self.layer, channel) {
+            (LayerRef::Cartesian(_), Channel::X | Channel::X2) => Some((self.size[0], false)),
+            (LayerRef::Cartesian(_), Channel::Y | Channel::Y2) => Some((self.size[1], true)),
+            _ => None,
+        };
+        let Some((length, upward)) = fraction else {
+            return self.resolve(channel, &numbers);
+        };
+        self.resolve(channel, &|values, scale| {
+            let values = numbers(values, scale)?;
+            Ok(match (scale, upward) {
+                (Some(_), _) => values,
+                (None, false) => values.map(|fraction| fraction * length),
+                (None, true) => values.map(|fraction| (1.0 - fraction) * length),
+            })
+        })
     }
 
     pub(crate) fn colors(
@@ -370,11 +386,15 @@ impl<'a> LayerRows<'a> {
     /// Why a percentage `size` draws at the initial `size`: a mark other than a symbol, a bar,
     /// and a rect, or one without a band, has no band that it divides.
     pub(crate) fn size_warning(&self) -> Result<Option<String>> {
-        use cartesian_layer::Mark;
+        use avenger_chart::layer::{CoordKind, MarkType};
         if self.band_size().is_none() {
             return Ok(None);
         }
-        let divides = matches!(self.mark, Mark::Symbol(_) | Mark::Bar(_) | Mark::Rect(_))
+        let divides = self.mark.kind() == CoordKind::Cartesian
+            && matches!(
+                self.mark.mark_type(),
+                MarkType::Symbol | MarkType::Bar | MarkType::Rect
+            )
             && self.size_bands()?.is_some();
         Ok((!divides).then(|| {
             "a percentage `size` is a fraction of the band of the mark's position, which it \
@@ -629,13 +649,14 @@ impl<'a> LayerRows<'a> {
     }
 
     /// Whether a bar or an area of the layer is horizontal: when its orient says so, or else when
-    /// only its `x` scale is continuous.
+    /// only the scale of its first position, `x` or `theta`, is continuous.
     pub(crate) fn horizontal(&self, orient: i32) -> bool {
         let continuous = |channel| self.kind(channel) == Some(FitKind::Interval);
+        let [first, second] = [0, 1].map(|index| self.mark.kind().positions()[index]);
         match proto::Orient::try_from(orient).unwrap_or_default() {
             proto::Orient::Horizontal => true,
             proto::Orient::Vertical => false,
-            proto::Orient::Unspecified => continuous(Channel::X) && !continuous(Channel::Y),
+            proto::Orient::Unspecified => continuous(first) && !continuous(second),
         }
     }
 }
@@ -725,14 +746,13 @@ pub(crate) fn fade(
 /// selects each drawn row, over the selection states. A condition of a column that neither the
 /// layer's table nor its partition has selects no row, with a warning.
 pub(crate) fn masks(
-    mark: &cartesian_layer::Mark,
     rows: &LayerRows,
     states: &BTreeMap<String, SelectionState>,
     owners: &[String],
     path: &str,
     warnings: &mut Vec<EvalWarning>,
 ) -> Result<BTreeMap<Channel, Vec<Vec<bool>>>> {
-    let mark: &dyn avenger_chart::layer::MarkMessage = mark;
+    let mark = rows.mark;
     let faceted = !rows.partition.is_empty();
     let len = rows.len();
     let mut masks = BTreeMap::new();
