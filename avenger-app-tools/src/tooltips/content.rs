@@ -19,10 +19,10 @@ pub struct TooltipField {
     /// The pattern for a numeric or temporal value, in the syntax of the text engine's number or
     /// datetime provider, such as `".2f"` or `"%b %d"`, or "" for the provider's default, as an
     /// axis's `tick_format` is. Other values, such as strings, show as text.
-    pub value_format: String,
-    /// Typst markup for the value, where `#value` is the value as `value_format` formats it, such
+    pub label_format: String,
+    /// Typst markup for the value, where `#value` is the value as `label_format` formats it, such
     /// as `#value km`, as an axis's `tick_label` is. Without it, the value is the formatted value.
-    pub value_label: Option<String>,
+    pub label: Option<String>,
 }
 
 impl TooltipField {
@@ -31,8 +31,8 @@ impl TooltipField {
         Self {
             column: column.into(),
             title: None,
-            value_format: String::new(),
-            value_label: None,
+            label_format: String::new(),
+            label: None,
         }
     }
 
@@ -41,13 +41,13 @@ impl TooltipField {
         self
     }
 
-    pub fn with_value_format(mut self, pattern: impl Into<String>) -> Self {
-        self.value_format = pattern.into();
+    pub fn with_label_format(mut self, pattern: impl Into<String>) -> Self {
+        self.label_format = pattern.into();
         self
     }
 
-    pub fn with_value_label(mut self, markup: impl Into<String>) -> Self {
-        self.value_label = Some(markup.into());
+    pub fn with_label(mut self, markup: impl Into<String>) -> Self {
+        self.label = Some(markup.into());
         self
     }
 
@@ -114,12 +114,12 @@ pub(crate) fn value(
         return Ok(Text::plain(""));
     }
     let value = column.slice(datum.row, 1);
-    let formatted = engine.format_array(&value, &field.value_format, PrecisionSharing::PerValue)?;
+    let formatted = engine.format_array(&value, &field.label_format, PrecisionSharing::PerValue)?;
     let formatted = formatted.into_iter().next().unwrap_or(LabelValue::None);
     let bound = |template: &str, value: LabelValue| {
         bind(template, &LabelValues::from([("value".to_string(), value)]))
     };
-    Ok(match (&field.value_label, formatted) {
+    Ok(match (&field.label, formatted) {
         (Some(label), value) => Text::markup(bound(label, value)?),
         (None, LabelValue::Str(text)) => Text::plain(text),
         (None, LabelValue::Markup(markup)) => Text::markup(markup),

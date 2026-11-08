@@ -21,22 +21,22 @@ use avenger_app_tools::tooltips::{InstanceTarget, TooltipAnchor, TooltipField, T
 let tooltips = Tooltips::new("tooltip", 100).over([
     InstanceTarget::nearest(10.0)
         .with_marks(["quakes"])
-        .with_header(
+        .with_title(
             TooltipField::new("magnitude")
-                .with_value_format(".1f")
-                .with_value_label("Magnitude #value"),
+                .with_label_format(".1f")
+                .with_label("Magnitude #value"),
         )
         .with_fields([
             TooltipField::new("depth_km")
                 .with_title("Depth")
-                .with_value_format(".0f")
-                .with_value_label("#value km"),
-            TooltipField::new("time").with_title("Date").with_value_format("%b %d, %Y"),
+                .with_label_format(".0f")
+                .with_label("#value km"),
+            TooltipField::new("time").with_title("Date").with_label_format("%b %d, %Y"),
         ]),
     InstanceTarget::exact()
         .with_marks(["countries"])
         .with_anchor(TooltipAnchor::Pointer)
-        .with_header("name")
+        .with_title("name")
         .with_fields(["continent"]),
 ]);
 ```
@@ -63,15 +63,15 @@ for an app whose marks change, such as an app that swaps its charts.
 
 ### Fields
 
-A tooltip displays an optional bold header with a color swatch, followed by one row per field. Each
+A tooltip displays an optional bold title with a color swatch, followed by one row per field. Each
 row places the field title on the left and its value on the right. `without_swatch()` hides the
 swatch. If no fields are configured, the tooltip shows every data column using its name as the
 title.
 
-`TooltipField` uses the same formatting as axis ticks. `value_format` selects a pattern for the text
-engine's number or datetime provider, like `tick_format`. `value_label` supplies Typst markup with
-`#value` bound to the formatted value, like `tick_label`. Null values display as empty text. A
-missing column hides the tooltip and logs an error.
+`TooltipField` labels its value with the same formatting as axis ticks. `label_format` selects a
+pattern for the text engine's number or datetime provider, like `tick_format`. `label` supplies
+Typst markup with `#value` bound to the formatted value, like `tick_label`. Null values display as
+empty text. A missing column hides the tooltip and logs an error.
 
 ### Placement
 

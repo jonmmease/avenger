@@ -525,24 +525,24 @@ fn readouts(state: &AppState, size: [f32; 2]) -> SceneGraph {
 fn tooltips(count: usize) -> Tooltips<AppState> {
     let quakes = InstanceTarget::nearest(10.0)
         .with_marks((0..count).map(maps::quakes))
-        .with_header(
+        .with_title(
             TooltipField::new("magnitude")
-                .with_value_format(".1f")
-                .with_value_label("Magnitude #value"),
+                .with_label_format(".1f")
+                .with_label("Magnitude #value"),
         )
         .with_fields([
             TooltipField::new("depth_km")
                 .with_title("Depth")
-                .with_value_format(".0f")
-                .with_value_label("#value km"),
+                .with_label_format(".0f")
+                .with_label("#value km"),
             TooltipField::new("time")
                 .with_title("Date")
-                .with_value_format("%-d %B %Y"),
+                .with_label_format("%-d %B %Y"),
         ]);
     let countries = InstanceTarget::exact()
         .with_marks((0..count).map(maps::countries))
         .with_anchor(TooltipAnchor::Pointer)
-        .with_header("name")
+        .with_title("name")
         .with_fields([TooltipField::new("continent").with_title("Continent")]);
     Tooltips::new(TOOLTIPS, 100).over([quakes, countries])
 }

@@ -409,19 +409,19 @@ fn controls() -> Widgets<SearchState> {
 fn tooltips() -> Tooltips<SearchState> {
     let movie = InstanceTarget::nearest(12.0)
         .with_marks([MATCHES, OTHERS])
-        .with_header(TooltipField::new(TITLE))
+        .with_title(TooltipField::new(TITLE))
         .with_fields([
             TooltipField::new(IMDB)
                 .with_title("IMDB rating")
-                .with_value_format(".1f"),
+                .with_label_format(".1f"),
             TooltipField::new(ROTTEN_TOMATOES)
                 .with_title("Rotten Tomatoes rating")
-                .with_value_format("d")
-                .with_value_label("#value%"),
+                .with_label_format("d")
+                .with_label("#value%"),
             TooltipField::new(GENRE).with_title("Genre"),
             TooltipField::new(YEAR)
                 .with_title("Year")
-                .with_value_format("d"),
+                .with_label_format("d"),
         ]);
     Tooltips::new(TOOLTIPS, 30).over([movie])
 }

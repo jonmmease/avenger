@@ -209,7 +209,7 @@ fn tooltip_box(app: &AvengerApp<()>) -> Option<[f32; 4]> {
 fn an_exact_target_takes_the_topmost_instance_with_rows() {
     let mut app = app(tips([InstanceTarget::exact()]));
     hover(&mut app, [31.0, 50.0]);
-    assert_eq!(lines(&app, "tooltip_titles"), ["id", "value", "when"]);
+    assert_eq!(lines(&app, "tooltip_field_titles"), ["id", "value", "when"]);
     assert_eq!(lines(&app, "tooltip_values")[0], "1");
     hover(&mut app, [5.0, 5.0]);
     assert!(named(&app, "tooltip").is_empty());
@@ -248,25 +248,25 @@ fn the_first_target_that_finds_an_instance_shows_it() {
 }
 
 /// Fields format their values as an axis formats its ticks, with their labels' markup, and a null
-/// value is empty. The header shows beside a swatch of the instance's color, unless the target is
+/// value is empty. The title shows beside a swatch of the instance's color, unless the target is
 /// without one.
 #[test]
 fn fields_read_as_axis_ticks_do() {
     let target = InstanceTarget::exact()
-        .with_header(TooltipField::new("id").with_value_label("Point #value"))
+        .with_title(TooltipField::new("id").with_label("Point #value"))
         .with_fields([
             TooltipField::new("value")
                 .with_title("Value")
-                .with_value_format(",.1f"),
-            TooltipField::new("when").with_value_format("%b %d"),
+                .with_label_format(",.1f"),
+            TooltipField::new("when").with_label_format("%b %d"),
         ]);
     let mut app = app(tips([target.clone()]));
     hover(&mut app, [26.0, 50.0]);
-    assert_eq!(lines(&app, "tooltip_titles"), ["Value", "when"]);
+    assert_eq!(lines(&app, "tooltip_field_titles"), ["Value", "when"]);
     let values = lines(&app, "tooltip_values");
     assert_eq!(values[0], "1,234.5");
     assert_eq!(values[1], "Jan 05");
-    assert!(lines(&app, "tooltip_header")[0].contains("Point"));
+    assert!(lines(&app, "tooltip_title")[0].contains("Point"));
     assert_eq!(named(&app, "tooltip_swatch").len(), 1);
 
     hover(&mut app, [60.0, 50.0]);

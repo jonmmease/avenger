@@ -33,7 +33,7 @@ pub struct InstanceTarget {
     strategy: Strategy,
     marks: Option<Vec<String>>,
     pub(crate) anchor: TooltipAnchor,
-    pub(crate) header: Option<TooltipField>,
+    pub(crate) title: Option<TooltipField>,
     pub(crate) fields: Option<Vec<TooltipField>>,
     pub(crate) swatch: bool,
 }
@@ -57,7 +57,7 @@ impl InstanceTarget {
             strategy,
             marks: None,
             anchor: TooltipAnchor::default(),
-            header: None,
+            title: None,
             fields: None,
             swatch: true,
         }
@@ -83,15 +83,15 @@ impl InstanceTarget {
         self
     }
 
-    /// The target, with `field`'s value as its tooltip's header: a bold first line, beside a
+    /// The target, with `field`'s value as its tooltip's title: a bold first line, beside a
     /// swatch of the instance's color unless the target is
     /// [`without_swatch`](Self::without_swatch).
-    pub fn with_header(mut self, field: impl Into<TooltipField>) -> Self {
-        self.header = Some(field.into());
+    pub fn with_title(mut self, field: impl Into<TooltipField>) -> Self {
+        self.title = Some(field.into());
         self
     }
 
-    /// The target, without the swatch of the instance's color beside its tooltip's header, for
+    /// The target, without the swatch of the instance's color beside its tooltip's title, for
     /// marks whose color says nothing about the instance.
     pub fn without_swatch(mut self) -> Self {
         self.swatch = false;
