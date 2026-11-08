@@ -1,0 +1,30 @@
+[package]
+name = "chart-geo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+avenger-chart = { path = "../../avenger-chart" }
+avenger-chart-app = { path = "../../avenger-chart-app", features = ["geo"] }
+avenger-chart-eval = { path = "../../avenger-chart-eval", features = ["geo"] }
+avenger-svg = { path = "../../avenger-svg" }
+avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+# Tiles fetch with reqwest.
+avenger-image = { path = "../../avenger-image", default-features = false, features = ["reqwest"] }
+avenger-style = { path = "../../avenger-style" }
+avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
+avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+
+arrow = { workspace = true }
+pollster = "0.3"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+avenger-app = { path = "../../avenger-app" }
+avenger-eventstream = { path = "../../avenger-eventstream" }
+avenger-common = { path = "../../avenger-common" }
+avenger-scenegraph = { path = "../../avenger-scenegraph" }
+avenger-selection = { path = "../../avenger-selection" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
