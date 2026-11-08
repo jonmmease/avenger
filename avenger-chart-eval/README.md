@@ -1,10 +1,11 @@
 # avenger-chart-eval
 
 The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size. This version draws
-charts of Cartesian and polar plots: their marks, every scale type with every kind of domain, axes,
-polar axes, symbol legends, colorbars, titles, and attributions, in concats, wraps, and facets with
-their titles and labels, with empty cells, the part rules of compositions, and scales that plots
-share. A geo plot is `EvalError::Unsupported`.
+charts of Cartesian, polar, and geo plots: their marks, every scale type with every kind of domain,
+axes, polar axes, graticules, symbol legends, colorbars, titles, and attributions, in concats, wraps,
+and facets with their titles and labels, with empty cells, the part rules of compositions, and
+scales that plots share. Geo plots need the `geo` feature, and without it a geo plot is
+`EvalError::Unsupported`.
 
 ## Compositions
 
@@ -32,6 +33,20 @@ circle through its point. A scale of `theta` or `radius` draws a polar axis only
 one, with spokes and rings as its grid lines, and its labels have a halo of the plot's background.
 The coordinates of a polar plot are its circle with the scale of `theta` and the scale of `radius`,
 or without a scale of `radius`, the map of fractions of the outer radius to pixels.
+
+## GeoPlots
+
+With the `geo` feature, a geo plot projects longitudes and latitudes through an avenger-geo
+projection: one of the typed projections of the format, a custom projection by its typetag name, or
+the coordinates of a planar geo plot. The geo plots that share a projection fit one view of the
+sphere, a box, or the data of their layers, inset by the largest reach of their marks past their
+places, at the size of their first plot. A geo plot keeps the aspect of what it fits, or its own, or
+none. A geo plot whose spec has a sphere fills and outlines the outline of its projection with the
+computed background and border of its `plot[type=geo]`, and its graticule takes the styles of its
+`graticule`, `grid`, and `label`, with its labels in slabs of the plot. Tiles load through
+`ChartEvaluator::set_image_resolver`, and a geo plot without a resolver draws without them, with a
+warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps. The
+coordinates of a geo plot are its projection, without scales.
 
 ## Preparation and evaluation
 

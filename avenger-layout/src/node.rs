@@ -132,6 +132,10 @@ pub enum Extent {
     /// chart's axes. Top and bottom slabs take the corners: a full left or right slab stops at
     /// the inner edge of the full top and bottom slabs.
     Full,
+    /// From the start of the host's content edge to the end of the space that the host's content
+    /// gets, past the end of a content that an aspect shrinks, as legends beside a wide map may
+    /// run below it. Without an aspect, it is the content edge, as for [`Extent::Content`].
+    Space,
 }
 
 /// The size of a grid track.
@@ -598,6 +602,12 @@ impl<Id> Slab<Id> {
         self
     }
 
+    /// Runs the slab along the space of its host's content. See [`Extent::Space`].
+    pub fn space(mut self) -> Self {
+        self.extent = Extent::Space;
+        self
+    }
+
     pub fn tag(mut self, tag: impl Into<Tag>) -> Self {
         self.tag = Some(tag.into());
         self
@@ -722,6 +732,12 @@ impl<Id> SlabStack<Id> {
     /// Runs the stack across the corners, as [`Slab::full`] runs a slab.
     pub fn full(mut self) -> Self {
         self.extent = Extent::Full;
+        self
+    }
+
+    /// Runs the stack along the space of its host's content, as [`Slab::space`] runs a slab.
+    pub fn space(mut self) -> Self {
+        self.extent = Extent::Space;
         self
     }
 

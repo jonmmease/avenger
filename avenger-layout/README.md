@@ -160,6 +160,9 @@ length along the side can also enlarge its host. `max_length`, `max_content`, an
 `Placement::fit(Position::Center)` centers a title at its content length.
 `full()` extends a slab across neighboring corners. Full top and bottom slabs
 take the corners ahead of full left and right slabs.
+`space()` runs a slab or a stack from the start of its host's content to the
+end of the space that the content gets, so legends beside a leaf that keeps its
+aspect can run past its short side instead of squeezing to its length.
 
 Several guides can share one strip with `slab_stack`. A `SlabStack` is one band,
 as thick as its thickest member, outward of the slabs and stacks before it. Its

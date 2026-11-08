@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use arrow::datatypes::DataType;
 use avenger_chart::{
     layer::{CoordKind, LayerRef, MarkMessage},
-    proto::{self, encoding, layer_tool, node::Node, select, tool},
+    proto::{self, encoding, layer_tool, node::Node, plot::Coord, select, tool},
     resolve::{PlotRef, Resolved, ScaleGroup},
     Chart, FitKind,
 };
@@ -17,7 +17,7 @@ use crate::{polar::Sector, EvalWarning};
 
 use super::{
     guide_kind, inline,
-    inline::{AxisNodes, ColorbarNodes, FacetNodes, LegendNodes, Styled},
+    inline::{AxisNodes, ColorbarNodes, FacetNodes, GraticuleNodes, LegendNodes, Styled},
     scale_type, GuideKind,
 };
 
@@ -37,6 +37,9 @@ pub(crate) struct NodeNodes {
     pub(crate) plot: NodeId,
     pub(crate) title: Option<NodeId>,
     pub(crate) subtitle: Option<NodeId>,
+    /// The graticule of a geo plot that has one.
+    #[cfg_attr(not(feature = "geo"), allow(dead_code))]
+    pub(crate) graticule: Option<GraticuleNodes>,
 }
 
 /// The nodes of the style tree that stand for the parts of a chart.
@@ -124,7 +127,10 @@ pub(crate) fn build(
                 let mark = polar.mark.as_ref().expect("a valid layer has a mark");
                 inline::polar_mark(&mut tree, node, mark);
             }
-            LayerRef::Geo(_) => {}
+            LayerRef::Geo(geo) => {
+                let mark = geo.mark.as_ref().expect("a valid layer has a mark");
+                inline::geo_mark(&mut tree, node, mark);
+            }
         }
         marks.push(node);
     }
@@ -213,6 +219,7 @@ fn composition(
         None => (None, None),
     };
     let plot_node = tree.add(chart_node, Element::Plot);
+    let mut graticule = None;
     match kind {
         Node::Plot(plot) => {
             let coord = CoordKind::of(plot).expect("a valid plot has a coordinate system");
@@ -234,6 +241,9 @@ fn composition(
                 tree.set_attribute(plot_node, "discrete", discrete.join(" "));
             }
             inline::plot(tree, plot_node, plot);
+            if let Some(Coord::Geo(geo)) = &plot.coord {
+                graticule = geo_plot(tree, plot_node, geo);
+            }
         }
         Node::Concat(concat) => {
             let row = !matches!(
@@ -293,6 +303,7 @@ fn composition(
             plot: plot_node,
             title: title_node,
             subtitle: subtitle_node,
+            graticule,
         },
     );
     for (index, child) in children.iter().enumerate() {
@@ -311,6 +322,67 @@ fn composition(
             facets,
         );
     }
+}
+
+/// The `projection` of the `plot[type=geo]` of a geo plot, its sphere's inline styles, and the nodes of
+/// its graticule, when it has one.
+fn geo_plot(tree: &mut Styled, plot_node: NodeId, plot: &proto::GeoPlot) -> Option<GraticuleNodes> {
+    let spherical = match plot.options.as_ref()?.surface.as_ref()? {
+        proto::geo::Surface::Planar(_) => {
+            tree.set_attribute(plot_node, "projection", "planar");
+            return None;
+        }
+        proto::geo::Surface::Spherical(spherical) => spherical,
+    };
+    if let Some(name) = projection_name(spherical) {
+        tree.set_attribute(plot_node, "projection", name);
+    }
+    if let Some(sphere) = &spherical.sphere {
+        inline::sphere(tree, plot_node, sphere);
+    }
+    let graticule = spherical.graticule.as_ref()?;
+    let graticule_node = tree.add(plot_node, Element::Graticule);
+    let nodes = GraticuleNodes {
+        graticule: graticule_node,
+        grid: tree.add(graticule_node, Element::Grid),
+        label: tree.add(graticule_node, Element::Label),
+    };
+    inline::graticule(tree, &nodes, graticule);
+    Some(nodes)
+}
+
+/// The name of a spherical projection: the name of its member of the `projection` oneof, such as
+/// `equal_earth`, or the name of a custom projection.
+pub(crate) fn projection_name(spherical: &proto::Spherical) -> Option<String> {
+    use proto::spherical::Projection;
+    Some(
+        match spherical.projection.as_ref()? {
+            Projection::EqualEarth(_) => "equal_earth",
+            Projection::NaturalEarth1(_) => "natural_earth1",
+            Projection::Robinson(_) => "robinson",
+            Projection::Mollweide(_) => "mollweide",
+            Projection::Eckert4(_) => "eckert4",
+            Projection::WinkelTripel(_) => "winkel_tripel",
+            Projection::Aitoff(_) => "aitoff",
+            Projection::Sinusoidal(_) => "sinusoidal",
+            Projection::Equirectangular(_) => "equirectangular",
+            Projection::Mercator(_) => "mercator",
+            Projection::TransverseMercator(_) => "transverse_mercator",
+            Projection::Miller(_) => "miller",
+            Projection::Orthographic(_) => "orthographic",
+            Projection::Stereographic(_) => "stereographic",
+            Projection::Gnomonic(_) => "gnomonic",
+            Projection::AzimuthalEqualArea(_) => "azimuthal_equal_area",
+            Projection::AzimuthalEquidistant(_) => "azimuthal_equidistant",
+            Projection::ConicConformal(_) => "conic_conformal",
+            Projection::ConicEqualArea(_) => "conic_equal_area",
+            Projection::ConicEquidistant(_) => "conic_equidistant",
+            Projection::CylindricalEqualArea(_) => "cylindrical_equal_area",
+            Projection::Hammer(_) => "hammer",
+            Projection::Custom(custom) => return Some(custom.name.clone()),
+        }
+        .to_string(),
+    )
 }
 
 /// The nodes of the guide of `group` under `owner`, the `plot` of the node that owns it.

@@ -257,10 +257,13 @@ pub(crate) fn validate<Id: Eq + Hash>(
             NodeKind::Slab { extent, stack, .. } => {
                 check_size(path, node.min, node.max)?;
                 check_max_content(path, node.max_content)?;
-                if stack.is_some() && *extent == Extent::Full {
+                if stack.is_some() && *extent != Extent::Content {
                     return Err(LayoutError::StackMemberSetting {
                         path: path.to_vec(),
-                        setting: "a full extent",
+                        setting: match extent {
+                            Extent::Full => "a full extent",
+                            _ => "a space extent",
+                        },
                     });
                 }
             }
