@@ -16,22 +16,28 @@ import "avenger/chart/v1/annotation.proto";
 enum Channel {
   // No channel: where a comment allows it, a column that a selection names directly.
   CHANNEL_UNSPECIFIED = 0;
-  // The horizontal position of a Cartesian mark. Values: values of its scale's domain.
+  // The horizontal position of a Cartesian mark. Values: values of its scale's domain, and a direct
+  // value is a fraction of the plot's width, from 0 at its left edge to 1 at its right edge, and
+  // past them outside the plot, so it stands at one place of the plot at any size.
   CHANNEL_X = 1 [
     (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
     (avenger.chart.v1.position) = true
   ];
-  // The vertical position of a Cartesian mark. Values: values of its scale's domain.
+  // The vertical position of a Cartesian mark. Values: values of its scale's domain, and a direct
+  // value is a fraction of the plot's height, from 0 at its bottom edge to 1 at its top edge, and
+  // past them outside the plot.
   CHANNEL_Y = 2 [
     (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN,
     (avenger.chart.v1.position) = true
   ];
-  // The second x position, through the scale of `x`.
+  // The second x position, through the scale of `x`, or a direct fraction of the plot's width, as
+  // for `x`.
   CHANNEL_X2 = 3 [
     (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
     (avenger.chart.v1.position) = true
   ];
-  // The second y position, through the scale of `y`.
+  // The second y position, through the scale of `y`, or a direct fraction of the plot's height, as
+  // for `y`.
   CHANNEL_Y2 = 4 [
     (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
     (avenger.chart.v1.position) = true

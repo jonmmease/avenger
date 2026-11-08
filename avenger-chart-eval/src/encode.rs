@@ -306,8 +306,26 @@ impl<'a> LayerRows<'a> {
         Ok(values)
     }
 
+    /// The numbers of `channel`. A direct position of a Cartesian mark is a fraction of the plot
+    /// along its dimension, from the left to the right for `x` and `x2`, and from the bottom to the
+    /// top for `y` and `y2`, which the numbers give in pixels from the plot's top left corner.
     pub(crate) fn numbers(&self, channel: Channel) -> Result<Option<ScalarOrArray<f32>>> {
-        self.resolve(channel, &numbers)
+        let fraction = match (self.layer, channel) {
+            (LayerRef::Cartesian(_), Channel::X | Channel::X2) => Some((self.size[0], false)),
+            (LayerRef::Cartesian(_), Channel::Y | Channel::Y2) => Some((self.size[1], true)),
+            _ => None,
+        };
+        let Some((length, upward)) = fraction else {
+            return self.resolve(channel, &numbers);
+        };
+        self.resolve(channel, &|values, scale| {
+            let values = numbers(values, scale)?;
+            Ok(match (scale, upward) {
+                (Some(_), _) => values,
+                (None, false) => values.map(|fraction| fraction * length),
+                (None, true) => values.map(|fraction| (1.0 - fraction) * length),
+            })
+        })
     }
 
     pub(crate) fn colors(

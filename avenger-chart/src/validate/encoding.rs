@@ -251,15 +251,6 @@ impl Checker<'_> {
                 ));
             }
         }
-        if !is_scaled(value)
-            && matches!(channel, Channel::X | Channel::Y | Channel::X2 | Channel::Y2)
-        {
-            return Err(fail(
-                path,
-                "a Cartesian position is a `scaled_field` or a `scaled_value`, which go through the \
-                 scale of `x` or `y`",
-            ));
-        }
         let scaled = scaled(encoding);
         let paired = scale_channel(channel) != channel;
         if scaled && !paired && !takes_scale(channel) {
@@ -1304,6 +1295,10 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
         | Channel::StrokeWidth
         | Channel::Size
         | Channel::Angle
+        | Channel::X
+        | Channel::Y
+        | Channel::X2
+        | Channel::Y2
         | Channel::Theta
         | Channel::Radius
         | Channel::Longitude
