@@ -671,6 +671,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-datafusion-transforms"
+version = "0.1.0"
+dependencies = [
+ "datafusion",
+ "getrandom 0.3.4",
+ "libm",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-eventstream"
 version = "0.1.0"
 dependencies = [
