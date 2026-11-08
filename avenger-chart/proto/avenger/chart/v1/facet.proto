@@ -1,4 +1,4 @@
-// The facets of concats and wraps, and the headers that label their children.
+// The facets of concats and wraps, whose titles and labels label their children.
 
 syntax = "proto3";
 
@@ -8,10 +8,18 @@ import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/element.proto";
 import "avenger/chart/v1/side.proto";
 
-// The facet of a concat or a wrap: the partition column that its children split, and the header
-// that labels each child with its value. The partition of every child, an empty child too, has a
-// value of the column, and the values have one Arrow type. The header takes the values
-// in the order of the children, so the order of the children is the order of the values.
+// The facet of a concat or a wrap: the partition column that its children split, with labels of
+// each child's value and a title. The partition of every child, an empty child too, has a value of
+// the column, and the values have one Arrow type. The labels take the values in the order of the
+// children, so the order of the children is the order of the values.
+//
+// A facet draws a label for each child, a rule from the center of the first child to the center of
+// the last with a tick toward each label, and its title beyond them, as the facet guide of
+// avenger-guides draws them. In a concat, one row of labels runs along the children, and a facet
+// with one value has no rule. In a wrap, whose rows change with its width, each child has a label
+// of its own value, and the titles merge into one on the wrap by default. The labels of the facets
+// of one column below one concat match their thickness, so their titles line up whether or not a
+// facet has a rule. A style field that is absent takes its value from the styles.
 //
 // A concat or a wrap with a facet shares every channel and the projection by default, because the
 // panels of a facet grid show one chart over parts of one table. Its resolve rules can still make a
@@ -22,52 +30,37 @@ import "avenger/chart/v1/side.proto";
 message Facet {
   // The partition column of the children.
   string column = 1 [(avenger.chart.v1.required) = true];
-  // When both are absent, the facet has a header with the default options.
-  oneof header {
-    // A header with these options.
-    FacetHeader shown = 2;
-    // No header.
-    NoHeader hidden = 3;
-  }
-}
-
-// The header of a facet: a label for each child with its value, a rule from the center of the first
-// child to the center of the last with a tick toward each label, and the title beyond them, as the
-// facet guide of avenger-guides draws them. In a concat, one header runs along the children, and a
-// header with one value has no rule. In a wrap, whose rows change with its width, each child has a
-// header with its own value, and the titles merge into one on the wrap by default. The headers of
-// one column below one concat match the thickness of their labels, so their titles line up whether
-// or not a header has a rule. A style field that is absent takes its value from the styles.
-message FacetHeader {
+  // Whether the facet draws its title and labels. When absent, it does. `false` draws neither, and
+  // the children still split the column.
+  optional bool show = 2;
   // The title. When absent, the title is the facet's column.
-  Title title = 1;
-  // Whether the header shows its title. When absent, the styles decide.
-  optional bool show_title = 11;
+  Title title = 3;
+  // Whether the facet shows its title. When absent, the styles decide.
+  optional bool show_title = 4;
   // The side of the children. A concat in a row takes the top or the bottom, a concat in a column
   // takes the left or the right, and a wrap takes any side of each child. When absent, a row and a
-  // wrap have the header at the top, and a column at the right.
-  Side side = 2;
+  // wrap have the labels at the top, and a column at the right.
+  Side side = 5;
   // The labels of the values, such as `Grade #value`.
-  Labels labels = 3;
-  // The angle of the labels, in degrees clockwise. When absent, the labels read along the header:
-  // level above or below the children, up beside a left header, and down beside a right one.
-  optional float label_angle = 4;
+  Labels labels = 6;
+  // The angle of the labels, in degrees clockwise. When absent, the labels read along the side:
+  // level above or below the children, up beside a left side, and down beside a right one.
+  optional float label_angle = 7;
   // The space between the labels and what lies inward of them: the edge of the children, or the
-  // header of a facet inside this one, in pixels. When absent, the styles give it, with more space
-  // beyond an inner header, so the levels of a nested facet read apart.
-  optional float label_padding = 5;
+  // labels of a facet inside this one, in pixels. When absent, the styles give it, with more space
+  // beyond an inner facet's labels, so the levels of a nested facet read apart.
+  optional float label_padding = 8;
   // The length of each tick, in pixels.
-  optional float tick_length = 6;
+  optional float tick_length = 9;
   // The CSS color of the rule and the ticks.
-  string rule_color = 7;
+  string rule_color = 10;
   // The width of the rule and the ticks, in pixels.
-  optional float rule_width = 8;
-  // The class names of the header, which a stylesheet selects with `.name`, as the HTML `class`
+  optional float rule_width = 11;
+  // The class names of the facet, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
-  repeated string classes = 9;
+  repeated string classes = 12;
   // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
-  // not a CSS identifier. With its partition, it identifies the header, as `Node` describes.
-  string id = 10;
+  // not a CSS identifier. With its partition, it identifies the facet's title and labels, as
+  // `Node` describes.
+  string id = 13;
 }
-
-message NoHeader {}

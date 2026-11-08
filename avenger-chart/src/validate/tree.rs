@@ -73,11 +73,9 @@ impl Checker<'_> {
             part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &concat.facet {
-            if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                let path = format!("{path}.facet.shown");
-                classes(&header.classes, &path)?;
-                title(header.title.as_ref(), &format!("{path}.title"), false)?;
-            }
+            let path = format!("{path}.facet");
+            classes(&facet.classes, &path)?;
+            title(facet.title.as_ref(), &format!("{path}.title"), false)?;
         }
         let scope = scope.with(&concat.partition, false);
         for (index, child) in concat.children.iter().enumerate() {
@@ -107,11 +105,9 @@ impl Checker<'_> {
             part_rules(&layout.part_rules, &path)?;
         }
         if let Some(facet) = &wrap.facet {
-            if let Some(proto::facet::Header::Shown(header)) = &facet.header {
-                let path = format!("{path}.facet.shown");
-                classes(&header.classes, &path)?;
-                title(header.title.as_ref(), &format!("{path}.title"), false)?;
-            }
+            let path = format!("{path}.facet");
+            classes(&facet.classes, &path)?;
+            title(facet.title.as_ref(), &format!("{path}.title"), false)?;
         }
         let scope = scope.with(&wrap.partition, true);
         for (index, child) in wrap.children.iter().enumerate() {
@@ -485,10 +481,18 @@ impl Checker<'_> {
                 &format!("{path}.nearest.max_radius"),
             )?;
         }
+        if let Some(field) = &tooltip.title {
+            if field.title.is_some() {
+                return Err(fail(
+                    format!("{path}.title.title"),
+                    "the title of a tooltip shows only its value, so its field has no title",
+                ));
+            }
+        }
         let fields = tooltip
-            .header
+            .title
             .iter()
-            .map(|field| ("header".to_string(), field));
+            .map(|field| ("title".to_string(), field));
         let fields = fields.chain(
             (tooltip.fields.iter().enumerate())
                 .map(|(index, field)| (format!("fields[{index}]"), field)),
@@ -496,8 +500,17 @@ impl Checker<'_> {
         for (at, field) in fields {
             let path = format!("{path}.{at}");
             let data_type = column_type(&field.column, tables, scope, &format!("{path}.column"))?;
+            let Some(labels) = &field.labels else {
+                continue;
+            };
+            if labels.style.is_some() {
+                return Err(fail(
+                    format!("{path}.labels.style"),
+                    "the labels of a tooltip field have no style, since a tooltip's text takes the tooltip's style",
+                ));
+            }
             if let Some(data_type) = data_type {
-                self.pattern(&field.format, &data_type, &format!("{path}.format"))?;
+                self.pattern(&labels.format, &data_type, &format!("{path}.labels.format"))?;
             }
         }
         Ok(())

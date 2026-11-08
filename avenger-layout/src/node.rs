@@ -125,7 +125,7 @@ impl Placement {
 /// How far a slab runs along its side.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Extent {
-    /// Along the host's content edge, as a facet header runs along its panel.
+    /// Along the host's content edge, as a facet's labels run along its panel.
     #[default]
     Content,
     /// Across the corners too, over the slabs on the neighboring sides, as a title runs over a
@@ -506,7 +506,7 @@ impl<Id> Leaf<Id> {
     common_methods!("leaf's content", common);
 }
 
-/// A leaf attached to one side of a node, outside its content, such as an axis, a header or a
+/// A leaf attached to one side of a node, outside its content, such as an axis, facet labels, or a
 /// legend.
 ///
 /// Its thickness is its size across the side: its width on the left or right, its height on
@@ -787,7 +787,7 @@ macro_rules! rule_methods {
         /// the cells of its lane that draw nothing on the side. A slab that shows another key, or
         /// none, ends the run, and so does a cell that draws another slab there, or a cell that
         /// overlaps the lane without matching it, such as a plot that spans more columns. A host
-        /// can be a container, such as each row of a grid with a header above its panels, and
+        /// can be a container, such as each row of a grid with facet labels above its panels, and
         /// the cells inside the hosts never end their run.
         /// When containers nest, the outermost one that declares a rule for a tag sets the runs.
         /// Only slabs with a content key take part.

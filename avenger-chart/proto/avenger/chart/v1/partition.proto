@@ -15,7 +15,7 @@ import "avenger/chart/v1/value.proto";
 //
 // The partition of a node or a layer is the values that apply to every layer and every empty node
 // in its subtree, where a concat or a wrap without children counts as an empty node. With its id,
-// the partition identifies the node or the layer, and the header of a facet reads the value of the
+// the partition identifies the node or the layer, and the labels of a facet read the value of the
 // facet's column from the partition of each child. A layer treats each column of its partition as a
 // column that holds the value in every row: when the layer's table has the column, every row holds
 // the value, and when it does not, a selection's condition on the column reads the value.

@@ -14,7 +14,7 @@ chart {
 chart > title { font-size: 1.3rem; font-weight: bold; offset: 10; }
 chart > subtitle { font-size: 1.2rem; }
 footer, attribution { font-size: 1rem; }
-axis > title, legend > title, header > title { font-size: 1.1rem; font-weight: bold; }
+axis > title, legend > title, facet > title { font-size: 1.1rem; font-weight: bold; }
 label { font-size: 1rem; }
 axis > label, legend > title { max-width: 18rem; }
 legend > label { max-width: 16rem; }
@@ -30,7 +30,7 @@ legend[type=colorbar] > ramp { max-length: 200; }
 axis { tick-spacing: 2.25em; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
-axis > rule, axis > tick, legend > rule, legend > tick, header > rule, header > tick {
+axis > rule, axis > tick, legend > rule, legend > tick, facet > rule, facet > tick {
   stroke: color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
             env(background, white));
@@ -149,7 +149,7 @@ scale[type=nested_band] { padding-inner: 0.5 0.1; padding-outer: 0; }
 @media (forced-colors: active) {
   chart, plot { background: Canvas !important; }
   chart { color: CanvasText !important; }
-  :is(title, subtitle, footer, description), :is(axis, legend, header) > label { fill: CanvasText !important; }
+  :is(title, subtitle, footer, description), :is(axis, legend, facet) > label { fill: CanvasText !important; }
   axis > rule, axis > tick, grid { stroke: CanvasText !important; }
   mark:is([type=rule], [type=text]), mark > label { color: CanvasText !important; }
   mark[type=rect][store] {

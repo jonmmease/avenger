@@ -21,7 +21,7 @@ use avenger_common::types::TextSyntaxMode;
 use avenger_typst_label::{bind, escape_text, LabelValue, LabelValues};
 
 /// Label text and how it reads: each value's `template` markup with `#value` bound to the value,
-/// as the labels of axes, legends, and facet headers bind it, or else the values themselves,
+/// as the labels of axes, legends, and facets bind it, or else the values themselves,
 /// which are text or markup, as plain text unless one of them is markup.
 pub(crate) fn label_text(
     values: Vec<LabelValue>,

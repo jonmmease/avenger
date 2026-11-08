@@ -175,11 +175,11 @@ message Table {
 }
 
 // A node of the tree. Its id, when it has one, and its partition identify it, and the same holds
-// for a layer, an axis, a legend, and a facet header, whose ids share one namespace with the
+// for a layer, an axis, a legend, and a facet, whose ids share one namespace with the
 // nodes': two of them with one id and one partition are a conflict, whatever their kinds, but two
 // with one id and different partitions are not, so the charts of the facets of one table can give
 // their plots one id. The partition of an axis or a legend holds the values that every layer of its
-// scale shares, and the partition of a facet header is its concat's or its wrap's. A clause names
+// scale shares, and the partition of a facet is its concat's or its wrap's. A clause names
 // the plot or the layer that wrote it by both, and an app carries the views and the selections of a
 // plot to a new chart by both, so the plot of a facet keeps them when a new query reorders the
 // facets or drops some of them. A plot or a layer without an id is named by its path in the tree.
@@ -198,7 +198,7 @@ message Node {
 // A child of a row, a column, or a wrap that keeps its position in the tracks and draws nothing.
 message Empty {
   // The partition values of a facet without data, keyed by column, as `PartitionValue` describes.
-  // The partition of a child of a facet has the facet's column, so the header labels the empty
+  // The partition of a child of a facet has the facet's column, so the facet labels the empty
   // cell.
   repeated PartitionValue partition = 1;
 }
@@ -286,8 +286,8 @@ message Concat {
   Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 8;
-  // The partition column that the children split, and the header that labels them. A concat with
-  // a facet is a row or a column of a facet grid.
+  // The partition column that the children split, with its title and labels. A concat with a facet
+  // is a row or a column of a facet grid.
   Facet facet = 9;
   // The class names of the concat, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
@@ -321,12 +321,11 @@ message ConcatLayout {
   repeated Track tracks = 2;
   // Rules for the parts whose rule differs from the default, keyed by part. The default collapses
   // the ticks and the labels of an axis, merges the title of an axis, legends, attributions, and
-  // widgets, and collapses the labels and the title of a facet header. The rules apply to the axes
+  // widgets, and collapses the labels and the title of a facet. The rules apply to the axes
   // and legends of the scales that the concat owns: the scales that it shares, and the share
   // families whose layers are all below it. The rules for widgets apply to the widgets whose groups
-  // the concat holds, as `Widget` describes. The rules for the parts of facet headers and for
-  // attributions apply to the headers of the facets and to the attributions of the plots below the
-  // concat.
+  // the concat holds, as `Widget` describes. The rules for the parts of facets and for
+  // attributions apply to the facets and to the attributions of the plots below the concat.
   repeated PartRule part_rules = 3;
   // Where the outermost concat of a table puts the width that its tracks leave. Shares take the
   // free length first, so width is left only when every horizontal track has a fixed length or a
@@ -365,8 +364,8 @@ message Wrap {
   Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 7;
-  // The partition column that the children split, and the header that labels each child. A wrap
-  // with a facet is a wrapped facet grid.
+  // The partition column that the children split, with its title and a label of each child. A
+  // wrap with a facet is a wrapped facet grid.
   Facet facet = 8;
   // The class names of the wrap, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
@@ -385,7 +384,7 @@ message WrapLayout {
   // The space between columns and between rows, in pixels.
   optional float gap = 4;
   // Rules for the parts whose rule differs from the default, as for a concat, except that
-  // the default merges the title of a facet header, because each child has a header of its own.
+  // the default merges the title of a facet, because each child has a label of its own.
   // Collapse runs along the columns and the rows of the wrap.
   repeated PartRule part_rules = 5;
   // Where the wrap puts the height that its rows leave. Its columns fill its width.

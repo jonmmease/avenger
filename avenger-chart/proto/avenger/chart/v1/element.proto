@@ -1,4 +1,4 @@
-// The elements that plots, axes, legends, facet headers, and widgets share: titles, labels,
+// The elements that plots, axes, legends, facets, and widgets share: titles, labels,
 // ticks, and grid lines. Each field means the same in every message that has the element.
 
 syntax = "proto3";
@@ -9,13 +9,13 @@ import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The title of a plot, a concat, a wrap, an axis, a legend, a facet header, or a widget. A style
+// The title of a plot, a concat, a wrap, an axis, a legend, a facet, or a widget. A style
 // field that is absent takes its value from the styles. The title of a node, which is a plot, a
 // concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
 // along the whole side of the node's box, over the slabs of its axes and legends, and a title at
 // the bottom serves as a caption. The fields that place the title of a node and give its subtitle,
 // `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another
-// element, which stands where its axis, legend, header, or widget puts it.
+// element, which stands where its axis, legend, facet, or widget puts it.
 message Title {
   // The text, in the syntax of `syntax`.
   string text = 1 [(avenger.chart.v1.required) = true];
@@ -53,8 +53,8 @@ enum TitleAlign {
   TITLE_ALIGN_END = 3;
 }
 
-// The labels of the ticks of an axis, the entries of a legend, or the values of a facet header. A
-// style field that is absent takes its value from the styles.
+// The labels of the ticks of an axis, the entries of a legend, the values of a facet, or the values
+// of the fields of a tooltip. A style field that is absent takes its value from the styles.
 message Labels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of

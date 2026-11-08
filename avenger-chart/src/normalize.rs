@@ -27,8 +27,7 @@ use prost::bytes::Bytes;
 use crate::{
     layer::MarkMessage,
     proto::{
-        self, domain, domain_fit, facet, geo, node::Node, plot::Coord, scale, selection_domain,
-        spherical,
+        self, domain, domain_fit, geo, node::Node, plot::Coord, scale, selection_domain, spherical,
     },
     resolve::{Identity, Tree},
     walk::{VisitTables, VisitValues},
@@ -164,7 +163,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
             }
             default_to_none(&mut concat.layout);
             if let Some(facet) = &mut concat.facet {
-                facet_header(facet);
+                distinct(&mut facet.classes);
             }
             for child in &mut concat.children {
                 local_node(child, Place::Child);
@@ -178,7 +177,7 @@ fn local_node(node: &mut proto::Node, place: Place) {
             }
             default_to_none(&mut wrap.layout);
             if let Some(facet) = &mut wrap.facet {
-                facet_header(facet);
+                distinct(&mut facet.classes);
             }
             for child in &mut wrap.children {
                 local_node(child, Place::Cell);
@@ -307,17 +306,6 @@ fn default_to_none<T: Default + PartialEq>(message: &mut Option<T>) {
         .is_some_and(|message| *message == T::default())
     {
         *message = None;
-    }
-}
-
-/// Removes the repeated classes of a facet's header. A header with the default options is the
-/// header of a facet that sets neither member.
-fn facet_header(facet: &mut proto::Facet) {
-    if let Some(facet::Header::Shown(header)) = &mut facet.header {
-        distinct(&mut header.classes);
-    }
-    if facet.header == Some(facet::Header::Shown(proto::FacetHeader::default())) {
-        facet.header = None;
     }
 }
 

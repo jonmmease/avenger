@@ -40,7 +40,7 @@ const NODES: &[Element] = &[
     Mark,
     Axis,
     Legend,
-    Header,
+    Facet,
     Scale,
     Attribution,
     Graticule,
@@ -87,7 +87,7 @@ const TEXTS: &[Element] = &[
 ];
 const LINES: &[Element] = &[Mark, Tick, Rule, Grid];
 const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
-const GUIDES: &[Element] = &[Axis, Legend, Header];
+const GUIDES: &[Element] = &[Axis, Legend, Facet];
 const FOCUS: &[Element] = &[Chart, Axis, Legend, Mark, Entry, Group, Item, Widget];
 /// A widget and the parts of its control.
 const WIDGET: &[Element] = &[Widget, Track, Thumb];
@@ -259,10 +259,10 @@ properties! {
     TitleFrame = "title-frame", false, Syntax::Keywords(&["plot", "chart"]), "chart", &[Chart];
 
     // Guides.
-    LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Header, Legend, Level];
-    Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Header, Title, Attribution];
-    LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Header, Axis];
-    TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Header];
+    LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Facet, Legend, Level];
+    Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Facet, Title, Attribution];
+    LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Facet, Axis];
+    TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Facet];
     Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
     TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
@@ -270,9 +270,9 @@ properties! {
     ThinTicks = "thin-ticks", false, Syntax::Boolean, "false", &[Axis];
     MaxEntries = "max-entries", false, Syntax::Any(&[Syntax::Integer { min: 2 }, Syntax::Keywords(&["none"])]), "none", &[Legend];
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
-    LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Header, Graticule, Mark];
+    LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Facet, Graticule, Mark];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
-    Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Header, Title, Attribution];
+    Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Facet, Title, Attribution];
     LabelOffset = "label-offset", false, LENGTH, "0", &[Axis, Mark];
     MinExtent = "min-extent", false, SIZE_OR_NONE, "none", AXIS;
     MaxExtent = "max-extent", false, SIZE_OR_NONE, "none", AXIS;

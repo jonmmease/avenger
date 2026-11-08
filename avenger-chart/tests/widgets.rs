@@ -135,7 +135,7 @@ fn copies_of_a_key_share_one_widget_by_default() {
     );
     concat_mut(&mut grid).facet = Some(proto::Facet {
         column: "species".to_string(),
-        header: None,
+        ..Default::default()
     });
     shared(grid, strings(&["Adelie", "Gentoo"]));
 }
@@ -161,7 +161,7 @@ fn an_independent_rule_splits_a_key_into_widgets_with_anchors() {
     );
     concat_mut(&mut grid).facet = Some(proto::Facet {
         column: "species".to_string(),
-        header: None,
+        ..Default::default()
     });
     set_resolve(&mut grid, proto::Sharing::Independent);
     let chart = read(with_filters(grid, strings(&["Adelie", "Gentoo"]))).unwrap();

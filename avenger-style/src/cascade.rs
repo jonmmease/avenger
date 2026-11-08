@@ -978,7 +978,7 @@ fn node_initial(
             _ => Some("bottom"),
         },
         (Property::Orient, Element::Legend) => Some("right"),
-        (Property::Orient, Element::Header | Element::Title) => Some("top"),
+        (Property::Orient, Element::Facet | Element::Title) => Some("top"),
         (Property::Direction, Element::Legend) => match style.keyword(Property::Orient) {
             Some("top" | "bottom") => Some("horizontal"),
             _ => Some("vertical"),

@@ -58,15 +58,15 @@ const MONTHS: [&str; 12] = [
 ];
 const DOMAIN: (f64, f64) = (0.0, 10.0);
 const POINTS: usize = 300;
-/// The height of each panel's header.
-const HEADER: f32 = 20.0;
+/// The height of each panel's label.
+const LABEL: f32 = 20.0;
 
-/// The parts of the page that the layout places: each panel's plot area and header, and each
+/// The parts of the page that the layout places: each panel's plot area and label, and each
 /// panel's axis parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum PanelId {
     Plot(usize),
-    Header(usize),
+    Label(usize),
     X(usize, AxisPart),
     Y(usize, AxisPart),
 }
@@ -147,7 +147,7 @@ impl FacetState {
     }
 }
 
-/// The page: each month's panel in a Wrap, with a header above its plot area and its axes'
+/// The page: each month's panel in a Wrap, with a label above its plot area and its axes'
 /// parts in slabs below and to its left.
 fn page_layout() -> Layout<PanelId> {
     let panels = (0..MONTHS.len()).map(|index| {
@@ -156,7 +156,7 @@ fn page_layout() -> Layout<PanelId> {
             .min_size(Size::new(110.0, 80.0))
             .slab(
                 Side::Top,
-                Slab::new().id(PanelId::Header(index)).min_height(HEADER),
+                Slab::new().id(PanelId::Label(index)).min_height(LABEL),
             );
         for part in AXIS_PARTS {
             panel = panel
@@ -292,12 +292,12 @@ fn plot_marks(state: &FacetState, index: usize, plot: Rect) -> SceneMark {
     .into()
 }
 
-/// A panel's month, centered in its header.
-fn header_mark(index: usize, header: Rect) -> SceneMark {
+/// A panel's month, centered in its label's slab.
+fn label_mark(index: usize, label: Rect) -> SceneMark {
     SceneTextMark {
         text: MONTHS[index].to_string().into(),
-        x: (header.x + header.width / 2.0).into(),
-        y: (header.y + header.height / 2.0).into(),
+        x: (label.x + label.width / 2.0).into(),
+        y: (label.y + label.height / 2.0).into(),
         align: TextAlign::Center.into(),
         baseline: TextBaseline::Middle.into(),
         font_size: 12.0.into(),
@@ -335,7 +335,7 @@ fn make_scene_graph(state: &mut FacetState, size: [f32; 2]) -> SceneGraph {
                 state.plots[index] = rect;
                 marks.push(plot_marks(state, index, rect));
             }
-            (PanelId::Header(index), _) => marks.push(header_mark(index, rect)),
+            (PanelId::Label(index), _) => marks.push(label_mark(index, rect)),
             // A slab that another slab draws, in a collapsed run, draws nothing.
             (
                 PanelId::X(_, part) | PanelId::Y(_, part),

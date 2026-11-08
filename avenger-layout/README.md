@@ -254,8 +254,8 @@ a containing `Row`, `Column`, `Grid`, or `Wrap`:
   with the same content key. For bottom axes, runs follow columns. For left axes,
   they follow rows. Runs do not cross separate tables or incompatible spans, or a
   panel that draws a different guide on that side.
-  Slabs on a `Row` or `Column` take part too, so a header above each row of a
-  grid collapses to the top one.
+  Slabs on a `Row` or `Column` take part too, so the facet labels above each row
+  of a grid collapse to the top one.
 - `merge_tag(tag)` first collapses guides, then replaces the remaining guides on
   a side with one on the container if they have the same key, collectively
   cover that side's tracks, and pass only panels that show the same guide or none

@@ -414,7 +414,7 @@ fn runs<Id>(
             } else {
                 outer.position.end <= inner.position.start
             };
-            // A host that is a container, such as a row of panels under one header, holds cells
+            // A host that is a container, such as a row of panels under one row of facet labels, holds cells
             // in other lanes, which do not stand between its slab and the next.
             let blocked = others.iter().any(|other| {
                 edge(inner) <= edge(other)
