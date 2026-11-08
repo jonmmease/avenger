@@ -27,6 +27,7 @@ members = [
     "avenger-guides-geo",
     "avenger-chart",
     "avenger-chart-eval",
+    "avenger-chart-app",
     "avenger-style",
     "avenger-svg",
     "avenger-pdf",
@@ -49,6 +50,8 @@ members = [
     "examples/image-resources",
     "examples/facet-wrap",
     "examples/cross-filter",
+    "examples/chart-facets",
+    "examples/chart-crossfilter",
     "examples/egui-embed",
 ]
 exclude = [
