@@ -4,7 +4,7 @@
 // `element.proto`.
 //
 // The format calls the parts of a scale its axis and its legend, and keeps the name guide for the
-// guides of a coordinate system, such as the graticule of a map.
+// guides of a coordinate system, such as the graticule of a geo plot.
 
 syntax = "proto3";
 

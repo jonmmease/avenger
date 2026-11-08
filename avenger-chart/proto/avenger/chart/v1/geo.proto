@@ -1,4 +1,4 @@
-// The geo coordinate system, whose plots are maps.
+// The geo coordinate system and its plots.
 
 syntax = "proto3";
 
@@ -10,11 +10,11 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // A geographic coordinate system: a map projection of `longitude`, `latitude`, `longitude2`,
-// `latitude2`, and `geometry`, for the `geo_` marks. A plot in this coordinate system is a map
+// `latitude2`, and `geometry`, for the `geo_` marks. A plot in this coordinate system is a geo
 // plot. The chart stores the spec, and the renderer builds an avenger-geo projection from it and
 // fits its view at the size of each plot.
 //
-// The map plots that share a projection merge their data and show one view, so their surfaces,
+// The geo plots that share a projection merge their data and show one view, so their surfaces,
 // their fits, their aspects, and their navigation must be equal.
 message Geo {
   // The coordinates that the projection takes.
@@ -23,17 +23,17 @@ message Geo {
     Spherical spherical = 1;
     Planar planar = 2;
   }
-  // The share family. Map plots whose specs name one family share one projection, in addition
+  // The share family. Geo plots whose specs name one family share one projection, in addition
   // to the projections that resolve rules share.
   string family = 3;
   // The shape of the plot. When absent, the plot keeps the aspect ratio of what its view fits,
-  // inside the space that the layout gives it, so the map fills the plot.
+  // inside the space that the layout gives it, so the projection fills the plot.
   oneof aspect {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
     // it. The view fills the plot in one direction and centers in the other.
     float aspect_ratio = 4;
-    // All of the space that the layout gives the plot, in any shape. The view fills the plot in
-    // one direction and centers in the other, so a map that fits a box shows more of the places
+    // All of the space that the layout gives the plot, in any shape. The view fills the plot in one
+    // direction and centers in the other, so a geo plot that fits a box shows more of the places
     // around the box.
     FreeAspect free_aspect = 5;
   }
@@ -44,12 +44,12 @@ message Geo {
 
 message FreeAspect {}
 
-// How a navigation moves the projection of a map plot, which every map plot that shares the
+// How a navigation moves the projection of a geo plot, which every geo plot that shares the
 // projection moves alike.
 message GeoNavigation {
   // How a drag moves the projection. Without a mode, the projection's own mode:
-  // `PAN_MODE_TRANSLATE` for a planar map, `PAN_MODE_SPHERE` for a projection whose default clip
-  // is a circle, as an azimuthal projection's is, and `PAN_MODE_LONGITUDE` otherwise.
+  // `PAN_MODE_TRANSLATE` for a planar geo plot, `PAN_MODE_SPHERE` for a projection whose default
+  // clip is a circle, as an azimuthal projection's is, and `PAN_MODE_LONGITUDE` otherwise.
   PanMode pan_mode = 1;
   // How far the wheel zooms out and in, as factors of the scale of the fitted projection at the
   // plot's size, so a `min_zoom` of 1 stops a zoom out at the fitted view. Without a limit, the
@@ -59,7 +59,7 @@ message GeoNavigation {
   optional double max_zoom = 3;
 }
 
-// How a navigation moves a map. Each keeps the place under the pointer at the start of a drag
+// How a navigation moves a geo plot. Each keeps the place under the pointer at the start of a drag
 // under the pointer.
 enum PanMode {
   // Absent, so the projection's own mode applies, as `GeoNavigation.pan_mode` describes.
@@ -118,7 +118,7 @@ message Spherical {
   oneof fit {
     // The data of the plot's layers. The renderer summarizes the geometry of each `geo_shape` layer
     // and the positions of the other layers, and insets the fit by the largest reach of their
-    // marks, so a mark at the edge of the map stays inside the plot. The plot clips to its
+    // marks, so a mark at the edge of the data stays inside the plot. The plot clips to its
     // rectangle, because its graticule, its sphere, and its tiles run past the data.
     PlotData fit_data = 36;
     // The whole sphere, as a world map or a globe shows it.
@@ -127,10 +127,10 @@ message Spherical {
     // data.
     LonLatBox fit_box = 38;
   }
-  // The lines of longitude and latitude. When absent, the map has no graticule.
+  // The lines of longitude and latitude. When absent, the plot has no graticule.
   Graticule graticule = 39;
   // The sphere, the whole world of the projection, filled behind the data and outlined. When
-  // absent, the map does not draw the sphere.
+  // absent, the plot does not draw the sphere.
   SphereStyle sphere = 40;
   // Raster tiles behind the data, such as a street map. When absent, the map has no tiles.
   TileLayer tiles = 41;
@@ -179,7 +179,7 @@ message Planar {
   bool reflect_y = 1;
 }
 
-// A planar map fits the data of its layers, as `Spherical.fit_data` describes, and has no
+// A planar geo plot fits the data of its layers, as `Spherical.fit_data` describes, and has no
 // graticule, sphere, or tiles, which belong to the sphere.
 
 message PlotData {}
@@ -243,13 +243,13 @@ enum RegionFrame {
   // The region turns with the rotation, so it stays on the same places, as a region that keeps
   // a continent does.
   REGION_FRAME_EARTH = 1;
-  // The region stays in the same part of the map as the sphere turns, as a band of latitudes
+  // The region stays in the same part of the plot as the sphere turns, as a band of latitudes
   // does.
   REGION_FRAME_VIEW = 2;
 }
 
-// The meridians and parallels of a spherical map. Their labels sit on the outline of the
-// projection, or on the edges of the plot for a map that fits a box.
+// The meridians and parallels of a spherical geo plot. Their labels sit on the outline of the
+// projection, or on the edges of the plot for a plot that fits a box.
 message Graticule {
   // The degrees between meridians. When absent, 10.
   optional double longitude_step = 1;
@@ -270,9 +270,9 @@ message Graticule {
   // The step between the points of each line, in degrees, which the projection resamples. When
   // absent, 2.5.
   optional double precision = 7;
-  // Where the labels sit. When absent, the labels sit on the edges of the plot for a map that fits
-  // a box or its data, and on the outline of the projection for a map that fits the whole sphere.
-  MapFrame frame = 8;
+  // Where the labels sit. When absent, the labels sit on the edges of the plot for a plot that fits
+  // a box or its data, and on the outline of the projection for a plot that fits the whole sphere.
+  GeoFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
   // parallels on the left and the right. When absent, the left and the bottom label them.
   LabelSides label_sides = 9;
@@ -295,15 +295,16 @@ message LabelSides {
   repeated Side sides = 1;
 }
 
-enum MapFrame {
+// The edge of a geo plot where the lines of its graticule are labeled.
+enum GeoFrame {
   // Absent, as `Graticule.frame` describes.
-  MAP_FRAME_UNSPECIFIED = 0;
+  GEO_FRAME_UNSPECIFIED = 0;
   // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
   // its end nearest the side.
-  MAP_FRAME_OUTLINE = 1;
-  // The rectangle of the plot, which the map fills and is clipped to, as a regional map has. A
-  // line is labeled where it crosses the edge of the side.
-  MAP_FRAME_RECTANGLE = 2;
+  GEO_FRAME_OUTLINE = 1;
+  // The rectangle of the plot, which the projection fills and is clipped to, as a regional map
+  // has. A line is labeled where it crosses the edge of the side.
+  GEO_FRAME_RECTANGLE = 2;
 }
 
 // The look of the sphere. A field that is absent takes its value from the styles.

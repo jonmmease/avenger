@@ -4,7 +4,7 @@ use avenger_geo::paths::geometry_path;
 use avenger_geo::projections::{EqualEarth, Equirectangular, Mercator};
 use avenger_geo::{FitSummary, Graticule as Lines, Projection};
 use avenger_guides::GuideSide;
-use avenger_guides_geo::{Graticule, GraticuleConfig, MapFrame};
+use avenger_guides_geo::{GeoFrame, Graticule, GraticuleConfig};
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     mark::SceneMark,
@@ -42,7 +42,7 @@ fn world(config: &GraticuleConfig) -> Graticule {
 fn rectangle(step: f64, label_sides: Vec<GuideSide>) -> GraticuleConfig {
     GraticuleConfig {
         graticule: Lines::default().with_step(step),
-        frame: MapFrame::Rectangle,
+        frame: GeoFrame::Rectangle,
         label_sides,
         ..Default::default()
     }
@@ -289,7 +289,7 @@ fn views_label_lines_within_the_view_extent() {
     ];
     let graticule = world(&GraticuleConfig {
         graticule: Lines::default().with_step(10.0),
-        frame: MapFrame::Rectangle,
+        frame: GeoFrame::Rectangle,
         label_sides: sides.clone(),
         ..Default::default()
     });
@@ -347,7 +347,7 @@ fn outline_maps_label_line_ends_inside_the_projection_bounds() {
 fn views_label_only_the_map_edges() {
     let graticule = world(&GraticuleConfig {
         graticule: Lines::default().with_step(10.0),
-        frame: MapFrame::Rectangle,
+        frame: GeoFrame::Rectangle,
         label_sides: vec![GuideSide::Left, GuideSide::Bottom],
         ..Default::default()
     });

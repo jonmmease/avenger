@@ -8,12 +8,12 @@ package avenger.chart.v1;
 enum Route {
   // As for `ROUTE_COORDINATE`.
   ROUTE_UNSPECIFIED = 0;
-  // The coordinate system decides the path: the great circle between the points in a map plot of
+  // The coordinate system decides the path: the great circle between the points in a geo plot of
   // the sphere, a steady change of angle and radius in a polar plot, which is an arc of a ring
-  // between two points at one radius, and a straight line in a Cartesian plot or a planar map.
+  // between two points at one radius, and a straight line in a Cartesian plot or a planar geo plot.
   // A radar chart therefore takes `ROUTE_CANVAS` for straight edges.
   ROUTE_COORDINATE = 1;
   // A straight line between the plotted points, as the edges of a radar chart and a straight
-  // line across a map run.
+  // line across a geo plot run.
   ROUTE_CANVAS = 2;
 }

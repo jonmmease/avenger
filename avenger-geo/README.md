@@ -102,7 +102,7 @@ clip can split one into several. Projected exterior rings have positive signed
 area and holes negative, and each hole belongs to the smallest exterior that
 contains it. A non-finite vertex breaks a line, and a ring leaves it out. A
 ring also leaves out points that repeat the point before them and spikes, a
-point between two that are one place. Data cut for planar maps has both:
+point between two that are one place. Data cut for planar geo plots has both:
 Natural Earth's Antarctica runs along the antimeridian to the south pole and
 back, which would make the clip's result turn on rounding.
 Projected geometry is in output units, so it must not be summarized or

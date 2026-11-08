@@ -139,9 +139,9 @@ fn local_node(node: &mut proto::Node, place: Place) {
                         widgets(&mut layer.widgets);
                     }
                 }
-                Coord::Geo(map) => {
-                    geo_options(map.options.as_mut().expect("a valid map plot has options"));
-                    for layer in &mut map.layers {
+                Coord::Geo(geo) => {
+                    geo_options(geo.options.as_mut().expect("a valid geo plot has options"));
+                    for layer in &mut geo.layers {
                         distinct(&mut layer.classes);
                         encodings(layer.mark.as_mut().expect("a valid layer has a mark"));
                         widgets(&mut layer.widgets);
@@ -260,8 +260,8 @@ impl Hoist<'_> {
                             layer("polar", index, &mut each.partition);
                         }
                     }
-                    Coord::Geo(map) => {
-                        for (index, each) in map.layers.iter_mut().enumerate() {
+                    Coord::Geo(geo) => {
+                        for (index, each) in geo.layers.iter_mut().enumerate() {
                             layer("geo", index, &mut each.partition);
                         }
                     }

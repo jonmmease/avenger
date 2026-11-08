@@ -7,9 +7,9 @@ package avenger.chart.v1;
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
-// Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a map. Plots
-// with equal credits merge their attributions by default, so a facet grid shows its sources once. A
-// style field that is absent takes its value from the styles.
+// Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a geo plot.
+// Plots with equal credits merge their attributions by default, so a facet grid shows its sources
+// once. A style field that is absent takes its value from the styles.
 message Attribution {
   // Each credit as Typst markup, such as `© OpenStreetMap contributors`. No credits draws no
   // attribution.

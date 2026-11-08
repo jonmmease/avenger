@@ -16,9 +16,9 @@ use crate::projection::{clamp_along, shows_along, whole, PlotProjection};
 /// The coordinates of a plot at one size: its projection between pixels and positions, and the
 /// scale of each of its two dimensions that has one.
 ///
-/// A scale maps its dimension's data to the dimension's positions: its range spans the
-/// dimension's extent, in either direction, as a fit at the extent gives it. A dimension without a
-/// scale, such as the longitude of a map or a proportion of a ternary plot, takes its data as its
+/// A scale maps its dimension's data to the dimension's positions: its range spans the dimension's
+/// extent, in either direction, as a fit at the extent gives it. A dimension without a scale, such
+/// as the longitude of a geo plot or a proportion of a ternary plot, takes its data as its
 /// positions.
 #[derive(Clone, Debug)]
 pub struct PlotCoords {

@@ -129,7 +129,7 @@ pub struct ChartEvaluator {
 
 impl ChartEvaluator {
     /// Prepares `chart` with the cascade of its style table, a label engine, and the custom scales
-    /// of `registry`. It fails for a chart with a map plot, and for an empty chart, which this
+    /// of `registry`. It fails for a chart with a geo plot, and for an empty chart, which this
     /// version of the evaluator does not draw.
     pub fn new(
         chart: Chart,
@@ -142,7 +142,7 @@ impl ChartEvaluator {
         }
         for plot in &chart.resolve().tree.plots {
             if let Some(Coord::Geo(_)) = plot.plot.coord.as_ref() {
-                return Err(EvalError::Unsupported("a map plot".into()));
+                return Err(EvalError::Unsupported("a geo plot".into()));
             }
         }
         crate::convert::format::check(&chart, &engine)?;

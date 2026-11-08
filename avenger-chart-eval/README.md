@@ -4,7 +4,7 @@ The evaluation of an `avenger-chart` chart to an Avenger scene graph at any size
 charts of Cartesian and polar plots: their marks, every scale type with every kind of domain, axes,
 polar axes, symbol legends, colorbars, titles, and attributions, in concats, wraps, and facets with
 their titles and labels, with empty cells, the part rules of compositions, and scales that plots
-share. A map plot is `EvalError::Unsupported`.
+share. A geo plot is `EvalError::Unsupported`.
 
 ## Compositions
 

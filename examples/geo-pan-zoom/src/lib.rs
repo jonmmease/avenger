@@ -3,6 +3,6 @@
 //! view, with the layers' legends. See the README for the controls.
 
 mod app;
-mod maps;
+mod plots;
 
 pub use app::{run, Basemap, OSM_TILES};

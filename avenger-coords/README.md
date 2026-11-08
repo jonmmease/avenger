@@ -50,8 +50,8 @@ assert_eq!(coords.value(1, 50.0)?, 5.0);
 
 ## Geographic projections
 
-The `geo` feature adds `GeoProjection`, the projection of a map through the projector of its cartographic projection from avenger-geo, at the size of the map's plot. A map has no scales: its positions are the places that the projector draws.
+The `geo` feature adds `GeoProjection`, the projection of a geo plot through the projector of its cartographic projection from avenger-geo, at the size of the map's plot. A map has no scales: its positions are the places that the projector draws.
 
 Through a spherical projector, the positions are longitudes and latitudes, and longitude wraps every 360 degrees. Paths run at a steady change of longitude and latitude, so the edge of a box follows a parallel, and polygons and enclosed paths cut at the antimeridian and at the horizon of a globe. An enclosed path that holds a pole closes through it, so either a planar check of longitude and latitude or the spherical check of `avenger_geo::polygon_contains` tells whether a lasso holds a place. Routes follow great circles, as the projector resamples them.
 
-Through a planar projector (`Projection::planar`), the positions are the map's planar coordinates, such as projected meters. The projection is then affine, so its lines are straight, it has no period, and its extent is what the plot shows.
+Through a planar projector (`Projection::planar`), the positions are the geo plot's planar coordinates, such as projected meters. The projection is then affine, so its lines are straight, it has no period, and its extent is what the plot shows.

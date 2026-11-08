@@ -440,9 +440,9 @@ message PolarTextMark {
   Encoding width = 131;
 }
 
-// Map marks.
+// Geo marks.
 
-// A symbol at each row of a map plot.
+// A symbol at each row of a geo plot.
 message GeoSymbolMark {
   // Whether the symbol has a fill. Without one, `color` colors the stroke of the symbol.
   optional bool filled = 1;
@@ -463,7 +463,7 @@ message GeoSymbolMark {
   Encoding pattern = 128;
 }
 
-// A line through the rows of each series of a map plot, in the order of the rows, as for
+// A line through the rows of each series of a geo plot, in the order of the rows, as for
 // `LineMark`. Each segment between two rows takes the line's route, so by default it follows the
 // great circle between them.
 message GeoLineMark {
@@ -481,7 +481,7 @@ message GeoLineMark {
   Encoding detail = 133;
 }
 
-// A trail through the rows of each series of a map plot, as for `TrailMark`. Each segment between
+// A trail through the rows of each series of a geo plot, as for `TrailMark`. Each segment between
 // two rows takes the trail's route, so by default it follows the great circle between them.
 message GeoTrailMark {
   // How each segment between two points runs, as `Route` describes.
@@ -499,7 +499,7 @@ message GeoTrailMark {
 
 // A line segment from (`longitude`, `latitude`) to (`longitude2`, `latitude2`), where a missing
 // `longitude2` takes the value of `longitude` and a missing `latitude2` takes the value of
-// `latitude`. A map rule needs `longitude` and `latitude`.
+// `latitude`. A geo rule needs `longitude` and `latitude`.
 //
 // A rule whose second value of a coordinate is missing holds that coordinate and runs along its
 // parallel or its meridian, whatever its route, so a rule with `longitude2` and without
@@ -520,7 +520,7 @@ message GeoRuleMark {
   Encoding stroke_dash = 124;
 }
 
-// The `text` value of each row of a map plot.
+// The `text` value of each row of a geo plot.
 //
 // A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message GeoTextMark {
@@ -560,7 +560,7 @@ message GeoTextMark {
   Encoding width = 131;
 }
 
-// The `image` value of each row of a map plot, at the projected point of its `longitude` and
+// The `image` value of each row of a geo plot, at the projected point of its `longitude` and
 // `latitude`.
 message GeoImageMark {
   // The side of each image at its `longitude`.
@@ -581,7 +581,7 @@ message GeoImageMark {
   Encoding height = 132;
 }
 
-// The SVG path of each row of a map plot, in pixels, with its origin at the projected point of the
+// The SVG path of each row of a geo plot, in pixels, with its origin at the projected point of the
 // row and turned by its `angle` about that origin.
 message GeoPathMark {
   Encoding longitude = 109;

@@ -32,15 +32,15 @@ message LayerTool {
 
 // A drag pans the plot's view, the wheel zooms it, and a double click returns it to its fit. A
 // navigation moves the scale of each of `channels`, so every plot that shares the scale shows the
-// new domain, and a scale whose domain is a selection domain writes the selection instead. On a map
-// plot, a navigation moves the projection, so every map plot that shares the projection shows the
+// new domain, and a scale whose domain is a selection domain writes the selection instead. On a geo
+// plot, a navigation moves the projection, so every geo plot that shares the projection shows the
 // new view. The limits of the navigation of a scale, such as its bounds, are in its spec, and the
-// navigation of a projection, such as the pan mode of a map, is in its options. A navigation is
-// invalid on a polar plot, and a plot has at most one.
+// navigation of a projection, such as the pan mode of a geo plot, is in its options. A navigation
+// is invalid on a polar plot, and a plot has at most one.
 message Navigate {
   // The channels whose scales the navigation moves: `CHANNEL_X`, `CHANNEL_Y`, or both on a
   // Cartesian plot. Empty moves every scale that the coordinate system navigates by, which are `x`
-  // and `y` on a Cartesian plot. A map plot has no scales, so its navigation names no channels. A
+  // and `y` on a Cartesian plot. A geo plot has no scales, so its navigation names no channels. A
   // navigation of a scale whose domain is a selection domain writes a clause of the plot to the
   // selection, a range of the column that the selection domain reads, as a box of that channel
   // would.
@@ -113,7 +113,7 @@ enum TooltipAnchor {
   // pointer moves over the instance.
   TOOLTIP_ANCHOR_DATA = 1;
   // Below and to the right of the pointer, for an instance without one point to point at, such as
-  // a region of a map.
+  // a region of a geo plot.
   TOOLTIP_ANCHOR_POINTER = 2;
   // Beside the instance.
   TOOLTIP_ANCHOR_INSTANCE = 3;
@@ -144,15 +144,15 @@ message IntervalSelect {
   // The channels of the box, which are positional channels of the plot: `CHANNEL_X`, `CHANNEL_Y`,
   // or both on a Cartesian plot, `CHANNEL_THETA`, `CHANNEL_RADIUS`, or both on a polar plot, whose
   // box selects a cyclic range of angle, and `CHANNEL_LONGITUDE`, `CHANNEL_LATITUDE`, or both on a
-  // map plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
+  // geo plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
   // positional channels.
   repeated Channel channels = 1;
   // The width, in logical pixels, of the cells that the box selects whole, or absent to select
   // exact ranges. A box of cells selects the rows in the cells that it covers, and with a width
   // above 1, it snaps to the cells as it moves. Its clause holds the range from the first edge of
   // those cells to the last, in the values of the column, as a clause of the chart, such as an
-  // initial clause, holds it. It is positive and finite. A map box selects exact ranges, and a
-  // polar box selects cells of its radius and an exact range of its angle.
+  // initial clause, holds it. It is positive and finite. A box on a geo plot selects exact ranges,
+  // and a polar box selects cells of its radius and an exact range of its angle.
   optional double cell = 2;
 }
 

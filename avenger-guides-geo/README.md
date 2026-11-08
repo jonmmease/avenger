@@ -48,11 +48,11 @@ fn world_map(engine: &LabelEngine) -> Result<SceneGroup, Box<dyn std::error::Err
 
 ## Frames and labels
 
-`GraticuleConfig::frame` sets the map's edge. `MapFrame::Outline`, the default,
+`GraticuleConfig::frame` sets the map's edge. `GeoFrame::Outline`, the default,
 fits the projection's outline in the map's rectangle, as for a world map. Each
 line is labeled at its end nearest the side, on the outline. Such a label can
 sit inside the map's rectangle, and the side's thickness counts only how far
-its labels reach past the edge. `MapFrame::Rectangle` fills the rectangle with
+its labels reach past the edge. `GeoFrame::Rectangle` fills the rectangle with
 the map and clips the map to it, as for a regional map. Each line is labeled
 where it crosses the side's edge. The graticule sets the clip extent, so the
 projection takes none of its own.

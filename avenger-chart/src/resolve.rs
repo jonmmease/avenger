@@ -1,5 +1,5 @@
 //! The models of a chart's tree that renderers read: its plots and layers with their identities
-//! and partitions, the grouping of their channels into scales, and the grouping of their map plots
+//! and partitions, the grouping of their channels into scales, and the grouping of their geo plots
 //! into projections.
 //!
 //! The resolve rules of plots, concats, and wraps and the share families of specs decide which
@@ -434,7 +434,7 @@ fn rule(rules: &[proto::Resolve], key: Shares) -> Option<Sharing> {
         .and_then(|rule| Sharing::try_from(rule.sharing).ok())
 }
 
-/// The sharing of the projections of the map plots below `node`, a concat or a wrap, among its
+/// The sharing of the projections of the geo plots below `node`, a concat or a wrap, among its
 /// children: its rule, or with a facet one projection and without one, one for each child.
 pub(crate) fn projection_sharing(node: &Node) -> Sharing {
     let (rule, facet) = match node {
@@ -729,33 +729,33 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     Ok(groups)
 }
 
-/// One projection: the map plots that share it, which fit one view at one size, and its options.
+/// One projection: the geo plots that share it, which fit one view at one size, and its options.
 pub struct ProjectionGroup<'a> {
     /// The options of the first plot, whose surface, aspect, and navigation every plot of the
     /// group has.
     pub spec: &'a proto::Geo,
-    /// The map plots, by their index in the plots of the tree, in tree order.
+    /// The geo plots, by their index in the plots of the tree, in tree order.
     pub plots: Vec<usize>,
     /// The path of the innermost node that holds every plot of the group.
     pub owner: String,
 }
 
-/// The options of a map plot.
+/// The options of a geo plot.
 fn geo_options<'a>(plot: &PlotRef<'a>) -> &'a proto::Geo {
     match plot.plot.coord.as_ref() {
-        Some(Coord::Geo(geo)) => (geo.options.as_ref()).expect("a valid map plot has options"),
-        _ => panic!("the plot is a map plot"),
+        Some(Coord::Geo(geo)) => (geo.options.as_ref()).expect("a valid geo plot has options"),
+        _ => panic!("the plot is a geo plot"),
     }
 }
 
-/// The projections of the map plots of `tree`. The map plots that share their projection at one
+/// The projections of the geo plots of `tree`. The geo plots that share their projection at one
 /// node, or whose options name one share family, share one projection, and their surfaces, their
 /// aspects, and their navigation must be equal, because they show one view.
 pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>>> {
-    let maps: Vec<usize> = (0..tree.plots.len())
+    let geo_plots: Vec<usize> = (0..tree.plots.len())
         .filter(|plot| tree.plots[*plot].kind == CoordKind::Geo)
         .collect();
-    let keys: Vec<Vec<(bool, &str)>> = (maps.iter())
+    let keys: Vec<Vec<(bool, &str)>> = (geo_plots.iter())
         .map(|plot| {
             let plot = &tree.plots[*plot];
             let mut scope = plot.path.as_str();
@@ -776,7 +776,7 @@ pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>
     let roots = join(&keys);
     let mut groups: Vec<ProjectionGroup> = Vec::new();
     let mut group_of: HashMap<usize, usize> = HashMap::new();
-    for (index, plot) in maps.iter().enumerate() {
+    for (index, plot) in geo_plots.iter().enumerate() {
         let path = &tree.plots[*plot].path;
         let geo = geo_options(&tree.plots[*plot]);
         match group_of.get(&roots[index]) {
@@ -794,7 +794,7 @@ pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>
                     return Err(ChartError::invalid(
                         path.clone(),
                         format!(
-                            "the map plots `{}` and `{path}` share a projection, so they show one view, and their {what} differ",
+                            "the geo plots `{}` and `{path}` share a projection, so they show one view, and their {what} differ",
                             tree.plots[group.plots[0]].path
                         ),
                     ));
@@ -841,7 +841,7 @@ pub struct Resolved<'a> {
     pub tree: Tree<'a>,
     /// The scales: the encodings that share each scale, with the spec that merges their specs.
     pub scales: Vec<ScaleGroup>,
-    /// The map plots that share each projection.
+    /// The geo plots that share each projection.
     pub projections: Vec<ProjectionGroup<'a>>,
     /// The place of each node in its table of tracks, and the size of each track.
     pub tables: Tables,

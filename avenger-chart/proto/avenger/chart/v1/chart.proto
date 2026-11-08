@@ -246,9 +246,9 @@ message Plot {
   //
   // A plot whose coordinate system keeps a shape and that has one of the two takes the other from
   // its shape: a Cartesian plot from its aspect ratio, a polar plot from the box around its part of
-  // the circle, and a map plot from its aspect ratio, or without one, from the aspect of what its
+  // the circle, and a geo plot from its aspect ratio, or without one, from the aspect of what its
   // view fits. A Cartesian plot with an aspect ratio, a `width`, and a `height` is a conflict. A
-  // polar plot, or a map plot, with both draws its shape inside them, centered.
+  // polar plot, or a geo plot, with both draws its shape inside them, centered.
   optional float width = 7;
   // The height of the plot's area, in pixels, as for `width`.
   optional float height = 8;
@@ -280,8 +280,8 @@ message Concat {
   ConcatLayout layout = 5;
   // The title of the concat, along a side of its whole box.
   Title title = 6;
-  // The sharing of the projections of the map plots below the concat. When absent, each child has
-  // its own projection, or with a facet, the children share one. Map plots that share a projection
+  // The sharing of the projections of the geo plots below the concat. When absent, each child has
+  // its own projection, or with a facet, the children share one. Geo plots that share a projection
   // fit one view and get equal sizes, so a place lands at the same position in each of them.
   Sharing projection = 7;
   // The partition values of the concat, keyed by column, as `PartitionValue` describes.
@@ -359,7 +359,7 @@ message Wrap {
   WrapLayout layout = 4;
   // The title of the wrap, along a side of its whole box.
   Title title = 5;
-  // The sharing of the projections of the map plots below the wrap, as for a concat. When absent,
+  // The sharing of the projections of the geo plots below the wrap, as for a concat. When absent,
   // each child has its own projection, or with a facet, the children share one.
   Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.

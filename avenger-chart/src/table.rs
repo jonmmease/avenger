@@ -275,7 +275,7 @@ pub struct Matches {
 
 /// The matches of the plots of each shared `x`, `y`, and projection whose plots stand in more than
 /// one track: along the columns for `x`, along the rows for `y`, and along both for a projection.
-/// A shared position scale has one length in every plot, and the map plots of a shared projection
+/// A shared position scale has one length in every plot, and the geo plots of a shared projection
 /// fit one view, so those plots must stand in one track each, and their tracks must have equal
 /// sizes.
 pub(crate) fn matches(
