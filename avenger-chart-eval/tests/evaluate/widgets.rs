@@ -28,7 +28,7 @@ fn cars_with(
         None => widget,
     });
     let symbols = CartesianLayer::symbol(
-        cars(),
+        cars_dataset(),
         SymbolMark::builder().x("weight").y("mpg").color("origin"),
     )
     .widgets(widgets);
@@ -72,7 +72,7 @@ fn a_slider_stands_above_its_plot_at_the_value_of_its_clause() {
         panic!("a slider: {:?}", widget.spec);
     };
     assert_eq!(*comparison, Comparison::AtLeast);
-    assert_eq!(*domain, [1800.0, 1800.0 + 23.0 * 130.0]);
+    assert_eq!(*domain, [1613.0, 5140.0]);
     assert_eq!(
         evaluator(&chart).widget_value(widget),
         WidgetValue::Number(2500.0)
@@ -114,7 +114,7 @@ fn a_radio_group_and_a_check_box_list_list_their_items() {
     // Without a clause, every box is checked.
     assert_eq!(
         evaluator.widget_value(checkboxes),
-        WidgetValue::Items(vec![0, 1, 2])
+        WidgetValue::Items(vec![0, 1, 2, 3, 4])
     );
     // Both stand right of the plot, the check box list below the radio group.
     let plot = plot_rect(&evaluated);
@@ -136,14 +136,16 @@ fn widgets_share_a_row_until_their_side_is_full() {
             .step(100.0),
     )
     .title("Weight at least");
-    let checkbox = |key: &str, column: &str, value: &str, title: &str| {
-        Widget::checkbox(key, CheckboxWidget::new(target(column), value)).title(title)
+    let checkbox = |key: &str, checkbox: CheckboxWidgetBuilder, title: &str| {
+        Widget::checkbox(key, checkbox).title(title)
     };
+    let eight = CheckboxWidget::new(target("cylinders"), 8_i64);
+    let japan = CheckboxWidget::new(target("origin"), "Japan");
     let chart = cars_with(
         vec![
             slider,
-            checkbox("eight", "cylinders", "8", "Eight cylinders"),
-            checkbox("japan", "origin", "Japan", "Japan only"),
+            checkbox("eight", eight, "Eight cylinders"),
+            checkbox("japan", japan, "Japan only"),
         ],
         Vec::new(),
         None,
@@ -181,14 +183,14 @@ fn a_range_slider_and_a_check_box_stand_below_their_plot() {
         RangeSliderWidget::new(target("mpg"), WidgetDomain::explicit(vec![10.0, 50.0])).step(1.0),
     )
     .title("Miles per gallon");
-    let checkbox = Widget::checkbox("eight", CheckboxWidget::new(target("cylinders"), "8"))
+    let checkbox = Widget::checkbox("eight", CheckboxWidget::new(target("cylinders"), 8_i64))
         .title("Eight cylinders");
     let clauses = vec![
         Clause::new([Condition::range(
             ValueRange::new("mpg").low(20.0).high(35.0),
         )])
         .widget("mpg"),
-        Clause::new([Condition::set([SetColumn::new("cylinders", ["8"])])]).widget("eight"),
+        Clause::new([Condition::set([SetColumn::new("cylinders", [8_i64])])]).widget("eight"),
     ];
     let chart = cars_with(vec![range, checkbox], clauses, Some(Side::Bottom));
     let evaluated = render(&chart, [360.0, 320.0], "widget-range-checkbox");
@@ -273,15 +275,22 @@ fn a_widget_writes_the_clause_that_gives_its_value() {
 #[test]
 fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
     let wrapped = |rules: Vec<PartRuleBuilder>| {
-        let panels = Node::partitions(&cars(), "origin", PartitionOrder::Ascending, |rows| {
-            let slider = Widget::slider(
-                "weight",
-                SliderWidget::new(target("weight"), data()).comparison(SliderComparison::AtLeast),
-            );
-            let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"))
-                .widgets([slider]);
-            Ok(Plot::cartesian([symbols]))
-        })
+        let panels = Node::partitions(
+            &cars_dataset(),
+            "origin",
+            PartitionOrder::Ascending,
+            |rows| {
+                let slider = Widget::slider(
+                    "weight",
+                    SliderWidget::new(target("weight"), data())
+                        .comparison(SliderComparison::AtLeast),
+                );
+                let symbols =
+                    CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"))
+                        .widgets([slider]);
+                Ok(Plot::cartesian([symbols]))
+            },
+        )
         .unwrap();
         Chart::builder(
             Wrap::builder()
@@ -306,7 +315,7 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
     let WidgetSpec::Slider { domain, .. } = &widget.spec else {
         panic!("a slider");
     };
-    assert_eq!(*domain, [1800.0, 1800.0 + 23.0 * 130.0]);
+    assert_eq!(*domain, [1613.0, 5140.0]);
 
     // A rule that keeps widgets draws the one widget beside each plot.
     let keep = PartRule::new(Part::Widget, PartRuleKind::Keep);
@@ -365,7 +374,7 @@ fn a_stylesheet_colors_and_places_widgets() {
 #[test]
 fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     let symbols = CartesianLayer::symbol(
-        cars(),
+        cars_dataset(),
         SymbolMark::builder().x("weight").y("mpg").color("origin"),
     )
     .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
