@@ -7,7 +7,7 @@ use avenger_chart::ChartError;
 /// and the failures of the parts that draw it.
 #[derive(Debug, thiserror::Error)]
 pub enum EvalError {
-    /// A part of the chart that this version of the evaluator does not draw, such as a map plot.
+    /// A part of the chart that this version of the evaluator does not draw, such as a geo plot.
     #[error("the evaluator does not draw {0} yet")]
     Unsupported(String),
     /// A custom scale whose type the registry does not name.

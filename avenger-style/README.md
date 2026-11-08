@@ -33,7 +33,7 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `facet` | The title and the labels of a facet | `type` |
 | `scale` | A scale, which is not drawn | `type`, `channel`, `kind`, `marks` |
 | `attribution` | The credits of a plot's sources | |
-| `graticule` | The graticule of a map | |
+| `graticule` | The graticule of a geo plot | |
 | `level` | A level of the axis of a nested band scale | |
 | `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule, and the labels of marks | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
@@ -46,7 +46,7 @@ The attributes have these values:
 | Attribute | Value |
 |---|---|
 | `plot[type]` | `cartesian`, `polar`, or `geo` for a coordinate system, and `hconcat`, `vconcat`, `wrap`, `facet_row`, `facet_col`, or `facet_wrap` for a composition |
-| `plot[projection]` | The projection of a map, such as `albers_usa` |
+| `plot[projection]` | The projection of a geo plot, such as `albers_usa` |
 | `plot[discrete]` | The position channels whose scale is a band, point, or nested band scale, separated by spaces |
 | `mark[type]` | Two forms: the kind of the mark, such as `bar`, `symbol`, or `shape`, and its name with the prefix of its coordinate system, such as `polar_bar` or `geo_shape`. A Cartesian mark has the same name in both forms. |
 | `mark[store]` | The name of the selection whose box or lasso the mark draws |

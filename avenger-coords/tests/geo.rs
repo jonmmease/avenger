@@ -1,5 +1,5 @@
 //! The geographic projection of a map: places through the projector, longitudes that wrap, paths
-//! along parallels, the region of a globe, and planar maps.
+//! along parallels, the region of a globe, and planar geo plots.
 
 use std::f64::consts::PI;
 
@@ -18,7 +18,8 @@ fn globe() -> GeoProjection {
     GeoProjection::new(projection.build().unwrap(), SIZE)
 }
 
-/// The size of the plots of the spherical maps, which the projection of a sphere does not read.
+/// The size of the plots of the spherical geo plots, which the projection of a sphere does not
+/// read.
 const SIZE: [f32; 2] = [360.0, 180.0];
 
 fn close(a: [f64; 2], b: [f64; 2]) -> bool {
@@ -200,8 +201,8 @@ fn a_route_follows_the_great_circle() {
     assert!(route < path - 5.0, "route {route}, path {path}");
 }
 
-/// A globe outlines its disk, a flat map its rectangle, and a planar map is an affine projection
-/// of its coordinates without a period.
+/// A globe outlines its disk, a flat map its rectangle, and a planar geo plot is an affine
+/// projection of its coordinates without a period.
 #[test]
 fn outlines_and_planar_maps() {
     let [[x0, y0], [x1, y1]] = globe().bounds().unwrap();

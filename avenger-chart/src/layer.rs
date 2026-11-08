@@ -41,12 +41,12 @@ impl CoordKind {
         match self {
             Self::Cartesian => "Cartesian",
             Self::Polar => "polar",
-            Self::Geo => "map",
+            Self::Geo => "geo",
         }
     }
 
     /// The position channels: `x` and `y` of a Cartesian plot, `theta` and `radius` of a polar
-    /// plot, and `longitude` and `latitude` of a map plot.
+    /// plot, and `longitude` and `latitude` of a geo plot.
     pub fn positions(self) -> &'static [Channel] {
         match self {
             Self::Cartesian => &[Channel::X, Channel::Y],
@@ -82,7 +82,7 @@ impl CoordKind {
     }
 
     /// The position channels whose scales a `Navigate` moves: `x` and `y` of a Cartesian plot. A
-    /// map plot navigates its projection, and a polar plot takes no navigation.
+    /// geo plot navigates its projection, and a polar plot takes no navigation.
     pub fn navigated(self) -> &'static [Channel] {
         match self {
             Self::Cartesian => &[Channel::X, Channel::Y],

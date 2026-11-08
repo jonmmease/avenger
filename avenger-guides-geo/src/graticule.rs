@@ -33,7 +33,7 @@ const MIN_SIZE: f64 = 1e-6;
 
 /// A map's edge, where its lines are labeled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum MapFrame {
+pub enum GeoFrame {
     /// The projection's outline, fitted in the map's rectangle, as a world map's is. A line is
     /// labeled at its end nearest the side, on the outline.
     #[default]
@@ -47,7 +47,7 @@ pub enum MapFrame {
 #[derive(Debug, Clone)]
 pub struct GraticuleConfig {
     pub graticule: avenger_geo::Graticule,
-    pub frame: MapFrame,
+    pub frame: GeoFrame,
     /// The sides that label the lines that reach them: meridians on the top and
     /// bottom, and parallels on the left and right. Without sides, the lines
     /// have no labels.
@@ -63,7 +63,7 @@ impl Default for GraticuleConfig {
     fn default() -> Self {
         Self {
             graticule: avenger_geo::Graticule::default(),
-            frame: MapFrame::default(),
+            frame: GeoFrame::default(),
             label_sides: vec![GuideSide::Left, GuideSide::Bottom],
             label_format: String::new(),
             style: GraticuleStyle::default(),
@@ -117,7 +117,7 @@ pub struct Graticule {
     projection: Projection,
     summary: FitSummary,
     aspect: f32,
-    frame: MapFrame,
+    frame: GeoFrame,
     label_sides: Vec<GuideSide>,
     style: GraticuleStyle,
     /// The graticule's lines.
@@ -163,7 +163,7 @@ impl Graticule {
     ///
     /// # Errors
     /// Returns an error when the projection has a clip extent, which the graticule sets under
-    /// [`MapFrame::Rectangle`], when the summary has no finite, positive aspect, when
+    /// [`GeoFrame::Rectangle`], when the summary has no finite, positive aspect, when
     /// `label_sides` lists a side twice, when the graticule's configuration is invalid, when the
     /// text engine can't format or lay out a label, or when the projection can't be fitted and
     /// built.
@@ -274,7 +274,7 @@ impl Graticule {
     }
 
     /// The projection fitted to a map of `size`, with its top-left corner at 0, for the map's
-    /// data. Under [`MapFrame::Rectangle`], it clips to the map's rectangle. A map without area
+    /// data. Under [`GeoFrame::Rectangle`], it clips to the map's rectangle. A map without area
     /// shrinks to its corner.
     pub fn projector(&self, size: [f32; 2]) -> Projector {
         self.try_projector(size)
@@ -297,9 +297,9 @@ impl Graticule {
     /// with a margin inside its plot does. It places the labels once, for the view's lines,
     /// labels and parts, and labels the lines as the configuration's frame does.
     ///
-    /// Under [`MapFrame::Rectangle`], lines are labeled where they cross the edges of the map's
+    /// Under [`GeoFrame::Rectangle`], lines are labeled where they cross the edges of the map's
     /// rectangle, so the projector clips to that rectangle with `clip_extent`: a line that the
-    /// projector doesn't cut at an edge has no label there. Under [`MapFrame::Outline`], lines
+    /// projector doesn't cut at an edge has no label there. Under [`GeoFrame::Outline`], lines
     /// are labeled at their ends, so the labels stay within [`Graticule::view_extent`] while
     /// the projection's outline stays inside the map's rectangle, as it does in a view fitted
     /// inside it. An interactive map, whose outline can leave its rectangle, takes the
@@ -381,7 +381,7 @@ impl Graticule {
         let rect = [[0.0, 0.0], [width, height]];
         let mut projection = self.projection.clone();
         projection.fit(rect, &self.summary)?;
-        if self.frame == MapFrame::Rectangle {
+        if self.frame == GeoFrame::Rectangle {
             projection.clip_extent = Some(rect);
         }
         projection.build()
@@ -411,11 +411,11 @@ impl Graticule {
     }
 
     /// The edges that label the lines of a map of `size`: its rectangle under
-    /// [`MapFrame::Rectangle`], or none under [`MapFrame::Outline`], which labels their ends.
+    /// [`GeoFrame::Rectangle`], or none under [`GeoFrame::Outline`], which labels their ends.
     fn label_frame(&self, size: [f32; 2]) -> Option<[[f64; 2]; 2]> {
         match self.frame {
-            MapFrame::Rectangle => Some(map_rectangle(size)),
-            MapFrame::Outline => None,
+            GeoFrame::Rectangle => Some(plot_rectangle(size)),
+            GeoFrame::Outline => None,
         }
     }
 
@@ -659,12 +659,12 @@ fn alignment(side: GuideSide) -> (TextAlign, TextBaseline) {
     }
 }
 
-/// Where `side`'s edge of a map of `size` starts, in the map's frame.
 /// A map's rectangle at `size`, in its frame.
-fn map_rectangle(size: [f32; 2]) -> [[f64; 2]; 2] {
+fn plot_rectangle(size: [f32; 2]) -> [[f64; 2]; 2] {
     [[0.0, 0.0], [f64::from(size[0]), f64::from(size[1])]]
 }
 
+/// Where `side`'s edge of a map of `size` starts, in the map's frame.
 fn edge_origin(side: GuideSide, size: [f32; 2]) -> [f32; 2] {
     match side {
         GuideSide::Left | GuideSide::Top => [0.0, 0.0],

@@ -134,7 +134,7 @@ A builder converts from other types where the conversion is unambiguous:
 - A message with one oneof and no required field converts from each member that is a message of its own type, so `.scale(BandScale::builder())` and `Chart::builder(plot)` set the member.
 - A scale converts from its domain, its range, its axis, and its legend, the fields that the `lift` option marks, so `.scale(Domain::explicit([0.0, 10.0]))` and `.scale(Axis::builder().show_grid(true))` set that field. A conversion is one step, so it takes part in no other conversion.
 
-`EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and map plots hides the axes and the legends of the scales of the plot's layers.
+`EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and geo plots hides the axes and the legends of the scales of the plot's layers.
 
 A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which infers its absent scales, checks it, and puts it in the canonical form, as every reader does. A builder of a message other than a chart builds alone when it holds no data, such as a scale for a unit test.
 
@@ -194,7 +194,7 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 |---|---|
 | `tree` | The plots, the layers, and the concats, wraps, and facets with ids, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
 | `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs, the node that owns the scale's axis or legend, and its identity |
-| `projections` | The map plots that share each projection |
+| `projections` | The geo plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
 | `matches` | The tracks whose lengths the plots of shared position scales and projections match |
 | `widgets` | The widgets: the copies of each key that share one widget by the resolve rules, with the declaration that merges theirs, the anchor that identifies the widget, and the node that holds its copies, whose part rules decide how many times it draws |

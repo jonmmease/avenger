@@ -1,4 +1,4 @@
-//! Geographic projections, whose positions are the places that a map's projector draws: the
+//! Geographic projections, whose positions are the places that a geo plot's projector draws: the
 //! longitudes and latitudes of a spherical projector, or the planar coordinates of a planar one.
 
 use std::f64::consts::PI;
@@ -20,8 +20,8 @@ const PATH_STEP: f64 = 2.5;
 /// The latitude where paths and polygons stop short of a pole, where meridians meet.
 const POLE: f64 = 90.0 - 1e-6;
 
-/// The projection of a map plot through the projector of its cartographic projection, from the
-/// top-left corner of the plot. A map has no scales: its positions are the places that the
+/// The projection of a geo plot through the projector of its cartographic projection, from the
+/// top-left corner of the plot. A geo plot has no scales: its positions are the places that the
 /// projector draws.
 ///
 /// Through a spherical projector, the positions are longitudes and latitudes in degrees, and
@@ -29,7 +29,7 @@ const POLE: f64 = 90.0 - 1e-6;
 /// the edge of a box follows a parallel, routes follow great circles, and lines and polygons cut
 /// at the antimeridian and at the clip, such as a globe's horizon.
 ///
-/// Through a planar projector, avenger-geo's `Projection::planar`, the positions are the map's
+/// Through a planar projector, avenger-geo's `Projection::planar`, the positions are the geo plot's
 /// planar coordinates, such as projected meters, which the projector scales, moves, and can
 /// reflect onto the plot. The projection is then affine, so its lines are straight, it has no
 /// period, and its extent is what the plot shows.
@@ -46,7 +46,7 @@ enum Surface {
 }
 
 impl GeoProjection {
-    /// The projection through `projector` of a map plot of `size`, whose extent a planar
+    /// The projection through `projector` of a geo plot of `size`, whose extent a planar
     /// projector takes from the plot's corners.
     pub fn new(projector: Projector, size: [f32; 2]) -> Self {
         let surface = if projector.is_planar() {
@@ -353,7 +353,7 @@ fn steps(from: [f64; 2], to: [f64; 2]) -> impl Iterator<Item = [f64; 2]> {
     })
 }
 
-/// The projection of a planar projector, whose positions are a planar map's coordinates.
+/// The projection of a planar projector, whose positions are a planar geo plot's coordinates.
 struct Planar {
     projector: Projector,
     extent: [[f64; 2]; 2],

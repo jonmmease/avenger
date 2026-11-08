@@ -186,9 +186,9 @@ fn bounds_clip_within_the_clip_extent() {
     assert!(away.project_sphere().0.is_empty());
 }
 
-/// A polygon cut for planar maps, as Natural Earth cuts Antarctica, runs along the antimeridian
-/// to the south pole and back. It keeps its area as the sphere turns: the pipeline leaves out
-/// the spike, whose pole is the antimeridian clip's test point.
+/// A polygon cut for planar geo plots, as Natural Earth cuts Antarctica, runs along the
+/// antimeridian to the south pole and back. It keeps its area as the sphere turns: the pipeline
+/// leaves out the spike, whose pole is the antimeridian clip's test point.
 #[test]
 fn polygons_cut_at_a_pole_keep_their_area_as_the_sphere_turns() {
     let coast = [

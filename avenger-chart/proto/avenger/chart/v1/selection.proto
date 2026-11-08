@@ -113,7 +113,7 @@ message ValueRange {
 // Polygons in the coordinates of two columns, as lassos record them. A row matches when the point
 // of its two values is inside one of the polygons, each by the even-odd rule, so the overlap of
 // two lassos is inside. The edges are straight in those coordinates, which are longitudes and
-// latitudes for a lasso on a map plot.
+// latitudes for a lasso on a geo plot.
 message Polygon {
   // The column of the horizontal values of the points.
   string x_column = 1 [(avenger.chart.v1.required) = true];
@@ -129,13 +129,13 @@ message Polygon {
 // values of `theta` around a whole circle, with the width of its domain as the period. When `end`
 // is less than `start`, the range crosses the wrap. A range at least `period` wide holds every
 // value. A row matches when its value, less `start` and wrapped into one period, is at most the
-// width of the range, so the condition needs no origin of the wrap. A box on a map records a cyclic
-// range of its longitude column with a `ValueRange` of its latitude column, because latitudes do
-// not wrap.
+// width of the range, so the condition needs no origin of the wrap. A box on a geo plot records a
+// cyclic range of its longitude column with a `ValueRange` of its latitude column, because
+// latitudes do not wrap.
 message CyclicRange {
   // The name of the column.
   string column = 1 [(avenger.chart.v1.required) = true];
-  // The channel that the selection projected through: `CHANNEL_LONGITUDE` for a box on a map,
+  // The channel that the selection projected through: `CHANNEL_LONGITUDE` for a box on a geo plot,
   // `CHANNEL_THETA` for a box in a polar plot, or `CHANNEL_UNSPECIFIED` for a column that the
   // selection names directly.
   Channel channel = 2;

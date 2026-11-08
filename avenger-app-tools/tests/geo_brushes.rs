@@ -31,7 +31,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::symbol::SceneSymbolMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 
-const MAP: &str = "map";
+const GEO: &str = "geo";
 const BRUSHES: &str = "brushes";
 const PLACES: &str = "places";
 
@@ -85,11 +85,11 @@ struct Places;
 #[async_trait]
 impl AppBuild<Map> for Places {
     fn scenes(&self) -> Vec<Scene<Map>> {
-        vec![Scene::new(MAP, 0)]
+        vec![Scene::new(GEO, 0)]
     }
 
     async fn build(&self, state: &mut Map, scenes: &mut Scenes<'_>) -> Result<(), AvengerAppError> {
-        if !scenes.requested(MAP) {
+        if !scenes.requested(GEO) {
             return Ok(());
         }
         let projection = state.projection.clone().unwrap();
@@ -120,7 +120,7 @@ impl AppBuild<Map> for Places {
             height,
             origin: [0.0; 2],
         };
-        scenes.set(MAP, BuiltScene { scene, data })
+        scenes.set(GEO, BuiltScene { scene, data })
     }
 }
 
@@ -142,11 +142,11 @@ fn boxes(brush: IntervalBrush<Map>) -> IntervalBrush<Map> {
         .value(|s| s.selection)
         .on_change(|s, selection| {
             s.selection = selection;
-            Rebuild::scene(MAP)
+            Rebuild::scene(GEO)
         })
         .on_settle(|s, selection| {
             s.settles.push(selection);
-            Rebuild::tree(MAP)
+            Rebuild::tree(GEO)
         })
 }
 
@@ -163,7 +163,7 @@ fn lasso() -> LassoBrush<Map, i64> {
         .value(|s| s.lasso.clone())
         .on_change(|s, lasso| {
             s.lasso = lasso;
-            Rebuild::tree(MAP)
+            Rebuild::tree(GEO)
         })
 }
 

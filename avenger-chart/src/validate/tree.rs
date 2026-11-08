@@ -277,7 +277,7 @@ impl Checker<'_> {
                 if min > max {
                     return Err(fail(
                         &path,
-                        "the zoom limits of a map run from `min_zoom` up to `max_zoom`",
+                        "the zoom limits of a geo plot run from `min_zoom` up to `max_zoom`",
                     ));
                 }
             }

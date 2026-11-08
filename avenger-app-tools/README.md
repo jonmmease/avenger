@@ -94,10 +94,10 @@ selectors for that state and the interaction rectangle:
 let chart = AvengerApp::builder(state, Chart, engine)
     .tool(PanZoom::xy(PLOT, |s: &ChartState| s.plot, |s: &mut ChartState| &mut s.x, |s| &mut s.y));
 
-let globe = GeoPanZoom::new(MAPS, |s: &MapState| s.area, |s: &mut MapState| s.globe.as_mut(), PanMode::Sphere)
+let globe = GeoPanZoom::new(PLOTS, |s: &GeoPlotState| s.area, |s: &mut GeoPlotState| s.globe.as_mut(), PanMode::Sphere)
     .with_home(|s| s.fitted())
     .with_scale_limits(|s, projection| s.limits(projection));
-let map = AvengerApp::builder(state, Map, engine).tool(globe);
+let geo = AvengerApp::builder(state, Geo, engine).tool(globe);
 
 let facets = KeyedPanZoom::x(CHART, |s: &FacetState| s.panels(), |s: &mut FacetState, panel| s.x_of(panel))
     .on_settle(|s, panel| s.reload(panel))
@@ -238,7 +238,7 @@ area selects among its own marks, with ids of its own.
 
 ```rust
 let globe = IntervalBrush::xy("box")
-    .area(|s: &MapState| s.area)
+    .area(|s: &GeoPlotState| s.area)
     .coords(|s| {
         let projector = s.projection.build().ok()?;
         let size = [s.area.width, s.area.height];
@@ -247,7 +247,7 @@ let globe = IntervalBrush::xy("box")
     .value(|s| s.selection)
     .on_change(|s, selection| {
         s.selection = selection;
-        Rebuild::scene(MAP)
+        Rebuild::scene(PLOTS)
     });
 ```
 
@@ -256,10 +256,10 @@ A box or lasso brush works in each area's coordinates, a `PlotCoords` from `aven
 dimensions, and the scale of each dimension that has one. The default is the
 `CartesianProjection` of the area's rectangle without scales, whose positions are its pixels, and
 `PlotCoords::cartesian` gives a rectangle with scales. A polar plot uses a `PolarProjection`, whose
-positions are angles and distances from the center, and a map uses a `GeoProjection`, with the
+positions are angles and distances from the center, and a geo plot uses a `GeoProjection`, with the
 `geo` feature of `avenger-coords`, whose positions are longitudes and latitudes, or the
-coordinates of a planar map. Each scale maps its dimension's data to the dimension's positions,
-with a range that spans the extent, and a dimension without a scale, such as a map's longitude,
+coordinates of a planar geo plot. Each scale maps its dimension's data to the dimension's positions,
+with a range that spans the extent, and a dimension without a scale, such as a geo plot's longitude,
 selects positions directly.
 
 The brush draws a box's edges along the projection's paths, so a box is a rectangle in a Cartesian
@@ -273,8 +273,8 @@ keeps a box's shape in positions in a linear projection, such as a Cartesian plo
 projections ignore it. `cells` snaps a box to whole cells, such as the bands of a band scale,
 along each dimension with cells that does not wrap.
 
-A lasso reports its polygons in the data of the dimensions. On a map, they are in longitude and
-latitude, cut to the part of the sphere that the map draws, and wound as RFC 7946 winds GeoJSON,
+A lasso reports its polygons in the data of the dimensions. On a geo plot, they are in longitude and
+latitude, cut to the part of the sphere that the plot draws, and wound as RFC 7946 winds GeoJSON,
 so `avenger_geo::polygon_contains` checks a place against each one. A place lies inside the lasso
 when one of its polygons contains it.
 
@@ -335,7 +335,7 @@ let ranges = KeyedIntervalBrush::xy("ranges")
 A keyed brush's `areas` returns each area's key and rectangle, so one brush serves every panel of
 a facet grid, including a grid whose panel count changes. Its coordinates and callbacks receive
 the area's key, and a dimension's scale can be `None` for an area whose dimension has none, such as
-the longitude of a map. The bindings choose how the panels combine:
+the longitude of a geo plot. The bindings choose how the panels combine:
 
 - For one selection for the figure, store one `Option<(key, Interval)>`, and return the interval
   from `value` only for its panel, so a box drawn in another panel replaces it.

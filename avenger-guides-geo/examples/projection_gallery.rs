@@ -13,7 +13,7 @@ use avenger_geo::projections::{ConicEqualArea, EqualEarth, Mercator, NaturalEart
 use avenger_geo::{Projection, Projector};
 use avenger_guides::GuideSide;
 use avenger_guides_geo::{
-    make_sphere_marks, Graticule, GraticuleConfig, GraticuleStyle, MapFrame, SphereStyle,
+    make_sphere_marks, GeoFrame, Graticule, GraticuleConfig, GraticuleStyle, SphereStyle,
 };
 use avenger_layout::{
     Direction, Edges, Gap, Grid, GridSlot, Layout, Leaf, Measure, Measurement, Overflow, Placement,
@@ -136,9 +136,9 @@ fn gallery_layout(panels: &[Panel]) -> Layout<PanelId> {
 }
 
 /// Measures each label slab with its graticule's extent.
-struct MapLabels<'a>(&'a [Panel]);
+struct GraticuleLabels<'a>(&'a [Panel]);
 
-impl Measure<PanelId> for MapLabels<'_> {
+impl Measure<PanelId> for GraticuleLabels<'_> {
     fn height(&mut self, id: &PanelId, width: f32) -> Option<Measurement> {
         self.answer(id, width)
     }
@@ -148,7 +148,7 @@ impl Measure<PanelId> for MapLabels<'_> {
     }
 }
 
-impl MapLabels<'_> {
+impl GraticuleLabels<'_> {
     fn answer(&self, id: &PanelId, length: f32) -> Option<Measurement> {
         let PanelId::Labels(index, side) = id else {
             return None;
@@ -248,12 +248,12 @@ fn panels(engine: &LabelEngine) -> Result<Vec<Panel>, Box<dyn Error>> {
             let (summary, frame, graticule) = match &region {
                 Some(region) => (
                     projection.summarize(region)?,
-                    MapFrame::Rectangle,
+                    GeoFrame::Rectangle,
                     avenger_geo::Graticule::default().with_step(10.0),
                 ),
                 None => (
                     projection.summarize_sphere()?,
-                    MapFrame::Outline,
+                    GeoFrame::Outline,
                     world_lines.clone(),
                 ),
             };
@@ -301,7 +301,7 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
         ..SolveOptions::sized(WIDTH, HEIGHT)
     };
     let solution = gallery_layout(&panels)
-        .measure(&options, &mut MapLabels(&panels))?
+        .measure(&options, &mut GraticuleLabels(&panels))?
         .into_solution();
     for warning in solution.warnings() {
         eprintln!("layout warning: {warning:?}");

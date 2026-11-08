@@ -64,9 +64,11 @@ enum Channel {
     (avenger.chart.v1.channel_scale) = CHANNEL_SCALE_PARTNER,
     (avenger.chart.v1.position) = true
   ];
-  // The longitude of a row in degrees, or its first coordinate in a planar map, without a scale.
+  // The longitude of a row in degrees, or its first coordinate in a planar geo plot, without a
+  // scale.
   CHANNEL_LONGITUDE = 9 [(avenger.chart.v1.position) = true];
-  // The latitude of a row in degrees, or its second coordinate in a planar map, without a scale.
+  // The latitude of a row in degrees, or its second coordinate in a planar geo plot, without a
+  // scale.
   CHANNEL_LATITUDE = 10 [(avenger.chart.v1.position) = true];
   // The second longitude, without a scale.
   CHANNEL_LONGITUDE2 = 11 [(avenger.chart.v1.position) = true];

@@ -601,7 +601,7 @@ fn spherical_maps_set_a_projection_within_range() {
         "root.plot.geo.options.spherical.parallel1",
         "from -90 to 90",
     );
-    // A map's surface has no default, so a map plot always sets its options.
+    // A map's surface has no default, so a geo plot always sets its options.
     if let Some(node::Node::Plot(plot)) = parts.0.root.as_mut().and_then(|root| root.node.as_mut())
     {
         if let Some(plot::Coord::Geo(map)) = &mut plot.coord {

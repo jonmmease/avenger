@@ -35,8 +35,8 @@ use avenger_guides::legend::{
 };
 use avenger_guides::{BackgroundStyle, GuideSide, PartExtent};
 use avenger_guides_geo::{
-    geometry_marks, make_sphere_marks, GeometryStyle, Graticule, GraticuleConfig, GraticuleStyle,
-    MapFrame, SphereStyle,
+    geometry_marks, make_sphere_marks, GeoFrame, GeometryStyle, Graticule, GraticuleConfig,
+    GraticuleStyle, SphereStyle,
 };
 use avenger_layout::{
     Direction, Edges, Gap, Layout, Leaf, Measure, Measurement, Overflow, Placement, Position, Rect,
@@ -294,10 +294,10 @@ fn panels(engine: &LabelEngine) -> Result<Vec<Panel>, Box<dyn Error>> {
             let (summary, frame, step): (FitSummary, _, _) = match framing {
                 Region([west, south, east, north]) => (
                     projection.summarize(&border(west, south, east, north))?,
-                    MapFrame::Rectangle,
+                    GeoFrame::Rectangle,
                     10.0,
                 ),
-                Outline { step } => (projection.summarize_sphere()?, MapFrame::Outline, step),
+                Outline { step } => (projection.summarize_sphere()?, GeoFrame::Outline, step),
             };
             let config = GraticuleConfig {
                 graticule: avenger_geo::Graticule::default().with_step(step),
@@ -532,7 +532,7 @@ fn slot(rect: Rect) -> [f32; 4] {
 }
 
 /// A map's layers at its content rectangle, through its graticule's projector.
-fn map_marks(panel: &Panel, layers: &Layers, map: Rect) -> Result<SceneMark, Box<dyn Error>> {
+fn geo_marks(panel: &Panel, layers: &Layers, map: Rect) -> Result<SceneMark, Box<dyn Error>> {
     let size = [map.width, map.height];
     let graticule = &panel.graticule;
     let projector = graticule.projector(size);
@@ -640,7 +640,7 @@ fn gallery(engine: &LabelEngine) -> Result<SceneGraph, Box<dyn Error>> {
                     FontWeight::BOLD,
                     INK,
                 ));
-                marks.push(map_marks(panel, &layers, rect)?);
+                marks.push(geo_marks(panel, &layers, rect)?);
             }
             Id::Continents => {
                 let mut group = guides.continents.marks(rect.height).group;

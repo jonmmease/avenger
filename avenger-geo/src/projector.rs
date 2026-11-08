@@ -11,7 +11,7 @@
 //!
 //! The first stage leaves out non-finite vertices, and the ring stage leaves
 //! out the parts of rings without area, such as the spike that data cut for
-//! planar maps runs to a pole. The fixed rotation is the projection's own,
+//! planar geo plots runs to a pole. The fixed rotation is the projection's own,
 //! such as transverse Mercator's roll. The spherical
 //! clip is the antimeridian cut, a circle, or a region. A
 //! [`Surface::Planar`] projection skips the spherical stages and transforms
@@ -1247,7 +1247,7 @@ fn same_point(a: (f64, f64, Option<f64>), b: (f64, f64, Option<f64>)) -> bool {
 
 /// `ring` without the parts that have no area: a point that repeats the one
 /// before it, and a spike, a point between two that are one point. Data cut
-/// for planar maps has both: Natural Earth's Antarctica runs along the
+/// for planar geo plots has both: Natural Earth's Antarctica runs along the
 /// antimeridian to the south pole, along the pole to the other side, and back.
 /// The antimeridian clip decides what a polygon covers by whether it contains
 /// the south pole, which such a ring passes through, so the decision would

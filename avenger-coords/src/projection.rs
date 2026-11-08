@@ -195,7 +195,7 @@ pub trait PlotProjection: std::fmt::Debug + Send + Sync {
 
     /// The pieces in pixels of the line along which `dimension`, 0 or 1, holds `value`, across
     /// `span` of the other dimension or its whole span, cut where the plot does not show it: a
-    /// grid line, a ring or a spoke of a polar plot, or a meridian or a parallel of a map. The
+    /// grid line, a ring or a spoke of a polar plot, or a meridian or a parallel of a geo plot. The
     /// default is the [`path`](Self::path) from one end of the span to the other, which goes all
     /// the way around a dimension that wraps.
     fn iso_line(&self, dimension: usize, value: f64, span: Option<[f64; 2]>) -> Vec<Vec<[f32; 2]>> {

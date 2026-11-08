@@ -14,7 +14,7 @@ pub enum TooltipAnchor {
     #[default]
     Data,
     /// Below and to the right of the pointer, so the pointer stays in view, for an instance
-    /// without one point to point at, such as a region of a map.
+    /// without one point to point at, such as a region of a geo plot.
     Pointer,
 }
 
