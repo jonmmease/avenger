@@ -1,5 +1,5 @@
 //! What the transforms share: the fields of a struct of a start and an end, the constant
-//! options of a call, the window nodes of the optimizer rules, and [`StructGroupSplit`], the
+//! options of a call, the window nodes and partition values of the optimizer rules, and [`StructGroupSplit`], the
 //! rule that groups an aggregate by the fields of a struct key.
 
 use std::collections::BTreeMap;
@@ -9,15 +9,19 @@ use datafusion::arrow::array::{Array, AsArray, StructArray};
 use datafusion::arrow::buffer::NullBuffer;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields};
 use datafusion::common::tree_node::{Transformed, TreeNode};
-use datafusion::common::{Column, Result, ScalarValue, plan_err};
+use datafusion::common::{
+    Column, JoinType, NullEquality, Result, ScalarValue, Spans, plan_datafusion_err, plan_err,
+};
 use datafusion::functions::core::expr_fn::get_field;
 use datafusion::logical_expr::expr::{WindowFunction, WindowFunctionParams};
 use datafusion::logical_expr::{
     Aggregate, ColumnarValue, Expr, ExprSchemable, LogicalPlan, LogicalPlanBuilder,
-    ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility, Window,
-    WindowFunctionDefinition, WindowUDFImpl, lit, when,
+    ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Subquery, Volatility,
+    Window, WindowFunctionDefinition, WindowUDFImpl, lit, when,
 };
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
+use datafusion::physical_expr::PhysicalExpr;
+use datafusion::physical_expr::expressions::Literal;
 
 // ---------------------------------------------------------------------------------------
 // Structs and options
@@ -31,13 +35,39 @@ pub(crate) fn interval_fields() -> Fields {
     ])
 }
 
-/// The constant values of the expressions of a call's options.
+/// The constant values of the expressions of a call's options, in a logical plan.
 pub(crate) fn literals(name: &str, exprs: &[Expr]) -> Result<Vec<ScalarValue>> {
     exprs
         .iter()
         .map(|e| match e {
             Expr::Literal(v, _) => Ok(v.clone()),
             _ => plan_err!("{name} options must be constants, not {e}"),
+        })
+        .collect()
+}
+
+/// The constant values of the expressions of a call's options, in a physical plan, as a
+/// window evaluator or an aggregate gets them.
+pub(crate) fn physical_literals(
+    name: &str,
+    exprs: &[Arc<dyn PhysicalExpr>],
+) -> Result<Vec<ScalarValue>> {
+    exprs
+        .iter()
+        .map(|e| {
+            e.downcast_ref::<Literal>()
+                .map(|l| l.value().clone())
+                .ok_or_else(|| plan_datafusion_err!("{name} options must be constants, not {e}"))
+        })
+        .collect()
+}
+
+/// The constant values of a scalar function's options, as its invocation gets them.
+pub(crate) fn scalar_args(name: &str, args: &[ColumnarValue]) -> Result<Vec<ScalarValue>> {
+    args.iter()
+        .map(|a| match a {
+            ColumnarValue::Scalar(v) => Ok(v.clone()),
+            ColumnarValue::Array(_) => plan_err!("{name} options must be constants"),
         })
         .collect()
 }
@@ -141,6 +171,120 @@ impl Split {
             .collect();
         LogicalPlanBuilder::from(upper).project(columns)?.build()
     }
+}
+
+/// The calls of a window node that a rewrite of a function of whole partitions takes: every
+/// call is a call of `T` over one `PARTITION BY` of columns, and the node's input computes
+/// nothing volatile, which the rewrite would read two times. None leaves the node to the
+/// window evaluator; a call with ORDER BY, a frame, DISTINCT, or FILTER is an error.
+pub(crate) struct PartitionCalls<'a> {
+    pub calls: Vec<&'a WindowFunction>,
+    /// The `PARTITION BY` columns.
+    pub keys: Vec<Column>,
+}
+
+pub(crate) fn partition_calls<'a, T: WindowUDFImpl>(
+    window: &'a Window,
+    name: &str,
+) -> Result<Option<PartitionCalls<'a>>> {
+    let mut calls: Vec<&WindowFunction> = Vec::new();
+    for expr in &window.window_expr {
+        let Some(wf) = window_call(expr).filter(|_| is_call::<T>(expr)) else {
+            return Ok(None);
+        };
+        whole_partition(name, &wf.params)?;
+        if wf.params.args.is_empty() {
+            return Ok(None);
+        }
+        calls.push(wf);
+    }
+    if is_volatile(&window.input)? || calls.iter().any(|c| c.params.args[0].is_volatile()) {
+        return Ok(None);
+    }
+    let partition_by = &calls[0].params.partition_by;
+    if calls.iter().any(|c| &c.params.partition_by != partition_by) {
+        return Ok(None);
+    }
+    let keys = partition_by
+        .iter()
+        .map(|e| match e {
+            Expr::Column(c) => Some(c.clone()),
+            _ => None,
+        })
+        .collect::<Option<Vec<Column>>>();
+    Ok(keys.map(|keys| PartitionCalls { calls, keys }))
+}
+
+/// A value of each window partition: aggregates of the partition's rows, with unique
+/// aliases, and an expression of the aggregates by those aliases.
+pub(crate) struct PartitionValue {
+    pub aggregates: Vec<Expr>,
+    pub value: Expr,
+}
+
+/// The input with each value of [`PartitionValue`] for each row: without keys, each value is a
+/// scalar subquery of the input; with keys, one aggregate of the input by the keys, joined back
+/// to the rows on the keys, where NULL keys match, as PARTITION BY puts them in one partition.
+/// `name` names the aliases. Returns the builder of the input or the join, and the expression
+/// of each value.
+pub(crate) fn partition_values(
+    input: LogicalPlan,
+    keys: &[Column],
+    values: Vec<PartitionValue>,
+    name: &str,
+) -> Result<(LogicalPlanBuilder, Vec<Expr>)> {
+    if values.is_empty() {
+        return Ok((LogicalPlanBuilder::from(input), vec![]));
+    }
+    if keys.is_empty() {
+        let mut exprs = Vec::with_capacity(values.len());
+        for v in values {
+            let subquery = LogicalPlanBuilder::from(input.clone())
+                .aggregate(Vec::<Expr>::new(), v.aggregates)?
+                .project(vec![v.value])?
+                .build()?;
+            exprs.push(Expr::ScalarSubquery(Subquery {
+                subquery: Arc::new(subquery),
+                outer_ref_columns: vec![],
+                spans: Spans::new(),
+            }));
+        }
+        return Ok((LogicalPlanBuilder::from(input), exprs));
+    }
+    let partitions = format!("__{name}_partitions");
+    let key = |k: usize| format!("__{name}_key_{k}");
+    let group: Vec<Expr> = keys
+        .iter()
+        .enumerate()
+        .map(|(k, c)| Expr::Column(c.clone()).alias(key(k)))
+        .collect();
+    let mut projection: Vec<Expr> = (0..keys.len())
+        .map(|k| Expr::Column(Column::from_name(key(k))))
+        .collect();
+    let mut aggregates = Vec::new();
+    let mut exprs = Vec::with_capacity(values.len());
+    for (i, v) in values.into_iter().enumerate() {
+        aggregates.extend(v.aggregates);
+        let alias = format!("__{name}_value_{i}");
+        projection.push(v.value.alias(&alias));
+        exprs.push(Expr::Column(Column::new(Some(partitions.as_str()), alias)));
+    }
+    let per_partition = LogicalPlanBuilder::from(input.clone())
+        .aggregate(group, aggregates)?
+        .project(projection)?
+        .alias(partitions.as_str())?
+        .build()?;
+    let right: Vec<Column> = (0..keys.len())
+        .map(|k| Column::new(Some(partitions.as_str()), key(k)))
+        .collect();
+    let builder = LogicalPlanBuilder::from(input).join_detailed(
+        per_partition,
+        JoinType::Inner,
+        (keys.to_vec(), right),
+        None,
+        NullEquality::NullEqualsNull,
+    )?;
+    Ok((builder, exprs))
 }
 
 // ---------------------------------------------------------------------------------------

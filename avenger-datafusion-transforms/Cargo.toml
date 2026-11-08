@@ -3,11 +3,12 @@ name = "avenger-datafusion-transforms"
 version = "0.1.0"
 edition = "2024"
 license = "BSD-3-Clause"
-description = "Vega-style bin and stack transforms for Apache DataFusion"
+description = "Vega-style bin, stack, and time unit transforms for Apache DataFusion"
 readme = "README.md"
 
 [dependencies]
 datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
+chrono = { workspace = true }
 libm = { workspace = true }
 
 # DataFusion's randomness on wasm32 comes from the browser.
