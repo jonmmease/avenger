@@ -272,7 +272,7 @@ message Graticule {
   optional double precision = 7;
   // Where the labels sit. When absent, the labels sit on the edges of the plot for a plot that fits
   // a box or its data, and on the outline of the projection for a plot that fits the whole sphere.
-  MapFrame frame = 8;
+  GeoFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
   // parallels on the left and the right. When absent, the left and the bottom label them.
   LabelSides label_sides = 9;
@@ -295,15 +295,16 @@ message LabelSides {
   repeated Side sides = 1;
 }
 
-enum MapFrame {
+// The edge of a geo plot where the lines of its graticule are labeled.
+enum GeoFrame {
   // Absent, as `Graticule.frame` describes.
-  MAP_FRAME_UNSPECIFIED = 0;
+  GEO_FRAME_UNSPECIFIED = 0;
   // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
   // its end nearest the side.
-  MAP_FRAME_OUTLINE = 1;
-  // The rectangle of the plot, which the map fills and is clipped to, as a regional map has. A
-  // line is labeled where it crosses the edge of the side.
-  MAP_FRAME_RECTANGLE = 2;
+  GEO_FRAME_OUTLINE = 1;
+  // The rectangle of the plot, which the projection fills and is clipped to, as a regional map
+  // has. A line is labeled where it crosses the edge of the side.
+  GEO_FRAME_RECTANGLE = 2;
 }
 
 // The look of the sphere. A field that is absent takes its value from the styles.
