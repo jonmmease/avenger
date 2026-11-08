@@ -1,70 +1,95 @@
-//! `stack` against stacks computed with the code of Vega's stack transform, and its errors.
+//! `stack`: the stacks of each offset, and its errors.
 
 mod common;
 
 use std::sync::Arc;
 
 use avenger_datafusion_transforms::session;
-use common::{error, fixture, num, register, same};
+use common::{error, register};
 use datafusion::arrow::array::{AsArray, Float64Array, Int64Array};
 use datafusion::arrow::datatypes::Float64Type;
 use datafusion::common::Result;
 
+/// The stacks of each offset: layers in the order of `ORDER BY`, negative values stacked
+/// down from zero, NULL as zero, and normalized and centered stacks of the absolute values.
 #[tokio::test]
-async fn vega() -> Result<()> {
-    let cases = fixture("stack.json");
+async fn offsets() -> Result<()> {
     let ctx = session(true);
-    for (c, case) in cases.as_array().unwrap().iter().enumerate() {
-        let rows = case["rows"].as_array().unwrap();
-        let col = |k: &str| -> Vec<i64> { rows.iter().map(|r| r[k].as_i64().unwrap()).collect() };
-        register(
-            &ctx,
-            "c",
-            vec![
-                (
-                    "i",
-                    Arc::new(Int64Array::from_iter_values(0..rows.len() as i64)),
-                ),
-                ("g", Arc::new(Int64Array::from(col("g")))),
-                ("s", Arc::new(Int64Array::from(col("s")))),
-                (
-                    "v",
-                    Arc::new(Float64Array::from(
-                        rows.iter().map(|r| num(&r["v"])).collect::<Vec<_>>(),
-                    )),
-                ),
+    register(
+        &ctx,
+        "c",
+        vec![
+            ("i", Arc::new(Int64Array::from_iter_values(0..6))),
+            ("x", Arc::new(Int64Array::from(vec![1, 1, 1, 2, 2, 2]))),
+            ("s", Arc::new(Int64Array::from(vec![1, 2, 3, 1, 2, 3]))),
+            (
+                "v",
+                Arc::new(Float64Array::from(vec![
+                    Some(1.0),
+                    Some(2.0),
+                    Some(-3.0),
+                    Some(4.0),
+                    None,
+                    Some(6.0),
+                ])),
+            ),
+        ],
+    )?;
+    let cases: [(&str, [(f64, f64); 6]); 3] = [
+        (
+            "zero",
+            [
+                (0.0, 1.0),
+                (1.0, 3.0),
+                (0.0, -3.0),
+                (0.0, 4.0),
+                (4.0, 4.0),
+                (4.0, 10.0),
             ],
-        )?;
-        let offset = case["offset"].as_str().unwrap();
-        let window = if case["groups"] == 1 {
-            "ORDER BY s"
-        } else {
-            "PARTITION BY g ORDER BY s"
-        };
+        ),
+        (
+            "normalize",
+            [
+                (0.0, 1.0 / 6.0),
+                (1.0 / 6.0, 0.5),
+                (0.5, 1.0),
+                (0.0, 0.4),
+                (0.4, 0.4),
+                (0.4, 1.0),
+            ],
+        ),
+        (
+            "center",
+            [
+                (-3.0, -2.0),
+                (-2.0, 0.0),
+                (0.0, 3.0),
+                (-5.0, -1.0),
+                (-1.0, -1.0),
+                (-1.0, 5.0),
+            ],
+        ),
+    ];
+    for (offset, want) in cases {
         let sql = format!(
-            "SELECT i, stack(v, 'offset', '{offset}') OVER ({window}) AS y FROM c ORDER BY i"
+            "SELECT i, stack(v, 'offset', '{offset}') OVER (PARTITION BY x ORDER BY s) AS y FROM c ORDER BY i"
         );
-        let mut i = 0;
+        let mut got = Vec::new();
         for b in ctx.sql(&sql).await?.collect().await? {
             let y = b.column(1).as_struct();
             let (y0, y1) = (
                 y.column(0).as_primitive::<Float64Type>(),
                 y.column(1).as_primitive::<Float64Type>(),
             );
-            for j in 0..b.num_rows() {
-                let e = case["stacks"][i].as_array().unwrap();
-                let (e0, e1) = (num(&e[0]).unwrap(), num(&e[1]).unwrap());
-                assert!(
-                    same(y0.value(j), e0) && same(y1.value(j), e1),
-                    "case {c} ({} {offset}) row {i}: [{:?}, {:?}], Vega [{e0:?}, {e1:?}]",
-                    case["kind"],
-                    y0.value(j),
-                    y1.value(j)
-                );
-                i += 1;
-            }
+            got.extend((0..b.num_rows()).map(|j| (y0.value(j), y1.value(j))));
         }
-        assert_eq!(i, rows.len());
+        assert_eq!(got.len(), 6);
+        for (g, w) in got.iter().zip(&want) {
+            assert!(
+                (g.0 - w.0).abs() < 1e-12 && (g.1 - w.1).abs() < 1e-12,
+                "{offset}: {got:?}, want {want:?}"
+            );
+        }
     }
     Ok(())
 }

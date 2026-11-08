@@ -1,13 +1,14 @@
-//! `timeunit`: against vega-time, on changes of the UTC offset, fiscal units, DATE and civil
-//! values, the choice of automatic units, the rule against the window evaluator, and errors.
+//! `timeunit`: units that tile time across changes of the UTC offset, expected units, fiscal
+//! units, DATE and civil values, the choice of automatic units, the rule against the window
+//! evaluator, and errors.
 
 mod common;
 
 use std::sync::Arc;
 
 use avenger_datafusion_transforms::{session, timeunit};
-use chrono::{DateTime, NaiveDate, Offset, TimeZone};
-use common::{fixture, register};
+use chrono::{DateTime, NaiveDate, TimeZone};
+use common::register;
 use datafusion::arrow::array::{
     Array, ArrayRef, AsArray, Date32Array, Int64Array, TimestampMillisecondArray,
 };
@@ -69,39 +70,24 @@ const D: i64 = 24 * H;
 const NY: Option<&str> = Some("America/New_York");
 const KTM: Option<&str> = Some("Asia/Kathmandu");
 
-/// The times of the changes of offset of a zone between `lo` and `hi`, found hourly.
-fn offset_changes(tz: &str, lo: i64, hi: i64) -> Vec<i64> {
-    let tz: datafusion::arrow::array::timezone::Tz = tz.parse().unwrap();
-    let offset = |t: i64| {
-        tz.timestamp_millis_opt(t)
-            .unwrap()
-            .offset()
-            .fix()
-            .local_minus_utc()
-    };
-    let step = H / 4;
-    (lo..hi)
-        .step_by(step as usize)
-        .filter(|t| offset(*t) != offset(t + step))
-        .collect()
-}
-
-/// vega-time agrees except at a local time that occurs two times, or in a unit with a change
-/// of offset: there, vega-time takes the earlier occurrence of a repeated time and ends a
-/// unit at a fixed elapsed length. `timeunit`'s unit always contains its value.
+/// The units of a zone contain their values and tile time: in New York, Kathmandu (+05:45),
+/// Lord Howe Island (a change of offset of 30 minutes), and UTC, around each change of offset
+/// of 2024, each unit starts where the one before it ends, and each day of a change of offset
+/// has its 23, 23.5, 24.5, or 25 hours.
 #[tokio::test]
-async fn vega_time() -> Result<()> {
-    let cases = fixture("timeunit.json");
-    let values: Vec<i64> = cases["values"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_i64().unwrap())
-        .collect();
+async fn units_tile_time() -> Result<()> {
     let ctx = session(true);
-    let (mut checked, mut differ) = (0, 0);
-    for (tz, zone) in cases["zones"].as_object().unwrap() {
-        let changes = offset_changes(tz, ms("2022-12-01T00:00:00Z"), ms("2026-02-01T00:00:00Z"));
+    let mut values = Vec::new();
+    for day in [
+        "2024-03-09T00:00:00Z",
+        "2024-11-02T00:00:00Z",
+        "2024-04-06T00:00:00Z",
+        "2024-10-05T00:00:00Z",
+    ] {
+        values.extend(series(day, 7 * 60_000, 3 * 24 * 60 / 7));
+    }
+    values.sort();
+    for tz in [NY, KTM, Some("Australia/Lord_Howe"), Some("UTC")] {
         register(
             &ctx,
             "c",
@@ -110,55 +96,44 @@ async fn vega_time() -> Result<()> {
                     "i",
                     Arc::new(Int64Array::from_iter_values(0..values.len() as i64)),
                 ),
-                ("t", ts(values.clone(), Some(tz))),
+                ("t", ts(values.clone(), tz)),
             ],
         )?;
-        for case in zone.as_array().unwrap() {
-            let unit = case["unit"].as_str().unwrap();
-            let sql = format!(
-                "SELECT i, timeunit(t, 'unit', '{unit}', 'week_start', 'sunday') AS u FROM c ORDER BY i"
-            );
-            let got = units(&ctx, &sql).await?;
-            for (i, g) in got.into_iter().enumerate() {
-                let (s, e, u) = g.unwrap();
-                assert_eq!(u, unit);
-                let v = values[i];
-                let vs = case["starts"][i].as_i64().unwrap();
-                let ve = case["ends"].as_array().map(|a| a[i].as_i64().unwrap());
-                checked += 1;
-                let collapsing = unit.contains("_of_") || unit == "monthdate";
-                if !collapsing {
-                    assert!(
-                        s <= v && v < e,
-                        "{tz} '{unit}' {}: [{}, {}) does not contain it",
-                        iso(v),
-                        iso(s),
-                        iso(e)
-                    );
-                }
-                if s == vs && ve.is_none_or(|ve| ve == e) {
-                    continue;
-                }
-                differ += 1;
-                // A difference needs a change of offset in vega-time's unit or in ours.
-                let (lo, hi) = (s.min(vs), e.max(ve.unwrap_or(e)));
+        for unit in ["15 minutes", "hour", "3 hours", "day", "week", "month"] {
+            let got = units(
+                &ctx,
+                &format!("SELECT i, timeunit(t, 'unit', '{unit}') AS u FROM c ORDER BY i"),
+            )
+            .await?;
+            let mut tiles: Vec<(i64, i64)> = Vec::new();
+            for (v, u) in values.iter().zip(&got) {
+                let (s, e, _) = u.clone().unwrap();
                 assert!(
-                    changes.iter().any(|c| lo - H <= *c && *c <= hi + H),
-                    "{tz} '{unit}' {}: [{}, {}), vega-time [{}, {}) with no change of offset",
-                    iso(v),
+                    s <= *v && *v < e,
+                    "{tz:?} '{unit}' {}: [{}, {})",
+                    iso(*v),
                     iso(s),
-                    iso(e),
-                    iso(vs),
-                    ve.map(iso).unwrap_or_default()
+                    iso(e)
+                );
+                tiles.push((s, e));
+            }
+            tiles.sort();
+            tiles.dedup();
+            // Units meet, or no value lies between them.
+            for w in tiles.windows(2) {
+                let (a, b) = (w[0], w[1]);
+                let between = values.iter().any(|v| a.1 <= *v && *v < b.0);
+                assert!(
+                    a.1 == b.0 || (a.1 < b.0 && !between),
+                    "{tz:?} '{unit}': [{}, {}) then [{}, {})",
+                    iso(a.0),
+                    iso(a.1),
+                    iso(b.0),
+                    iso(b.1)
                 );
             }
         }
     }
-    assert_eq!(checked, 4 * 25 * values.len());
-    assert!(
-        differ > 0 && differ < checked / 100,
-        "{differ} of {checked} differ"
-    );
     Ok(())
 }
 

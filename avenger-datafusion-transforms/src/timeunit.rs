@@ -1037,11 +1037,12 @@ impl Calendar {
         let secs = self.kind.secs(t);
         let (off, lo, hi) = self.clock.span(secs);
         if let Some((s, e)) = self.subday_ticks(t, off, unit, k) {
-            // The unit needs the offset of the value from its start to its end. Milliseconds
-            // start at whole seconds, where every offset changes.
+            // The unit needs the offset of the value from its start to its end, and past its
+            // end: a change of offset at the end can drop the local time of the end, as on Lord
+            // Howe Island, where 02:00 becomes 01:30 and the hour from 01:00 lasts 90 minutes.
+            // Milliseconds start at whole seconds, where every offset changes.
             let ps = self.kind.per_second();
-            if unit == Trunc::Millisecond || (lo <= s.div_euclid(ps) && (e - 1).div_euclid(ps) < hi)
-            {
+            if unit == Trunc::Millisecond || (lo <= s.div_euclid(ps) && e.div_euclid(ps) < hi) {
                 return (s, e);
             }
         }

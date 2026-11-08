@@ -19,5 +19,4 @@ libm = "0.2.16"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["float_roundtrip"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

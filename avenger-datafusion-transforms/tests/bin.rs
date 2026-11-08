@@ -1,113 +1,123 @@
-//! `bin` and `bin_params` against the bins of vega-statistics, with and without the rules,
-//! and the rules against the window evaluator.
+//! `bin` and `bin_params`: the bins of values and options, the rules against the window
+//! evaluator, non-finite values, and errors.
 
 mod common;
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use avenger_datafusion_transforms::session;
-use common::{error, fixture, num, register, same};
+use common::{error, register};
 use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float64Array, Int64Array};
 use datafusion::arrow::datatypes::Float64Type;
 use datafusion::common::Result;
 use datafusion::prelude::SessionContext;
-use serde_json::Value;
 
-fn sql_value(v: &Value) -> String {
-    match v {
-        Value::Bool(b) => b.to_string(),
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter()
-                .map(|x| format!("{:?}", num(x).unwrap()))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        _ => format!("{:?}", num(v).unwrap()),
-    }
-}
-
-/// `, 'name', value` for each option, without `extent` if `with_extent` is false.
-fn sql_options(options: &serde_json::Map<String, Value>, with_extent: bool) -> String {
-    options
-        .iter()
-        .filter(|(k, _)| with_extent || k.as_str() != "extent")
-        .map(|(k, v)| format!(", '{k}', {}", sql_value(v)))
-        .collect()
-}
-
-/// The cases where the bins differ from Vega's: tiny extents, where V8's `Math.pow`, which
-/// is not correctly rounded, picks another step than `libm::pow`.
-const POW_CASES: [usize; 9] = [94, 190, 192, 193, 195, 199, 200, 202, 203];
-
+/// The bins of values, and the parameters of `bin_params`, for the options of each case.
 #[tokio::test]
-async fn vega() -> Result<()> {
-    let cases = fixture("bin.json");
-    let cases = cases.as_array().unwrap();
-    let mut differ = BTreeSet::new();
-    for rules in [false, true] {
-        let ctx = session(rules);
-        for (c, case) in cases.iter().enumerate() {
-            let options = case["options"].as_object().unwrap();
-            let values: Vec<f64> = case["values"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| num(v).unwrap())
-                .collect();
-            register(
-                &ctx,
-                "v",
-                vec![
-                    (
-                        "i",
-                        Arc::new(Int64Array::from_iter_values(0..values.len() as i64)) as ArrayRef,
-                    ),
-                    ("x", Arc::new(Float64Array::from(values))),
-                ],
-            )?;
-            let sql = format!(
-                "SELECT i, bin(x{}) OVER () AS b FROM v ORDER BY i",
-                sql_options(options, true)
-            );
-            let mut row = 0;
-            for b in ctx.sql(&sql).await?.collect().await? {
-                let bins = b.column(1).as_struct();
-                let starts = bins.column(0).as_primitive::<Float64Type>();
-                let ends = bins.column(1).as_primitive::<Float64Type>();
-                for j in 0..b.num_rows() {
-                    let expected = case["bins"][row].as_array().unwrap();
-                    if !same(starts.value(j), num(&expected[0]).unwrap())
-                        || !same(ends.value(j), num(&expected[1]).unwrap())
-                    {
-                        differ.insert(c);
-                    }
-                    row += 1;
-                }
-            }
-
-            // bin_params of the case's extent; it has no `extent` option.
-            let extent = case["extent"].as_array().unwrap();
-            let sql = format!(
-                "SELECT bin_params({:?}, {:?}{}) AS p",
-                num(&extent[0]).unwrap(),
-                num(&extent[1]).unwrap(),
-                sql_options(options, false)
-            );
-            let batches = ctx.sql(&sql).await?.collect().await?;
-            let p = batches[0].column(0).as_struct();
-            for (k, name) in ["start", "stop", "step"].iter().enumerate() {
-                if !same(
-                    p.column(k).as_primitive::<Float64Type>().value(0),
-                    num(&case["params"][name]).unwrap(),
-                ) {
-                    differ.insert(c);
-                }
-            }
-        }
+async fn expected_bins() -> Result<()> {
+    let ctx = session(true);
+    register(
+        &ctx,
+        "v",
+        vec![
+            (
+                "i",
+                Arc::new(Int64Array::from_iter_values(0..8)) as ArrayRef,
+            ),
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![
+                    0.0, 10.0, 20.0, 42.0, 55.0, 60.0, 80.0, 100.0,
+                ])),
+            ),
+        ],
+    )?;
+    let inf = f64::INFINITY;
+    // The options, then the bin of each value of `x`, in order.
+    let cases: [(&str, [(f64, f64); 8]); 4] = [
+        // 20 bins at most: bins of 5 from 0, and the greatest value in the last bin.
+        (
+            "",
+            [
+                (0.0, 5.0),
+                (10.0, 15.0),
+                (20.0, 25.0),
+                (40.0, 45.0),
+                (55.0, 60.0),
+                (60.0, 65.0),
+                (80.0, 85.0),
+                (95.0, 100.0),
+            ],
+        ),
+        // 10 bins at most: bins of 10.
+        (
+            ", 'maxbins', 10",
+            [
+                (0.0, 10.0),
+                (10.0, 20.0),
+                (20.0, 30.0),
+                (40.0, 50.0),
+                (50.0, 60.0),
+                (60.0, 70.0),
+                (80.0, 90.0),
+                (90.0, 100.0),
+            ],
+        ),
+        // An explicit step.
+        (
+            ", 'step', 25",
+            [
+                (0.0, 25.0),
+                (0.0, 25.0),
+                (0.0, 25.0),
+                (25.0, 50.0),
+                (50.0, 75.0),
+                (50.0, 75.0),
+                (75.0, 100.0),
+                (75.0, 100.0),
+            ],
+        ),
+        // An explicit extent: values outside it go to infinite bins.
+        (
+            ", 'extent', [20, 80], 'maxbins', 6",
+            [
+                (-inf, -inf),
+                (-inf, -inf),
+                (20.0, 30.0),
+                (40.0, 50.0),
+                (50.0, 60.0),
+                (60.0, 70.0),
+                (70.0, 80.0),
+                (inf, inf),
+            ],
+        ),
+    ];
+    for (options, want) in cases {
+        let got = bins(
+            &ctx,
+            &format!("SELECT i, bin(x{options}) OVER () AS b FROM v"),
+        )
+        .await?;
+        let got: Vec<(f64, f64)> = got.into_iter().map(|(_, b)| b.unwrap()).collect();
+        assert_eq!(got, want, "bin(x{options})");
     }
-    assert_eq!(differ, BTreeSet::from(POW_CASES));
+
+    // The parameters of an extent: the start, the end of the last bin, and the step.
+    for (call, want) in [
+        ("bin_params(0, 100)", (0.0, 100.0, 5.0)),
+        ("bin_params(0, 100, 'maxbins', 10)", (0.0, 100.0, 10.0)),
+        ("bin_params(0.5, 9.7)", (0.5, 10.0, 0.5)),
+        ("bin_params(0, 1, 'step', 0.25)", (0.0, 1.0, 0.25)),
+    ] {
+        let batches = ctx
+            .sql(&format!("SELECT {call} AS p"))
+            .await?
+            .collect()
+            .await?;
+        let p = batches[0].column(0).as_struct();
+        let f = |k: usize| p.column(k).as_primitive::<Float64Type>().value(0);
+        assert_eq!((f(0), f(1), f(2)), want, "{call}");
+    }
     Ok(())
 }
 

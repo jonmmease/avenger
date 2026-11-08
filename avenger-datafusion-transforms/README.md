@@ -24,4 +24,4 @@ The options of the window functions are pairs of a name and a constant after the
 
 ## Tests
 
-The tests check `bin` and `stack` against Vega's code, and `timeunit` against vega-time, with fixtures in `tests/fixtures/` that `tools/vega-transforms-reference` writes. `impute` and `lump` are checked against equivalent SQL.
+The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, the rules against the window evaluators, and `impute` and `lump` against equivalent SQL.
