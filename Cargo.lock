@@ -674,6 +674,7 @@ dependencies = [
 name = "avenger-datafusion-transforms"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "datafusion",
  "getrandom 0.3.4",
  "libm",

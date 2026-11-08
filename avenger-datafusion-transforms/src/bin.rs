@@ -24,22 +24,18 @@ use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields, Float64Type};
 use datafusion::common::scalar::ScalarStructBuilder;
 use datafusion::common::tree_node::Transformed;
-use datafusion::common::{
-    Column, JoinType, NullEquality, Result, ScalarValue, Spans, plan_datafusion_err, plan_err,
-};
+use datafusion::common::{Column, Result, ScalarValue, plan_err};
 use datafusion::functions_aggregate::expr_fn::{max as max_expr, min as min_expr};
-use datafusion::logical_expr::expr::WindowFunction;
 use datafusion::logical_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
 use datafusion::logical_expr::{
-    ColumnarValue, Expr, LogicalPlan, LogicalPlanBuilder, PartitionEvaluator, ReturnFieldArgs,
-    ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Subquery, Volatility, WindowUDFImpl,
-    lit,
+    ColumnarValue, Expr, LogicalPlan, PartitionEvaluator, ReturnFieldArgs, ScalarFunctionArgs,
+    ScalarUDF, ScalarUDFImpl, Signature, Volatility, WindowUDFImpl, lit,
 };
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
-use datafusion::physical_expr::expressions::Literal;
 
 use crate::utils::{
-    interval_fields, is_call, is_volatile, literals, split_window, whole_partition, window_call,
+    PartitionCalls, PartitionValue, interval_fields, is_call, literals, partition_calls,
+    partition_values, physical_literals, scalar_args, split_window,
 };
 
 // ---------------------------------------------------------------------------------------
@@ -393,14 +389,7 @@ impl WindowUDFImpl for BinWindow {
         &self,
         args: PartitionEvaluatorArgs,
     ) -> Result<Box<dyn PartitionEvaluator>> {
-        let options = args.input_exprs()[1..]
-            .iter()
-            .map(|e| {
-                e.downcast_ref::<Literal>()
-                    .map(|l| l.value().clone())
-                    .ok_or_else(|| plan_datafusion_err!("bin options must be constants, not {e}"))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let options = physical_literals("bin", &args.input_exprs()[1..])?;
         Ok(Box::new(BinEvaluator {
             options: BinOptions::parse(&options, true)?,
         }))
@@ -514,13 +503,7 @@ impl ScalarUDFImpl for BinParamsUdf {
         )))
     }
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let options = args.args[2..]
-            .iter()
-            .map(|a| match a {
-                ColumnarValue::Scalar(v) => Ok(v.clone()),
-                ColumnarValue::Array(_) => plan_err!("bin_params options must be constants"),
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let options = scalar_args("bin_params", &args.args[2..])?;
         let o = BinOptions::parse(&options, false)?;
         let n = args.number_rows;
         let lo = to_f64(&args.args[0], n)?;
@@ -647,8 +630,6 @@ impl Default for BinWindowRewrite {
     }
 }
 
-const EXTENT: &str = "__bin_extent";
-
 impl OptimizerRule for BinWindowRewrite {
     fn name(&self) -> &str {
         "bin_window_rewrite"
@@ -670,32 +651,7 @@ impl OptimizerRule for BinWindowRewrite {
             let lower = self.rewrite(split.lower.clone(), _config)?.data;
             return Ok(Transformed::yes(split.rebuild(lower, Ok)?));
         }
-        let mut calls: Vec<&WindowFunction> = Vec::new();
-        for expr in &window.window_expr {
-            let Some(wf) = window_call(expr).filter(|_| is_call::<BinWindow>(expr)) else {
-                return Ok(Transformed::no(plan));
-            };
-            whole_partition("bin", &wf.params)?;
-            if wf.params.args.is_empty() {
-                return Ok(Transformed::no(plan));
-            }
-            calls.push(wf);
-        }
-        // The rewrite reads the input twice: for the extents, and for the rows.
-        if is_volatile(&window.input)? || calls.iter().any(|c| c.params.args[0].is_volatile()) {
-            return Ok(Transformed::no(plan));
-        }
-        let partition_by = &calls[0].params.partition_by;
-        if calls.iter().any(|c| &c.params.partition_by != partition_by) {
-            return Ok(Transformed::no(plan));
-        }
-        let Some(keys) = partition_by
-            .iter()
-            .map(|e| match e {
-                Expr::Column(c) => Some(c.clone()),
-                _ => None,
-            })
-            .collect::<Option<Vec<Column>>>()
+        let Some(PartitionCalls { calls, keys }) = partition_calls::<BinWindow>(window, "bin")?
         else {
             return Ok(Transformed::no(plan));
         };
@@ -728,12 +684,13 @@ impl OptimizerRule for BinWindowRewrite {
                 .collect()
         };
 
-        // Calls that need the extent of the data, and the expression of their parameters.
+        // The parameters of each call: constants with `extent`, else from the extent of the
+        // finite values of each partition.
         let mut params: Vec<Option<Expr>> = vec![None; calls.len()];
         let mut need_extent = Vec::new();
-        for (i, (_, o)) in options.iter().enumerate() {
+        let mut values = Vec::new();
+        for (i, (exprs, o)) in options.iter().enumerate() {
             match o.extent {
-                // The parameters are constants.
                 Some([lo, hi]) => {
                     let p = bin_params(lo, hi, o);
                     let fields = params_fields();
@@ -744,81 +701,29 @@ impl OptimizerRule for BinWindowRewrite {
                         .build()?;
                     params[i] = Some(lit(value));
                 }
-                None => need_extent.push(i),
+                None => {
+                    let x = &calls[i].params.args[0];
+                    let (lo, hi) = (format!("__bin_lo_{i}"), format!("__bin_hi_{i}"));
+                    let mut args = vec![
+                        Expr::Column(Column::from_name(&lo)),
+                        Expr::Column(Column::from_name(&hi)),
+                    ];
+                    args.extend(params_options(exprs));
+                    values.push(PartitionValue {
+                        aggregates: vec![
+                            min_expr(finite(x)).alias(lo),
+                            max_expr(finite(x)).alias(hi),
+                        ],
+                        value: self.params.call(args),
+                    });
+                    need_extent.push(i);
+                }
             }
         }
-
-        let builder = if need_extent.is_empty() {
-            LogicalPlanBuilder::from(input)
-        } else if keys.is_empty() {
-            for &i in &need_extent {
-                let x = calls[i].params.args[0].clone();
-                let mut args = vec![
-                    Expr::Column(Column::from_name("lo")),
-                    Expr::Column(Column::from_name("hi")),
-                ];
-                args.extend(params_options(&options[i].0));
-                let subquery = LogicalPlanBuilder::from(input.clone())
-                    .aggregate(
-                        Vec::<Expr>::new(),
-                        vec![
-                            min_expr(finite(&x)).alias("lo"),
-                            max_expr(finite(&x)).alias("hi"),
-                        ],
-                    )?
-                    .project(vec![self.params.call(args)])?
-                    .build()?;
-                params[i] = Some(Expr::ScalarSubquery(Subquery {
-                    subquery: Arc::new(subquery),
-                    outer_ref_columns: vec![],
-                    spans: Spans::new(),
-                }));
-            }
-            LogicalPlanBuilder::from(input)
-        } else {
-            let group: Vec<Expr> = keys
-                .iter()
-                .enumerate()
-                .map(|(k, c)| Expr::Column(c.clone()).alias(format!("__bin_key_{k}")))
-                .collect();
-            let mut aggs = Vec::new();
-            for &i in &need_extent {
-                let x = &calls[i].params.args[0];
-                aggs.push(min_expr(finite(x)).alias(format!("__bin_lo_{i}")));
-                aggs.push(max_expr(finite(x)).alias(format!("__bin_hi_{i}")));
-            }
-            let mut projection: Vec<Expr> = (0..keys.len())
-                .map(|k| Expr::Column(Column::from_name(format!("__bin_key_{k}"))))
-                .collect();
-            for &i in &need_extent {
-                let mut args = vec![
-                    Expr::Column(Column::from_name(format!("__bin_lo_{i}"))),
-                    Expr::Column(Column::from_name(format!("__bin_hi_{i}"))),
-                ];
-                args.extend(params_options(&options[i].0));
-                projection.push(self.params.call(args).alias(format!("__bin_params_{i}")));
-                params[i] = Some(Expr::Column(Column::new(
-                    Some(EXTENT),
-                    format!("__bin_params_{i}"),
-                )));
-            }
-            let extent = LogicalPlanBuilder::from(input.clone())
-                .aggregate(group, aggs)?
-                .project(projection)?
-                .alias(EXTENT)?
-                .build()?;
-            let right: Vec<Column> = (0..keys.len())
-                .map(|k| Column::new(Some(EXTENT), format!("__bin_key_{k}")))
-                .collect();
-            // PARTITION BY puts NULL keys in one partition, so NULL keys must match.
-            LogicalPlanBuilder::from(input).join_detailed(
-                extent,
-                JoinType::Inner,
-                (keys, right),
-                None,
-                NullEquality::NullEqualsNull,
-            )?
-        };
+        let (builder, extents) = partition_values(input, &keys, values, "bin")?;
+        for (i, e) in need_extent.into_iter().zip(extents) {
+            params[i] = Some(e);
+        }
 
         for (i, call) in calls.iter().enumerate() {
             let (q, f) = out(i);

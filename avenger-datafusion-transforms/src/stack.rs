@@ -11,12 +11,11 @@ use datafusion::arrow::array::{ArrayRef, AsArray, Float64Array, StructArray};
 use datafusion::arrow::buffer::NullBuffer;
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Float64Type};
-use datafusion::common::{Result, ScalarValue, plan_datafusion_err, plan_err};
+use datafusion::common::{Result, ScalarValue, plan_err};
 use datafusion::logical_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
 use datafusion::logical_expr::{PartitionEvaluator, Signature, Volatility, WindowUDFImpl};
-use datafusion::physical_expr::expressions::Literal;
 
-use crate::utils::interval_fields;
+use crate::utils::{interval_fields, physical_literals};
 
 // ---------------------------------------------------------------------------------------
 // stack(v, ..options) OVER (PARTITION BY .. ORDER BY ..)
@@ -134,14 +133,7 @@ impl WindowUDFImpl for StackWindow {
         &self,
         args: PartitionEvaluatorArgs,
     ) -> Result<Box<dyn PartitionEvaluator>> {
-        let options = args.input_exprs()[1..]
-            .iter()
-            .map(|e| {
-                e.downcast_ref::<Literal>()
-                    .map(|l| l.value().clone())
-                    .ok_or_else(|| plan_datafusion_err!("stack options must be constants, not {e}"))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let options = physical_literals("stack", &args.input_exprs()[1..])?;
         Ok(Box::new(StackEvaluator {
             offset: StackOffset::parse(&options)?,
         }))
