@@ -343,8 +343,10 @@ async fn field_metadata_and_struct_types_reach_the_layer_table() {
 async fn every_mark_builds_a_chart_of_its_channels() {
     let names: Vec<&str> = mark_names().collect();
     assert!(names.contains(&"bar") && names.contains(&"polar_bar"));
-    assert!(!names.iter().any(|name| name.starts_with("geo_")));
-    for name in names {
+    assert!(names.contains(&"geo_shape") && names.contains(&"geo_symbol"));
+    // A geo mark needs `coord`, which the tests of avenger-sql give, because a call in plain
+    // DataFusion names its parameters in order.
+    for name in names.into_iter().filter(|name| !name.starts_with("geo_")) {
         // The required channels take strings, which every one of them takes, and the positions
         // are numbers, or the categories that a rect spans the bands of.
         let required = match name {

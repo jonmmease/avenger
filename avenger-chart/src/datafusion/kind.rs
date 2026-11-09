@@ -1,4 +1,4 @@
-//! `scaled(value)` and `direct(value)`: a channel value of the kind that each names.
+//! `scaled(value, <options>)` and `direct(value)`: a channel value of the kind that each names.
 
 use datafusion::{
     arrow::datatypes::{DataType, FieldRef},
@@ -54,10 +54,20 @@ pub(crate) struct KindFunction {
 
 impl KindFunction {
     pub(crate) fn new(kind: Kind) -> Self {
-        Self {
-            kind,
-            signature: Signature::any(1, Volatility::Volatile),
-        }
+        let signature = match kind {
+            // `scaled` takes the options of `Encoding` after its value.
+            Kind::Scaled => {
+                let options = super::constructor::generated::PARAMS_ENCODING.iter();
+                let names: Vec<&str> = std::iter::once("value")
+                    .chain(options.map(|p| p.name))
+                    .collect();
+                Signature::user_defined(Volatility::Volatile)
+                    .with_parameter_names(names)
+                    .expect("the options of an encoding have distinct names")
+            }
+            Kind::Direct => Signature::any(1, Volatility::Volatile),
+        };
+        Self { kind, signature }
     }
 }
 
@@ -68,6 +78,10 @@ impl ScalarUDFImpl for KindFunction {
 
     fn signature(&self) -> &Signature {
         &self.signature
+    }
+
+    fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(arg_types.to_vec())
     }
 
     fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {

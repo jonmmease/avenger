@@ -11,7 +11,7 @@ datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
 
 [dev-dependencies]
 arrow = { workspace = true }
-avenger-chart-eval = { path = "../avenger-chart-eval" }
+avenger-chart-eval = { path = "../avenger-chart-eval", features = ["geo"] }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }

@@ -9,9 +9,9 @@ readme = "README.md"
 # `proto::FILE_DESCRIPTOR_SET`, the descriptors of the format's messages, for tests that walk the
 # messages and their fields.
 descriptors = []
-# `avenger_chart::datafusion`: an aggregate function of DataFusion for each Cartesian and polar
-# mark, which builds a chart of its rows, `scaled` and `direct`, and a constructor for each message
-# of the options, which returns its fragment.
+# `avenger_chart::datafusion`: an aggregate function of DataFusion for each mark, which builds a
+# chart of its rows, `scaled` and `direct`, and a constructor for each message of the options,
+# which returns its fragment.
 datafusion = ["dep:datafusion"]
 
 [dependencies]

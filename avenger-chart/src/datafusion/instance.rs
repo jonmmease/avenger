@@ -27,13 +27,15 @@ use crate::{
 };
 
 /// One bound call of a mark: the encoded fragment of its layer, which holds its encodings and their
-/// values and no table, the fields of the columns of its table, and the sort options of its draw
-/// order. It takes the data arguments of the call, then the keys of its `ORDER BY`.
+/// values and no table, the encoded fragment of the options of its plot, the fields of the columns
+/// of its table, and the sort options of its draw order. It takes the data arguments of the call,
+/// then the keys of its `ORDER BY`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MarkInstance {
     name: &'static str,
     coord: CoordKind,
     layer: Bytes,
+    options: Option<Bytes>,
     fields: Vec<FieldRef>,
     order: Vec<(bool, bool)>,
     signature: Signature,
@@ -44,6 +46,7 @@ impl MarkInstance {
         spec: &'static MarkSpec,
         mark: LayerMark,
         parts: Parts,
+        options: Option<proto::Fragment>,
         fields: Vec<FieldRef>,
         order_by: &[SortExpr],
     ) -> Result<Self> {
@@ -62,12 +65,20 @@ impl MarkInstance {
                 },
                 parts,
             )),
+            LayerMark::Geo(mark) => to_fragment(builder(
+                proto::GeoLayer {
+                    mark: Some(mark),
+                    ..Default::default()
+                },
+                parts,
+            )),
         }
         .map_err(|error| plan_error(spec.name, error))?;
         Ok(Self {
             name: spec.name,
             coord: spec.coord,
             layer: fragment.encode_to_vec().into(),
+            options: options.map(|options| options.encode_to_vec().into()),
             fields,
             order: (order_by.iter())
                 .map(|sort| (sort.asc, sort.nulls_first))
@@ -76,22 +87,40 @@ impl MarkInstance {
         })
     }
 
-    /// The chart of one layer whose table is `table`.
+    /// The chart of one layer whose table is `table`, in a plot with the options of the call.
     fn chart(&self, table: RecordBatch) -> std::result::Result<Chart, ChartError> {
-        let fragment = proto::Fragment::decode(self.layer.clone())
-            .map_err(|error| ChartError::invalid("", error.to_string()))?;
+        let decode = |bytes: &Bytes| {
+            proto::Fragment::decode(bytes.clone())
+                .map_err(|error| ChartError::invalid("", error.to_string()))
+        };
+        let fragment = decode(&self.layer)?;
+        let options = self.options.as_ref().map(decode).transpose()?;
         let plot = match self.coord {
             CoordKind::Cartesian => {
                 let mut layer = from_fragment::<proto::CartesianLayer>(&fragment)?;
                 layer.message.table = Some(layer.parts.table("table", table));
-                Plot::cartesian([layer])
+                let mut plot = proto::CartesianPlot::new([layer]);
+                if let Some(options) = &options {
+                    plot = plot.options(from_fragment::<proto::Cartesian>(options)?);
+                }
+                Plot::cartesian(plot)
             }
             CoordKind::Polar => {
                 let mut layer = from_fragment::<proto::PolarLayer>(&fragment)?;
                 layer.message.table = Some(layer.parts.table("table", table));
-                Plot::polar([layer])
+                let mut plot = proto::PolarPlot::new([layer]);
+                if let Some(options) = &options {
+                    plot = plot.options(from_fragment::<proto::Polar>(options)?);
+                }
+                Plot::polar(plot)
             }
-            CoordKind::Geo => unreachable!("geo marks have no functions"),
+            CoordKind::Geo => {
+                let mut layer = from_fragment::<proto::GeoLayer>(&fragment)?;
+                layer.message.table = Some(layer.parts.table("table", table));
+                let options = options.expect("a geo mark has the options of its plot");
+                let options = from_fragment::<proto::Geo>(&options)?;
+                Plot::geo(proto::GeoPlot::new(options, [layer]))
+            }
         };
         Chart::builder(plot).build()
     }
