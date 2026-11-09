@@ -4,7 +4,7 @@ use avenger_geometry::query::{Metric, Nearest, Query, QueryShape, Relation};
 use avenger_geometry::rtree::{GeometryInstance, SceneGraphRTree};
 use avenger_scenegraph::marks::mark::MarkInstance;
 
-use super::content::TooltipField;
+use super::content::{FieldValues, TooltipField};
 
 /// Where a tooltip stands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -35,6 +35,7 @@ pub struct InstanceTarget {
     pub(crate) anchor: TooltipAnchor,
     pub(crate) title: Option<TooltipField>,
     pub(crate) fields: Option<Vec<TooltipField>>,
+    pub(crate) values: Option<FieldValues>,
     pub(crate) swatch: bool,
 }
 
@@ -59,6 +60,7 @@ impl InstanceTarget {
             anchor: TooltipAnchor::default(),
             title: None,
             fields: None,
+            values: None,
             swatch: true,
         }
     }
@@ -105,6 +107,13 @@ impl InstanceTarget {
         fields: impl IntoIterator<Item = impl Into<TooltipField>>,
     ) -> Self {
         self.fields = Some(fields.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// The target, whose fields' labels bind the values that `values` gives for a row, such as
+    /// the parts of a struct, where it gives any.
+    pub fn with_values(mut self, values: FieldValues) -> Self {
+        self.values = Some(values);
         self
     }
 

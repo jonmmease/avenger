@@ -12,7 +12,7 @@ use arrow::{
 use avenger_chart::lump;
 use avenger_format::PrecisionSharing;
 use avenger_guides::label_variant::LabelVariant;
-use avenger_typst_label::{LabelEngine, LabelValue, LabelValues};
+use avenger_typst_label::{LabelEngine, LabelError, LabelValue, LabelValues};
 
 use crate::{fit::MemberValues, EvalError};
 
@@ -235,21 +235,65 @@ impl Lumps {
                 _ => unknown(),
             };
             let weight = match self.weight.get(row) {
-                Some(Agreed::One(weight)) => {
-                    let weight: ArrayRef = Arc::new(Float64Array::from(vec![*weight]));
-                    (engine.format_array(&weight, "", PrecisionSharing::PerValue)?).remove(0)
-                }
+                Some(Agreed::One(weight)) => weight_text(*weight, engine)?,
                 _ => unknown(),
             };
-            labels.push(LabelValues::from([
-                ("value".to_string(), value),
-                ("other".to_string(), LabelValue::Bool(is_other)),
-                ("count".to_string(), count),
-                ("weight".to_string(), weight),
-            ]));
+            labels.push(bound(value, is_other, count, weight));
         }
         Ok(labels)
     }
+}
+
+/// The values that a label of a lump binds: `value`, `other`, `count`, and `weight`.
+fn bound(value: LabelValue, other: bool, count: LabelValue, weight: LabelValue) -> LabelValues {
+    LabelValues::from([
+        ("value".to_string(), value),
+        ("other".to_string(), LabelValue::Bool(other)),
+        ("count".to_string(), count),
+        ("weight".to_string(), weight),
+    ])
+}
+
+/// `weight` in the text engine's default number format.
+fn weight_text(weight: f64, engine: &LabelEngine) -> std::result::Result<LabelValue, LabelError> {
+    let weight: ArrayRef = Arc::new(Float64Array::from(vec![weight]));
+    Ok((engine.format_array(&weight, "", PrecisionSharing::PerValue)?).remove(0))
+}
+
+/// The values that a label of `row` of `column` binds when `column` is a column of lumps, as the
+/// labels of a lump's guides bind them, from the row's own weight and number of categories: its
+/// kept category as `pattern` formats it or the Other group's label as `value`, whether it is the
+/// Other group as `other`, its number of categories as `count`, and its weight as `weight`. `None`
+/// for a column that is not a lump.
+pub fn lump_label_values(
+    column: &ArrayRef,
+    row: usize,
+    pattern: &str,
+    engine: &LabelEngine,
+) -> std::result::Result<Option<LabelValues>, LabelError> {
+    if !lump::is_lump(column.data_type()) {
+        return Ok(None);
+    }
+    let lumps = column.as_struct();
+    let other = lumps.column(1).as_string::<i32>();
+    let weight = lumps.column(2).as_primitive::<Float64Type>();
+    let count = lumps.column(3).as_primitive::<Int64Type>();
+    let is_other = other.is_valid(row);
+    let value = match is_other {
+        true => LabelValue::Str(other.value(row).to_string()),
+        false => (engine.format_array(
+            &lumps.column(0).slice(row, 1),
+            pattern,
+            PrecisionSharing::PerValue,
+        )?)
+        .remove(0),
+    };
+    let weight = match weight.is_valid(row) {
+        true => weight_text(weight.value(row), engine)?,
+        false => LabelValue::None,
+    };
+    let count = LabelValue::Int(count.value(row));
+    Ok(Some(bound(value, is_other, count, weight)))
 }
 
 /// The values that `channel` takes from `column`: the keys of a column of lumps, which its

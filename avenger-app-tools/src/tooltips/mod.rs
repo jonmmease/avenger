@@ -6,7 +6,7 @@ mod error;
 mod target;
 mod tool;
 
-pub use content::TooltipField;
+pub use content::{FieldValues, TooltipField};
 pub use draw::TooltipStyle;
 pub use target::{InstanceTarget, TooltipAnchor};
 pub use tool::{TooltipState, Tooltips};
