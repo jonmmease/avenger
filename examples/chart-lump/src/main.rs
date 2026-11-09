@@ -2,19 +2,22 @@
 //! DataFusion, and shown by a chart app.
 //!
 //! The example reads the movies of `movie-search` into DataFusion and lumps their genres to the 5
-//! with the most movies, with the rest, the movies without a genre among them, in the Other group:
+//! with the most movies, with the rest in the Other group, and the movies without a genre in the
+//! NULL category of their own, which `'nulls'` keeps by default:
 //!
 //! ```sql
 //! SELECT *, lump(genre, 'n', 5) OVER () AS lumped FROM movies
 //! ```
 //!
 //! The bars on the left count the movies of each lumped genre, with the kept genres by their
-//! counts and the Other bar last, gray with stripes, labeled with its number of movies. The plot on
-//! the right shows each movie's IMDB rating against its Rotten Tomatoes rating, colored by its
-//! lumped genre, with a legend that ends with Other and a tooltip of the movie.
+//! counts, then the Other bar, black with stripes, labeled with its number of genres, and the
+//! NULL bar last, dark gray with dots, labeled "No genre". The plot on the right shows each
+//! movie's IMDB rating against its Rotten Tomatoes rating, colored by its lumped genre, with a
+//! legend that ends with Other and the NULL category and a tooltip of the movie.
 //!
-//! A click on a bar selects its genre, and a click on the Other bar selects every genre outside
-//! the kept ones. A Shift+click adds a bar to the selection or removes it. The selection names the
+//! A click on a bar selects its genre, a click on the NULL bar selects the movies without a genre,
+//! and a click on the Other bar selects every genre outside the kept ones and NULL. A Shift+click
+//! adds a bar to the selection or removes it. The selection names the
 //! source column `genre`, not the lumps, so the movies of the scatter plot test their own genres,
 //! and a query could filter its rows by the selection before it lumps them again. Both plots gray
 //! the bars and the movies outside the selection.
@@ -104,7 +107,10 @@ fn color() -> EncodingBuilder {
 /// click on the Other bar selects every genre outside the kept ones.
 fn bars(genres: &RecordBatch) -> PlotBuilder {
     // The label and the tooltip title of the Other bar name the number of genres it holds.
-    let genre = || Labels::builder().markup("#if other [#value (#count)] else [#value]");
+    let genre = || {
+        Labels::builder()
+            .markup("#if other [#value (#count)] else if null [No genre] else [#value]")
+    };
     let x = Encoding::scaled_field("lumped").scale(Axis::builder().title("Genre").labels(genre()));
     let y = Encoding::scaled_field("movies").scale(Axis::builder().title("Movies"));
     let tooltip = Tooltip::exact()
@@ -171,6 +177,8 @@ const STYLES: &str = r#"
 @import 'std:base.css';
 mark > other { color: black; }
 mark[type=bar] > other { pattern: "diagonal-down"; }
+mark > null { color: #79706e; }
+mark[type=bar] > null { pattern: "dots"; }
 "#;
 
 /// The cascade of the stylesheet.

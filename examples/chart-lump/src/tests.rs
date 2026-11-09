@@ -1,5 +1,6 @@
-//! The lumped genres from DataFusion, and a click on the Other bar, which selects every genre
-//! outside the kept ones and grays the movies of the kept genres.
+//! The lumped genres from DataFusion, a click on the Other bar, which selects every genre outside
+//! the kept ones and NULL and grays the movies of the kept genres and of no genre, and a click on
+//! the NULL bar, which selects the movies without a genre.
 
 use std::time::Duration;
 
@@ -41,12 +42,15 @@ fn the_lump_keeps_the_five_genres_with_the_most_movies() {
         "{}",
         lumped.data_type()
     );
-    assert_eq!(tables.genres.num_rows(), KEPT + 1);
+    // The kept genres, the Other group, and the NULL category of the movies without a genre.
+    assert_eq!(tables.genres.num_rows(), KEPT + 2);
+    let nulls = avenger_chart::lump::nulls(lumped).unwrap();
+    assert_eq!(nulls.true_count(), 1);
     let lumped = lumped.as_struct();
     let other = other_row(&tables.genres);
     assert_eq!(lumped.column(1).as_string::<i32>().value(other), "Other");
-    // The Other group holds every movie outside the kept genres, those without a genre among them,
-    // and names its number of genres.
+    // The Other group holds every movie outside the kept genres with a genre, and names its number
+    // of genres.
     let movies = tables
         .genres
         .column_by_name("movies")
@@ -93,10 +97,9 @@ fn light_gray(fill: &[f32; 4]) -> bool {
         .all(|channel| (channel - 211.0 / 255.0).abs() < 1e-3)
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
-    let tables = tokio::task::spawn_blocking(lumped).await.unwrap();
-    let mut app = ChartApp::new(chart(&tables), cascade(), engine())
+/// The app of the chart of `tables`.
+async fn app(tables: &Tables) -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
+    let app = ChartApp::new(chart(tables), cascade(), engine())
         .size(SIZE)
         .build()
         .await
@@ -108,15 +111,19 @@ async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
         "{:?}",
         app.state().warnings()
     );
-    let before = fills(&app.scenes()[0].marks, "ratings");
-    assert!(!before.iter().any(light_gray));
+    app
+}
 
-    // The middle of the Other bar.
-    let other = other_row(&tables.genres);
+/// A click on the middle of the bar of `row` of the counts of the genres.
+async fn click_bar(
+    app: &mut avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState>,
+    tables: &Tables,
+    row: usize,
+) {
     let plot = &app.state().plots()[0];
     let key = avenger_chart::lump::keys(tables.genres.column_by_name("lumped").unwrap())
         .unwrap()
-        .slice(other, 1);
+        .slice(row, 1);
     let movies = cast(
         tables.genres.column_by_name("movies").unwrap(),
         &DataType::Float64,
@@ -125,7 +132,7 @@ async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
     let half: ArrayRef = Arc::new(Float64Array::from(vec![
         movies
             .as_primitive::<arrow::datatypes::Float64Type>()
-            .value(other)
+            .value(row)
             / 2.0,
     ]));
     let [x, y] = plot.coords.pixels([&key, &half]).unwrap();
@@ -145,8 +152,17 @@ async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
         std::thread::sleep(Duration::from_millis(10));
         app.update(&event, Instant::now()).await;
     }
+}
 
-    // The selection is the complement of the five kept genres.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
+    let tables = tokio::task::spawn_blocking(lumped).await.unwrap();
+    let mut app = app(&tables).await;
+    let before = fills(&app.scenes()[0].marks, "ratings");
+    assert!(!before.iter().any(light_gray));
+    click_bar(&mut app, &tables, other_row(&tables.genres)).await;
+
+    // The selection is the complement of the five kept genres and NULL.
     let clauses = &app.state().evaluator().selections()[GENRES].clauses;
     match &clauses[..] {
         [clause] => match &clause.conditions[..] {
@@ -157,20 +173,39 @@ async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
                 ..
             }] => {
                 assert_eq!(columns, &["genre".to_string()]);
-                assert_eq!(values[0].len(), KEPT);
+                assert_eq!(values[0].len(), KEPT + 1);
+                assert_eq!(values[0].null_count(), 1);
             }
             conditions => panic!("a set, and not {conditions:?}"),
         },
         clauses => panic!("one clause, and not {clauses:?}"),
     }
 
-    // The movies of the kept genres are gray, and the others, without a genre among them, keep
-    // their color.
+    // The movies of the kept genres and of no genre are gray, and the movies of the Other group
+    // keep their color.
     let after = fills(&app.scenes()[0].marks, "ratings");
     let lumped = tables.movies.column_by_name("lumped").unwrap().as_struct();
     let others = lumped.column(1);
     assert_eq!(after.len(), tables.movies.num_rows());
     for (row, fill) in after.iter().enumerate() {
         assert_eq!(light_gray(fill), others.is_null(row), "row {row}: {fill:?}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_on_the_null_bar_selects_the_movies_without_a_genre() {
+    let tables = tokio::task::spawn_blocking(lumped).await.unwrap();
+    let mut app = app(&tables).await;
+    let lumped = tables.genres.column_by_name("lumped").unwrap();
+    let nulls = avenger_chart::lump::nulls(lumped).unwrap();
+    let null = (0..nulls.len()).find(|&row| nulls.value(row)).unwrap();
+    click_bar(&mut app, &tables, null).await;
+
+    // Only the movies without a genre keep their color.
+    let after = fills(&app.scenes()[0].marks, "ratings");
+    let genre = tables.movies.column_by_name("genre").unwrap();
+    assert_eq!(after.len(), tables.movies.num_rows());
+    for (row, fill) in after.iter().enumerate() {
+        assert_eq!(light_gray(fill), genre.is_valid(row), "row {row}: {fill:?}");
     }
 }
