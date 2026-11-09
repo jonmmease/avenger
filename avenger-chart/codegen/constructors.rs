@@ -192,26 +192,22 @@ fn emit_message(
             "fn oneof_{function}_{oneof}(builder: {builder}, arg: &Arg) -> Result<{builder}, String> {{"
         )
         .unwrap();
-        emit_dispatch(code, model, &node, "builder", &format!("`{}`", param.name));
+        emit_dispatch(code, model, &node, "builder");
         code.push_str("}\n\n");
         // The members that a string names.
-        let names_edge = (model.edges.iter()).any(|edge| {
-            matches!(&edge.set, Set::Names(name, index) if *name == message.name && index == oneof)
-        });
-        if !names_edge {
+        // The members that a string names.
+        let Some(named) = model.named.get(&(message.name.clone(), *oneof)) else {
             continue;
-        }
-        let named: Vec<&str> = (members.iter())
-            .filter(|(_, shape)| matches!(shape, Shape::Message(_)))
-            .map(|(member, _)| member.name())
-            .collect();
+        };
         writeln!(
             code,
             "fn names_{function}_{oneof}(builder: {builder}, name: &str) -> Result<{builder}, String> {{\n    Ok(match name {{"
         )
         .unwrap();
         for (member, shape) in members {
-            if let Shape::Message(type_name) = shape {
+            if let (true, Shape::Message(type_name)) =
+                (named.iter().any(|n| n == member.name()), shape)
+            {
                 writeln!(
                     code,
                     "        {:?} => builder.with_{}({}::default()),",
@@ -237,13 +233,7 @@ fn emit_message(
         "#[allow(dead_code)]\npub(crate) fn to_{function}(arg: &Arg) -> Result<{builder}, String> {{"
     )
     .unwrap();
-    emit_dispatch(
-        code,
-        model,
-        &node,
-        "",
-        &format!("a `{}`", message.message.name()),
-    );
+    emit_dispatch(code, model, &node, "");
     code.push_str("}\n\n");
     Ok(())
 }
@@ -259,9 +249,11 @@ fn note_enums(shape: &Shape, enums: &mut BTreeSet<String>) {
     }
 }
 
-/// The body of a function that turns `arg` into the target of `node`, on `base` for a oneof.
-fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str, what: &str) {
+/// The body of a function that turns `arg` into the target of `node`, on `base` for a oneof, whose
+/// error names what the target takes.
+fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str) {
     let accepted = model.accepted(node);
+    let what = takes(model, node, &accepted);
     code.push_str("    match arg.class() {\n");
     let fragments: Vec<&(Source, Vec<&Edge>)> = (accepted.iter())
         .filter(|(source, _)| matches!(source, Source::Fragment(_)))
@@ -307,6 +299,72 @@ fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str, what
         "        other => Err(format!(\"takes {what}, not {{}}\", other.describe())),\n    }}"
     )
     .unwrap();
+}
+
+/// The words of what `node` takes, for the errors of its arguments: the names that pick a member,
+/// the messages of the fragments that it takes, and the classes of the values.
+fn takes(model: &Model, node: &Node, accepted: &[(Source, Vec<&Edge>)]) -> String {
+    // Every class of constant, which a `ValueRef` takes, is one part.
+    let constants = [
+        Class::Bool,
+        Class::Int,
+        Class::Float,
+        Class::Str,
+        Class::Array,
+        Class::Other,
+    ];
+    let any = constants.iter().all(|class| {
+        accepted
+            .iter()
+            .any(|(source, _)| *source == Source::Class(*class))
+    });
+    let mut parts: Vec<String> = Vec::new();
+    if any {
+        parts.push("any constant".to_string());
+    }
+    for (source, chain) in accepted {
+        let part = match source {
+            Source::Class(class) if any && constants.contains(class) => continue,
+            Source::Fragment(name) => article(short(name)),
+            Source::Class(class) => match chain.first().map(|edge| (&edge.input, &edge.set)) {
+                Some((Input::Name, Set::Names(message, oneof))) => {
+                    let names = &model.named[&(message.clone(), *oneof)];
+                    format!("a name ({})", names.join(", "))
+                }
+                _ => describe_class(*class).to_string(),
+            },
+        };
+        if !parts.contains(&part) {
+            parts.push(part);
+        }
+    }
+    let _ = node;
+    match parts.as_slice() {
+        [] => "nothing".to_string(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
+    }
+}
+
+/// The name of a message with its article, such as an `IntervalFit`.
+fn article(name: &str) -> String {
+    match name.starts_with(['A', 'E', 'I', 'O', 'U']) {
+        true => format!("an `{name}`"),
+        false => format!("a `{name}`"),
+    }
+}
+
+/// A class of argument in the words of an error.
+fn describe_class(class: Class) -> &'static str {
+    match class {
+        Class::Bool => "a Boolean",
+        Class::Int => "an integer",
+        Class::Float => "a floating-point number",
+        Class::Str => "a string",
+        Class::Array => "an array",
+        Class::Bytes => "bytes",
+        Class::Other => "a constant of another type",
+    }
 }
 
 /// The expression of a chain: `start`, the builder of a fragment, or the argument, through each

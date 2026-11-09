@@ -225,6 +225,10 @@ struct Best {
 pub(super) struct Model<'a> {
     pub(super) messages: Vec<MessageModel<'a>>,
     pub(super) edges: Vec<Edge<'a>>,
+    /// The members that a string names, by the full name of their message and the index of their
+    /// oneof: the members whose messages have no required content, in a oneof whose members take
+    /// no strings.
+    pub(super) named: BTreeMap<(String, usize), Vec<String>>,
     /// The best chain to each node from each source.
     best: BTreeMap<(Node, Source), Best>,
 }
@@ -253,10 +257,11 @@ impl<'a> Model<'a> {
         }
         let mut model = Model {
             edges: Vec::new(),
+            named: BTreeMap::new(),
             messages: models,
             best: BTreeMap::new(),
         };
-        model.edges = model.graph(messages, annotations);
+        (model.edges, model.named) = model.graph(messages, annotations);
         model.search(messages);
         Ok(model)
     }
@@ -267,8 +272,14 @@ impl<'a> Model<'a> {
     }
 
     /// The edges of the conversion graph.
-    fn graph(&self, messages: &'a Messages<'a>, annotations: &Annotations) -> Vec<Edge<'a>> {
+    #[allow(clippy::type_complexity)]
+    fn graph(
+        &self,
+        messages: &'a Messages<'a>,
+        annotations: &Annotations,
+    ) -> (Vec<Edge<'a>>, BTreeMap<(String, usize), Vec<String>>) {
         let mut edges = Vec::new();
+        let mut named_members = BTreeMap::new();
         for model in &self.messages {
             let name = &model.name;
             let message = model.message;
@@ -299,17 +310,26 @@ impl<'a> Model<'a> {
                     true => vec![Node::Oneof(name.clone(), *index), node.clone()],
                     false => vec![Node::Oneof(name.clone(), *index)],
                 };
+                // A name picks a member without required content, which an empty message sets, in
+                // a oneof whose members take no strings.
                 let named = !members.iter().any(|(_, shape)| shape.takes_strings());
-                for target in targets {
-                    let mut names = false;
-                    for (member, shape) in members {
-                        if let Shape::Message(type_name) = shape {
-                            let empty = !has_required(messages, annotations, type_name);
-                            names |= named && empty;
+                let pickable: Vec<String> = (members.iter())
+                    .filter(|(_, shape)| match shape {
+                        Shape::Message(type_name) => {
+                            named && !has_required(messages, annotations, type_name)
                         }
+                        _ => false,
+                    })
+                    .map(|(member, _)| member.name().to_string())
+                    .collect();
+                if !pickable.is_empty() {
+                    named_members.insert((name.clone(), *index), pickable.clone());
+                }
+                for target in targets {
+                    for (member, shape) in members {
                         edges.extend(field_edges(target.clone(), shape, Set::Member(member)));
                     }
-                    if names {
+                    if !pickable.is_empty() {
                         edges.push(Edge {
                             to: target,
                             input: Input::Name,
@@ -341,7 +361,7 @@ impl<'a> Model<'a> {
             Input::Message(name) => self.message(name).is_some(),
             _ => true,
         });
-        edges
+        (edges, named_members)
     }
 
     /// The best chains from every source to every node.

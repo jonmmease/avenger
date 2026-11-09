@@ -39,7 +39,10 @@ impl Class<'_> {
                     .rsplit('.')
                     .next()
                     .unwrap_or(&fragment.r#type);
-                format!("a `{name}`")
+                match name.starts_with(['A', 'E', 'I', 'O', 'U']) {
+                    true => format!("an `{name}`"),
+                    false => format!("a `{name}`"),
+                }
             }
         }
     }
