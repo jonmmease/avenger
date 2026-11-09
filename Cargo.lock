@@ -533,11 +533,13 @@ name = "avenger-chart"
 version = "0.1.0"
 dependencies = [
  "arrow",
+ "datafusion",
  "prost",
  "prost-build",
  "prost-types",
  "protoc-bin-vendored",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

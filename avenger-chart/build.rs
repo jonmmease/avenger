@@ -28,6 +28,8 @@ use prost::Message;
 mod annotations;
 #[path = "codegen/builders.rs"]
 mod builders;
+#[path = "codegen/functions.rs"]
+mod functions;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
@@ -116,6 +118,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builders::builders(&set, &messages, &annotations),
     )?;
     std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
+    if std::env::var_os("CARGO_FEATURE_DATAFUSION").is_some() {
+        std::fs::write(
+            out.join("functions.rs"),
+            functions::functions(&set, &messages, &annotations)?,
+        )?;
+    }
     Ok(())
 }
 

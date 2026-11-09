@@ -59,13 +59,13 @@ const CHART_OWNED: [&str; 3] = ["version", "tables", "values"];
 
 /// The comments of the messages and their fields, by the message's full name, and by the message's
 /// full name and the field's index.
-struct Comments {
-    messages: BTreeMap<String, String>,
-    fields: BTreeMap<(String, usize), String>,
+pub(super) struct Comments {
+    pub(super) messages: BTreeMap<String, String>,
+    pub(super) fields: BTreeMap<(String, usize), String>,
 }
 
 impl Comments {
-    fn new(set: &FileDescriptorSet) -> Self {
+    pub(super) fn new(set: &FileDescriptorSet) -> Self {
         let mut messages = BTreeMap::new();
         let mut fields = BTreeMap::new();
         for file in &set.file {
