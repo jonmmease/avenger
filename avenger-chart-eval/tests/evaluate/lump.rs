@@ -351,9 +351,7 @@ fn picked_bars(set: impl Into<ValueSetBuilder>) -> Vec<bool> {
         Predicate::negate(Predicate::selected("pick")),
         "lightgray",
     )]);
-    let pick = PointSelect::builder()
-        .keys(["lumped"])
-        .sources([KeySource::new("lumped", "cylinders")]);
+    let pick = PointSelect::builder().keys([PointKey::new("lumped").source("cylinders")]);
     let bars = CartesianLayer::bar(
         counted_cars(),
         BarMark::builder().x("lumped").y("cars").color(color),

@@ -620,10 +620,12 @@ fn write_lasso(state: &mut ChartAppState, area: &Area, lasso: &Lasso<()>, settle
 }
 
 /// The key columns of a point selection or of a lasso with keys.
-fn keys(select: &proto::Select) -> Option<&[String]> {
+fn keys(select: &proto::Select) -> Option<Vec<String>> {
     match &select.form {
-        Some(select::Form::Points(points)) => Some(&points.keys),
-        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Some(&lasso.keys),
+        Some(select::Form::Points(points)) => {
+            Some(points.keys.iter().map(|key| key.column.clone()).collect())
+        }
+        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Some(lasso.keys.clone()),
         _ => None,
     }
 }
@@ -672,7 +674,7 @@ fn keyed_instances(state: &ChartAppState, area: &Area, kind: Form) -> Instances<
 fn lump_source<'a>(declared: &Declared<'a>) -> Option<(&'a str, &'a str)> {
     match &declared.select.form {
         Some(select::Form::Points(points)) => {
-            (points.sources.first()).map(|source| (source.key.as_str(), source.source.as_str()))
+            (points.keys.iter()).find_map(|key| Some((key.column.as_str(), key.source.as_deref()?)))
         }
         _ => None,
     }

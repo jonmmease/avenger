@@ -169,41 +169,32 @@ fn picked(points: PointSelectBuilder, initial: Vec<ClauseBuilder>) -> Result<Cha
 
 #[test]
 fn a_point_selection_names_the_source_of_its_lump() {
-    let points = || PointSelect::builder().keys(["port"]);
-    let path = "root.plot.cartesian.layers[0].tools[0].select.points.sources[0].key";
+    let points = |keys: Vec<PointKeyBuilder>| PointSelect::builder().keys(keys);
+    let path = "root.plot.cartesian.layers[0].tools[0].select.points.keys[0].source";
     picked(
-        points().sources([KeySource::new("port", "harbor")]),
+        points(vec![PointKey::new("port").source("harbor")]),
         Vec::new(),
     )
     .unwrap();
-    // The source of a column that is not a lump, or of a column that is not a key, fails.
+    // The source of a column that is not a lump fails.
     invalid(
         picked(
-            PointSelect::builder()
-                .keys(["tons"])
-                .sources([KeySource::new("tons", "weight")]),
+            points(vec![PointKey::new("tons").source("weight")]),
             Vec::new(),
         ),
         path,
         "a column of lumps",
     );
-    invalid(
-        picked(
-            points().sources([KeySource::new("tons", "weight")]),
-            Vec::new(),
-        ),
-        path,
-        "a key of the point selection",
-    );
     // A key with a source is the one key.
     invalid(
         picked(
-            PointSelect::builder()
-                .keys(["port", "tons"])
-                .sources([KeySource::new("port", "harbor")]),
+            points(vec![
+                PointKey::new("port").source("harbor"),
+                PointKey::new("tons"),
+            ]),
             Vec::new(),
         ),
-        "root.plot.cartesian.layers[0].tools[0].select.points.sources",
+        path,
         "one key",
     );
 }

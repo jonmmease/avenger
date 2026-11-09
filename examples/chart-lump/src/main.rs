@@ -114,9 +114,8 @@ fn bars(genres: &RecordBatch) -> PlotBuilder {
         .id("bars")
         .tools([LayerToolBuilder::from(tooltip)]);
     let points = PointSelect::builder()
-        .keys(["lumped"])
-        .toggle(true)
-        .sources([KeySource::new("lumped", "genre")]);
+        .keys([PointKey::new("lumped").source("genre")])
+        .toggle(true);
     Plot::cartesian([bars])
         .id("genres")
         .title("Click a genre, Shift+click for more")

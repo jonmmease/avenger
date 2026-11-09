@@ -332,8 +332,11 @@ pub(crate) fn lump_sources(resolved: &avenger_chart::resolve::Resolved) -> Vec<(
     let mut sources = Vec::new();
     for select in plot_selects.chain(layer_selects) {
         if let Some(select::Form::Points(points)) = &select.form {
-            for source in &points.sources {
-                let pair = (source.key.clone(), source.source.clone());
+            for key in &points.keys {
+                let Some(source) = &key.source else {
+                    continue;
+                };
+                let pair = (key.column.clone(), source.clone());
                 if !sources.contains(&pair) {
                     sources.push(pair);
                 }
