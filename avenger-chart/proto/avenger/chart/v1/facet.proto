@@ -14,12 +14,11 @@ import "avenger/chart/v1/side.proto";
 // children, so the order of the children is the order of the values.
 //
 // A facet draws a label for each child, a rule from the center of the first child to the center of
-// the last with a tick toward each label, and its title beyond them, as the facet guide of
-// avenger-guides draws them. In a concat, one row of labels runs along the children, and a facet
+// the last with a tick toward each label, and its title beyond them. In a concat, one row of labels runs along the children, and a facet
 // with one value has no rule. In a wrap, whose rows change with its width, each child has a label
 // of its own value, and the titles merge into one on the wrap by default. The labels of the facets
 // of one column below one concat match their thickness, so their titles line up whether or not a
-// facet has a rule. A style field that is absent takes its value from the styles.
+// facet has a rule. A style field that is unset takes its value from the styles.
 //
 // A concat or a wrap with a facet shares every channel and the projection by default, because the
 // panels of a facet grid show one chart over parts of one table. Its resolve rules can still make a
@@ -30,24 +29,24 @@ import "avenger/chart/v1/side.proto";
 message Facet {
   // The partition column of the children.
   string column = 1 [(avenger.chart.v1.required) = true];
-  // Whether the facet draws its title and labels. When absent, it does. `false` draws neither, and
+  // Whether the facet draws its title and labels. When unset, it does. `false` draws neither, and
   // the children still split the column.
   optional bool show = 2;
-  // The title. When absent, the title is the facet's column.
+  // The title. When unset, the title is the facet's column.
   Title title = 3;
-  // Whether the facet shows its title. When absent, the styles decide.
+  // Whether the facet shows its title. When unset, the styles decide.
   optional bool show_title = 4;
   // The side of the children. A concat in a row takes the top or the bottom, a concat in a column
-  // takes the left or the right, and a wrap takes any side of each child. When absent, a row and a
+  // takes the left or the right, and a wrap takes any side of each child. When unset, a row and a
   // wrap have the labels at the top, and a column at the right.
   Side side = 5;
   // The labels of the values, such as `Grade #value`.
   Labels labels = 6;
-  // The angle of the labels, in degrees clockwise. When absent, the labels read along the side:
+  // The angle of the labels, in degrees clockwise. When unset, the labels read along the side:
   // level above or below the children, up beside a left side, and down beside a right one.
   optional float label_angle = 7;
   // The space between the labels and what lies inward of them: the edge of the children, or the
-  // labels of a facet inside this one, in pixels. When absent, the styles give it, with more space
+  // labels of a facet inside this one, in pixels. When unset, the styles give it, with more space
   // beyond an inner facet's labels, so the levels of a nested facet read apart.
   optional float label_padding = 8;
   // The length of each tick, in pixels.

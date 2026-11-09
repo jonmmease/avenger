@@ -17,7 +17,7 @@ import "avenger/chart/v1/widget.proto";
 
 // A Cartesian plot: its options and its layers.
 message CartesianPlot {
-  // The options of the coordinate system. When absent, the plot takes the defaults of each option.
+  // The options of the coordinate system. When unset, the plot takes the defaults of each option.
   Cartesian options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated CartesianLayer layers = 2 [(avenger.chart.v1.required) = true];
@@ -58,7 +58,7 @@ message CartesianLayer {
 
 // A polar plot: its options and its layers.
 message PolarPlot {
-  // The options of the coordinate system. When absent, the plot takes the defaults of each option.
+  // The options of the coordinate system. When unset, the plot takes the defaults of each option.
   Polar options = 1;
   // The layers, at least one, each drawn over the ones before it.
   repeated PolarLayer layers = 2 [(avenger.chart.v1.required) = true];

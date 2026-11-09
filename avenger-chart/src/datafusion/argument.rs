@@ -34,14 +34,10 @@ impl Class<'_> {
             Class::Bytes => "bytes".into(),
             Class::Other => "a constant of another type".into(),
             Class::Fragment(fragment) => {
-                let name = fragment
-                    .r#type
-                    .rsplit('.')
-                    .next()
-                    .unwrap_or(&fragment.r#type);
-                match name.starts_with(['A', 'E', 'I', 'O', 'U']) {
-                    true => format!("an `{name}`"),
-                    false => format!("a `{name}`"),
+                let name = fragment.r#type.as_str();
+                match super::constructor::generated::constructor_name(name) {
+                    Some(constructor) => format!("`{constructor}(...)`"),
+                    None => format!("a `{}`", name.rsplit('.').next().unwrap_or(name)),
                 }
             }
         }

@@ -180,7 +180,7 @@ message IntervalSelect {
   // geo plot, whose box selects a cyclic range of longitude. Empty selects on both of the plot's
   // positional channels.
   repeated Channel channels = 1;
-  // The width, in logical pixels, of the cells that the box selects whole, or absent to select
+  // The width, in logical pixels, of the cells that the box selects whole, or unset to select
   // exact ranges. A box of cells selects the rows in the cells that it covers, and with a width
   // above 1, it snaps to the cells as it moves. Its clause holds the range from the first edge of
   // those cells to the last, in the values of the column, as a clause of the chart, such as an

@@ -11,8 +11,8 @@ import "avenger/chart/v1/style.proto";
 
 // A geographic coordinate system: a map projection of `longitude`, `latitude`, `longitude2`,
 // `latitude2`, and `geometry`, for the `geo_` marks. A plot in this coordinate system is a geo
-// plot. The chart stores the spec, and the renderer builds an avenger-geo projection from it and
-// fits its view at the size of each plot.
+// plot. The chart stores the spec, and the renderer builds the projection from it and fits its view
+// at the size of each plot.
 //
 // The geo plots that share a projection merge their data and show one view, so their surfaces,
 // their fits, their aspects, and their navigation must be equal.
@@ -26,7 +26,7 @@ message Geo {
   // The share family. Geo plots whose specs name one family share one projection, in addition
   // to the projections that resolve rules share.
   string family = 3;
-  // The shape of the plot. When absent, the plot keeps the aspect ratio of what its view fits,
+  // The shape of the plot. When unset, the plot keeps the aspect ratio of what its view fits,
   // inside the space that the layout gives it, so the projection fills the plot.
   oneof aspect {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
@@ -37,7 +37,7 @@ message Geo {
     // around the box.
     FreeAspect free = 5;
   }
-  // How a navigation moves the projection. When absent, a navigation moves the projection in its
+  // How a navigation moves the projection. When unset, a navigation moves the projection in its
   // own pan mode, and its zoom has no limits.
   GeoNavigation navigation = 6;
 }
@@ -62,7 +62,7 @@ message GeoNavigation {
 // How a navigation moves a geo plot. Each keeps the place under the pointer at the start of a drag
 // under the pointer.
 enum PanMode {
-  // Absent, so the projection's own mode applies, as `GeoNavigation.pan_mode` describes.
+  // Unset, so the projection's own mode applies, as `GeoNavigation.pan_mode` describes.
   PAN_MODE_UNSPECIFIED = 0;
   // A drag slides the view, and the wheel zooms about the pointer.
   PAN_MODE_TRANSLATE = 1;
@@ -104,17 +104,17 @@ message Spherical {
     // A projection that an app adds to its renderer.
     CustomProjection custom = 31;
   }
-  // The rotation of the sphere before it projects. When absent, the sphere does not rotate.
+  // The rotation of the sphere before it projects. When unset, the sphere does not rotate.
   Rotation rotate = 32;
-  // The place at the center of the view. When absent, longitude 0 and latitude 0.
+  // The place at the center of the view. When unset, longitude 0 and latitude 0.
   LonLat center = 33;
-  // The part of the sphere that the projection keeps. When absent, the projection keeps its default
+  // The part of the sphere that the projection keeps. When unset, the projection keeps its default
   // part, such as the near hemisphere of `orthographic`.
   SphericalClip clip = 34;
-  // The resampling precision, in pixels, or 0 for no resampling. When absent, the square root of
+  // The resampling precision, in pixels, or 0 for no resampling. When unset, the square root of
   // 0.5, as in d3-geo.
   optional double precision = 35;
-  // What the view fits. When absent, the view fits the data of the plot's layers.
+  // What the view fits. When unset, the view fits the data of the plot's layers.
   oneof fit {
     // The data of the plot's layers. The renderer summarizes the geometry of each `geo_shape` layer
     // and the positions of the other layers, and insets the fit by the largest reach of their
@@ -127,21 +127,19 @@ message Spherical {
     // data.
     LonLatBox box = 38;
   }
-  // The lines of longitude and latitude. When absent, the plot has no graticule.
+  // The lines of longitude and latitude. When unset, the plot has no graticule.
   Graticule graticule = 39;
   // The sphere, the whole world of the projection, filled behind the data and outlined. When
-  // absent, the plot does not draw the sphere.
+  // unset, the plot does not draw the sphere.
   SphereStyle sphere = 40;
-  // Raster tiles behind the data, such as a street map. When absent, the map has no tiles.
+  // Raster tiles behind the data, such as a street map. When unset, the map has no tiles.
   TileLayer tiles = 41;
 }
 
 // The options of a projection without parameters.
 message NoParameters {}
 
-// The conformal conic projection, which is true to scale along its two standard parallels. Each
-// conic projection has a message of its own, so a fragment of one names its member of
-// `Spherical.projection`.
+// The conformal conic projection, which is true to scale along its two standard parallels.
 message ConicConformal {
   // The first standard parallel, in degrees from -90 to 90.
   double parallel1 = 1;
@@ -170,7 +168,7 @@ message ConicEquidistant {
 
 // A cylindrical equal-area projection, which is true to scale along its standard parallel.
 message CylindricalEqualAreaProjection {
-  // The standard parallel, in degrees from -90 to 90. When absent, 38.58, the parallel of the
+  // The standard parallel, in degrees from -90 to 90. When unset, 38.58, the parallel of the
   // Hobo-Dyer projection.
   optional double parallel = 1;
 }
@@ -178,12 +176,12 @@ message CylindricalEqualAreaProjection {
 // A Hammer projection.
 message HammerProjection {
   // The coefficient, at least 1: 1 gives the azimuthal equal-area projection, and 2 the Hammer
-  // projection. When absent, 2.
+  // projection. When unset, 2.
   optional double coefficient = 1;
 }
 
-// A projection that an app adds to its renderer. A reader whose renderer has no projection of the
-// name reports an error that names it.
+// A projection that an app adds to its renderer. A renderer without a projection of the name
+// reports an error that names it.
 message CustomProjection {
   // The name of the projection.
   string name = 1 [(avenger.chart.v1.required) = true];
@@ -271,30 +269,30 @@ enum RegionFrame {
 // The meridians and parallels of a spherical geo plot. Their labels sit on the outline of the
 // projection, or on the edges of the plot for a plot that fits a box.
 message Graticule {
-  // The degrees between meridians. When absent, 10.
+  // The degrees between meridians. When unset, 10.
   optional double longitude_step = 1;
-  // The degrees between parallels. When absent, 10.
+  // The degrees between parallels. When unset, 10.
   optional double latitude_step = 2;
-  // The box that the lines cover. When absent, longitudes from -180 to 180 and latitudes from -80
+  // The box that the lines cover. When unset, longitudes from -180 to 180 and latitudes from -80
   // to 80, as in d3-geo.
   LonLatBox extent = 3;
   // The degrees between major meridians, which run past `extent` to the box of `major_extent`. When
-  // absent, 90.
+  // unset, 90.
   optional double major_longitude_step = 4;
-  // The degrees between major parallels. When absent, 360, so the major lines are the meridians
+  // The degrees between major parallels. When unset, 360, so the major lines are the meridians
   // alone.
   optional double major_latitude_step = 5;
-  // The box that the major lines cover. When absent, longitudes from -180 to 180 and latitudes from
+  // The box that the major lines cover. When unset, longitudes from -180 to 180 and latitudes from
   // -90 to 90.
   LonLatBox major_extent = 6;
   // The step between the points of each line, in degrees, which the projection resamples. When
-  // absent, 2.5.
+  // unset, 2.5.
   optional double precision = 7;
-  // Where the labels sit. When absent, the labels sit on the edges of the plot for a plot that fits
+  // Where the labels sit. When unset, the labels sit on the edges of the plot for a plot that fits
   // a box or its data, and on the outline of the projection for a plot that fits the whole sphere.
   GeoFrame frame = 8;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
-  // parallels on the left and the right. When absent, the left and the bottom label them.
+  // parallels on the left and the right. When unset, the left and the bottom label them.
   LabelSides label_sides = 9;
   // The pattern of the degrees of each label, in the syntax of `Chart.number_format_syntax`. An
   // empty pattern takes the formatter's default.
@@ -312,12 +310,13 @@ message Graticule {
 // The sides of a plot that carry labels, in any order, where a side that repeats counts once. No
 // sides draws no labels.
 message LabelSides {
+  // The sides, such as `left` and `bottom`.
   repeated Side sides = 1;
 }
 
 // The edge of a geo plot where the lines of its graticule are labeled.
 enum GeoFrame {
-  // Absent, as `Graticule.frame` describes.
+  // Unset, as `Graticule.frame` describes.
   GEO_FRAME_UNSPECIFIED = 0;
   // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
   // its end nearest the side.
@@ -327,7 +326,7 @@ enum GeoFrame {
   GEO_FRAME_RECTANGLE = 2;
 }
 
-// The look of the sphere. A field that is absent takes its value from the styles.
+// The look of the sphere. A field that is unset takes its value from the styles.
 message SphereStyle {
   // The CSS color behind the data.
   string fill = 1;
@@ -344,10 +343,10 @@ message TileLayer {
   // The URL of each tile, with `{z}`, `{x}`, and `{y}` for its zoom, column, and row, such as
   // `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
   string url_template = 1 [(avenger.chart.v1.required) = true];
-  // The lowest zoom that the server has. When absent, 0.
+  // The lowest zoom that the server has. When unset, 0.
   optional uint32 min_zoom = 2;
-  // The highest zoom that the server has. When absent, 19.
+  // The highest zoom that the server has. When unset, 19.
   optional uint32 max_zoom = 3;
-  // The size of each tile, in pixels. When absent, 256.
+  // The size of each tile, in pixels. When unset, 256.
   optional uint32 tile_size = 4;
 }

@@ -66,7 +66,7 @@ message TrailMark {
 // area, and `x2`, or zero, along `y` for a horizontal area. The channels other than the positions
 // take one value for each series.
 message AreaMark {
-  // When absent, the area is vertical unless only its `x` scale is continuous.
+  // When unset, the area is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
 
   Encoding x = 101;
@@ -88,9 +88,9 @@ message AreaMark {
 // A rectangle from a baseline to a value, along a band, or at a continuous key with the thickness
 // that the styles give.
 message BarMark {
-  // When absent, the bar is vertical unless only its `x` scale is continuous.
+  // When unset, the bar is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
-  // The radius of the corners of each bar, in pixels. When absent, the styles give it.
+  // The radius of the corners of each bar, in pixels. When unset, the styles give it.
   optional float corner_radius = 2;
 
   Encoding x = 101;
@@ -111,7 +111,7 @@ message BarMark {
 // scale without its second channel. A rect without `x` spans the width of its plot, and a rect
 // without `y` spans its height.
 message RectMark {
-  // The radius of the corners of each rect, in pixels. When absent, the styles give it.
+  // The radius of the corners of each rect, in pixels. When unset, the styles give it.
   optional float corner_radius = 1;
   // The space that the rect gives up at each side, in pixels, so neighboring rects stand twice as
   // far apart, as the bins of a histogram or the slices of a pie do.
@@ -152,22 +152,22 @@ message RuleMark {
 message TextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
-  // How each text aligns to its position across its lines. When absent, centered.
+  // How each text aligns to its position across its lines. When unset, centered.
   TextAlign align = 2;
-  // How each text aligns to its position along its lines. When absent, at its middle.
+  // How each text aligns to its position along its lines. When unset, at its middle.
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
   // How the text engine reads each text.
   TextSyntax syntax = 5;
-  // Whether `width` is the most that the box of each text takes, or exactly its width. When absent,
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 6;
-  // Whether the lines of each text wrap at its `width`. When absent, a text with a `width` wraps.
+  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
   optional bool wrap = 7;
-  // The most lines that each text keeps. When absent, it keeps all of them.
+  // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 8;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When absent, none does.
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
   optional bool ellipsis = 9;
 
   Encoding x = 101;
@@ -193,9 +193,9 @@ message ImageMark {
   ImageAlign align = 1;
   // The side of each image at its `y`.
   ImageBaseline baseline = 2;
-  // Whether each image keeps its own aspect ratio inside its box. When absent, it keeps it.
+  // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
   optional bool aspect = 3;
-  // Whether each image is filtered smoothly when it is scaled. When absent, it is.
+  // Whether each image is filtered smoothly when it is scaled. When unset, it is.
   optional bool smooth = 4;
 
   Encoding x = 101;
@@ -289,7 +289,7 @@ message PolarTrailMark {
 // its edges takes the area's route. The channels other than the positions take one value for each
 // series.
 message PolarAreaMark {
-  // When absent, the area is vertical unless only its `theta` scale is continuous.
+  // When unset, the area is vertical unless only its `theta` scale is continuous.
   Orient orient = 1;
   // How each segment between two points runs, as `Route` describes.
   Route route = 2;
@@ -316,9 +316,9 @@ message PolarAreaMark {
 // baseline to its `theta`, as a bar of a radial bar chart does. Its edges at one radius take its
 // route.
 message PolarBarMark {
-  // When absent, the bar is vertical unless only its `theta` scale is continuous.
+  // When unset, the bar is vertical unless only its `theta` scale is continuous.
   Orient orient = 1;
-  // The radius of the corners of each bar, in pixels. When absent, the styles give it.
+  // The radius of the corners of each bar, in pixels. When unset, the styles give it.
   optional float corner_radius = 2;
   // How each segment between two points runs, as `Route` describes.
   Route route = 3;
@@ -343,7 +343,7 @@ message PolarBarMark {
 // at one radius take its route: arcs of rings by default, and straight lines with `ROUTE_CANVAS`,
 // as the cells of the web behind a radar chart are.
 message PolarRectMark {
-  // The radius of the corners of each rect, in pixels. When absent, the styles give it.
+  // The radius of the corners of each rect, in pixels. When unset, the styles give it.
   optional float corner_radius = 1;
   // How each segment between two points runs, as `Route` describes.
   Route route = 2;
@@ -405,14 +405,14 @@ message PolarTextMark {
   string font_family = 2;
   // How the text engine reads each text.
   TextSyntax syntax = 3;
-  // Whether `width` is the most that the box of each text takes, or exactly its width. When absent,
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 4;
-  // Whether the lines of each text wrap at its `width`. When absent, a text with a `width` wraps.
+  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
   optional bool wrap = 5;
-  // The most lines that each text keeps. When absent, it keeps all of them.
+  // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 6;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When absent, none does.
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
   optional bool ellipsis = 7;
   // Where each text lies from the radius of its point.
   RadiusSide radius_side = 9;
@@ -428,7 +428,7 @@ message PolarTextMark {
   // The font size of each text, in pixels.
   Encoding size = 125;
   // How each text turns: along the circle or a spoke, as an orient says, or by the angle of each
-  // row. When both are absent, each text is horizontal.
+  // row. When both are unset, each text is horizontal.
   oneof turn {
     PolarTextOrient orient = 8;
     Encoding angle = 127;
@@ -526,22 +526,22 @@ message GeoRuleMark {
 message GeoTextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
-  // How each text aligns to its position across its lines. When absent, centered.
+  // How each text aligns to its position across its lines. When unset, centered.
   TextAlign align = 2;
-  // How each text aligns to its position along its lines. When absent, at its middle.
+  // How each text aligns to its position along its lines. When unset, at its middle.
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
   // How the text engine reads each text.
   TextSyntax syntax = 5;
-  // Whether `width` is the most that the box of each text takes, or exactly its width. When absent,
+  // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 6;
-  // Whether the lines of each text wrap at its `width`. When absent, a text with a `width` wraps.
+  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
   optional bool wrap = 7;
-  // The most lines that each text keeps. When absent, it keeps all of them.
+  // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 8;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When absent, none does.
+  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
   optional bool ellipsis = 9;
 
   Encoding longitude = 109;
@@ -567,9 +567,9 @@ message GeoImageMark {
   ImageAlign align = 1;
   // The side of each image at its `latitude`.
   ImageBaseline baseline = 2;
-  // Whether each image keeps its own aspect ratio inside its box. When absent, it keeps it.
+  // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
   optional bool aspect = 3;
-  // Whether each image is filtered smoothly when it is scaled. When absent, it is.
+  // Whether each image is filtered smoothly when it is scaled. When unset, it is.
   optional bool smooth = 4;
 
   Encoding longitude = 109;
@@ -617,7 +617,7 @@ message GeoShapeMark {
 }
 
 enum Orient {
-  // Absent, so the comment of the mark gives its orient.
+  // Unset, so the comment of the mark gives its orient.
   ORIENT_UNSPECIFIED = 0;
   // Along the vertical channel, as a bar that stands on the horizontal axis.
   ORIENT_VERTICAL = 1;

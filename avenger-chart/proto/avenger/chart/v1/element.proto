@@ -10,16 +10,16 @@ import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
 // The title of a plot, a concat, a wrap, an axis, a legend, a facet, or a widget. A style
-// field that is absent takes its value from the styles. The title of a node, which is a plot, a
+// field that is unset takes its value from the styles. The title of a node, which is a plot, a
 // concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
 // along the whole side of the node's box, over the slabs of its axes and legends, and a title at
-// the bottom serves as a caption. The fields that place the title of a node and give its subtitle,
+// the bottom serves as a caption. The settings that place the title of a node and give its subtitle,
 // `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another
 // element, which stands where its axis, legend, facet, or widget puts it.
 message Title {
   // The text, in the syntax of `syntax`.
   string text = 1 [(avenger.chart.v1.required) = true];
-  // When absent, the styles give it.
+  // When unset, the styles give it.
   TitleSide side = 2;
   // How the text engine reads the text and the subtitle.
   TextSyntax syntax = 3;
@@ -30,12 +30,12 @@ message Title {
   string subtitle = 5;
   // The style of the subtitle.
   TextStyle subtitle_style = 6;
-  // Where the title stands along its side. When absent, the styles give it.
+  // Where the title stands along its side. When unset, the styles give it.
   TitleAlign align = 7;
 }
 
 enum TitleSide {
-  // Absent, so the styles give the side.
+  // Unset, so the styles give the side.
   TITLE_SIDE_UNSPECIFIED = 0;
   TITLE_SIDE_TOP = 1;
   TITLE_SIDE_LEFT = 2;
@@ -46,7 +46,7 @@ enum TitleSide {
 // A place along a side, in the direction that the title reads: from the left of a title at the
 // top or the bottom, up a title on the left, and down a title on the right.
 enum TitleAlign {
-  // Absent, so the styles give the alignment.
+  // Unset, so the styles give the alignment.
   TITLE_ALIGN_UNSPECIFIED = 0;
   TITLE_ALIGN_START = 1;
   TITLE_ALIGN_CENTER = 2;
@@ -54,7 +54,7 @@ enum TitleAlign {
 }
 
 // The labels of the ticks of an axis, the entries of a legend, the values of a facet, or the values
-// of the fields of a tooltip. A style field that is absent takes its value from the styles.
+// of the fields of a tooltip. A style field that is unset takes its value from the styles.
 message Labels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
@@ -74,9 +74,9 @@ message Labels {
   TextStyle style = 3;
 }
 
-// The ticks of an axis. A style field that is absent takes its value from the styles.
+// The ticks of an axis. A style field that is unset takes its value from the styles.
 message Ticks {
-  // Where the ticks stand. When absent, at the ticks of the scale, with a count that the axis fits
+  // Where the ticks stand. When unset, at the ticks of the scale, with a count that the axis fits
   // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
   // of a nested band scale, which ticks at the bands of its leaf, none is.
   oneof at {
@@ -95,7 +95,7 @@ message Ticks {
   string color = 5;
 }
 
-// The grid lines of a plot at the ticks of an axis. A style field that is absent takes its value
+// The grid lines of a plot at the ticks of an axis. A style field that is unset takes its value
 // from the styles.
 message Grid {
   // A CSS color.
@@ -113,6 +113,7 @@ message TickInterval {
   }
 }
 
+// Ticks of a numeric scale: a first tick and the step between two ticks.
 message NumericTicks {
   // A tick, which the other ticks step from.
   double start = 1;

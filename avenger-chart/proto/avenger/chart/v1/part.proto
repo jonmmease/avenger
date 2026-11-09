@@ -15,7 +15,7 @@ import "avenger/chart/v1/annotation.proto";
 // A part of the axis or the legend of a scale, of a facet, or a widget, which the part rules
 // of a concat keep, collapse, or merge.
 enum Part {
-  // Absent. Every field of this enum is required, so none holds this value.
+  // Unset. Every field of this enum is required, so none holds this value.
   PART_UNSPECIFIED = 0;
   // The ticks of an axis.
   PART_AXIS_TICKS = 1;
@@ -44,7 +44,7 @@ message PartRule {
 }
 
 enum PartRuleKind {
-  // Absent. Every field of this enum is required, so none holds this value.
+  // Unset. Every field of this enum is required, so none holds this value.
   PART_RULE_KIND_UNSPECIFIED = 0;
   // One part for each plot.
   PART_RULE_KIND_KEEP = 1;

@@ -18,12 +18,12 @@ import "avenger/chart/v1/value.proto";
 // type name, except that a band and a point scale share a band scale, whose bands hold the points
 // at their middles: the point scale's `align`, `round`, and clip paddings are the band scale's, and
 // a point scale with `padding` and a band scale are a conflict. The range, each field of the fits
-// of their domains, and each option of the type that is present in both specs must be equal. A
-// range, a field of a fit, or an option that is present in one spec and absent in another takes the
-// present value, so bars, whose measure's fit contains zero, share a scale with a rule of their
+// of their domains, and each option of the type that both specs set must be equal. A
+// range, a field of a fit, or an option that one spec sets and another leaves unset takes the
+// value that is set, so bars, whose measure's fit contains zero, share a scale with a rule of their
 // mean, and the domain contains zero. The axis and the legend follow the rule of the options: an
-// axis that is present in one spec and absent in another is the axis of both, and each field that
-// is present in both, in the axis and in its nested messages, must be equal, except that the
+// axis that one spec sets and another leaves unset is the axis of both, and each setting that
+// both set, in the axis and in its parts, must be equal, except that the
 // classes of the axes join, and the same for the legend. Every axis of the shared scale draws the
 // merged axis, and every legend the merged legend. The domains of the layers are of one kind:
 // summary and data domains merge, explicit domains must be equal, and selection domains must be
@@ -40,9 +40,9 @@ import "avenger/chart/v1/value.proto";
 // plots whose layers share `radius` draw it at one outer radius, the smallest of theirs, so a value
 // lies as far from the center of each.
 message Scale {
-  // The type of the scale and its options. An option that is absent takes the default that its
-  // comment gives. When the type is absent, the reader infers it from the type of the values, the
-  // channel, and for categories on a position, the mark:
+  // The type of the scale and its options. An option that is unset takes the default that its
+  // comment gives. When the type is unset, it follows the type of the values, the channel, and for
+  // categories on a position, the mark:
   //
   // - numbers: a linear scale, and an ordinal scale on `shape`, `pattern`, and `stroke_dash`
   // - dates and timestamps: a time scale, and an ordinal scale on `shape`, `pattern`, and
@@ -54,7 +54,7 @@ message Scale {
   //
   // The values are those of the encoding when they are scaled, and otherwise of its first scaled
   // conditional value. Values of another type, such as durations, have no inferred type, and a
-  // chart that leaves their type absent is invalid.
+  // chart that leaves their type unset is invalid.
   oneof type {
     LinearScale linear = 1;
     LogScale log = 2;
@@ -71,26 +71,26 @@ message Scale {
     // A scale that an app adds to its renderer.
     CustomScale custom = 15;
   }
-  // Where the domain comes from. When absent, and the scale has a type, the reader infers the data
-  // domain of the layer with no fit.
+  // Where the domain comes from. When unset, and the scale has a type, the domain is the data domain
+  // of the layer, with no fit.
   Domain domain = 16 [(avenger.chart.v1.lift) = true];
-  // The range. When absent, the styles give the range of a non-position channel, and the plot gives
+  // The range. When unset, the styles give the range of a non-position channel, and the plot gives
   // the range of a position channel, whose `Range` holds only `reverse`.
   Range range = 17 [(avenger.chart.v1.lift) = true];
   // The share family. Layers whose specs name one family for a channel share one scale, in
   // addition to the scales that resolve rules share.
   string family = 18;
-  // The axis of a position scale. When absent, `x` and `y` have an axis and `theta` and `radius`
+  // The axis of a position scale. When unset, `x` and `y` have an axis and `theta` and `radius`
   // have none. Invalid on the scale of another channel.
   Axis axis = 19 [(avenger.chart.v1.lift) = true];
-  // The legend of a non-position scale. When absent, a discrete scale has a symbol legend, a
+  // The legend of a non-position scale. When unset, a discrete scale has a symbol legend, a
   // quantize, quantile, or threshold scale has a symbol legend of its bins, a continuous color
   // scale has a colorbar, another continuous scale, such as `size`, has a symbol legend of its
   // ticks, and an `angle` scale has none. Invalid on the scale of a position channel.
   Legend legend = 22 [(avenger.chart.v1.lift) = true];
   // The limits of how a navigation moves a view of the scale, which every plot of the scale keeps.
   // Valid only on a continuous scale of `x` or `y`: a linear, log, pow, symlog, or time scale, or a
-  // custom scale. When absent, a view moves freely.
+  // custom scale. When unset, a view moves freely.
   NavigationLimits navigation_limits = 21;
 }
 
@@ -126,17 +126,17 @@ message Interval {
 
 // A continuous scale that maps its domain linearly onto its range.
 message LinearScale {
-  // Whether a value outside the domain maps to the nearest end of the range. When absent, it does
+  // Whether a value outside the domain maps to the nearest end of the range. When unset, it does
   // not, and the scale extends the line past the domain.
   optional bool clamp = 1;
-  // Whether the scale rounds each position to a whole pixel. When absent, it does not.
+  // Whether the scale rounds each position to a whole pixel. When unset, it does not.
   optional bool round = 2;
 }
 
 // A continuous scale that maps the logarithms of its domain linearly onto its range. Its domain
 // and its data are positive.
 message LogScale {
-  // The base of the logarithm, positive and not 1. When absent, 10.
+  // The base of the logarithm, positive and not 1. When unset, 10.
   optional double base = 1;
   // As for `LinearScale.clamp`.
   optional bool clamp = 2;
@@ -146,7 +146,7 @@ message LogScale {
 
 // A continuous scale that maps `sign(x) * |x|^exponent` of its domain linearly onto its range.
 message PowScale {
-  // The exponent, not 0. When absent, 1, which maps as a linear scale does.
+  // The exponent, not 0. When unset, 1, which maps as a linear scale does.
   optional double exponent = 1;
   // As for `LinearScale.clamp`.
   optional bool clamp = 2;
@@ -158,7 +158,7 @@ message PowScale {
 // range, so it is close to linear near zero and close to logarithmic far from it, and it takes
 // zero and negative values.
 message SymlogScale {
-  // The width of the nearly linear part around zero, positive. When absent, 1.
+  // The width of the nearly linear part around zero, positive. When unset, 1.
   optional double constant = 1;
   // As for `LinearScale.clamp`.
   optional bool clamp = 2;
@@ -170,7 +170,7 @@ message SymlogScale {
 // calendar units.
 message TimeScale {
   // The timezone of the ticks of a timestamp with a timezone, which decides where days and months
-  // start: an IANA name, such as `America/New_York`, or `UTC`. When absent, `UTC`. Dates and
+  // start: an IANA name, such as `America/New_York`, or `UTC`. When unset, `UTC`. Dates and
   // timestamps without a timezone keep their calendar fields and ignore it.
   string timezone = 1;
 }
@@ -181,25 +181,25 @@ message TimeScale {
 // where the `band_position` of its encoding puts it.
 message BandScale {
   // Where the bands stand in the range when the outer padding leaves room, from 0 at the start to 1
-  // at the end. When absent, 0.5.
+  // at the end. When unset, 0.5.
   optional double align = 1;
-  // The space between two bands, as a fraction of the step from 0 to 1. When absent, the styles
+  // The space between two bands, as a fraction of the step from 0 to 1. When unset, the styles
   // give it.
   optional double padding_inner = 2;
-  // The space before the first band and after the last, in steps, at least 0. When absent, the
+  // The space before the first band and after the last, in steps, at least 0. When unset, the
   // styles give it.
   optional double padding_outer = 3;
-  // Whether the scale rounds the step and the start of the bands to whole pixels. When absent, it
+  // Whether the scale rounds the step and the start of the bands to whole pixels. When unset, it
   // does not.
   optional bool round = 4;
   // The pixels that the range keeps empty before the first band, so the marks at the outer bands
-  // stay inside the plot. A minimum, which the fit raises to the reach of the marks. When absent,
+  // stay inside the plot. A minimum, which the fit raises to the reach of the marks. When unset,
   // 0.
   optional double clip_padding_lower = 5;
   // The pixels that the range keeps empty after the last band, as for `clip_padding_lower`.
   optional double clip_padding_upper = 6;
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
-  // color scale. When absent, the kind follows from the type of the scale's values.
+  // color scale. When unset, the kind follows from the type of the scale's values.
   ScaleKind kind = 7;
 }
 
@@ -208,17 +208,17 @@ message BandScale {
 message PointScale {
   // As for `BandScale.align`.
   optional double align = 1;
-  // The space before the first point and after the last, in steps, at least 0. When absent, the
+  // The space before the first point and after the last, in steps, at least 0. When unset, the
   // styles give it.
   optional double padding = 2;
-  // Whether the scale rounds the positions to whole pixels. When absent, it does not.
+  // Whether the scale rounds the positions to whole pixels. When unset, it does not.
   optional bool round = 3;
   // As for `BandScale.clip_padding_lower`, before the first point.
   optional double clip_padding_lower = 4;
   // As for `BandScale.clip_padding_upper`, after the last point.
   optional double clip_padding_upper = 5;
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
-  // color scale. When absent, the kind follows from the type of the scale's values.
+  // color scale. When unset, the kind follows from the type of the scale's values.
   ScaleKind kind = 6;
 }
 
@@ -246,19 +246,19 @@ message NestedBandScale {
   // the `padding-outer` of the scale.
   repeated double padding_outer = 4;
   // Whether the scale rounds the step and the start of the bands to whole pixels, and the leaf band
-  // to the nearest pixel. When absent, it does not.
+  // to the nearest pixel. When unset, it does not.
   optional bool round = 5;
   // As for `BandScale.clip_padding_lower`.
   optional double clip_padding_lower = 6;
   // As for `BandScale.clip_padding_upper`.
   optional double clip_padding_upper = 7;
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
-  // color scale. When absent, the kind follows from the type of the scale's values.
+  // color scale. When unset, the kind follows from the type of the scale's values.
   ScaleKind kind = 8;
 }
 
 enum NestScope {
-  // Absent, so the level is free, as `NEST_SCOPE_FREE` describes.
+  // Unset, so the level is free, as `NEST_SCOPE_FREE` describes.
   NEST_SCOPE_UNSPECIFIED = 0;
   // Each parent has room for the children that it has.
   NEST_SCOPE_FREE = 1;
@@ -268,7 +268,7 @@ enum NestScope {
 
 // The kind of a discrete scale: whether its categories are ordered.
 enum ScaleKind {
-  // Absent, so the kind follows from the type of the scale's values: categorical for strings,
+  // Unset, so the kind follows from the type of the scale's values: categorical for strings,
   // booleans, and dictionaries of strings, and ordinal for numbers, dates, and times.
   SCALE_KIND_UNSPECIFIED = 0;
   // Categories without an order, such as species.
@@ -281,7 +281,7 @@ enum ScaleKind {
 // when the range runs out, such as the colors of a palette.
 message OrdinalScale {
   // The kind of the scale, which stylesheets select and which chooses the default palette of a
-  // color scale. When absent, the kind follows from the type of the scale's values.
+  // color scale. When unset, the kind follows from the type of the scale's values.
   ScaleKind kind = 1;
 }
 
@@ -298,8 +298,8 @@ message QuantizeScale {}
 // Its range has one more value than its domain.
 message ThresholdScale {}
 
-// A scale that an app adds to its renderer. A reader whose renderer has no scale of the type
-// reports an error that names it.
+// A scale that an app adds to its renderer. A renderer without a scale of the type reports an
+// error that names it.
 message CustomScale {
   // The name of the type.
   string type = 1 [(avenger.chart.v1.required) = true];
@@ -311,8 +311,7 @@ message CustomScale {
 message Domain {
   option (avenger.chart.v1.constructor) = "scale_domain";
   oneof domain {
-    // A list of the domain, whose elements become the `ScaleConfig.domain` of the scale. The list
-    // holds:
+    // An explicit domain: a list of the values that the scale maps. The list holds:
     //
     // - for linear, log, pow, symlog, and quantize scales: the two ends, in ascending order
     // - for a time scale: the two ends as dates or timestamps, in ascending order, whose type is
@@ -406,11 +405,11 @@ message SelectionDomain {
   }
 }
 
-// How a summary or a data domain fits: the `DomainOptions` of avenger-scales. Its kind is the kind
+// How a summary or a data domain fits the data, by the kind of the scale. Its kind is the kind
 // of the scale's options: `interval` for linear, log, pow, symlog, time, and quantize scales,
 // `categories` for band, point, nested band, and ordinal scales, and the kind of its summary for a
-// custom scale. A fit is invalid on a quantile scale. When the fit of a domain is absent, the fit
-// of the scale's kind with every field absent applies.
+// custom scale. A fit is invalid on a quantile scale. When the fit of a domain is unset, the fit
+// of the scale's kind applies with its defaults.
 message DomainFit {
   oneof fit {
     IntervalFit interval = 1;
@@ -418,9 +417,10 @@ message DomainFit {
   }
 }
 
-// The `IntervalOptions` of avenger-scales.
+// How a domain of a continuous scale fits the data: whether it holds zero, whether its ends are
+// round, its domain without data, and a value that it pins.
 message IntervalFit {
-  // Whether the domain contains zero. When absent, a linear, a pow, or a symlog scale of `x`, `y`,
+  // Whether the domain contains zero. When unset, a linear, a pow, or a symlog scale of `x`, `y`,
   // or `size` contains zero when one of its encodings asks for it: every encoding except the key of
   // a bar, an area, or a line, along which the marks stand at their values. A log or a time scale,
   // a selection domain, and a pinned fit contain no zero by default. A pinned end past zero holds,
@@ -428,7 +428,7 @@ message IntervalFit {
   // whose data lies far from zero.
   optional bool zero = 1;
   // Whether the domain has nice ends, which are round values, and the tick count that rounds
-  // them. When absent, a linear, a log, a pow, or a symlog scale of `x` or `y` has nice ends at a
+  // them. When unset, a linear, a log, a pow, or a symlog scale of `x` or `y` has nice ends at a
   // count of 10, and another scale has none. A log scale's nice domain ends on powers of its base,
   // whatever the count. With a pin, the free end is round, or the radius about a pinned middle.
   oneof nice {
@@ -437,12 +437,12 @@ message IntervalFit {
     // The tick count of nice ends, more than 0. A larger count rounds the ends to finer values.
     double tick_count = 7;
   }
-  // The domain when there is no data, as an explicit domain holds it. When absent, the scale type
+  // The domain when there is no data, as an explicit domain holds it. When unset, the scale type
   // gives the domain.
   ValueRef empty = 3;
   // A value that the domain holds exactly, and the fit finds the rest of the domain. Two pinned
   // values would determine the domain, which an explicit domain gives, so a fit pins one. Marks
-  // past a pinned end lie outside the domain, and the plot clips them. When absent, the fit finds
+  // past a pinned end lie outside the domain, and the plot clips them. When unset, the fit finds
   // both ends.
   DomainPin pin = 4;
 }
@@ -470,12 +470,11 @@ enum PinPosition {
   PIN_POSITION_HIGH = 3;
 }
 
-// The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data
-// domain. The data decides which categories the domain holds, and a NULL value is the NULL
+// The order of the categories of a summary or data domain. The data decides which categories the domain holds, and a NULL value is the NULL
 // category. An explicit domain gives exactly its categories in its order instead, with the NULL
 // category where it names NULL.
 message CategoryFit {
-  // When absent, the categories of the data, ascending, or for a column of lumps, the kept
+  // When unset, the categories of the data, ascending, or for a column of lumps, the kept
   // categories by descending weight. The Other group of a column of lumps comes after the other
   // categories in every order, and the NULL category is last.
   oneof order {
@@ -490,7 +489,7 @@ message CategoryFit {
 }
 
 enum CategorySort {
-  // Absent. Every field of this enum is required, so none holds this value.
+  // Unset. Every field of this enum is required, so none holds this value.
   CATEGORY_SORT_UNSPECIFIED = 0;
   // From the least category to the greatest, in the order of their values.
   CATEGORY_SORT_ASCENDING = 1;

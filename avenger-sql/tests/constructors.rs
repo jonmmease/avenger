@@ -190,7 +190,7 @@ async fn errors_of_a_constant_call_fail_at_planning() {
         ("scale(type => axis())", "`type` takes"),
         (
             "axis(title => scale())",
-            "`title` takes a string, or a `Title`, not a `Scale`",
+            "`title` takes a string, or `title(...)`, not `scale(...)`",
         ),
         // A name picks only a member without required content.
         ("scale(type => 'custom')", "not `custom`"),
@@ -200,7 +200,7 @@ async fn errors_of_a_constant_call_fail_at_planning() {
         ),
         (
             "scale(type => 5)",
-            "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), a `BandScale`",
+            "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), `band_scale(...)`",
         ),
         ("title()", "`text` is required"),
         (

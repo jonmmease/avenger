@@ -104,7 +104,7 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 
 ## Producing charts
 
-Each message `Foo` of `proto` has a builder, `FooBuilder`, an alias of the generic `builder::Builder<Foo>`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. The constructors take the content that the `required` and `required_oneof` options of `annotation.proto` mark as required, so a builder cannot leave it out:
+Each message `Foo` of `proto` has a builder, `FooBuilder`, an alias of the generic `builder::Builder<Foo>`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an unset field keeps the meaning that its comment gives. The constructors take the content that the `required` and `required_oneof` options of `annotation.proto` mark as required, so a builder cannot leave it out:
 
 | Message | Constructors |
 |---|---|
@@ -136,9 +136,9 @@ A builder converts from other types where the conversion is unambiguous:
 
 `EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and geo plots hides the axes and the legends of the scales of the plot's layers.
 
-A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which infers its absent scales, checks it, and puts it in the canonical form, as every reader does. A builder of a message other than a chart builds alone when it holds no data, such as a scale for a unit test.
+A builder holds the tables and the values that its fields take, and `ChartBuilder::build` writes them into the chart with the references to them and the format version, then reads the chart, which infers its unset scales, checks it, and puts it in the canonical form, as every reader does. A builder of a message other than a chart builds alone when it holds no data, such as a scale for a unit test.
 
-The reader infers the absent scale of each encoding of a scaled value, and the absent type and domain of its scale, so a chart that another language writes gets the defaults that a builder's chart gets: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on `size`, the opacities, and `stroke_width` take a point scale, which spreads them over the range, categories on another channel take an ordinal scale, and an absent domain is the layer's data domain. The comments of `Scale.type` and `Scale.domain` give the rules. Inference leaves fits, sort orders, axes, legends, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set.
+The reader infers the unset scale of each encoding of a scaled value, and the unset type and domain of its scale, so a chart that another language writes gets the defaults that a builder's chart gets: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on `size`, the opacities, and `stroke_width` take a point scale, which spreads them over the range, categories on another channel take an ordinal scale, and an unset domain is the layer's data domain. The comments of `Scale.type` and `Scale.domain` give the rules. Inference leaves fits, sort orders, axes, legends, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set.
 
 A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale`, and the `channel_scale` and `position` options of the values of `Channel`.
 

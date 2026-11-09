@@ -14,8 +14,8 @@ import "avenger/chart/v1/value.proto";
 // category of a discrete scale, for each bin of a quantize, quantile, or threshold scale, labeled
 // with the range of the bin, or for each tick of another continuous scale, such as the sizes of a
 // size scale, with a swatch of the mark and a label. A colorbar draws the colors of a continuous
-// color scale as a gradient, with an axis beside it. A style field that is absent takes its value
-// from the styles. The fields of one form are invalid on a legend of the other: `wrap`,
+// color scale as a gradient, with an axis beside it. A style field that is unset takes its value
+// from the styles. The settings of one form are invalid on a legend of the other: `wrap`,
 // `label_padding`, `column_gap`, `row_gap`, `entries`, and `show_swatches` on a colorbar, and
 // `thickness`, `axis_gap`, `max_length`, `label_align`, `label_baseline`, `ticks`, `show_ticks`,
 // `domain_color`, and `show_domain` on a symbol legend.
@@ -26,26 +26,26 @@ import "avenger/chart/v1/value.proto";
 // scale, and two columns whose categories happen to be equal show two. A legend of a continuous
 // scale does not merge.
 message Legend {
-  // Whether the scale draws this legend. When absent, it does. `false` draws no legend.
+  // Whether the scale draws this legend. When unset, it does. `false` draws no legend.
   optional bool show = 23;
-  // The form of the legend. When absent, a continuous scale of `color`, `fill`, or `stroke` has a
+  // The form of the legend. When unset, a continuous scale of `color`, `fill`, or `stroke` has a
   // colorbar, and another scale has a symbol legend.
   LegendForm form = 13;
-  // The title. When absent, the legend takes the titles of the encodings of its scale, as
+  // The title. When unset, the legend takes the titles of the encodings of its scale, as
   // `Encoding.title` describes.
   Title title = 1;
-  // Whether the legend shows its title. When absent, the styles decide.
+  // Whether the legend shows its title. When unset, the styles decide.
   optional bool show_title = 24;
   // The labels of the entries, where `#value` is the formatted entry, or the formatted range of
   // a bin, or the labels of the axis of a colorbar.
   Labels labels = 2;
-  // Whether the legend shows its labels. When absent, the styles decide.
+  // Whether the legend shows its labels. When unset, the styles decide.
   optional bool show_labels = 17;
   // The angle of the labels, in degrees clockwise.
   optional float label_angle = 18;
-  // The side of the plot that the legend stands on. When absent, the styles give it.
+  // The side of the plot that the legend stands on. When unset, the styles give it.
   Side side = 3;
-  // The box behind the legend. When absent, the legend has no background.
+  // The box behind the legend. When unset, the legend has no background.
   Background background = 8;
 
   // How the entries of a symbol legend fill the lines along the side.
@@ -56,7 +56,7 @@ message Legend {
   optional float column_gap = 6;
   // The space between rows of entries, in pixels.
   optional float row_gap = 7;
-  // The entries of the symbol legend of a continuous scale. When absent, at the ticks of the scale,
+  // The entries of the symbol legend of a continuous scale. When unset, at the ticks of the scale,
   // with a count that the styles give.
   oneof entries {
     // About how many ticks of the scale the legend shows.
@@ -64,28 +64,28 @@ message Legend {
     // A list of the entries, in the type of the scale's domain, in place of the ticks of the scale.
     ValueRef values = 10;
   }
-  // Whether a symbol legend shows the swatches of its entries. When absent, the styles decide.
+  // Whether a symbol legend shows the swatches of its entries. When unset, the styles decide.
   optional bool show_swatches = 25;
 
   // The thickness of the gradient of a colorbar, across the colorbar, in pixels.
   optional float thickness = 14;
   // The space between the gradient and its axis, in pixels.
   optional float axis_gap = 15;
-  // The longest that a colorbar runs along its side, with its background, in pixels. When absent,
+  // The longest that a colorbar runs along its side, with its background, in pixels. When unset,
   // it runs the whole length that the layout gives it.
   optional float max_length = 16;
-  // When absent, each label of a colorbar's axis aligns to its end nearest its tick, for the side
+  // When unset, each label of a colorbar's axis aligns to its end nearest its tick, for the side
   // of the colorbar and the angle of the labels.
   TextAlign label_align = 19;
-  // When absent, each label aligns to its end nearest its tick, as for `label_align`.
+  // When unset, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 20;
   // The ticks of a colorbar's axis.
   Ticks ticks = 21;
-  // Whether a colorbar's axis shows its ticks. When absent, the styles decide.
+  // Whether a colorbar's axis shows its ticks. When unset, the styles decide.
   optional bool show_ticks = 26;
   // The CSS color of the line along a colorbar's axis.
   string domain_color = 22;
-  // Whether a colorbar's axis shows its line. When absent, the styles decide.
+  // Whether a colorbar's axis shows its line. When unset, the styles decide.
   optional bool show_domain = 27;
 
   // The class names of the legend, which a stylesheet selects with `.name`, as the HTML `class`
@@ -119,7 +119,7 @@ message LegendWrap {
 message LegendFlow {}
 
 message LegendGrid {
-  // The count of columns at every length. When absent, the legend takes as many cells along the
+  // The count of columns at every length. When unset, the legend takes as many cells along the
   // side as fit.
   optional uint32 columns = 1;
 }

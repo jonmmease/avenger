@@ -45,9 +45,21 @@ pub(super) fn constructors(
             params_const(message)
         )
         .unwrap();
-        describe(&mut surface, message, model);
+        describe(&mut surface, message, model, set);
     }
     code.push_str("];\n\n");
+    code.push_str("/// The name of the constructor of the message with the full name `message`.\npub(crate) fn constructor_name(message: &str) -> Option<&'static str> {\n    Some(match message {\n");
+    for name in constructors {
+        let message = model.message(name).expect("a model");
+        writeln!(
+            code,
+            "        {:?} => {:?},",
+            name.trim_start_matches('.'),
+            message.function
+        )
+        .unwrap();
+    }
+    code.push_str("        _ => return None,\n    })\n}\n\n");
     for name in constructors {
         let message = model.message(name).expect("a model");
         let function = &message.function;
@@ -116,6 +128,38 @@ fn emit_message(
             }
             ParamKind::Oneof(index, _) => comments.oneofs.get(&(message.name.clone(), *index)),
         };
+        // A parameter without a comment of its own takes the comment of its field's message, or,
+        // for a oneof, the first sentence of the comment of each of its members.
+        let fallback = match (&param.kind, comment) {
+            (_, Some(_)) => None,
+            (ParamKind::Field(_, Shape::Message(name)), None) => {
+                comments.messages.get(name).cloned()
+            }
+            (ParamKind::Oneof(_, members), None) => {
+                let lines: Vec<String> = (members.iter())
+                    .filter_map(|(member, _)| {
+                        let index = message
+                            .message
+                            .field
+                            .iter()
+                            .position(|f| f.name() == member.name())?;
+                        // A member without a comment takes the comment of its message.
+                        let own = comments.fields.get(&(message.name.clone(), index));
+                        let message_comment = || comments.messages.get(member.type_name());
+                        let comment = clean(own.or_else(message_comment)?);
+                        let first = comment
+                            .split(". ")
+                            .next()
+                            .unwrap_or(&comment)
+                            .trim_end_matches('.');
+                        Some(format!("`{}`: {first}.", member.name()))
+                    })
+                    .collect();
+                (!lines.is_empty()).then(|| format!("One of these:\n\n{}", lines.join("\n\n")))
+            }
+            _ => None,
+        };
+        let comment = comment.or(fallback.as_ref());
         writeln!(
             code,
             "    ParamSpec {{ name: {:?}, doc: {:?}, required: {} }},",
@@ -278,7 +322,7 @@ fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str) {
         }
         writeln!(
             code,
-            "            other => Err(format!(\"takes {what}, not a `{{}}`\", other.rsplit('.').next().unwrap_or(other))),\n        }},"
+            "            _ => Err(format!(\"takes {what}, not {{}}\", arg.class().describe())),\n        }},"
         )
         .unwrap();
     }
@@ -325,7 +369,7 @@ fn takes(model: &Model, node: &Node, accepted: &[(Source, Vec<&Edge>)]) -> Strin
     for (source, chain) in accepted {
         let part = match source {
             Source::Class(class) if any && constants.contains(class) => continue,
-            Source::Fragment(name) => article(short(name)),
+            Source::Fragment(name) => format!("`{}(...)`", function_of(model, name)),
             Source::Class(class) => match chain.first().map(|edge| (&edge.input, &edge.set)) {
                 Some((Input::Name, Set::Names(message, oneof))) => {
                     let names = &model.named[&(message.clone(), *oneof)];
@@ -343,14 +387,6 @@ fn takes(model: &Model, node: &Node, accepted: &[(Source, Vec<&Edge>)]) -> Strin
         [] => "nothing".to_string(),
         [one] => one.clone(),
         [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
-    }
-}
-
-/// The name of a message with its article, such as an `IntervalFit`.
-fn article(name: &str) -> String {
-    match name.starts_with(['A', 'E', 'I', 'O', 'U']) {
-        true => format!("an `{name}`"),
-        false => format!("a `{name}`"),
     }
 }
 
@@ -458,7 +494,7 @@ fn emit_enum(code: &mut String, set: &FileDescriptorSet, name: &str) -> Result<(
 }
 
 /// The text of the parameters of the constructor of `message` and what each takes.
-fn describe(surface: &mut String, message: &MessageModel, model: &Model) {
+fn describe(surface: &mut String, message: &MessageModel, model: &Model, set: &FileDescriptorSet) {
     let params: Vec<&str> = message.params.iter().map(|p| p.name.as_str()).collect();
     writeln!(surface, "{}({})", message.function, params.join(", ")).unwrap();
     for param in &message.params {
@@ -467,7 +503,7 @@ fn describe(surface: &mut String, message: &MessageModel, model: &Model) {
             ParamKind::Field(_, Shape::Message(name)) => {
                 sources(model, &Node::Message(name.clone()))
             }
-            ParamKind::Field(_, shape) => describe_shape(shape),
+            ParamKind::Field(_, shape) => describe_shape(shape, model, set),
             ParamKind::Oneof(index, _) => {
                 sources(model, &Node::Oneof(message.name.clone(), *index))
             }
@@ -477,17 +513,17 @@ fn describe(surface: &mut String, message: &MessageModel, model: &Model) {
 }
 
 /// The text of what a field of `shape` takes.
-fn describe_shape(shape: &Shape) -> String {
+fn describe_shape(shape: &Shape, model: &Model, set: &FileDescriptorSet) -> String {
     match shape {
         Shape::Bool => "Boolean".into(),
         Shape::Int(_) => "integer".into(),
         Shape::Float(_) => "number".into(),
         Shape::Str => "string".into(),
         Shape::Bytes => "bytes".into(),
-        Shape::Enum(name) => format!("enum {}", short(name)),
+        Shape::Enum(name) => format!("one of {}", enum_names(set, name).join(", ")),
         Shape::Value => "any constant".into(),
-        Shape::Message(name) => short(name).into(),
-        Shape::Repeated(item) => format!("array of {}", describe_shape(item)),
+        Shape::Message(name) => format!("{}(...)", function_of(model, name)),
+        Shape::Repeated(item) => format!("array of {}", describe_shape(item, model, set)),
     }
 }
 
@@ -504,7 +540,7 @@ fn sources(model: &Model, node: &Node) -> String {
             steps.push(step);
         }
         let start = match &source {
-            Source::Fragment(name) => short(name).to_string(),
+            Source::Fragment(name) => format!("{}(...)", function_of(model, name)),
             Source::Class(class) => match class {
                 Class::Bool => "Boolean".into(),
                 Class::Int => "integer".into(),
@@ -521,4 +557,24 @@ fn sources(model: &Model, node: &Node) -> String {
         });
     }
     parts.join("; ")
+}
+
+/// The names that SQL arguments give the values of the enum `name`: each value's name without the
+/// enum's prefix, in lowercase, except the zero value.
+fn enum_names(set: &FileDescriptorSet, name: &str) -> Vec<String> {
+    let short_name = short(name);
+    let prefix = format!("{}_", snake(short_name).to_uppercase());
+    (set.file.iter())
+        .flat_map(|file| &file.enum_type)
+        .filter(|e| format!("{PACKAGE}.{}", e.name()) == name)
+        .flat_map(|e| &e.value)
+        .filter(|value| value.number() != 0)
+        .map(|value| {
+            value
+                .name()
+                .strip_prefix(&prefix)
+                .unwrap_or(value.name())
+                .to_lowercase()
+        })
+        .collect()
 }

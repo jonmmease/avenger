@@ -24,7 +24,7 @@ import "avenger/chart/v1/value.proto";
 // A resolve rule of the key, as `Resolve` describes, can make the copies below a plot, a concat, or
 // a wrap independent, so each layer or each child keeps its own widget. The copies of one widget
 // are its group, and they must agree, by the rule of `Scale`: their kinds, the selections of
-// their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves absent takes
+// their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves unset takes
 // the set value, two that both set are equal, and their classes join. Their domains are of one
 // kind: summary and data domains merge, and explicit domains must be equal. The columns of the
 // copies' targets can differ by name, because each layer matches the clause by its own copy's
@@ -45,12 +45,12 @@ message Widget {
   // The key, which lines the declaration up with the other copies of the widget. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
   string key = 1 [(avenger.chart.v1.required) = true];
-  // The title. When absent, the title is the name of the target's column, the title of a mode
+  // The title. When unset, the title is the name of the target's column, the title of a mode
   // widget of a toggle is the toggle's label, and a mode widget of a group has no title.
   Title title = 2;
-  // Whether the widget shows its title. When absent, the styles decide.
+  // Whether the widget shows its title. When unset, the styles decide.
   optional bool show_title = 5;
-  // The side of the plot or the concat that the widget stands on. When absent, the styles give it.
+  // The side of the plot or the concat that the widget stands on. When unset, the styles give it.
   Side side = 3;
   // The class names of the widget, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
@@ -107,14 +107,14 @@ message SliderWidget {
   SliderComparison comparison = 3;
   // The step between the values of the thumb: a number for a domain of numbers, or a duration for
   // a domain of dates or timestamps, more than 0. An `equal` slider requires it, because it writes
-  // the step's bin. When absent, the thumb moves continuously.
+  // the step's bin. When unset, the thumb moves continuously.
   ValueRef step = 4;
-  // The readout of the thumb's value. When absent, the styles give the readout.
+  // The readout of the thumb's value. When unset, the styles give the readout.
   Labels readout = 5;
 }
 
 enum SliderComparison {
-  // Absent, so the slider is `SLIDER_COMPARISON_EQUAL`.
+  // Unset, so the slider is `SLIDER_COMPARISON_EQUAL`.
   SLIDER_COMPARISON_UNSPECIFIED = 0;
   // The rows in the bin of the step at the thumb's value.
   SLIDER_COMPARISON_EQUAL = 1;
@@ -134,10 +134,10 @@ message RangeSliderWidget {
   WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
   // The extent that the thumbs run over.
   WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
-  // The step between the values of the thumbs, as for `SliderWidget.step`. When absent, the thumbs
+  // The step between the values of the thumbs, as for `SliderWidget.step`. When unset, the thumbs
   // move continuously.
   ValueRef step = 3;
-  // The readouts of the thumbs' values. When absent, the styles give the readouts.
+  // The readouts of the thumbs' values. When unset, the styles give the readouts.
   Labels readout = 4;
 }
 
@@ -148,7 +148,7 @@ message RadioWidget {
   WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
   // The items, in their order.
   WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
-  // The labels of the items. When absent, the styles give them.
+  // The labels of the items. When unset, the styles give them.
   Labels labels = 3;
   // The label of an item before the others that clears the widget's clause, such as `All
   // regions`, as Typst markup, or empty for no such item.
@@ -163,7 +163,7 @@ message CheckboxesWidget {
   WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
   // The items, in their order.
   WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
-  // The labels of the items. When absent, the styles give them.
+  // The labels of the items. When unset, the styles give them.
   Labels labels = 3;
 }
 
@@ -219,8 +219,8 @@ message WidgetSummaryDomain {
   // How the domain fits the values, as for a scale: an `IntervalFit` for a slider, whose domain is
   // the extent of the values, with zero, round ends, and its domain without values as the fit
   // gives them, and a `CategoryFit` for a radio group or a check box list, whose items are the
-  // distinct values in the order that the fit gives. When absent, the fit of the widget's kind with
-  // every field absent applies.
+  // distinct values in the order that the fit gives. When unset, the fit of the widget's kind
+  // applies with its defaults.
   DomainFit fit = 2;
 }
 

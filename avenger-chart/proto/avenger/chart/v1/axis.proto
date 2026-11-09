@@ -11,59 +11,59 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
 // The axis of a position scale: its title, its line, its ticks, their labels, and the grid lines of
-// the plot at its ticks. A style field that is absent takes its value from the styles.
+// the plot at its ticks. A style field that is unset takes its value from the styles.
 //
 // In a Cartesian plot, the axis of `x` or `y` stands on a side of the plot. In a polar plot, the
 // axis of `theta` runs around the outer edge, with its labels outside the circle and spokes as its
 // grid lines, and the axis of `radius` runs along the spoke at its `angle`, with rings as its grid
 // lines. A polar axis draws no title. A band or point scale ticks at each category, so a radar
-// chart has a spoke and a label for each of its categories. The fields that only one kind of plot
-// draws are invalid on the axis of the other: `side`, `levels`, and the alignment of the labels on
+// chart has a spoke and a label for each of its categories. The settings that only one kind of
+// plot draws are invalid on the axis of the other: `side`, `levels`, and the alignment of the labels on
 // a polar axis, and `angle`, `route`, and `label_orient` on a Cartesian axis.
 message Axis {
-  // Whether the scale draws this axis. When absent, it does. `false` draws no axis, as an absent
-  // axis of `theta` or `radius` draws none, and an absent axis of `x` or `y` draws the default
+  // Whether the scale draws this axis. When unset, it does. `false` draws no axis, as an unset
+  // axis of `theta` or `radius` draws none, and an unset axis of `x` or `y` draws the default
   // axis.
   optional bool show = 16;
-  // The title. When absent, the axis takes the titles of the encodings of its scale, as
+  // The title. When unset, the axis takes the titles of the encodings of its scale, as
   // `Encoding.title` describes.
   Title title = 1;
-  // Whether the axis shows its title. When absent, the styles decide.
+  // Whether the axis shows its title. When unset, the styles decide.
   optional bool show_title = 17;
-  // The side of a Cartesian plot. When absent, `x` has its axis at the bottom and `y` at the left,
+  // The side of a Cartesian plot. When unset, `x` has its axis at the bottom and `y` at the left,
   // and the second scale of a plot has its axis on the other side.
   Side side = 2;
   Labels labels = 3;
-  // Whether the axis shows its labels. When absent, the styles decide.
+  // Whether the axis shows its labels. When unset, the styles decide.
   optional bool show_labels = 4;
-  // How the labels turn. When both are absent, the styles give the angle.
+  // How the labels turn. When both are unset, the styles give the angle.
   oneof label_rotation {
     // The angle of the labels, in degrees clockwise.
     float label_angle = 5;
     // How the labels of a polar axis run.
     PolarTextOrient label_orient = 15;
   }
-  // When absent, each label aligns to its end nearest its tick, for the side of the axis and the
+  // When unset, each label aligns to its end nearest its tick, for the side of the axis and the
   // angle of the labels.
   TextAlign label_align = 6;
-  // When absent, each label aligns to its end nearest its tick, as for `label_align`.
+  // When unset, each label aligns to its end nearest its tick, as for `label_align`.
   TextBaseline label_baseline = 7;
   Ticks ticks = 8;
-  // Whether the axis shows its ticks. When absent, the styles decide.
+  // Whether the axis shows its ticks. When unset, the styles decide.
   optional bool show_ticks = 18;
   // The CSS color of the line along the axis: the outer edge of the plot for an axis of `theta`.
   string domain_color = 9;
-  // Whether the axis shows its line. When absent, the styles decide.
+  // Whether the axis shows its line. When unset, the styles decide.
   optional bool show_domain = 19;
   Grid grid = 10;
-  // Whether the plot draws grid lines at the ticks of the axis. When absent, the styles decide.
+  // Whether the plot draws grid lines at the ticks of the axis. When unset, the styles decide.
   optional bool show_grid = 20;
   // The options of each level of the axis of a nested band scale, outermost first, which stacks a
   // row of labels for each outer level outward from the labels of the leaf, with separators
   // between the bands of each outer level. A level past the end of the list takes the defaults.
   // Valid only on the axis of a nested band scale, with at most one entry for each level.
   repeated NestedAxisLevel levels = 11;
-  // The spoke that the axis of `radius` runs along, in degrees clockwise from the top. When absent,
+  // The spoke that the axis of `radius` runs along, in degrees clockwise from the top. When unset,
   // the start angle of the plot. Invalid on the axis of `theta`.
   optional float angle = 14;
   // The route of the axis's lines at one radius: the rings of the grid of an axis of `radius`, and
@@ -82,16 +82,16 @@ message Axis {
 // The options of one level of the axis of a nested band scale.
 message NestedAxisLevel {
   // Whether the axis shows the labels of the level. A leaf without labels has no ticks either.
-  // When absent, it shows them.
+  // When unset, it shows them.
   optional bool show_labels = 1;
-  // The part of the level in the title of an encoding of the scale whose own title is absent,
+  // The part of the level in the title of an encoding of the scale whose own title is unset,
   // which joins the parts of the levels, outermost first, with ` / ` in place of the name of the
-  // encoding's column. When absent, the name of the level's field. Empty leaves the level out.
+  // encoding's column. When unset, the name of the level's field. Empty leaves the level out.
   optional string title = 2;
-  // The angle of the labels of the level, in degrees clockwise. When absent, the leaf takes the
+  // The angle of the labels of the level, in degrees clockwise. When unset, the leaf takes the
   // `label_angle` of the axis, and the labels of an outer level are level.
   optional float label_angle = 3;
   // The pattern of the numeric and temporal values of the level, as for `Labels.format`. When
-  // absent, the pattern of the axis.
+  // unset, the pattern of the axis.
   string format = 4;
 }
