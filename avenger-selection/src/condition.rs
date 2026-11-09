@@ -235,8 +235,9 @@ impl PreparedCondition {
     /// query that groups rows by their keys checks them. `keys` holds a column for each of the
     /// condition's [`columns`](Condition::columns), in order: the row's cell, as a 64-bit integer,
     /// for a range with cells and each column of a polygon with cells, or the row's value for a
-    /// set. A row whose key is null matches none. Other conditions have no keys, and a key that is
-    /// not a 64-bit integer where a cell belongs is an error.
+    /// set. A null key of a set matches as the set's values do, a null among them, and a null cell
+    /// matches nothing. Other conditions have no keys, and a key that is not a 64-bit integer where
+    /// a cell belongs is an error.
     pub fn matches_keys(&self, keys: &[ArrayRef]) -> Result<BooleanArray> {
         let cells = |index: usize| {
             keys[index].as_primitive_opt::<Int64Type>().ok_or_else(|| {

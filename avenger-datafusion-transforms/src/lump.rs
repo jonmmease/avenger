@@ -356,7 +356,7 @@ impl PartitionEvaluator for LumpEvaluator {
             .filter(|&c| lumped(c))
             .map(|c| counts[c])
             .sum();
-        let dropped = (0..counts.len()).filter(|&c| lumped(c)).count() as i64;
+        let lumped_count = (0..counts.len()).filter(|&c| lumped(c)).count() as i64;
 
         let value_idx: UInt32Array = row_cat
             .iter()
@@ -375,7 +375,7 @@ impl PartitionEvaluator for LumpEvaluator {
             .collect();
         let category_count: Int64Array = row_cat
             .iter()
-            .map(|&c| present(c).then_some(if kept[c] { 1 } else { dropped }))
+            .map(|&c| present(c).then_some(if kept[c] { 1 } else { lumped_count }))
             .collect();
         let validity = (self.nulls == Nulls::Drop && null_category.is_some())
             .then(|| row_cat.iter().map(|&c| present(c)).collect());
@@ -462,7 +462,7 @@ fn quote(name: &str) -> String {
 }
 
 /// The decisions of `decided`, a query grouped by the partition keys `keys` and the category,
-/// with the number of lumped categories of each partition, `__dropped`.
+/// with the number of lumped categories of each partition, `__lumped`.
 fn counted(keys: &[String], decided: &str) -> String {
     let part = if keys.is_empty() {
         String::new()
@@ -471,7 +471,7 @@ fn counted(keys: &[String], decided: &str) -> String {
         format!("PARTITION BY {}", keys.join(", "))
     };
     format!(
-        "SELECT *, count(*) FILTER (WHERE NOT \"__keep\") OVER ({part}) AS \"__dropped\" FROM ({decided}) AS \"__decided\""
+        "SELECT *, count(*) FILTER (WHERE NOT \"__keep\") OVER ({part}) AS \"__lumped\" FROM ({decided}) AS \"__decided\""
     )
 }
 
@@ -924,7 +924,7 @@ impl<'a> LumpPlan<'a> {
             "CASE WHEN d.\"__keep\" THEN {cat} END AS \"__lvalue\", \
              CASE WHEN NOT d.\"__keep\" THEN '{label}' END AS \"__lother\", \
              CASE WHEN d.\"__keep\" THEN d.\"__weight\" WHEN NOT d.\"__keep\" THEN d.\"__other\" END AS \"__lweight\", \
-             CASE WHEN d.\"__keep\" THEN 1 WHEN NOT d.\"__keep\" THEN d.\"__dropped\" END AS \"__lcategory_count\", \
+             CASE WHEN d.\"__keep\" THEN 1 WHEN NOT d.\"__keep\" THEN d.\"__lumped\" END AS \"__lcategory_count\", \
              d.\"__keep\" IS NOT NULL AS \"__lpresent\"",
             label = self.label
         )
@@ -1300,7 +1300,7 @@ fn to_states(
 /// each of the outer aggregate's functions and of each aggregate of `weight` and `keep`:
 ///
 /// - the decisions merge the states of `weight` and `keep` for each category;
-/// - the weight of the Other group merges the states of `weight` of the dropped categories;
+/// - the weight of the Other group merges the states of `weight` of the lumped categories;
 /// - the outer aggregate merges the states of its functions for each lump value.
 ///
 /// So the input is read once. When `weight` or `keep` has an aggregate without a state (such
@@ -1490,8 +1490,8 @@ impl LumpAggregateFusion {
                     .join(", ")
             )
         };
-        // `weight` over the dropped categories of each partition: each merge of a state column
-        // as a window over the categories, filtered to the dropped ones. A window reads the
+        // `weight` over the lumped categories of each partition: each merge of a state column
+        // as a window over the categories, filtered to the lumped ones. A window reads the
         // decisions once, where a grouped subquery and a join would read them twice.
         let other_window = |text: &str, cols: &[(Family, String)]| -> String {
             let mut text = text.to_string();
