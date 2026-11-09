@@ -504,7 +504,10 @@ fn same_table(a: &RecordBatch, b: &RecordBatch) -> bool {
 /// The values that the fields of `message` refer to, in the order that `Chart.values` describes,
 /// with the fields renumbered: one value for each field, the values of each type together, the
 /// types and the values of each type in the order of the first field that refers to them.
-fn canonical_values(message: &mut proto::Chart, values: &[ArrayRef]) -> Vec<ArrayRef> {
+pub(crate) fn canonical_values<M: VisitValues>(
+    message: &mut M,
+    values: &[ArrayRef],
+) -> Vec<ArrayRef> {
     let mut references: Vec<usize> = Vec::new();
     message.visit_values(&mut |value| references.push(value.index as usize));
     let mut types: Vec<&DataType> = Vec::new();

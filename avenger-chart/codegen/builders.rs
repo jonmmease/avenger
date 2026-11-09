@@ -5,7 +5,7 @@
 //! `annotation.proto` mark its required content:
 //!
 //! - `FooBuilder`, an alias of `Builder<Foo>`, for each message except `ValueRef`, `TableRef`,
-//!   and `Table`, which stand in for data, with its setters as an impl of `Builder<Foo>`; the
+//!   and `Table`, which stand in for data, and `Fragment`, the serialized form of a builder, with its setters as an impl of `Builder<Foo>`; the
 //!   generic `Builder` has `From<Foo>`, `Build`, and the fragments, and each message gets `Finish`
 //!   and `Renumber`
 //! - the constructors take the required content as arguments: the required fields in the order of
@@ -50,8 +50,9 @@ use prost_types::{
 
 use super::{annotations::Annotations, camel, ident, snake, Messages, PACKAGE};
 
-/// The messages without builders, which stand in for data.
-const DATA: [&str; 3] = ["ValueRef", "TableRef", "Table"];
+/// The messages without builders: those that stand in for data, and `Fragment`, the serialized
+/// form of a builder.
+pub(super) const DATA: [&str; 4] = ["ValueRef", "TableRef", "Table", "Fragment"];
 
 /// The fields of `Chart` that its `build` writes.
 const CHART_OWNED: [&str; 3] = ["version", "tables", "values"];
@@ -338,7 +339,10 @@ pub(super) fn builders(
             let field_ident = ident(field_name);
             let setter = method(field_name);
             assert!(
-                !matches!(setter.as_str(), "build" | "builder" | "into_parts" | "new"),
+                !matches!(
+                    setter.as_str(),
+                    "build" | "builder" | "into_parts" | "new" | "to_fragment" | "from_fragment"
+                ),
                 "the field `{field_name}` of `{short_name}` names a function of its builder"
             );
             let member = field.oneof_index.filter(|_| !field.proto3_optional());
@@ -645,7 +649,12 @@ pub(super) fn builders(
         if !is_chart {
             writeln!(
                 code,
-                "    /// The message, when the builder holds no tables, no values, and no charts, which get\n    /// their references only in a chart.\n    pub fn build(self) -> Result<{path}, crate::ChartError> {{\n        let (message, parts) = crate::builder::Build::into_parts(self);\n        parts.standalone()?;\n        Ok(message)\n    }}"
+                "    /// The message, when the builder holds no tables, no values, and no charts, which get\n    /// their references only in a chart.\n    pub fn build(self) -> Result<{path}, crate::ChartError> {{\n        let (message, parts) = crate::builder::Build::into_parts(self);\n        parts.standalone()?;\n        Ok(message)\n    }}\n"
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "    /// The fragment of the builder: its message, encoded, and the values that its\n    /// references refer to, in their canonical order. It fails with the first error that the\n    /// setters found, and for a builder that holds a table or an embedded chart, at its path.\n    pub fn to_fragment(self) -> Result<crate::proto::Fragment, crate::ChartError> {{\n        crate::builder::to_fragment(self)\n    }}\n\n    /// The builder of `fragment`, which holds a `{short_name}` of this version of the format and\n    /// the values that its references refer to.\n    pub fn from_fragment(fragment: &crate::proto::Fragment) -> Result<Self, crate::ChartError> {{\n        crate::builder::from_fragment(fragment)\n    }}"
             )
             .unwrap();
         }

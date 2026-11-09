@@ -109,6 +109,7 @@ impl From<Chart> for NodeBuilder {
             }],
             errors: Vec::new(),
             datum: Some(String::new()),
+            tabular: Some(String::new()),
             overlays: Vec::new(),
         };
         NodeBuilder {
