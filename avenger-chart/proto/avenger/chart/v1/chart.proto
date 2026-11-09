@@ -60,7 +60,7 @@ import "avenger/chart/v1/tool.proto";
 // conflict. A reader ignores a field only where a comment says so. These break a rule:
 //
 // - a field or a oneof that the `required` or `required_oneof` option of `annotation.proto` marks,
-//   and is absent: a message, a `ValueRef`, or a member of a oneof that is absent, a string or a
+//   and is unset: a message, a `ValueRef`, or a member of a oneof that is unset, a string or a
 //   list that is empty, or an enum that holds its zero value
 // - a `TableRef` or a `ValueRef` past the end of its list
 // - a column or a value of an Arrow type that is invalid for its field
@@ -68,13 +68,13 @@ import "avenger/chart/v1/tool.proto";
 // - an axis, a legend, a fit, or a tool of a kind that a comment says is invalid on its scale or
 //   its plot
 //
-// A field is absent when its message holds no value for it: a message field, a oneof, or an
+// A field is unset when its message holds no value for it: a message field, a oneof, or an
 // `optional` field that holds nothing, or a plain field that holds its default, which is 0, the
 // empty string, `false`, or the zero value of an enum, and which protobuf does not write. Otherwise
-// it is present. So an empty plain `string` field is absent, and an empty `optional string` field
-// is present and holds the empty text. A field that gives only how something looks, such as a
-// color, a width, a font, a gap, a padding, or a side, is a style field. A present style field is
-// an inline style of its node for the renderer's stylesheets, and an absent style field takes its
+// it is set. So an empty plain `string` field is unset, and an empty `optional string` field
+// is set and holds the empty text. A field that gives only how something looks, such as a
+// color, a width, a font, a gap, a padding, or a side, is a style field. A style field that is set is
+// an inline style of its node for the renderer's stylesheets, and an unset style field takes its
 // value from the styles that the renderer computes from them, where its comment gives no other
 // default.
 //
@@ -96,7 +96,7 @@ message Chart {
   // A change that a reader of an older version would read wrongly or not at all gives a new
   // version: a new field that changes how a chart draws, a new member of a oneof, or a new value of
   // an enum. So a reader of version 1 rejects a oneof that holds a member that these files do not
-  // declare, which it decodes as an absent oneof, and an enum value that these files do not
+  // declare, which it decodes as an unset oneof, and an enum value that these files do not
   // declare.
   uint32 version = 1;
   // The data tables of the chart, and the `table` of a layer refers to a table by its position in
@@ -109,7 +109,7 @@ message Chart {
   // resolutions must be equal.
   repeated Selection selections = 4;
   // The Arrow values that the `ValueRef` fields of the message refer to, each a scalar: one element
-  // of an Arrow type, which can be a list or a struct. Absent when the chart has none.
+  // of an Arrow type, which can be a list or a struct. Unset when the chart has none.
   //
   // Its record batch has one row and a column of type `List<T>` for each type `T` of the values,
   // which holds values of the type in its row. `ValueRef.index` counts through the columns in
@@ -119,11 +119,11 @@ message Chart {
   Table values = 5;
   // The syntax of the patterns that format numbers, which the formatters of a text engine name:
   // `d3` for d3-format patterns, such as `,.0f`, or `icu` for the number skeletons of ICU, such as
-  // `.00 group-off`. An app can add a formatter of another syntax. It is present in a chart with a
+  // `.00 group-off`. An app can add a formatter of another syntax. It is set in a chart with a
   // pattern that formats numbers, and a reader whose text engine has no number formatter of the
   // syntax reports an error that names it. The formatter gives the locale, so a chart renders in
   // the locale of the app that draws it. Two charts that combine take the syntax of the one where
-  // it is present, and two different syntaxes are a conflict.
+  // it is set, and two different syntaxes are a conflict.
   string number_format_syntax = 6;
   // The syntax of the patterns that format dates and datetimes, as for `number_format_syntax`:
   // `d3` for d3-time-format patterns, such as `%Y-%m-%d`, `chrono` for the strftime
@@ -133,7 +133,7 @@ message Chart {
   // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
   // it draws in, with every plot, axis, legend, gap, and title inside it. A host that draws the
   // chart at a size of its own, such as a window or a tile of a dashboard, uses that size instead.
-  // When absent, the chart's natural width applies: the widths of its plots, as `Plot.width`
+  // When unset, the chart's natural width applies: the widths of its plots, as `Plot.width`
   // describes, with what stands around them and the padding, where a plot without a `width` counts
   // at the plot width that the styles give.
   //
@@ -157,7 +157,7 @@ message Chart {
   repeated Mode modes = 11;
 }
 
-// The space on each side of a box, in pixels, each at least 0 and finite. A side that is absent
+// The space on each side of a box, in pixels, each at least 0 and finite. A side that is unset
 // takes its value from the styles.
 message Padding {
   // The space above.
@@ -185,7 +185,7 @@ message Fragment {
   // The encoded message.
   bytes message = 3;
   // The Arrow values that the `ValueRef` fields of the message refer to, in the layout of
-  // `Chart.values`. Absent when the message has none.
+  // `Chart.values`. Unset when the message has none.
   Table values = 4;
 }
 
@@ -242,7 +242,7 @@ message Plot {
   string id = 1;
   // The title of the plot.
   Title title = 2;
-  // The credits of the plot's sources. When absent, the plot has no attribution.
+  // The credits of the plot's sources. When unset, the plot has no attribution.
   Attribution attribution = 3;
   // The tools of the plot, in the order of their declarations, which act on the marks of every
   // layer. A plot that declares a tool has an id, so an app can carry its views and selections to
@@ -254,7 +254,7 @@ message Plot {
   // every channel, keyed by channel.
   repeated Resolve resolve = 6;
   // The width of the plot's area, in pixels, more than 0 and finite: the box that its marks draw
-  // in, without the axes, legends, title, and attribution that stand around it. When absent, the
+  // in, without the axes, legends, title, and attribution that stand around it. When unset, the
   // plot takes the width that the layout gives it. A plot keeps its size at every size that the
   // chart is drawn at, as `Chart.width` describes.
   //
@@ -301,11 +301,11 @@ message Concat {
   // `theta`, and `radius` are independent and every other channel is shared, or with a facet,
   // every channel is shared. Keyed by channel.
   repeated Resolve resolve = 4;
-  // The layout options. When absent, each takes its default.
+  // The layout options. When unset, each takes its default.
   ConcatLayout layout = 5;
   // The title of the concat, along a side of its whole box.
   Title title = 6;
-  // The sharing of the projections of the geo plots below the concat. When absent, each child has
+  // The sharing of the projections of the geo plots below the concat. When unset, each child has
   // its own projection, or with a facet, the children share one. Geo plots that share a projection
   // fit one view and get equal sizes, so a place lands at the same position in each of them.
   Sharing projection = 7;
@@ -320,7 +320,7 @@ message Concat {
 }
 
 enum Direction {
-  // Absent. Every field of this enum is required, so none holds this value.
+  // Unset. Every field of this enum is required, so none holds this value.
   DIRECTION_UNSPECIFIED = 0;
   // Side by side, from left to right.
   DIRECTION_ROW = 1;
@@ -331,7 +331,7 @@ enum Direction {
 // The layout options of a concat. They lower to avenger-layout, but the format holds its own
 // types, so it does not change when avenger-layout changes its API.
 message ConcatLayout {
-  // The space between children, in pixels. When absent, the styles give it.
+  // The space between children, in pixels. When unset, the styles give it.
   optional float gap = 1;
   // One track for each child, in the order of the children, or no tracks, which gives no track a
   // size. A track without a size gives its child's track none, so the track takes the sizes that
@@ -380,11 +380,11 @@ message Wrap {
   // Rules for the channels whose sharing differs from the default, which is the default of a
   // concat, with or without a facet. Keyed by channel.
   repeated Resolve resolve = 3;
-  // The layout options. When absent, each takes its default.
+  // The layout options. When unset, each takes its default.
   WrapLayout layout = 4;
   // The title of the wrap, along a side of its whole box.
   Title title = 5;
-  // The sharing of the projections of the geo plots below the wrap, as for a concat. When absent,
+  // The sharing of the projections of the geo plots below the wrap, as for a concat. When unset,
   // each child has its own projection, or with a facet, the children share one.
   Sharing projection = 6;
   // The partition values of the wrap, keyed by column, as `PartitionValue` describes.
@@ -397,7 +397,7 @@ message Wrap {
   repeated string classes = 9;
 }
 
-// The layout options of a wrap. A field that is absent takes its value from the styles.
+// The layout options of a wrap. A field that is unset takes its value from the styles.
 message WrapLayout {
   // The narrowest width of a column, in pixels. The wrap takes the most columns that fit its
   // width at this width or wider, and at least one.
@@ -418,7 +418,7 @@ message WrapLayout {
 
 // The size of a child along the direction of its concat, or of a row of a wrap.
 message Track {
-  // When absent, the track gives no size: a track of a concat takes its size as
+  // When unset, the track gives no size: a track of a concat takes its size as
   // `ConcatLayout.tracks` describes, and a row of a wrap takes the height that the styles give.
   oneof size {
     // A fixed length, in pixels.
@@ -429,9 +429,9 @@ message Track {
 
 // A share, by weight, of the length that the fixed tracks and the gaps leave.
 message Share {
-  // The weight, more than 0. When absent, 1.
+  // The weight, more than 0. When unset, 1.
   optional float weight = 1;
-  // The largest length of the track, in pixels. When absent, the track has no maximum.
+  // The largest length of the track, in pixels. When unset, the track has no maximum.
   optional float max = 2;
 }
 

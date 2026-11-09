@@ -26,7 +26,7 @@ message Resolve {
 }
 
 enum Sharing {
-  // Absent, so the field's default applies. A resolve rule's sharing is required.
+  // Unset, so the field's default applies. A resolve rule's sharing is required.
   SHARING_UNSPECIFIED = 0;
   // One scale, or one widget, for every layer below the node.
   SHARING_SHARED = 1;

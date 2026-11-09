@@ -1,0 +1,276 @@
+geo(surface, family, aspect, navigation)
+  surface (required): string -> a member's name; conic_conformal(...) -> conic_conformal -> spherical; conic_equal_area(...) -> conic_equal_area -> spherical; conic_equidistant(...) -> conic_equidistant -> spherical; custom_projection(...) -> custom -> spherical; cylindrical_equal_area_projection(...) -> cylindrical_equal_area -> spherical; hammer_projection(...) -> hammer -> spherical; planar(...) -> planar; spherical(...) -> spherical
+  family: string
+  aspect: integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name
+  navigation: geo_navigation(...)
+geo_navigation(pan_mode, min_zoom, max_zoom)
+  pan_mode: one of translate, longitude, sphere
+  min_zoom: number
+  max_zoom: number
+planar(reflect_y)
+  reflect_y: Boolean
+spherical(projection, rotate, center, clip, precision, fit, graticule, sphere, tiles)
+  projection (required): string -> a member's name; conic_conformal(...) -> conic_conformal; conic_equal_area(...) -> conic_equal_area; conic_equidistant(...) -> conic_equidistant; custom_projection(...) -> custom; cylindrical_equal_area_projection(...) -> cylindrical_equal_area; hammer_projection(...) -> hammer
+  rotate: rotation(...)
+  center: lon_lat(...)
+  clip: integer -> circle_angle; float -> circle_angle; string -> a member's name; region_clip(...) -> region; spherical_clip(...)
+  precision: number
+  fit: string -> a member's name; lon_lat_box(...) -> box
+  graticule: graticule(...)
+  sphere: sphere_style(...)
+  tiles: string -> url_template; tile_layer(...)
+tile_layer(url_template, min_zoom, max_zoom, tile_size)
+  url_template (required): string
+  min_zoom: integer
+  max_zoom: integer
+  tile_size: integer
+sphere_style(fill, stroke, stroke_width)
+  fill: string
+  stroke: string
+  stroke_width: number
+graticule(longitude_step, latitude_step, extent, major_longitude_step, major_latitude_step, major_extent, precision, frame, label_sides, format, label_style, label_padding, color, width)
+  longitude_step: number
+  latitude_step: number
+  extent: lon_lat_box(...)
+  major_longitude_step: number
+  major_latitude_step: number
+  major_extent: lon_lat_box(...)
+  precision: number
+  frame: one of outline, rectangle
+  label_sides: label_sides(...)
+  format: string
+  label_style: text_style(...)
+  label_padding: number
+  color: string
+  width: number
+text_style(font_family, font_size, font_weight, color)
+  font_family: string
+  font_size: number
+  font_weight: number
+  color: string
+label_sides(sides)
+  sides: array of one of bottom, top, left, right
+lon_lat_box(west, south, east, north)
+  west: number
+  south: number
+  east: number
+  north: number
+spherical_clip(clip)
+  clip: integer -> circle_angle; float -> circle_angle; string -> a member's name; region_clip(...) -> region
+region_clip(polygon, frame)
+  polygon: bytes
+  frame: one of earth, view
+lon_lat(longitude, latitude)
+  longitude: number
+  latitude: number
+rotation(lambda, phi, gamma)
+  lambda: number
+  phi: number
+  gamma: number
+custom_projection(name, parameters)
+  name (required): string
+  parameters: array of named_option(...)
+named_option(name, value)
+  name: string
+  value: Boolean -> boolean; integer -> integer; float -> float; string -> string; float_list(...) -> floats; option_value(...); string_list(...) -> strings
+option_value(value)
+  value: Boolean -> boolean; integer -> integer; float -> float; string -> string; float_list(...) -> floats; string_list(...) -> strings
+string_list(values)
+  values: array of string
+float_list(values)
+  values: array of number
+hammer_projection(coefficient)
+  coefficient: number
+cylindrical_equal_area_projection(parallel)
+  parallel: number
+conic_equidistant(parallel1, parallel2)
+  parallel1: number
+  parallel2: number
+conic_equal_area(parallel1, parallel2)
+  parallel1: number
+  parallel2: number
+conic_conformal(parallel1, parallel2)
+  parallel1: number
+  parallel2: number
+polar(start_angle, end_angle, inner_radius)
+  start_angle: number
+  end_angle: number
+  inner_radius: number
+cartesian(aspect_ratio)
+  aspect_ratio: number
+scale(type, domain, range, family, axis, navigation_limits, legend)
+  type: string -> a member's name; band_scale(...) -> band; custom_scale(...) -> custom; linear_scale(...) -> linear; log_scale(...) -> log; nested_band_scale(...) -> nested_band; ordinal_scale(...) -> ordinal; point_scale(...) -> point; pow_scale(...) -> pow; symlog_scale(...) -> symlog; time_scale(...) -> time
+  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; scale_domain(...); domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; selection_domain(...) -> selection; summary_domain(...) -> summary
+  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values; scale_range(...)
+  family: string
+  axis: axis(...)
+  navigation_limits: string -> a member's name; navigation_interval(...) -> interval; navigation_limits(...)
+  legend: legend(...)
+navigation_limits(bounds, min_span)
+  bounds: string -> a member's name; navigation_interval(...) -> interval
+  min_span: number
+navigation_interval(low, high)
+  low: number
+  high: number
+legend(title, labels, side, wrap, label_padding, column_gap, row_gap, background, entries, classes, id, form, thickness, axis_gap, max_length, show_labels, label_angle, label_align, label_baseline, ticks, domain_color, show, show_title, show_swatches, show_ticks, show_domain)
+  title: string -> text; title(...)
+  labels: labels(...)
+  side: one of bottom, top, left, right
+  wrap: string -> a member's name; legend_grid(...) -> grid; legend_wrap(...)
+  label_padding: number
+  column_gap: number
+  row_gap: number
+  background: background(...)
+  entries: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; other -> values
+  classes: array of string
+  id: string
+  form: one of symbol, colorbar
+  thickness: number
+  axis_gap: number
+  max_length: number
+  show_labels: Boolean
+  label_angle: number
+  label_align: one of left, center, right
+  label_baseline: one of top, middle, alphabetic, bottom
+  ticks: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval; ticks(...)
+  domain_color: string
+  show: Boolean
+  show_title: Boolean
+  show_swatches: Boolean
+  show_ticks: Boolean
+  show_domain: Boolean
+ticks(at, length, color)
+  at: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval
+  length: number
+  color: string
+tick_interval(interval)
+  interval (required): string -> a member's name; calendar_ticks(...) -> calendar; numeric_ticks(...) -> numeric
+calendar_ticks(unit, start, count)
+  unit (required): one of month, day, millisecond
+  start: integer
+  count: integer
+numeric_ticks(start, step)
+  start: number
+  step: number
+legend_wrap(wrap)
+  wrap: string -> a member's name; legend_grid(...) -> grid
+legend_grid(columns)
+  columns: integer
+background(fill, stroke, corner_radius, padding)
+  fill: string
+  stroke: string
+  corner_radius: number
+  padding: number
+labels(format, markup, style)
+  format: string
+  markup: string
+  style: text_style(...)
+title(text, side, syntax, style, subtitle, subtitle_style, align)
+  text (required): string
+  side: one of top, left, right, bottom
+  syntax: one of plain, plain_lines, typst
+  style: text_style(...)
+  subtitle: string
+  subtitle_style: text_style(...)
+  align: one of start, center, end
+axis(title, side, labels, show_labels, label_rotation, label_align, label_baseline, ticks, domain_color, grid, levels, classes, id, angle, show, show_title, show_ticks, show_domain, show_grid, route)
+  title: string -> text; title(...)
+  side: one of bottom, top, left, right
+  labels: labels(...)
+  show_labels: Boolean
+  label_rotation: integer -> label_angle; float -> label_angle; string -> label_orient
+  label_align: one of left, center, right
+  label_baseline: one of top, middle, alphabetic, bottom
+  ticks: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval; ticks(...)
+  domain_color: string
+  grid: grid(...)
+  levels: array of nested_axis_level(...)
+  classes: array of string
+  id: string
+  angle: number
+  show: Boolean
+  show_title: Boolean
+  show_ticks: Boolean
+  show_domain: Boolean
+  show_grid: Boolean
+  route: one of coordinate, canvas
+nested_axis_level(show_labels, title, label_angle, format)
+  show_labels: Boolean
+  title: string
+  label_angle: number
+  format: string
+grid(color, width)
+  color: string
+  width: number
+scale_range(range, reverse)
+  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
+  reverse: Boolean
+scale_domain(domain)
+  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; selection_domain(...) -> selection; summary_domain(...) -> summary
+selection_domain(selection, channel, fallback)
+  selection (required): string
+  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+  fallback (required): Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; summary_domain(...) -> summary
+data_domain(fit)
+  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; domain_fit(...); interval_fit(...) -> interval
+domain_fit(fit)
+  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; interval_fit(...) -> interval
+category_fit(order)
+  order: Boolean -> preferred; integer -> preferred; float -> preferred; string -> sort; array -> preferred; other -> preferred
+interval_fit(zero, nice, empty, pin)
+  zero: Boolean
+  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
+  empty: any constant
+  pin: domain_pin(...)
+domain_pin(value, position)
+  value (required): any constant
+  position (required): one of low, mid, high
+summary_domain(value, fit)
+  value (required): any constant
+  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; domain_fit(...); interval_fit(...) -> interval
+custom_scale(type, options)
+  type (required): string
+  options: array of named_option(...)
+ordinal_scale(kind)
+  kind: one of categorical, ordinal
+nested_band_scale(align, nest_scopes, padding_inner, padding_outer, round, clip_padding_lower, clip_padding_upper, kind)
+  align: number
+  nest_scopes: array of one of free, shared
+  padding_inner: array of number
+  padding_outer: array of number
+  round: Boolean
+  clip_padding_lower: number
+  clip_padding_upper: number
+  kind: one of categorical, ordinal
+point_scale(align, padding, round, clip_padding_lower, clip_padding_upper, kind)
+  align: number
+  padding: number
+  round: Boolean
+  clip_padding_lower: number
+  clip_padding_upper: number
+  kind: one of categorical, ordinal
+band_scale(align, padding_inner, padding_outer, round, clip_padding_lower, clip_padding_upper, kind)
+  align: number
+  padding_inner: number
+  padding_outer: number
+  round: Boolean
+  clip_padding_lower: number
+  clip_padding_upper: number
+  kind: one of categorical, ordinal
+time_scale(timezone)
+  timezone: string
+symlog_scale(constant, clamp, round)
+  constant: number
+  clamp: Boolean
+  round: Boolean
+pow_scale(exponent, clamp, round)
+  exponent: number
+  clamp: Boolean
+  round: Boolean
+log_scale(base, clamp, round)
+  base: number
+  clamp: Boolean
+  round: Boolean
+linear_scale(clamp, round)
+  clamp: Boolean
+  round: Boolean

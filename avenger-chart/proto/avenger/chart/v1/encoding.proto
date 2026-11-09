@@ -14,7 +14,7 @@ import "avenger/chart/v1/value.proto";
 //
 // The marks without a prefix draw in Cartesian plots, the `polar_` marks in polar plots, and the
 // `geo_` marks in geo plots, and the `mark` oneof of each kind of layer holds the marks of its
-// plot. A property of a mark that is absent takes its value from the styles. A property that varies
+// plot. A property of a mark that is unset takes its value from the styles. A property that varies
 // with each row or each series is a channel, not a property, so an encoding gives its values: each
 // mark message has an `Encoding` field for each channel that it takes, named after the channel, at
 // the number 100 plus the channel's value in `Channel`. The comment of a channel's field says what
@@ -30,7 +30,7 @@ message Encoding {
   // column of spans: structs of exactly a `start` and an `end` field, in that order, of one
   // numeric or temporal type, such as the bins of a histogram. The column gives the channel its
   // starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark takes the
-  // partner, and the partner is absent, which the reader fills with the same field, or names the
+  // partner, and the partner is unset, which the reader fills with the same field, or names the
   // same column.
   //
   // A field of a categorical channel can name a column of lumps, the structs that the `lump`
@@ -62,9 +62,9 @@ message Encoding {
   }
   // The scale of the channel, which maps the `scaled_field` and `scaled_value` values of the
   // encoding and of its conditional values to what the mark draws. An encoding has a scale exactly
-  // when its value or one of its conditional values is a `scaled_` value. When it is absent, the
-  // reader infers it, with the type and the domain that `Scale.type` and `Scale.domain` describe,
-  // so a scale is needed only to set its fields.
+  // when its value or one of its conditional values is a `scaled_` value. When it is unset, the
+  // encoding has the scale of the defaults of a scale's type and domain, so a scale is needed only
+  // to change them.
   //
   // `x` and `y` take `scaled_` values only, because the axes and the fit of the plot need a scale.
   // The second channels of pairs, `x2`, `y2`, `theta2`, and `radius2`, never have a scale of their
@@ -85,25 +85,25 @@ message Encoding {
   // `y` with `y2`, `theta` with `theta2`, or `radius` with `radius2`, the two columns are the ends
   // of a range of this column: a point selection records `[x, x2)` as a range without its end, and
   // an interval selection records its range. When it is empty, a selection records the encoded
-  // column. It is absent on the second channels of the pairs.
+  // column. It is unset on the second channels of the pairs.
   string selection_field = 8;
-  // The title of the encoded values in the axis or the legend of the channel's scale. When absent,
+  // The title of the encoded values in the axis or the legend of the channel's scale. When unset,
   // the title of a field is the name of its column, and a value has none. An empty title gives the
-  // axis or the legend no title from this encoding. An axis or a legend whose own title is absent
+  // axis or the legend no title from this encoding. An axis or a legend whose own title is unset
   // takes the distinct titles of the encodings of its scale, in tree order, joined by `, `, so a
   // plot of `count` bars and a `mean` rule titles its shared `y` axis `count, mean`, and it draws
   // no title when they give none. An encoding without a scale has no axis or legend, so it has no
   // title.
   optional string title = 9;
   // Where the mark of a position channel stands in its band, from 0 at the start of the band to 1
-  // at its end, on a band or a nested band scale. When absent, a point mark, such as a symbol, a
+  // at its end, on a band or a nested band scale. When unset, a point mark, such as a symbol, a
   // text, or the vertex of a line, stands at the middle of its band, and a bar or a rect spans its
   // band, from its start to its end. Valid only on `x`, `y`, `theta`, and `radius` through a band
   // or a nested band scale.
   optional double band_position = 10;
   // The level whose band holds the mark of a position channel on a nested band scale, from 0 for
   // the outermost, such as the band of a group behind the bars of its members. A band at an outer
-  // level spans the bands of its members, so the bands of a level differ in width. When absent, the
+  // level spans the bands of its members, so the bands of a level differ in width. When unset, the
   // leaf. Valid only on `x`, `y`, `theta`, and `radius` through a nested band scale, below the
   // number of its levels.
   //

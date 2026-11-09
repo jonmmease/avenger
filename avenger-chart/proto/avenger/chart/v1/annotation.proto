@@ -10,7 +10,7 @@ package avenger.chart.v1;
 import "google/protobuf/descriptor.proto";
 
 extend google.protobuf.FieldOptions {
-  // The field always holds a value: a message or a `ValueRef` is present, a string is not empty, a
+  // The field always holds a value: a message or a `ValueRef` is set, a string is not empty, a
   // repeated field has an item or more, and an enum holds a value other than its zero value. On a
   // member of a oneof, the rule applies when the oneof holds the member.
   bool required = 50001;
@@ -20,6 +20,13 @@ extend google.protobuf.FieldOptions {
   bool lift = 50003;
 }
 
+extend google.protobuf.MessageOptions {
+  // The name of the constructor of the message in the generated interfaces, such as the scalar
+  // function of SQL, in place of the name of the message in snake case, which is a keyword of SQL
+  // or the name of a function of DataFusion for some messages.
+  string constructor = 50006;
+}
+
 extend google.protobuf.OneofOptions {
   // The oneof always holds a member.
   bool required_oneof = 50002;
@@ -27,7 +34,7 @@ extend google.protobuf.OneofOptions {
 
 extend google.protobuf.EnumValueOptions {
   // How a channel of the `Channel` enum relates to scales, which decides what a string means in
-  // the builder of its encoding. When absent, the channel takes no scale.
+  // the builder of its encoding. When unset, the channel takes no scale.
   ChannelScale channel_scale = 50004;
   // Marks a position channel of a coordinate system, such as `x`, `theta`, or `longitude`. A
   // number in the builder of an encoding of a position with a scale is a scaled value, a data value

@@ -137,7 +137,7 @@ fn channel_comments(set: &FileDescriptorSet) -> BTreeMap<String, String> {
 
 /// `comment`, a comment of a `.proto` file, as paragraphs: the lines of each paragraph, which
 /// the file wraps, joined by spaces, and the paragraphs by a blank line.
-fn clean(comment: &str) -> String {
+pub(super) fn clean(comment: &str) -> String {
     let lines: Vec<&str> = comment.lines().map(str::trim).collect();
     let paragraphs: Vec<String> = (lines.split(|line| line.is_empty()))
         .filter(|paragraph| !paragraph.is_empty())

@@ -43,8 +43,16 @@ mod wire {
         pub field: Vec<Field>,
         #[prost(message, repeated, tag = "3")]
         pub nested_type: Vec<Descriptor>,
+        #[prost(message, optional, tag = "7")]
+        pub options: Option<MessageOptions>,
         #[prost(message, repeated, tag = "8")]
         pub oneof_decl: Vec<Oneof>,
+    }
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    pub struct MessageOptions {
+        #[prost(string, optional, tag = "50006")]
+        pub constructor: Option<String>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -112,6 +120,8 @@ pub struct Annotations {
     pub required: BTreeSet<(String, String)>,
     pub required_oneof: BTreeSet<(String, String)>,
     pub lift: BTreeSet<(String, String)>,
+    /// The `constructor` of each message that sets it, by the message's full name.
+    pub constructor: BTreeMap<String, String>,
     /// The `channel_scale` of each value of `Channel` that sets it, by the value's name.
     pub channel_scale: BTreeMap<String, i32>,
     /// The values of `Channel` that the `position` option marks, by name.
@@ -148,6 +158,9 @@ impl Annotations {
 
     fn message(&mut self, scope: &str, message: &wire::Descriptor) {
         let name = format!("{scope}.{}", message.name());
+        if let Some(constructor) = message.options.as_ref().and_then(|o| o.constructor.clone()) {
+            self.constructor.insert(name.clone(), constructor);
+        }
         for field in &message.field {
             let options = field.options.as_ref();
             let key = (name.clone(), field.name().to_string());

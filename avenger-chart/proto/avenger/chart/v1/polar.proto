@@ -38,13 +38,13 @@ package avenger.chart.v1;
 // `theta` and `radius` have no axis unless their specs have an `Axis`, because a pie has none. Each
 // polar plot draws its own axes inside its box, so the part rules of concats do not apply to them.
 message Polar {
-  // Where the range of `theta` starts, in degrees clockwise from the top. When absent, 0.
+  // Where the range of `theta` starts, in degrees clockwise from the top. When unset, 0.
   optional float start_angle = 1;
   // Where the range of `theta` ends, in degrees clockwise from the top, more than `start_angle` and
-  // at most 360 degrees past it. When absent, 360 degrees past `start_angle`.
+  // at most 360 degrees past it. When unset, 360 degrees past `start_angle`.
   optional float end_angle = 2;
   // Where the range of `radius` starts, as a fraction of the outer radius: 0 for a pie, and 0.5 for
-  // a donut whose hole is half its width. When absent, 0.
+  // a donut whose hole is half its width. When unset, 0.
   optional float inner_radius = 3;
 }
 

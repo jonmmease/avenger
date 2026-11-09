@@ -15,6 +15,7 @@ message NamedOption {
 // The value of an option: a Boolean, a number, an integer, a string, or a list of numbers or of
 // strings.
 message OptionValue {
+  // The value: a Boolean, a number, an integer, a string, or a list of numbers or of strings.
   oneof value {
     bool boolean = 1;
     double float = 2;
@@ -25,10 +26,14 @@ message OptionValue {
   }
 }
 
+// A list of numbers.
 message FloatList {
+  // The numbers.
   repeated double values = 1;
 }
 
+// A list of strings.
 message StringList {
+  // The strings.
   repeated string values = 1;
 }

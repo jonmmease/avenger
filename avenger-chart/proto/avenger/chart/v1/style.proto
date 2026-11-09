@@ -1,5 +1,5 @@
-// Styles that axes, legends, titles, and text marks share. A present style field is an inline style
-// for the renderer's stylesheets, and an absent one takes its value from the styles, as the comment
+// Styles that axes, legends, titles, and text marks share. A style field that is set is an inline style
+// for the renderer's stylesheets, and an unset one takes its value from the styles, as the comment
 // of `Chart` describes.
 
 syntax = "proto3";
@@ -20,7 +20,7 @@ message TextStyle {
 
 // How the text engine reads a text.
 enum TextSyntax {
-  // Absent, which reads the text as `TEXT_SYNTAX_PLAIN` does.
+  // Unset, which reads the text as `TEXT_SYNTAX_PLAIN` does.
   TEXT_SYNTAX_UNSPECIFIED = 0;
   // Literal text, whose newlines are spaces.
   TEXT_SYNTAX_PLAIN = 1;
@@ -31,7 +31,7 @@ enum TextSyntax {
 }
 
 enum TextAlign {
-  // Absent, so the comment of the field or the styles give the alignment.
+  // Unset, so the comment of the field or the styles give the alignment.
   TEXT_ALIGN_UNSPECIFIED = 0;
   TEXT_ALIGN_LEFT = 1;
   TEXT_ALIGN_CENTER = 2;
@@ -39,7 +39,7 @@ enum TextAlign {
 }
 
 enum TextBaseline {
-  // Absent, so the comment of the field or the styles give the baseline.
+  // Unset, so the comment of the field or the styles give the baseline.
   TEXT_BASELINE_UNSPECIFIED = 0;
   TEXT_BASELINE_TOP = 1;
   TEXT_BASELINE_MIDDLE = 2;

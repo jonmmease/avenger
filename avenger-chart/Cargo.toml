@@ -10,7 +10,8 @@ readme = "README.md"
 # messages and their fields.
 descriptors = []
 # `avenger_chart::datafusion`: an aggregate function of DataFusion for each Cartesian and polar
-# mark, which builds a chart of its rows, and `raw`.
+# mark, which builds a chart of its rows, `scaled` and `direct`, and a constructor for each message
+# of the options, which returns its fragment.
 datafusion = ["dep:datafusion"]
 
 [dependencies]
@@ -28,9 +29,13 @@ protoc-bin-vendored = { workspace = true }
 [dev-dependencies]
 # Tests write a compressed IPC stream, which a reader rejects.
 arrow = { workspace = true, features = ["ipc_compression"] }
-datafusion = { workspace = true, features = ["sql"] }
+datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [[test]]
 name = "marks"
+required-features = ["datafusion"]
+
+[[test]]
+name = "constructors"
 required-features = ["datafusion"]
