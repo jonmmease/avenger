@@ -81,7 +81,7 @@ async fn a_bar_chart_of_counts() {
 #[tokio::test]
 async fn a_chart_for_each_group() {
     let query = "FROM penguins
-|> AGGREGATE symbol(x => body_mass, y => island) AS chart GROUP BY species
+|> AGGREGATE symbol(x => flipper_length_mm, y => body_mass_g, color => island) AS chart GROUP BY species
 |> ORDER BY species";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 3, "one chart for each species");

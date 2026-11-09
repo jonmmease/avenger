@@ -33,25 +33,25 @@ fn a_query_that_starts_with_from_selects_every_column() {
 #[test]
 fn an_omitted_parameter_before_a_named_one_is_null() {
     assert_eq!(
-        expand("SELECT symbol(x => body_mass, y => body_mass, fill => species) FROM penguins"),
-        "SELECT symbol(x => body_mass, y => body_mass, fill => species, color => NULL) FROM penguins"
+        expand("SELECT symbol(x => body_mass_g, y => body_mass_g, fill => species) FROM penguins"),
+        "SELECT symbol(x => body_mass_g, y => body_mass_g, fill => species, color => NULL) FROM penguins"
     );
     assert_eq!(
-        expand("SELECT symbol(body_mass, y => body_mass) FROM penguins"),
-        "SELECT symbol(body_mass, y => body_mass) FROM penguins",
+        expand("SELECT symbol(body_mass_g, y => body_mass_g) FROM penguins"),
+        "SELECT symbol(body_mass_g, y => body_mass_g) FROM penguins",
         "a call that omits only trailing parameters stays as it is"
     );
 }
 
 #[tokio::test]
 async fn a_named_argument_after_an_omitted_one_binds() {
-    let query = "FROM penguins |> AGGREGATE symbol(x => body_mass, y => body_mass, fill => species) AS chart";
+    let query = "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species) AS chart";
     assert_eq!(charts(query).await.len(), 1);
 }
 
 #[tokio::test]
 async fn an_unknown_parameter_keeps_the_error_of_datafusion() {
-    let message = error("SELECT symbol(x => body_mass, colour => species) FROM penguins").await;
+    let message = error("SELECT symbol(x => body_mass_g, colour => species) FROM penguins").await;
     assert!(
         message.contains("Unknown parameter name 'colour'"),
         "{message}"

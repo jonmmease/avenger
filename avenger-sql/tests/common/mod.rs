@@ -1,40 +1,38 @@
-//! A session with the marks and a small table of penguins, and the charts of a query.
+//! A session with the marks and the penguins, and the charts of a query.
 
 use std::sync::Arc;
 
-use arrow::array::{Float64Array, RecordBatch, StringArray};
+use arrow::{
+    array::RecordBatch,
+    csv::ReaderBuilder,
+    datatypes::{DataType, Field, Schema},
+};
 use avenger_chart::{charts_from_arrow, Chart, Decode};
 use datafusion::{datasource::MemTable, prelude::SessionContext};
 
-/// Ten penguins: a species, an island, and a body mass in grams.
+/// The 344 penguins of the Palmer Archipelago dataset (CC0, from
+/// <https://github.com/allisonhorst/palmerpenguins>, as seaborn-data ships it): `species`,
+/// `island`, `bill_length_mm`, `bill_depth_mm`, `flipper_length_mm`, `body_mass_g`, and `sex`.
+/// Two penguins have no measurements, and eleven no sex.
 pub fn penguins() -> RecordBatch {
-    let rows = [
-        ("Adelie", "Torgersen", 3750.0),
-        ("Adelie", "Biscoe", 3800.0),
-        ("Adelie", "Dream", 3250.0),
-        ("Adelie", "Dream", 3450.0),
-        ("Chinstrap", "Dream", 3500.0),
-        ("Chinstrap", "Dream", 3900.0),
-        ("Gentoo", "Biscoe", 4500.0),
-        ("Gentoo", "Biscoe", 5700.0),
-        ("Gentoo", "Biscoe", 4450.0),
-        ("Gentoo", "Biscoe", 5050.0),
-    ];
-    RecordBatch::try_from_iter(vec![
-        (
-            "species",
-            Arc::new(StringArray::from_iter_values(rows.iter().map(|r| r.0))) as _,
-        ),
-        (
-            "island",
-            Arc::new(StringArray::from_iter_values(rows.iter().map(|r| r.1))) as _,
-        ),
-        (
-            "body_mass",
-            Arc::new(Float64Array::from_iter_values(rows.iter().map(|r| r.2))) as _,
-        ),
-    ])
-    .unwrap()
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/penguins.csv");
+    let number = |name| Field::new(name, DataType::Float64, true);
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("species", DataType::Utf8, false),
+        Field::new("island", DataType::Utf8, false),
+        number("bill_length_mm"),
+        number("bill_depth_mm"),
+        number("flipper_length_mm"),
+        number("body_mass_g"),
+        Field::new("sex", DataType::Utf8, true),
+    ]));
+    let file = std::fs::File::open(path).expect("the penguins are in tests/data");
+    let mut reader = ReaderBuilder::new(schema)
+        .with_header(true)
+        .with_batch_size(1024)
+        .build(file)
+        .unwrap();
+    reader.next().unwrap().unwrap()
 }
 
 /// A session with the marks and the table `penguins`.
