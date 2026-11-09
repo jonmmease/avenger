@@ -11,7 +11,10 @@ use arrow::{
 use avenger_chart::lump;
 use avenger_format::PrecisionSharing;
 use avenger_guides::label_variant::LabelVariant;
-use avenger_scales::categories::{distinct, CategoryIndex};
+use avenger_scales::{
+    categories::{distinct, CategoryIndex},
+    scales::domain_summary::{CategoryOrder, CategorySummary, DomainSummary, Extents},
+};
 use avenger_typst_label::{LabelEngine, LabelError, LabelValue, LabelValues};
 
 use crate::{fit::MemberValues, EvalError};
@@ -330,6 +333,37 @@ pub fn lump_label_values(
     };
     let count = LabelValue::Int(count.value(row));
     Ok(Some(bound(value, is_other, is_null, count, weight)))
+}
+
+/// The lumps that `summary`, a producer's summary of a scale, holds as its categories, with their
+/// weights and numbers of categories, as a summary of a column of lumps holds them, or `None` for a
+/// summary of other categories.
+pub(crate) fn summary_lumps(summary: &DomainSummary) -> Option<ArrayRef> {
+    let DomainSummary::Categories(categories) = summary else {
+        return None;
+    };
+    let lumps = categories.domain(&CategoryOrder::Ascending).ok()?;
+    lump::is_lump(lumps.data_type()).then_some(lumps)
+}
+
+/// `summary`, a producer's summary of a scale, with its categories as their keys when they are
+/// lumps, as the scale takes the categories of lumps: each key with the largest extents of its
+/// lumps. Another summary is as it is.
+pub(crate) fn keyed_summary(summary: DomainSummary) -> DomainSummary {
+    let (Some(lumps), DomainSummary::Categories(categories)) = (summary_lumps(&summary), &summary)
+    else {
+        return summary;
+    };
+    let (lower, upper) =
+        (categories.extents_at(&lumps)).expect("the categories of a summary have their extents");
+    let keys = lump::keys(&lumps).expect("a column of lumps has keys");
+    let extents = Extents::PerRow {
+        lower: &lower,
+        upper: &upper,
+    };
+    DomainSummary::Categories(
+        CategorySummary::new(&keys, extents).expect("the keys of lumps make a summary"),
+    )
 }
 
 /// `values`, the values of the members of a scale group, with each column of lumps as its keys,
