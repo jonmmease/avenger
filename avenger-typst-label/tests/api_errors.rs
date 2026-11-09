@@ -153,6 +153,35 @@ fn math_at_the_depth_limit_fits_a_wasm_sized_stack() {
         .expect("labels at the depth limit should not overflow the stack");
 }
 
+#[test]
+fn conditionals_at_the_parser_depth_limit_fit_a_wasm_sized_stack() {
+    // Label limits bound only math nesting, so the parser's nesting limit bounds nested
+    // conditionals. The test nests them one level deeper at a time until the parser rejects
+    // the source, so every depth that compiles runs on the small stack.
+    let stack = if cfg!(debug_assertions) { 16 << 20 } else { 1 << 20 };
+    let nest =
+        |depth: usize| format!("{}x{}", "#if true [".repeat(depth), "]".repeat(depth));
+    std::thread::Builder::new()
+        .stack_size(stack)
+        .spawn(move || {
+            let engine = engine();
+            let mut depth = 1;
+            while let Ok(label) = engine.compile(&nest(depth), &LabelOptions::default()) {
+                assert_eq!(label.semantic_text, "x", "at depth {depth}");
+                depth += 1;
+            }
+            let error = engine.compile(&nest(depth), &LabelOptions::default()).unwrap_err();
+            assert!(depth > 64, "at depth {depth}: {error:?}");
+            assert!(
+                matches!(&error, LabelError::Source { message, .. } if message.contains("depth")),
+                "at depth {depth}: {error:?}"
+            );
+        })
+        .unwrap()
+        .join()
+        .expect("conditionals at the depth limit should not overflow the stack");
+}
+
 /// An engine with Lato as its only font, under a policy.
 fn lato_engine(policy: MissingFontPolicy) -> LabelEngine {
     LabelEngine::new(lato_options(policy))

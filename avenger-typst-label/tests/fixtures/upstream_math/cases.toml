@@ -2141,6 +2141,12 @@ note = 'single-line annotations'
 id = "math-spacing-wide"
 source = '$a wide b$'
 
+# A conditional in math.
+
+[[case]]
+id = "if-in-math"
+source = '$a^#if true [2] else [3]$'
+
 # Sources upstream rejects. Their references record upstream's diagnostics.
 
 [[case]]

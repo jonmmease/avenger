@@ -3,12 +3,12 @@
 //! Typst's code interpreter.
 //!
 //! avenger: a static evaluator for a label: markup, math and code expressions over the label
-//! library. A label has no set or show rules, bindings, closures,
-//! conditionals, loops, imports, includes or context, so these are errors, and so is any
-//! markup that doesn't fit in one paragraph.
+//! library. A label has no set or show rules, bindings, closures, loops, imports, includes or
+//! context, so these are errors, and so is any markup that doesn't fit in one paragraph.
 
 mod call;
 mod code;
+mod flow;
 mod markup;
 mod math;
 mod ops;

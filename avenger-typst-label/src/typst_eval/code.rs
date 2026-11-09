@@ -101,7 +101,7 @@ impl Eval for ast::Expr<'_> {
             Self::SetRule(_) => unsupported("set rules"),
             Self::ShowRule(_) => unsupported("show rules"),
             Self::Contextual(_) => unsupported("context expressions"),
-            Self::Conditional(_) => unsupported("conditionals"),
+            Self::Conditional(v) => v.eval(vm),
             Self::WhileLoop(_) | Self::ForLoop(_) => unsupported("loops"),
             Self::ModuleImport(_) => unsupported("imports"),
             Self::ModuleInclude(_) => unsupported("includes"),

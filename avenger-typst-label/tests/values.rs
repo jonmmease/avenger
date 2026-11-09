@@ -301,6 +301,22 @@ fn bind_rejects_math_that_calls_a_value() {
     assert!(matches!(bind("#(", &values), Err(LabelError::Source { .. })));
 }
 
+/// A bound value selects the branch of a conditional.
+#[test]
+fn bound_values_select_branches() {
+    let source = "#if other [#value (#count)] else [#value]";
+    for (other, value, expected) in
+        [(true, "Other", "Other (3)"), (false, "Fiat", "Fiat")]
+    {
+        let values = values([
+            ("other", LabelValue::Bool(other)),
+            ("value", str(value)),
+            ("count", LabelValue::Int(3)),
+        ]);
+        assert_eq!(text(&bind(source, &values).unwrap()), expected, "{other}");
+    }
+}
+
 fn str(text: &str) -> LabelValue {
     LabelValue::Str(text.into())
 }

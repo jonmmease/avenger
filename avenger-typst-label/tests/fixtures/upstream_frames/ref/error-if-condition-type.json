@@ -1,0 +1,6 @@
+{
+  "errors": [{"hints":[],"message":"expected boolean, found string","range":[4,13]}],
+  "repr": null,
+  "source": "#if \"a\" + \"b\" { nope } else { nope }",
+  "warnings": []
+}
