@@ -239,3 +239,58 @@ fn a_prepared_set_matches_many_arrays() {
     let other: ArrayRef = Arc::new(LargeStringArray::from(vec!["d", "x"]));
     assert_eq!(bits(prepared.matches(&[other]).unwrap()), [true, false]);
 }
+
+#[test]
+fn a_set_with_a_complement_matches_the_values_outside_its_others() {
+    let column: ArrayRef = Arc::new(StringArray::from(vec![
+        Some("a"),
+        Some("b"),
+        Some("c"),
+        None,
+        Some("d"),
+    ]));
+    // `b`, and everything except the kept `a` and `b`: so `c`, `d`, and the null row.
+    let condition = Condition::values("category", None, Arc::new(StringArray::from(vec!["b"])))
+        .with_others(vec![Arc::new(StringArray::from(vec!["a", "b"]))])
+        .unwrap();
+    let matched = bits(condition.matches(std::slice::from_ref(&column)).unwrap());
+    assert_eq!(matched, [false, true, true, true, true]);
+
+    // When the kept values hold a null, the null row is kept, so the complement drops it.
+    let condition = Condition::values(
+        "category",
+        None,
+        Arc::new(StringArray::from(Vec::<&str>::new())),
+    )
+    .with_others(vec![Arc::new(StringArray::from(vec![Some("a"), None]))])
+    .unwrap();
+    let matched = bits(condition.matches(std::slice::from_ref(&column)).unwrap());
+    assert_eq!(matched, [false, true, true, false, true]);
+
+    // A prepared set matches the same rows, and the complement changes its fingerprint.
+    let prepared = condition.prepare(&[DataType::Utf8]).unwrap();
+    assert_eq!(bits(prepared.matches(&[column]).unwrap()), matched);
+    let plain = avenger_selection::Clause::new("plot").condition(Condition::values(
+        "category",
+        None,
+        Arc::new(StringArray::from(Vec::<&str>::new())),
+    ));
+    let complement = avenger_selection::Clause::new("plot").condition(condition);
+    assert_ne!(plain.fingerprint(), complement.fingerprint());
+}
+
+#[test]
+fn only_a_set_takes_a_complement_of_its_columns() {
+    let set = Condition::values("a", None, Arc::new(StringArray::from(vec!["x"])));
+    assert!(set.clone().with_others(Vec::new()).is_err());
+    let range = Condition::Range {
+        column: "a".into(),
+        channel: None,
+        ends: Arc::new(arrow::array::Float64Array::from(vec![0.0, 1.0])),
+        exclude_end: false,
+        cells: None,
+    };
+    assert!(range
+        .with_others(vec![Arc::new(StringArray::from(vec!["x"]))])
+        .is_err());
+}

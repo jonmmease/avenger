@@ -599,3 +599,47 @@ async fn bound_states_keep_names_and_other_placeholders() {
         .collect();
     assert_eq!(found.iter().filter(|found| **found).count(), 1);
 }
+
+#[tokio::test]
+async fn a_set_with_a_complement_lowers_as_its_sql() {
+    // Kept islands outside of which a set also matches, as a click on the Other group of a lump
+    // writes them: the row of a null island matches unless the kept islands hold null.
+    let complement = |values: Vec<Option<&str>>, others: Vec<Option<&str>>| {
+        Condition::values("island", None, Arc::new(StringArray::from(values)))
+            .with_others(vec![Arc::new(StringArray::from(others))])
+            .unwrap()
+    };
+    let cases = [
+        (
+            complement(vec![], vec![Some("biscoe")]),
+            "island NOT IN ('biscoe') OR island IS NULL",
+        ),
+        (
+            complement(vec![], vec![Some("biscoe"), None]),
+            "island NOT IN ('biscoe') AND island IS NOT NULL",
+        ),
+        (
+            complement(vec![Some("biscoe")], vec![Some("biscoe"), Some("dream")]),
+            "island = 'biscoe' OR island NOT IN ('biscoe', 'dream') OR island IS NULL",
+        ),
+    ];
+    for (condition, sql) in cases {
+        let state = SelectionState::new(
+            Resolution::Global,
+            vec![Clause::new("a").condition(condition)],
+        );
+        conforms(state.clone(), PLAIN).await;
+        let expected = format!("SELECT coalesce({sql}, false) AS m FROM t ORDER BY id");
+        let expected = mask(context().sql(&expected).await.unwrap()).await;
+        assert_eq!(lowered(&state, &PLAIN).await, expected, "{sql}");
+    }
+    // A dictionary column takes a complement of its values.
+    let species = Condition::values("species", None, Arc::new(StringArray::from(vec!["adelie"])))
+        .with_others(vec![Arc::new(StringArray::from(vec!["adelie", "gentoo"]))])
+        .unwrap();
+    let state = SelectionState::new(
+        Resolution::Global,
+        vec![Clause::new("a").condition(species)],
+    );
+    conforms(state, PLAIN).await;
+}

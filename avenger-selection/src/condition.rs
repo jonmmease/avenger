@@ -24,11 +24,13 @@ use crate::{grid::Raster, set::SetIndex, CellSpan, PolygonCells, Result, Selecti
 pub enum Condition {
     /// A row matches when its values of `columns` equal one tuple of `values`: the rows of the
     /// lists in `values`, one list for each column, all of one length. A set of one column holds
-    /// the values of that column.
+    /// the values of that column. With `others`, lists of tuples in the same form, a row whose
+    /// tuple is none of them also matches, so a set can select everything except some tuples.
     Set {
         columns: Vec<String>,
         channels: Vec<Option<String>>,
         values: Vec<ArrayRef>,
+        others: Option<Vec<ArrayRef>>,
     },
     /// A row matches when its value of `column` is between the two `ends`, in ascending order,
     /// or with `cells`, when its value lies in one of the cells. A null end does not bound the
@@ -92,6 +94,7 @@ impl Condition {
             columns,
             channels,
             values,
+            others: None,
         })
     }
 
@@ -101,7 +104,39 @@ impl Condition {
             columns: vec![column.into()],
             channels: vec![channel],
             values: vec![values],
+            others: None,
         }
+    }
+
+    /// The set, whose complement holds every tuple except the tuples of `others`, a list of
+    /// values for each of its columns, all of one length, or an error for a condition that is not
+    /// a set, or lists of another number or of different lengths.
+    pub fn with_others(self, others: Vec<ArrayRef>) -> Result<Self> {
+        let Condition::Set {
+            columns,
+            channels,
+            values,
+            ..
+        } = self
+        else {
+            return Err(SelectionError::Condition(
+                "only a set has a complement".to_string(),
+            ));
+        };
+        if others.len() != columns.len() || others.iter().any(|list| list.len() != others[0].len())
+        {
+            return Err(SelectionError::Condition(format!(
+                "the complement of a set has a list of values of one length for each of its {} \
+                 columns",
+                columns.len()
+            )));
+        }
+        Ok(Condition::Set {
+            columns,
+            channels,
+            values,
+            others: Some(others),
+        })
     }
 
     /// The columns that the condition reads: its column, the columns of a set, or the two
@@ -123,7 +158,9 @@ impl Condition {
     /// matches no condition, and a dictionary column compares its values.
     ///
     /// - A set matches the rows whose values equal one of its tuples, with its values cast to
-    ///   the columns' types. A tuple with a null matches no row.
+    ///   the columns' types. A tuple with a null matches no row. With a complement, it also
+    ///   matches the rows whose values equal none of the tuples of `others`, where a null equals
+    ///   a null, so a null row matches unless `others` holds its tuple.
     /// - A range matches the values from its first end through its second, or to before its
     ///   second with `exclude_end`, and with cells, the values in its cells. A null end does not
     ///   bound the range.
@@ -251,12 +288,19 @@ impl PreparedCondition {
     /// other types than the condition was prepared for match without the prepared index.
     pub fn matches(&self, columns: &[ArrayRef]) -> Result<BooleanArray> {
         match (&self.condition, &self.prepared) {
-            (Condition::Set { values, .. }, Prepared::Set { types, index }) => {
+            (Condition::Set { values, others, .. }, Prepared::Set { types, index }) => {
                 let same = (columns.iter().zip(types))
                     .all(|(column, data_type)| &value_type(column.data_type()) == data_type);
-                match index {
-                    Some(index) if same => Ok(index.contains(columns)),
-                    _ => Ok(BooleanArray::from(in_set(columns, values)?)),
+                let inside = match index {
+                    Some(index) if same => index.contains(columns),
+                    _ => BooleanArray::from(in_set(columns, values)?),
+                };
+                match others {
+                    Some(others) => Ok(arrow::compute::or(
+                        &inside,
+                        &BooleanArray::from(outside(columns, others)?),
+                    )?),
+                    None => Ok(inside),
                 }
             }
             (
@@ -348,6 +392,23 @@ fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
             columns.iter().all(|column| column.is_valid(index)) && set.contains(&rows.row(index))
         })
         .collect())
+}
+
+/// Whether each row of `columns` equals none of the tuples of `others`, where a null equals a
+/// null, through the rows of Arrow's row format.
+fn outside(columns: &[ArrayRef], others: &[ArrayRef]) -> Result<Vec<bool>> {
+    let columns = columns.iter().map(plain).collect::<Result<Vec<_>>>()?;
+    let others = (others.iter().zip(&columns))
+        .map(|(others, column)| cast_to(others, column.data_type()))
+        .collect::<Result<Vec<_>>>()?;
+    let fields = (columns.iter())
+        .map(|column| SortField::new(column.data_type().clone()))
+        .collect();
+    let converter = RowConverter::new(fields)?;
+    let tuples = converter.convert_columns(&others)?;
+    let set: HashSet<_> = tuples.iter().collect();
+    let rows = converter.convert_columns(&columns)?;
+    Ok(rows.iter().map(|row| !set.contains(&row)).collect())
 }
 
 /// Whether each value is from the first of `ends` through the second, or to before the second
