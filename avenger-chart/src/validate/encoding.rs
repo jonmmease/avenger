@@ -188,7 +188,12 @@ impl Checker<'_> {
 
     /// Checks that each column of lumps that `encoding` reads goes through a band, a point, or an
     /// ordinal scale, which places the Other group after the kept categories.
-    fn lumps(&self, encoding: &proto::Encoding, table: &RecordBatch, path: &str) -> Result<()> {
+    fn lumps_are_categorical(
+        &self,
+        encoding: &proto::Encoding,
+        table: &RecordBatch,
+        path: &str,
+    ) -> Result<()> {
         let is_lump =
             |name: &str| (table.column_by_name(name)).is_some_and(|c| lump::is_lump(c.data_type()));
         let direct =
@@ -306,7 +311,7 @@ impl Checker<'_> {
                 ));
             }
         }
-        self.lumps(encoding, table, path)?;
+        self.lumps_are_categorical(encoding, table, path)?;
         let scaled = scaled(encoding);
         let paired = scale_channel(channel) != channel;
         if scaled && !paired && !takes_scale(channel) {
