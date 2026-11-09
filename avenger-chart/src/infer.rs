@@ -5,6 +5,7 @@ use arrow::{
 
 use crate::{
     layer::{MarkMessage, MarkType},
+    lump,
     proto::{self, conditional_value, domain, encoding, node::Node, plot::Coord, scale, Channel},
     span,
     validate::{dictionary_values, scaled, takes_scale},
@@ -186,6 +187,8 @@ fn scale_type(data_type: &DataType, channel: Channel, mark_type: MarkType) -> Op
     }
     let data_type = dictionary_values(data_type);
     let values = match data_type {
+        // A column of lumps is categories, whatever the type of its kept categories.
+        _ if lump::is_lump(data_type) => Values::Categories,
         _ if data_type.is_numeric() => Values::Numbers,
         // A time scale takes dates and timestamps, not times of day, durations, or intervals.
         DataType::Date32 | DataType::Date64 | DataType::Timestamp(..) => Values::Times,

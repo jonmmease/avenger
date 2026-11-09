@@ -458,7 +458,8 @@ message IntervalFit {
 // domain. The data decides which categories the domain holds. An explicit domain gives exactly
 // its categories in its order instead.
 message CategoryFit {
-  // When absent, the categories of the data, ascending.
+  // When absent, the categories of the data, ascending, or for a column of lumps, the kept
+  // categories by descending weight. The Other group of a column of lumps is last in every order.
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.

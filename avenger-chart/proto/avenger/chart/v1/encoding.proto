@@ -32,6 +32,16 @@ message Encoding {
   // starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark takes the
   // partner, and the partner is absent, which the reader fills with the same field, or names the
   // same column.
+  //
+  // A field of a categorical channel can name a column of lumps, the structs that the `lump`
+  // transform writes: exactly a `value`, an `other` of Utf8, a `weight` of Float64, and a
+  // `category_count` of Int64, in that order. A row of a kept category has its category in `value`
+  // and a NULL `other`, and a row of the Other group has a NULL `value` and its label in `other`. A
+  // lump goes through a band, a point, or an ordinal scale, whose domain is the kept categories
+  // and then the Other group, so Other is the last band, point, axis label, and legend entry. The
+  // explicit domains, preferred categories, and tick and legend values of the scale are kept
+  // categories, in the type of `value`. On a channel other than a position, a row of the Other
+  // group takes the value of the `other` style element of its mark, in place of the scale's.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
     // The name of a column of the layer's table, whose values the mark draws as they are, such as
