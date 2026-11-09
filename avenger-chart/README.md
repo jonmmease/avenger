@@ -213,7 +213,7 @@ A column of charts is a `Binary`, `LargeBinary`, or `BinaryView` column whose fi
 
 ## Mark functions of DataFusion
 
-The `datafusion` feature adds `avenger_chart::datafusion`, with an aggregate function of DataFusion for each mark of the Cartesian and the polar layers, which builds a chart of the rows of its group, and the scalar functions `scaled` and `direct`. `register` adds them to a session. build.rs generates the functions from the mark messages: the name of a function is the name of its message without `Mark`, in snake case, such as `bar` and `polar_bar`, and its parameters are the channels of its mark, the required channels first, then the others in the order of their field numbers, each named after its field:
+The `datafusion` feature adds `avenger_chart::datafusion`, with an aggregate function of DataFusion for each mark, which builds a chart of the rows of its group, the scalar functions `scaled` and `direct`, and the constructors of the options. `register` adds them to a session. build.rs generates the functions from the mark messages: the name of a function is the name of its message without `Mark`, in snake case, such as `bar` and `polar_bar`, and its parameters are the channels of its mark, the required channels first, then the others in the order of their field numbers, each named after its field:
 
 ```sql
 SELECT species, bar(x => island, y => n, color => island) AS chart
@@ -228,8 +228,11 @@ A function call gives one chart of one plot of one layer, whose table holds a co
 - `scaled(...)` gives the scaled kind, such as `color => scaled('Adelie')` for the color of a category, and is an error on a channel without a scale. `direct(...)` gives the direct kind, such as `fill => direct(color)` for a column of colors, or `x => direct(0.5)` for the middle of the plot.
 - `NULL` leaves the channel unset, so an omitted parameter and `NULL` mean the same thing. In `scaled` or `direct`, a `NULL` is a value, which needs a type, such as `direct(CAST(NULL AS VARCHAR))`. DataFusion 55.2 binds named arguments only as a prefix of the parameters, so a call that names a later parameter passes `NULL` for each earlier one, or avenger-sql fills them.
 - The `ORDER BY` of a call is the draw order of its rows, and `FILTER` selects them.
+- After the channels, a mark function takes the properties of its mark, such as `orient` and `corner_radius` of `bar`, and `coord`, the options of its plot, such as `coord => polar(inner_radius => 0.5)`. A geo mark requires `coord`, because a geo plot requires its options: `geo_shape(geometry => geom, coord => geo(surface => spherical(projection => 'mercator')))`.
+- `scaled(value, ...)` takes the options of its encoding after its value: `scale`, `title`, `band_position`, `band_level`, and `selection_field`, such as `x => scaled(body_mass, scale => interval_fit(zero => FALSE), title => 'Mass')`.
+- A property, `coord`, and an option of `scaled` are constants, such as the folded call of a constructor.
 
-DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument cannot aggregate, because DataFusion rejects an aggregate inside an aggregate, so the aggregates of a chart come from a query before the mark function. The marks of geo layers have no functions until constructors of their `Geo` options exist.
+DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument cannot aggregate, because DataFusion rejects an aggregate inside an aggregate, so the aggregates of a chart come from a query before the mark function.
 
 ### Constructors
 

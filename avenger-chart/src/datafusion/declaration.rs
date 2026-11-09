@@ -8,7 +8,7 @@ use std::{
 use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
     common::{
-        internal_err, plan_err,
+        internal_err, plan_datafusion_err, plan_err,
         tree_node::{Transformed, TreeNode, TreeNodeRecursion},
         Column, DFSchema, Result,
     },
@@ -22,12 +22,19 @@ use datafusion::{
     },
 };
 
-use super::{instance::MarkInstance, kind::Kind, MarkSpec};
+use super::{
+    argument::Arg,
+    constructor::generated::{apply_all_encoding, to_cartesian, to_geo, to_polar},
+    instance::MarkInstance,
+    kind::Kind,
+    MarkSpec, COORD,
+};
 use crate::{
     builder::{Builder, Parts},
     chart_field,
     proto::{self, Encoding, EncodingBuilder},
     validate::{scales_numbers, scales_strings},
+    CoordKind,
 };
 
 /// The documentation section of the mark functions.
@@ -48,7 +55,10 @@ pub(crate) struct MarkDeclaration {
 
 impl MarkDeclaration {
     pub(crate) fn new(spec: &'static MarkSpec) -> Self {
-        let names: Vec<&str> = spec.channels.iter().map(|channel| channel.name).collect();
+        let names: Vec<&str> = (spec.channels.iter().map(|channel| channel.name))
+            .chain(spec.properties.iter().map(|property| property.name))
+            .chain([COORD])
+            .collect();
         let signature = Signature::user_defined(Volatility::Immutable)
             .with_parameter_names(names.clone())
             .expect("the parameter names of a mark are distinct");
@@ -63,6 +73,13 @@ impl MarkDeclaration {
         for channel in spec.channels {
             documentation = documentation.with_argument(channel.name, channel.doc);
         }
+        for property in spec.properties {
+            documentation = documentation.with_argument(property.name, property.doc);
+        }
+        documentation = documentation.with_argument(
+            COORD,
+            "The options of the plot's coordinate system, such as `polar(inner_radius => 0.5)`.",
+        );
         Self {
             spec,
             signature,
@@ -103,7 +120,8 @@ impl AggregateUDFImpl for MarkDeclaration {
     }
 
     fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
-        let (name, count) = (self.spec.name, self.spec.channels.len());
+        let spec = self.spec;
+        let (name, count) = (spec.name, spec.channels.len() + spec.properties.len() + 1);
         if arg_types.len() > count {
             return plan_err!(
                 "{name}() takes {count} arguments at most, not {}",
@@ -162,11 +180,16 @@ fn bind(
     let mut parts = Parts::default();
     let mut data: Vec<Expr> = Vec::new();
     let mut fields: Vec<FieldRef> = Vec::new();
-    for (declared, argument) in spec.channels.iter().zip(params.args) {
-        let (argument, explicit) = match kind_argument(argument) {
-            Ok((kind, inner)) => (inner, Some(kind)),
-            Err(argument) => (argument, None),
+    let mut args = params.args.into_iter();
+    let channels: Vec<Expr> = args.by_ref().take(spec.channels.len()).collect();
+    let properties: Vec<Expr> = args.by_ref().take(spec.properties.len()).collect();
+    let coord = args.next();
+    for (declared, argument) in spec.channels.iter().zip(channels) {
+        let (argument, explicit, options) = match kind_argument(argument) {
+            Ok((kind, inner, options)) => (inner, Some(kind), options),
+            Err(argument) => (argument, None, Vec::new()),
         };
+        let options = constants(name, &format!("an option of `{}`", declared.name), options)?;
         if let Some(inner) = contained_kind(&argument) {
             return plan_err!(
                 "{inner}() is the whole value of a channel of {name}(), and `{}` holds one inside \
@@ -183,7 +206,7 @@ fn bind(
         }
         // A bare value takes the kind that the builders give it: a constant is scaled on a
         // position with a scale, and a value of the rows on a channel with a scale.
-        let encoding = match argument {
+        let mut encoding = match argument {
             Expr::Literal(value, _) if value.is_null() && explicit.is_none() => continue,
             Expr::Literal(value, _) if value.data_type() == DataType::Null => {
                 let kind = explicit
@@ -217,8 +240,25 @@ fn bind(
                 }
             }
         };
+        if !options.is_empty() {
+            encoding = apply_all_encoding(encoding, &options)
+                .map_err(|error| plan_datafusion_err!("{name}(): `{}` {error}", declared.name))?;
+        }
         set_encoding(&mut mark, &mut parts, declared.name, channel, encoding);
     }
+    let properties = constants(name, "a property", properties)?;
+    (spec.apply_properties)(&mut mark, &mut parts, &properties)
+        .map_err(|error| plan_datafusion_err!("{name}(): {error}"))?;
+    let coord = constants(name, "`coord`", coord.into_iter().collect())?;
+    let options = match (coord.into_iter().next().flatten(), spec.coord) {
+        (Some(coord), kind) => Some(coord_options(kind, &coord).map_err(|error| {
+            plan_datafusion_err!("{name}(): `coord` {error}")
+        })?),
+        (None, CoordKind::Geo) => {
+            return plan_err!("{name}() needs `coord`, the options of its geo plot, such as `coord => geo(surface => spherical(projection => 'equal_earth'))`")
+        }
+        (None, _) => None,
+    };
     if let Some(declared) = spec
         .channels
         .iter()
@@ -229,7 +269,7 @@ fn bind(
     if data.is_empty() {
         return plan_err!("{name}() needs a channel that reads a column");
     }
-    let instance = MarkInstance::new(spec, mark, parts, fields, &params.order_by)?;
+    let instance = MarkInstance::new(spec, mark, parts, options, fields, &params.order_by)?;
     Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
         Arc::new(AggregateUDF::new_from_impl(instance)),
         data,
@@ -240,18 +280,45 @@ fn bind(
     )))
 }
 
-/// The kind and the argument of `expr` when it is a call of `scaled` or `direct`, or `expr`
-/// itself.
-fn kind_argument(expr: Expr) -> std::result::Result<(Kind, Expr), Expr> {
+/// The kind, the value, and the options of `expr` when it is a call of `scaled` or `direct`, or
+/// `expr` itself.
+fn kind_argument(expr: Expr) -> std::result::Result<(Kind, Expr, Vec<Expr>), Expr> {
     match expr {
-        Expr::ScalarFunction(ScalarFunction { func, mut args }) if args.len() == 1 => {
+        Expr::ScalarFunction(ScalarFunction { func, mut args }) if !args.is_empty() => {
             match Kind::of(func.name()) {
-                Some(kind) => Ok((kind, args.remove(0))),
+                Some(kind) => {
+                    let value = args.remove(0);
+                    Ok((kind, value, args))
+                }
                 None => Err(Expr::ScalarFunction(ScalarFunction { func, args })),
             }
         }
         expr => Err(expr),
     }
+}
+
+/// The arguments of `exprs`, which are literals after folding, as the options of `what` of the
+/// mark `name`: `None` for a `NULL`, which leaves its parameter unset.
+fn constants(name: &str, what: &str, exprs: Vec<Expr>) -> Result<Vec<Option<Arg>>> {
+    (exprs.into_iter())
+        .map(|expr| match expr {
+            Expr::Literal(value, _) => Ok(Arg::new(value)),
+            other => plan_err!(
+                "{name}() needs a plan-time constant for {what}, not `{}`",
+                other.human_display()
+            ),
+        })
+        .collect()
+}
+
+/// The fragment of the options of a plot of the coordinate system `kind` from `arg`.
+fn coord_options(kind: CoordKind, arg: &Arg) -> std::result::Result<proto::Fragment, String> {
+    let fragment = match kind {
+        CoordKind::Cartesian => to_cartesian(arg)?.to_fragment(),
+        CoordKind::Polar => to_polar(arg)?.to_fragment(),
+        CoordKind::Geo => to_geo(arg)?.to_fragment(),
+    };
+    fragment.map_err(|error| error.to_string())
 }
 
 /// The name of the first call of `scaled` or `direct` in `expr`.

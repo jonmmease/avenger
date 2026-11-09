@@ -1,5 +1,5 @@
 //! The mark functions of DataFusion, behind the `datafusion` feature: an aggregate function for
-//! each mark of the Cartesian and the polar layers, which builds a chart of the rows of its group,
+//! each mark of each layer, which builds a chart of the rows of its group,
 //! and the scalar functions `scaled` and `direct`.
 //!
 //! A mark function takes each channel of its mark as a named parameter:
@@ -44,14 +44,25 @@ pub use constructor::FRAGMENT_EXTENSION_NAME;
 pub use kind::{DIRECT, SCALED};
 
 /// A mark function: its name, the coordinate system of its mark, its documentation, its mark in
-/// its layer's `mark` oneof, without encodings, and its channels, which are its parameters.
+/// its layer's `mark` oneof, without encodings, its channels, which are its first parameters, and
+/// its properties, which follow them, with the function that applies their arguments.
 pub(crate) struct MarkSpec {
     pub(crate) name: &'static str,
     pub(crate) coord: CoordKind,
     pub(crate) doc: &'static str,
     pub(crate) mark: fn() -> LayerMark,
     pub(crate) channels: &'static [ChannelSpec],
+    pub(crate) properties: &'static [constructor::ParamSpec],
+    pub(crate) apply_properties: ApplyProperties,
 }
+
+/// The function that applies the arguments of the properties of a mark to its message and its
+/// parts, with the error of an argument.
+pub(crate) type ApplyProperties = fn(
+    &mut LayerMark,
+    &mut crate::builder::Parts,
+    &[Option<argument::Arg>],
+) -> std::result::Result<(), String>;
 
 /// A channel of a mark function: a parameter that takes any expression, named after its field.
 pub(crate) struct ChannelSpec {
@@ -65,6 +76,7 @@ pub(crate) struct ChannelSpec {
 pub(crate) enum LayerMark {
     Cartesian(proto::cartesian_layer::Mark),
     Polar(proto::polar_layer::Mark),
+    Geo(proto::geo_layer::Mark),
 }
 
 impl LayerMark {
@@ -72,9 +84,13 @@ impl LayerMark {
         match self {
             Self::Cartesian(mark) => mark,
             Self::Polar(mark) => mark,
+            Self::Geo(mark) => mark,
         }
     }
 }
+
+/// The name of the parameter of a mark function that takes the options of its plot.
+const COORD: &str = "coord";
 
 include!(concat!(env!("OUT_DIR"), "/functions.rs"));
 

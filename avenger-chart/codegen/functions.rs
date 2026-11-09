@@ -1,5 +1,5 @@
 //! The generation of `functions.rs`, behind the `datafusion` feature: the table of the mark
-//! functions, one for each mark of the Cartesian and the polar layers.
+//! functions, one for each mark of each layer.
 //!
 //! The rules, for the mark message `FooMark` of a layer:
 //!
@@ -11,8 +11,10 @@
 //!   field, or of its value of the `Channel` enum, which a field without a comment of its own
 //!   means
 //!
-//! The marks of geo layers have no functions until the constructors give their plots the `Geo`
-//! options that a geo plot requires.
+//! - its properties, the parameters after its channels, are the parameters of the mark message in
+//!   the parameter model, which applies them with its generated `apply_all_` function
+//!
+//! A mark function also takes `coord`, the options of its plot, last, which the geo marks require.
 
 use std::{collections::BTreeMap, fmt::Write};
 
@@ -21,7 +23,7 @@ use prost_types::FileDescriptorSet;
 use super::{annotations::Annotations, builders::Comments, camel, snake, Messages, KINDS, PACKAGE};
 
 /// The coordinate systems whose marks have functions.
-const KINDS_WITH_FUNCTIONS: [&str; 2] = ["Cartesian", "Polar"];
+const KINDS_WITH_FUNCTIONS: [&str; 3] = ["Cartesian", "Polar", "Geo"];
 
 /// The code of `functions.rs`: `MARKS`, a `MarkSpec` for each mark function.
 pub(super) fn functions(
@@ -106,7 +108,22 @@ pub(super) fn functions(
                 )
                 .unwrap();
             }
-            code.push_str("        ],\n    },\n");
+            code.push_str("        ],\n");
+            // The properties, which the parameter model of the mark message gives.
+            let function = snake(mark.name());
+            writeln!(
+                code,
+                "        properties: constructor::generated::PARAMS_{},",
+                function.to_uppercase()
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "        apply_properties: |mark, parts, args| {{\n            let LayerMark::{kind}({module}::Mark::{}(message)) = mark else {{\n                unreachable!(\"the mark of its function\")\n            }};\n            let builder = crate::builder::Builder {{\n                message: std::mem::take(message),\n                parts: std::mem::take(parts),\n            }};\n            let builder = constructor::generated::apply_all_{function}(builder, args)?;\n            *message = builder.message;\n            *parts = builder.parts;\n            Ok(())\n        }},",
+                camel(member.name())
+            )
+            .unwrap();
+            code.push_str("    },\n");
         }
     }
     code.push_str("];\n");
