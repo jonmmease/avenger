@@ -155,3 +155,98 @@ fn the_explicit_categories_of_a_lump_are_kept_values() {
     )
     .unwrap();
 }
+
+/// Bars of the lumped ports with a point selection `pick` of `points` and the initial clauses
+/// `initial`.
+fn picked(points: PointSelectBuilder, initial: Vec<ClauseBuilder>) -> Result<Chart, ChartError> {
+    let bars = CartesianLayer::bar(ports(), BarMark::builder().x("port").y("tons"))
+        .id("bars")
+        .tools([Select::points("pick", points)]);
+    Chart::builder(Plot::cartesian([bars]))
+        .selections([Selection::new("pick", SelectionResolution::Union).initial(initial)])
+        .build()
+}
+
+#[test]
+fn a_point_selection_names_the_source_of_its_lump() {
+    let points = || PointSelect::builder().keys(["port"]);
+    let path = "root.plot.cartesian.layers[0].tools[0].select.points.sources[0].key";
+    picked(
+        points().sources([LumpSource::new("port", "harbor")]),
+        Vec::new(),
+    )
+    .unwrap();
+    // The source of a column that is not a lump, or of a column that is not a key, fails.
+    invalid(
+        picked(
+            PointSelect::builder()
+                .keys(["tons"])
+                .sources([LumpSource::new("tons", "weight")]),
+            Vec::new(),
+        ),
+        path,
+        "a column of lumps",
+    );
+    invalid(
+        picked(
+            points().sources([LumpSource::new("tons", "weight")]),
+            Vec::new(),
+        ),
+        path,
+        "a key of the point selection",
+    );
+    // A lump source makes the lump the one key.
+    invalid(
+        picked(
+            PointSelect::builder()
+                .keys(["port", "tons"])
+                .sources([LumpSource::new("port", "harbor")]),
+            Vec::new(),
+        ),
+        "root.plot.cartesian.layers[0].tools[0].select.points.sources",
+        "one key",
+    );
+}
+
+#[test]
+fn a_set_with_others_round_trips() {
+    let clause = || {
+        Clause::new([Condition::set([
+            SetColumn::new("harbor", ["Rotterdam"]).others(["Rotterdam", "Hamburg"])
+        ])])
+        .owner("bars")
+    };
+    let chart = picked(PointSelect::builder().keys(["port"]), vec![clause()]).unwrap();
+    let read = Chart::from_bytes(chart.to_bytes().unwrap()).unwrap();
+    let set = match &read.selections()[0].initial[0].conditions[0].kind {
+        Some(avenger_chart::proto::condition::Kind::Set(set)) => set.clone(),
+        kind => panic!("a set, and not {kind:?}"),
+    };
+    let others = read.list_elements(set.columns[0].others.as_ref().unwrap());
+    let others = others.as_any().downcast_ref::<StringArray>().unwrap();
+    assert_eq!(
+        others.iter().flatten().collect::<Vec<_>>(),
+        ["Rotterdam", "Hamburg"]
+    );
+
+    // Every column of a set has others, or none does, and others have the column's type.
+    let mixed = Clause::new([Condition::set([
+        SetColumn::new("harbor", ["Rotterdam"]).others(["Hamburg"]),
+        SetColumn::new("tons", [40.0]),
+    ])])
+    .owner("bars");
+    invalid(
+        picked(PointSelect::builder().keys(["port"]), vec![mixed]),
+        "selections[0].initial[0].conditions[0].set",
+        "or none does",
+    );
+    let typed = Clause::new([Condition::set([
+        SetColumn::new("harbor", ["Rotterdam"]).others([1.0])
+    ])])
+    .owner("bars");
+    invalid(
+        picked(PointSelect::builder().keys(["port"]), vec![typed]),
+        "selections[0].initial[0].conditions[0].set.columns[0].others",
+        "the type of its values",
+    );
+}

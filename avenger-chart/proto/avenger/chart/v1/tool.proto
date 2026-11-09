@@ -199,6 +199,21 @@ message PointSelect {
   // Whether a click with Shift adds the instance to the selection, or removes it when the
   // selection holds it, instead of replacing the selection.
   bool toggle = 2;
+  // The source columns of keys that are columns of lumps. The selection holds a set of the source
+  // column in place of the lump: a click on a kept category selects its value, and a click on the
+  // Other group selects every value outside the kept categories of the clicked plot's rows, so a
+  // query filters its rows before it lumps them again. A point selection with a source has the
+  // lump as its one key.
+  repeated LumpSource sources = 3;
+}
+
+// A key of a point selection that is a column of lumps, and the column that the lumps were made
+// from.
+message LumpSource {
+  // The key, a column of lumps.
+  string key = 1 [(avenger.chart.v1.required) = true];
+  // The column that the selection's sets name, which holds the categories of the lumps.
+  string source = 2 [(avenger.chart.v1.required) = true];
 }
 
 // A drag draws a path around the rows that it selects.

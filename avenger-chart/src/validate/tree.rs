@@ -4,7 +4,8 @@
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
 use super::{
-    classes, fail, keyed, non_negative, positive, size, title, within, Checker, Result, REQUIRED,
+    classes, fail, keyed, named, non_negative, positive, size, title, within, Checker, Result,
+    REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef},
@@ -585,6 +586,36 @@ impl Checker<'_> {
                 }
                 for (index, key) in points.keys.iter().enumerate() {
                     column_type(key, tables, scope, &format!("{path}.points.keys[{index}]"))?;
+                }
+                if !points.sources.is_empty() && points.keys.len() != 1 {
+                    return Err(fail(
+                        format!("{path}.points.sources"),
+                        "a point selection with the source of a lump has the lump as its one key",
+                    ));
+                }
+                // The source of a lump is a column of the query's input, which the chart's tables
+                // need not hold, so only its key is checked.
+                for (index, source) in points.sources.iter().enumerate() {
+                    let path = format!("{path}.points.sources[{index}]");
+                    named(
+                        &source.source,
+                        &format!("{path}.source"),
+                        "the source of a lump",
+                    )?;
+                    if !points.keys.contains(&source.key) {
+                        return Err(fail(
+                            format!("{path}.key"),
+                            format!("`{}` is a key of the point selection", source.key),
+                        ));
+                    }
+                    let data_type =
+                        column_type(&source.key, tables, scope, &format!("{path}.key"))?;
+                    if !data_type.as_ref().is_some_and(crate::lump::is_lump) {
+                        return Err(fail(
+                            format!("{path}.key"),
+                            format!("`{}` is a column of lumps", source.key),
+                        ));
+                    }
                 }
             }
             Some(select::Form::Lasso(lasso)) => {

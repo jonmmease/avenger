@@ -96,3 +96,22 @@ pub fn other_key(data_type: &DataType, label: &str) -> Option<ArrayRef> {
     let other: ArrayRef = Arc::new(arrow::array::StringArray::from(vec![label]));
     Some(Arc::new(StructArray::new(fields, vec![value, other], None)))
 }
+
+/// The keys of lumps of the key type `key_type` of the kept categories `values`, which are cast to
+/// the type of the lumps' `value`: each value with a NULL `other`. `None` for a type that is not
+/// the key type of lumps, or values that do not cast.
+pub fn kept_keys(key_type: &DataType, values: &ArrayRef) -> Option<ArrayRef> {
+    let DataType::Struct(fields) = key_type else {
+        return None;
+    };
+    if fields.len() != 2 || fields[1].name() != FIELDS[1] {
+        return None;
+    }
+    let value = arrow::compute::cast(values, fields[0].data_type()).ok()?;
+    let other = arrow::array::new_null_array(fields[1].data_type(), values.len());
+    Some(Arc::new(StructArray::new(
+        fields.clone(),
+        vec![value, other],
+        None,
+    )))
+}

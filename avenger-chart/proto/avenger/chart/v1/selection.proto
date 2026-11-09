@@ -72,7 +72,9 @@ message Condition {
 // A set of tuples of values of one or more columns, as a point selection records the keys of the
 // instances that it selects. A row matches when its values of the columns equal one tuple, so a
 // set of `carrier` and `dest` with the tuples (UA, ATL) and (AA, BOS) does not match a row of UA
-// and BOS.
+// and BOS. A set whose columns have `others` also matches each row whose values equal none of the
+// tuples of `others`, where a null equals a null, so it can select everything except some tuples,
+// as a click on the Other group of a lump selects every category outside the kept ones.
 message ValueSet {
   // The columns, at least one.
   repeated SetColumn columns = 1 [(avenger.chart.v1.required) = true];
@@ -88,6 +90,9 @@ message SetColumn {
   // A list of the values of the column, in the type of the column. The lists of the columns of a
   // set have one length, and the tuples of the set are their rows.
   ValueRef values = 3 [(avenger.chart.v1.required) = true];
+  // The values of the column of the tuples outside of which the set also matches, in the type of
+  // the column. Every column of a set has them, or none does, and their lists have one length.
+  optional ValueRef others = 4;
 }
 
 // A range of values, as an interval on a continuous scale, a click on a bin, or a slider records
