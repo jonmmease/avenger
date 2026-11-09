@@ -396,13 +396,10 @@ fn target(tooltip: &proto::Tooltip) -> InstanceTarget {
     if tooltip.hide_swatch {
         target = target.without_swatch();
     }
-    target.with_values(LUMPS.clone())
+    // A lump's fields bind its values as its guides' labels do: the kept category or the Other
+    // group's label as `value`, and `other`, `count`, and `weight`.
+    target.with_values(FieldValues::new(avenger_chart_eval::lump_label_values))
 }
-
-/// The values of a lump that a tooltip's fields bind, as its guides' labels bind them: the kept
-/// category or the Other group's label as `value`, and `other`, `count`, and `weight`.
-static LUMPS: std::sync::LazyLock<FieldValues> =
-    std::sync::LazyLock::new(|| FieldValues::new(avenger_chart_eval::lump_label_values));
 
 fn field(declared: &proto::TooltipField) -> TooltipField {
     let mut field = TooltipField::new(declared.column.as_str());

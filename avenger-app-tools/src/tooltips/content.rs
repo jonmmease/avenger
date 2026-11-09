@@ -78,8 +78,7 @@ type ValuesFn = dyn Fn(&ArrayRef, usize, &str, &LabelEngine) -> Result<Option<La
     + Sync;
 
 /// The values that the labels of a target's fields bind for a row, in place of the row's value
-/// as `value`: a field without markup shows the `value` that they hold. Two are equal when they
-/// are the same function.
+/// as `value`: a field without markup shows the `value` that they hold.
 #[derive(Clone)]
 pub struct FieldValues(Arc<ValuesFn>);
 
@@ -97,12 +96,6 @@ impl FieldValues {
 impl std::fmt::Debug for FieldValues {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("FieldValues")
-    }
-}
-
-impl PartialEq for FieldValues {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 

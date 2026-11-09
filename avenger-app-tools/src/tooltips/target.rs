@@ -28,7 +28,7 @@ enum Strategy {
 /// An instance that a tooltip describes, with its row: how the target finds the instance at the
 /// pointer and among which marks, where its tooltip stands, and which columns the tooltip shows.
 /// Only an instance whose mark has rows is found, since a tooltip describes data.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct InstanceTarget {
     strategy: Strategy,
     marks: Option<Vec<String>>,
