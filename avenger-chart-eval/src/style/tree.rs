@@ -144,10 +144,9 @@ pub(crate) fn build(
             .mark
             .encodings()
             .any(|(_, encoding)| match &encoding.kind {
-                Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => {
-                    (layer.table.column_by_name(name))
-                        .is_some_and(|column| avenger_chart::lump::is_lump(column.data_type()))
-                }
+                // A lump is never a direct field, so only scaled fields read lumps.
+                Some(encoding::Kind::ScaledField(name)) => (layer.table.column_by_name(name))
+                    .is_some_and(|column| avenger_chart::lump::is_lump(column.data_type())),
                 _ => false,
             });
         others.push(reads_lumps.then(|| tree.add(node, Element::Other)));
@@ -439,11 +438,13 @@ fn guide_nodes(
         GuideKind::PolarAxis => {
             let axis = tree.add(owner, Element::Axis);
             attributes(tree, axis);
+            let title = tree.add(axis, Element::Title);
+            let label = tree.add(axis, Element::Label);
             let nodes = AxisNodes {
                 axis,
-                title: tree.add(axis, Element::Title),
-                label: tree.add(axis, Element::Label),
-                other: None,
+                title,
+                label,
+                other: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),

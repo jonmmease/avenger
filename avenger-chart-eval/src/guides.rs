@@ -207,7 +207,7 @@ pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4]
 }
 
 /// How the text style of `other`, the `other` node of a guide's `label`, differs from `label`'s.
-fn label_variant(label: &ComputedStyle, other: &ComputedStyle) -> LabelVariant {
+pub(crate) fn label_variant(label: &ComputedStyle, other: &ComputedStyle) -> LabelVariant {
     fn differs<T: PartialEq>(label: T, other: T) -> Option<T> {
         (label != other).then_some(other)
     }
@@ -1009,19 +1009,25 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
         .collect()
 }
 
+/// `values` of the entries of a legend, with `with` on each entry of `entries`.
+fn replaced<T: Clone + Send + Sync>(
+    values: &ScalarOrArray<T>,
+    entries: &[bool],
+    with: T,
+) -> ScalarOrArray<T> {
+    ScalarOrArray::new_array(
+        (values.as_vec(entries.len(), None).into_iter().zip(entries))
+            .map(|(value, other)| if *other { with.clone() } else { value })
+            .collect(),
+    )
+}
+
 /// Whether each of the `len` entries of a legend whose categories are `categories` is the Other
 /// group of a lump, or `None` for a legend without such an entry.
 fn other_entries(categories: Option<&ArrayRef>, len: usize) -> Option<Vec<bool>> {
-    let categories = categories?;
-    let DataType::Struct(fields) = categories.data_type() else {
-        return None;
-    };
-    if fields.len() != 2 || fields[1].name() != "other" {
-        return None;
-    }
-    let other = categories.as_struct().column(1);
+    let others = avenger_chart::lump::others(categories?)?;
     let entries: Vec<bool> = (0..len)
-        .map(|entry| entry < other.len() && other.is_valid(entry))
+        .map(|entry| entry < others.len() && others.value(entry))
         .collect();
     entries.contains(&true).then_some(entries)
 }
@@ -1081,6 +1087,24 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 .collect(),
         )
     };
+    // The entries of the Other group of a lump draw as the rows of the group do, through the
+    // layer's `other` node.
+    let others = match (
+        other_entries(draft.categories.as_ref(), len),
+        inputs.nodes.others[layer_index],
+    ) {
+        (Some(entries), Some(other)) => Some((entries, other)),
+        _ => None,
+    };
+    let other_paint = |other: avenger_style::NodeId, property: Property| {
+        let color = style_color(&styles[other], Property::Color);
+        match styles.paint_with(other, property, color) {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        }
+    };
     let swatches = if line {
         let mut swatches = LineSwatches {
             stroke: ScalarOrArray::new_scalar(
@@ -1112,6 +1136,14 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 Swatch::Opacity(values) => opacity = Some(values),
                 _ => {}
             }
+        }
+        if let Some((entries, other)) = &others {
+            let stroke = other_paint(*other, Property::Stroke);
+            let width = style_number(&styles[*other], Property::StrokeWidth);
+            let dash = crate::encode::style_dashes(&styles[*other]);
+            swatches.stroke = replaced(&swatches.stroke, entries, stroke);
+            swatches.stroke_width = replaced(&swatches.stroke_width, entries, width);
+            swatches.stroke_dash = replaced(&swatches.stroke_dash, entries, dash);
         }
         if let Some(opacity) = opacity {
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
@@ -1194,44 +1226,23 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 Swatch::StrokeDash(_) => {}
             }
         }
-        // The entry of the Other group of a lump paints as the rows of the group do, through the
-        // layer's `other` node.
-        if let (Some(others), Some(other)) = (
-            other_entries(draft.categories.as_ref(), len),
-            inputs.nodes.others[layer_index],
-        ) {
-            let color = style_color(&styles[other], Property::Color);
-            let paint = |property: Property| match styles.paint_with(other, property, color) {
-                Paint::None => ColorOrGradient::transparent(),
-                Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                    ColorOrGradient::Color(color)
-                }
-            };
-            let (fill, stroke) = (paint(Property::Fill), paint(Property::Stroke));
-            let width = style_number(&styles[other], Property::StrokeWidth);
-            let replace = |values: &ScalarOrArray<ColorOrGradient>, with: &ColorOrGradient| {
-                ScalarOrArray::new_array(
-                    (values.as_vec(len, None).into_iter().zip(&others))
-                        .map(|(value, other)| if *other { with.clone() } else { value })
-                        .collect(),
-                )
-            };
-            swatches.fill = replace(&swatches.fill, &fill);
-            swatches.stroke = replace(&swatches.stroke, &stroke);
-            let strokes = matches!(&stroke, ColorOrGradient::Color(color) if color[3] > 0.0);
-            swatches.stroke_width = ScalarOrArray::new_array(
-                (swatches
-                    .stroke_width
-                    .as_vec(len, None)
-                    .into_iter()
-                    .zip(&others))
-                .map(|(value, is_other)| match (*is_other, strokes) {
-                    (true, true) => width,
-                    (true, false) => 0.0,
-                    (false, _) => value,
-                })
-                .collect(),
+        if let Some((entries, other)) = &others {
+            let (fill, stroke) = (
+                other_paint(*other, Property::Fill),
+                other_paint(*other, Property::Stroke),
             );
+            let strokes = matches!(&stroke, ColorOrGradient::Color(color) if color[3] > 0.0);
+            let width = match strokes {
+                true => style_number(&styles[*other], Property::StrokeWidth),
+                false => 0.0,
+            };
+            let shape = (styles[*other].string(Property::Shape))
+                .and_then(|name| SymbolShape::from_vega_str(name).ok())
+                .unwrap_or_default();
+            swatches.fill = replaced(&swatches.fill, entries, fill);
+            swatches.stroke = replaced(&swatches.stroke, entries, stroke);
+            swatches.stroke_width = replaced(&swatches.stroke_width, entries, width);
+            swatches.shape = replaced(&swatches.shape, entries, shape);
         }
         if let Some(opacity) = opacity {
             swatches.fill = faded(&swatches.fill, &opacity, len);

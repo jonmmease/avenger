@@ -339,15 +339,10 @@ impl<'a> LayerRows<'a> {
             return Ok(None);
         };
         // A row of the Other group of a lump that the channel reads takes the `other` node's color
-        // or paint in place of the scale's, unless a conditional value gives it its color.
-        let (Some(other), Some(mut mask)) = (self.other_style(), self.other_mask(channel)) else {
+        // or paint in place of the scale's.
+        let Some(other) = self.other_style() else {
             return Ok(Some(colors));
         };
-        for conditional in self.masks.get(&channel).into_iter().flatten() {
-            for (other, conditioned) in mask.iter_mut().zip(conditional) {
-                *other &= !conditioned;
-            }
-        }
         let replacement = match channel {
             Channel::Fill => Self::other_paint(self, Property::Fill),
             Channel::Stroke => Self::other_paint(self, Property::Stroke),
@@ -355,12 +350,43 @@ impl<'a> LayerRows<'a> {
                 ColorOrGradient::Color(other.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]))
             }
         };
-        let colors = colors.as_vec(self.len(), None);
-        Ok(Some(ScalarOrArray::new_array(
-            (colors.into_iter().zip(mask))
-                .map(|(color, other)| if other { replacement.clone() } else { color })
+        Ok(Some(self.with_others(colors, channel, replacement)))
+    }
+
+    /// Whether each row takes the `other` node's value of `channel` in place of the mark's: the
+    /// rows of the Other group of every column of lumps that the layer reads, without an encoding
+    /// of the channel, or of the column that the channel's encoding reads, except the rows that a
+    /// conditional value of the channel gives their value. `None` when no row does.
+    pub(crate) fn styled_others(&self, channel: Channel) -> Option<Vec<bool>> {
+        self.other?;
+        let mut rows = match self.encoding(channel) {
+            None => self.other_rows()?,
+            Some(_) => self.other_mask(channel)?,
+        };
+        for conditional in self.masks.get(&channel).into_iter().flatten() {
+            for (other, conditioned) in rows.iter_mut().zip(conditional) {
+                *other &= !conditioned;
+            }
+        }
+        rows.contains(&true).then_some(rows)
+    }
+
+    /// `values` of `channel`, with `other`, the `other` node's value, on the rows that
+    /// [`styled_others`](Self::styled_others) gives.
+    pub(crate) fn with_others<T: Clone + Send + Sync>(
+        &self,
+        values: ScalarOrArray<T>,
+        channel: Channel,
+        other: T,
+    ) -> ScalarOrArray<T> {
+        let Some(rows) = self.styled_others(channel) else {
+            return values;
+        };
+        ScalarOrArray::new_array(
+            (values.as_vec(self.len(), None).into_iter().zip(rows))
+                .map(|(value, is_other)| if is_other { other.clone() } else { value })
                 .collect(),
-        )))
+        )
     }
 
     /// The computed style of the mark's `other` node, which styles the rows of the Other group of
@@ -424,22 +450,10 @@ impl<'a> LayerRows<'a> {
             // A percentage `size` that no band divides draws at the initial `size`.
             None => scalar(of(self.style)),
         };
-        // The rows of the Other group take the `other` node's value where the mark node's
-        // applies: without an encoding, or through one that reads the lumps.
-        let rows = match self.encoding(channel) {
-            None => self.other_rows(),
-            Some(_) => self.other_mask(channel),
-        };
-        let (Some(other), Some(rows)) = (self.other_style(), rows) else {
-            return Ok(values);
-        };
-        let replacement = of(other);
-        let values = values.as_vec(self.len(), None);
-        Ok(ScalarOrArray::new_array(
-            (values.into_iter().zip(rows))
-                .map(|(value, is_other)| if is_other { replacement } else { value })
-                .collect(),
-        ))
+        Ok(match self.other_style() {
+            Some(other) => self.with_others(values, channel, of(other)),
+            None => values,
+        })
     }
 
     /// The computed `size` of the mark node as a fraction of its band, when it is a percentage and
@@ -482,23 +496,18 @@ impl<'a> LayerRows<'a> {
     /// The dashes of `stroke_dash`, or the computed `stroke-dash` of the mark node: no dash for
     /// `none`.
     pub(crate) fn dashes_or_style(&self) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
-        if let Some(dashes) = self.dashes(Channel::StrokeDash)? {
-            return Ok(Some(dashes));
-        }
-        Ok(match self.style.get(Property::StrokeDash) {
-            Computed::Sequence(parts) | Computed::List(parts) => {
-                let lengths: Vec<f32> = (parts.iter())
-                    .filter_map(|part| match part {
-                        Computed::Number(value) => Some(*value),
-                        Computed::Integer(value) => Some(*value as f32),
-                        _ => None,
-                    })
-                    .collect();
-                (!lengths.is_empty()).then(|| scalar(lengths))
-            }
-            Computed::Number(value) => Some(scalar(vec![*value])),
-            _ => None,
-        })
+        let dashes = match self.dashes(Channel::StrokeDash)? {
+            Some(dashes) => Some(dashes),
+            None => style_dashes(self.style).map(scalar),
+        };
+        // The rows of the Other group take the `other` node's dashes, where no dashes is solid.
+        let (Some(other), Some(_)) = (self.other_style(), self.styled_others(Channel::StrokeDash))
+        else {
+            return Ok(dashes);
+        };
+        let dashes = dashes.unwrap_or_else(|| scalar(Vec::new()));
+        let other = style_dashes(other).unwrap_or_default();
+        Ok(Some(self.with_others(dashes, Channel::StrokeDash, other)))
     }
 
     /// The band of each row along `channel` on a band or a nested band scale: its start, the edge
@@ -570,9 +579,10 @@ impl<'a> LayerRows<'a> {
         channel: Channel,
     ) -> Result<ScalarOrArray<ColorOrGradient>> {
         let paint = self.mark_paint_of(property, channel)?;
-        // The rows of the Other group take the `other` node's paint where the mark node's applies:
-        // without an encoding of the channel, or through one that reads the lumps.
-        let rows = match (self.encoding(channel), self.other_rows()) {
+        // Without an encoding of the channel, the rows of the Other group take the `other` node's
+        // paint, of their own colors, where the mark node's applies. An encoding's colors have
+        // their Other rows already.
+        let rows = match (self.encoding(channel), self.styled_others(channel)) {
             (None, Some(rows)) => rows,
             _ => return Ok(paint),
         };
@@ -874,6 +884,24 @@ pub(crate) fn fade(
                     .collect(),
             )
         }
+    }
+}
+
+/// The computed `stroke-dash` of a node, or `None` for `none`.
+pub(crate) fn style_dashes(style: &ComputedStyle) -> Option<Vec<f32>> {
+    match style.get(Property::StrokeDash) {
+        Computed::Sequence(parts) | Computed::List(parts) => {
+            let lengths: Vec<f32> = (parts.iter())
+                .filter_map(|part| match part {
+                    Computed::Number(value) => Some(*value),
+                    Computed::Integer(value) => Some(*value as f32),
+                    _ => None,
+                })
+                .collect();
+            (!lengths.is_empty()).then_some(lengths)
+        }
+        Computed::Number(value) => Some(vec![*value]),
+        _ => None,
     }
 }
 

@@ -708,10 +708,10 @@ fn lump_tuples(
         .filter_map(|row| Some(vec![Scalar::try_from_array(kept.as_ref(), row).ok()?]))
         .collect();
     if others {
-        let other = drawn.as_struct().column(1).clone();
+        let other = avenger_chart::lump::others(&drawn).expect("the keys of lumps");
         tuples.extend(
             (0..drawn.len())
-                .filter(|&row| other.is_valid(row))
+                .filter(|&row| other.value(row))
                 .filter_map(|row| Some(vec![Scalar::try_from_array(drawn.as_ref(), row).ok()?])),
         );
     }
@@ -730,7 +730,9 @@ fn lump_set(
 ) -> Option<Condition> {
     let drawn = drawn_keys(state, declared, key)?;
     let value_type = drawn.as_struct().column(0).data_type().clone();
-    let is_other = |scalar: &Scalar| scalar.0.as_struct().column(1).is_valid(0);
+    let is_other = |scalar: &Scalar| {
+        avenger_chart::lump::others(&scalar.0).is_some_and(|others| others.value(0))
+    };
     let kept: Vec<&dyn Array> = (tuples.iter())
         .filter(|tuple| !is_other(&tuple[0]))
         .map(|tuple| tuple[0].0.as_struct().column(0).as_ref())
@@ -743,12 +745,13 @@ fn lump_set(
     if !tuples.iter().any(|tuple| is_other(&tuple[0])) {
         return Some(set);
     }
-    let drawn = drawn.as_struct();
+    let other = avenger_chart::lump::others(&drawn)?;
     let kept_rows: arrow::array::UInt32Array = (0..drawn.len())
-        .filter(|&row| drawn.column(1).is_null(row))
+        .filter(|&row| !other.value(row))
         .map(|row| row as u32)
         .collect();
-    let others = arrow::compute::take(drawn.column(0).as_ref(), &kept_rows, None).ok()?;
+    let others =
+        arrow::compute::take(drawn.as_struct().column(0).as_ref(), &kept_rows, None).ok()?;
     set.with_others(vec![others]).ok()
 }
 

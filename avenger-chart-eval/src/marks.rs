@@ -118,26 +118,20 @@ pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>
 }
 
 /// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node,
-/// and on the rows of the Other group of a lump, the `pattern` of the `other` node unless the
-/// channel reads another column.
+/// and on the rows of the Other group of a lump, the `pattern` of the `other` node.
 pub(crate) fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
-    let encoded = rows.patterns(Channel::Pattern)?;
-    let reads_other =
-        rows.encoding(Channel::Pattern).is_none() || rows.other_mask(Channel::Pattern).is_some();
-    let patterns = match encoded {
+    let patterns = match rows.patterns(Channel::Pattern)? {
         Some(patterns) => Some(patterns),
         None => style_pattern(rows.style)?.map(|pattern| scalar(Some(pattern))),
     };
-    let (Some(others), Some(other), true) = (rows.other_rows(), rows.other_style(), reads_other)
-    else {
+    let (Some(other), Some(_)) = (rows.other_style(), rows.styled_others(Channel::Pattern)) else {
         return Ok(patterns);
     };
-    let other = style_pattern(other)?;
     let patterns = patterns.unwrap_or_else(|| scalar(None));
-    Ok(Some(ScalarOrArray::new_array(
-        (patterns.as_vec(others.len(), None).into_iter().zip(others))
-            .map(|(pattern, is_other)| if is_other { other.clone() } else { pattern })
-            .collect(),
+    Ok(Some(rows.with_others(
+        patterns,
+        Channel::Pattern,
+        style_pattern(other)?,
     )))
 }
 
@@ -184,15 +178,22 @@ pub(crate) fn shapes(
     }
 }
 
-/// The names of the shapes of each row: the `shape` channel, or the computed `shape`.
+/// The names of the shapes of each row: the `shape` channel, or the computed `shape`, and on the
+/// rows of the Other group of a lump, the `other` node's `shape`.
 pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
-    Ok(match rows.strings(Channel::Shape)? {
+    let shape = |style: &ComputedStyle| {
+        (style.string(Property::Shape))
+            .expect("`shape` computes to a string")
+            .to_string()
+    };
+    let names = match rows.strings(Channel::Shape)? {
         Some(names) => names,
-        None => scalar(
-            (rows.style.string(Property::Shape))
-                .expect("`shape` computes to a string")
-                .to_string(),
-        ),
+        None => scalar(shape(rows.style)),
+    };
+    // The rows of the Other group take the `other` node's shape.
+    Ok(match rows.other_style() {
+        Some(other) => rows.with_others(names, Channel::Shape, shape(other)),
+        None => names,
     })
 }
 

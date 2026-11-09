@@ -159,15 +159,6 @@ fn lump_domain(
     lumps.order(&keyed.order(domain)?, fit.ordered)
 }
 
-/// The values of a group's members as the keys of their lumps, with the group's lumps, or the
-/// values as they are when the members hold no lumps.
-fn keyed(values: &[Option<MemberValues>]) -> Result<(Option<Lumps>, Vec<Option<MemberValues>>)> {
-    Ok(match Lumps::of(values)? {
-        Some((lumps, keyed)) => (Some(lumps), keyed),
-        None => (None, values.to_vec()),
-    })
-}
-
 /// A position scale of a plot, which fits its domain at each length.
 #[derive(Clone, Debug)]
 pub(crate) struct Position {
@@ -199,6 +190,7 @@ pub(crate) fn position(
     defaults: FitDefaults,
     style: &ComputedStyle,
     values: &[Option<MemberValues>],
+    lumps: Option<&Lumps>,
     wraps: bool,
 ) -> Result<Position> {
     let FitInputs {
@@ -207,7 +199,7 @@ pub(crate) fn position(
         states,
     } = *inputs;
     let spec = &group.spec;
-    let (lumps, keyed) = keyed(values)?;
+    let keyed = crate::lumps::keyed(values);
     let values = keyed.as_slice();
     let mut unfitted = unfitted(spec, style, registry, &value_type(values))?;
     if wraps {
@@ -227,7 +219,7 @@ pub(crate) fn position(
     let fit = domain_options(chart, spec, kind, defaults);
     let (fitting, clip) = match source(chart, group, states)? {
         DomainSource::Explicit(domain) => {
-            let domain = match &lumps {
+            let domain = match lumps {
                 Some(lumps) => lumps.order(&lumps.kept_keys(&domain)?, true)?,
                 None => domain,
             };
@@ -240,7 +232,7 @@ pub(crate) fn position(
         } => {
             let fit = fit.pinned(pin);
             let fitting = match inferred_summary(&unfitted, &summaries, &data, values)? {
-                Some(summary) => fitting_of(unfitted, summary, &fit, lumps.as_ref())?,
+                Some(summary) => fitting_of(unfitted, summary, &fit, lumps)?,
                 None => FittingScale::from(unfitted),
             };
             (fitting, fit.pins())
@@ -279,6 +271,7 @@ fn explicit(
 /// A non-position scale with its domain and its range: the domain from its source, fitted without
 /// a length, and the range from the computed `scheme` or `range` of its `scale` node. A scale whose
 /// styles give no range keeps the range from 0 to 1, with a warning.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn non_position(
     inputs: &FitInputs,
     group: &ScaleGroup,
@@ -286,6 +279,7 @@ pub(crate) fn non_position(
     style: &ComputedStyle,
     styles: &ComputedStyles,
     values: &[Option<ArrayRef>],
+    lumps: Option<&Lumps>,
     warnings: &mut Vec<EvalWarning>,
 ) -> Result<ConfiguredScale> {
     let FitInputs {
@@ -297,10 +291,10 @@ pub(crate) fn non_position(
     let values: Vec<Option<MemberValues>> = (values.iter())
         .map(|values| values.clone().map(|values| (values, None)))
         .collect();
-    let (lumps, values) = keyed(&values)?;
+    let values = crate::lumps::keyed(&values);
     let unfitted = unfitted(spec, style, registry, &value_type(&values))?;
     let domain = match source(chart, group, states)? {
-        DomainSource::Explicit(domain) => match &lumps {
+        DomainSource::Explicit(domain) => match lumps {
             Some(lumps) => lumps.order(&lumps.kept_keys(&domain)?, true)?,
             None => domain,
         },
@@ -312,7 +306,7 @@ pub(crate) fn non_position(
             let fit = domain_options(chart, spec, fit_kind(spec, registry)?, defaults).pinned(pin);
             match inferred_summary(&unfitted, &summaries, &data, &values)? {
                 Some(summary) if lumps.is_some() => {
-                    lump_domain(&unfitted, &summary, &fit, lumps.as_ref().expect("lumps"))?
+                    lump_domain(&unfitted, &summary, &fit, lumps.expect("lumps"))?
                 }
                 Some(summary) => {
                     let domain = (unfitted.clone().with_range_interval((0.0, 1.0)))

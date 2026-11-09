@@ -72,10 +72,22 @@ pub fn keys(column: &ArrayRef) -> Option<ArrayRef> {
     Some(Arc::new(keys))
 }
 
-/// Whether each row of a lump column is in the Other group: its `other` is not NULL. `None` for a
-/// column that is not a lump.
+/// Whether `data_type` is the type of the keys of lumps: a struct of a `value` and an `other` of
+/// Utf8.
+pub fn is_key(data_type: &DataType) -> bool {
+    let DataType::Struct(fields) = data_type else {
+        return false;
+    };
+    fields.len() == 2
+        && fields[0].name() == FIELDS[0]
+        && fields[1].name() == FIELDS[1]
+        && fields[1].data_type() == &DataType::Utf8
+}
+
+/// Whether each row of a column of lumps or of their keys is in the Other group: its `other` is
+/// not NULL. `None` for a column of another type.
 pub fn others(column: &ArrayRef) -> Option<BooleanArray> {
-    if !is_lump(column.data_type()) {
+    if !is_lump(column.data_type()) && !is_key(column.data_type()) {
         return None;
     }
     let other = column.as_struct().column(1);
@@ -86,17 +98,6 @@ pub fn others(column: &ArrayRef) -> Option<BooleanArray> {
     )
 }
 
-/// The key of the Other group with the label `label`, for a lump of `data_type`: a NULL `value`
-/// and the label.
-pub fn other_key(data_type: &DataType, label: &str) -> Option<ArrayRef> {
-    let DataType::Struct(fields) = key_type(data_type)? else {
-        return None;
-    };
-    let value = arrow::array::new_null_array(fields[0].data_type(), 1);
-    let other: ArrayRef = Arc::new(arrow::array::StringArray::from(vec![label]));
-    Some(Arc::new(StructArray::new(fields, vec![value, other], None)))
-}
-
 /// The keys of lumps of the key type `key_type` of the kept categories `values`, which are cast to
 /// the type of the lumps' `value`: each value with a NULL `other`. `None` for a type that is not
 /// the key type of lumps, or values that do not cast.
@@ -104,7 +105,7 @@ pub fn kept_keys(key_type: &DataType, values: &ArrayRef) -> Option<ArrayRef> {
     let DataType::Struct(fields) = key_type else {
         return None;
     };
-    if fields.len() != 2 || fields[1].name() != FIELDS[1] {
+    if !is_key(key_type) {
         return None;
     }
     let value = arrow::compute::cast(values, fields[0].data_type()).ok()?;

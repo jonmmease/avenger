@@ -1179,10 +1179,10 @@ impl ChartEvaluator {
             let columns: Option<Vec<ArrayRef>> = (condition.columns().into_iter())
                 .map(|name| match table.column_by_name(name) {
                     Some(column) => Some(column.clone()),
-                    None if crate::convert::selection::lump_keys(name, table).is_some() => {
-                        crate::convert::selection::lump_keys(name, table)
-                    }
                     None => {
+                        if let Some(keys) = crate::convert::selection::lump_keys(name, table) {
+                            return Some(keys);
+                        }
                         let value = layer.partition.get(name)?;
                         let rows = arrow::array::UInt32Array::from(vec![0; table.num_rows()]);
                         arrow::compute::take(value, &rows, None).ok()
@@ -1371,6 +1371,17 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         )
     };
 
+    // The lumps of each group whose members read columns of lumps, which order its categories
+    // and label its guides.
+    let lumps = (groups.iter())
+        .map(|group| {
+            let values = (group.members.iter())
+                .map(|member| Ok(values_of(member)?.map(|values| (values, None))))
+                .collect::<Result<Vec<Option<MemberValues>>>>()?;
+            crate::lumps::Lumps::of(&values)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     let mut scales: Vec<Option<ConfiguredScale>> = vec![None; groups.len()];
     for (index, group) in groups.iter().enumerate() {
         if group.is_position() {
@@ -1386,6 +1397,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             &styles[nodes.scales[index]],
             styles,
             &values,
+            lumps[index].as_ref(),
             &mut warnings,
         )?;
         scales[index] = Some(match carried.get(&index) {
@@ -1467,6 +1479,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             &values,
+            lumps[index].as_ref(),
             polar::wraps(resolved, group),
         )?;
         positions[index] = Some(match carried.get(&index) {
@@ -1490,6 +1503,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             styles,
             engine,
             positions: &positions,
+            lumps: &lumps,
         },
         unsized_rows,
         &reach,
@@ -1509,15 +1523,6 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
     let fittings: Vec<_> = (positions.iter())
         .map(|position| position.as_ref().map(|position| position.fitting.clone()))
         .collect();
-    // The lumps of each group whose members read columns of lumps, which label its guides.
-    let lumps = (groups.iter())
-        .map(|group| {
-            let values = (group.members.iter())
-                .map(|member| Ok(values_of(member)?.map(|values| (values, None))))
-                .collect::<Result<Vec<Option<MemberValues>>>>()?;
-            Ok(crate::lumps::Lumps::of(&values)?.map(|(lumps, _)| lumps))
-        })
-        .collect::<Result<Vec<_>>>()?;
     let guides = guides::guides(&GuideInputs {
         chart,
         resolved,

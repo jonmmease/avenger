@@ -398,3 +398,138 @@ fn a_selection_of_the_source_of_a_lump_selects_its_kept_bars_and_the_other_bar()
         [true, true, false, false]
     );
 }
+
+#[test]
+fn the_other_group_takes_the_shape_of_its_node_on_a_scale_of_shapes() {
+    let symbols = CartesianLayer::symbol(
+        lumped_cars(),
+        SymbolMark::builder().x("weight").y("mpg").shape("lumped"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let evaluated = evaluate_styled(chart, "mark > other { shape: cross; }", [480.0, 320.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let cross = avenger_common::types::SymbolShape::from_vega_str("cross").unwrap();
+    // The drawn symbols of the Other group, and the legend's last entry, are crosses, and the
+    // kept categories take the scale's shapes.
+    let shape_of = |symbol: &avenger_scenegraph::marks::symbol::SceneSymbolMark| {
+        let shapes = symbol.shapes.clone();
+        (symbol.shape_index_vec().into_iter())
+            .map(move |index| shapes[index].clone())
+            .collect::<Vec<_>>()
+    };
+    let cars = cars_dataset();
+    let drawn = |name: &str| cars.column_by_name(name).unwrap().clone();
+    let (weight, mpg) = (drawn("weight"), drawn("mpg"));
+    let cylinders = drawn("cylinders");
+    let cylinders = cylinders.as_primitive::<Int64Type>();
+    let others: Vec<bool> = (cylinders.iter().enumerate())
+        .filter(|(row, _)| weight.is_valid(*row) && mpg.is_valid(*row))
+        .map(|(_, cylinders)| matches!(cylinders, Some(3 | 5)))
+        .collect();
+    let shapes = shape_of(plot_symbols(&evaluated));
+    for (row, (shape, other)) in shapes.iter().zip(&others).enumerate() {
+        assert_eq!(*shape == cross, *other, "row {row}: {shape:?}");
+    }
+    let legend: Vec<_> = (evaluated.scene.marks.iter())
+        .filter_map(|mark| match mark {
+            avenger_scenegraph::marks::mark::SceneMark::Group(group)
+                if group.name != evaluated.plots[0].name =>
+            {
+                Some(group)
+            }
+            _ => None,
+        })
+        .flat_map(|group| legend_shapes(&group.marks))
+        .collect();
+    assert_eq!(legend.last(), Some(&cross), "{legend:?}");
+    assert_ne!(legend.first(), Some(&cross), "{legend:?}");
+}
+
+/// The shapes of the symbols of `marks`, their groups included.
+fn legend_shapes(
+    marks: &[avenger_scenegraph::marks::mark::SceneMark],
+) -> Vec<avenger_common::types::SymbolShape> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    marks
+        .iter()
+        .flat_map(|mark| match mark {
+            SceneMark::Group(group) => legend_shapes(&group.marks),
+            SceneMark::Symbol(symbol) => (symbol.shape_index_vec().into_iter())
+                .map(|index| symbol.shapes[index].clone())
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+#[test]
+fn a_line_legend_of_lumps_draws_the_other_entry_as_its_lines() {
+    let lines = CartesianLayer::line(
+        counted_cars(),
+        LineMark::builder().x("lumped").y("cars").color("lumped"),
+    );
+    let chart = Chart::builder(Plot::cartesian([lines]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [480.0, 320.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    fn line_strokes(
+        marks: &[avenger_scenegraph::marks::mark::SceneMark],
+    ) -> Vec<avenger_color::ColorOrGradient> {
+        use avenger_scenegraph::marks::mark::SceneMark;
+        marks
+            .iter()
+            .flat_map(|mark| match mark {
+                SceneMark::Group(group) => line_strokes(&group.marks),
+                SceneMark::Line(line) => vec![line.stroke.clone()],
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+    let strokes: Vec<_> = (evaluated.scene.marks.iter())
+        .filter(|mark| !matches!(mark, avenger_scenegraph::marks::mark::SceneMark::Group(group) if group.name == evaluated.plots[0].name))
+        .flat_map(|mark| line_strokes(std::slice::from_ref(mark)))
+        .filter(|stroke| matches!(stroke, avenger_color::ColorOrGradient::Color(color) if color[3] > 0.0))
+        .collect();
+    assert!(is_color(strokes.last().unwrap(), OTHER_GRAY), "{strokes:?}");
+    assert!(!is_color(&strokes[0], OTHER_GRAY), "{strokes:?}");
+}
+
+#[test]
+fn a_polar_axis_of_lumps_labels_the_other_group() {
+    let bars = PolarLayer::bar(
+        counted_cars(),
+        PolarBarMark::builder()
+            .theta(
+                Encoding::scaled_field("lumped")
+                    .scale(Scale::band(BandScale::builder()).axis(
+                        Axis::builder().labels(Labels::builder().markup("#value (#weight)")),
+                    )),
+            )
+            .radius(Encoding::scaled_field("cars").scale(Domain::data(
+                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
+            ))),
+    );
+    let chart = Chart::builder(Plot::polar([bars]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let evaluated = evaluate_styled(
+        chart,
+        "axis > label > other { font-style: italic; }",
+        [320.0, 320.0],
+    );
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let texts = scene_texts(&evaluated.scene.marks);
+    assert!(texts.iter().any(|text| text.contains("207")), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains(r#"style: "italic""#) && text.contains("Other")),
+        "{texts:?}"
+    );
+}
