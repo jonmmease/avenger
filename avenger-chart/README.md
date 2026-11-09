@@ -210,3 +210,23 @@ A widget is not one of these parts. Layers declare widgets under keys, which rep
 ## Columns of charts
 
 A column of charts is a `Binary`, `LargeBinary`, or `BinaryView` column whose field has the extension name `avenger.chart`, which `chart_field` gives. `charts_to_arrow` writes charts to a `BinaryView` column, with each chart at a multiple of 64 bytes, and `charts_from_arrow` reads them, in place or from a copy as `Decode` says.
+
+## Mark functions of DataFusion
+
+The `datafusion` feature adds `avenger_chart::datafusion`, with an aggregate function of DataFusion for each mark of the Cartesian and the polar layers, which builds a chart of the rows of its group, and the scalar functions `scaled` and `direct`. `register` adds them to a session. build.rs generates the functions from the mark messages: the name of a function is the name of its message without `Mark`, in snake case, such as `bar` and `polar_bar`, and its parameters are the channels of its mark, the required channels first, then the others in the order of their field numbers, each named after its field:
+
+```sql
+SELECT species, bar(x => island, y => n, color => island) AS chart
+FROM counts
+GROUP BY species
+```
+
+A function call gives one chart of one plot of one layer, whose table holds a column for each channel argument that reads the rows, and `GROUP BY` gives one chart for each group:
+
+- A channel argument is an expression of each row, such as `body_mass * 2`. Its column is named after the expression, without the qualifiers of its columns, and keeps the type and the field metadata of the expression. Channels with equal expressions share one column.
+- A bare value takes the kind that the builders give it. A value of the rows is a scaled field on a channel with a scale and a direct field on a channel without one, such as `text`. A constant is a scaled value on a position with a scale, such as `y => 0` for a reference line, and a direct value on another channel, such as `fill => 'steelblue'`.
+- `scaled(...)` gives the scaled kind, such as `color => scaled('Adelie')` for the color of a category, and is an error on a channel without a scale. `direct(...)` gives the direct kind, such as `fill => direct(color)` for a column of colors, or `x => direct(0.5)` for the middle of the plot.
+- `NULL` leaves the channel unset, so an omitted parameter and `NULL` mean the same thing. In `scaled` or `direct`, a `NULL` is a value, which needs a type, such as `direct(CAST(NULL AS VARCHAR))`. DataFusion 55.2 binds named arguments only as a prefix of the parameters, so a call that names a later parameter passes `NULL` for each earlier one, or avenger-sql fills them.
+- The `ORDER BY` of a call is the draw order of its rows, and `FILTER` selects them.
+
+DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument cannot aggregate, because DataFusion rejects an aggregate inside an aggregate, so the aggregates of a chart come from a query before the mark function. The marks of geo layers have no functions until constructors of their `Geo` options exist.

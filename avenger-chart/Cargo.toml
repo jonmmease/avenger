@@ -9,9 +9,13 @@ readme = "README.md"
 # `proto::FILE_DESCRIPTOR_SET`, the descriptors of the format's messages, for tests that walk the
 # messages and their fields.
 descriptors = []
+# `avenger_chart::datafusion`: an aggregate function of DataFusion for each Cartesian and polar
+# mark, which builds a chart of its rows, and `raw`.
+datafusion = ["dep:datafusion"]
 
 [dependencies]
 arrow = { workspace = true }
+datafusion = { workspace = true, optional = true }
 prost = { workspace = true }
 thiserror = { workspace = true }
 
@@ -24,3 +28,9 @@ protoc-bin-vendored = { workspace = true }
 [dev-dependencies]
 # Tests write a compressed IPC stream, which a reader rejects.
 arrow = { workspace = true, features = ["ipc_compression"] }
+datafusion = { workspace = true, features = ["sql"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[[test]]
+name = "marks"
+required-features = ["datafusion"]

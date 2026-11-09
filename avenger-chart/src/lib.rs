@@ -64,3 +64,6 @@ pub use codec::{
 pub use error::ChartError;
 pub use layer::{CoordKind, LayerRef, MarkMessage, MarkType};
 pub use validate::FitKind;
+
+#[cfg(feature = "datafusion")]
+pub mod datafusion;
