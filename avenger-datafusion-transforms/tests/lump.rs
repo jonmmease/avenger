@@ -213,16 +213,26 @@ fn cases() -> Vec<Case> {
 /// The window clause, and the partition keys.
 const WINDOWS: [(&str, &str); 2] = [("OVER ()", ""), ("OVER (PARTITION BY region)", "region")];
 
-fn lump_query(table: &str, c: &Case, over: &str) -> String {
+/// The modes of the NULL category: the default, and each mode by name.
+const NULLS: [Option<&str>; 3] = [None, Some("other"), Some("drop")];
+
+fn lump_query(table: &str, c: &Case, over: &str, nulls: Option<&str>) -> String {
+    let nulls = nulls.map_or(String::new(), |mode| format!(", 'nulls', '{mode}'"));
     format!(
-        "SELECT *, lump({}, {}) {over} AS l FROM {table}",
+        "SELECT *, lump({}, {}{nulls}) {over} AS l FROM {table}",
         c.category, c.options
     )
 }
 
 /// Hand-written SQL with the same result: the categories, the decision, the Other weight,
-/// and the join back to the rows.
-fn hand_query(table: &str, c: &Case, keys: &str) -> String {
+/// and the join back to the rows. The categories that are not NULL are ranked and decided
+/// alone, and the NULL category is kept, in the Other group, or without a lump by `nulls`.
+fn hand_query(table: &str, c: &Case, keys: &str, nulls: Option<&str>) -> String {
+    let null_kept = match nulls {
+        None | Some("keep") => "true",
+        Some("other") => "false",
+        _ => "CAST(NULL AS BOOLEAN)",
+    };
     let kc = |p: &str| {
         if keys.is_empty() {
             String::new()
@@ -256,7 +266,7 @@ fn hand_query(table: &str, c: &Case, keys: &str) -> String {
         }
     };
     let other_from = format!(
-        "SELECT {}CAST({} AS DOUBLE) AS ow FROM t2 r JOIN cats k ON {}(r.cat IS NOT DISTINCT FROM k.cat) WHERE k.kept IS NOT TRUE{}",
+        "SELECT {}CAST({} AS DOUBLE) AS ow FROM t2 r JOIN cats k ON {}(r.cat IS NOT DISTINCT FROM k.cat) WHERE k.kept IS FALSE{}",
         kc("r."),
         c.weight,
         key_on("r", "k"),
@@ -268,13 +278,15 @@ fn hand_query(table: &str, c: &Case, keys: &str) -> String {
     );
     format!(
         "WITH t2 AS (SELECT *, {cat} AS cat FROM {table}),
-         cats AS (SELECT {k}{cat} AS cat, CAST({weight} AS DOUBLE) AS w, {keep} AS kept FROM {table} GROUP BY {k}{cat}),
+         cats AS (SELECT {k}{cat} AS cat, CAST({weight} AS DOUBLE) AS w, coalesce({keep}, false) AS kept FROM {table} WHERE {cat} IS NOT NULL GROUP BY {k}{cat}
+                  UNION ALL SELECT {k}{cat} AS cat, CAST({weight} AS DOUBLE) AS w, {null_kept} AS kept FROM {table} WHERE {cat} IS NULL GROUP BY {k}{cat}),
          oth AS ({other_from}),
-         dropped AS (SELECT {k}count(*) AS n FROM cats WHERE kept IS NOT TRUE{dropped_by})
-         SELECT t2.*, named_struct('value', CASE WHEN k.kept IS TRUE THEN t2.cat END,
+         dropped AS (SELECT {k}count(*) AS n FROM cats WHERE kept IS FALSE{dropped_by})
+         SELECT t2.*, CASE WHEN k.kept IS NOT NULL THEN named_struct(
+                                   'value', CASE WHEN k.kept IS TRUE THEN t2.cat END,
                                    'other', CASE WHEN k.kept IS TRUE THEN NULL ELSE '{other}' END,
                                    'weight', CASE WHEN k.kept IS TRUE THEN k.w ELSE o.ow END,
-                                   'category_count', CASE WHEN k.kept IS TRUE THEN 1 ELSE dc.n END) AS l
+                                   'category_count', CASE WHEN k.kept IS TRUE THEN 1 ELSE dc.n END) END AS l
          FROM t2 JOIN cats k ON {}(t2.cat IS NOT DISTINCT FROM k.cat)
          LEFT JOIN oth o ON {}
          LEFT JOIN dropped dc ON {}",
@@ -326,12 +338,19 @@ async fn hand_sql() -> Result<()> {
     let plain = context(session(false)).await?;
     for c in cases() {
         for (over, keys) in WINDOWS {
-            let ours = rows(&rules, &lump_query("c", &c, over), COLUMNS).await?;
-            let hand = rows(&rules, &hand_query("c", &c, keys), COLUMNS).await?;
-            assert_eq!(ours, hand, "{} {over}", c.name);
-            if matches!(c.keep, Keep::N(_)) && c.weight == "count(*)" {
-                let eval = rows(&plain, &lump_query("c", &c, over), COLUMNS).await?;
-                assert_eq!(eval, hand, "{} {over}, the window evaluator", c.name);
+            for nulls in NULLS {
+                let lump = lump_query("c", &c, over, nulls);
+                let ours = rows(&rules, &lump, COLUMNS).await?;
+                let hand = rows(&rules, &hand_query("c", &c, keys, nulls), COLUMNS).await?;
+                assert_eq!(ours, hand, "{} {over} {nulls:?}", c.name);
+                if matches!(c.keep, Keep::N(_)) && c.weight == "count(*)" {
+                    let eval = rows(&plain, &lump, COLUMNS).await?;
+                    assert_eq!(
+                        eval, hand,
+                        "{} {over} {nulls:?}, the window evaluator",
+                        c.name
+                    );
+                }
             }
         }
     }
@@ -349,25 +368,25 @@ async fn aggregates() -> Result<()> {
     for c in cases() {
         for (over, keys) in WINDOWS {
             for extra in ["", ", region"] {
-                let grouped =
-                    |q: String| format!("SELECT l{extra}, {aggs} FROM ({q}) GROUP BY l{extra}");
-                let cols = format!("{cols}{}", if extra.is_empty() { "" } else { ", region" });
-                let what = format!("{} {over}{extra}", c.name);
-                let a = rows(&fused, &grouped(lump_query("c", &c, over)), &cols).await?;
-                assert_eq!(
-                    a,
-                    rows(&joined, &grouped(lump_query("c", &c, over)), &cols).await?,
-                    "{what}: fused and unfused"
-                );
-                assert_eq!(
-                    a,
-                    rows(&joined, &grouped(hand_query("c", &c, keys)), &cols).await?,
-                    "{what}: fused and hand"
-                );
-                assert!(
-                    fuses(&fused, &grouped(lump_query("c", &c, over))).await?,
-                    "{what} does not fuse"
-                );
+                for nulls in NULLS {
+                    let grouped =
+                        |q: String| format!("SELECT l{extra}, {aggs} FROM ({q}) GROUP BY l{extra}");
+                    let cols = format!("{cols}{}", if extra.is_empty() { "" } else { ", region" });
+                    let what = format!("{} {over}{extra} {nulls:?}", c.name);
+                    let lump = grouped(lump_query("c", &c, over, nulls));
+                    let a = rows(&fused, &lump, &cols).await?;
+                    assert_eq!(
+                        a,
+                        rows(&joined, &lump, &cols).await?,
+                        "{what}: fused and unfused"
+                    );
+                    assert_eq!(
+                        a,
+                        rows(&joined, &grouped(hand_query("c", &c, keys, nulls)), &cols).await?,
+                        "{what}: fused and hand"
+                    );
+                    assert!(fuses(&fused, &lump).await?, "{what} does not fuse");
+                }
             }
         }
     }
@@ -384,25 +403,59 @@ async fn fuses(ctx: &SessionContext, sql: &str) -> Result<bool> {
 }
 
 /// The number of categories of each lump value: 1 for a kept category, and for the Other
-/// group the number of categories that the lump drops in its window partition, where a NULL
-/// category is one. In region N, the 2 largest of the ports a, b, c, 'Other', and NULL are a
-/// and b; in region S, of a, b, c, d, and e, they are b and c; the NULL region has 2 ports.
+/// group the number of categories that the lump lumps in its window partition. In region N,
+/// the 2 largest of the ports a, b, c, and 'Other' are a and b, and the NULL port is a category
+/// of its own, in the Other group with `'nulls', 'other'`, or without a lump with `'nulls',
+/// 'drop'`; in region S, of a, b, c, d, and e, they are b and c; the NULL region has 2 ports.
 #[tokio::test]
 async fn category_count() -> Result<()> {
-    let sql = "SELECT *, lump(port, 'n', 2) OVER (PARTITION BY region) AS l FROM c";
-    let cols = "region, l['other'] AS other, l['category_count'] AS category_count";
-    let want = [
-        "N | NULL | 1",
-        "N | Other | 3",
-        "NULL | NULL | 1",
-        "S | NULL | 1",
-        "S | Other | 3",
+    let cols = "region, port IS NULL AS null_port, l IS NULL AS dropped, l['other'] AS other, \
+                l['category_count'] AS category_count";
+    let cases = [
+        (
+            "",
+            vec![
+                "N | false | false | NULL | 1",
+                "N | false | false | Other | 2",
+                "N | true | false | NULL | 1",
+                "NULL | false | false | NULL | 1",
+                "S | false | false | NULL | 1",
+                "S | false | false | Other | 3",
+            ],
+        ),
+        (
+            ", 'nulls', 'other'",
+            vec![
+                "N | false | false | NULL | 1",
+                "N | false | false | Other | 3",
+                "N | true | false | Other | 3",
+                "NULL | false | false | NULL | 1",
+                "S | false | false | NULL | 1",
+                "S | false | false | Other | 3",
+            ],
+        ),
+        (
+            ", 'nulls', 'drop'",
+            vec![
+                "N | false | false | NULL | 1",
+                "N | false | false | Other | 2",
+                "N | true | true | NULL | NULL",
+                "NULL | false | false | NULL | 1",
+                "S | false | false | NULL | 1",
+                "S | false | false | Other | 3",
+            ],
+        ),
     ];
     // Through the rule, and through the window's own evaluator.
     for ctx in [unfused().await?, context(session(false)).await?] {
-        let mut got = rows(&ctx, sql, cols).await?;
-        got.dedup();
-        assert_eq!(got, want);
+        for (nulls, want) in &cases {
+            let sql = format!(
+                "SELECT *, lump(port, 'n', 2{nulls}) OVER (PARTITION BY region) AS l FROM c"
+            );
+            let mut got = rows(&ctx, &sql, cols).await?;
+            got.dedup();
+            assert_eq!(&got, want, "{nulls}");
+        }
     }
     Ok(())
 }
@@ -431,6 +484,11 @@ async fn errors() -> Result<()> {
             &rules,
             "lump(port, 'top', 2) OVER ()",
             "unknown lump option 'top'",
+        ),
+        (
+            &rules,
+            "lump(port, 'n', 2, 'nulls', 'rank') OVER ()",
+            "the lump option 'nulls' is 'keep', 'other', or 'drop', not 'rank'",
         ),
         (
             &rules,
