@@ -1,0 +1,32 @@
+{
+  "equations": [],
+  "fonts": [{"family":"Lato","index":0,"postscript":"Lato-Medium","variations":[]}],
+  "frame": {
+    "baseline": 8.616,
+    "height": 8.616,
+    "items": [
+      {
+        "text": {
+          "fill": "#000000ff",
+          "font": 0,
+          "glyphs": [
+            [27,0.793,0.0,0.0,0.0,[0,1],[11,15],0],
+            [109,0.5595,0.0,0.0,0.0,[1,2],[11,15],1],
+            [59,0.5295,0.0,0.0,0.0,[2,3],[11,15],2],
+            [203,0.236,0.0,0.0,0.0,[3,4],[11,15],3]
+          ],
+          "lang": "en",
+          "size": 12.0,
+          "text": "One."
+        },
+        "x": 0.0,
+        "y": 8.616
+      }
+    ],
+    "kind": "hard",
+    "width": 25.416
+  },
+  "repr": "sequence([One.], [ ], [])",
+  "source": "#if 1 < 2 [One.] #if true == false [Bad.]",
+  "warnings": []
+}

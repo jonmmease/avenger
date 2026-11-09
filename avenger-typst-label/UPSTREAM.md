@@ -185,6 +185,7 @@ Avenger paths are relative to `src/`. `upstream_diff.py status --write` writes t
 |---|---|---|
 | `typst_eval/call.rs` | `crates/typst-eval/src/call.rs` | A |
 | `typst_eval/code.rs` | `crates/typst-eval/src/code.rs` | A |
+| `typst_eval/flow.rs` | `crates/typst-eval/src/flow.rs` | A |
 | `typst_eval/markup.rs` | `crates/typst-eval/src/markup.rs` | A |
 | `typst_eval/math.rs` | `crates/typst-eval/src/math.rs` | A |
 | `typst_eval/mod.rs` | `crates/typst-eval/src/lib.rs` | A |

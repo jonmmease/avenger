@@ -136,7 +136,6 @@ fn unsupported_constructs_are_errors() {
         ("#let x = 1", "let bindings are not supported in labels"),
         ("#set text(red)", "set rules are not supported in labels"),
         ("#show strong: emph", "show rules are not supported in labels"),
-        ("#if true [a]", "conditionals are not supported in labels"),
         ("#for x in (1,) [a]", "loops are not supported in labels"),
         ("#import \"a.typ\"", "imports are not supported in labels"),
         ("#include \"a.typ\"", "includes are not supported in labels"),

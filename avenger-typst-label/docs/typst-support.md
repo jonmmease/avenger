@@ -105,7 +105,7 @@ Supported features behave as in Typst, except for the divergences that
 | Show rule with function | `show raw: it => {..}` | No | |
 | Show-everything rule | `show: template` | No | |
 | Context expression | `context text.lang` | No | |
-| Conditional | `if x == 1 {..} else {..}` | No | |
+| Conditional | `if x == 1 {..} else {..}` | Yes | The condition is a boolean, such as a value that `bind` writes. |
 | For loop | `for x in (1, 2, 3) {..}` | No | |
 | While loop | `while x < 10 {..}` | No | |
 | Loop control flow | `break`, `continue` | No | |
@@ -129,7 +129,7 @@ Supported features behave as in Typst, except for the divergences that
 | [Expressions](https://typst.app/docs/reference/scripting/#expressions) | Yes | `#` starts an expression in markup and math. |
 | [Blocks](https://typst.app/docs/reference/scripting/#blocks) | Partial | Content blocks; code blocks of expressions only. |
 | [Bindings and destructuring](https://typst.app/docs/reference/scripting/#bindings) | No | `bind` writes values into a label's markup instead. |
-| [Conditionals](https://typst.app/docs/reference/scripting/#conditionals) | No | |
+| [Conditionals](https://typst.app/docs/reference/scripting/#conditionals) | Yes | As in `#if other [Other (#count)] else [#value]`. |
 | [Loops](https://typst.app/docs/reference/scripting/#loops) | No | |
 | [Fields](https://typst.app/docs/reference/scripting/#fields) | Yes | Of modules, symbols, dictionaries and lengths, as in `sym.arrow.r` and `(1pt + 2em).em`. |
 | [Methods](https://typst.app/docs/reference/scripting/#methods) | No | |

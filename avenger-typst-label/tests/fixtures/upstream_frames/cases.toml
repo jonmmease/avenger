@@ -1219,3 +1219,36 @@ upstream_tests = ["calc-norm-negative-p"]
 id = "error-calc-norm-type"
 source = '#calc.norm(10%)'
 upstream_tests = ["calc-norm-expected-float"]
+
+# Conditionals, on one line. A branch that doesn't run gives `none`, which displays as nothing.
+
+[[case]]
+id = "if-markup"
+source = '#if 1 < 2 [One.] #if true == false [Bad.]'
+upstream_tests = ["if-markup"]
+
+[[case]]
+id = "if-condition-complex"
+source = '#if {true} [One.] #if [] != none [Two.] #if (1 + 1 == 1) [Nope.] else {"Three."}'
+upstream_tests = ["if-condition-complex"]
+
+[[case]]
+id = "if-else-if"
+source = '#if 3 < 2 [Five.] else if 3 < 4 [Six.] else [Seven.]'
+upstream_tests = ["if-condition-complex"]
+note = '`#let i = 3` inlined'
+
+[[case]]
+id = "if-none-spaces"
+source = 'a #if false [b] c'
+upstream_tests = ["if-expression"]
+
+[[case]]
+id = "error-if-condition-type"
+source = '#if "a" + "b" { nope } else { nope }'
+upstream_tests = ["if-condition-string-invalid"]
+
+[[case]]
+id = "error-if-condition-error"
+source = '#if 1 + "2" {}'
+upstream_tests = ["if-condition-invalid-and-wrong-type"]
