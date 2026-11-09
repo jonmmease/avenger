@@ -318,6 +318,115 @@ async fn a_tooltip_of_a_lump_shows_its_category_or_the_other_label() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories() {
+    // The counts of cars by their cylinders lumped to the top 2: 4 and 8 are kept, and 6, 3, and
+    // 5 are the Other group.
+    let fields = arrow::datatypes::Fields::from(vec![
+        arrow::datatypes::Field::new("value", arrow::datatypes::DataType::Int64, true),
+        arrow::datatypes::Field::new("other", arrow::datatypes::DataType::Utf8, true),
+        arrow::datatypes::Field::new("weight", arrow::datatypes::DataType::Float64, true),
+        arrow::datatypes::Field::new("category_count", arrow::datatypes::DataType::Int64, false),
+    ]);
+    let lumped = arrow::array::StructArray::new(
+        fields,
+        vec![
+            Arc::new(arrow::array::Int64Array::from(vec![Some(4), Some(8), None])),
+            Arc::new(StringArray::from(vec![None, None, Some("Other")])),
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 91.0])),
+            Arc::new(arrow::array::Int64Array::from(vec![1, 1, 3])),
+        ],
+        None,
+    );
+    let counts = RecordBatch::try_from_iter([
+        ("lumped", Arc::new(lumped) as arrow::array::ArrayRef),
+        (
+            "cars",
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 91.0])),
+        ),
+    ])
+    .unwrap();
+    let points = PointSelect::builder()
+        .keys(["lumped"])
+        .toggle(true)
+        .sources([LumpSource::new("lumped", "cylinders")]);
+    let bars = CartesianLayer::bar(counts.clone(), BarMark::builder().x("lumped").y("cars"));
+    let chart = Chart::builder(
+        Plot::cartesian([bars])
+            .id("plot")
+            .tools([Select::points("brush", points)]),
+    )
+    .selections([Selection::new("brush", SelectionResolution::Union)])
+    .build()
+    .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    // The middle of the bar of each row.
+    let bar = |app: &AvengerApp<ChartAppState>, row: usize| {
+        let plot = &app.state().plots()[0];
+        let x = avenger_chart::lump::keys(counts.column(0))
+            .unwrap()
+            .slice(row, 1);
+        let cars = counts
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let y: arrow::array::ArrayRef = Arc::new(Float64Array::from(vec![cars.value(row) / 2.0]));
+        let [x, y] = plot.coords.pixels([&x, &y]).unwrap();
+        [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)]
+    };
+    let set = |app: &AvengerApp<ChartAppState>| match &brush(app)[..] {
+        [clause] => match &clause.conditions[..] {
+            [avenger_selection::Condition::Set {
+                columns,
+                values,
+                others,
+                ..
+            }] => {
+                assert_eq!(columns, &["cylinders".to_string()]);
+                let numbers = |values: &arrow::array::ArrayRef| {
+                    let values = values
+                        .as_any()
+                        .downcast_ref::<arrow::array::Int64Array>()
+                        .unwrap();
+                    values.iter().flatten().collect::<Vec<i64>>()
+                };
+                (
+                    numbers(&values[0]),
+                    others.as_ref().map(|others| numbers(&others[0])),
+                )
+            }
+            conditions => panic!("a set, and not {conditions:?}"),
+        },
+        clauses => panic!("one clause, and not {clauses:?}"),
+    };
+
+    // A click of the Other bar selects every value outside the kept 4 and 8.
+    let other = bar(&app, 2);
+    send(
+        &mut app,
+        [
+            moved(other),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    assert_eq!(set(&app), (vec![], Some(vec![4, 8])));
+
+    // A Shift click of the 4 bar adds it.
+    std::thread::sleep(Duration::from_millis(600));
+    let four = bar(&app, 0);
+    send(&mut app, shift_click(four)).await;
+    assert_eq!(set(&app), (vec![4], Some(vec![4, 8])));
+
+    // Another Shift click of the Other bar removes the Other group.
+    std::thread::sleep(Duration::from_millis(600));
+    let other = bar(&app, 2);
+    send(&mut app, shift_click(other)).await;
+    assert_eq!(set(&app), (vec![4], None));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
     let select = vec![ToolBuilder::from(Select::interval(
         "brush",

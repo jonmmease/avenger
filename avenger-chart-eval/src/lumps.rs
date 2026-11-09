@@ -4,7 +4,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use arrow::{
-    array::{Array, ArrayRef, AsArray, Float64Array, StructArray, UInt32Array},
+    array::{Array, ArrayRef, AsArray, Float64Array, UInt32Array},
     compute::{concat, take},
     datatypes::{DataType, Float64Type, Int64Type},
     row::{RowConverter, SortField},
@@ -141,16 +141,13 @@ impl Lumps {
     /// The keys of the kept categories `values`, which an explicit domain or a preferred order
     /// names in the type of the lumps' `value`.
     pub(crate) fn kept_keys(&self, values: &ArrayRef) -> Result<ArrayRef> {
-        let DataType::Struct(fields) = &self.key_type else {
-            unreachable!("the keys of lumps are structs")
-        };
-        let value = arrow::compute::cast(values, fields[0].data_type())?;
-        let other = arrow::array::new_null_array(fields[1].data_type(), values.len());
-        Ok(Arc::new(StructArray::new(
-            fields.clone(),
-            vec![value, other],
-            None,
-        )))
+        lump::kept_keys(&self.key_type, values).ok_or_else(|| {
+            EvalError::Unsupported(format!(
+                "the categories {:?} of a column of lumps of {}",
+                values.data_type(),
+                self.key_type
+            ))
+        })
     }
 
     /// `domain`, keys of the group, in the order of the lumps: the kept categories as `domain`

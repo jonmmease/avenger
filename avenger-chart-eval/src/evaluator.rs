@@ -510,6 +510,7 @@ impl ChartEvaluator {
             [0.0, 0.0, canvas.width, canvas.height],
         ));
         let mut data = SceneData::new();
+        let lump_sources = crate::convert::selection::lump_sources(&resolved);
         let mut plots = Vec::with_capacity(resolved.tree.plots.len());
         for (plot_index, plot_ref) in resolved.tree.plots.iter().enumerate() {
             let rect = rects[plot_index];
@@ -574,6 +575,7 @@ impl ChartEvaluator {
                 rows.masks = encode::masks(
                     &rows,
                     &self.state.selections,
+                    &lump_sources,
                     &owners(plot_ref, layer),
                     &layer.path,
                     &mut warnings,
@@ -1129,6 +1131,37 @@ impl ChartEvaluator {
             })
     }
 
+    /// The distinct keys of the lumps of the column `column` that the layers of the plot at index
+    /// `plot` draw, a struct of each lump's `value` and `other`, in their first order, or `None`
+    /// when no layer of the plot draws a column of lumps of that name. A point selection over the
+    /// lumps reads the plot's kept categories and its Other group from them.
+    pub fn drawn_lump_keys(&self, plot: usize, column: &str) -> Result<Option<ArrayRef>> {
+        let resolved = self.chart.resolve();
+        let Some(plot_ref) = resolved.tree.plots.get(plot) else {
+            return Ok(None);
+        };
+        let keys: Vec<ArrayRef> = (plot_ref.layers.clone())
+            .filter_map(|index| {
+                avenger_chart::lump::keys(self.drawn[index].column_by_name(column)?)
+            })
+            .collect();
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let keys: Vec<&dyn arrow::array::Array> = keys.iter().map(|keys| keys.as_ref()).collect();
+        let keys = arrow::compute::concat(&keys)?;
+        let converter = arrow::row::RowConverter::new(vec![arrow::row::SortField::new(
+            keys.data_type().clone(),
+        )])?;
+        let rows = converter.convert_columns(std::slice::from_ref(&keys))?;
+        let mut seen = std::collections::HashSet::new();
+        let first: arrow::array::UInt32Array = (0..keys.len())
+            .filter(|&row| seen.insert(rows.row(row)))
+            .map(|row| row as u32)
+            .collect();
+        Ok(Some(arrow::compute::take(keys.as_ref(), &first, None)?))
+    }
+
     /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,
     /// with the partition values of the layers. A plot shows a clause of a selection when it draws
     /// some of its conditions and every other condition holds there. A layer without a column of
@@ -1138,12 +1171,17 @@ impl ChartEvaluator {
         let Some(plot_ref) = resolved.tree.plots.get(plot) else {
             return Ok(false);
         };
+        let sources = crate::convert::selection::lump_sources(&resolved);
         for index in plot_ref.layers.clone() {
             let layer = &resolved.tree.layers[index];
             let table = &self.drawn[index];
+            let condition = &crate::convert::selection::through_lumps(condition, &sources, table)?;
             let columns: Option<Vec<ArrayRef>> = (condition.columns().into_iter())
                 .map(|name| match table.column_by_name(name) {
                     Some(column) => Some(column.clone()),
+                    None if crate::convert::selection::lump_keys(name, table).is_some() => {
+                        crate::convert::selection::lump_keys(name, table)
+                    }
                     None => {
                         let value = layer.partition.get(name)?;
                         let rows = arrow::array::UInt32Array::from(vec![0; table.num_rows()]);

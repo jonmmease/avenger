@@ -339,10 +339,15 @@ impl<'a> LayerRows<'a> {
             return Ok(None);
         };
         // A row of the Other group of a lump that the channel reads takes the `other` node's color
-        // or paint in place of the scale's.
-        let (Some(other), Some(mask)) = (self.other_style(), self.other_mask(channel)) else {
+        // or paint in place of the scale's, unless a conditional value gives it its color.
+        let (Some(other), Some(mut mask)) = (self.other_style(), self.other_mask(channel)) else {
             return Ok(Some(colors));
         };
+        for conditional in self.masks.get(&channel).into_iter().flatten() {
+            for (other, conditioned) in mask.iter_mut().zip(conditional) {
+                *other &= !conditioned;
+            }
+        }
         let replacement = match channel {
             Channel::Fill => Self::other_paint(self, Property::Fill),
             Channel::Stroke => Self::other_paint(self, Property::Stroke),
@@ -874,10 +879,12 @@ pub(crate) fn fade(
 
 /// The masks of the conditional values of each channel of a layer: whether each predicate
 /// selects each drawn row, over the selection states. A condition of a column that neither the
-/// layer's table nor its partition has selects no row, with a warning.
+/// layer's table nor its partition has selects no row, with a warning. A layer that holds lumps
+/// in place of the source columns of `sources` tests their keys.
 pub(crate) fn masks(
     rows: &LayerRows,
     states: &BTreeMap<String, SelectionState>,
+    sources: &[(String, String)],
     owners: &[String],
     path: &str,
     warnings: &mut Vec<EvalWarning>,
@@ -885,6 +892,16 @@ pub(crate) fn masks(
     let mark = rows.mark;
     let faceted = !rows.partition.is_empty();
     let len = rows.len();
+    // Rows that hold lumps in place of a selection's source columns test the lumps' keys.
+    let through;
+    let states = match sources.is_empty() {
+        true => states,
+        false => {
+            through =
+                crate::convert::selection::states_through_lumps(states, sources, &rows.table)?;
+            &through
+        }
+    };
     let mut masks = BTreeMap::new();
     for (channel, encoding) in mark.encodings() {
         if encoding.conditional.is_empty() {
@@ -898,24 +915,31 @@ pub(crate) fn masks(
                 .expect("a valid condition has a predicate");
             let missing = missing_columns(rows, states, &tested(predicate_message), path, warnings);
             let types = |name: &str| {
-                rows.column(name)
+                drawn(rows, name)
                     .map(|values| values.data_type().clone())
                     .or_else(|| missing.get(name).cloned())
             };
             let test = predicate(predicate_message, owners, faceted).prepare(states, types)?;
             let column = |name: &str| {
-                rows.column(name).or_else(|| {
+                drawn(rows, name).or_else(|| {
                     missing
                         .get(name)
                         .map(|data_type| new_null_array(data_type, len))
                 })
             };
-            let mask = test.mask(len, column, |name: &str| rows.column(name))?;
+            let mask = test.mask(len, column, |name: &str| drawn(rows, name))?;
             channel_masks.push(mask.values().iter().collect());
         }
         masks.insert(channel, channel_masks);
     }
     Ok(masks)
+}
+
+/// The column `name` of the drawn rows: a column of the layer or its partition, or the keys of a
+/// column of lumps that a condition through the lumps tests.
+fn drawn(rows: &LayerRows, name: &str) -> Option<ArrayRef> {
+    rows.column(name)
+        .or_else(|| crate::convert::selection::lump_keys(name, &rows.table))
 }
 
 /// The names of the selections that `predicate` tests.
@@ -947,7 +971,7 @@ fn missing_columns(
     {
         for condition in state.clauses.iter().flat_map(|clause| &clause.conditions) {
             for (column, data_type) in value_types(condition) {
-                if rows.column(column).is_some() || missing.contains_key(column) {
+                if drawn(rows, column).is_some() || missing.contains_key(column) {
                     continue;
                 }
                 let warning = EvalWarning::NotDrawn {

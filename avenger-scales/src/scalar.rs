@@ -503,7 +503,7 @@ impl Scalar {
         Self::new(Arc::new(list_array))
     }
 
-    /// Extract scalar from array at index
+    /// Extract scalar from array at index, or an error for a null element
     pub fn try_from_array(array: &dyn Array, index: usize) -> Result<Self, AvengerScaleError> {
         if array.is_null(index) {
             return Err(AvengerScaleError::InternalError(
@@ -591,10 +591,9 @@ impl Scalar {
                 let arr = casted.as_string::<i32>();
                 Ok(Self::from_string(arr.value(0)))
             }
-            _ => Err(AvengerScaleError::InternalError(format!(
-                "Unsupported data type: {:?}",
-                array.data_type()
-            ))),
+            // A value of another type, such as a struct, is the one-row slice of the array, which
+            // compares as its array does.
+            _ => Ok(Self::new(array.slice(index, 1))),
         }
     }
 

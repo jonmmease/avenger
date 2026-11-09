@@ -17,8 +17,8 @@ use avenger_chart::prelude::*;
 use avenger_chart_app::{ChartApp, ChartAppState, ChartChange, ChartUpdates, Reports};
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{
-    ElementState, MouseButton, MouseScrollDelta, WindowCursorMoved, WindowEvent, WindowMouseInput,
-    WindowMouseWheel,
+    ElementState, Key, MouseButton, MouseScrollDelta, NamedKey, WindowCursorMoved, WindowEvent,
+    WindowKeyboardInput, WindowMouseInput, WindowMouseWheel,
 };
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
@@ -149,6 +149,24 @@ pub(crate) async fn refresh_until(
         std::thread::sleep(Duration::from_millis(10));
     }
     panic!("the app did not apply its update");
+}
+
+/// A click at `at` with Shift held.
+pub(crate) fn shift_click(at: [f32; 2]) -> Vec<WindowEvent> {
+    let key = |state| {
+        WindowEvent::KeyboardInput(WindowKeyboardInput {
+            key: Key::Named(NamedKey::Shift),
+            state,
+            text: None,
+        })
+    };
+    vec![
+        key(ElementState::Pressed),
+        moved(at),
+        mouse(ElementState::Pressed),
+        mouse(ElementState::Released),
+        key(ElementState::Released),
+    ]
 }
 
 pub(crate) fn moved(position: [f32; 2]) -> WindowEvent {

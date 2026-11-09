@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, Float64Array},
+    array::{Array, ArrayRef, AsArray, Float64Array},
     compute::cast,
     datatypes::DataType,
 };
@@ -655,11 +655,101 @@ fn keyed_instances(state: &ChartAppState, area: &Area, kind: Form) -> Instances<
     Instances::marks(declared.marks.clone()).id(move |datum| {
         (keys.iter())
             .map(|(key, partition)| match datum.rows.column_by_name(key) {
-                Some(column) => Scalar::try_from_array(column.as_ref(), datum.row).ok(),
+                // A lump is its key, its category or its Other group, whatever its weight.
+                Some(column) => {
+                    let column =
+                        avenger_chart::lump::keys(column).unwrap_or_else(|| column.clone());
+                    Scalar::try_from_array(column.as_ref(), datum.row).ok()
+                }
                 None => Some(Scalar(partition.clone()?)),
             })
             .collect()
     })
+}
+
+/// The key of a point selection that is a column of lumps, and the source column that its sets
+/// name in its place, when the selection has one.
+fn lump_source<'a>(declared: &Declared<'a>) -> Option<(&'a str, &'a str)> {
+    match &declared.select.form {
+        Some(select::Form::Points(points)) => {
+            (points.sources.first()).map(|source| (source.key.as_str(), source.source.as_str()))
+        }
+        _ => None,
+    }
+}
+
+/// The keys of the lumps of `key` that the plot of `declared` draws: the plot's kept categories
+/// and its Other group.
+fn drawn_keys(state: &ChartAppState, declared: &Declared, key: &str) -> Option<ArrayRef> {
+    state
+        .evaluator
+        .drawn_lump_keys(declared.index, key)
+        .ok()
+        .flatten()
+}
+
+/// The keys of the lumps of `key` that a set of `values` of their source selects in the plot of
+/// `declared`: the key of each kept value, and with a complement, the plot's Other group.
+fn lump_tuples(
+    state: &ChartAppState,
+    declared: &Declared,
+    key: &str,
+    values: &ArrayRef,
+    others: bool,
+) -> Vec<Vec<Scalar>> {
+    let Some(drawn) = drawn_keys(state, declared, key) else {
+        return Vec::new();
+    };
+    let Some(kept) = avenger_chart::lump::kept_keys(drawn.data_type(), values) else {
+        return Vec::new();
+    };
+    let mut tuples: Vec<Vec<Scalar>> = (0..kept.len())
+        .filter(|&row| values.is_valid(row))
+        .filter_map(|row| Some(vec![Scalar::try_from_array(kept.as_ref(), row).ok()?]))
+        .collect();
+    if others {
+        let other = drawn.as_struct().column(1).clone();
+        tuples.extend(
+            (0..drawn.len())
+                .filter(|&row| other.is_valid(row))
+                .filter_map(|row| Some(vec![Scalar::try_from_array(drawn.as_ref(), row).ok()?])),
+        );
+    }
+    tuples
+}
+
+/// The set over the source `source` of the lumps of `key` of the tuples of keys `tuples` in the
+/// plot of `declared`: the value of each kept category, and when the tuples hold the Other group,
+/// the complement of the plot's kept categories, so the selection holds every value that the plot
+/// draws as Other.
+fn lump_set(
+    state: &ChartAppState,
+    declared: &Declared,
+    (key, source): (&str, &str),
+    tuples: &[Vec<Scalar>],
+) -> Option<Condition> {
+    let drawn = drawn_keys(state, declared, key)?;
+    let value_type = drawn.as_struct().column(0).data_type().clone();
+    let is_other = |scalar: &Scalar| scalar.0.as_struct().column(1).is_valid(0);
+    let kept: Vec<&dyn Array> = (tuples.iter())
+        .filter(|tuple| !is_other(&tuple[0]))
+        .map(|tuple| tuple[0].0.as_struct().column(0).as_ref())
+        .collect();
+    let values = match kept.is_empty() {
+        true => arrow::array::new_empty_array(&value_type),
+        false => arrow::compute::concat(&kept).ok()?,
+    };
+    let set = Condition::values(source.to_string(), None, values);
+    if !tuples.iter().any(|tuple| is_other(&tuple[0])) {
+        return Some(set);
+    }
+    let drawn = drawn.as_struct();
+    let kept_rows: arrow::array::UInt32Array = (0..drawn.len())
+        .filter(|&row| drawn.column(1).is_null(row))
+        .map(|row| row as u32)
+        .collect();
+    let others = arrow::compute::take(drawn.column(0).as_ref(), &kept_rows, None).ok()?;
+    set.with_others(vec![others]).ok()
 }
 
 /// The tuples of key values that the selection of `area` holds for its plot.
@@ -671,9 +761,10 @@ fn points_of(state: &ChartAppState, area: &Area) -> Vec<Vec<Scalar>> {
 /// selection of `area` holds for its plot.
 fn keys_of(state: &ChartAppState, area: &Area, kind: Form) -> Vec<Vec<Scalar>> {
     let (identity, name) = area;
-    let Some(keys) =
-        declaration(state, area, |form| form == kind).and_then(|declared| keys(declared.select))
-    else {
+    let Some(declared) = declaration(state, area, |form| form == kind) else {
+        return Vec::new();
+    };
+    let Some(keys) = keys(declared.select) else {
         return Vec::new();
     };
     let Some(clause) = state.clause(name, identity) else {
@@ -682,6 +773,21 @@ fn keys_of(state: &ChartAppState, area: &Area, kind: Form) -> Vec<Vec<Scalar>> {
     let mut tuples = Vec::new();
     for condition in &clause.conditions {
         match condition {
+            Condition::Set {
+                columns,
+                values,
+                others,
+                ..
+            } if lump_source(&declared).is_some_and(|(_, source)| columns == &[source]) => {
+                let (key, _) = lump_source(&declared).expect("a lump source");
+                tuples.extend(lump_tuples(
+                    state,
+                    &declared,
+                    key,
+                    &values[0],
+                    others.is_some(),
+                ));
+            }
             Condition::Set {
                 columns, values, ..
             } if columns.as_slice() == keys => {
@@ -719,6 +825,11 @@ fn write_keys(
         let keys = keys(declared.select)?;
         if tuples.is_empty() {
             return None;
+        }
+        if let Some(source) = lump_source(&declared) {
+            let mut conditions = vec![lump_set(state, &declared, source, &tuples)?];
+            conditions.extend(scope(&declared));
+            return Some(conditions);
         }
         let lists = (0..keys.len())
             .map(|column| {

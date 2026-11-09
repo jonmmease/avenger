@@ -344,3 +344,57 @@ fn a_stylesheet_draws_the_other_bar_gray_with_a_pattern() {
     let fills = rects.fill.as_vec(rects.len as usize, None);
     assert!(is_color(&fills[2], OTHER_GRAY), "{fills:?}");
 }
+
+/// Whether each bar of the counted cars is light gray, outside the selection `pick` of
+/// `condition`, which a point selection of the lumps writes over their source, `cylinders`.
+fn picked_bars(condition: SetColumnBuilder) -> Vec<bool> {
+    let color = Encoding::scaled_field("lumped").conditional([ConditionalValue::direct_value(
+        Predicate::negate(Predicate::selected("pick")),
+        "lightgray",
+    )]);
+    let pick = PointSelect::builder()
+        .keys(["lumped"])
+        .sources([LumpSource::new("lumped", "cylinders")]);
+    let bars = CartesianLayer::bar(
+        counted_cars(),
+        BarMark::builder().x("lumped").y("cars").color(color),
+    )
+    .id("bars")
+    .tools([Select::points("pick", pick)]);
+    let selection = Selection::new("pick", SelectionResolution::Union)
+        .initial([Clause::new([Condition::set([condition])]).owner("bars")]);
+    let chart = Chart::builder(Plot::cartesian([bars]).id("plot"))
+        .selections([selection])
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [360.0, 240.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let rects = (plot_group(&evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            avenger_scenegraph::marks::mark::SceneMark::Rect(rect) => Some(rect),
+            _ => None,
+        })
+        .expect("a rect mark");
+    let light_gray = [211.0 / 255.0, 211.0 / 255.0, 211.0 / 255.0, 1.0];
+    (rects.fill.as_vec(rects.len as usize, None).iter())
+        .map(|fill| is_color(fill, light_gray))
+        .collect()
+}
+
+#[test]
+fn a_selection_of_the_source_of_a_lump_selects_its_kept_bars_and_the_other_bar() {
+    // The bars of 4, 8, 6, and Other. A set of 8, and of every value outside the kept 4, 8, and
+    // 6, selects the 8 bar and the Other bar.
+    let with_other = SetColumn::new("cylinders", [8i64]).others([4i64, 8, 6]);
+    assert_eq!(picked_bars(with_other), [true, false, true, false]);
+    // Without the complement, the Other bar is outside the selection.
+    assert_eq!(
+        picked_bars(SetColumn::new("cylinders", [8i64])),
+        [true, false, true, true]
+    );
+    // A category that was Other at the click and is kept now matches as its value does.
+    assert_eq!(
+        picked_bars(SetColumn::new("cylinders", [6i64]).others([4i64, 8])),
+        [true, true, false, false]
+    );
+}
