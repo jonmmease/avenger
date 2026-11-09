@@ -4,10 +4,11 @@ use crate::error::AvengerScaleError;
 use arrow::{
     array::{
         Array, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array, Int32Array,
-        Int64Array, ListArray, ListBuilder, StringArray, StringBuilder,
+        Int64Array, ListArray, ListBuilder, StringArray, StringBuilder, UInt32Array,
     },
-    compute::kernels::cast,
+    compute::{kernels::cast, take},
     datatypes::{DataType, Float32Type, Float64Type},
+    row::{RowConverter, SortField},
 };
 use avenger_color::parse_color_string;
 
@@ -15,37 +16,11 @@ use avenger_color::parse_color_string;
 #[derive(Debug, Clone)]
 pub struct Scalar(pub ArrayRef);
 
+/// Scalars are equal when they have one type and one value, which Arrow's row format compares for
+/// every type: a NaN equals a NaN, and `0.0` and `-0.0` differ, so equal scalars hash equally.
 impl PartialEq for Scalar {
     fn eq(&self, other: &Self) -> bool {
-        if self.0.data_type() != other.0.data_type() {
-            return false;
-        }
-
-        // Compare based on data type
-        match self.0.data_type() {
-            DataType::Boolean => match (self.as_boolean(), other.as_boolean()) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            },
-            DataType::Int32 => match (self.as_i32(), other.as_i32()) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            },
-            DataType::Float32 | DataType::Float64 => match (self.as_f64(), other.as_f64()) {
-                (Ok(a), Ok(b)) => a == b,
-                _ => false,
-            },
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                match (self.as_string(), other.as_string()) {
-                    (Ok(a), Ok(b)) => a == b,
-                    _ => false,
-                }
-            }
-            _ => {
-                // For other types, compare the raw arrays
-                format!("{:?}", self.0) == format!("{:?}", other.0)
-            }
-        }
+        self.0.data_type() == other.0.data_type() && self.row() == other.row()
     }
 }
 
@@ -53,38 +28,8 @@ impl Eq for Scalar {}
 
 impl std::hash::Hash for Scalar {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash based on data type and the scalar value
         self.0.data_type().hash(state);
-
-        // Hash the actual value based on type
-        match self.0.data_type() {
-            DataType::Boolean => {
-                if let Ok(value) = self.as_boolean() {
-                    value.hash(state);
-                }
-            }
-            DataType::Int32 => {
-                if let Ok(value) = self.as_i32() {
-                    value.hash(state);
-                }
-            }
-            DataType::Float32 | DataType::Float64 => {
-                if let Ok(value) = self.as_f64() {
-                    // Use bit representation for float hashing
-                    value.to_bits().hash(state);
-                }
-            }
-            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View => {
-                if let Ok(value) = self.as_string() {
-                    value.hash(state);
-                }
-            }
-            _ => {
-                // For other types, hash the raw bytes if possible
-                // This is a fallback - may not be perfect but should work
-                format!("{:?}", self.0).hash(state);
-            }
-        }
+        self.row().hash(state);
     }
 }
 
@@ -98,6 +43,15 @@ impl Scalar {
     /// Get the underlying array
     pub fn array(&self) -> &ArrayRef {
         &self.0
+    }
+
+    /// The value's bytes in Arrow's row format, which compare as the value does.
+    fn row(&self) -> Option<Box<[u8]>> {
+        let converter = RowConverter::new(vec![SortField::new(self.0.data_type().clone())]).ok()?;
+        let rows = converter
+            .convert_columns(std::slice::from_ref(&self.0))
+            .ok()?;
+        Some(rows.row(0).as_ref().into())
     }
 
     /// Convert to f64
@@ -503,98 +457,26 @@ impl Scalar {
         Self::new(Arc::new(list_array))
     }
 
-    /// Extract scalar from array at index, or an error for a null element
+    /// The value at `index` of `array`, or an error for a null element. A Float32 value is a
+    /// Float64 scalar and a LargeUtf8 or a Utf8View value is a Utf8 scalar, as the scalars that
+    /// `from_f64` and `from_string` make are, and a value of any other type keeps its type.
     pub fn try_from_array(array: &dyn Array, index: usize) -> Result<Self, AvengerScaleError> {
         if array.is_null(index) {
             return Err(AvengerScaleError::InternalError(
                 "Array element is null".to_string(),
             ));
         }
-
-        match array.data_type() {
-            DataType::Boolean => {
-                let arr = array
-                    .as_any()
-                    .downcast_ref::<BooleanArray>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to BooleanArray".to_string(),
-                        )
-                    })?;
-                Ok(Self::from_bool(arr.value(index)))
-            }
-            DataType::Int16 => {
-                let arr = array.as_any().downcast_ref::<Int16Array>().ok_or_else(|| {
-                    AvengerScaleError::InternalError("Failed to downcast to Int16Array".to_string())
-                })?;
-                Ok(Self::new(Arc::new(Int16Array::from(
-                    vec![arr.value(index)],
-                ))))
-            }
-            DataType::Int32 => {
-                let arr = array.as_any().downcast_ref::<Int32Array>().ok_or_else(|| {
-                    AvengerScaleError::InternalError("Failed to downcast to Int32Array".to_string())
-                })?;
-                Ok(Self::from_i32(arr.value(index)))
-            }
-            DataType::Int64 => {
-                let arr = array.as_any().downcast_ref::<Int64Array>().ok_or_else(|| {
-                    AvengerScaleError::InternalError("Failed to downcast to Int64Array".to_string())
-                })?;
-                Ok(Self::new(Arc::new(Int64Array::from(
-                    vec![arr.value(index)],
-                ))))
-            }
-            DataType::Float32 => {
-                let arr = array
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to Float32Array".to_string(),
-                        )
-                    })?;
-                Ok(Self::from_f64(f64::from(arr.value(index))))
-            }
-            DataType::Float64 => {
-                let arr = array
-                    .as_any()
-                    .downcast_ref::<Float64Array>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to Float64Array".to_string(),
-                        )
-                    })?;
-                Ok(Self::new(Arc::new(Float64Array::from(vec![
-                    arr.value(index)
-                ]))))
-            }
-            DataType::Utf8 => {
-                let arr = array
-                    .as_any()
-                    .downcast_ref::<StringArray>()
-                    .ok_or_else(|| {
-                        AvengerScaleError::InternalError(
-                            "Failed to downcast to StringArray".to_string(),
-                        )
-                    })?;
-                Ok(Self::from_string(arr.value(index)))
-            }
-            DataType::LargeUtf8 | DataType::Utf8View => {
-                // Normalize non-Utf8 string storage to Utf8 for scalar extraction.
-                let one_value = array.slice(index, 1);
-                let casted = cast::cast(&one_value, &DataType::Utf8).map_err(|e| {
-                    AvengerScaleError::InternalError(format!(
-                        "Failed to cast string-like array to Utf8: {e}"
-                    ))
-                })?;
-                let arr = casted.as_string::<i32>();
-                Ok(Self::from_string(arr.value(0)))
-            }
-            // A value of another type, such as a struct, is the one-row slice of the array, which
-            // compares as its array does.
-            _ => Ok(Self::new(array.slice(index, 1))),
-        }
+        // A copy of the one row, which does not keep the rest of the array.
+        let value = take(array, &UInt32Array::from(vec![index as u32]), None)?;
+        let normal = match array.data_type() {
+            DataType::Float32 => Some(DataType::Float64),
+            DataType::LargeUtf8 | DataType::Utf8View => Some(DataType::Utf8),
+            _ => None,
+        };
+        Ok(Self::new(match normal {
+            Some(data_type) => cast::cast(&value, &data_type)?,
+            None => value,
+        }))
     }
 
     /// Create array from iterator of values
@@ -730,6 +612,49 @@ mod tests {
         assert_eq!(scalar.as_string()?, "b");
         assert_eq!(scalar.data_type(), &DataType::Utf8);
 
+        Ok(())
+    }
+
+    #[test]
+    fn scalars_of_other_types_keep_their_type_and_compare_by_value() -> Result<(), AvengerScaleError>
+    {
+        use arrow::array::{Int64Array, StructArray};
+        use arrow::datatypes::Field;
+        use std::hash::{BuildHasher, RandomState};
+
+        let lumps = |values: Vec<Option<i64>>, others: Vec<Option<&str>>| -> ArrayRef {
+            Arc::new(StructArray::from(vec![
+                (
+                    Arc::new(Field::new("value", DataType::Int64, true)),
+                    Arc::new(Int64Array::from(values)) as ArrayRef,
+                ),
+                (
+                    Arc::new(Field::new("other", DataType::Utf8, true)),
+                    Arc::new(StringArray::from(others)) as ArrayRef,
+                ),
+            ]))
+        };
+        let a = lumps(vec![Some(4), None], vec![None, Some("Other")]);
+        let b = lumps(vec![None, Some(8)], vec![Some("Other"), None]);
+        let other = Scalar::try_from_array(a.as_ref(), 1)?;
+        assert_eq!(other.data_type(), a.data_type());
+        assert_eq!(other.0.len(), 1);
+        assert_eq!(other, Scalar::try_from_array(b.as_ref(), 0)?);
+        assert_ne!(other, Scalar::try_from_array(a.as_ref(), 0)?);
+        let hasher = RandomState::new();
+        assert_eq!(
+            hasher.hash_one(&other),
+            hasher.hash_one(Scalar::try_from_array(b.as_ref(), 0)?)
+        );
+
+        // Floats compare by value as their rows do.
+        assert_eq!(Scalar::from_f64(f64::NAN), Scalar::from_f64(f64::NAN));
+        assert_ne!(Scalar::from_f64(0.0), Scalar::from_f64(-0.0));
+        let float32: ArrayRef = Arc::new(Float32Array::from(vec![0.5]));
+        assert_eq!(
+            Scalar::try_from_array(float32.as_ref(), 0)?,
+            Scalar::from_f64(0.5)
+        );
         Ok(())
     }
 }
