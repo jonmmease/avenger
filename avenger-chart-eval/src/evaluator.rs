@@ -202,8 +202,19 @@ impl PreparedChart {
                 .map(|group| fit_kind(&group.spec, registry))
                 .collect::<Result<Vec<_>>>()?;
             let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
-            let drawn = (resolved.tree.layers.iter())
-                .map(|layer| encode::drawn_rows(layer.mark, layer.table))
+            // The position channels of each layer whose scale fits categories.
+            let mut categorical: Vec<Vec<Channel>> = vec![Vec::new(); resolved.tree.layers.len()];
+            for (group, kind) in resolved.scales.iter().zip(&kinds) {
+                if *kind == FitKind::Categories {
+                    for member in &group.members {
+                        categorical[member.layer].push(member.channel);
+                    }
+                }
+            }
+            let drawn = (resolved.tree.layers.iter().zip(&categorical))
+                .map(|(layer, categorical)| {
+                    encode::drawn_rows(layer.mark, layer.table, categorical)
+                })
                 .collect::<Result<Vec<_>>>()?;
             warnings.extend(crate::convert::domain::selection_warnings(
                 &resolved.scales,

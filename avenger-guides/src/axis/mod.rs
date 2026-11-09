@@ -9,6 +9,7 @@ mod opts;
 mod polar;
 mod prepared;
 
+pub use band::{category_values, NULL_LABEL};
 pub use nested_band::NestedBandAxisLevelConfig;
 pub use opts::{AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, CategoryLabels, LabelThinning};
 pub use polar::{

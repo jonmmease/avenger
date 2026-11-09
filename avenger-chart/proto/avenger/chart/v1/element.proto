@@ -63,6 +63,8 @@ message Labels {
   string format = 1;
   // Typst markup for each label, as `TEXT_SYNTAX_TYPST` reads it, where `#value` is the formatted
   // value, such as `#value m/s`. An empty markup shows the formatted value as plain text. The
+  // label of a category of a band, a point, or an ordinal scale also binds `null`, whether it is
+  // the NULL category, whose `value` is `null`, such as `#if null [Unknown] else [#value]`. The
   // label of a column of lumps also binds `other`, whether it is the Other group, `count`, its
   // number of categories, and `weight`, its weight, such as
   // `#if other [#value (#count)] else [#value]`. `count` and `weight` are `?` when the rows that

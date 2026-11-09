@@ -36,7 +36,13 @@ use crate::{convert::selection::predicate, EvalError, EvalWarning};
 pub(crate) type Result<T> = std::result::Result<T, EvalError>;
 
 /// The rows of `table` that draw an instance: those whose encoded position columns hold values.
-pub(crate) fn drawn_rows(mark: &dyn MarkMessage, table: &RecordBatch) -> Result<RecordBatch> {
+/// On a channel of `categorical`, whose scale fits categories, a NULL is the NULL category, which
+/// draws, and a NULL struct, a NULL lump or a NULL path of nested bands, does not.
+pub(crate) fn drawn_rows(
+    mark: &dyn MarkMessage,
+    table: &RecordBatch,
+    categorical: &[Channel],
+) -> Result<RecordBatch> {
     let positions = mark.kind().pairs().concat();
     let columns: Vec<ArrayRef> = mark
         .encodings()
@@ -44,7 +50,11 @@ pub(crate) fn drawn_rows(mark: &dyn MarkMessage, table: &RecordBatch) -> Result<
         .filter_map(|(channel, encoding)| match &encoding.kind {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 let column = table.column_by_name(name)?;
-                Some(crate::lumps::channel_values(column, channel))
+                let values = crate::lumps::channel_values(column, channel);
+                let category = categorical.contains(&channel)
+                    && matches!(&encoding.kind, Some(encoding::Kind::ScaledField(_)))
+                    && !matches!(values.data_type(), arrow::datatypes::DataType::Struct(_));
+                (!category).then_some(values)
             }
             _ => None,
         })

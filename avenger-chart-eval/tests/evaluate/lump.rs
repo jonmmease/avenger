@@ -529,3 +529,71 @@ fn a_polar_axis_of_lumps_labels_the_other_group() {
         "{texts:?}"
     );
 }
+
+/// The counted cars of `counted_cars` with the cars of an unknown number of cylinders, 5 of them:
+/// a kept NULL category, as `'nulls', 'keep'` writes it, or with `drop`, a NULL lump, as
+/// `'nulls', 'drop'` writes it.
+fn counted_cars_with_nulls(drop: bool) -> RecordBatch {
+    let lumped = lumps(
+        &[Some(4), Some(8), Some(6), None, None],
+        &[true, true, true, false, true],
+        &[207.0, 108.0, 84.0, 7.0, 5.0],
+        &[1, 1, 1, 2, 1],
+    );
+    let lumped = match drop {
+        true => {
+            let parts = lumped.as_struct();
+            Arc::new(StructArray::new(
+                parts.fields().clone(),
+                parts.columns().to_vec(),
+                Some(vec![true, true, true, true, false].into()),
+            )) as ArrayRef
+        }
+        false => lumped,
+    };
+    RecordBatch::try_from_iter([
+        ("lumped", lumped),
+        (
+            "cars",
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 84.0, 7.0, 5.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap()
+}
+
+#[test]
+fn a_kept_null_category_of_a_lump_comes_after_the_other_group() {
+    let chart = |drop: bool, scale: ScaleBuilder| {
+        let x =
+            Encoding::scaled_field("lumped").scale(scale.axis(Axis::builder().title("cylinders")));
+        let bars = CartesianLayer::bar(
+            counted_cars_with_nulls(drop),
+            BarMark::builder().x(x).y("cars"),
+        );
+        Chart::builder(Plot::cartesian([bars]))
+            .number_format_syntax("d3")
+            .build()
+            .unwrap()
+    };
+    let evaluated = render(&chart(false, Scale::builder()), [360.0, 240.0], "lump-null");
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    assert_eq!(
+        axis_labels(&evaluated)[..5],
+        ["4", "8", "6", "Other", "null"]
+    );
+    // A sort orders the kept categories, and Other and the NULL category stay last.
+    let sorted = chart(
+        false,
+        Scale::builder().domain(Domain::data(DataDomain::builder().fit(
+            DomainFit::categories(CategoryFit::builder().sort(CategorySort::Descending)),
+        ))),
+    );
+    let labels = axis_labels(&evaluate(&sorted, [360.0, 240.0]));
+    assert_eq!(labels[..5], ["8", "6", "4", "Other", "null"], "{labels:?}");
+
+    // The rows of a NULL lump are no category and draw no bar.
+    let evaluated = evaluate(&chart(true, Scale::builder()), [360.0, 240.0]);
+    assert_eq!(axis_labels(&evaluated)[..4], ["4", "8", "6", "Other"]);
+    let drawn = (rect_lefts(&evaluated).into_iter()).filter(|left| left.is_finite());
+    assert_eq!(drawn.count(), 4);
+}

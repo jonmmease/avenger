@@ -60,6 +60,8 @@ pub(crate) struct Lumps {
     count: Vec<Option<Agreed<i64>>>,
     /// The keys of the Other group among the rows, one for each label.
     others: Option<ArrayRef>,
+    /// The key of the NULL category, when the rows have one.
+    null: Option<ArrayRef>,
 }
 
 impl Lumps {
@@ -79,6 +81,11 @@ impl Lumps {
             true => arrow::array::new_empty_array(&key_type),
             false => distinct(&concat(&all)?)?,
         };
+        // A NULL lump, the row of a NULL category that the lump drops, is no key.
+        let keys = match keys.null_count() {
+            0 => keys,
+            _ => arrow::compute::filter(&keys, &arrow::compute::is_not_null(&keys)?)?,
+        };
         let index = CategoryIndex::new(&keys)?;
         let mut weights: Vec<Option<f64>> = vec![None; keys.len()];
         let mut weight_of: Vec<Option<Agreed<f64>>> = vec![None; keys.len()];
@@ -90,7 +97,9 @@ impl Lumps {
             let count = lumps.column(3).as_primitive::<Int64Type>();
             let other = lump::others(column).expect("a lump");
             for (row, key) in index.positions(column_keys)?.into_iter().enumerate() {
-                let key = key.expect("the distinct keys hold every key");
+                let Some(key) = key else {
+                    continue;
+                };
                 if weight.is_valid(row) {
                     let value = weight.value(row);
                     weights[key] = Some(weights[key].map_or(value, |known| known.max(value)));
@@ -113,8 +122,13 @@ impl Lumps {
                 Some(distinct(&concat(&refs)?)?)
             }
         };
+        let null = lump::nulls(&keys).expect("the keys of lumps");
+        let null = (0..keys.len())
+            .find(|&row| null.value(row))
+            .map(|row| keys.slice(row, 1));
         Ok(Some(Self {
             key_type,
+            null,
             keys,
             index,
             weights,
@@ -138,23 +152,25 @@ impl Lumps {
 
     /// `domain`, keys of the group, in the order of the lumps: the kept categories as `domain`
     /// orders them when the fit gives an order, and by descending weight otherwise, then the Other
-    /// group. An explicit domain that names no Other group gains the Other group of the rows.
+    /// group, then the NULL category. An explicit domain that names no Other group or no NULL
+    /// category gains those of the rows.
     pub(crate) fn order(&self, domain: &ArrayRef, ordered: bool) -> Result<ArrayRef> {
-        let domain = match &self.others {
-            Some(others) => {
-                let known = CategoryIndex::new(domain)?.positions(others)?;
-                let missing: UInt32Array = (known.into_iter().enumerate())
-                    .filter(|(_, position)| position.is_none())
-                    .map(|(row, _)| row as u32)
-                    .collect();
-                let missing = take(others.as_ref(), &missing, None)?;
-                concat(&[domain.as_ref(), missing.as_ref()])?
-            }
-            None => domain.clone(),
-        };
+        let mut domain = domain.clone();
+        for groups in [&self.others, &self.null].into_iter().flatten() {
+            let known = CategoryIndex::new(&domain)?.positions(groups)?;
+            let missing: UInt32Array = (known.into_iter().enumerate())
+                .filter(|(_, position)| position.is_none())
+                .map(|(row, _)| row as u32)
+                .collect();
+            let missing = take(groups.as_ref(), &missing, None)?;
+            domain = concat(&[domain.as_ref(), missing.as_ref()])?;
+        }
         let positions = self.index.positions(&domain)?;
         let other = lump::others(&domain).expect("the keys of lumps");
-        let mut kept: Vec<usize> = (0..domain.len()).filter(|&i| !other.value(i)).collect();
+        let null = lump::nulls(&domain).expect("the keys of lumps");
+        let mut kept: Vec<usize> = (0..domain.len())
+            .filter(|&i| !other.value(i) && !null.value(i))
+            .collect();
         if !ordered {
             // A stable sort keeps the domain's ascending order among equal weights.
             let weight = |i: &usize| {
@@ -166,6 +182,7 @@ impl Lumps {
         }
         let order: UInt32Array = (kept.into_iter())
             .chain((0..domain.len()).filter(|&i| other.value(i)))
+            .chain((0..domain.len()).filter(|&i| null.value(i)))
             .map(|i| i as u32)
             .collect();
         Ok(take(domain.as_ref(), &order, None)?)
@@ -209,13 +226,15 @@ impl Lumps {
         );
         let formatted = engine.format_array(value, pattern, PrecisionSharing::PerValue)?;
         let positions = self.index.positions(keys)?;
+        let nulls = lump::nulls(keys).expect("the keys of lumps");
         let unknown = || LabelValue::Str("?".to_string());
         let mut labels = Vec::with_capacity(keys.len());
         for (index, (formatted, key)) in formatted.into_iter().zip(positions).enumerate() {
-            let is_other = other.is_valid(index);
-            let value = match is_other {
-                true => LabelValue::Str(other.value(index).to_string()),
-                false => formatted,
+            let (is_other, is_null) = (other.is_valid(index), nulls.value(index));
+            let value = match (is_other, is_null) {
+                (true, _) => LabelValue::Str(other.value(index).to_string()),
+                (_, true) => null_text(),
+                _ => formatted,
             };
             // A key without rows, such as a category of an explicit domain, has no count or
             // weight, and the rows of a key that disagree have `?`.
@@ -229,17 +248,29 @@ impl Lumps {
                 Some(Agreed::Several) => unknown(),
                 None => LabelValue::None,
             };
-            labels.push(bound(value, is_other, count, weight));
+            labels.push(bound(value, is_other, is_null, count, weight));
         }
         Ok(labels)
     }
 }
 
-/// The values that a label of a lump binds: `value`, `other`, `count`, and `weight`.
-fn bound(value: LabelValue, other: bool, count: LabelValue, weight: LabelValue) -> LabelValues {
+/// The text of the NULL category, as `avenger_guides` labels a NULL category.
+fn null_text() -> LabelValue {
+    LabelValue::Str(avenger_guides::axis::NULL_LABEL.to_string())
+}
+
+/// The values that a label of a lump binds: `value`, `other`, `null`, `count`, and `weight`.
+fn bound(
+    value: LabelValue,
+    other: bool,
+    null: bool,
+    count: LabelValue,
+    weight: LabelValue,
+) -> LabelValues {
     LabelValues::from([
         ("value".to_string(), value),
         ("other".to_string(), LabelValue::Bool(other)),
+        ("null".to_string(), LabelValue::Bool(null)),
         ("count".to_string(), count),
         ("weight".to_string(), weight),
     ])
@@ -254,8 +285,9 @@ fn weight_text(weight: f64, engine: &LabelEngine) -> std::result::Result<LabelVa
 /// The values that a label of `row` of `column` binds when `column` is a column of lumps, as the
 /// labels of a lump's guides bind them, from the row's own weight and number of categories: its
 /// kept category as `pattern` formats it or the Other group's label as `value`, whether it is the
-/// Other group as `other`, its number of categories as `count`, and its weight as `weight`. `None`
-/// for a column that is not a lump.
+/// Other group as `other` and the NULL category as `null`, its number of categories as `count`,
+/// and its weight as `weight`. A NULL lump binds none of the three values. `None` for a column
+/// that is not a lump.
 pub fn lump_label_values(
     column: &ArrayRef,
     row: usize,
@@ -266,13 +298,19 @@ pub fn lump_label_values(
         return Ok(None);
     }
     let lumps = column.as_struct();
+    let none = LabelValue::None;
+    if lumps.is_null(row) {
+        return Ok(Some(bound(none.clone(), false, false, none.clone(), none)));
+    }
     let other = lumps.column(1).as_string::<i32>();
     let weight = lumps.column(2).as_primitive::<Float64Type>();
     let count = lumps.column(3).as_primitive::<Int64Type>();
     let is_other = other.is_valid(row);
-    let value = match is_other {
-        true => LabelValue::Str(other.value(row).to_string()),
-        false => (engine.format_array(
+    let is_null = !is_other && lumps.column(0).is_null(row);
+    let value = match (is_other, is_null) {
+        (true, _) => LabelValue::Str(other.value(row).to_string()),
+        (_, true) => null_text(),
+        _ => (engine.format_array(
             &lumps.column(0).slice(row, 1),
             pattern,
             PrecisionSharing::PerValue,
@@ -284,7 +322,7 @@ pub fn lump_label_values(
         false => LabelValue::None,
     };
     let count = LabelValue::Int(count.value(row));
-    Ok(Some(bound(value, is_other, count, weight)))
+    Ok(Some(bound(value, is_other, is_null, count, weight)))
 }
 
 /// `values`, the values of the members of a scale group, with each column of lumps as its keys,

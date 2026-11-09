@@ -11,6 +11,7 @@ mod geo;
 mod guides;
 mod lump;
 mod marks;
+mod nulls;
 mod overlays;
 mod polar;
 mod selections;

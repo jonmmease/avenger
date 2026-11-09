@@ -36,12 +36,15 @@ message Encoding {
   // A field of a categorical channel can name a column of lumps, the structs that the `lump`
   // transform writes: exactly a `value`, an `other` of Utf8, a `weight` of Float64, and a
   // `category_count` of Int64, in that order. A row of a kept category has its category in `value`
-  // and a NULL `other`, and a row of the Other group has a NULL `value` and its label in `other`. A
-  // lump goes through a band, a point, or an ordinal scale, whose domain is the kept categories
-  // and then the Other group, so Other is the last band, point, axis label, and legend entry. The
+  // and a NULL `other`, a row of the Other group has a NULL `value` and its label in `other`, and
+  // a row of the NULL category has a NULL `value` and a NULL `other`. A NULL lump, a row of a NULL
+  // category that the lump drops, is in no category and draws no mark. A lump goes through a band,
+  // a point, or an ordinal scale, whose domain is the kept categories, then the Other group, then
+  // the NULL category, so they are the last bands, points, axis labels, and legend entries. The
   // explicit domains, preferred categories, and tick and legend values of the scale are kept
-  // categories, in the type of `value`. On a channel other than a position, a row of the Other
-  // group takes the value of the `other` style element of its mark, in place of the scale's.
+  // categories, in the type of `value`, and an explicit domain gains the Other group and the NULL
+  // category of the rows. On a channel other than a position, a row of the Other group takes the
+  // value of the `other` style element of its mark, in place of the scale's.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
     // The name of a column of the layer's table, whose values the mark draws as they are, such as

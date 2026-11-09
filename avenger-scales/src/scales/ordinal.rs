@@ -44,7 +44,8 @@ macro_rules! impl_ordinal_enum_scale_method {
 ///
 /// Each unique value in the domain is mapped to the corresponding value in the range
 /// array by index. The first domain value maps to the first range value, the second
-/// to the second, and so on. Values not present in the domain produce null/default outputs.
+/// to the second, and so on. A null value takes the range value of the domain's null category
+/// when the domain has one. Values not present in the domain produce null/default outputs.
 ///
 /// The range can contain any type of values: numbers, strings, colors, or even enum
 /// values like StrokeCap or ImageAlign. The domain and range must have the same length.
@@ -151,21 +152,20 @@ impl ScaleImpl for OrdinalScale {
 }
 
 /// The index of the range value of each of `values`: the position of its category in `domain`, with
-/// a domain longer than the range reusing range values from the start. Null values, values outside
-/// the domain, and every value of an empty range have none.
+/// a domain longer than the range reusing range values from the start. A null is the domain's null
+/// category, when it has one. Values outside the domain, and every value of an empty range, have
+/// none.
 fn range_indices_for_values(
     domain: &ArrayRef,
     range_length: usize,
     values: &ArrayRef,
 ) -> Result<ArrayRef, AvengerScaleError> {
     let positions = CategoryIndex::new(domain)?.positions(values)?;
-    let range_indices = (positions.into_iter().enumerate())
-        .map(
-            |(i, position)| match values.is_null(i) || range_length == 0 {
-                true => None,
-                false => position.map(|position| (position % range_length) as u32),
-            },
-        )
+    let range_indices = (positions.into_iter())
+        .map(|position| match range_length {
+            0 => None,
+            _ => position.map(|position| (position % range_length) as u32),
+        })
         .collect::<UInt32Array>();
     Ok(Arc::new(range_indices))
 }
@@ -332,6 +332,24 @@ mod tests {
         assert!(result[3].is_nan());
         assert!(result[4].is_nan());
         assert_eq!(result[5], 30.0);
+
+        // A domain with a null category maps the null values to its range value.
+        let config = ScaleConfig {
+            domain: Arc::new(StringArray::from(vec![
+                Some("a"),
+                Some("b"),
+                Some("c"),
+                None,
+            ])),
+            range: Arc::new(Float32Array::from(vec![10.0, 20.0, 30.0, 40.0])),
+            options: HashMap::new(),
+            context: ScaleContext::default(),
+        };
+        let result = OrdinalScale.scale_to_numeric(&config, &values)?;
+        let result = result.as_vec(values.len(), None);
+        assert_eq!(result[1], 40.0);
+        assert_eq!(result[4], 40.0);
+        assert!(result[3].is_nan());
         Ok(())
     }
 

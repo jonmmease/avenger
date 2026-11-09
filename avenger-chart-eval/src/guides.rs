@@ -772,10 +772,11 @@ fn entries(
         }
         _ if matches!(scale_type, "band" | "point" | "nested_band" | "ordinal") => {
             let values = scale.domain().clone();
-            let (labels, syntax) = match lumps {
-                Some(lumps) => bound_text(lumps.label_values(&values, pattern, engine)?, markup)?,
-                None => label_text(formatted(&values)?, markup)?,
+            let label_values = match lumps {
+                Some(lumps) => lumps.label_values(&values, pattern, engine)?,
+                None => avenger_guides::axis::category_values(&values, formatted(&values)?),
             };
+            let (labels, syntax) = bound_text(label_values, markup)?;
             Ok((values, labels, syntax))
         }
         _ => {

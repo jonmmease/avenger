@@ -12,8 +12,9 @@ use super::{CategoryOrder, DomainFitError, Extents};
 /// extents of the marks drawn at it. See the [module docs](super).
 #[derive(Debug, Clone)]
 pub struct CategorySummary {
-    /// Distinct non-null categories, ascending in Arrow's row encoding. Struct categories, the
-    /// paths of nested bands, compare level by level.
+    /// Distinct categories, ascending in Arrow's row encoding, which puts a NULL first. Struct
+    /// categories, the paths of nested bands and the keys of lumps, compare field by field, and a
+    /// NULL struct is no category.
     keys: ArrayRef,
     /// Each category's largest lower extent.
     lower: Vec<f64>,
@@ -30,8 +31,8 @@ impl PartialEq for CategorySummary {
 }
 
 impl CategorySummary {
-    /// The distinct categories of `values` and their largest extents. Null categories are skipped,
-    /// and dictionary-encoded categories take their values' type.
+    /// The distinct categories of `values` and their largest extents. A NULL is a category,
+    /// except a NULL struct, and dictionary-encoded categories take their values' type.
     pub fn new(values: &ArrayRef, extents: Extents) -> Result<Self, DomainFitError> {
         let (lower, upper) = extents.per_row(values.len())?;
         Self::from_parts(plain(values)?, lower, upper)
@@ -75,16 +76,20 @@ impl CategorySummary {
         (&self.keys, &self.lower, &self.upper)
     }
 
-    /// The categories in `order`.
+    /// The categories in `order`, with the NULL category last when the order is ascending or
+    /// descending.
     pub fn domain(&self, order: &CategoryOrder) -> Result<ArrayRef, DomainFitError> {
-        match order {
-            CategoryOrder::Ascending => Ok(self.keys.clone()),
-            CategoryOrder::Descending => {
-                let reversed = UInt32Array::from_iter_values((0..self.keys.len() as u32).rev());
-                take(&self.keys, &reversed, None).map_err(invalid)
-            }
-            CategoryOrder::Explicit(keys) => plain(keys),
-        }
+        let len = self.keys.len() as u32;
+        // The row encoding puts a NULL first.
+        let null = self.keys.null_count() > 0;
+        let values = u32::from(null)..len;
+        let indices: Vec<u32> = match order {
+            CategoryOrder::Ascending => values.collect(),
+            CategoryOrder::Descending => values.rev().collect(),
+            CategoryOrder::Explicit(keys) => return plain(keys),
+        };
+        let indices = UInt32Array::from_iter_values(indices.into_iter().chain(null.then_some(0)));
+        take(&self.keys, &indices, None).map_err(invalid)
     }
 
     /// The largest lower and upper extents at each of `domain`'s categories, with zero for
@@ -108,9 +113,6 @@ impl CategorySummary {
         let keys: Vec<Row> = key_rows.iter().collect();
         let domain_rows = rows(&converter, &domain)?;
         for i in 0..domain.len() {
-            if domain.is_null(i) {
-                continue;
-            }
             if let Ok(index) = keys.binary_search(&domain_rows.row(i)) {
                 lower[i] = self.lower[index];
                 upper[i] = self.upper[index];
@@ -127,7 +129,10 @@ impl CategorySummary {
     ) -> Result<Self, DomainFitError> {
         let converter = converter(keys.data_type())?;
         let rows = rows(&converter, &keys)?;
-        let mut order: Vec<usize> = (0..keys.len()).filter(|&i| keys.is_valid(i)).collect();
+        let is_struct = matches!(keys.data_type(), DataType::Struct(_));
+        let mut order: Vec<usize> = (0..keys.len())
+            .filter(|&i| !is_struct || keys.is_valid(i))
+            .collect();
         order.sort_by(|&i, &j| rows.row(i).cmp(&rows.row(j)));
         let (mut kept, mut kept_lower, mut kept_upper) = (Vec::new(), Vec::new(), Vec::new());
         for i in order {
@@ -197,17 +202,51 @@ mod tests {
     }
 
     #[test]
-    fn categories_are_distinct_ascending_and_skip_nulls() {
-        let values = strings(&[Some("b"), None, Some("a"), Some("b"), Some("c")]);
-        let summary = CategorySummary::new(&values, Extents::None).unwrap();
+    fn categories_are_distinct_ascending_with_the_null_category_last() {
+        let values = strings(&[Some("b"), None, Some("a"), Some("b"), None, Some("c")]);
+        let lower = [1.0, 2.0, 0.0, 0.0, 5.0, 0.0];
+        let summary = CategorySummary::new(
+            &values,
+            Extents::PerRow {
+                lower: &lower,
+                upper: &lower,
+            },
+        )
+        .unwrap();
+        let listed = |order: &CategoryOrder| -> Vec<Option<String>> {
+            let domain = summary.domain(order).unwrap();
+            (domain.as_string::<i32>().iter())
+                .map(|value| value.map(str::to_string))
+                .collect()
+        };
+        let some = |value: &str| Some(value.to_string());
         assert_eq!(
-            names(&summary.domain(&CategoryOrder::Ascending).unwrap()),
-            ["a", "b", "c"]
+            listed(&CategoryOrder::Ascending),
+            [some("a"), some("b"), some("c"), None]
         );
         assert_eq!(
-            names(&summary.domain(&CategoryOrder::Descending).unwrap()),
-            ["c", "b", "a"]
+            listed(&CategoryOrder::Descending),
+            [some("c"), some("b"), some("a"), None]
         );
+        // The NULL category has the largest extents of its rows.
+        let domain = summary.domain(&CategoryOrder::Ascending).unwrap();
+        assert_eq!(summary.extents_at(&domain).unwrap().0, [0.0, 1.0, 0.0, 5.0]);
+    }
+
+    /// A NULL struct, such as a dropped NULL category of a lump, is no category.
+    #[test]
+    fn a_null_struct_is_no_category() {
+        let fields = Fields::from(vec![Field::new("value", DataType::Utf8, true)]);
+        let keys: ArrayRef = Arc::new(StructArray::new(
+            fields,
+            vec![strings(&[Some("a"), None, None])],
+            Some(vec![true, true, false].into()),
+        ));
+        let summary = CategorySummary::new(&keys, Extents::None).unwrap();
+        let domain = summary.domain(&CategoryOrder::Ascending).unwrap();
+        // The struct of a NULL value is a category, and the NULL struct is not.
+        assert_eq!(domain.len(), 2);
+        assert_eq!(domain.null_count(), 0);
     }
 
     /// Building from all the data equals the merge of summaries built from its parts, in either

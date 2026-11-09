@@ -12,9 +12,32 @@ use crate::{error::AvengerGuidesError, label_variant::vary_labels};
 /// The gap between the labels and the title.
 pub(crate) const TITLE_MARGIN: f32 = 4.0;
 
+/// The text of the label of a NULL category.
+pub const NULL_LABEL: &str = "null";
+
+/// The values that the labels of `categories` bind, from each category as `formatted` labels it:
+/// `value`, the formatted category, or [`NULL_LABEL`] for the NULL category, and `null`, whether it
+/// is the NULL category.
+pub fn category_values(categories: &ArrayRef, formatted: Vec<LabelValue>) -> Vec<LabelValues> {
+    (formatted.into_iter().enumerate())
+        .map(|(index, formatted)| {
+            let null = categories.is_null(index);
+            let value = match null {
+                true => LabelValue::Str(NULL_LABEL.to_string()),
+                false => formatted,
+            };
+            LabelValues::from([
+                ("value".into(), value),
+                ("null".into(), LabelValue::Bool(null)),
+            ])
+        })
+        .collect()
+}
+
 /// The label of each of `categories`. The text engine formats numeric and temporal categories
-/// with `tick_format`, each on its own, and other categories show as text. A category that
-/// `labels` holds binds its values in place of its formatted value, in its variant if it has one.
+/// with `tick_format`, each on its own, and other categories show as text, with the values that
+/// [`category_values`] gives. A category that `labels` holds binds its values in their place, in its
+/// variant if it has one.
 pub(crate) fn category_text(
     categories: &ArrayRef,
     tick_format: &str,
@@ -24,7 +47,7 @@ pub(crate) fn category_text(
 ) -> Result<(Vec<String>, TextSyntaxMode), AvengerGuidesError> {
     let Some(labels) = labels else {
         let ticks = engine.format_array(categories, tick_format, PrecisionSharing::PerValue)?;
-        return label_text(ticks, tick_label);
+        return bound_text(category_values(categories, ticks), tick_label);
     };
     let positions = CategoryIndex::new(&labels.categories)?.positions(categories)?;
     let mut values = Vec::with_capacity(categories.len());
@@ -35,13 +58,10 @@ pub(crate) fn category_text(
         values.push(match position {
             Some(position) => labels.values[position].clone(),
             None => {
-                let value = (engine.format_array(
-                    &categories.slice(index, 1),
-                    tick_format,
-                    PrecisionSharing::PerValue,
-                )?)
-                .remove(0);
-                LabelValues::from([("value".into(), value)])
+                let category = categories.slice(index, 1);
+                let formatted =
+                    engine.format_array(&category, tick_format, PrecisionSharing::PerValue)?;
+                category_values(&category, formatted).remove(0)
             }
         });
     }

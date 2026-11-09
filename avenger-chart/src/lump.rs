@@ -98,6 +98,22 @@ pub fn others(column: &ArrayRef) -> Option<BooleanArray> {
     )
 }
 
+/// Whether each row of a column of lumps or of their keys is the NULL category, a kept category
+/// whose `value` and `other` are both NULL. A NULL lump, the row of a NULL category that the lump
+/// drops, is not. `None` for a column of another type.
+pub fn nulls(column: &ArrayRef) -> Option<BooleanArray> {
+    if !is_lump(column.data_type()) && !is_key(column.data_type()) {
+        return None;
+    }
+    let lumps = column.as_struct();
+    let (value, other) = (lumps.column(0), lumps.column(1));
+    Some(
+        (0..lumps.len())
+            .map(|row| Some(lumps.is_valid(row) && value.is_null(row) && other.is_null(row)))
+            .collect(),
+    )
+}
+
 /// The keys of lumps of the key type `key_type` of the kept categories `values`, which are cast to
 /// the type of the lumps' `value`: each value with a NULL `other`. `None` for a type that is not
 /// the key type of lumps, or values that do not cast.
