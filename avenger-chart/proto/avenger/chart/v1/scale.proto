@@ -117,6 +117,7 @@ message DataBounds {}
 
 // An interval from `low` to `high`.
 message Interval {
+  option (avenger.chart.v1.constructor) = "navigation_interval";
   // The low end.
   double low = 1;
   // The high end, more than `low`.
@@ -308,6 +309,7 @@ message CustomScale {
 
 // Where a scale's domain comes from.
 message Domain {
+  option (avenger.chart.v1.constructor) = "scale_domain";
   oneof domain {
     // A list of the domain, whose elements become the `ScaleConfig.domain` of the scale. The list
     // holds:
@@ -382,7 +384,7 @@ message SummaryDomain {
 // A domain that the renderer summarizes from the layer's own data, as `Domain.data` describes.
 message DataDomain {
   // How the domain fits the data.
-  DomainFit fit = 1;
+  DomainFit fit = 1 [(avenger.chart.v1.lift) = true];
 }
 
 // A domain from the values of a selection.
@@ -497,6 +499,7 @@ enum CategorySort {
 }
 
 message Range {
+  option (avenger.chart.v1.constructor) = "scale_range";
   oneof range {
     // A list of the values of the range, such as CSS colors, sizes, or shape names.
     ValueRef values = 1;

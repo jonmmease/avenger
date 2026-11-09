@@ -28,8 +28,12 @@ use prost::Message;
 mod annotations;
 #[path = "codegen/builders.rs"]
 mod builders;
+#[path = "codegen/constructors.rs"]
+mod constructors;
 #[path = "codegen/functions.rs"]
 mod functions;
+#[path = "codegen/model.rs"]
+mod model;
 #[path = "codegen/options.rs"]
 mod options;
 use prost_types::{
@@ -110,7 +114,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     enum_error(&mut walk, &set);
     let annotations = annotations::Annotations::read(&std::fs::read(&descriptors)?)?;
     check_annotations(&annotations)?;
-    options::check(&messages, &options::option_tree(&messages))?;
+    let tree = options::option_tree(&messages);
+    options::check(&messages, &tree)?;
+    let model = model::Model::new(
+        &messages,
+        &annotations,
+        &model::parameter_messages(&tree),
+        &options::excluded(&messages),
+    )?;
+    // The messages with constructors: those of the tree with fields, except the marks, whose
+    // mark functions take their parameters.
+    let mark_messages = options::marks(&messages);
+    let constructors: Vec<&model::MessageModel> = (model.messages.iter())
+        .filter(|message| tree.contains(&message.name) && !mark_messages.contains(&message.name))
+        .filter(|message| !message.message.field.is_empty())
+        .collect();
+    model::check_names(&constructors)?;
+    let constructor_names: Vec<String> = constructors.iter().map(|m| m.name.clone()).collect();
     annotations::required_visitors(&mut walk, &set, &messages, &annotations)?;
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
@@ -125,6 +145,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(
             out.join("functions.rs"),
             functions::functions(&set, &messages, &annotations)?,
+        )?;
+        std::fs::write(
+            out.join("constructors.rs"),
+            constructors::constructors(
+                &set,
+                &model,
+                &builders::Comments::new(&set),
+                &constructor_names,
+            )?,
         )?;
     }
     Ok(())

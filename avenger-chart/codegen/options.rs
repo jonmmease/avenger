@@ -69,6 +69,38 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
     tree
 }
 
+/// The fields that are not options of a message of the tree or of `Encoding`, by the message's
+/// full name and the field's name: the members of `Encoding.kind`, which `scaled` and `direct`
+/// set, and `Encoding.conditional`.
+pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
+    let encoding = format!("{PACKAGE}.Encoding");
+    let mut excluded = BTreeSet::new();
+    if let Some((_, _, message)) = messages.get(&encoding) {
+        let kind = (message.oneof_decl.iter()).position(|oneof| oneof.name() == "kind");
+        for field in &message.field {
+            let member_of_kind = kind.is_some() && field.oneof_index.map(|i| i as usize) == kind;
+            if member_of_kind || field.name() == "conditional" {
+                excluded.insert((encoding.clone(), field.name().to_string()));
+            }
+        }
+    }
+    excluded
+}
+
+/// The full names of the mark messages, the members of the `mark` oneof of each layer.
+pub(super) fn marks(messages: &Messages) -> BTreeSet<String> {
+    let mut marks = BTreeSet::new();
+    for (_, _, layer) in &messages.all {
+        let Some(mark) = (layer.oneof_decl.iter()).position(|oneof| oneof.name() == "mark") else {
+            continue;
+        };
+        for member in (layer.field.iter()).filter(|field| field.oneof_index == Some(mark as i32)) {
+            marks.insert(member.type_name().to_string());
+        }
+    }
+    marks
+}
+
 /// Whether the tree stops at the message `name`.
 fn stops(name: &str) -> bool {
     STOPS.iter().any(|stop| name == format!("{PACKAGE}.{stop}"))

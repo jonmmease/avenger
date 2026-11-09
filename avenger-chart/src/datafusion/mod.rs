@@ -28,6 +28,8 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
+mod argument;
+mod constructor;
 mod declaration;
 mod instance;
 mod kind;
@@ -38,6 +40,7 @@ use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::S
 
 use crate::{layer::MarkMessage, proto, CoordKind};
 
+pub use constructor::FRAGMENT_EXTENSION_NAME;
 pub use kind::{DIRECT, SCALED};
 
 /// A mark function: its name, the coordinate system of its mark, its documentation, its mark in
@@ -80,11 +83,16 @@ pub fn mark_names() -> impl Iterator<Item = &'static str> {
     MARKS.iter().map(|spec| spec.name)
 }
 
-/// Registers the mark functions, `scaled`, and `direct` in `ctx`.
+/// Registers the mark functions, the constructors, `scaled`, and `direct` in `ctx`.
 pub fn register(ctx: &SessionContext) {
     for spec in MARKS {
         ctx.register_udaf(AggregateUDF::new_from_impl(
             declaration::MarkDeclaration::new(spec),
+        ));
+    }
+    for spec in constructor::generated::CONSTRUCTORS {
+        ctx.register_udf(ScalarUDF::new_from_impl(
+            constructor::ConstructorFunction::new(spec),
         ));
     }
     for kind in [kind::Kind::Scaled, kind::Kind::Direct] {
@@ -92,4 +100,17 @@ pub fn register(ctx: &SessionContext) {
             kind::KindFunction::new(kind),
         )));
     }
+}
+
+/// The names of the constructors, in the order of the option tree.
+pub fn constructor_names() -> impl Iterator<Item = &'static str> {
+    constructor::generated::CONSTRUCTORS
+        .iter()
+        .map(|spec| spec.name)
+}
+
+/// The text of every constructor's parameters and the arguments that each takes, which the
+/// snapshot test of the constructors compares.
+pub fn constructor_surface() -> &'static str {
+    constructor::generated::SURFACE
 }

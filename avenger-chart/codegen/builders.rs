@@ -62,12 +62,15 @@ const CHART_OWNED: [&str; 3] = ["version", "tables", "values"];
 pub(super) struct Comments {
     pub(super) messages: BTreeMap<String, String>,
     pub(super) fields: BTreeMap<(String, usize), String>,
+    /// The comments of the oneofs, by the message's full name and the oneof's index.
+    pub(super) oneofs: BTreeMap<(String, usize), String>,
 }
 
 impl Comments {
     pub(super) fn new(set: &FileDescriptorSet) -> Self {
         let mut messages = BTreeMap::new();
         let mut fields = BTreeMap::new();
+        let mut oneofs = BTreeMap::new();
         for file in &set.file {
             let Some(info) = &file.source_code_info else {
                 continue;
@@ -89,11 +92,22 @@ impl Comments {
                             comment.to_string(),
                         );
                     }
+                    [4, message, 8, oneof] => {
+                        let name = file.message_type[*message as usize].name();
+                        oneofs.insert(
+                            (format!("{PACKAGE}.{name}"), *oneof as usize),
+                            comment.to_string(),
+                        );
+                    }
                     _ => {}
                 }
             }
         }
-        Self { messages, fields }
+        Self {
+            messages,
+            fields,
+            oneofs,
+        }
     }
 }
 
@@ -146,7 +160,7 @@ fn escape(line: &str) -> String {
 
 /// The name of the method of a field or a member: its Rust identifier, with a trailing underscore
 /// for a keyword.
-fn method(name: &str) -> String {
+pub(super) fn method(name: &str) -> String {
     let ident = ident(name);
     match ident.strip_prefix("r#") {
         Some(keyword) => format!("{keyword}_"),
@@ -155,7 +169,7 @@ fn method(name: &str) -> String {
 }
 
 /// The Rust path of an enum or a message of the package from its full name.
-fn rust_path(type_name: &str) -> String {
+pub(super) fn rust_path(type_name: &str) -> String {
     let relative = type_name
         .strip_prefix(&format!("{PACKAGE}."))
         .expect("a type of the package");

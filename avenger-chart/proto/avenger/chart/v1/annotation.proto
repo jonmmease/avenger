@@ -20,6 +20,13 @@ extend google.protobuf.FieldOptions {
   bool lift = 50003;
 }
 
+extend google.protobuf.MessageOptions {
+  // The name of the constructor of the message in the generated interfaces, such as the scalar
+  // function of SQL, in place of the name of the message in snake case, which is a keyword of SQL
+  // or the name of a function of DataFusion for some messages.
+  string constructor = 50006;
+}
+
 extend google.protobuf.OneofOptions {
   // The oneof always holds a member.
   bool required_oneof = 50002;

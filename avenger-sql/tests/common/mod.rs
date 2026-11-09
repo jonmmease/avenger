@@ -46,6 +46,7 @@ pub fn session() -> SessionContext {
 }
 
 /// The charts of the column `chart` of `query`, in the order of its rows.
+#[allow(dead_code)]
 pub async fn charts(query: &str) -> Vec<Chart> {
     let ctx = session();
     let batches = avenger_sql::sql(&ctx, query)
