@@ -19,6 +19,7 @@ use crate::{
         domain::{domain_options, source, DomainSource, Fit, FitDefaults},
         scale::{fit_kind, range, range_shape, unfitted},
     },
+    lumps::Lumps,
     EvalError, EvalWarning, Registry,
 };
 
@@ -101,7 +102,22 @@ fn value_type(values: &[Option<MemberValues>]) -> DataType {
 /// A fitting scale of `summary` with the fit's options, whose categories come in the fit's
 /// preferred order when it has one. The categories that a summary holds do not depend on the
 /// length, so the order applies once, as an explicit order.
-fn fitting_of(scale: ConfiguredScale, summary: DomainSummary, fit: &Fit) -> Result<FittingScale> {
+fn fitting_of(
+    scale: ConfiguredScale,
+    summary: DomainSummary,
+    fit: &Fit,
+    lumps: Option<&Lumps>,
+) -> Result<FittingScale> {
+    if let (Some(lumps), DomainOptions::Categories(_)) = (lumps, &fit.options) {
+        let domain = lump_domain(&scale, &summary, fit, lumps)?;
+        return Ok(FittingScale::new(
+            scale,
+            summary,
+            DomainOptions::Categories(CategoryOptions {
+                order: CategoryOrder::Explicit(domain),
+            }),
+        ));
+    }
     if fit.preferred.is_some() {
         if let DomainOptions::Categories(_) = &fit.options {
             let ascending = scale.clone().with_range_interval((0.0, 1.0)).fit_domain(
@@ -119,6 +135,37 @@ fn fitting_of(scale: ConfiguredScale, summary: DomainSummary, fit: &Fit) -> Resu
         }
     }
     Ok(FittingScale::new(scale, summary, fit.options.clone()))
+}
+
+/// The domain of a group of lumps whose values `summary` summarizes: the kept categories in the
+/// fit's order, by descending weight without one, then the Other group.
+fn lump_domain(
+    scale: &ConfiguredScale,
+    summary: &DomainSummary,
+    fit: &Fit,
+    lumps: &Lumps,
+) -> Result<ArrayRef> {
+    let domain = (scale.clone().with_range_interval((0.0, 1.0)))
+        .fit_domain(&fit.options, &summary.without_extents())?
+        .config
+        .domain;
+    let preferred = (fit.preferred.as_ref())
+        .map(|preferred| lumps.kept_keys(preferred))
+        .transpose()?;
+    let keyed = Fit {
+        preferred,
+        ..fit.clone()
+    };
+    lumps.order(&keyed.order(domain)?, fit.ordered)
+}
+
+/// The values of a group's members as the keys of their lumps, with the group's lumps, or the
+/// values as they are when the members hold no lumps.
+fn keyed(values: &[Option<MemberValues>]) -> Result<(Option<Lumps>, Vec<Option<MemberValues>>)> {
+    Ok(match Lumps::of(values)? {
+        Some((lumps, keyed)) => (Some(lumps), keyed),
+        None => (None, values.to_vec()),
+    })
 }
 
 /// A position scale of a plot, which fits its domain at each length.
@@ -160,6 +207,8 @@ pub(crate) fn position(
         states,
     } = *inputs;
     let spec = &group.spec;
+    let (lumps, keyed) = keyed(values)?;
+    let values = keyed.as_slice();
     let mut unfitted = unfitted(spec, style, registry, &value_type(values))?;
     if wraps {
         let wrapped = match unfitted.scale_impl.scale_type() {
@@ -177,7 +226,13 @@ pub(crate) fn position(
     let kind = fit_kind(spec, registry)?;
     let fit = domain_options(chart, spec, kind, defaults);
     let (fitting, clip) = match source(chart, group, states)? {
-        DomainSource::Explicit(domain) => (explicit(&unfitted, domain, kind, values)?, true),
+        DomainSource::Explicit(domain) => {
+            let domain = match &lumps {
+                Some(lumps) => lumps.order(&lumps.kept_keys(&domain)?, true)?,
+                None => domain,
+            };
+            (explicit(&unfitted, domain, kind, values)?, true)
+        }
         DomainSource::Inferred {
             summaries,
             data,
@@ -185,7 +240,7 @@ pub(crate) fn position(
         } => {
             let fit = fit.pinned(pin);
             let fitting = match inferred_summary(&unfitted, &summaries, &data, values)? {
-                Some(summary) => fitting_of(unfitted, summary, &fit)?,
+                Some(summary) => fitting_of(unfitted, summary, &fit, lumps.as_ref())?,
                 None => FittingScale::from(unfitted),
             };
             (fitting, fit.pins())
@@ -242,9 +297,13 @@ pub(crate) fn non_position(
     let values: Vec<Option<MemberValues>> = (values.iter())
         .map(|values| values.clone().map(|values| (values, None)))
         .collect();
+    let (lumps, values) = keyed(&values)?;
     let unfitted = unfitted(spec, style, registry, &value_type(&values))?;
     let domain = match source(chart, group, states)? {
-        DomainSource::Explicit(domain) => domain,
+        DomainSource::Explicit(domain) => match &lumps {
+            Some(lumps) => lumps.order(&lumps.kept_keys(&domain)?, true)?,
+            None => domain,
+        },
         DomainSource::Inferred {
             summaries,
             data,
@@ -252,6 +311,9 @@ pub(crate) fn non_position(
         } => {
             let fit = domain_options(chart, spec, fit_kind(spec, registry)?, defaults).pinned(pin);
             match inferred_summary(&unfitted, &summaries, &data, &values)? {
+                Some(summary) if lumps.is_some() => {
+                    lump_domain(&unfitted, &summary, &fit, lumps.as_ref().expect("lumps"))?
+                }
                 Some(summary) => {
                     let domain = (unfitted.clone().with_range_interval((0.0, 1.0)))
                         .fit_domain(&fit.options, &summary)?

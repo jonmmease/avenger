@@ -1469,6 +1469,15 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
     let fittings: Vec<_> = (positions.iter())
         .map(|position| position.as_ref().map(|position| position.fitting.clone()))
         .collect();
+    // The lumps of each group whose members read columns of lumps, which label its guides.
+    let lumps = (groups.iter())
+        .map(|group| {
+            let values = (group.members.iter())
+                .map(|member| Ok(values_of(member)?.map(|values| (values, None))))
+                .collect::<Result<Vec<Option<MemberValues>>>>()?;
+            Ok(crate::lumps::Lumps::of(&values)?.map(|(lumps, _)| lumps))
+        })
+        .collect::<Result<Vec<_>>>()?;
     let guides = guides::guides(&GuideInputs {
         chart,
         resolved,
@@ -1478,6 +1487,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions: &fittings,
         scales: &scales,
         kinds,
+        lumps: &lumps,
     })?;
     // A discrete position scale with a `step` gives each plot of its layers a natural length along
     // its channel.

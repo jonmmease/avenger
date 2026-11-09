@@ -483,7 +483,7 @@ fn encoded(rows: &LayerRows, channel: Channel) -> Option<(ArrayRef, bool)> {
     let encoding = rows.encoding(channel)?;
     let column = |name: &str| {
         let column = rows.column(name)?;
-        Some(avenger_chart::span::channel_values(&column, channel))
+        Some(crate::lumps::channel_values(&column, channel))
     };
     Some(match encoding.kind.as_ref()? {
         encoding::Kind::DirectField(name) => (column(name)?, false),

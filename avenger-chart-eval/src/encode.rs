@@ -44,7 +44,7 @@ pub(crate) fn drawn_rows(mark: &dyn MarkMessage, table: &RecordBatch) -> Result<
         .filter_map(|(channel, encoding)| match &encoding.kind {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 let column = table.column_by_name(name)?;
-                Some(avenger_chart::span::channel_values(column, channel))
+                Some(crate::lumps::channel_values(column, channel))
             }
             _ => None,
         })
@@ -185,7 +185,7 @@ impl<'a> LayerRows<'a> {
             Source::Column(name) | Source::ScaledColumn(name) => {
                 let column = (self.column(name))
                     .expect("a valid layer's table or partition has its columns");
-                Ok(avenger_chart::span::channel_values(&column, channel))
+                Ok(crate::lumps::channel_values(&column, channel))
             }
             Source::Constant(value) | Source::Scaled(value) => Ok(self.chart.value(value).clone()),
         }

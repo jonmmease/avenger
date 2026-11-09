@@ -1,5 +1,6 @@
 use arrow::array::ArrayRef;
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
+use avenger_typst_label::LabelValues;
 
 use crate::GuideSide;
 
@@ -19,6 +20,16 @@ pub struct AxisConfig {
     pub style: AxisStyle,
 }
 
+/// The values that the labels of the categories of a band or a point axis bind: for each of
+/// `categories`, a map that holds at least `value`, which a label without `tick_label` shows, and
+/// any other names that `tick_label` reads, such as `#value (#count)`. A category without a map
+/// takes the category as `tick_format` formats it.
+#[derive(Debug, Clone)]
+pub struct CategoryLabels {
+    pub categories: ArrayRef,
+    pub values: Vec<LabelValues>,
+}
+
 /// Axis appearance and tick placement. `AxisStyle::default()` is the default look, and
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
@@ -34,6 +45,9 @@ pub struct AxisStyle {
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
     /// band axis takes neither kind.
     pub ticks: Option<AxisTicks>,
+    /// The values that the labels of the categories of a band or a point axis bind, in place of
+    /// each category as `tick_format` formats it.
+    pub category_labels: Option<CategoryLabels>,
     /// Whether the explicit `ticks` of a continuous axis thin to its length, as the edges of bins
     /// do: every tick where they stand apart at the axis's tick count, and otherwise every 2nd,
     /// 5th, 10th, 20th, and so on, starting at the tick nearest a whole multiple of the stride for
@@ -82,6 +96,7 @@ impl Default for AxisStyle {
             tick_count: None,
             tick_spacing: None,
             ticks: None,
+            category_labels: None,
             thin_ticks: false,
             tick_length: 5.0,
             tick_color: BLACK,

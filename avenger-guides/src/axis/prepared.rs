@@ -215,6 +215,7 @@ impl Axis {
                 &categories,
                 &config.tick_format,
                 config.tick_label.as_deref(),
+                config.style.category_labels.as_ref(),
                 engine,
             )?;
             Labels::measure(text, syntax, &config.style, engine)

@@ -236,6 +236,9 @@ pub(crate) struct Fit {
     /// order, before the other categories, ascending. Listed categories without data are not in the
     /// domain, so the fit sorts ascending and then moves them.
     pub(crate) preferred: Option<ArrayRef>,
+    /// Whether the spec's category fit gives an order, a sort or a preferred list, in place of the
+    /// default order of the domain's kind.
+    pub(crate) ordered: bool,
 }
 
 impl Fit {
@@ -308,11 +311,13 @@ pub(crate) fn domain_options(
         _ => None,
     };
     let mut preferred = None;
+    let mut ordered = false;
     let options = match (kind, fit.and_then(|fit| fit.fit.as_ref())) {
         (FitKind::Sample, _) => DomainOptions::Sample,
         (_, Some(domain_fit::Fit::Categories(categories))) => {
             let (options, listed) = category_options(chart, categories);
             preferred = listed;
+            ordered = categories.order.is_some();
             DomainOptions::Categories(options)
         }
         (FitKind::Categories, None) => DomainOptions::Categories(CategoryOptions::default()),
@@ -321,7 +326,11 @@ pub(crate) fn domain_options(
         }
         _ => DomainOptions::Interval(defaults.options()),
     };
-    Fit { options, preferred }
+    Fit {
+        options,
+        preferred,
+        ordered,
+    }
 }
 
 fn interval_options(

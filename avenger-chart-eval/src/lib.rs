@@ -15,6 +15,7 @@ mod fit;
 mod geo;
 mod guides;
 mod layout;
+mod lumps;
 mod marks;
 mod polar;
 mod polyline;

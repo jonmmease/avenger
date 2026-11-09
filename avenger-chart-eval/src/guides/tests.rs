@@ -148,6 +148,7 @@ fn with_guides<T>(
         positions: &positions,
         scales: &scales,
         kinds: &kinds,
+        lumps: &vec![None; scales.len()],
     };
     let guides = guides(&inputs).unwrap();
     check(&guides, &positions)
@@ -306,8 +307,15 @@ fn a_threshold_legend_has_an_entry_for_each_bin() {
     );
     let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
-    let (values, labels, _) =
-        entries(&threshold, &Legend::default(), Some(5.0), &chart, &engine()).unwrap();
+    let (values, labels, _) = entries(
+        &threshold,
+        &Legend::default(),
+        Some(5.0),
+        &chart,
+        &engine(),
+        None,
+    )
+    .unwrap();
     assert_eq!(values.len(), 3);
     assert_eq!(labels, ["< 10", "10 – 20", "≥ 20"]);
 }

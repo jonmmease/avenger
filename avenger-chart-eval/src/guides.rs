@@ -188,6 +188,9 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) scales: &'a [Option<ConfiguredScale>],
     /// The kind of fit of each group, by its position in `Resolved::scales`.
     pub(crate) kinds: &'a [avenger_chart::FitKind],
+    /// The lumps of each group whose members read columns of lumps, by its position in
+    /// `Resolved::scales`.
+    pub(crate) lumps: &'a [Option<crate::lumps::Lumps>],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -502,9 +505,13 @@ fn axis(
             }
         }
         let labels = spec.labels.as_ref();
+        let tick_format = labels.map_or_else(String::new, |labels| labels.format.clone());
+        if let Some(lumps) = &inputs.lumps[index] {
+            style.category_labels = Some(lumps.category_labels(&tick_format, inputs.engine)?);
+        }
         let config = AxisConfig {
             side,
-            tick_format: labels.map_or_else(String::new, |labels| labels.format.clone()),
+            tick_format,
             tick_label: labels
                 .map(|labels| labels.markup.clone())
                 .filter(|markup| !markup.is_empty()),
@@ -633,6 +640,21 @@ fn swatch(channel: Channel, scale: &ConfiguredScale, values: &ArrayRef) -> Resul
     }))
 }
 
+/// The label text of maps of values through the labels' markup, which reads their names, or the
+/// `value` of each map without markup.
+fn bound_text(values: Vec<LabelValues>, markup: &str) -> Result<(Vec<String>, TextSyntaxMode)> {
+    if !markup.is_empty() {
+        let text = (values.iter())
+            .map(|values| bind(markup, values))
+            .collect::<std::result::Result<_, _>>()?;
+        return Ok((text, TextSyntaxMode::TypstMarkup));
+    }
+    let values = (values.into_iter())
+        .map(|mut values| values.shift_remove("value").unwrap_or(LabelValue::None))
+        .collect();
+    label_text(values, "")
+}
+
 /// The label text of `values` through the labels' markup, where `#value` is the formatted value,
 /// or the formatted values, as plain text unless one of them is markup.
 fn label_text(values: Vec<LabelValue>, markup: &str) -> Result<(Vec<String>, TextSyntaxMode)> {
@@ -679,6 +701,7 @@ fn entries(
     tick_count: Option<f64>,
     chart: &Chart,
     engine: &LabelEngine,
+    lumps: Option<&crate::lumps::Lumps>,
 ) -> Result<(ArrayRef, Vec<String>, TextSyntaxMode)> {
     let labels = spec.labels.as_ref();
     let pattern = labels.map_or("", |labels| labels.format.as_str());
@@ -730,7 +753,10 @@ fn entries(
         }
         _ if matches!(scale_type, "band" | "point" | "nested_band" | "ordinal") => {
             let values = scale.domain().clone();
-            let (labels, syntax) = label_text(formatted(&values)?, markup)?;
+            let (labels, syntax) = match lumps {
+                Some(lumps) => bound_text(lumps.label_values(&values, pattern, engine)?, markup)?,
+                None => label_text(formatted(&values)?, markup)?,
+            };
             Ok((values, labels, syntax))
         }
         _ => {
@@ -871,8 +897,14 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
-                let (values, mut labels, label_syntax) =
-                    entries(scale, &spec, tick_count, inputs.chart, inputs.engine)?;
+                let (values, mut labels, label_syntax) = entries(
+                    scale,
+                    &spec,
+                    tick_count,
+                    inputs.chart,
+                    inputs.engine,
+                    inputs.lumps[index].as_ref(),
+                )?;
                 // A legend longer than `max-entries` ends with an entry that counts the rest.
                 let max_entries = inputs.styles[nodes.legend].integer(Property::MaxEntries);
                 let rest = match max_entries {

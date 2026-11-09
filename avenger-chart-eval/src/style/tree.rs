@@ -584,8 +584,8 @@ fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option
 }
 
 /// The `kind` of a scale: `sequential` for a continuous scale, and for a discrete scale, its own
-/// kind, or `categorical` over strings, booleans, and dictionaries of strings and `ordinal` over
-/// other values.
+/// kind, or `categorical` over strings, booleans, dictionaries of strings, and lumps, and
+/// `ordinal` over other values.
 fn scale_kind(
     chart: &Chart,
     resolved: &Resolved,
@@ -612,6 +612,11 @@ fn scale_kind(
         proto::ScaleKind::Unspecified => {}
     }
     let data_type = values_type(chart, resolved, group);
+    // The kept categories of a lump follow their weights, not their values, so they are
+    // categories whatever their type.
+    if (data_type.as_ref()).is_some_and(avenger_chart::lump::is_lump) {
+        return "categorical";
+    }
     let values = data_type.as_ref().map(plain_type);
     match values {
         Some(DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean)

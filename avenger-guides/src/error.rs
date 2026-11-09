@@ -21,6 +21,9 @@ pub enum AvengerGuidesError {
     #[error("Text error: {0}")]
     Text(#[from] LabelError),
 
+    #[error("Arrow error: {0}")]
+    Arrow(#[from] arrow::error::ArrowError),
+
     #[error("An attribution stands above or below a plot, not on its {0:?} side")]
     AttributionSide(GuideSide),
 
