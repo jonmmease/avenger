@@ -359,8 +359,9 @@ pub(crate) fn lump_keys(name: &str, table: &arrow::array::RecordBatch) -> Option
 /// `condition` for the rows of `table`, which hold lumps of `sources` in place of their source
 /// columns: each column of a set that is the source of a lump that `table` lacks, while it holds
 /// the lump's key column, tests the keys of the lumps, which [`lump_keys`] gives. A value is the key
-/// of its kept category, so a kept category matches as its value would, and the Other group, whose
-/// key is none of them, matches a complement and no set. Other conditions are as they are.
+/// of its kept category, and a null the key of the NULL category, so a kept category matches as
+/// its value would, and the Other group, whose key is none of them, matches a complement and no
+/// set. Other conditions are as they are.
 pub(crate) fn through_lumps(
     condition: &Condition,
     sources: &[(String, String)],
@@ -397,9 +398,7 @@ pub(crate) fn through_lumps(
                 let key_type = avenger_chart::lump::key_type(lumps.data_type())
                     .expect("a column of lumps has keys");
                 new_columns.push(format!("{name}{KEYS}"));
-                // A null value of a set selects no row, so its key is a null struct, which matches
-                // none, and a complement's null is the key of a null value, which it leaves out.
-                new_values.push(kept_keys(&key_type, &values[index], !complement)?);
+                new_values.push(kept_keys(&key_type, &values[index])?);
             }
             None => {
                 new_columns.push(column.clone());
@@ -415,27 +414,14 @@ pub(crate) fn through_lumps(
 }
 
 /// The keys of lumps of the type `key_type` of the kept categories `values`, as
-/// `avenger_chart::lump::kept_keys` gives them. With `null_rows`, a null value is a null key.
-fn kept_keys(
-    key_type: &arrow::datatypes::DataType,
-    values: &ArrayRef,
-    null_rows: bool,
-) -> Result<ArrayRef> {
-    let keys = avenger_chart::lump::kept_keys(key_type, values).ok_or_else(|| {
+/// `avenger_chart::lump::kept_keys` gives them, so a null value is the key of the NULL category.
+fn kept_keys(key_type: &arrow::datatypes::DataType, values: &ArrayRef) -> Result<ArrayRef> {
+    avenger_chart::lump::kept_keys(key_type, values).ok_or_else(|| {
         EvalError::Unsupported(format!(
             "the values {:?} of a selection of a column of lumps of {key_type}",
             values.data_type()
         ))
-    })?;
-    if !null_rows || values.null_count() == 0 {
-        return Ok(keys);
-    }
-    let keys = keys.as_struct();
-    Ok(std::sync::Arc::new(arrow::array::StructArray::try_new(
-        keys.fields().clone(),
-        keys.columns().to_vec(),
-        values.logical_nulls(),
-    )?))
+    })
 }
 
 /// `states` for the rows of `table`, with each condition [`through_lumps`] of `sources`.

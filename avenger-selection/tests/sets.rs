@@ -60,8 +60,8 @@ fn column(data_type: &DataType, values: &[Option<i64>]) -> ArrayRef {
     }
 }
 
-/// The rows of `columns` that equal one tuple of `values`, through Arrow's row format, with the
-/// tuples cast to the columns' value types.
+/// The rows of `columns` that equal one tuple of `values`, where a null equals a null, through
+/// Arrow's row format, with the tuples cast to the columns' value types.
 fn reference(columns: &[ArrayRef], values: &[ArrayRef]) -> Vec<bool> {
     let plain = |array: &ArrayRef| match array.data_type() {
         DataType::Dictionary(_, value) => cast(array, value).unwrap(),
@@ -78,13 +78,10 @@ fn reference(columns: &[ArrayRef], values: &[ArrayRef]) -> Vec<bool> {
     let converter = RowConverter::new(fields).unwrap();
     let tuples = converter.convert_columns(&values).unwrap();
     let set: HashSet<_> = (0..values[0].len())
-        .filter(|&tuple| values.iter().all(|list| list.is_valid(tuple)))
         .map(|tuple| tuples.row(tuple))
         .collect();
     let rows = converter.convert_columns(&columns).unwrap();
-    (0..columns[0].len())
-        .map(|row| columns.iter().all(|c| c.is_valid(row)) && set.contains(&rows.row(row)))
-        .collect()
+    rows.iter().map(|row| set.contains(&row)).collect()
 }
 
 fn bits(mask: BooleanArray) -> Vec<bool> {
@@ -238,6 +235,53 @@ fn a_prepared_set_matches_many_arrays() {
     );
     let other: ArrayRef = Arc::new(LargeStringArray::from(vec!["d", "x"]));
     assert_eq!(bits(prepared.matches(&[other]).unwrap()), [true, false]);
+}
+
+#[test]
+fn a_set_matches_a_null_as_a_value() {
+    let column: ArrayRef = Arc::new(StringArray::from(vec![Some("a"), None, Some("b")]));
+    let with_null = Condition::values(
+        "category",
+        None,
+        Arc::new(StringArray::from(vec![Some("b"), None])),
+    );
+    let matched = bits(with_null.matches(std::slice::from_ref(&column)).unwrap());
+    assert_eq!(matched, [false, true, true]);
+    // A set without a null leaves the null row out, and its complement takes it.
+    let without = Condition::values("category", None, Arc::new(StringArray::from(vec!["b"])));
+    assert_eq!(
+        bits(without.matches(std::slice::from_ref(&column)).unwrap()),
+        [false, false, true]
+    );
+    assert_eq!(
+        bits(
+            (without.complement().unwrap())
+                .matches(std::slice::from_ref(&column))
+                .unwrap()
+        ),
+        [true, true, false]
+    );
+    // A tuple of two columns with a null matches the rows of that pair, also through the index.
+    let pairs: Vec<ArrayRef> = vec![
+        Arc::new(StringArray::from(vec![Some("a"), Some("a"), None])),
+        Arc::new(Int64Array::from(vec![None, Some(1), None])),
+    ];
+    let set = Condition::set(
+        vec!["c".into(), "n".into()],
+        vec![None, None],
+        vec![
+            Arc::new(StringArray::from(vec![Some("a")])),
+            Arc::new(Int64Array::from(vec![None])),
+        ],
+    )
+    .unwrap();
+    assert_eq!(bits(set.matches(&pairs).unwrap()), [true, false, false]);
+    let types = [DataType::Utf8, DataType::Int64];
+    let prepared = set.prepare(&types).unwrap();
+    assert_eq!(
+        bits(prepared.matches(&pairs).unwrap()),
+        [true, false, false]
+    );
 }
 
 #[test]

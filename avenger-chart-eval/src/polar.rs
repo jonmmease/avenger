@@ -984,17 +984,23 @@ fn polar_axis(
         config.label_halo = label_halo(inputs, &inputs.resolved.tree.plots[plot].path);
         grid = !styles[nodes.grid].is_hidden();
     }
-    // A band or a point axis of lumps labels the kept categories and the Other group.
-    if let Some(lumps) = &inputs.lumps[index] {
-        let variant = nodes.and_then(|nodes| {
-            let other = nodes.other?;
-            Some(crate::guides::label_variant(
-                &styles[nodes.label],
-                &styles[other],
-            ))
-        });
+    // A band or a point axis labels the kept categories, the Other group, and the NULL
+    // category of its lumps, and a NULL category in the style of the label's `null` node.
+    if let Some(nodes) = nodes {
+        config.style.category_labels = crate::guides::category_labels(
+            inputs.chart,
+            inputs.resolved,
+            group,
+            inputs.lumps[index].as_ref(),
+            nodes.label,
+            nodes.variants,
+            styles,
+            &config.tick_format,
+            inputs.engine,
+        )?;
+    } else if let Some(lumps) = &inputs.lumps[index] {
         config.style.category_labels =
-            Some(lumps.category_labels(&config.tick_format, variant, inputs.engine)?);
+            Some(lumps.category_labels(&config.tick_format, None, None, inputs.engine)?);
     }
     let fitting: FittingScale = position.fitting.clone();
     let engine = inputs.engine;

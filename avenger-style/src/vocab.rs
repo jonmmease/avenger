@@ -60,9 +60,18 @@ elements! {
     Thumb = "thumb",
     Readout = "readout",
     Other = "other",
+    Null = "null",
 }
 
 impl Element {
+    /// Whether the element is a variant of its parent for a category that a chart styles apart
+    /// from its scale: `other`, the Other group of a lump, or `null`, the NULL category. Every
+    /// property applies to a variant, which keeps each value of its parent that no declaration
+    /// changes.
+    pub fn is_variant(self) -> bool {
+        matches!(self, Element::Other | Element::Null)
+    }
+
     /// Whether the element is a virtual node, which keyboard focus reaches and which a selector
     /// matches only through `:focus-visible`.
     pub fn is_virtual(self) -> bool {

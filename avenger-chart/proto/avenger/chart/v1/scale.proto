@@ -455,11 +455,13 @@ message IntervalFit {
 }
 
 // The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data
-// domain. The data decides which categories the domain holds. An explicit domain gives exactly
-// its categories in its order instead.
+// domain. The data decides which categories the domain holds, and a NULL value is the NULL
+// category. An explicit domain gives exactly its categories in its order instead, with the NULL
+// category where it names NULL.
 message CategoryFit {
   // When absent, the categories of the data, ascending, or for a column of lumps, the kept
-  // categories by descending weight. The Other group of a column of lumps is last in every order.
+  // categories by descending weight. The Other group of a column of lumps comes after the other
+  // categories in every order, and the NULL category is last.
   oneof order {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.

@@ -13,7 +13,11 @@ use avenger_chart::{
 };
 use avenger_style::{Element, NodeId, StyleTree};
 
-use crate::{polar::Sector, EvalWarning};
+use crate::{
+    polar::Sector,
+    variants::{Variant, Variants},
+    EvalWarning,
+};
 
 use super::{
     guide_kind, inline,
@@ -54,9 +58,11 @@ pub(crate) struct StyleNodes {
     pub(crate) attributions: Vec<Option<NodeId>>,
     /// The `mark` of each layer, in the order of `Tree::layers`.
     pub(crate) marks: Vec<NodeId>,
-    /// The `other` of the `mark` of each layer whose encodings read a column of lumps, which
-    /// styles the rows of the Other group, in the order of `Tree::layers`.
-    pub(crate) others: Vec<Option<NodeId>>,
+    /// The variants of the `mark` of each layer, in the order of `Tree::layers`: an `other` where
+    /// its encodings read a column of lumps, which styles the rows of the Other group, and a
+    /// `null` where an encoding of a categorical scale reads a NULL category, which styles its
+    /// rows.
+    pub(crate) variants: Vec<Variants>,
     /// The `scale` of each scale group, in the order of `Resolved::scales`.
     pub(crate) scales: Vec<NodeId>,
     /// The nodes of each scale group's guide, or `None` for a group without a guide.
@@ -118,9 +124,17 @@ pub(crate) fn build(
         &mut facets,
     );
 
+    // The scale groups that fit categories with a NULL category, and the layers of their members.
+    let nulls: Vec<bool> = (resolved.scales.iter().zip(kinds))
+        .map(|(group, kind)| *kind == FitKind::Categories && holds_null(resolved, group))
+        .collect();
+    let null_layers: Vec<usize> = (resolved.scales.iter().zip(&nulls))
+        .filter(|(_, null)| **null)
+        .flat_map(|(group, _)| group.members.iter().map(|member| member.layer))
+        .collect();
     let mut marks = Vec::with_capacity(resolved.tree.layers.len());
-    let mut others = Vec::with_capacity(resolved.tree.layers.len());
-    for layer in &resolved.tree.layers {
+    let mut variants = Vec::with_capacity(resolved.tree.layers.len());
+    for (index, layer) in resolved.tree.layers.iter().enumerate() {
         let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
         tree.set_attribute_forms(node, "type", layer.mark.name(), function_name(layer.mark));
@@ -149,7 +163,12 @@ pub(crate) fn build(
                     .is_some_and(|column| avenger_chart::lump::is_lump(column.data_type())),
                 _ => false,
             });
-        others.push(reads_lumps.then(|| tree.add(node, Element::Other)));
+        variants.push(Variants {
+            other: reads_lumps.then(|| tree.add(node, Element::Other)),
+            null: null_layers
+                .contains(&index)
+                .then(|| tree.add(node, Element::Null)),
+        });
     }
 
     let mut scales = Vec::with_capacity(resolved.scales.len());
@@ -167,9 +186,11 @@ pub(crate) fn build(
     }
 
     let mut guides = Vec::with_capacity(resolved.scales.len());
-    for (group, kind) in resolved.scales.iter().zip(kinds) {
+    for ((group, kind), null) in resolved.scales.iter().zip(kinds).zip(&nulls) {
         let owner = nodes[owner_path(&nodes, &group.owner)].plot;
-        guides.push(guide_nodes(&mut tree, owner, chart, resolved, group, *kind));
+        guides.push(guide_nodes(
+            &mut tree, owner, chart, resolved, group, *kind, *null,
+        ));
     }
 
     let mut attributions = Vec::with_capacity(resolved.tree.plots.len());
@@ -200,7 +221,7 @@ pub(crate) fn build(
         nodes,
         attributions,
         marks,
-        others,
+        variants,
         scales,
         guides,
         facets,
@@ -417,6 +438,7 @@ pub(crate) fn projection_name(spherical: &proto::Spherical) -> Option<String> {
 }
 
 /// The nodes of the guide of `group` under `owner`, the `plot` of the node that owns it.
+#[allow(clippy::too_many_arguments)]
 fn guide_nodes(
     tree: &mut Styled,
     owner: NodeId,
@@ -424,6 +446,7 @@ fn guide_nodes(
     resolved: &Resolved,
     group: &ScaleGroup,
     kind: FitKind,
+    null: bool,
 ) -> Option<GuideNodes> {
     let attributes = |tree: &mut StyleTree, node: NodeId| {
         tree.set_attribute(node, "channel", group.channel.field_name());
@@ -432,8 +455,12 @@ fn guide_nodes(
     };
     let lumps =
         (values_type(chart, resolved, group).as_ref()).is_some_and(avenger_chart::lump::is_lump);
-    // The label of the Other group of a lump is the `other` variant of the guide's `label`.
-    let other = |tree: &mut Styled, label: NodeId| lumps.then(|| tree.add(label, Element::Other));
+    // The label of the Other group of a lump is the `other` variant of the guide's `label`, and
+    // the label of the NULL category its `null` variant.
+    let other = |tree: &mut Styled, label: NodeId| Variants {
+        other: lumps.then(|| tree.add(label, Element::Other)),
+        null: null.then(|| tree.add(label, Element::Null)),
+    };
     match guide_kind(group, kind)? {
         GuideKind::PolarAxis => {
             let axis = tree.add(owner, Element::Axis);
@@ -444,7 +471,7 @@ fn guide_nodes(
                 axis,
                 title,
                 label,
-                other: other(tree, label),
+                variants: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -468,7 +495,7 @@ fn guide_nodes(
                 axis,
                 title,
                 label,
-                other: other(tree, label),
+                variants: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -497,7 +524,7 @@ fn guide_nodes(
                 title,
                 swatch,
                 label,
-                other: other(tree, label),
+                variants: other(tree, label),
             };
             if let Some(message) = &group.spec.legend {
                 identify(tree, legend, &message.id, &message.classes);
@@ -594,7 +621,11 @@ fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> [String; 2] {
 
 /// The Arrow type of the values that a scale group maps: of its first member's scaled column or
 /// scaled constant, or of its explicit domain.
-fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option<DataType> {
+pub(crate) fn values_type(
+    chart: &Chart,
+    resolved: &Resolved,
+    group: &ScaleGroup,
+) -> Option<DataType> {
     let member = &group.members[0];
     let layer = &resolved.tree.layers[member.layer];
     let from_encoding = match layer.mark.encoding(member.channel)?.kind.as_ref()? {
@@ -609,6 +640,25 @@ fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option
             Some(chart.list_elements(values).data_type().clone())
         }
         _ => None,
+    })
+}
+
+/// Whether a member of `group` reads a NULL category: a NULL value of a column that is not a
+/// struct, or the NULL category of a column of lumps.
+fn holds_null(resolved: &Resolved, group: &ScaleGroup) -> bool {
+    (group.members.iter()).any(|member| {
+        let layer = &resolved.tree.layers[member.layer];
+        let Some(encoding::Kind::ScaledField(name)) = layer
+            .mark
+            .encoding(member.channel)
+            .and_then(|e| e.kind.as_ref())
+        else {
+            return false;
+        };
+        (layer.table.column_by_name(name)).is_some_and(|column| {
+            let keys = avenger_chart::lump::keys(column).unwrap_or_else(|| column.clone());
+            Variant::Null.holds(&keys)
+        })
     })
 }
 

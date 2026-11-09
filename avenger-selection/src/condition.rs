@@ -145,12 +145,13 @@ impl Condition {
 
     /// Whether each row matches the condition, from the values of the condition's
     /// [`columns`](Self::columns) for the rows, in their order, as a mask without nulls. A null
-    /// matches no condition, and a dictionary column compares its values.
+    /// is a value of a set and matches no other condition, and a dictionary column compares its
+    /// values.
     ///
     /// - A set matches the rows whose values equal one of its tuples, with its values cast to
-    ///   the columns' types. A tuple with a null matches no row. A complement matches the rows
-    ///   whose values equal none of its tuples, where a null equals a null, so a null row
-    ///   matches unless the set holds its tuple.
+    ///   the columns' types, where a null equals a null, so a set that holds a null matches the
+    ///   null rows. A complement matches the rows that the set does not, so a set and its
+    ///   complement split the rows.
     /// - A range matches the values from its first end through its second, or to before its
     ///   second with `exclude_end`, and with cells, the values in its cells. A null end does not
     ///   bound the range.
@@ -234,8 +235,9 @@ impl PreparedCondition {
     /// query that groups rows by their keys checks them. `keys` holds a column for each of the
     /// condition's [`columns`](Condition::columns), in order: the row's cell, as a 64-bit integer,
     /// for a range with cells and each column of a polygon with cells, or the row's value for a
-    /// set. A row whose key is null matches none. Other conditions have no keys, and a key that is
-    /// not a 64-bit integer where a cell belongs is an error.
+    /// set. A null key of a set matches as the set's values do, a null among them, and a null cell
+    /// matches nothing. Other conditions have no keys, and a key that is not a 64-bit integer where
+    /// a cell belongs is an error.
     pub fn matches_keys(&self, keys: &[ArrayRef]) -> Result<BooleanArray> {
         let cells = |index: usize| {
             keys[index].as_primitive_opt::<Int64Type>().ok_or_else(|| {
@@ -280,19 +282,20 @@ impl PreparedCondition {
         match (&self.condition, &self.prepared) {
             (
                 Condition::Set {
-                    values,
-                    complement: true,
-                    ..
+                    values, complement, ..
                 },
-                _,
-            ) => Ok(BooleanArray::from(outside(columns, values)?)),
-            (Condition::Set { values, .. }, Prepared::Set { types, index }) => {
+                Prepared::Set { types, index },
+            ) => {
                 let same = (columns.iter().zip(types))
                     .all(|(column, data_type)| &value_type(column.data_type()) == data_type);
-                match index {
-                    Some(index) if same => Ok(index.contains(columns)),
-                    _ => Ok(BooleanArray::from(in_set(columns, values)?)),
-                }
+                let inside = match index {
+                    Some(index) if same => index.contains(columns),
+                    _ => BooleanArray::from(in_set(columns, values)?),
+                };
+                Ok(match complement {
+                    true => arrow::compute::not(&inside)?,
+                    false => inside,
+                })
             }
             (
                 Condition::Range {
@@ -359,8 +362,8 @@ pub(crate) fn without_nulls(mask: BooleanArray) -> BooleanArray {
     }
 }
 
-/// Whether each row of `columns` equals one tuple of `values`, through the rows of Arrow's row
-/// format, so the time is linear in the rows and the tuples.
+/// Whether each row of `columns` equals one tuple of `values`, where a null equals a null, through
+/// the rows of Arrow's row format, so the time is linear in the rows and the tuples.
 fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
     let columns = columns.iter().map(plain).collect::<Result<Vec<_>>>()?;
     let values = (values.iter().zip(&columns))
@@ -372,34 +375,9 @@ fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
     let converter = RowConverter::new(fields)?;
     let tuples = converter.convert_columns(&values)?;
     let tuple_count = values.first().map_or(0, |list| list.len());
-    let set: HashSet<_> = (0..tuple_count)
-        .filter(|&index| values.iter().all(|list| list.is_valid(index)))
-        .map(|index| tuples.row(index))
-        .collect();
+    let set: HashSet<_> = (0..tuple_count).map(|index| tuples.row(index)).collect();
     let rows = converter.convert_columns(&columns)?;
-    let row_count = columns.first().map_or(0, |column| column.len());
-    Ok((0..row_count)
-        .map(|index| {
-            columns.iter().all(|column| column.is_valid(index)) && set.contains(&rows.row(index))
-        })
-        .collect())
-}
-
-/// Whether each row of `columns` equals none of the tuples of the lists `others`, where a null
-/// equals a null, through the rows of Arrow's row format.
-fn outside(columns: &[ArrayRef], others: &[ArrayRef]) -> Result<Vec<bool>> {
-    let columns = columns.iter().map(plain).collect::<Result<Vec<_>>>()?;
-    let others = (others.iter().zip(&columns))
-        .map(|(others, column)| cast_to(others, column.data_type()))
-        .collect::<Result<Vec<_>>>()?;
-    let fields = (columns.iter())
-        .map(|column| SortField::new(column.data_type().clone()))
-        .collect();
-    let converter = RowConverter::new(fields)?;
-    let tuples = converter.convert_columns(&others)?;
-    let set: HashSet<_> = tuples.iter().collect();
-    let rows = converter.convert_columns(&columns)?;
-    Ok(rows.iter().map(|row| !set.contains(&row)).collect())
+    Ok(rows.iter().map(|row| set.contains(&row)).collect())
 }
 
 /// Whether each value is from the first of `ends` through the second, or to before the second

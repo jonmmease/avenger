@@ -19,12 +19,18 @@
 //!   partition, as the `SELECT` of a query grouped by the category: like a `HAVING` clause it
 //!   can compare aggregates of the category's rows (`sum(tons) > 1000`), and like `QUALIFY`
 //!   it can use windows over the categories (`count(*) >= 0.05 * sum(count(*)) OVER ()`). A
-//!   NULL condition drops the category.
+//!   NULL condition lumps the category into the Other group.
 //! - `'other', 'label'`: the label of the Other group; `'Other'` by default.
+//! - `'nulls', 'keep' | 'other' | 'drop'`: the NULL category, which `'n'` and `'keep'` do not
+//!   decide: in `'keep'`, the default, it is a category of its own in each partition that has
+//!   NULL rows; in `'other'`, it is in the Other group; in `'drop'`, its rows have a NULL lump,
+//!   in no category, so `WHERE <lump> IS NOT NULL` removes them. To rank NULL as a category,
+//!   name it: `lump(coalesce(port, 'Unknown'), 'n', 3)`.
 //!
 //! Every window in `keep` runs over the categories of the lump's partition, so a
 //! `PARTITION BY` in it is an error. `ranked` is the categories in weight order,
-//! `ORDER BY <weight> DESC NULLS LAST, <category> ASC NULLS LAST`. As a named window of SQL,
+//! `ORDER BY <weight> DESC NULLS LAST, <category> ASC NULLS LAST`, without the NULL category,
+//! as every window in `keep` runs without it. As a named window of SQL,
 //! it can be used as it is, `rank() OVER ranked <= 3`, or with a frame,
 //! `sum(count(*)) OVER (ranked ROWS UNBOUNDED PRECEDING)`; with no frame, an aggregate over it
 //! runs from the first category to the current one, as over any window with an order. A
@@ -33,12 +39,12 @@
 //!
 //! The result is `struct<value, other, weight, category_count>`: for a kept category, the
 //! category, its weight, and 1; for the Other group, the label, the weight of all rows of the
-//! dropped categories, and the number of dropped categories of the window partition, for a
+//! lumped categories, and the number of lumped categories of the window partition, for a
 //! label such as "Other (12)". The weight is always DOUBLE, because the type of a window
-//! function is fixed before anything parses the `weight` string. A NULL category is a
-//! category: it ranks last among equal weights, it counts in `category_count` when it is
-//! dropped, and when it is kept, `value` and `other` are both NULL, so `other` tells it from
-//! the Other group.
+//! function is fixed before anything parses the `weight` string. A kept NULL category has
+//! NULL in both `value` and `other`, so `other` tells it from the Other group, and the NULL
+//! category counts in the weight and the `category_count` of the Other group only in
+//! `'other'`.
 //!
 //! The strings can read the rows of the window's input as the table `__input`, for example
 //! in a subquery, which reads all of the input, not only the partition.
@@ -95,6 +101,32 @@ pub struct LumpOptions {
     pub keep: Option<String>,
     pub weight: Option<String>,
     pub other: String,
+    pub nulls: Nulls,
+}
+
+/// What a lump does with the NULL category, which no mode ranks: `'n'` and `keep` decide only
+/// the other categories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Nulls {
+    /// The NULL category is a category of its own, in each partition that has NULL rows.
+    #[default]
+    Keep,
+    /// The NULL category is in the Other group.
+    Other,
+    /// The rows of the NULL category have a NULL lump, in no category.
+    Drop,
+}
+
+impl Nulls {
+    /// The decision of the NULL category as SQL: kept, lumped into the Other group, or neither,
+    /// NULL.
+    fn decision(self) -> &'static str {
+        match self {
+            Nulls::Keep => "true",
+            Nulls::Other => "false",
+            Nulls::Drop => "CAST(NULL AS BOOLEAN)",
+        }
+    }
 }
 
 impl LumpOptions {
@@ -109,6 +141,7 @@ impl LumpOptions {
             keep: None,
             weight: None,
             other: "Other".into(),
+            nulls: Nulls::default(),
         };
         let mut seen = Vec::new();
         for pair in pairs.chunks(2) {
@@ -146,19 +179,31 @@ impl LumpOptions {
                 "keep" => o.keep = Some(text("keep")?),
                 "weight" => o.weight = Some(text("weight")?),
                 "other" => {
-                    // A false `other` asks to remove the rows of the dropped categories, which a
+                    // A false `other` asks to remove the rows of the lumped categories, which a
                     // window function cannot do.
                     if let ScalarValue::Boolean(Some(false)) = v {
                         return plan_err!(
                             "lump cannot remove rows, so 'other' cannot be false; \
-                             filter the dropped categories with `WHERE <lump>.other IS NULL`"
+                             filter the lumped categories with `WHERE <lump>.other IS NULL`"
                         );
                     }
                     o.other = text("other")?;
                 }
+                "nulls" => {
+                    o.nulls = match text("nulls")?.as_str() {
+                        "keep" => Nulls::Keep,
+                        "other" => Nulls::Other,
+                        "drop" => Nulls::Drop,
+                        mode => {
+                            return plan_err!(
+                                "the lump option 'nulls' is 'keep', 'other', or 'drop', not '{mode}'"
+                            );
+                        }
+                    }
+                }
                 _ => {
                     return plan_err!(
-                        "unknown lump option '{name}': the options are n, keep, weight, other"
+                        "unknown lump option '{name}': the options are n, keep, weight, other, nulls"
                     );
                 }
             }
@@ -225,6 +270,7 @@ impl WindowUDFImpl for LumpWindow {
         Ok(Box::new(LumpEvaluator {
             n: o.n.unwrap() as usize,
             other: o.other,
+            nulls: o.nulls,
         }))
     }
     fn field(&self, args: WindowUDFFieldArgs) -> Result<FieldRef> {
@@ -241,10 +287,11 @@ impl WindowUDFImpl for LumpWindow {
         ) {
             return plan_err!("a lump category cannot be a list or a map, not {t}");
         }
+        // NULL for the rows of a NULL category that the lump drops.
         Ok(Arc::new(Field::new(
             args.name(),
             DataType::Struct(lump_fields(t)),
-            false,
+            true,
         )))
     }
 }
@@ -254,6 +301,7 @@ impl WindowUDFImpl for LumpWindow {
 struct LumpEvaluator {
     n: usize,
     other: String,
+    nulls: Nulls,
 }
 
 impl PartitionEvaluator for LumpEvaluator {
@@ -282,7 +330,13 @@ impl PartitionEvaluator for LumpEvaluator {
             counts[c] += 1.0;
             row_cat.push(c);
         }
-        let mut order: Vec<usize> = (0..counts.len()).collect();
+        // The NULL category is outside the ranking, and its mode decides it.
+        let nulls = category.logical_nulls();
+        let null_category =
+            (0..counts.len()).find(|&c| nulls.as_ref().is_some_and(|n| n.is_null(first_row[c])));
+        let mut order: Vec<usize> = (0..counts.len())
+            .filter(|&c| Some(c) != null_category)
+            .collect();
         order.sort_by(|&a, &b| {
             counts[b]
                 .total_cmp(&counts[a])
@@ -292,11 +346,17 @@ impl PartitionEvaluator for LumpEvaluator {
         for &c in order.iter().take(self.n) {
             kept[c] = true;
         }
+        if let Some(c) = null_category {
+            kept[c] = self.nulls == Nulls::Keep;
+        }
+        // Whether the rows of a category have a lump, and those of a dropped NULL do not.
+        let present = |c: usize| !(self.nulls == Nulls::Drop && Some(c) == null_category);
+        let lumped = |c: usize| !kept[c] && present(c);
         let other_weight: f64 = (0..counts.len())
-            .filter(|&c| !kept[c])
+            .filter(|&c| lumped(c))
             .map(|c| counts[c])
             .sum();
-        let dropped = kept.iter().filter(|k| !**k).count() as i64;
+        let lumped_count = (0..counts.len()).filter(|&c| lumped(c)).count() as i64;
 
         let value_idx: UInt32Array = row_cat
             .iter()
@@ -304,18 +364,21 @@ impl PartitionEvaluator for LumpEvaluator {
             .map(|(i, &c)| kept[c].then_some(i as u32))
             .collect();
         let value = take(category, &value_idx, None)?;
+        // The fields of a row without a lump are NULL, under its NULL struct.
         let other: StringArray = row_cat
             .iter()
-            .map(|&c| (!kept[c]).then_some(self.other.as_str()))
+            .map(|&c| lumped(c).then_some(self.other.as_str()))
             .collect();
         let weight: Float64Array = row_cat
             .iter()
-            .map(|&c| Some(if kept[c] { counts[c] } else { other_weight }))
+            .map(|&c| present(c).then(|| if kept[c] { counts[c] } else { other_weight }))
             .collect();
         let category_count: Int64Array = row_cat
             .iter()
-            .map(|&c| if kept[c] { 1 } else { dropped })
+            .map(|&c| present(c).then_some(if kept[c] { 1 } else { lumped_count }))
             .collect();
+        let validity = (self.nulls == Nulls::Drop && null_category.is_some())
+            .then(|| row_cat.iter().map(|&c| present(c)).collect());
         Ok(Arc::new(StructArray::new(
             lump_fields(category.data_type()),
             vec![
@@ -324,7 +387,7 @@ impl PartitionEvaluator for LumpEvaluator {
                 Arc::new(weight),
                 Arc::new(category_count),
             ],
-            None,
+            validity,
         )))
     }
 }
@@ -399,7 +462,7 @@ fn quote(name: &str) -> String {
 }
 
 /// The decisions of `decided`, a query grouped by the partition keys `keys` and the category,
-/// with the number of dropped categories of each partition, `__dropped`.
+/// with the number of lumped categories of each partition, `__lumped`.
 fn counted(keys: &[String], decided: &str) -> String {
     let part = if keys.is_empty() {
         String::new()
@@ -408,7 +471,30 @@ fn counted(keys: &[String], decided: &str) -> String {
         format!("PARTITION BY {}", keys.join(", "))
     };
     format!(
-        "SELECT *, count(*) FILTER (WHERE NOT \"__keep\") OVER ({part}) AS \"__dropped\" FROM ({decided}) AS \"__decided\""
+        "SELECT *, count(*) FILTER (WHERE NOT \"__keep\") OVER ({part}) AS \"__lumped\" FROM ({decided}) AS \"__decided\""
+    )
+}
+
+/// The decision of each category `cat` of `from`, grouped by `groups`, as `SELECT {select}`
+/// gives them with the weight `by` and the columns `extra`: a category that is not NULL by
+/// `keep`, whose windows run apart from the NULL category, and the NULL category, in each
+/// partition that has one, by `nulls`. A dropped NULL category's `__keep` is NULL.
+#[allow(clippy::too_many_arguments)]
+fn decide(
+    nulls: Nulls,
+    select: &str,
+    cat: &str,
+    by: &str,
+    keep: &str,
+    extra: &str,
+    from: &str,
+    groups: &str,
+) -> String {
+    format!(
+        "SELECT {select}, CAST(({by}) AS DOUBLE) AS \"__weight\", \
+         CASE WHEN {cat} IS NULL THEN {} ELSE coalesce(({keep}), false) END AS \"__keep\"{extra} \
+         FROM {from} GROUP BY {groups}",
+        nulls.decision()
     )
 }
 
@@ -572,6 +658,7 @@ struct LumpPlan<'a> {
     /// The number of columns of the window's input.
     n_in: usize,
     category_type: DataType,
+    nulls: Nulls,
     /// `__key_0`, ...: the partition keys as columns of `__input`.
     keys: Vec<String>,
     label: String,
@@ -695,9 +782,16 @@ impl<'a> LumpPlan<'a> {
             _ => unreachable!("a function"),
         };
         let mut ast = parse_expr(&dialect, "keep", &keep_text)?;
+        // The windows of `keep`, `ranked` among them, run over the categories of a partition,
+        // apart from the NULL category, which no mode ranks.
         let partition = key_groups
             .iter()
             .map(|k| SqlExpr::Identifier(Ident::with_quote('"', k.trim_matches('"'))))
+            .chain([parse_expr(
+                &dialect,
+                "keep",
+                &format!("{cat_group} IS NULL"),
+            )?])
             .collect();
         if let ControlFlow::Break(e) = VisitMut::visit(
             &mut ast,
@@ -723,10 +817,15 @@ impl<'a> LumpPlan<'a> {
             .cloned()
             .chain([cat_group.clone()])
             .collect();
-        let decided = format!(
-            "SELECT {select_keys}{cat_group} AS \"__cat\", CAST(({by}) AS DOUBLE) AS \"__weight\", coalesce(({keep}), false) AS \"__keep\" \
-             FROM {input_name} GROUP BY {}",
-            group_by.join(", ")
+        let decided = decide(
+            o.nulls,
+            &format!("{select_keys}{cat_group} AS \"__cat\""),
+            &cat_group,
+            &by,
+            &keep,
+            "",
+            &input_name,
+            &group_by.join(", "),
         );
         let decided = counted(&keys, &decided);
         let mut plan = Self {
@@ -736,6 +835,7 @@ impl<'a> LumpPlan<'a> {
             dialect,
             n_in,
             category_type,
+            nulls: o.nulls,
             keys,
             label: o.other.replace('\'', "''"),
             by: by.clone(),
@@ -762,7 +862,7 @@ impl<'a> LumpPlan<'a> {
         }
         plan.decisions = match combining(&by_ast) {
             Some(agg) => format!(
-                "SELECT *, {agg}(CASE WHEN \"__keep\" THEN NULL ELSE \"__weight\" END) OVER ({part}) AS \"__other\" FROM decided"
+                "SELECT *, {agg}(CASE WHEN \"__keep\" IS FALSE THEN \"__weight\" END) OVER ({part}) AS \"__other\" FROM decided"
             ),
             None => {
                 let k = &plan.keys;
@@ -817,13 +917,15 @@ impl<'a> LumpPlan<'a> {
         )
     }
 
-    /// The four fields of the lump, for rows of `__cat` joined to the decisions as `d`.
+    /// The four fields of the lump, for rows of `__cat` joined to the decisions as `d`, and
+    /// `__lpresent`, whether the rows have a lump, which a dropped NULL category's rows do not.
     fn fields_sql(&self, cat: &str) -> String {
         format!(
             "CASE WHEN d.\"__keep\" THEN {cat} END AS \"__lvalue\", \
-             CASE WHEN d.\"__keep\" THEN NULL ELSE '{label}' END AS \"__lother\", \
-             CASE WHEN d.\"__keep\" THEN d.\"__weight\" ELSE d.\"__other\" END AS \"__lweight\", \
-             CASE WHEN d.\"__keep\" THEN 1 ELSE d.\"__dropped\" END AS \"__lcategory_count\"",
+             CASE WHEN NOT d.\"__keep\" THEN '{label}' END AS \"__lother\", \
+             CASE WHEN d.\"__keep\" THEN d.\"__weight\" WHEN NOT d.\"__keep\" THEN d.\"__other\" END AS \"__lweight\", \
+             CASE WHEN d.\"__keep\" THEN 1 WHEN NOT d.\"__keep\" THEN d.\"__lumped\" END AS \"__lcategory_count\", \
+             d.\"__keep\" IS NOT NULL AS \"__lpresent\"",
             label = self.label
         )
     }
@@ -877,7 +979,7 @@ impl<'a> LumpPlan<'a> {
     }
 
     /// The lump struct from the columns `__lvalue`, `__lother`, `__lweight`, and
-    /// `__lcategory_count` of `schema`.
+    /// `__lcategory_count` of `schema`, or NULL where `__lpresent` is false.
     fn struct_expr(&self, schema: &datafusion::common::DFSchema) -> Result<Expr> {
         let col = |name: &str| -> Result<Expr> {
             Ok(Expr::Column(
@@ -890,7 +992,9 @@ impl<'a> LumpPlan<'a> {
                     })?,
             ))
         };
+        // The struct is NULL where the rows have no lump.
         let parts = vec![
+            Expr::Not(Box::new(col("__lpresent")?)),
             Expr::Cast(Cast::new(
                 Box::new(col("__lvalue")?),
                 self.category_type.clone(),
@@ -905,7 +1009,7 @@ impl<'a> LumpPlan<'a> {
         let field = Field::new(
             "lump",
             DataType::Struct(lump_fields(&self.category_type)),
-            false,
+            true,
         );
         Ok(crate::utils::struct_udf(&field).call(parts))
     }
@@ -1196,7 +1300,7 @@ fn to_states(
 /// each of the outer aggregate's functions and of each aggregate of `weight` and `keep`:
 ///
 /// - the decisions merge the states of `weight` and `keep` for each category;
-/// - the weight of the Other group merges the states of `weight` of the dropped categories;
+/// - the weight of the Other group merges the states of `weight` of the lumped categories;
 /// - the outer aggregate merges the states of its functions for each lump value.
 ///
 /// So the input is read once. When `weight` or `keep` has an aggregate without a state (such
@@ -1386,8 +1490,8 @@ impl LumpAggregateFusion {
                     .join(", ")
             )
         };
-        // `weight` over the dropped categories of each partition: each merge of a state column
-        // as a window over the categories, filtered to the dropped ones. A window reads the
+        // `weight` over the lumped categories of each partition: each merge of a state column
+        // as a window over the categories, filtered to the lumped ones. A window reads the
         // decisions once, where a grouped subquery and a join would read them twice.
         let other_window = |text: &str, cols: &[(Family, String)]| -> String {
             let mut text = text.to_string();
@@ -1440,14 +1544,15 @@ impl LumpAggregateFusion {
                 .cloned()
                 .chain([lp.cat_group.clone()])
                 .collect();
-            let decided = format!(
-                "SELECT {select_keys}{cat} AS \"__cat\", CAST(({by}) AS DOUBLE) AS \"__weight\", \
-                 coalesce(({keep}), false) AS \"__keep\"{states} FROM {input} GROUP BY {groups}",
-                cat = lp.cat_group,
-                by = lp.by,
-                keep = lp.keep,
-                states = states.concat(),
-                groups = groups.join(", "),
+            let decided = decide(
+                lp.nulls,
+                &format!("{select_keys}{cat} AS \"__cat\"", cat = lp.cat_group),
+                &lp.cat_group,
+                &lp.by,
+                &lp.keep,
+                &states.concat(),
+                &input,
+                &groups.join(", "),
             );
             let decided = counted(&lp.keys, &decided);
             let decisions = match other {
@@ -1458,7 +1563,7 @@ impl LumpAggregateFusion {
             };
             format!(
                 "WITH decided AS ({decided}), decisions AS ({decisions}) \
-                 SELECT {}, {} FROM decisions d GROUP BY 1, 2, 3, 4",
+                 SELECT {}, {} FROM decisions d GROUP BY 1, 2, 3, 4, 5",
                 lp.fields_sql("d.\"__cat\""),
                 finals("d"),
             )
@@ -1504,11 +1609,15 @@ impl LumpAggregateFusion {
                         states = states.join(", "),
                         decided = counted(
                             &lp.keys,
-                            &format!(
-                                "SELECT {dg}, CAST(({by}) AS DOUBLE) AS \"__weight\", coalesce(({keep}), false) AS \"__keep\"{merged} \
-                                 FROM named GROUP BY {dg}",
-                                dg = decision_groups.join(", "),
-                                merged = merged.concat(),
+                            &decide(
+                                lp.nulls,
+                                &decision_groups.join(", "),
+                                &lp.cat_group,
+                                &by,
+                                &keep,
+                                &merged.concat(),
+                                "named",
+                                &decision_groups.join(", "),
                             )
                         ),
                         other = other_window(&by_other, &m_cols),
@@ -1527,7 +1636,7 @@ impl LumpAggregateFusion {
                 .enumerate()
                 .map(|(j, g)| format!(", f.{g} AS \"__g{j}\""))
                 .collect();
-            let group_by: String = (1..=4 + other_groups.len())
+            let group_by: String = (1..=5 + other_groups.len())
                 .map(|i| i.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");

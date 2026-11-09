@@ -715,9 +715,9 @@ impl Computer<'_> {
                 Declared::Tokens(_) => None,
             },
         };
-        // An `other` node is the variant of its parent for the Other group of a lump, so it keeps
-        // each of its parent's values that no declaration changes.
-        let other = self.tree.node(node).element == Element::Other;
+        // A variant, `other` or `null`, keeps each of its parent's values that no declaration
+        // changes.
+        let other = self.tree.node(node).element.is_variant();
         let inherit = match wide {
             Some(Wide::Inherit) => true,
             Some(Wide::Initial) => false,
@@ -1021,8 +1021,8 @@ fn node_initial(
 fn auto_paint(tree: &StyleTree, node: NodeId) -> AutoPaint {
     let data = tree.node(node);
     match data.element {
-        // The Other variant of a node paints as its parent does.
-        Element::Other => match tree.parent(node) {
+        // A variant of a node paints as its parent does.
+        Element::Other | Element::Null => match tree.parent(node) {
             Some(parent) => auto_paint(tree, parent),
             None => AutoPaint::Nothing,
         },

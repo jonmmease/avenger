@@ -202,8 +202,19 @@ impl PreparedChart {
                 .map(|group| fit_kind(&group.spec, registry))
                 .collect::<Result<Vec<_>>>()?;
             let (tree, nodes, mut warnings) = tree::build(&chart, &resolved, &kinds);
-            let drawn = (resolved.tree.layers.iter())
-                .map(|layer| encode::drawn_rows(layer.mark, layer.table))
+            // The position channels of each layer whose scale fits categories.
+            let mut categorical: Vec<Vec<Channel>> = vec![Vec::new(); resolved.tree.layers.len()];
+            for (group, kind) in resolved.scales.iter().zip(&kinds) {
+                if *kind == FitKind::Categories {
+                    for member in &group.members {
+                        categorical[member.layer].push(member.channel);
+                    }
+                }
+            }
+            let drawn = (resolved.tree.layers.iter().zip(&categorical))
+                .map(|(layer, categorical)| {
+                    encode::drawn_rows(layer.mark, layer.table, categorical)
+                })
                 .collect::<Result<Vec<_>>>()?;
             warnings.extend(crate::convert::domain::selection_warnings(
                 &resolved.scales,
@@ -553,7 +564,7 @@ impl ChartEvaluator {
                     style: &styles[self.nodes.marks[index]],
                     styles,
                     node: self.nodes.marks[index],
-                    other: self.nodes.others[index],
+                    variants: self.nodes.variants[index],
                     table: self.drawn[index].clone(),
                     partition: &layer.partition,
                     scales: layer_scales(&resolved, index, &positions, &prepared.scales),
@@ -1153,6 +1164,21 @@ impl ChartEvaluator {
         Ok(Some(avenger_scales::categories::distinct(&keys)?))
     }
 
+    /// Whether a layer of the plot at index `plot` holds a NULL lump of the column `column`, the
+    /// row of a NULL category that the lump drops, which the layer does not draw. A point
+    /// selection over the lumps leaves NULL out of the Other group that a click selects.
+    pub fn drops_null_lumps(&self, plot: usize, column: &str) -> bool {
+        let resolved = self.chart.resolve();
+        let Some(plot_ref) = resolved.tree.plots.get(plot) else {
+            return false;
+        };
+        (plot_ref.layers.clone()).any(|index| {
+            (resolved.tree.layers[index].table.column_by_name(column)).is_some_and(|column| {
+                avenger_chart::lump::is_lump(column.data_type()) && column.null_count() > 0
+            })
+        })
+    }
+
     /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,
     /// with the partition values of the layers. A plot shows a clause of a selection when it draws
     /// some of its conditions and every other condition holds there. A layer without a column of
@@ -1408,7 +1434,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             style: &styles[nodes.marks[index]],
             styles,
             node: nodes.marks[index],
-            other: nodes.others[index],
+            variants: nodes.variants[index],
             table: drawn[index].clone(),
             partition: &layer.partition,
             scales: layer_scales(resolved, index, &no_positions, &scales),
