@@ -117,17 +117,39 @@ pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>
     }
 }
 
-/// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node.
+/// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node,
+/// and on the rows of the Other group of a lump, the `pattern` of the `other` node unless the
+/// channel reads another column.
 pub(crate) fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
-    if let Some(patterns) = rows.patterns(Channel::Pattern)? {
-        return Ok(Some(patterns));
-    }
-    Ok(match rows.style.string(Property::Pattern) {
-        Some(text) => Some(scalar(Some(text.parse::<PatternFill>().map_err(
-            |error| EvalError::Unsupported(format!("the pattern `{text}`: {error}")),
-        )?))),
-        None => None,
-    })
+    let encoded = rows.patterns(Channel::Pattern)?;
+    let reads_other =
+        rows.encoding(Channel::Pattern).is_none() || rows.other_mask(Channel::Pattern).is_some();
+    let patterns = match encoded {
+        Some(patterns) => Some(patterns),
+        None => style_pattern(rows.style)?.map(|pattern| scalar(Some(pattern))),
+    };
+    let (Some(others), Some(other), true) = (rows.other_rows(), rows.other_style(), reads_other)
+    else {
+        return Ok(patterns);
+    };
+    let other = style_pattern(other)?;
+    let patterns = patterns.unwrap_or_else(|| scalar(None));
+    Ok(Some(ScalarOrArray::new_array(
+        (patterns.as_vec(others.len(), None).into_iter().zip(others))
+            .map(|(pattern, is_other)| if is_other { other.clone() } else { pattern })
+            .collect(),
+    )))
+}
+
+/// The computed `pattern` of a node.
+fn style_pattern(style: &ComputedStyle) -> Result<Option<PatternFill>> {
+    style
+        .string(Property::Pattern)
+        .map(|text| {
+            text.parse::<PatternFill>()
+                .map_err(|error| EvalError::Unsupported(format!("the pattern `{text}`: {error}")))
+        })
+        .transpose()
 }
 
 /// The distinct shapes of `names`, and the index of each row's shape among them.

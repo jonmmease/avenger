@@ -360,13 +360,13 @@ impl<'a> LayerRows<'a> {
 
     /// The computed style of the mark's `other` node, which styles the rows of the Other group of
     /// the lumps that the layer reads.
-    fn other_style(&self) -> Option<&ComputedStyle> {
+    pub(crate) fn other_style(&self) -> Option<&ComputedStyle> {
         self.other.map(|other| &self.styles[other])
     }
 
     /// Whether each row is in the Other group of the column of lumps that the scaled field of the
     /// encoding of `channel` reads, or `None` when it reads no lumps or no row is in the group.
-    fn other_mask(&self, channel: Channel) -> Option<Vec<bool>> {
+    pub(crate) fn other_mask(&self, channel: Channel) -> Option<Vec<bool>> {
         let Some(encoding::Kind::ScaledField(name)) = &self.encoding(channel)?.kind else {
             return None;
         };
@@ -378,7 +378,7 @@ impl<'a> LayerRows<'a> {
     /// Whether each row is in the Other group of a column of lumps that the scaled field of any
     /// encoding of the layer reads, which the `other` node styles where the mark node would, or
     /// `None` when no row is.
-    fn other_rows(&self) -> Option<Vec<bool>> {
+    pub(crate) fn other_rows(&self) -> Option<Vec<bool>> {
         self.other?;
         let mut rows = vec![false; self.len()];
         for channel in self.mark.channels() {

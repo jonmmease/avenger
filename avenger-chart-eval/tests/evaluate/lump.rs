@@ -303,3 +303,44 @@ fn a_stylesheet_styles_the_labels_of_the_other_group() {
     );
     assert!(texts.iter().any(|text| text == "4"), "{texts:?}");
 }
+
+#[test]
+fn a_stylesheet_draws_the_other_bar_gray_with_a_pattern() {
+    // The cars by their cylinders lumped to the top 2, so the Other group holds the 6, 3, and 5
+    // cylinder cars.
+    let lumped = lumps(
+        &[Some(4), Some(8), None],
+        &[true, true, false],
+        &[207.0, 108.0, 91.0],
+        &[1, 1, 3],
+    );
+    let counted = RecordBatch::try_from_iter([
+        ("lumped", lumped),
+        (
+            "cars",
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 91.0])) as ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let x = Encoding::scaled_field("lumped")
+        .scale(Scale::builder().axis(Axis::builder().title("cylinders")));
+    let bars = CartesianLayer::bar(counted, BarMark::builder().x(x).y("cars"));
+    let chart = Chart::builder(Plot::cartesian([bars]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let css = r#"mark[type=bar] > other { pattern: "diagonal-down"; }"#;
+    let evaluated = evaluate_styled(chart, css, [360.0, 240.0]);
+    assert_image(&evaluated, "lump-bars-pattern");
+    let rects = (plot_group(&evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            avenger_scenegraph::marks::mark::SceneMark::Rect(rect) => Some(rect),
+            _ => None,
+        })
+        .expect("a rect mark");
+    // Only the Other bar, the last row, takes the pattern, over the gray of the Other group.
+    let patterns: Vec<bool> = rects.fill_pattern_iter().map(Option::is_some).collect();
+    assert_eq!(patterns, [false, false, true]);
+    let fills = rects.fill.as_vec(rects.len as usize, None);
+    assert!(is_color(&fills[2], OTHER_GRAY), "{fills:?}");
+}
