@@ -3,11 +3,12 @@ name = "avenger-datafusion-transforms"
 version = "0.1.0"
 edition = "2024"
 license = "BSD-3-Clause"
-description = "Vega-style bin, stack, impute, and time unit transforms for Apache DataFusion"
+description = "Vega-style bin, stack, impute, and time unit transforms, and lump, for Apache DataFusion"
 readme = "README.md"
 
 [dependencies]
 datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
