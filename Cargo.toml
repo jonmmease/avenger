@@ -28,6 +28,7 @@ members = [
     "avenger-chart",
     "avenger-chart-eval",
     "avenger-chart-app",
+    "avenger-sql",
     "avenger-style",
     "avenger-svg",
     "avenger-pdf",
@@ -56,6 +57,7 @@ members = [
     "examples/chart-lump",
     "examples/chart-widgets",
     "examples/chart-geo",
+    "examples/sql-chart",
     "examples/egui-embed",
 ]
 exclude = [
