@@ -1069,6 +1069,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-sql"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-eval",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-render-fixtures",
+ "avenger-style",
+ "avenger-svg",
+ "avenger-typst-label",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-style"
 version = "0.1.0"
 dependencies = [
@@ -7875,6 +7892,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844"
 dependencies = [
  "bitflags 2.13.2",
+]
+
+[[package]]
+name = "sql-chart"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-sql",
+ "avenger-style",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "datafusion",
+ "pollster 0.3.0",
+ "tokio",
 ]
 
 [[package]]

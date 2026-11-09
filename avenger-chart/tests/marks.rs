@@ -425,5 +425,13 @@ fn every_mark_has_documentation() {
         assert!(documentation
             .syntax_example
             .starts_with(&format!("{name}(")));
+        let arguments = documentation.arguments.as_deref().unwrap_or_default();
+        assert!(!arguments.is_empty(), "{name} documents its channels");
+        for (argument, description) in arguments {
+            assert!(
+                !description.is_empty(),
+                "{name}({argument} => ...) has documentation"
+            );
+        }
     }
 }

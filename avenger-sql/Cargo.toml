@@ -1,0 +1,21 @@
+[package]
+name = "avenger-sql"
+version = "0.1.0"
+edition = "2021"
+description = "DataFusion SQL that builds avenger charts"
+readme = "README.md"
+
+[dependencies]
+avenger-chart = { path = "../avenger-chart", features = ["datafusion"] }
+datafusion = { workspace = true, features = ["sql"] }
+
+[dev-dependencies]
+arrow = { workspace = true }
+avenger-chart-eval = { path = "../avenger-chart-eval" }
+avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
+avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-render-fixtures = { path = "../avenger-render-fixtures" }
+avenger-style = { path = "../avenger-style" }
+avenger-svg = { path = "../avenger-svg" }
+avenger-typst-label = { path = "../avenger-typst-label" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
