@@ -599,3 +599,44 @@ async fn bound_states_keep_names_and_other_placeholders() {
         .collect();
     assert_eq!(found.iter().filter(|found| **found).count(), 1);
 }
+
+#[tokio::test]
+async fn a_complement_lowers_as_its_sql() {
+    // Everything except the kept islands, as a click on the Other group of a lump writes it: the
+    // row of a null island matches unless the kept islands hold null.
+    let complement = |values: Vec<Option<&str>>| {
+        Condition::values("island", None, Arc::new(StringArray::from(values)))
+            .complement()
+            .unwrap()
+    };
+    let cases = [
+        (
+            complement(vec![Some("biscoe")]),
+            "island NOT IN ('biscoe') OR island IS NULL",
+        ),
+        (
+            complement(vec![Some("biscoe"), None]),
+            "island NOT IN ('biscoe') AND island IS NOT NULL",
+        ),
+        (complement(vec![]), "true"),
+    ];
+    for (condition, sql) in cases {
+        let state = SelectionState::new(
+            Resolution::Global,
+            vec![Clause::new("a").condition(condition)],
+        );
+        conforms(state.clone(), PLAIN).await;
+        let expected = format!("SELECT coalesce({sql}, false) AS m FROM t ORDER BY id");
+        let expected = mask(context().sql(&expected).await.unwrap()).await;
+        assert_eq!(lowered(&state, &PLAIN).await, expected, "{sql}");
+    }
+    // A dictionary column takes a complement of its values.
+    let species = Condition::values("species", None, Arc::new(StringArray::from(vec!["adelie"])))
+        .complement()
+        .unwrap();
+    let state = SelectionState::new(
+        Resolution::Global,
+        vec![Clause::new("a").condition(species)],
+    );
+    conforms(state, PLAIN).await;
+}

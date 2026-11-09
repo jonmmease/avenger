@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, Float64Array},
+    array::{Array, ArrayRef, AsArray, Float64Array},
     compute::cast,
     datatypes::DataType,
 };
@@ -34,7 +34,7 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, Rebuild},
 };
 use avenger_layout::Rect;
-use avenger_scales::scalar::Scalar;
+use avenger_scales::{categories::CategoryIndex, scalar::Scalar};
 use avenger_selection::{Condition, PixelGrid};
 
 use crate::{
@@ -620,10 +620,12 @@ fn write_lasso(state: &mut ChartAppState, area: &Area, lasso: &Lasso<()>, settle
 }
 
 /// The key columns of a point selection or of a lasso with keys.
-fn keys(select: &proto::Select) -> Option<&[String]> {
+fn keys(select: &proto::Select) -> Option<Vec<String>> {
     match &select.form {
-        Some(select::Form::Points(points)) => Some(&points.keys),
-        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Some(&lasso.keys),
+        Some(select::Form::Points(points)) => {
+            Some(points.keys.iter().map(|key| key.column.clone()).collect())
+        }
+        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Some(lasso.keys.clone()),
         _ => None,
     }
 }
@@ -655,11 +657,115 @@ fn keyed_instances(state: &ChartAppState, area: &Area, kind: Form) -> Instances<
     Instances::marks(declared.marks.clone()).id(move |datum| {
         (keys.iter())
             .map(|(key, partition)| match datum.rows.column_by_name(key) {
-                Some(column) => Scalar::try_from_array(column.as_ref(), datum.row).ok(),
+                // A lump is its key, its category or its Other group, whatever its weight.
+                Some(column) => {
+                    let column =
+                        avenger_chart::lump::keys(column).unwrap_or_else(|| column.clone());
+                    Scalar::try_from_array(column.as_ref(), datum.row).ok()
+                }
                 None => Some(Scalar(partition.clone()?)),
             })
             .collect()
     })
+}
+
+/// The key of a point selection that is a column of lumps, and the source column that its sets
+/// name in its place, when the selection has one.
+fn lump_source<'a>(declared: &Declared<'a>) -> Option<(&'a str, &'a str)> {
+    match &declared.select.form {
+        Some(select::Form::Points(points)) => {
+            (points.keys.iter()).find_map(|key| Some((key.column.as_str(), key.source.as_deref()?)))
+        }
+        _ => None,
+    }
+}
+
+/// The keys of the lumps of `key` that the plot of `declared` draws: the plot's kept categories
+/// and its Other group.
+fn drawn_keys(state: &ChartAppState, declared: &Declared, key: &str) -> Option<ArrayRef> {
+    state
+        .evaluator
+        .drawn_lump_keys(declared.index, key)
+        .ok()
+        .flatten()
+}
+
+/// The keys of the lumps of `key` that a set of `values` of their source selects in the plot of
+/// `declared`: the key of each kept value, and for a complement, the key of each kept category of
+/// the plot outside `values` and the plot's Other group.
+fn lump_tuples(
+    state: &ChartAppState,
+    declared: &Declared,
+    key: &str,
+    values: &ArrayRef,
+    complement: bool,
+) -> Vec<Vec<Scalar>> {
+    let Some(drawn) = drawn_keys(state, declared, key) else {
+        return Vec::new();
+    };
+    let tuple = |keys: &ArrayRef, row: usize| Some(vec![Scalar::try_from_array(keys, row).ok()?]);
+    if complement {
+        let Some(excluded) = avenger_chart::lump::kept_keys(drawn.data_type(), values) else {
+            return Vec::new();
+        };
+        let Ok(positions) = CategoryIndex::new(&excluded).and_then(|index| index.positions(&drawn))
+        else {
+            return Vec::new();
+        };
+        return (positions.into_iter().enumerate())
+            .filter(|(_, position)| position.is_none())
+            .filter_map(|(row, _)| tuple(&drawn, row))
+            .collect();
+    }
+    let Some(kept) = avenger_chart::lump::kept_keys(drawn.data_type(), values) else {
+        return Vec::new();
+    };
+    (0..kept.len())
+        .filter(|&row| values.is_valid(row))
+        .filter_map(|row| tuple(&kept, row))
+        .collect()
+}
+
+/// The set over the source `source` of the lumps of `key` of the tuples of keys `tuples` in the
+/// plot of `declared`: the value of each kept category, or when the tuples hold the Other group,
+/// the complement of the plot's kept categories outside the tuples, so the selection holds every
+/// value that the plot draws as Other and the kept categories of the tuples.
+fn lump_set(
+    state: &ChartAppState,
+    declared: &Declared,
+    (key, source): (&str, &str),
+    tuples: &[Vec<Scalar>],
+) -> Option<Condition> {
+    let drawn = drawn_keys(state, declared, key)?;
+    let value_type = drawn.as_struct().column(0).data_type().clone();
+    let is_other = |scalar: &Scalar| {
+        avenger_chart::lump::others(&scalar.0).is_some_and(|others| others.value(0))
+    };
+    let values = |keys: Vec<&dyn Array>| match keys.is_empty() {
+        true => Some(arrow::array::new_empty_array(&value_type)),
+        false => arrow::compute::concat(&keys).ok(),
+    };
+    if !tuples.iter().any(|tuple| is_other(&tuple[0])) {
+        let kept = (tuples.iter())
+            .map(|tuple| tuple[0].0.as_struct().column(0).as_ref())
+            .collect();
+        return Some(Condition::values(source.to_string(), None, values(kept)?));
+    }
+    // The kept categories of the plot that the tuples do not hold.
+    let selected = (tuples.iter())
+        .map(|tuple| tuple[0].0.as_ref())
+        .collect::<Vec<_>>();
+    let selected = arrow::compute::concat(&selected).ok()?;
+    let positions = (CategoryIndex::new(&selected).ok()?.positions(&drawn)).ok()?;
+    let other = avenger_chart::lump::others(&drawn)?;
+    let excluded = (0..drawn.len())
+        .filter(|&row| !other.value(row) && positions[row].is_none())
+        .map(|row| drawn.as_struct().column(0).slice(row, 1))
+        .collect::<Vec<_>>();
+    let excluded = values(excluded.iter().map(|value| value.as_ref()).collect())?;
+    Condition::values(source.to_string(), None, excluded)
+        .complement()
+        .ok()
 }
 
 /// The tuples of key values that the selection of `area` holds for its plot.
@@ -671,9 +777,10 @@ fn points_of(state: &ChartAppState, area: &Area) -> Vec<Vec<Scalar>> {
 /// selection of `area` holds for its plot.
 fn keys_of(state: &ChartAppState, area: &Area, kind: Form) -> Vec<Vec<Scalar>> {
     let (identity, name) = area;
-    let Some(keys) =
-        declaration(state, area, |form| form == kind).and_then(|declared| keys(declared.select))
-    else {
+    let Some(declared) = declaration(state, area, |form| form == kind) else {
+        return Vec::new();
+    };
+    let Some(keys) = keys(declared.select) else {
         return Vec::new();
     };
     let Some(clause) = state.clause(name, identity) else {
@@ -683,7 +790,19 @@ fn keys_of(state: &ChartAppState, area: &Area, kind: Form) -> Vec<Vec<Scalar>> {
     for condition in &clause.conditions {
         match condition {
             Condition::Set {
-                columns, values, ..
+                columns,
+                values,
+                complement,
+                ..
+            } if lump_source(&declared).is_some_and(|(_, source)| columns == &[source]) => {
+                let (key, _) = lump_source(&declared).expect("a lump source");
+                tuples.extend(lump_tuples(state, &declared, key, &values[0], *complement));
+            }
+            Condition::Set {
+                columns,
+                values,
+                complement: false,
+                ..
             } if columns.as_slice() == keys => {
                 let count = values.first().map_or(0, |list| list.len());
                 tuples.extend((0..count).filter_map(|row| {
@@ -719,6 +838,11 @@ fn write_keys(
         let keys = keys(declared.select)?;
         if tuples.is_empty() {
             return None;
+        }
+        if let Some(source) = lump_source(&declared) {
+            let mut conditions = vec![lump_set(state, &declared, source, &tuples)?];
+            conditions.extend(scope(&declared));
+            return Some(conditions);
         }
         let lists = (0..keys.len())
             .map(|column| {

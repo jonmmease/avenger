@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
+    lump,
     proto::{
         self, axis, category_fit, conditional_value, domain, domain_fit, encoding, interval_fit,
         legend, navigation_limits, polar_layer, range, scale, selection_domain, ticks, Channel,
@@ -185,6 +186,65 @@ impl Checker<'_> {
         one_value_per_series(mark, table, &mark_path)
     }
 
+    /// Checks that each column of lumps that `encoding` reads goes through a band, a point, or an
+    /// ordinal scale, which places the Other group after the kept categories.
+    fn lumps_are_categorical(
+        &self,
+        encoding: &proto::Encoding,
+        table: &RecordBatch,
+        path: &str,
+    ) -> Result<()> {
+        let is_lump =
+            |name: &str| (table.column_by_name(name)).is_some_and(|c| lump::is_lump(c.data_type()));
+        let direct =
+            (encoding.kind.iter())
+                .filter_map(|kind| match kind {
+                    encoding::Kind::DirectField(name) => Some(name),
+                    _ => None,
+                })
+                .chain(encoding.conditional.iter().filter_map(
+                    |conditional| match &conditional.kind {
+                        Some(conditional_value::Kind::DirectField(name)) => Some(name),
+                        _ => None,
+                    },
+                ));
+        for name in direct {
+            if is_lump(name) {
+                return Err(fail(
+                    path,
+                    format!(
+                        "`{name}` is a column of lumps, which goes through a band, a point, or an \
+                         ordinal scale, so it is a `scaled_field`"
+                    ),
+                ));
+            }
+        }
+        let scaled_lump = match &encoding.kind {
+            Some(encoding::Kind::ScaledField(name)) => is_lump(name).then_some(name),
+            _ => None,
+        };
+        let categorical = (encoding
+            .scale
+            .as_ref()
+            .and_then(|scale| scale.r#type.as_ref()))
+        .is_none_or(|scale_type| {
+            matches!(
+                scale_type,
+                scale::Type::Band(_) | scale::Type::Point(_) | scale::Type::Ordinal(_)
+            )
+        });
+        if let Some(name) = scaled_lump.filter(|_| !categorical) {
+            return Err(fail(
+                format!("{path}.scale"),
+                format!(
+                    "`{name}` is a column of lumps, which goes through a band, a point, or an \
+                     ordinal scale"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
     /// The type of the values of `encoding`: of its column, or of its constant.
     fn value_type(
         &self,
@@ -194,7 +254,7 @@ impl Checker<'_> {
     ) -> Result<DataType> {
         Ok(match encoding.kind.as_ref() {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
-                span::values_type(column(table, name, path)?.data_type())
+                lump::values_type(&span::values_type(column(table, name, path)?.data_type()))
             }
             Some(encoding::Kind::DirectValue(value) | encoding::Kind::ScaledValue(value)) => {
                 self.values.scalar(value, path)?.data_type().clone()
@@ -251,6 +311,7 @@ impl Checker<'_> {
                 ));
             }
         }
+        self.lumps_are_categorical(encoding, table, path)?;
         let scaled = scaled(encoding);
         let paired = scale_channel(channel) != channel;
         if scaled && !paired && !takes_scale(channel) {

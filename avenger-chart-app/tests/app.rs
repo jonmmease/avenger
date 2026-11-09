@@ -220,6 +220,208 @@ async fn a_tooltip_shows_over_the_layers_that_declare_it() {
     assert!(!tooltip_marks(&app).is_empty());
 }
 
+/// The texts of the tooltip scene.
+fn tooltip_texts(app: &AvengerApp<ChartAppState>) -> Vec<String> {
+    fn texts(marks: &[SceneMark], out: &mut Vec<String>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Text(text) => out.extend(text.text.as_vec(text.len as usize, None)),
+                SceneMark::Group(group) => texts(&group.marks, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    texts(tooltip_marks(app), &mut out);
+    out
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tooltip_of_a_lump_shows_its_category_or_the_other_label() {
+    // Ports by tons, lumped to the top 2: Rotterdam and Hamburg are kept, and Antwerp and Le Havre
+    // are the Other group.
+    let fields = arrow::datatypes::Fields::from(vec![
+        arrow::datatypes::Field::new("value", arrow::datatypes::DataType::Utf8, true),
+        arrow::datatypes::Field::new("other", arrow::datatypes::DataType::Utf8, true),
+        arrow::datatypes::Field::new("weight", arrow::datatypes::DataType::Float64, true),
+        arrow::datatypes::Field::new("category_count", arrow::datatypes::DataType::Int64, false),
+    ]);
+    let port = arrow::array::StructArray::new(
+        fields,
+        vec![
+            Arc::new(StringArray::from(vec![
+                Some("Rotterdam"),
+                Some("Hamburg"),
+                None,
+                None,
+            ])),
+            Arc::new(StringArray::from(vec![
+                None,
+                None,
+                Some("Other"),
+                Some("Other"),
+            ])),
+            Arc::new(Float64Array::from(vec![40.0, 30.0, 25.0, 25.0])),
+            Arc::new(arrow::array::Int64Array::from(vec![1, 1, 2, 2])),
+        ],
+        None,
+    );
+    let ports = RecordBatch::try_from_iter([
+        ("port", Arc::new(port) as arrow::array::ArrayRef),
+        ("x", Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0]))),
+    ])
+    .unwrap();
+    let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0))
+        .title(TooltipField::builder().column("port"))
+        .fields([TooltipField::builder()
+            .column("port")
+            .title("lump")
+            .labels(Labels::builder().markup("#value (#count, #weight)"))]);
+    let symbols = CartesianLayer::symbol(
+        ports.clone(),
+        SymbolMark::builder().x("x").y("x").color("port"),
+    )
+    .id("ports")
+    .tools([LayerToolBuilder::from(tooltip)]);
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("plot"))
+        .build()
+        .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    let at = |app: &AvengerApp<ChartAppState>, row: usize| {
+        let plot = &app.state().plots()[0];
+        let x = ports.column_by_name("x").unwrap().slice(row, 1);
+        let [x, y] = plot.coords.pixels([&x, &x]).unwrap();
+        [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)]
+    };
+
+    let kept = at(&app, 0);
+    send(&mut app, [moved(kept)]).await;
+    let texts = tooltip_texts(&app);
+    assert!(texts.iter().any(|text| text == "Rotterdam"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Rotterdam") && text.contains("#(1)")),
+        "{texts:?}"
+    );
+
+    let other = at(&app, 2);
+    send(&mut app, [moved(other)]).await;
+    let texts = tooltip_texts(&app);
+    assert!(texts.iter().any(|text| text == "Other"), "{texts:?}");
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Other") && text.contains("#(2)") && text.contains("\"25\"")),
+        "{texts:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories() {
+    // The counts of cars by their cylinders lumped to the top 2: 4 and 8 are kept, and 6, 3, and
+    // 5 are the Other group.
+    let fields = arrow::datatypes::Fields::from(vec![
+        arrow::datatypes::Field::new("value", arrow::datatypes::DataType::Int64, true),
+        arrow::datatypes::Field::new("other", arrow::datatypes::DataType::Utf8, true),
+        arrow::datatypes::Field::new("weight", arrow::datatypes::DataType::Float64, true),
+        arrow::datatypes::Field::new("category_count", arrow::datatypes::DataType::Int64, false),
+    ]);
+    let lumped = arrow::array::StructArray::new(
+        fields,
+        vec![
+            Arc::new(arrow::array::Int64Array::from(vec![Some(4), Some(8), None])),
+            Arc::new(StringArray::from(vec![None, None, Some("Other")])),
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 91.0])),
+            Arc::new(arrow::array::Int64Array::from(vec![1, 1, 3])),
+        ],
+        None,
+    );
+    let counts = RecordBatch::try_from_iter([
+        ("lumped", Arc::new(lumped) as arrow::array::ArrayRef),
+        (
+            "cars",
+            Arc::new(Float64Array::from(vec![207.0, 108.0, 91.0])),
+        ),
+    ])
+    .unwrap();
+    let points = PointSelect::builder()
+        .keys([PointKey::new("lumped").source("cylinders")])
+        .toggle(true);
+    let bars = CartesianLayer::bar(counts.clone(), BarMark::builder().x("lumped").y("cars"));
+    let chart = Chart::builder(
+        Plot::cartesian([bars])
+            .id("plot")
+            .tools([Select::points("brush", points)]),
+    )
+    .selections([Selection::new("brush", SelectionResolution::Union)])
+    .build()
+    .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    // The middle of the bar of each row.
+    let bar = |app: &AvengerApp<ChartAppState>, row: usize| {
+        let plot = &app.state().plots()[0];
+        let x = avenger_chart::lump::keys(counts.column(0))
+            .unwrap()
+            .slice(row, 1);
+        let cars = counts
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let y: arrow::array::ArrayRef = Arc::new(Float64Array::from(vec![cars.value(row) / 2.0]));
+        let [x, y] = plot.coords.pixels([&x, &y]).unwrap();
+        [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)]
+    };
+    let set = |app: &AvengerApp<ChartAppState>| match &brush(app)[..] {
+        [clause] => match &clause.conditions[..] {
+            [avenger_selection::Condition::Set {
+                columns,
+                values,
+                complement,
+                ..
+            }] => {
+                assert_eq!(columns, &["cylinders".to_string()]);
+                let numbers = |values: &arrow::array::ArrayRef| {
+                    let values = values
+                        .as_any()
+                        .downcast_ref::<arrow::array::Int64Array>()
+                        .unwrap();
+                    values.iter().flatten().collect::<Vec<i64>>()
+                };
+                (numbers(&values[0]), *complement)
+            }
+            conditions => panic!("a set, and not {conditions:?}"),
+        },
+        clauses => panic!("one clause, and not {clauses:?}"),
+    };
+
+    // A click of the Other bar selects every value outside the kept 4 and 8, their complement.
+    let other = bar(&app, 2);
+    send(
+        &mut app,
+        [
+            moved(other),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    assert_eq!(set(&app), (vec![4, 8], true));
+
+    // A Shift click of the 4 bar adds it, so the complement leaves out only 8.
+    std::thread::sleep(Duration::from_millis(600));
+    let four = bar(&app, 0);
+    send(&mut app, shift_click(four)).await;
+    assert_eq!(set(&app), (vec![8], true));
+
+    // Another Shift click of the Other bar removes the Other group.
+    std::thread::sleep(Duration::from_millis(600));
+    let other = bar(&app, 2);
+    send(&mut app, shift_click(other)).await;
+    assert_eq!(set(&app), (vec![4], false));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
     let select = vec![ToolBuilder::from(Select::interval(

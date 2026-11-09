@@ -4,7 +4,7 @@
 use avenger_app_tools::navigation::KeyedGeoPanZoom;
 use avenger_app_tools::{
     navigation::KeyedPanZoom,
-    tooltips::{InstanceTarget, TooltipAnchor, TooltipField, Tooltips},
+    tooltips::{FieldValues, InstanceTarget, TooltipAnchor, TooltipField, Tooltips},
 };
 use avenger_chart::{
     proto::{self, tool, tooltip, Channel, NearestMetric},
@@ -396,7 +396,9 @@ fn target(tooltip: &proto::Tooltip) -> InstanceTarget {
     if tooltip.hide_swatch {
         target = target.without_swatch();
     }
-    target
+    // A lump's fields bind its values as its guides' labels do: the kept category or the Other
+    // group's label as `value`, and `other`, `count`, and `weight`.
+    target.with_values(FieldValues::new(avenger_chart_eval::lump_label_values))
 }
 
 fn field(declared: &proto::TooltipField) -> TooltipField {

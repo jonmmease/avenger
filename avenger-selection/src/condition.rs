@@ -24,11 +24,13 @@ use crate::{grid::Raster, set::SetIndex, CellSpan, PolygonCells, Result, Selecti
 pub enum Condition {
     /// A row matches when its values of `columns` equal one tuple of `values`: the rows of the
     /// lists in `values`, one list for each column, all of one length. A set of one column holds
-    /// the values of that column.
+    /// the values of that column. A `complement` matches the rows whose tuple is none of them
+    /// instead, so a set can select everything except some tuples.
     Set {
         columns: Vec<String>,
         channels: Vec<Option<String>>,
         values: Vec<ArrayRef>,
+        complement: bool,
     },
     /// A row matches when its value of `column` is between the two `ends`, in ascending order,
     /// or with `cells`, when its value lies in one of the cells. A null end does not bound the
@@ -92,6 +94,7 @@ impl Condition {
             columns,
             channels,
             values,
+            complement: false,
         })
     }
 
@@ -101,6 +104,28 @@ impl Condition {
             columns: vec![column.into()],
             channels: vec![channel],
             values: vec![values],
+            complement: false,
+        }
+    }
+
+    /// The complement of the set, which matches the rows that the set does not, or an error for
+    /// a condition that is not a set.
+    pub fn complement(self) -> Result<Self> {
+        match self {
+            Condition::Set {
+                columns,
+                channels,
+                values,
+                complement,
+            } => Ok(Condition::Set {
+                columns,
+                channels,
+                values,
+                complement: !complement,
+            }),
+            _ => Err(SelectionError::Condition(
+                "only a set has a complement".to_string(),
+            )),
         }
     }
 
@@ -123,7 +148,9 @@ impl Condition {
     /// matches no condition, and a dictionary column compares its values.
     ///
     /// - A set matches the rows whose values equal one of its tuples, with its values cast to
-    ///   the columns' types. A tuple with a null matches no row.
+    ///   the columns' types. A tuple with a null matches no row. A complement matches the rows
+    ///   whose values equal none of its tuples, where a null equals a null, so a null row
+    ///   matches unless the set holds its tuple.
     /// - A range matches the values from its first end through its second, or to before its
     ///   second with `exclude_end`, and with cells, the values in its cells. A null end does not
     ///   bound the range.
@@ -251,6 +278,14 @@ impl PreparedCondition {
     /// other types than the condition was prepared for match without the prepared index.
     pub fn matches(&self, columns: &[ArrayRef]) -> Result<BooleanArray> {
         match (&self.condition, &self.prepared) {
+            (
+                Condition::Set {
+                    values,
+                    complement: true,
+                    ..
+                },
+                _,
+            ) => Ok(BooleanArray::from(outside(columns, values)?)),
             (Condition::Set { values, .. }, Prepared::Set { types, index }) => {
                 let same = (columns.iter().zip(types))
                     .all(|(column, data_type)| &value_type(column.data_type()) == data_type);
@@ -348,6 +383,23 @@ fn in_set(columns: &[ArrayRef], values: &[ArrayRef]) -> Result<Vec<bool>> {
             columns.iter().all(|column| column.is_valid(index)) && set.contains(&rows.row(index))
         })
         .collect())
+}
+
+/// Whether each row of `columns` equals none of the tuples of the lists `others`, where a null
+/// equals a null, through the rows of Arrow's row format.
+fn outside(columns: &[ArrayRef], others: &[ArrayRef]) -> Result<Vec<bool>> {
+    let columns = columns.iter().map(plain).collect::<Result<Vec<_>>>()?;
+    let others = (others.iter().zip(&columns))
+        .map(|(others, column)| cast_to(others, column.data_type()))
+        .collect::<Result<Vec<_>>>()?;
+    let fields = (columns.iter())
+        .map(|column| SortField::new(column.data_type().clone()))
+        .collect();
+    let converter = RowConverter::new(fields)?;
+    let tuples = converter.convert_columns(&others)?;
+    let set: HashSet<_> = tuples.iter().collect();
+    let rows = converter.convert_columns(&columns)?;
+    Ok(rows.iter().map(|row| !set.contains(&row)).collect())
 }
 
 /// Whether each value is from the first of `ends` through the second, or to before the second

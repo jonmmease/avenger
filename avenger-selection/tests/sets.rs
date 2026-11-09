@@ -239,3 +239,64 @@ fn a_prepared_set_matches_many_arrays() {
     let other: ArrayRef = Arc::new(LargeStringArray::from(vec!["d", "x"]));
     assert_eq!(bits(prepared.matches(&[other]).unwrap()), [true, false]);
 }
+
+#[test]
+fn a_complement_matches_the_values_outside_its_tuples() {
+    let column: ArrayRef = Arc::new(StringArray::from(vec![
+        Some("a"),
+        Some("b"),
+        Some("c"),
+        None,
+        Some("d"),
+    ]));
+    // Everything except `a`: so `b`, `c`, `d`, and the null row.
+    let condition = Condition::values("category", None, Arc::new(StringArray::from(vec!["a"])))
+        .complement()
+        .unwrap();
+    let matched = bits(condition.matches(std::slice::from_ref(&column)).unwrap());
+    assert_eq!(matched, [false, true, true, true, true]);
+
+    // When the tuples hold a null, the complement drops the null row.
+    let condition = Condition::values(
+        "category",
+        None,
+        Arc::new(StringArray::from(vec![Some("a"), None])),
+    )
+    .complement()
+    .unwrap();
+    let matched = bits(condition.matches(std::slice::from_ref(&column)).unwrap());
+    assert_eq!(matched, [false, true, true, false, true]);
+
+    // A prepared complement matches the same rows, and the complement changes the fingerprint.
+    let prepared = condition.prepare(&[DataType::Utf8]).unwrap();
+    assert_eq!(bits(prepared.matches(&[column]).unwrap()), matched);
+    let plain = avenger_selection::Clause::new("plot").condition(Condition::values(
+        "category",
+        None,
+        Arc::new(StringArray::from(vec![Some("a"), None])),
+    ));
+    let complement = avenger_selection::Clause::new("plot").condition(condition.clone());
+    assert_ne!(plain.fingerprint(), complement.fingerprint());
+
+    // The complement of a complement is the set.
+    let set = condition.complement().unwrap();
+    assert!(matches!(
+        set,
+        Condition::Set {
+            complement: false,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn only_a_set_has_a_complement() {
+    let range = Condition::Range {
+        column: "a".into(),
+        channel: None,
+        ends: Arc::new(arrow::array::Float64Array::from(vec![0.0, 1.0])),
+        exclude_end: false,
+        cells: None,
+    };
+    assert!(range.complement().is_err());
+}

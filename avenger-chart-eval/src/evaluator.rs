@@ -510,6 +510,7 @@ impl ChartEvaluator {
             [0.0, 0.0, canvas.width, canvas.height],
         ));
         let mut data = SceneData::new();
+        let lump_sources = crate::convert::selection::lump_sources(&resolved);
         let mut plots = Vec::with_capacity(resolved.tree.plots.len());
         for (plot_index, plot_ref) in resolved.tree.plots.iter().enumerate() {
             let rect = rects[plot_index];
@@ -552,6 +553,7 @@ impl ChartEvaluator {
                     style: &styles[self.nodes.marks[index]],
                     styles,
                     node: self.nodes.marks[index],
+                    other: self.nodes.others[index],
                     table: self.drawn[index].clone(),
                     partition: &layer.partition,
                     scales: layer_scales(&resolved, index, &positions, &prepared.scales),
@@ -573,6 +575,7 @@ impl ChartEvaluator {
                 rows.masks = encode::masks(
                     &rows,
                     &self.state.selections,
+                    &lump_sources,
                     &owners(plot_ref, layer),
                     &layer.path,
                     &mut warnings,
@@ -1128,6 +1131,28 @@ impl ChartEvaluator {
             })
     }
 
+    /// The distinct keys of the lumps of the column `column` that the layers of the plot at index
+    /// `plot` draw, a struct of each lump's `value` and `other`, in their first order, or `None`
+    /// when no layer of the plot draws a column of lumps of that name. A point selection over the
+    /// lumps reads the plot's kept categories and its Other group from them.
+    pub fn drawn_lump_keys(&self, plot: usize, column: &str) -> Result<Option<ArrayRef>> {
+        let resolved = self.chart.resolve();
+        let Some(plot_ref) = resolved.tree.plots.get(plot) else {
+            return Ok(None);
+        };
+        let keys: Vec<ArrayRef> = (plot_ref.layers.clone())
+            .filter_map(|index| {
+                avenger_chart::lump::keys(self.drawn[index].column_by_name(column)?)
+            })
+            .collect();
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let keys: Vec<&dyn arrow::array::Array> = keys.iter().map(|keys| keys.as_ref()).collect();
+        let keys = arrow::compute::concat(&keys)?;
+        Ok(Some(avenger_scales::categories::distinct(&keys)?))
+    }
+
     /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,
     /// with the partition values of the layers. A plot shows a clause of a selection when it draws
     /// some of its conditions and every other condition holds there. A layer without a column of
@@ -1137,13 +1162,18 @@ impl ChartEvaluator {
         let Some(plot_ref) = resolved.tree.plots.get(plot) else {
             return Ok(false);
         };
+        let sources = crate::convert::selection::lump_sources(&resolved);
         for index in plot_ref.layers.clone() {
             let layer = &resolved.tree.layers[index];
             let table = &self.drawn[index];
+            let condition = &crate::convert::selection::through_lumps(condition, &sources, table)?;
             let columns: Option<Vec<ArrayRef>> = (condition.columns().into_iter())
                 .map(|name| match table.column_by_name(name) {
                     Some(column) => Some(column.clone()),
                     None => {
+                        if let Some(keys) = crate::convert::selection::lump_keys(name, table) {
+                            return Some(keys);
+                        }
                         let value = layer.partition.get(name)?;
                         let rows = arrow::array::UInt32Array::from(vec![0; table.num_rows()]);
                         arrow::compute::take(value, &rows, None).ok()
@@ -1332,6 +1362,17 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         )
     };
 
+    // The lumps of each group whose members read columns of lumps, which order its categories
+    // and label its guides.
+    let lumps = (groups.iter())
+        .map(|group| {
+            let values = (group.members.iter())
+                .map(|member| Ok(values_of(member)?.map(|values| (values, None))))
+                .collect::<Result<Vec<Option<MemberValues>>>>()?;
+            crate::lumps::Lumps::of(&values)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
     let mut scales: Vec<Option<ConfiguredScale>> = vec![None; groups.len()];
     for (index, group) in groups.iter().enumerate() {
         if group.is_position() {
@@ -1347,6 +1388,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             &styles[nodes.scales[index]],
             styles,
             &values,
+            lumps[index].as_ref(),
             &mut warnings,
         )?;
         scales[index] = Some(match carried.get(&index) {
@@ -1366,6 +1408,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             style: &styles[nodes.marks[index]],
             styles,
             node: nodes.marks[index],
+            other: nodes.others[index],
             table: drawn[index].clone(),
             partition: &layer.partition,
             scales: layer_scales(resolved, index, &no_positions, &scales),
@@ -1427,6 +1470,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             fit_defaults(resolved, index, kinds),
             &styles[nodes.scales[index]],
             &values,
+            lumps[index].as_ref(),
             polar::wraps(resolved, group),
         )?;
         positions[index] = Some(match carried.get(&index) {
@@ -1450,6 +1494,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             styles,
             engine,
             positions: &positions,
+            lumps: &lumps,
         },
         unsized_rows,
         &reach,
@@ -1478,6 +1523,7 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
         positions: &fittings,
         scales: &scales,
         kinds,
+        lumps: &lumps,
     })?;
     // A discrete position scale with a `step` gives each plot of its layers a natural length along
     // its channel.

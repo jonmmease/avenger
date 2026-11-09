@@ -53,7 +53,8 @@ fn syntax(syntax: &Syntax) -> String {
 fn elements(property: Property) -> String {
     let nodes: Vec<Element> = (Element::ALL.iter())
         .copied()
-        .filter(|element| !element.is_virtual())
+        // Every property applies to `other`, the variant of its parent, so the table leaves it out.
+        .filter(|element| !element.is_virtual() && *element != Element::Other)
         .collect();
     let elements = property.elements();
     if elements.len() == nodes.len() && nodes.iter().all(|node| elements.contains(node)) {

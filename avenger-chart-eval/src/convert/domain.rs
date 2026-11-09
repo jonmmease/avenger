@@ -227,15 +227,25 @@ fn summary_of(chart: &Chart, value: &proto::ValueRef) -> DomainSummary {
         .expect("a valid chart's summary has the layout of its scale")
 }
 
-/// How a summary or a data domain of a scale fits: the options of avenger-scales, and the
-/// categories that come first in a discrete domain.
+/// How a summary or a data domain of a scale fits: the options of avenger-scales, and the order
+/// of the spec's category fit.
 #[derive(Clone, Debug)]
 pub(crate) struct Fit {
     pub(crate) options: DomainOptions,
+    /// The order that the spec's category fit gives, or `None` for the default order of the
+    /// domain's kind.
+    pub(crate) spec_order: Option<SpecOrder>,
+}
+
+/// The order of the categories that a spec's category fit gives.
+#[derive(Clone, Debug)]
+pub(crate) enum SpecOrder {
+    /// The categories of the data, ascending or descending, as the fit's options sort them.
+    Sort(CategorySort),
     /// A preferred order: the listed categories that the domain holds come first, in the list's
-    /// order, before the other categories, ascending. Listed categories without data are not in the
-    /// domain, so the fit sorts ascending and then moves them.
-    pub(crate) preferred: Option<ArrayRef>,
+    /// order, before the other categories, ascending. Listed categories without data are not in
+    /// the domain, so the fit sorts ascending and then moves them.
+    Preferred(ArrayRef),
 }
 
 impl Fit {
@@ -255,7 +265,7 @@ impl Fit {
 
     /// A fitted discrete domain in the preferred order, or `domain` without one.
     pub(crate) fn order(&self, domain: ArrayRef) -> Result<ArrayRef> {
-        let Some(preferred) = &self.preferred else {
+        let Some(SpecOrder::Preferred(preferred)) = &self.spec_order else {
             return Ok(domain);
         };
         let keys = |values: &ArrayRef| -> Result<Vec<Vec<u8>>> {
@@ -307,12 +317,12 @@ pub(crate) fn domain_options(
         },
         _ => None,
     };
-    let mut preferred = None;
+    let mut spec_order = None;
     let options = match (kind, fit.and_then(|fit| fit.fit.as_ref())) {
         (FitKind::Sample, _) => DomainOptions::Sample,
         (_, Some(domain_fit::Fit::Categories(categories))) => {
-            let (options, listed) = category_options(chart, categories);
-            preferred = listed;
+            let (options, order) = category_options(chart, categories);
+            spec_order = order;
             DomainOptions::Categories(options)
         }
         (FitKind::Categories, None) => DomainOptions::Categories(CategoryOptions::default()),
@@ -321,7 +331,10 @@ pub(crate) fn domain_options(
         }
         _ => DomainOptions::Interval(defaults.options()),
     };
-    Fit { options, preferred }
+    Fit {
+        options,
+        spec_order,
+    }
 }
 
 fn interval_options(
@@ -353,20 +366,19 @@ fn interval_options(
 fn category_options(
     chart: &Chart,
     fit: &proto::CategoryFit,
-) -> (CategoryOptions, Option<ArrayRef>) {
-    let (order, preferred) = match &fit.order {
-        Some(category_fit::Order::Sort(sort)) => {
-            let order = match CategorySort::try_from(*sort).unwrap_or_default() {
-                CategorySort::Descending => CategoryOrder::Descending,
-                _ => CategoryOrder::Ascending,
-            };
-            (order, None)
+) -> (CategoryOptions, Option<SpecOrder>) {
+    let spec_order = match &fit.order {
+        Some(category_fit::Order::Sort(sort)) => Some(SpecOrder::Sort(
+            CategorySort::try_from(*sort).unwrap_or_default(),
+        )),
+        Some(category_fit::Order::Preferred(preferred)) => {
+            Some(SpecOrder::Preferred(chart.list_elements(preferred)))
         }
-        Some(category_fit::Order::Preferred(preferred)) => (
-            CategoryOrder::Ascending,
-            Some(chart.list_elements(preferred)),
-        ),
-        None => (CategoryOrder::Ascending, None),
+        None => None,
     };
-    (CategoryOptions { order }, preferred)
+    let order = match &spec_order {
+        Some(SpecOrder::Sort(CategorySort::Descending)) => CategoryOrder::Descending,
+        _ => CategoryOrder::Ascending,
+    };
+    (CategoryOptions { order }, spec_order)
 }

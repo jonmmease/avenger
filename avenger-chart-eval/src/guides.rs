@@ -26,6 +26,7 @@ use avenger_guides::{
     attribution::{Attribution, AttributionAlign, AttributionConfig},
     axis::{Axis, AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, NestedBandAxisLevelConfig},
     facet::{FacetGuide, FacetGuideConfig, FacetGuidePart, FacetGuideStyle},
+    label_variant::{vary_labels, LabelVariant},
     legend::{
         Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendStyle, LegendSwatches,
         LegendWrap, LineSwatches, SymbolSwatches,
@@ -188,6 +189,9 @@ pub(crate) struct GuideInputs<'a> {
     pub(crate) scales: &'a [Option<ConfiguredScale>],
     /// The kind of fit of each group, by its position in `Resolved::scales`.
     pub(crate) kinds: &'a [avenger_chart::FitKind],
+    /// The lumps of each group whose members read columns of lumps, by its position in
+    /// `Resolved::scales`.
+    pub(crate) lumps: &'a [Option<crate::lumps::Lumps>],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -199,6 +203,21 @@ pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4]
         Paint::Color(color) => color,
         Paint::Contrast { otherwise } => otherwise,
         Paint::None => [0.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// How the text style of `other`, the `other` node of a guide's `label`, differs from `label`'s.
+pub(crate) fn label_variant(label: &ComputedStyle, other: &ComputedStyle) -> LabelVariant {
+    fn differs<T: PartialEq>(label: T, other: T) -> Option<T> {
+        (label != other).then_some(other)
+    }
+    let italic = |style: &ComputedStyle| style.keyword(Property::FontStyle) == Some("italic");
+    LabelVariant {
+        color: differs(text_color(label), text_color(other)),
+        font_family: differs(font_family(label), font_family(other)),
+        font_size: differs(label.font_size(), other.font_size()),
+        font_weight: differs(font_weight(label), font_weight(other)),
+        italic: differs(italic(label), italic(other)),
     }
 }
 
@@ -502,9 +521,16 @@ fn axis(
             }
         }
         let labels = spec.labels.as_ref();
+        let tick_format = labels.map_or_else(String::new, |labels| labels.format.clone());
+        if let Some(lumps) = &inputs.lumps[index] {
+            let variant =
+                (nodes.other).map(|other| label_variant(&styles[nodes.label], &styles[other]));
+            style.category_labels =
+                Some(lumps.category_labels(&tick_format, variant, inputs.engine)?);
+        }
         let config = AxisConfig {
             side,
-            tick_format: labels.map_or_else(String::new, |labels| labels.format.clone()),
+            tick_format,
             tick_label: labels
                 .map(|labels| labels.markup.clone())
                 .filter(|markup| !markup.is_empty()),
@@ -633,6 +659,21 @@ fn swatch(channel: Channel, scale: &ConfiguredScale, values: &ArrayRef) -> Resul
     }))
 }
 
+/// The label text of maps of values through the labels' markup, which reads their names, or the
+/// `value` of each map without markup.
+fn bound_text(values: Vec<LabelValues>, markup: &str) -> Result<(Vec<String>, TextSyntaxMode)> {
+    if !markup.is_empty() {
+        let text = (values.iter())
+            .map(|values| bind(markup, values))
+            .collect::<std::result::Result<_, _>>()?;
+        return Ok((text, TextSyntaxMode::TypstMarkup));
+    }
+    let values = (values.into_iter())
+        .map(|mut values| values.shift_remove("value").unwrap_or(LabelValue::None))
+        .collect();
+    label_text(values, "")
+}
+
 /// The label text of `values` through the labels' markup, where `#value` is the formatted value,
 /// or the formatted values, as plain text unless one of them is markup.
 fn label_text(values: Vec<LabelValue>, markup: &str) -> Result<(Vec<String>, TextSyntaxMode)> {
@@ -679,6 +720,7 @@ fn entries(
     tick_count: Option<f64>,
     chart: &Chart,
     engine: &LabelEngine,
+    lumps: Option<&crate::lumps::Lumps>,
 ) -> Result<(ArrayRef, Vec<String>, TextSyntaxMode)> {
     let labels = spec.labels.as_ref();
     let pattern = labels.map_or("", |labels| labels.format.as_str());
@@ -730,7 +772,10 @@ fn entries(
         }
         _ if matches!(scale_type, "band" | "point" | "nested_band" | "ordinal") => {
             let values = scale.domain().clone();
-            let (labels, syntax) = label_text(formatted(&values)?, markup)?;
+            let (labels, syntax) = match lumps {
+                Some(lumps) => bound_text(lumps.label_values(&values, pattern, engine)?, markup)?,
+                None => label_text(formatted(&values)?, markup)?,
+            };
             Ok((values, labels, syntax))
         }
         _ => {
@@ -871,8 +916,14 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
-                let (values, mut labels, label_syntax) =
-                    entries(scale, &spec, tick_count, inputs.chart, inputs.engine)?;
+                let (values, mut labels, label_syntax) = entries(
+                    scale,
+                    &spec,
+                    tick_count,
+                    inputs.chart,
+                    inputs.engine,
+                    inputs.lumps[index].as_ref(),
+                )?;
                 // A legend longer than `max-entries` ends with an entry that counts the rest.
                 let max_entries = inputs.styles[nodes.legend].integer(Property::MaxEntries);
                 let rest = match max_entries {
@@ -958,6 +1009,29 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
         .collect()
 }
 
+/// `values` of the entries of a legend, with `with` on each entry of `entries`.
+fn replaced<T: Clone + Send + Sync>(
+    values: &ScalarOrArray<T>,
+    entries: &[bool],
+    with: T,
+) -> ScalarOrArray<T> {
+    ScalarOrArray::new_array(
+        (values.as_vec(entries.len(), None).into_iter().zip(entries))
+            .map(|(value, other)| if *other { with.clone() } else { value })
+            .collect(),
+    )
+}
+
+/// Whether each of the `len` entries of a legend whose categories are `categories` is the Other
+/// group of a lump, or `None` for a legend without such an entry.
+fn other_entries(categories: Option<&ArrayRef>, len: usize) -> Option<Vec<bool>> {
+    let others = avenger_chart::lump::others(categories?)?;
+    let entries: Vec<bool> = (0..len)
+        .map(|entry| entry < others.len() && others.value(entry))
+        .collect();
+    entries.contains(&true).then_some(entries)
+}
+
 /// A symbol legend from its draft: its swatches draw the mark of its first scale's first layer,
 /// with that layer's computed style for the channels that the legend does not show.
 fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
@@ -1013,6 +1087,24 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 .collect(),
         )
     };
+    // The entries of the Other group of a lump draw as the rows of the group do, through the
+    // layer's `other` node.
+    let others = match (
+        other_entries(draft.categories.as_ref(), len),
+        inputs.nodes.others[layer_index],
+    ) {
+        (Some(entries), Some(other)) => Some((entries, other)),
+        _ => None,
+    };
+    let other_paint = |other: avenger_style::NodeId, property: Property| {
+        let color = style_color(&styles[other], Property::Color);
+        match styles.paint_with(other, property, color) {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        }
+    };
     let swatches = if line {
         let mut swatches = LineSwatches {
             stroke: ScalarOrArray::new_scalar(
@@ -1044,6 +1136,14 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 Swatch::Opacity(values) => opacity = Some(values),
                 _ => {}
             }
+        }
+        if let Some((entries, other)) = &others {
+            let stroke = other_paint(*other, Property::Stroke);
+            let width = style_number(&styles[*other], Property::StrokeWidth);
+            let dash = crate::encode::style_dashes(&styles[*other]);
+            swatches.stroke = replaced(&swatches.stroke, entries, stroke);
+            swatches.stroke_width = replaced(&swatches.stroke_width, entries, width);
+            swatches.stroke_dash = replaced(&swatches.stroke_dash, entries, dash);
         }
         if let Some(opacity) = opacity {
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
@@ -1126,6 +1226,24 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 Swatch::StrokeDash(_) => {}
             }
         }
+        if let Some((entries, other)) = &others {
+            let (fill, stroke) = (
+                other_paint(*other, Property::Fill),
+                other_paint(*other, Property::Stroke),
+            );
+            let strokes = matches!(&stroke, ColorOrGradient::Color(color) if color[3] > 0.0);
+            let width = match strokes {
+                true => style_number(&styles[*other], Property::StrokeWidth),
+                false => 0.0,
+            };
+            let shape = (styles[*other].string(Property::Shape))
+                .and_then(|name| SymbolShape::from_vega_str(name).ok())
+                .unwrap_or_default();
+            swatches.fill = replaced(&swatches.fill, entries, fill);
+            swatches.stroke = replaced(&swatches.stroke, entries, stroke);
+            swatches.stroke_width = replaced(&swatches.stroke_width, entries, width);
+            swatches.shape = replaced(&swatches.shape, entries, shape);
+        }
         if let Some(opacity) = opacity {
             swatches.fill = faded(&swatches.fill, &opacity, len);
             swatches.stroke = faded(&swatches.stroke, &opacity, len);
@@ -1139,6 +1257,20 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let legend_style = &styles[nodes.legend];
     let title_style = &styles[nodes.title];
     let label_style = &styles[nodes.label];
+    // The label of the Other group of a lump takes the style of the label's `other` node.
+    let variants: Vec<Option<LabelVariant>> = match (
+        nodes.other,
+        other_entries(draft.categories.as_ref(), draft.labels.len()),
+    ) {
+        (Some(other), Some(others)) => {
+            let variant = label_variant(label_style, &styles[other]);
+            (others.into_iter())
+                .map(|is_other| is_other.then(|| variant.clone()))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let (labels, label_syntax) = vary_labels(draft.labels, draft.label_syntax, &variants);
     let spec = &draft.spec;
     let style = LegendStyle {
         background: background(legend_style),
@@ -1151,7 +1283,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         label_font_family: font_family(label_style),
         label_font_size: label_style.font_size(),
         label_font_weight: font_weight(label_style),
-        label_syntax: draft.label_syntax,
+        label_syntax,
         column_gap: style_number(legend_style, Property::ColumnGap),
         row_gap: style_number(legend_style, Property::RowGap),
     };
@@ -1167,7 +1299,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let title = (visible(title_style) && !draft.title.is_empty()).then_some(draft.title);
     let config = LegendConfig {
         title,
-        text: ScalarOrArray::new_array(draft.labels),
+        text: ScalarOrArray::new_array(labels),
         swatches,
         text_padding: style_number(legend_style, Property::LabelPadding),
         layout: LegendLayout { side, wrap },

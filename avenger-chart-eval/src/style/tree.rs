@@ -54,6 +54,9 @@ pub(crate) struct StyleNodes {
     pub(crate) attributions: Vec<Option<NodeId>>,
     /// The `mark` of each layer, in the order of `Tree::layers`.
     pub(crate) marks: Vec<NodeId>,
+    /// The `other` of the `mark` of each layer whose encodings read a column of lumps, which
+    /// styles the rows of the Other group, in the order of `Tree::layers`.
+    pub(crate) others: Vec<Option<NodeId>>,
     /// The `scale` of each scale group, in the order of `Resolved::scales`.
     pub(crate) scales: Vec<NodeId>,
     /// The nodes of each scale group's guide, or `None` for a group without a guide.
@@ -116,6 +119,7 @@ pub(crate) fn build(
     );
 
     let mut marks = Vec::with_capacity(resolved.tree.layers.len());
+    let mut others = Vec::with_capacity(resolved.tree.layers.len());
     for layer in &resolved.tree.layers {
         let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
@@ -136,6 +140,16 @@ pub(crate) fn build(
             }
         }
         marks.push(node);
+        let reads_lumps = layer
+            .mark
+            .encodings()
+            .any(|(_, encoding)| match &encoding.kind {
+                // A lump is never a direct field, so only scaled fields read lumps.
+                Some(encoding::Kind::ScaledField(name)) => (layer.table.column_by_name(name))
+                    .is_some_and(|column| avenger_chart::lump::is_lump(column.data_type())),
+                _ => false,
+            });
+        others.push(reads_lumps.then(|| tree.add(node, Element::Other)));
     }
 
     let mut scales = Vec::with_capacity(resolved.scales.len());
@@ -186,6 +200,7 @@ pub(crate) fn build(
         nodes,
         attributions,
         marks,
+        others,
         scales,
         guides,
         facets,
@@ -415,14 +430,21 @@ fn guide_nodes(
         tree.set_attribute(node, "scale", scale_type(&group.spec));
         tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, kind));
     };
+    let lumps =
+        (values_type(chart, resolved, group).as_ref()).is_some_and(avenger_chart::lump::is_lump);
+    // The label of the Other group of a lump is the `other` variant of the guide's `label`.
+    let other = |tree: &mut Styled, label: NodeId| lumps.then(|| tree.add(label, Element::Other));
     match guide_kind(group, kind)? {
         GuideKind::PolarAxis => {
             let axis = tree.add(owner, Element::Axis);
             attributes(tree, axis);
+            let title = tree.add(axis, Element::Title);
+            let label = tree.add(axis, Element::Label);
             let nodes = AxisNodes {
                 axis,
-                title: tree.add(axis, Element::Title),
-                label: tree.add(axis, Element::Label),
+                title,
+                label,
+                other: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -440,10 +462,13 @@ fn guide_nodes(
         GuideKind::Axis => {
             let axis = tree.add(owner, Element::Axis);
             attributes(tree, axis);
+            let title = tree.add(axis, Element::Title);
+            let label = tree.add(axis, Element::Label);
             let nodes = AxisNodes {
                 axis,
-                title: tree.add(axis, Element::Title),
-                label: tree.add(axis, Element::Label),
+                title,
+                label,
+                other: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -464,11 +489,15 @@ fn guide_nodes(
             let legend = tree.add(owner, Element::Legend);
             tree.set_attribute(legend, "type", "symbol");
             attributes(tree, legend);
+            let title = tree.add(legend, Element::Title);
+            let swatch = tree.add(legend, Element::Swatch);
+            let label = tree.add(legend, Element::Label);
             let nodes = LegendNodes {
                 legend,
-                title: tree.add(legend, Element::Title),
-                swatch: tree.add(legend, Element::Swatch),
-                label: tree.add(legend, Element::Label),
+                title,
+                swatch,
+                label,
+                other: other(tree, label),
             };
             if let Some(message) = &group.spec.legend {
                 identify(tree, legend, &message.id, &message.classes);
@@ -584,8 +613,8 @@ fn values_type(chart: &Chart, resolved: &Resolved, group: &ScaleGroup) -> Option
 }
 
 /// The `kind` of a scale: `sequential` for a continuous scale, and for a discrete scale, its own
-/// kind, or `categorical` over strings, booleans, and dictionaries of strings and `ordinal` over
-/// other values.
+/// kind, or `categorical` over strings, booleans, dictionaries of strings, and lumps, and
+/// `ordinal` over other values.
 fn scale_kind(
     chart: &Chart,
     resolved: &Resolved,
@@ -612,6 +641,11 @@ fn scale_kind(
         proto::ScaleKind::Unspecified => {}
     }
     let data_type = values_type(chart, resolved, group);
+    // The kept categories of a lump follow their weights, not their values, so they are
+    // categories whatever their type.
+    if (data_type.as_ref()).is_some_and(avenger_chart::lump::is_lump) {
+        return "categorical";
+    }
     let values = data_type.as_ref().map(plain_type);
     match values {
         Some(DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View | DataType::Boolean)

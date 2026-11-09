@@ -117,17 +117,33 @@ pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>
     }
 }
 
-/// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node.
+/// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node,
+/// and on the rows of the Other group of a lump, the `pattern` of the `other` node.
 pub(crate) fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
-    if let Some(patterns) = rows.patterns(Channel::Pattern)? {
-        return Ok(Some(patterns));
-    }
-    Ok(match rows.style.string(Property::Pattern) {
-        Some(text) => Some(scalar(Some(text.parse::<PatternFill>().map_err(
-            |error| EvalError::Unsupported(format!("the pattern `{text}`: {error}")),
-        )?))),
-        None => None,
-    })
+    let patterns = match rows.patterns(Channel::Pattern)? {
+        Some(patterns) => Some(patterns),
+        None => style_pattern(rows.style)?.map(|pattern| scalar(Some(pattern))),
+    };
+    let (Some(other), Some(_)) = (rows.other_style(), rows.styled_others(Channel::Pattern)) else {
+        return Ok(patterns);
+    };
+    let patterns = patterns.unwrap_or_else(|| scalar(None));
+    Ok(Some(rows.with_others(
+        patterns,
+        Channel::Pattern,
+        style_pattern(other)?,
+    )))
+}
+
+/// The computed `pattern` of a node.
+fn style_pattern(style: &ComputedStyle) -> Result<Option<PatternFill>> {
+    style
+        .string(Property::Pattern)
+        .map(|text| {
+            text.parse::<PatternFill>()
+                .map_err(|error| EvalError::Unsupported(format!("the pattern `{text}`: {error}")))
+        })
+        .transpose()
 }
 
 /// The distinct shapes of `names`, and the index of each row's shape among them.
@@ -162,15 +178,22 @@ pub(crate) fn shapes(
     }
 }
 
-/// The names of the shapes of each row: the `shape` channel, or the computed `shape`.
+/// The names of the shapes of each row: the `shape` channel, or the computed `shape`, and on the
+/// rows of the Other group of a lump, the `other` node's `shape`.
 pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
-    Ok(match rows.strings(Channel::Shape)? {
+    let shape = |style: &ComputedStyle| {
+        (style.string(Property::Shape))
+            .expect("`shape` computes to a string")
+            .to_string()
+    };
+    let names = match rows.strings(Channel::Shape)? {
         Some(names) => names,
-        None => scalar(
-            (rows.style.string(Property::Shape))
-                .expect("`shape` computes to a string")
-                .to_string(),
-        ),
+        None => scalar(shape(rows.style)),
+    };
+    // The rows of the Other group take the `other` node's shape.
+    Ok(match rows.other_style() {
+        Some(other) => rows.with_others(names, Channel::Shape, shape(other)),
+        None => names,
     })
 }
 

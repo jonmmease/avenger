@@ -715,10 +715,13 @@ impl Computer<'_> {
                 Declared::Tokens(_) => None,
             },
         };
+        // An `other` node is the variant of its parent for the Other group of a lump, so it keeps
+        // each of its parent's values that no declaration changes.
+        let other = self.tree.node(node).element == Element::Other;
         let inherit = match wide {
             Some(Wide::Inherit) => true,
             Some(Wide::Initial) => false,
-            Some(Wide::Unset) | None => property.is_inherited(),
+            Some(Wide::Unset) | None => other || property.is_inherited(),
         };
         match (inherit, parent) {
             (true, Some(parent)) => {
@@ -1018,6 +1021,11 @@ fn node_initial(
 fn auto_paint(tree: &StyleTree, node: NodeId) -> AutoPaint {
     let data = tree.node(node);
     match data.element {
+        // The Other variant of a node paints as its parent does.
+        Element::Other => match tree.parent(node) {
+            Some(parent) => auto_paint(tree, parent),
+            None => AutoPaint::Nothing,
+        },
         Element::Mark => match data.attribute_str("type") {
             // A trail, a line of varying width, paints with its stroke.
             Some("line" | "rule" | "trail") => AutoPaint::Stroke,

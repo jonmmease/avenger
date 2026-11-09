@@ -46,6 +46,7 @@ mod compose;
 mod error;
 mod infer;
 pub mod layer;
+pub mod lump;
 mod merge;
 mod normalize;
 mod read;

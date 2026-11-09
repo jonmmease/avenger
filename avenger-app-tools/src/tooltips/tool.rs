@@ -148,12 +148,15 @@ fn content(
     engine: &LabelEngine,
 ) -> Result<Content, AvengerTooltipError> {
     let title = match &target.title {
-        Some(field) => Some(value(datum, field, engine)?),
+        Some(field) => Some(value(datum, field, target.values.as_ref(), engine)?),
         None => None,
     };
     let rows = fields_of(target.fields.as_deref(), datum)
         .iter()
-        .map(|field| Ok((field.title().to_string(), value(datum, field, engine)?)))
+        .map(|field| {
+            let text = value(datum, field, target.values.as_ref(), engine)?;
+            Ok((field.title().to_string(), text))
+        })
         .collect::<Result<_, AvengerTooltipError>>()?;
     Ok(Content {
         title,

@@ -1,11 +1,13 @@
 //! What a tooltip says about its instance: the values of its row, formatted as an axis formats its
 //! ticks.
 
-use arrow_array::Array;
+use std::sync::Arc;
+
+use arrow_array::{Array, ArrayRef};
 use avenger_common::types::TextSyntaxMode;
 use avenger_format::PrecisionSharing;
 use avenger_geometry::data::Datum;
-use avenger_typst_label::{bind, LabelEngine, LabelValue, LabelValues};
+use avenger_typst_label::{bind, LabelEngine, LabelError, LabelValue, LabelValues};
 
 use super::error::AvengerTooltipError;
 
@@ -68,6 +70,35 @@ impl From<String> for TooltipField {
     }
 }
 
+/// The function of a column, a row, the field's `label_format`, and the text engine that gives
+/// the values that the field's label binds for that row, such as the parts of a struct, or `None`
+/// for a column whose value binds as `value`.
+type ValuesFn = dyn Fn(&ArrayRef, usize, &str, &LabelEngine) -> Result<Option<LabelValues>, LabelError>
+    + Send
+    + Sync;
+
+/// The values that the labels of a target's fields bind for a row, in place of the row's value
+/// as `value`: a field without markup shows the `value` that they hold.
+#[derive(Clone)]
+pub struct FieldValues(Arc<ValuesFn>);
+
+impl FieldValues {
+    pub fn new(
+        values: impl Fn(&ArrayRef, usize, &str, &LabelEngine) -> Result<Option<LabelValues>, LabelError>
+            + Send
+            + Sync
+            + 'static,
+    ) -> Self {
+        Self(Arc::new(values))
+    }
+}
+
+impl std::fmt::Debug for FieldValues {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FieldValues")
+    }
+}
+
 /// A line of a tooltip's text, and how it reads.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Text {
@@ -101,17 +132,36 @@ pub(crate) fn fields_of(fields: Option<&[TooltipField]>, datum: &Datum) -> Vec<T
     }
 }
 
-/// The value of `datum`'s row in `field`'s column, formatted as an axis formats its ticks, and
-/// empty for a null value.
+/// The value of `datum`'s row in `field`'s column, formatted as an axis formats its ticks, or
+/// the values that `values` gives for it, and empty for a null value.
 pub(crate) fn value(
     datum: &Datum,
     field: &TooltipField,
+    values: Option<&FieldValues>,
     engine: &LabelEngine,
 ) -> Result<Text, AvengerTooltipError> {
     let column = (datum.rows.column_by_name(&field.column))
         .ok_or_else(|| AvengerTooltipError::MissingColumn(field.column.clone()))?;
     if column.is_null(datum.row) {
         return Ok(Text::plain(""));
+    }
+    let given = match values {
+        Some(values) => (values.0)(column, datum.row, &field.label_format, engine)?,
+        None => None,
+    };
+    if let Some(mut given) = given {
+        return Ok(match &field.label {
+            Some(label) => Text::markup(bind(label, &given)?),
+            None => match given.shift_remove("value") {
+                Some(LabelValue::Str(text)) => Text::plain(text),
+                Some(LabelValue::Markup(markup)) => Text::markup(markup),
+                Some(LabelValue::None) | None => Text::plain(""),
+                Some(value) => Text::markup(bind(
+                    "#value",
+                    &LabelValues::from([("value".to_string(), value)]),
+                )?),
+            },
+        });
     }
     let value = column.slice(datum.row, 1);
     let formatted = engine.format_array(&value, &field.label_format, PrecisionSharing::PerValue)?;

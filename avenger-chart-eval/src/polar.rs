@@ -157,6 +157,9 @@ pub(crate) struct PolarInputs<'a> {
     pub(crate) styles: &'a ComputedStyles,
     pub(crate) engine: &'a LabelEngine,
     pub(crate) positions: &'a [Option<Position>],
+    /// The lumps of each group whose members read columns of lumps, by its position in
+    /// `Resolved::scales`.
+    pub(crate) lumps: &'a [Option<crate::lumps::Lumps>],
 }
 
 /// The polar plots of a chart and the axes of their scales, prepared without a size.
@@ -483,7 +486,7 @@ fn encoded(rows: &LayerRows, channel: Channel) -> Option<(ArrayRef, bool)> {
     let encoding = rows.encoding(channel)?;
     let column = |name: &str| {
         let column = rows.column(name)?;
-        Some(avenger_chart::span::channel_values(&column, channel))
+        Some(crate::lumps::channel_values(&column, channel))
     };
     Some(match encoding.kind.as_ref()? {
         encoding::Kind::DirectField(name) => (column(name)?, false),
@@ -980,6 +983,18 @@ fn polar_axis(
         };
         config.label_halo = label_halo(inputs, &inputs.resolved.tree.plots[plot].path);
         grid = !styles[nodes.grid].is_hidden();
+    }
+    // A band or a point axis of lumps labels the kept categories and the Other group.
+    if let Some(lumps) = &inputs.lumps[index] {
+        let variant = nodes.and_then(|nodes| {
+            let other = nodes.other?;
+            Some(crate::guides::label_variant(
+                &styles[nodes.label],
+                &styles[other],
+            ))
+        });
+        config.style.category_labels =
+            Some(lumps.category_labels(&config.tick_format, variant, inputs.engine)?);
     }
     let fitting: FittingScale = position.fitting.clone();
     let engine = inputs.engine;

@@ -9,6 +9,7 @@ mod domains;
 #[cfg(feature = "geo")]
 mod geo;
 mod guides;
+mod lump;
 mod marks;
 mod overlays;
 mod polar;

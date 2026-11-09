@@ -705,6 +705,9 @@ pub(crate) struct AxisNodes {
     pub(crate) axis: NodeId,
     pub(crate) title: NodeId,
     pub(crate) label: NodeId,
+    /// The `other` of the `label` of an axis over a column of lumps, which styles the label of the
+    /// Other group.
+    pub(crate) other: Option<NodeId>,
     pub(crate) tick: NodeId,
     pub(crate) rule: NodeId,
     pub(crate) grid: NodeId,
@@ -844,6 +847,9 @@ pub(crate) struct LegendNodes {
     pub(crate) title: NodeId,
     pub(crate) swatch: NodeId,
     pub(crate) label: NodeId,
+    /// The `other` of the `label` of a legend over a column of lumps, which styles the label of
+    /// the Other group.
+    pub(crate) other: Option<NodeId>,
 }
 
 /// A `Legend` on its nodes.

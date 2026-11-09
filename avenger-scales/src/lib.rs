@@ -1,4 +1,5 @@
 pub mod array;
+pub mod categories;
 pub mod color_interpolator;
 #[cfg(feature = "datafusion")]
 pub mod datafusion;

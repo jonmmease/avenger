@@ -44,7 +44,7 @@ pub(crate) fn drawn_rows(mark: &dyn MarkMessage, table: &RecordBatch) -> Result<
         .filter_map(|(channel, encoding)| match &encoding.kind {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 let column = table.column_by_name(name)?;
-                Some(avenger_chart::span::channel_values(column, channel))
+                Some(crate::lumps::channel_values(column, channel))
             }
             _ => None,
         })
@@ -130,6 +130,9 @@ pub(crate) struct LayerRows<'a> {
     /// `currentColor` against the color of each row.
     pub(crate) styles: &'a ComputedStyles,
     pub(crate) node: NodeId,
+    /// The `other` node of the mark, which styles the rows of the Other group of the lumps that
+    /// the layer's encodings read.
+    pub(crate) other: Option<NodeId>,
     /// The rows that draw an instance, in order.
     pub(crate) table: RecordBatch,
     /// The partition values of the layer, by column.
@@ -185,7 +188,7 @@ impl<'a> LayerRows<'a> {
             Source::Column(name) | Source::ScaledColumn(name) => {
                 let column = (self.column(name))
                     .expect("a valid layer's table or partition has its columns");
-                Ok(avenger_chart::span::channel_values(&column, channel))
+                Ok(crate::lumps::channel_values(&column, channel))
             }
             Source::Constant(value) | Source::Scaled(value) => Ok(self.chart.value(value).clone()),
         }
@@ -332,7 +335,89 @@ impl<'a> LayerRows<'a> {
         &self,
         channel: Channel,
     ) -> Result<Option<ScalarOrArray<ColorOrGradient>>> {
-        self.resolve(channel, &colors)
+        let Some(colors) = self.resolve(channel, &colors)? else {
+            return Ok(None);
+        };
+        // A row of the Other group of a lump that the channel reads takes the `other` node's color
+        // or paint in place of the scale's.
+        let Some(other) = self.other_style() else {
+            return Ok(Some(colors));
+        };
+        let replacement = match channel {
+            Channel::Fill => Self::other_paint(self, Property::Fill),
+            Channel::Stroke => Self::other_paint(self, Property::Stroke),
+            _ => {
+                ColorOrGradient::Color(other.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]))
+            }
+        };
+        Ok(Some(self.with_others(colors, channel, replacement)))
+    }
+
+    /// Whether each row takes the `other` node's value of `channel` in place of the mark's: the
+    /// rows of the Other group of every column of lumps that the layer reads, without an encoding
+    /// of the channel, or of the column that the channel's encoding reads, except the rows that a
+    /// conditional value of the channel gives their value. `None` when no row does.
+    pub(crate) fn styled_others(&self, channel: Channel) -> Option<Vec<bool>> {
+        self.other?;
+        let mut rows = match self.encoding(channel) {
+            None => self.other_rows()?,
+            Some(_) => self.other_mask(channel)?,
+        };
+        for conditional in self.masks.get(&channel).into_iter().flatten() {
+            for (other, conditioned) in rows.iter_mut().zip(conditional) {
+                *other &= !conditioned;
+            }
+        }
+        rows.contains(&true).then_some(rows)
+    }
+
+    /// `values` of `channel`, with `other`, the `other` node's value, on the rows that
+    /// [`styled_others`](Self::styled_others) gives.
+    pub(crate) fn with_others<T: Clone + Send + Sync>(
+        &self,
+        values: ScalarOrArray<T>,
+        channel: Channel,
+        other: T,
+    ) -> ScalarOrArray<T> {
+        let Some(rows) = self.styled_others(channel) else {
+            return values;
+        };
+        ScalarOrArray::new_array(
+            (values.as_vec(self.len(), None).into_iter().zip(rows))
+                .map(|(value, is_other)| if is_other { other.clone() } else { value })
+                .collect(),
+        )
+    }
+
+    /// The computed style of the mark's `other` node, which styles the rows of the Other group of
+    /// the lumps that the layer reads.
+    pub(crate) fn other_style(&self) -> Option<&ComputedStyle> {
+        self.other.map(|other| &self.styles[other])
+    }
+
+    /// Whether each row is in the Other group of the column of lumps that the scaled field of the
+    /// encoding of `channel` reads, or `None` when it reads no lumps or no row is in the group.
+    pub(crate) fn other_mask(&self, channel: Channel) -> Option<Vec<bool>> {
+        let Some(encoding::Kind::ScaledField(name)) = &self.encoding(channel)?.kind else {
+            return None;
+        };
+        let others = avenger_chart::lump::others(&self.column(name)?)?;
+        let mask: Vec<bool> = others.iter().map(|other| other == Some(true)).collect();
+        mask.contains(&true).then_some(mask)
+    }
+
+    /// Whether each row is in the Other group of a column of lumps that the scaled field of any
+    /// encoding of the layer reads, which the `other` node styles where the mark node would, or
+    /// `None` when no row is.
+    pub(crate) fn other_rows(&self) -> Option<Vec<bool>> {
+        self.other?;
+        let mut rows = vec![false; self.len()];
+        for channel in self.mark.channels() {
+            for (row, other) in self.other_mask(*channel).into_iter().flatten().enumerate() {
+                rows[row] |= other;
+            }
+        }
+        rows.contains(&true).then_some(rows)
     }
 
     pub(crate) fn strings(&self, channel: Channel) -> Result<Option<ScalarOrArray<String>>> {
@@ -356,13 +441,18 @@ impl<'a> LayerRows<'a> {
         channel: Channel,
         property: Property,
     ) -> Result<ScalarOrArray<f32>> {
-        Ok(match self.numbers(channel)? {
+        let of = |style: &ComputedStyle| {
+            (style.number(property))
+                .unwrap_or_else(|| property.initial().trim().parse().unwrap_or(0.0))
+        };
+        let values = match self.numbers(channel)? {
             Some(values) => values,
             // A percentage `size` that no band divides draws at the initial `size`.
-            None => scalar(
-                (self.style.number(property))
-                    .unwrap_or_else(|| property.initial().trim().parse().unwrap_or(0.0)),
-            ),
+            None => scalar(of(self.style)),
+        };
+        Ok(match self.other_style() {
+            Some(other) => self.with_others(values, channel, of(other)),
+            None => values,
         })
     }
 
@@ -406,23 +496,18 @@ impl<'a> LayerRows<'a> {
     /// The dashes of `stroke_dash`, or the computed `stroke-dash` of the mark node: no dash for
     /// `none`.
     pub(crate) fn dashes_or_style(&self) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
-        if let Some(dashes) = self.dashes(Channel::StrokeDash)? {
-            return Ok(Some(dashes));
-        }
-        Ok(match self.style.get(Property::StrokeDash) {
-            Computed::Sequence(parts) | Computed::List(parts) => {
-                let lengths: Vec<f32> = (parts.iter())
-                    .filter_map(|part| match part {
-                        Computed::Number(value) => Some(*value),
-                        Computed::Integer(value) => Some(*value as f32),
-                        _ => None,
-                    })
-                    .collect();
-                (!lengths.is_empty()).then(|| scalar(lengths))
-            }
-            Computed::Number(value) => Some(scalar(vec![*value])),
-            _ => None,
-        })
+        let dashes = match self.dashes(Channel::StrokeDash)? {
+            Some(dashes) => Some(dashes),
+            None => style_dashes(self.style).map(scalar),
+        };
+        // The rows of the Other group take the `other` node's dashes, where no dashes is solid.
+        let (Some(other), Some(_)) = (self.other_style(), self.styled_others(Channel::StrokeDash))
+        else {
+            return Ok(dashes);
+        };
+        let dashes = dashes.unwrap_or_else(|| scalar(Vec::new()));
+        let other = style_dashes(other).unwrap_or_default();
+        Ok(Some(self.with_others(dashes, Channel::StrokeDash, other)))
     }
 
     /// The band of each row along `channel` on a band or a nested band scale: its start, the edge
@@ -493,6 +578,50 @@ impl<'a> LayerRows<'a> {
         property: Property,
         channel: Channel,
     ) -> Result<ScalarOrArray<ColorOrGradient>> {
+        let paint = self.mark_paint_of(property, channel)?;
+        // Without an encoding of the channel, the rows of the Other group take the `other` node's
+        // paint, of their own colors, where the mark node's applies. An encoding's colors have
+        // their Other rows already.
+        let rows = match (self.encoding(channel), self.styled_others(channel)) {
+            (None, Some(rows)) => rows,
+            _ => return Ok(paint),
+        };
+        let row_colors = self
+            .colors(Channel::Color)?
+            .map(|colors| colors.as_vec(self.len(), None));
+        let other = self
+            .other
+            .expect("rows of the Other group have an `other` node");
+        let painted = |paint: Paint| match paint {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        };
+        let paint = paint.as_vec(self.len(), None);
+        Ok(ScalarOrArray::new_array(
+            (paint.into_iter().zip(rows).enumerate())
+                .map(|(row, (paint, is_other))| match (is_other, &row_colors) {
+                    (false, _) => paint,
+                    (true, Some(colors)) => match &colors[row] {
+                        ColorOrGradient::Color(color) => {
+                            painted(self.styles.paint_with(other, property, *color))
+                        }
+                        _ => Self::other_paint(self, property),
+                    },
+                    (true, None) => Self::other_paint(self, property),
+                })
+                .collect(),
+        ))
+    }
+
+    /// The paint of `property` for each row from the channel or the mark node, as `paint_of`
+    /// gives it before the rows of the Other group.
+    fn mark_paint_of(
+        &self,
+        property: Property,
+        channel: Channel,
+    ) -> Result<ScalarOrArray<ColorOrGradient>> {
         if let Some(values) = self.colors(channel)? {
             return Ok(values);
         }
@@ -527,6 +656,22 @@ impl<'a> LayerRows<'a> {
                 ScalarOrArray::new_array(colors.iter().map(resolve).collect())
             }
         })
+    }
+
+    /// The computed paint of `property` of the `other` node of `rows`, as a color: `auto` and
+    /// `currentColor` read the node's own `color`.
+    fn other_paint(rows: &LayerRows, property: Property) -> ColorOrGradient {
+        let Some(other) = rows.other else {
+            return ColorOrGradient::transparent();
+        };
+        let style = &rows.styles[other];
+        let color = style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        match rows.styles.paint_with(other, property, color) {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        }
     }
 
     /// The fill and the stroke of each row, with their alphas times the opacities.
@@ -742,12 +887,32 @@ pub(crate) fn fade(
     }
 }
 
+/// The computed `stroke-dash` of a node, or `None` for `none`.
+pub(crate) fn style_dashes(style: &ComputedStyle) -> Option<Vec<f32>> {
+    match style.get(Property::StrokeDash) {
+        Computed::Sequence(parts) | Computed::List(parts) => {
+            let lengths: Vec<f32> = (parts.iter())
+                .filter_map(|part| match part {
+                    Computed::Number(value) => Some(*value),
+                    Computed::Integer(value) => Some(*value as f32),
+                    _ => None,
+                })
+                .collect();
+            (!lengths.is_empty()).then_some(lengths)
+        }
+        Computed::Number(value) => Some(vec![*value]),
+        _ => None,
+    }
+}
+
 /// The masks of the conditional values of each channel of a layer: whether each predicate
 /// selects each drawn row, over the selection states. A condition of a column that neither the
-/// layer's table nor its partition has selects no row, with a warning.
+/// layer's table nor its partition has selects no row, with a warning. A layer that holds lumps
+/// in place of the source columns of `sources` tests their keys.
 pub(crate) fn masks(
     rows: &LayerRows,
     states: &BTreeMap<String, SelectionState>,
+    sources: &[(String, String)],
     owners: &[String],
     path: &str,
     warnings: &mut Vec<EvalWarning>,
@@ -755,6 +920,16 @@ pub(crate) fn masks(
     let mark = rows.mark;
     let faceted = !rows.partition.is_empty();
     let len = rows.len();
+    // Rows that hold lumps in place of a selection's source columns test the lumps' keys.
+    let through;
+    let states = match sources.is_empty() {
+        true => states,
+        false => {
+            through =
+                crate::convert::selection::states_through_lumps(states, sources, &rows.table)?;
+            &through
+        }
+    };
     let mut masks = BTreeMap::new();
     for (channel, encoding) in mark.encodings() {
         if encoding.conditional.is_empty() {
@@ -768,24 +943,31 @@ pub(crate) fn masks(
                 .expect("a valid condition has a predicate");
             let missing = missing_columns(rows, states, &tested(predicate_message), path, warnings);
             let types = |name: &str| {
-                rows.column(name)
+                drawn(rows, name)
                     .map(|values| values.data_type().clone())
                     .or_else(|| missing.get(name).cloned())
             };
             let test = predicate(predicate_message, owners, faceted).prepare(states, types)?;
             let column = |name: &str| {
-                rows.column(name).or_else(|| {
+                drawn(rows, name).or_else(|| {
                     missing
                         .get(name)
                         .map(|data_type| new_null_array(data_type, len))
                 })
             };
-            let mask = test.mask(len, column, |name: &str| rows.column(name))?;
+            let mask = test.mask(len, column, |name: &str| drawn(rows, name))?;
             channel_masks.push(mask.values().iter().collect());
         }
         masks.insert(channel, channel_masks);
     }
     Ok(masks)
+}
+
+/// The column `name` of the drawn rows: a column of the layer or its partition, or the keys of a
+/// column of lumps that a condition through the lumps tests.
+fn drawn(rows: &LayerRows, name: &str) -> Option<ArrayRef> {
+    rows.column(name)
+        .or_else(|| crate::convert::selection::lump_keys(name, &rows.table))
 }
 
 /// The names of the selections that `predicate` tests.
@@ -817,7 +999,7 @@ fn missing_columns(
     {
         for condition in state.clauses.iter().flat_map(|clause| &clause.conditions) {
             for (column, data_type) in value_types(condition) {
-                if rows.column(column).is_some() || missing.contains_key(column) {
+                if drawn(rows, column).is_some() || missing.contains_key(column) {
                     continue;
                 }
                 let warning = EvalWarning::NotDrawn {

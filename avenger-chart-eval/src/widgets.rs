@@ -266,7 +266,11 @@ impl WidgetSpec {
             _ => [None, None],
         };
         let set = match condition {
-            Some(Condition::Set { values, .. }) => Some(texts(&values[0])),
+            Some(Condition::Set {
+                values,
+                complement: false,
+                ..
+            }) => Some(texts(&values[0])),
             _ => None,
         };
         match self {

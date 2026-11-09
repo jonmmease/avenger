@@ -750,7 +750,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("Selection", &["name", "resolution", "initial"]),
     ("Clause", &["owner", "conditions", "partition", "widget"]),
     ("Condition", &["set", "range", "polygon", "cyclic_range"]),
-    ("ValueSet", &["columns"]),
+    ("ValueSet", &["columns", "complement"]),
     ("SetColumn", &["column", "channel", "values"]),
     (
         "ValueRange",
@@ -790,6 +790,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("IntervalSelect", &["channels", "cell"]),
     ("PointSelect", &["keys", "toggle"]),
+    ("PointKey", &["column", "source"]),
     ("LassoSelect", &["keys"]),
     ("ValueRef", &["index"]),
     ("TableRef", &["index"]),

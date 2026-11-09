@@ -195,10 +195,23 @@ message PointSelect {
   // of the plot, or partition columns of the plot. The selection holds a set of the tuples of the
   // selected instances' values, so a click on a bar of a chart grouped by two columns selects
   // that pair.
-  repeated string keys = 1;
+  repeated PointKey keys = 1;
   // Whether a click with Shift adds the instance to the selection, or removes it when the
   // selection holds it, instead of replacing the selection.
   bool toggle = 2;
+}
+
+// A key column of a point selection.
+message PointKey {
+  // The column.
+  string column = 1 [(avenger.chart.v1.required) = true];
+  // The column that a query derived `column` from, which the selection's conditions name in place
+  // of `column`, so other plots and the query itself can filter the source's rows. The type of
+  // `column` decides how a click selects its source, and a key with a source is the point
+  // selection's one key. A key can be a column of lumps: a click on a kept category selects its
+  // value, and a click on the Other group selects the complement of the kept categories of the
+  // clicked plot's rows that the selection does not hold.
+  optional string source = 2;
 }
 
 // A drag draws a path around the rows that it selects.
