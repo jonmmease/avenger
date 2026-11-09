@@ -103,22 +103,13 @@ fn color() -> EncodingBuilder {
 /// The bars of the number of movies of each lumped genre, where a click selects a genre and a
 /// click on the Other bar selects every genre outside the kept ones.
 fn bars(genres: &RecordBatch) -> PlotBuilder {
-    // The label of the Other bar names the number of genres it holds.
-    let x = Encoding::scaled_field("lumped").scale(
-        Axis::builder()
-            .title("Genre")
-            .labels(Labels::builder().markup("#if other [#value (#count)] else [#value]")),
-    );
+    // The label and the tooltip title of the Other bar name the number of genres it holds.
+    let genre = || Labels::builder().markup("#if other [#value (#count)] else [#value]");
+    let x = Encoding::scaled_field("lumped").scale(Axis::builder().title("Genre").labels(genre()));
     let y = Encoding::scaled_field("movies").scale(Axis::builder().title("Movies"));
     let tooltip = Tooltip::exact()
-        .title(TooltipField::builder().column("lumped"))
-        .fields([
-            TooltipField::builder().column("movies").title("Movies"),
-            TooltipField::builder()
-                .column("lumped")
-                .title("Genres")
-                .labels(Labels::builder().markup("#count")),
-        ]);
+        .title(TooltipField::builder().column("lumped").labels(genre()))
+        .fields([TooltipField::builder().column("movies").title("Movies")]);
     let bars = CartesianLayer::bar(genres.clone(), BarMark::builder().x(x).y(y).color(color()))
         .id("bars")
         .tools([LayerToolBuilder::from(tooltip)]);
