@@ -91,7 +91,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-widgets`: Controls (buttons, check boxes, check box lists, radio groups, sliders, range sliders, text inputs, group boxes), drawn by a `Widgets` tool behind the `app` feature and placed by the app's layout, or drawn on their own
 - `avenger-chart-eval`: The evaluation of avenger charts at any size: the style tree and its computed styles, scales and domains from the format, marks, guides, the layout, and the scene graph
 - `avenger-chart-app`: An avenger app of a chart: the tools that its plots and layers declare, and one handle of updates of its chart, its styles, its mode, and its selections
-- `avenger-sql`: DataFusion SQL that builds avenger charts: the mark functions of avenger-chart's `datafusion` feature, and the rewrites that DataFusion needs to plan their queries
+- `avenger-sql`: DataFusion SQL that builds avenger charts: the mark functions and constructors of avenger-chart's `datafusion` feature, the transforms of avenger-datafusion-transforms, and the rewrites that DataFusion needs to plan their queries
 - `avenger-style`: The CSS style language of charts: stylesheets, their checks against the vocabulary of the style tree, and property values
 
 ## Important Patterns

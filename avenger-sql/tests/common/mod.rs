@@ -75,7 +75,7 @@ pub fn earthquakes() -> RecordBatch {
 /// A session with the marks and the tables `penguins` and `earthquakes`.
 pub fn session() -> SessionContext {
     let ctx = SessionContext::new();
-    avenger_sql::register(&ctx);
+    avenger_sql::register(&ctx).unwrap();
     for (name, table) in [("penguins", penguins()), ("earthquakes", earthquakes())] {
         let table = MemTable::try_new(table.schema(), vec![vec![table]]).unwrap();
         ctx.register_table(name, Arc::new(table)).unwrap();

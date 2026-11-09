@@ -8,7 +8,7 @@ FROM penguins
 |> AGGREGATE bar(x => species, y => n) AS chart
 ```
 
-`register` adds the mark functions to a session, `sql` plans a query in a session, and `expand` returns the SQL that `sql` plans. A query is DataFusion SQL after two rewrites, which DataFusion 55.2 needs to plan these queries:
+`register` adds the mark functions and the constructors of avenger-chart and the transforms of avenger-datafusion-transforms, such as `bin`, `stack`, `timeunit`, `lump`, and `impute`, to a session, `sql` plans a query in a session, and `expand` returns the SQL that `sql` plans. A query is DataFusion SQL after two rewrites, which DataFusion 55.2 needs to plan these queries:
 
 - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 - A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.

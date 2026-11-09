@@ -60,7 +60,7 @@ fn movies() -> RecordBatch {
 /// The chart of the query over the movies.
 async fn chart() -> datafusion::error::Result<Chart> {
     let ctx = SessionContext::new();
-    avenger_sql::register(&ctx);
+    avenger_sql::register(&ctx)?;
     let movies = movies();
     let table = MemTable::try_new(movies.schema(), vec![vec![movies]])?;
     ctx.register_table("movies", Arc::new(table))?;
