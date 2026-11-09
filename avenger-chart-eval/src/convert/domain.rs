@@ -221,8 +221,14 @@ pub(crate) fn source(
     )
 }
 
-/// The producer's summary that `value` refers to.
+/// The producer's summary that `value` refers to, with the categories of a summary of lumps as
+/// their keys, as the scale takes them.
 fn summary_of(chart: &Chart, value: &proto::ValueRef) -> DomainSummary {
+    crate::lumps::keyed_summary(raw_summary(chart, value))
+}
+
+/// The producer's summary that `value` refers to, as the producer gives it.
+pub(crate) fn raw_summary(chart: &Chart, value: &proto::ValueRef) -> DomainSummary {
     DomainSummary::from_arrow(chart.value(value).as_ref(), 0)
         .expect("a valid chart's summary has the layout of its scale")
 }

@@ -220,3 +220,18 @@ fn a_complement_round_trips() {
         ["Rotterdam", "Hamburg"]
     );
 }
+
+#[test]
+fn a_scale_that_a_lump_shares_is_categorical() {
+    // The bars infer a band scale of the lumps, which a linear scale of another layer cannot share.
+    let bars = CartesianLayer::bar(ports(), BarMark::builder().x("port").y("tons"));
+    let rules = CartesianLayer::rule(
+        ports(),
+        RuleMark::builder()
+            .x(Encoding::scaled_field("tons").scale(Scale::linear(LinearScale::builder())))
+            .y("tons"),
+    );
+    let chart = Chart::builder(Plot::cartesian([bars, rules])).build();
+    let error = chart.expect_err("a lump on a linear scale");
+    assert!(error.to_string().contains("share a scale"), "{error}");
+}

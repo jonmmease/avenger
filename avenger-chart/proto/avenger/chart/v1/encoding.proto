@@ -43,7 +43,8 @@ message Encoding {
   // the NULL category, so they are the last bands, points, axis labels, and legend entries. The
   // explicit domains, preferred categories, and tick and legend values of the scale are kept
   // categories, in the type of `value`, and an explicit domain gains the Other group and the NULL
-  // category of the rows. On a channel other than a position, a row of the Other group takes the
+  // category of the rows. A summary domain summarizes the lumps, whose weights order the kept
+  // categories that the rows do not hold, or their keys. On a channel other than a position, a row of the Other group takes the
   // value of the `other` style element of its mark, in place of the scale's.
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;

@@ -622,3 +622,33 @@ fn the_null_category_of_a_lump_takes_its_null_node_and_the_other_group_its_other
     assert!(is_color(&fills[4], [0.0, 0.0, 0.0, 1.0]), "{fills:?}");
     assert!(!is_color(&fills[0], [0.0, 0.0, 0.0, 1.0]), "{fills:?}");
 }
+
+#[test]
+fn a_summary_of_lumps_gives_the_categories_and_the_weights_of_its_lumps() {
+    // The producer summarizes every lump, and the table holds the rows of only 6 and Other, so
+    // the summary alone gives 4 and 8 and the weights that order them.
+    let all = counted_cars();
+    let summary = avenger_scales::scales::band::BandScale::unfitted((0.0, 1.0))
+        .summarize(
+            all.column_by_name("lumped").unwrap(),
+            avenger_scales::scales::domain_summary::Extents::None,
+        )
+        .unwrap();
+    let rows =
+        arrow::compute::take_record_batch(&all, &arrow::array::UInt32Array::from(vec![3u32, 2]))
+            .unwrap();
+    let summary = Value::scalar(Arc::new(summary.to_arrow()));
+    let x = Encoding::scaled_field("lumped").scale(
+        Scale::builder()
+            .domain(Domain::summary(SummaryDomain::new(summary)))
+            .axis(Axis::builder().title("cylinders")),
+    );
+    let bars = CartesianLayer::bar(rows, BarMark::builder().x(x).y("cars"));
+    let chart = Chart::builder(Plot::cartesian([bars]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let evaluated = evaluate(&chart, [360.0, 240.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    assert_eq!(axis_labels(&evaluated)[..4], ["4", "8", "6", "Other"]);
+}

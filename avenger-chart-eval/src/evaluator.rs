@@ -1392,9 +1392,18 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
     // and label its guides.
     let lumps = (groups.iter())
         .map(|group| {
-            let values = (group.members.iter())
+            let mut values = (group.members.iter())
                 .map(|member| Ok(values_of(member)?.map(|values| (values, None))))
                 .collect::<Result<Vec<Option<MemberValues>>>>()?;
+            // A producer's summary of lumps holds the weights of categories that the rows may not.
+            values.extend(
+                (group.members.iter())
+                    .filter_map(|member| member.summary.as_ref())
+                    .map(|summary| {
+                        let summary = crate::convert::domain::raw_summary(chart, summary);
+                        crate::lumps::summary_lumps(&summary).map(|lumps| (lumps, None))
+                    }),
+            );
             crate::lumps::Lumps::of(&values)
         })
         .collect::<Result<Vec<_>>>()?;
