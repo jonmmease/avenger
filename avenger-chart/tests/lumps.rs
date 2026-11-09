@@ -172,7 +172,7 @@ fn a_point_selection_names_the_source_of_its_lump() {
     let points = || PointSelect::builder().keys(["port"]);
     let path = "root.plot.cartesian.layers[0].tools[0].select.points.sources[0].key";
     picked(
-        points().sources([LumpSource::new("port", "harbor")]),
+        points().sources([KeySource::new("port", "harbor")]),
         Vec::new(),
     )
     .unwrap();
@@ -181,7 +181,7 @@ fn a_point_selection_names_the_source_of_its_lump() {
         picked(
             PointSelect::builder()
                 .keys(["tons"])
-                .sources([LumpSource::new("tons", "weight")]),
+                .sources([KeySource::new("tons", "weight")]),
             Vec::new(),
         ),
         path,
@@ -189,18 +189,18 @@ fn a_point_selection_names_the_source_of_its_lump() {
     );
     invalid(
         picked(
-            points().sources([LumpSource::new("tons", "weight")]),
+            points().sources([KeySource::new("tons", "weight")]),
             Vec::new(),
         ),
         path,
         "a key of the point selection",
     );
-    // A lump source makes the lump the one key.
+    // A key with a source is the one key.
     invalid(
         picked(
             PointSelect::builder()
                 .keys(["port", "tons"])
-                .sources([LumpSource::new("port", "harbor")]),
+                .sources([KeySource::new("port", "harbor")]),
             Vec::new(),
         ),
         "root.plot.cartesian.layers[0].tools[0].select.points.sources",

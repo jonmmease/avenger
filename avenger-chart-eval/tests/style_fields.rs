@@ -790,7 +790,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("IntervalSelect", &["channels", "cell"]),
     ("PointSelect", &["keys", "toggle", "sources"]),
-    ("LumpSource", &["key", "source"]),
+    ("KeySource", &["key", "source"]),
     ("LassoSelect", &["keys"]),
     ("ValueRef", &["index"]),
     ("TableRef", &["index"]),

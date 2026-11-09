@@ -353,7 +353,7 @@ fn picked_bars(set: impl Into<ValueSetBuilder>) -> Vec<bool> {
     )]);
     let pick = PointSelect::builder()
         .keys(["lumped"])
-        .sources([LumpSource::new("lumped", "cylinders")]);
+        .sources([KeySource::new("lumped", "cylinders")]);
     let bars = CartesianLayer::bar(
         counted_cars(),
         BarMark::builder().x("lumped").y("cars").color(color),

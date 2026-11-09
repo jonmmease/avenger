@@ -590,17 +590,17 @@ impl Checker<'_> {
                 if !points.sources.is_empty() && points.keys.len() != 1 {
                     return Err(fail(
                         format!("{path}.points.sources"),
-                        "a point selection with the source of a lump has the lump as its one key",
+                        "a point selection with the source of a key has that key as its one key",
                     ));
                 }
-                // The source of a lump is a column of the query's input, which the chart's tables
+                // The source of a key is a column of the query's input, which the chart's tables
                 // need not hold, so only its key is checked.
                 for (index, source) in points.sources.iter().enumerate() {
                     let path = format!("{path}.points.sources[{index}]");
                     named(
                         &source.source,
                         &format!("{path}.source"),
-                        "the source of a lump",
+                        "the source of a key",
                     )?;
                     if !points.keys.contains(&source.key) {
                         return Err(fail(
@@ -613,7 +613,10 @@ impl Checker<'_> {
                     if !data_type.as_ref().is_some_and(crate::lump::is_lump) {
                         return Err(fail(
                             format!("{path}.key"),
-                            format!("`{}` is a column of lumps", source.key),
+                            format!(
+                                "`{}` is a column of lumps, the one kind of key with a source",
+                                source.key
+                            ),
                         ));
                     }
                 }

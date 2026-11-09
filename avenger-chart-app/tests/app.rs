@@ -348,7 +348,7 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
     let points = PointSelect::builder()
         .keys(["lumped"])
         .toggle(true)
-        .sources([LumpSource::new("lumped", "cylinders")]);
+        .sources([KeySource::new("lumped", "cylinders")]);
     let bars = CartesianLayer::bar(counts.clone(), BarMark::builder().x("lumped").y("cars"));
     let chart = Chart::builder(
         Plot::cartesian([bars])
