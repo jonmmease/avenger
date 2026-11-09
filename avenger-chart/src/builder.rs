@@ -213,6 +213,8 @@ pub(crate) struct Parts {
     pub(crate) errors: Vec<(String, String)>,
     /// The path of the first table, value, or chart, for the error of a `build` below `Chart`.
     pub(crate) datum: Option<String>,
+    /// The nodes that the builder of a plot overlays, which its [`Finish`] merges into the plot.
+    pub(crate) overlays: Vec<proto::NodeBuilder>,
 }
 
 /// `path` below `prefix`.
@@ -270,7 +272,13 @@ impl Parts {
             syntaxes,
             errors,
             datum,
+            overlays,
         } = parts;
+        // Only a plot overlays nodes, and its `finish` takes them before it is embedded.
+        debug_assert!(
+            overlays.is_empty(),
+            "the overlays of an embedded plot are merged"
+        );
         self.modes.extend(modes);
         self.tables.extend(own_tables);
         self.values.extend(own_values);
@@ -313,17 +321,55 @@ impl Parts {
     }
 }
 
-/// A builder of a message: its message and the parts that its references refer to. build.rs
-/// implements it for each builder.
+/// A builder of a message of the format: the message and what its setters collected beside it,
+/// such as the values and the tables that its references refer to.
+///
+/// Each message `Foo` of [`proto`] has the alias `FooBuilder = Builder<Foo>`, whose page lists the
+/// setters of `Foo`, and the constructors on the message, such as `Foo::builder()`. A message
+/// converts to its builder as it is, which holds no tables and no values.
+#[derive(Clone, Debug, Default)]
+pub struct Builder<M> {
+    pub(crate) message: M,
+    pub(crate) parts: Parts,
+}
+
+impl<M> From<M> for Builder<M> {
+    /// A builder of `message` as it is, which holds no tables and no values, so its references
+    /// refer to none.
+    fn from(message: M) -> Self {
+        Self {
+            message,
+            parts: Parts::default(),
+        }
+    }
+}
+
+/// A builder of a message: its message and the parts that its references refer to.
 pub(crate) trait Build {
     type Message: Renumber;
     fn into_parts(self) -> (Self::Message, Parts);
+}
+
+impl<M: Finish> Build for Builder<M> {
+    type Message = M;
+    fn into_parts(self) -> (M, Parts) {
+        M::finish(self.message, self.parts)
+    }
 }
 
 /// A message whose references shift by the counts of the values and the tables before its own.
 /// build.rs implements it for each message with a builder.
 pub(crate) trait Renumber {
     fn renumber(&mut self, values: u32, tables: u32);
+}
+
+/// A message that its builder's parts complete when the builder ends. build.rs implements it as
+/// the identity for each message with a builder except `Plot`, whose builder merges the plots that
+/// it overlays.
+pub(crate) trait Finish: Renumber + Sized {
+    fn finish(message: Self, parts: Parts) -> (Self, Parts) {
+        (message, parts)
+    }
 }
 
 /// Hides the axis of `scale`, keeping its other fields.

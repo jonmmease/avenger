@@ -12,7 +12,7 @@ use arrow::{
 };
 
 use crate::{
-    builder::{PartitionOrder, Parts, Syntaxes, Value},
+    builder::{Finish, PartitionOrder, Parts, Syntaxes, Value},
     layer::CoordKind,
     proto::{
         self, node::Node, plot::Coord, ChartBuilder, NodeBuilder, PartitionValue,
@@ -109,6 +109,7 @@ impl From<Chart> for NodeBuilder {
             }],
             errors: Vec::new(),
             datum: Some(String::new()),
+            overlays: Vec::new(),
         };
         NodeBuilder {
             message: root,
@@ -230,34 +231,34 @@ impl PlotBuilder {
     /// - the plot's own layers come first, then the layers of each overlaid plot in order, and the
     ///   partition values of each overlaid plot move to its layers
     pub fn overlay(mut self, plots: impl IntoIterator<Item = impl Into<NodeBuilder>>) -> Self {
-        self.overlays.extend(plots.into_iter().map(Into::into));
+        self.parts
+            .overlays
+            .extend(plots.into_iter().map(Into::into));
         self
     }
 }
 
-/// The message and the parts of `builder`, with the plots that it overlays merged into it.
-pub(crate) fn overlaid(builder: PlotBuilder) -> (proto::Plot, Parts) {
-    let PlotBuilder {
-        mut message,
-        mut parts,
-        overlays,
-    } = builder;
-    let mut plots = Vec::with_capacity(overlays.len());
-    for (index, overlay) in overlays.into_iter().enumerate() {
-        let path = format!("overlay[{index}]");
-        match parts.embed(&path, overlay).node {
-            Some(Node::Plot(plot)) => plots.push((path, plot)),
-            _ => parts
-                .errors
-                .push((path, "an overlaid node is a plot".to_string())),
+/// A plot's builder ends with the plots that it overlays merged into the plot.
+impl Finish for proto::Plot {
+    fn finish(mut message: Self, mut parts: Parts) -> (Self, Parts) {
+        let overlays = std::mem::take(&mut parts.overlays);
+        let mut plots = Vec::with_capacity(overlays.len());
+        for (index, overlay) in overlays.into_iter().enumerate() {
+            let path = format!("overlay[{index}]");
+            match parts.embed(&path, overlay).node {
+                Some(Node::Plot(plot)) => plots.push((path, plot)),
+                _ => parts
+                    .errors
+                    .push((path, "an overlaid node is a plot".to_string())),
+            }
         }
-    }
-    if !plots.is_empty() {
-        if let Err((path, reason)) = merge(&mut message, plots) {
-            parts.errors.push((path, reason));
+        if !plots.is_empty() {
+            if let Err((path, reason)) = merge(&mut message, plots) {
+                parts.errors.push((path, reason));
+            }
         }
+        (message, parts)
     }
-    (message, parts)
 }
 
 type Conflict = (String, String);
