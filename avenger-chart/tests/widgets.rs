@@ -332,7 +332,7 @@ fn the_copies_of_one_widget_agree() {
                     proto::WidgetDataDomain {
                         fit: Some(proto::DomainFit {
                             fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                                nice_ends: count.map(proto::interval_fit::NiceEnds::NiceCount),
+                                nice: count.map(proto::interval_fit::Nice::TickCount),
                                 zero,
                                 ..Default::default()
                             })),
@@ -359,7 +359,7 @@ fn the_copies_of_one_widget_agree() {
         data.fit,
         Some(proto::DomainFit {
             fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(6.0)),
+                nice: Some(proto::interval_fit::Nice::TickCount(6.0)),
                 zero: Some(true),
                 ..Default::default()
             })),

@@ -522,7 +522,7 @@ fn shared_fits_merge_field_by_field() {
         ..Default::default()
     };
     let nice = proto::IntervalFit {
-        nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(5.0)),
+        nice: Some(proto::interval_fit::Nice::TickCount(5.0)),
         ..Default::default()
     };
     let chart = read(parts(shared_row(vec![fitted(zero), fitted(nice)]), vec![])).unwrap();
@@ -534,9 +534,9 @@ fn shared_fits_merge_field_by_field() {
     assert_eq!(x.members.len(), 2);
     let merged = proto::IntervalFit {
         zero: Some(true),
-        nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(5.0)),
+        nice: Some(proto::interval_fit::Nice::TickCount(5.0)),
         empty: None,
-        domain_pin: None,
+        pin: None,
     };
     assert_eq!(
         *data_fit(&mut x.spec),
@@ -554,14 +554,17 @@ fn shared_fits_merge_field_by_field() {
         "fit",
     );
     // Fits that pin different places of the domain disagree.
-    let pinned = |pin| proto::IntervalFit {
-        domain_pin: Some(pin),
+    let value = proto::ValueRef { index: 0 };
+    let pinned = |position: proto::PinPosition| proto::IntervalFit {
+        pin: Some(proto::DomainPin {
+            value: Some(value),
+            position: position as i32,
+        }),
         ..Default::default()
     };
-    let value = proto::ValueRef { index: 0 };
     let values = || -> Vec<ArrayRef> { vec![Arc::new(Float64Array::from(vec![0.0]))] };
-    let low = pinned(proto::interval_fit::DomainPin::Low(value));
-    let mid = pinned(proto::interval_fit::DomainPin::Mid(value));
+    let low = pinned(proto::PinPosition::Low);
+    let mid = pinned(proto::PinPosition::Mid);
     read(parts(shared_row(vec![fitted(low), fitted(nice)]), values())).unwrap();
     invalid(
         parts(shared_row(vec![fitted(low), fitted(mid)]), values()),

@@ -31,7 +31,9 @@ fn dates() -> ArrayRef {
 
 /// A fit with values of two types: a list of dates and a number.
 fn fit() -> IntervalFitBuilder {
-    IntervalFit::builder().empty(Value::list(dates())).low(0.0)
+    IntervalFit::builder()
+        .empty(Value::list(dates()))
+        .pin(DomainPin::new(0.0, PinPosition::Low))
 }
 
 /// A chart of symbols whose `x` scale fits its domain with `fit`.
@@ -66,11 +68,11 @@ fn a_message_without_values_has_no_values() {
 fn the_bytes_are_canonical() {
     let first = IntervalFit::builder()
         .empty(Value::list(dates()))
-        .low(0.0)
+        .pin(DomainPin::new(0.0, PinPosition::Low))
         .to_fragment()
         .unwrap();
     let second = IntervalFit::builder()
-        .low(0.0)
+        .pin(DomainPin::new(0.0, PinPosition::Low))
         .empty(Value::list(dates()))
         .to_fragment()
         .unwrap();

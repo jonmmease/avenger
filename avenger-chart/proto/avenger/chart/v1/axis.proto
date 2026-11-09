@@ -37,7 +37,7 @@ message Axis {
   // Whether the axis shows its labels. When absent, the styles decide.
   optional bool show_labels = 4;
   // How the labels turn. When both are absent, the styles give the angle.
-  oneof label_turn {
+  oneof label_rotation {
     // The angle of the labels, in degrees clockwise.
     float label_angle = 5;
     // How the labels of a polar axis run.

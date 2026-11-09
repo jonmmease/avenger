@@ -707,7 +707,7 @@ fn scale_kind(
 /// Whether the interval fit of `spec`'s domain, or of its selection domain's fallback, pins its
 /// middle, as a diverging scale's fit does.
 fn pins_middle(spec: &proto::Scale) -> bool {
-    use proto::{domain, domain_fit, interval_fit, selection_domain};
+    use proto::{domain, domain_fit, selection_domain};
     let fit = match (spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()) {
         Some(domain::Domain::Summary(summary)) => summary.fit.as_ref(),
         Some(domain::Domain::Data(data)) => data.fit.as_ref(),
@@ -721,9 +721,9 @@ fn pins_middle(spec: &proto::Scale) -> bool {
     matches!(
         fit.and_then(|fit| fit.fit.as_ref()),
         Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            domain_pin: Some(interval_fit::DomainPin::Mid(_)),
+            pin: Some(pin),
             ..
-        }))
+        })) if pin.position() == proto::PinPosition::Mid
     )
 }
 

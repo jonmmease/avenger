@@ -12,7 +12,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::MarkType,
-    proto::{self, calendar_ticks, encoding, tick_interval, ticks, Channel},
+    proto::{self, encoding, tick_interval, ticks, CalendarUnit, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
     Chart,
 };
@@ -387,11 +387,13 @@ fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
                 }))
             }
             tick_interval::Interval::Calendar(calendar) => {
-                let (months, days, nanos) = match calendar.step {
-                    Some(calendar_ticks::Step::Months(months)) => (months, 0, 0),
-                    Some(calendar_ticks::Step::Days(days)) => (0, days, 0),
-                    Some(calendar_ticks::Step::Milliseconds(millis)) => (0, 0, millis * 1_000_000),
-                    None => (0, 0, 0),
+                let count = calendar.count;
+                let civil = i32::try_from(count).unwrap_or(i32::MAX);
+                let (months, days, nanos) = match calendar.unit() {
+                    CalendarUnit::Month => (civil, 0, 0),
+                    CalendarUnit::Day => (0, civil, 0),
+                    CalendarUnit::Millisecond => (0, 0, count.saturating_mul(1_000_000)),
+                    CalendarUnit::Unspecified => (0, 0, 0),
                 };
                 Some(AxisTicks::StartStep(AxisTickInterval::Temporal {
                     start_millis: calendar.start,

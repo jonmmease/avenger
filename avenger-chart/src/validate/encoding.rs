@@ -621,19 +621,15 @@ impl Checker<'_> {
                 if kind.is_none_or(|kind| kind == FitKind::Interval) =>
             {
                 let path = format!("{path}.interval");
-                if let Some(interval_fit::NiceEnds::NiceCount(count)) = interval.nice_ends {
-                    positive(Some(count), &format!("{path}.nice_count"))?;
+                if let Some(interval_fit::Nice::TickCount(count)) = interval.nice {
+                    positive(Some(count), &format!("{path}.tick_count"))?;
                 }
                 if let Some(empty) = &interval.empty {
                     self.values.list(empty, &format!("{path}.empty"))?;
                 }
-                if let Some(pin) = &interval.domain_pin {
-                    let (value, at) = match pin {
-                        interval_fit::DomainPin::Low(value) => (value, "low"),
-                        interval_fit::DomainPin::Mid(value) => (value, "mid"),
-                        interval_fit::DomainPin::High(value) => (value, "high"),
-                    };
-                    let path = format!("{path}.{at}");
+                if let Some(pin) = &interval.pin {
+                    let value = pin.value.as_ref().expect(REQUIRED);
+                    let path = format!("{path}.pin.value");
                     let pin = self.values.scalar(value, &path)?;
                     if !takes_values(domain_values(scale_type), pin.data_type()) {
                         return Err(fail(
@@ -694,7 +690,10 @@ impl Checker<'_> {
     ) -> Result<()> {
         let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
         title(axis.title.as_ref(), &format!("{path}.title"), false)?;
-        let polar_orient = matches!(axis.label_turn, Some(axis::LabelTurn::LabelOrient(_)));
+        let polar_orient = matches!(
+            axis.label_rotation,
+            Some(axis::LabelRotation::LabelOrient(_))
+        );
         match (kind, channel) {
             (CoordKind::Cartesian, Channel::X | Channel::Y) => {
                 if axis.angle.is_some() {
@@ -1092,7 +1091,7 @@ fn summary_kind(fields: &Fields) -> Option<FitKind> {
 }
 
 fn tick_interval(interval: &proto::TickInterval, path: &str) -> Result<()> {
-    use proto::{calendar_ticks::Step, tick_interval::Interval};
+    use proto::tick_interval::Interval;
     match interval.interval.as_ref() {
         Some(Interval::Numeric(numeric)) => {
             if !numeric.start.is_finite() {
@@ -1103,20 +1102,12 @@ fn tick_interval(interval: &proto::TickInterval, path: &str) -> Result<()> {
             }
             positive(Some(numeric.step), &format!("{path}.numeric.step"))
         }
-        Some(Interval::Calendar(calendar)) => match calendar.step {
-            Some(Step::Months(step) | Step::Days(step)) if step <= 0 => Err(fail(
-                format!("{path}.calendar"),
-                "a calendar step is more than 0",
+        Some(Interval::Calendar(calendar)) => match calendar.count {
+            count if count <= 0 => Err(fail(
+                format!("{path}.calendar.count"),
+                "a calendar count is more than 0",
             )),
-            Some(Step::Milliseconds(step)) if step <= 0 => Err(fail(
-                format!("{path}.calendar"),
-                "a calendar step is more than 0",
-            )),
-            Some(_) => Ok(()),
-            None => Err(fail(
-                format!("{path}.calendar"),
-                "calendar ticks set their step",
-            )),
+            _ => Ok(()),
         },
         None => Err(fail(path, "a tick interval sets its kind")),
     }

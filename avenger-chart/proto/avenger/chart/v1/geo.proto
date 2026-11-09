@@ -35,7 +35,7 @@ message Geo {
     // All of the space that the layout gives the plot, in any shape. The view fills the plot in one
     // direction and centers in the other, so a geo plot that fits a box shows more of the places
     // around the box.
-    FreeAspect free_aspect = 5;
+    FreeAspect free = 5;
   }
   // How a navigation moves the projection. When absent, a navigation moves the projection in its
   // own pan mode, and its zoom has no limits.
@@ -96,9 +96,9 @@ message Spherical {
     NoParameters gnomonic = 15;
     NoParameters azimuthal_equal_area = 16;
     NoParameters azimuthal_equidistant = 17;
-    ConicProjection conic_conformal = 18;
-    ConicProjection conic_equal_area = 19;
-    ConicProjection conic_equidistant = 20;
+    ConicConformal conic_conformal = 18;
+    ConicEqualArea conic_equal_area = 19;
+    ConicEquidistant conic_equidistant = 20;
     CylindricalEqualAreaProjection cylindrical_equal_area = 21;
     HammerProjection hammer = 22;
     // A projection that an app adds to its renderer.
@@ -120,12 +120,12 @@ message Spherical {
     // and the positions of the other layers, and insets the fit by the largest reach of their
     // marks, so a mark at the edge of the data stays inside the plot. The plot clips to its
     // rectangle, because its graticule, its sphere, and its tiles run past the data.
-    PlotData fit_data = 36;
+    PlotData data = 36;
     // The whole sphere, as a world map or a globe shows it.
-    WholeSphere fit_sphere = 37;
+    WholeSphere whole_sphere = 37;
     // A box of longitudes and latitudes. The plot clips its marks, because the box can exclude
     // data.
-    LonLatBox fit_box = 38;
+    LonLatBox box = 38;
   }
   // The lines of longitude and latitude. When absent, the plot has no graticule.
   Graticule graticule = 39;
@@ -139,8 +139,28 @@ message Spherical {
 // The options of a projection without parameters.
 message NoParameters {}
 
-// A conic projection, which is true to scale along its two standard parallels.
-message ConicProjection {
+// The conformal conic projection, which is true to scale along its two standard parallels. Each
+// conic projection has a message of its own, so a fragment of one names its member of
+// `Spherical.projection`.
+message ConicConformal {
+  // The first standard parallel, in degrees from -90 to 90.
+  double parallel1 = 1;
+  // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
+  // standard parallel.
+  double parallel2 = 2;
+}
+
+// The equal-area conic projection, which is true to scale along its two standard parallels.
+message ConicEqualArea {
+  // The first standard parallel, in degrees from -90 to 90.
+  double parallel1 = 1;
+  // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
+  // standard parallel.
+  double parallel2 = 2;
+}
+
+// The equidistant conic projection, which is true to scale along its two standard parallels.
+message ConicEquidistant {
   // The first standard parallel, in degrees from -90 to 90.
   double parallel1 = 1;
   // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
@@ -179,7 +199,7 @@ message Planar {
   bool reflect_y = 1;
 }
 
-// A planar geo plot fits the data of its layers, as `Spherical.fit_data` describes, and has no
+// A planar geo plot fits the data of its layers, as the `data` fit of `Spherical.fit` describes, and has no
 // graticule, sphere, or tiles, which belong to the sphere.
 
 message PlotData {}

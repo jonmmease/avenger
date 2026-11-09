@@ -291,15 +291,23 @@ impl Checker<'_> {
     fn spherical(&self, spherical: &proto::Spherical, path: &str) -> Result<()> {
         let parallel =
             |value: f64, at: &str| within(Some(value), -90.0, 90.0, &format!("{path}.{at}"));
-        match spherical.projection.as_ref() {
-            Some(
-                spherical::Projection::ConicConformal(conic)
-                | spherical::Projection::ConicEqualArea(conic)
-                | spherical::Projection::ConicEquidistant(conic),
-            ) => {
-                parallel(conic.parallel1, "parallel1")?;
-                parallel(conic.parallel2, "parallel2")?;
+        let conic = match spherical.projection.as_ref() {
+            Some(spherical::Projection::ConicConformal(conic)) => {
+                Some((conic.parallel1, conic.parallel2))
             }
+            Some(spherical::Projection::ConicEqualArea(conic)) => {
+                Some((conic.parallel1, conic.parallel2))
+            }
+            Some(spherical::Projection::ConicEquidistant(conic)) => {
+                Some((conic.parallel1, conic.parallel2))
+            }
+            _ => None,
+        };
+        if let Some((parallel1, parallel2)) = conic {
+            parallel(parallel1, "parallel1")?;
+            parallel(parallel2, "parallel2")?;
+        }
+        match spherical.projection.as_ref() {
             Some(spherical::Projection::CylindricalEqualArea(cylindrical)) => {
                 within(
                     cylindrical.parallel,
@@ -356,8 +364,8 @@ impl Checker<'_> {
             }
         }
         non_negative(spherical.precision, &format!("{path}.precision"))?;
-        if let Some(spherical::Fit::FitBox(fit)) = &spherical.fit {
-            lon_lat_box(fit, &format!("{path}.fit_box"))?;
+        if let Some(spherical::Fit::Box(fit)) = &spherical.fit {
+            lon_lat_box(fit, &format!("{path}.box"))?;
         }
         if let Some(graticule) = &spherical.graticule {
             let path = format!("{path}.graticule");

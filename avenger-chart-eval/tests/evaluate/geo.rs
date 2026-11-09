@@ -159,7 +159,7 @@ fn an_equal_earth_world_map_draws_its_sphere_graticule_shapes_and_cities() {
     );
     let options = Geo::spherical(
         Spherical::equal_earth()
-            .fit_sphere()
+            .whole_sphere()
             .graticule(
                 Graticule::builder()
                     .longitude_step(30.0)
@@ -192,7 +192,7 @@ fn a_globe_draws_the_places_of_its_near_side() {
     let options = Geo::spherical(
         Spherical::orthographic()
             .rotate(Rotation::builder().lambda(-20.0).phi(-30.0))
-            .fit_sphere()
+            .whole_sphere()
             .graticule(Graticule::builder())
             .sphere(SphereStyle::builder()),
     );
@@ -221,9 +221,9 @@ fn a_conic_map_of_a_box_clips_to_its_plot() {
         GeoTextMark::new("name").longitude("lon").latitude("lat"),
     );
     let options = Geo::spherical(
-        Spherical::conic_conformal(ConicProjection::builder().parallel1(29.5).parallel2(45.5))
+        Spherical::conic_conformal(ConicConformal::builder().parallel1(29.5).parallel2(45.5))
             .rotate(Rotation::builder().lambda(96.0))
-            .fit_box(
+            .box_(
                 LonLatBox::builder()
                     .west(-125.0)
                     .south(24.0)
@@ -277,7 +277,7 @@ fn routes_follow_the_great_circle_the_canvas_and_the_parallel() {
         GeoShapeMark::new("geometry").fill(Encoding::direct_value("#dddddd")),
     );
     let options = Geo::spherical(
-        Spherical::equirectangular().fit_sphere().graticule(
+        Spherical::equirectangular().whole_sphere().graticule(
             Graticule::builder()
                 .longitude_step(30.0)
                 .latitude_step(30.0),
@@ -369,7 +369,7 @@ fn a_map_draws_its_tiles_through_the_image_resolver() {
     );
     let options = Geo::spherical(
         Spherical::mercator()
-            .fit_box(
+            .box_(
                 LonLatBox::builder()
                     .west(-130.0)
                     .south(15.0)
@@ -409,7 +409,7 @@ fn maps_of_one_family_share_one_projection() {
         );
         let options = Geo::spherical(
             Spherical::equal_earth()
-                .fit_data()
+                .data()
                 .sphere(SphereStyle::builder()),
         )
         .family("world");
@@ -449,14 +449,11 @@ fn a_map_keeps_its_aspect_and_a_free_map_fills_its_space() {
             .build()
             .unwrap()
     };
-    let world = || Spherical::equal_earth().fit_sphere();
+    let world = || Spherical::equal_earth().whole_sphere();
     let kept = evaluate(&chart(Geo::spherical(world())), [600.0, 600.0]);
     let [_, _, width, height] = kept.plots[0].rect;
     assert!(width / height > 1.5, "{width} {height}");
-    let free = evaluate(
-        &chart(Geo::spherical(world()).free_aspect()),
-        [600.0, 600.0],
-    );
+    let free = evaluate(&chart(Geo::spherical(world()).free()), [600.0, 600.0]);
     let [_, _, width, height] = free.plots[0].rect;
     assert!((width - height).abs() < 1.0, "{width} {height}");
 }
@@ -496,7 +493,7 @@ fn the_coordinates_of_a_map_place_its_symbols() {
         cities(),
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(Spherical::robinson().fit_sphere());
+    let options = Geo::spherical(Spherical::robinson().whole_sphere());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
         .build()
         .unwrap();
@@ -534,7 +531,7 @@ fn a_map_beside_legends_taller_than_it_keeps_its_aspect() {
             .latitude("lat")
             .size("population"),
     );
-    let options = Geo::spherical(Spherical::equal_earth().fit_sphere());
+    let options = Geo::spherical(Spherical::equal_earth().whole_sphere());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();

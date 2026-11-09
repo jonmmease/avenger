@@ -124,13 +124,20 @@ message NumericTicks {
 message CalendarTicks {
   // The first tick, in milliseconds since the Unix epoch.
   int64 start = 1;
-  oneof step {
-    option (avenger.chart.v1.required_oneof) = true;
-    // A tick every this many months, more than 0.
-    int32 months = 2;
-    // A tick every this many days, more than 0.
-    int32 days = 3;
-    // A tick every this many milliseconds, more than 0.
-    int64 milliseconds = 4;
-  }
+  // The number of units between two ticks, more than 0.
+  int64 count = 2;
+  // The unit of the step between two ticks.
+  CalendarUnit unit = 3 [(avenger.chart.v1.required) = true];
+}
+
+// The unit of the step of calendar ticks.
+enum CalendarUnit {
+  // No unit: calendar ticks have one.
+  CALENDAR_UNIT_UNSPECIFIED = 0;
+  // A month of the civil time of the scale.
+  CALENDAR_UNIT_MONTH = 1;
+  // A day of the civil time of the scale.
+  CALENDAR_UNIT_DAY = 2;
+  // A millisecond.
+  CALENDAR_UNIT_MILLISECOND = 3;
 }

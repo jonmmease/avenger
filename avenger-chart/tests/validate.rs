@@ -591,7 +591,7 @@ fn spherical_maps_set_a_projection_within_range() {
         "`projection` is required",
     );
     parts.0.root = Some(geo(Some(spherical::Projection::ConicConformal(
-        proto::ConicProjection {
+        proto::ConicConformal {
             parallel1: 100.0,
             parallel2: 30.0,
         },
@@ -1320,17 +1320,17 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
 
 /// The tick count of nice ends is more than 0, since `nice: false` turns nice ends off.
 #[test]
-fn a_nice_count_is_more_than_zero() {
+fn a_nice_tick_count_is_more_than_zero() {
     let mut parts = base();
     *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
         fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            nice_ends: Some(proto::interval_fit::NiceEnds::NiceCount(0.0)),
+            nice: Some(proto::interval_fit::Nice::TickCount(0.0)),
             ..Default::default()
         })),
     });
     invalid(
         parts,
-        &format!("{X}.scale.domain.data.fit.interval.nice_count"),
+        &format!("{X}.scale.domain.data.fit.interval.tick_count"),
         "more than 0",
     );
 }
@@ -1341,7 +1341,10 @@ fn a_pin_of_a_fit_is_a_scalar() {
     let mut parts = base();
     *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
         fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            domain_pin: Some(proto::interval_fit::DomainPin::Mid(ValueRef { index: 0 })),
+            pin: Some(proto::DomainPin {
+                value: Some(ValueRef { index: 0 }),
+                position: proto::PinPosition::Mid as i32,
+            }),
             ..Default::default()
         })),
     });
@@ -1350,7 +1353,7 @@ fn a_pin_of_a_fit_is_a_scalar() {
     parts.2 = vec![floats(vec![0.0, 1.0])];
     invalid(
         parts,
-        &format!("{X}.scale.domain.data.fit.interval.mid"),
+        &format!("{X}.scale.domain.data.fit.interval.pin.value"),
         "is invalid on a linear scale",
     );
 }
