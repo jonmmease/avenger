@@ -1,11 +1,11 @@
-use std::{collections::HashMap, slice, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use super::domain_summary::{
     fit, CategorySummary, DomainFitError, DomainOptions, DomainSummary, Extents,
 };
 use super::no_domain;
 use super::{ConfiguredScale, DomainKind, OptionDefinition, ScaleConfig, ScaleContext, ScaleImpl};
-use crate::error::AvengerScaleError;
+use crate::{categories::CategoryIndex, error::AvengerScaleError};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -13,7 +13,6 @@ use arrow::{
     array::{ArrayRef, AsArray, Float64Array, UInt32Array},
     compute::kernels::{cast, take},
     datatypes::{DataType, UInt32Type},
-    row::{RowConverter, SortField},
 };
 use avenger_common::{
     types::{
@@ -151,51 +150,22 @@ impl ScaleImpl for OrdinalScale {
     impl_ordinal_enum_scale_method!(FontStyle);
 }
 
-/// Helper function to get range indices corresponding to values
+/// The index of the range value of each of `values`: the position of its category in `domain`, with
+/// a domain longer than the range reusing range values from the start. Null values, values outside
+/// the domain, and every value of an empty range have none.
 fn range_indices_for_values(
     domain: &ArrayRef,
     range_length: usize,
     values: &ArrayRef,
 ) -> Result<ArrayRef, AvengerScaleError> {
-    // Values match the domain by value, so they take the domain's type, such as Utf8 for
-    // dictionary-encoded strings or a string domain for numbers
-    let values = if values.data_type() == domain.data_type() {
-        values.clone()
-    } else {
-        cast(values, domain.data_type()).map_err(|_| {
-            AvengerScaleError::ScaleOperationNotSupported(format!(
-                "Cannot cast values of type {:?} to domain type {:?}",
-                values.data_type(),
-                domain.data_type()
-            ))
-        })?
-    };
-
-    // Arrow's row format gives values of every type a hashable binary form
-    let converter = RowConverter::new(vec![SortField::new(domain.data_type().clone())])?;
-    let domain_rows = converter.convert_columns(slice::from_ref(domain))?;
-    let value_rows = converter.convert_columns(slice::from_ref(&values))?;
-
-    // Map each non-null domain value to the index of its range value. A domain longer than the
-    // range reuses range values from the start, and an empty range maps nothing
-    let mapping = domain_rows
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| range_length > 0 && domain.is_valid(*i))
-        .map(|(i, row)| (row, (i % range_length) as u32))
-        .collect::<HashMap<_, _>>();
-
-    // Null values and values outside the domain have no range value
-    let range_indices = value_rows
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            if values.is_null(i) {
-                None
-            } else {
-                mapping.get(&row).copied()
-            }
-        })
+    let positions = CategoryIndex::new(domain)?.positions(values)?;
+    let range_indices = (positions.into_iter().enumerate())
+        .map(
+            |(i, position)| match values.is_null(i) || range_length == 0 {
+                true => None,
+                false => position.map(|position| (position % range_length) as u32),
+            },
+        )
         .collect::<UInt32Array>();
     Ok(Arc::new(range_indices))
 }

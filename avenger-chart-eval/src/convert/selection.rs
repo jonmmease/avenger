@@ -2,19 +2,21 @@
 //! initial clauses, the predicates of conditional values, and the values that a selection gives a
 //! selection domain.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use arrow::{
     array::{new_null_array, Array, ArrayRef, AsArray},
     compute::{concat, kernels::cmp::lt, sort_to_indices, take, SortOptions},
-    row::{RowConverter, SortField},
 };
 use avenger_chart::{
     proto::{self, condition, predicate, Channel, SelectionResolution},
     resolve::Identity,
     Chart,
 };
-use avenger_scales::scalar::Scalar;
+use avenger_scales::{
+    categories::{distinct, CategoryIndex},
+    scalar::Scalar,
+};
 use avenger_selection::{
     Clause, Condition, Predicate, Resolution, SelectedOptions, SelectionState,
 };
@@ -280,11 +282,10 @@ pub(crate) fn domain_values(
         true => {
             let mut kept = distinct(first)?;
             for set in rest {
-                let keys: HashSet<Vec<u8>> = keys_of(set)?.into_iter().collect();
-                let candidates = keys_of(&kept)?;
-                let indices: Vec<u32> = (0..kept.len())
-                    .filter(|index| keys.contains(&candidates[*index]))
-                    .map(|index| index as u32)
+                let positions = CategoryIndex::new(set)?.positions(&kept)?;
+                let indices: Vec<u32> = (positions.into_iter().enumerate())
+                    .filter(|(_, position)| position.is_some())
+                    .map(|(index, _)| index as u32)
                     .collect();
                 kept = take(&kept, &arrow::array::UInt32Array::from(indices), None)?;
             }
@@ -311,28 +312,6 @@ fn extreme(values: &[ArrayRef], greatest: bool) -> Result<ArrayRef> {
         None,
     )?;
     Ok(all.slice(order.value(0) as usize, 1))
-}
-
-fn keys_of(values: &ArrayRef) -> Result<Vec<Vec<u8>>> {
-    let converter = RowConverter::new(vec![SortField::new(values.data_type().clone())])?;
-    let rows = converter.convert_columns(std::slice::from_ref(values))?;
-    Ok(rows.iter().map(|row| row.as_ref().to_vec()).collect())
-}
-
-/// `values` without repeats, in the order of their first appearance.
-fn distinct(values: &ArrayRef) -> Result<ArrayRef> {
-    let mut seen = HashSet::new();
-    let indices: Vec<u32> = keys_of(values)?
-        .into_iter()
-        .enumerate()
-        .filter(|(_, key)| seen.insert(key.clone()))
-        .map(|(index, _)| index as u32)
-        .collect();
-    Ok(take(
-        values,
-        &arrow::array::UInt32Array::from(indices),
-        None,
-    )?)
 }
 
 /// The key columns and the source columns of the lumps of the point selections of a chart: each

@@ -1150,16 +1150,7 @@ impl ChartEvaluator {
         }
         let keys: Vec<&dyn arrow::array::Array> = keys.iter().map(|keys| keys.as_ref()).collect();
         let keys = arrow::compute::concat(&keys)?;
-        let converter = arrow::row::RowConverter::new(vec![arrow::row::SortField::new(
-            keys.data_type().clone(),
-        )])?;
-        let rows = converter.convert_columns(std::slice::from_ref(&keys))?;
-        let mut seen = std::collections::HashSet::new();
-        let first: arrow::array::UInt32Array = (0..keys.len())
-            .filter(|&row| seen.insert(rows.row(row)))
-            .map(|row| row as u32)
-            .collect();
-        Ok(Some(arrow::compute::take(keys.as_ref(), &first, None)?))
+        Ok(Some(avenger_scales::categories::distinct(&keys)?))
     }
 
     /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,

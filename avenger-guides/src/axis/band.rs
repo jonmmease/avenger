@@ -1,9 +1,9 @@
 //! Labels for band and point axes, which put a tick and a label at the center of each band.
 
 use arrow::array::ArrayRef;
-use arrow::row::{RowConverter, SortField};
 use avenger_common::types::TextSyntaxMode;
 use avenger_format::PrecisionSharing;
+use avenger_scales::categories::CategoryIndex;
 use avenger_typst_label::{bind, LabelEngine, LabelValue, LabelValues};
 
 use super::{label_text, CategoryLabels};
@@ -26,16 +26,10 @@ pub(crate) fn category_text(
         let ticks = engine.format_array(categories, tick_format, PrecisionSharing::PerValue)?;
         return label_text(ticks, tick_label);
     };
-    let rows = |values: &ArrayRef| -> Result<Vec<Vec<u8>>, AvengerGuidesError> {
-        let converter = RowConverter::new(vec![SortField::new(values.data_type().clone())])?;
-        let rows = converter.convert_columns(std::slice::from_ref(values))?;
-        Ok(rows.iter().map(|row| row.as_ref().to_vec()).collect())
-    };
-    let known = rows(&labels.categories)?;
+    let positions = CategoryIndex::new(&labels.categories)?.positions(categories)?;
     let mut values = Vec::with_capacity(categories.len());
     let mut variants = Vec::with_capacity(categories.len());
-    for (index, row) in rows(categories)?.iter().enumerate() {
-        let position = known.iter().position(|known| known == row);
+    for (index, position) in positions.into_iter().enumerate() {
         variants
             .push(position.and_then(|position| labels.variants.get(position).cloned().flatten()));
         values.push(match position {
