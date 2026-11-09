@@ -209,10 +209,10 @@ impl GeoPlots {
                 .flat_map(|plot| tree.plots[*plot].layers.clone())
                 .collect();
             let fit = spherical(spec).and_then(|spherical| spherical.fit.as_ref());
-            let clipped = !matches!(fit, Some(spherical::Fit::FitSphere(_)));
+            let clipped = !matches!(fit, Some(spherical::Fit::WholeSphere(_)));
             let mut summary = FitSummary::default();
             let mut inset = [0.0_f32; 4];
-            let fits_data = matches!(fit, None | Some(spherical::Fit::FitData(_)));
+            let fits_data = matches!(fit, None | Some(spherical::Fit::Data(_)));
             for layer in &layers {
                 let rows = layer_rows(*layer);
                 if fits_data {
@@ -496,7 +496,7 @@ impl GeoGroup {
         let spec = spec(inputs, plot).unwrap_or(group.spec);
         let aspect = match spec.aspect {
             Some(geo::Aspect::AspectRatio(ratio)) => Some(ratio),
-            Some(geo::Aspect::FreeAspect(_)) => None,
+            Some(geo::Aspect::Free(_)) => None,
             None => self.summary.aspect().map(|aspect| aspect as f32),
         };
         let nodes = inputs.nodes.plot(&plot_ref.path);
@@ -829,7 +829,6 @@ fn projection(spec: &proto::Geo) -> Result<Projection> {
 /// typetag name and the fields of its serde form.
 fn projection_impl(projection: &spherical::Projection) -> Result<Box<dyn ProjectionImpl>> {
     use spherical::Projection as P;
-    let conic = |conic: &proto::ConicProjection| [conic.parallel1, conic.parallel2];
     Ok(match projection {
         P::EqualEarth(_) => Box::new(p::EqualEarth),
         P::NaturalEarth1(_) => Box::new(p::NaturalEarth1),
@@ -848,9 +847,15 @@ fn projection_impl(projection: &spherical::Projection) -> Result<Box<dyn Project
         P::Gnomonic(_) => Box::new(p::Gnomonic),
         P::AzimuthalEqualArea(_) => Box::new(p::AzimuthalEqualArea),
         P::AzimuthalEquidistant(_) => Box::new(p::AzimuthalEquidistant),
-        P::ConicConformal(spec) => Box::new(p::ConicConformal::new(conic(spec))),
-        P::ConicEqualArea(spec) => Box::new(p::ConicEqualArea::new(conic(spec))),
-        P::ConicEquidistant(spec) => Box::new(p::ConicEquidistant::new(conic(spec))),
+        P::ConicConformal(spec) => {
+            Box::new(p::ConicConformal::new([spec.parallel1, spec.parallel2]))
+        }
+        P::ConicEqualArea(spec) => {
+            Box::new(p::ConicEqualArea::new([spec.parallel1, spec.parallel2]))
+        }
+        P::ConicEquidistant(spec) => {
+            Box::new(p::ConicEquidistant::new([spec.parallel1, spec.parallel2]))
+        }
         P::CylindricalEqualArea(spec) => {
             Box::new(p::CylindricalEqualArea::new(spec.parallel.unwrap_or(38.58)))
         }
@@ -1013,9 +1018,9 @@ fn group_summary(
     data: FitSummary,
 ) -> Result<FitSummary> {
     let summary = match fit {
-        Some(spherical::Fit::FitSphere(_)) => projection.summarize_sphere(),
-        Some(spherical::Fit::FitBox(lon_lat)) => projection.summarize(&lon_lat_box(lon_lat)),
-        Some(spherical::Fit::FitData(_)) | None => {
+        Some(spherical::Fit::WholeSphere(_)) => projection.summarize_sphere(),
+        Some(spherical::Fit::Box(lon_lat)) => projection.summarize(&lon_lat_box(lon_lat)),
+        Some(spherical::Fit::Data(_)) | None => {
             match data.aspect().is_none() && matches!(projection.surface, Surface::Spherical(_)) {
                 true => projection.summarize_sphere(),
                 false => Ok(data),

@@ -29,7 +29,7 @@ fn symbols_with_a_size_and_a_shape() {
         SymbolMark::builder()
             .x("weight")
             .y(Encoding::scaled_field("mpg").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().nice_count(5.0)),
+                DataDomain::builder().fit(IntervalFit::builder().tick_count(5.0)),
             )))
             .shape("cylinders")
             .size("count"),

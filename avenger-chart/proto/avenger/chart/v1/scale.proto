@@ -429,29 +429,43 @@ message IntervalFit {
   // them. When absent, a linear, a log, a pow, or a symlog scale of `x` or `y` has nice ends at a
   // count of 10, and another scale has none. A log scale's nice domain ends on powers of its base,
   // whatever the count. With a pin, the free end is round, or the radius about a pinned middle.
-  oneof nice_ends {
+  oneof nice {
     // Whether the domain has nice ends, at a tick count of 10. `false` turns the default off.
-    bool nice = 2;
+    bool enabled = 2;
     // The tick count of nice ends, more than 0. A larger count rounds the ends to finer values.
-    double nice_count = 7;
+    double tick_count = 7;
   }
   // The domain when there is no data, as an explicit domain holds it. When absent, the scale type
   // gives the domain.
   ValueRef empty = 3;
-  // A value that the domain holds exactly, a scalar in the type of the domain, and the fit finds
-  // the rest of the domain. Two pinned values would determine the domain, which an explicit
-  // domain gives, so a fit pins one. Marks past a pinned end lie outside the domain, and the plot
-  // clips them. When absent, the fit finds both ends.
-  oneof domain_pin {
-    // The low end of the domain. The fit finds the high end, with room for the reach of the marks
-    // above the pin.
-    ValueRef low = 4;
-    // The middle of a domain symmetric about it: the fit finds the narrowest radius with room for
-    // the reach of the marks on both sides, as a diverging color scale centered on zero takes it.
-    ValueRef mid = 5;
-    // The high end of the domain, as for `low`.
-    ValueRef high = 6;
-  }
+  // A value that the domain holds exactly, and the fit finds the rest of the domain. Two pinned
+  // values would determine the domain, which an explicit domain gives, so a fit pins one. Marks
+  // past a pinned end lie outside the domain, and the plot clips them. When absent, the fit finds
+  // both ends.
+  DomainPin pin = 4;
+}
+
+// A value that the domain of a fit holds exactly, and where the domain holds it.
+message DomainPin {
+  // The pinned value, a scalar in the type of the domain.
+  ValueRef value = 1 [(avenger.chart.v1.required) = true];
+  // Where the domain holds the value.
+  PinPosition position = 2 [(avenger.chart.v1.required) = true];
+}
+
+// Where the domain of a fit holds its pinned value.
+enum PinPosition {
+  // No position: a pin has one.
+  PIN_POSITION_UNSPECIFIED = 0;
+  // The low end of the domain. The fit finds the high end, with room for the reach of the marks
+  // above the pin.
+  PIN_POSITION_LOW = 1;
+  // The middle of a domain symmetric about it: the fit finds the narrowest radius with room for the
+  // reach of the marks on both sides, as a diverging color scale centered on zero takes it.
+  PIN_POSITION_MID = 2;
+  // The high end of the domain. The fit finds the low end, with room for the reach of the marks
+  // below the pin.
+  PIN_POSITION_HIGH = 3;
 }
 
 // The `CategoryOptions` of avenger-scales: the order of the categories of a summary or data

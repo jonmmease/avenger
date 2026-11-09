@@ -166,7 +166,7 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
     let selected = || Predicate::selected(Selected::new(QUAKES).empty_selects_none(true));
     let magnitude = Scale::builder()
         .domain(Domain::data(DataDomain::builder().fit(
-            DomainFit::interval(IntervalFit::builder().zero(false).nice(false)),
+            DomainFit::interval(IntervalFit::builder().zero(false).enabled(false)),
         )))
         .range(Range::values(vec![4.0, 140.0]))
         .legend(Legend::builder().title(Title::new("Magnitude $M_w$").syntax(TextSyntax::Typst)));
@@ -252,7 +252,7 @@ fn chart() -> Chart {
         // The globe's lines are unlabeled, since their labels crowd its edge.
         Spherical::orthographic()
             .rotate(Rotation::builder().lambda(170.0).phi(-10.0))
-            .fit_sphere()
+            .whole_sphere()
             .graticule(graticule().label_sides(LabelSides::builder())),
         PanMode::Sphere,
         0.6,
@@ -262,7 +262,7 @@ fn chart() -> Chart {
         "world",
         "The world",
         Spherical::mercator()
-            .fit_box(
+            .box_(
                 LonLatBox::builder()
                     .west(-180.0)
                     .south(-65.0)

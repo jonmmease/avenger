@@ -350,19 +350,22 @@ fn interval_options(
 ) -> IntervalOptions {
     let value = |value: &proto::ValueRef| chart.value(value).clone();
     // A pinned end holds, so a pinned fit takes no default zero.
-    let zero = defaults.zero && fit.domain_pin.is_none();
+    let zero = defaults.zero && fit.pin.is_none();
     IntervalOptions {
         zero: fit.zero.unwrap_or(zero),
-        nice: match fit.nice_ends {
+        nice: match fit.nice {
             None => defaults.nice,
-            Some(interval_fit::NiceEnds::Nice(nice)) => nice.then_some(FitDefaults::NICE),
-            Some(interval_fit::NiceEnds::NiceCount(count)) => Some(count),
+            Some(interval_fit::Nice::Enabled(nice)) => nice.then_some(FitDefaults::NICE),
+            Some(interval_fit::Nice::TickCount(count)) => Some(count),
         },
         empty: fit.empty.as_ref().map(|empty| chart.list_elements(empty)),
-        pin: fit.domain_pin.as_ref().map(|pin| match pin {
-            interval_fit::DomainPin::Low(low) => DomainPin::Low(value(low)),
-            interval_fit::DomainPin::Mid(mid) => DomainPin::Mid(value(mid)),
-            interval_fit::DomainPin::High(high) => DomainPin::High(value(high)),
+        pin: fit.pin.as_ref().map(|pin| {
+            let pinned = value(pin.value.as_ref().expect("a valid pin has a value"));
+            match pin.position() {
+                proto::PinPosition::Low | proto::PinPosition::Unspecified => DomainPin::Low(pinned),
+                proto::PinPosition::Mid => DomainPin::Mid(pinned),
+                proto::PinPosition::High => DomainPin::High(pinned),
+            }
         }),
     }
 }

@@ -798,8 +798,8 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
             show_labels: axis.show_labels,
             show_ticks: axis.show_ticks,
             show_domain: axis.show_domain,
-            label_angle: match axis.label_turn {
-                Some(proto::axis::LabelTurn::LabelAngle(angle)) => Some(angle),
+            label_angle: match axis.label_rotation {
+                Some(proto::axis::LabelRotation::LabelAngle(angle)) => Some(angle),
                 _ => None,
             },
             label_align: axis.label_align,
@@ -829,7 +829,7 @@ pub(crate) fn polar_axis(
     start_angle: f32,
 ) {
     axis(tree, nodes, axis_message);
-    if let Some(proto::axis::LabelTurn::LabelOrient(orient)) = axis_message.label_turn {
+    if let Some(proto::axis::LabelRotation::LabelOrient(orient)) = axis_message.label_rotation {
         keyword(
             tree,
             nodes.axis,

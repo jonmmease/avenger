@@ -46,7 +46,7 @@ fn world(tools: Vec<ToolBuilder>) -> Chart {
         cities(),
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(Spherical::equal_earth().fit_sphere());
+    let options = Geo::spherical(Spherical::equal_earth().whole_sphere());
     Chart::builder(
         Plot::geo(GeoPlot::new(options, [places]))
             .id("world")

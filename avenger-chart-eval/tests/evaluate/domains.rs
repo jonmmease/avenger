@@ -195,7 +195,7 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight").scale(Domain::summary(
                 SummaryDomain::new(linear_summary(&[1800.0, 4790.0]))
-                    .fit(IntervalFit::builder().zero(false).nice(false)),
+                    .fit(IntervalFit::builder().zero(false).enabled(false)),
             )))
             .y("mpg")
             .size(400.0),
@@ -249,9 +249,10 @@ fn a_pinned_middle_centers_the_domain() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().mid(3000.0)),
-            )))
+            .x(Encoding::scaled_field("weight")
+                .scale(Domain::data(DataDomain::builder().fit(
+                    IntervalFit::builder().pin(DomainPin::new(3000.0, PinPosition::Mid)),
+                ))))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();

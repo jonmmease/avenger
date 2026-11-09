@@ -210,7 +210,7 @@ fn explicit_summary_and_data_domains_have_their_sources() {
         SymbolMark::builder()
             .x(
                 Encoding::scaled_field("a").scale(Scale::linear(LinearScale::builder()).domain(
-                    DataDomain::builder().fit(IntervalFit::builder().zero(true).nice_count(5.0)),
+                    DataDomain::builder().fit(IntervalFit::builder().zero(true).tick_count(5.0)),
                 )),
             )
             .y("b"),
@@ -266,10 +266,13 @@ fn nice_turns_nice_ends_on_and_off() {
         interval.nice
     };
     assert_eq!(nice(IntervalFit::builder(), Some(10.0)), Some(10.0));
-    assert_eq!(nice(IntervalFit::builder().nice(false), Some(10.0)), None);
-    assert_eq!(nice(IntervalFit::builder().nice(true), None), Some(10.0));
     assert_eq!(
-        nice(IntervalFit::builder().nice_count(4.0), Some(10.0)),
+        nice(IntervalFit::builder().enabled(false), Some(10.0)),
+        None
+    );
+    assert_eq!(nice(IntervalFit::builder().enabled(true), None), Some(10.0));
+    assert_eq!(
+        nice(IntervalFit::builder().tick_count(4.0), Some(10.0)),
         Some(4.0)
     );
 }

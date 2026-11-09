@@ -83,12 +83,12 @@ fn an_axis_with_explicit_ticks() {
 fn a_color_scale_that_pins_its_middle_diverges() {
     let symbols = CartesianLayer::symbol(
         cars(),
-        SymbolMark::builder()
-            .x("weight")
-            .y("mpg")
-            .color(Encoding::scaled_field("mpg").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().mid(25.0)),
-            ))),
+        SymbolMark::builder().x("weight").y("mpg").color(
+            Encoding::scaled_field("mpg")
+                .scale(Domain::data(DataDomain::builder().fit(
+                    IntervalFit::builder().pin(DomainPin::new(25.0, PinPosition::Mid)),
+                ))),
+        ),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&chart, "legend-diverging");

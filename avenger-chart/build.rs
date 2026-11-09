@@ -30,6 +30,8 @@ mod annotations;
 mod builders;
 #[path = "codegen/functions.rs"]
 mod functions;
+#[path = "codegen/options.rs"]
+mod options;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
@@ -108,6 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     enum_error(&mut walk, &set);
     let annotations = annotations::Annotations::read(&std::fs::read(&descriptors)?)?;
     check_annotations(&annotations)?;
+    options::check(&messages, &options::option_tree(&messages))?;
     annotations::required_visitors(&mut walk, &set, &messages, &annotations)?;
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
@@ -908,9 +911,12 @@ impl<'a> Messages<'a> {
 fn ident(name: &str) -> String {
     let name = snake(name);
     match name.as_str() {
-        "type" | "ref" | "mod" | "match" | "in" | "fn" | "impl" | "use" | "where" | "move" => {
-            format!("r#{name}")
-        }
+        // The keywords that prost escapes as raw identifiers.
+        "as" | "async" | "await" | "box" | "break" | "const" | "continue" | "do" | "dyn"
+        | "else" | "enum" | "extern" | "false" | "final" | "fn" | "for" | "if" | "impl" | "in"
+        | "let" | "loop" | "macro" | "match" | "mod" | "move" | "mut" | "pub" | "ref"
+        | "return" | "static" | "struct" | "trait" | "true" | "try" | "type" | "unsafe" | "use"
+        | "where" | "while" | "yield" => format!("r#{name}"),
         _ => name,
     }
 }
