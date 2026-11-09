@@ -1603,6 +1603,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-lump"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-eval",
+ "avenger-color",
+ "avenger-common",
+ "avenger-datafusion-transforms",
+ "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-scenegraph",
+ "avenger-selection",
+ "avenger-style",
+ "avenger-typst-label",
+ "avenger-winit-wgpu",
+ "datafusion",
+ "pollster 0.3.0",
+ "tokio",
+]
+
+[[package]]
 name = "chart-widgets"
 version = "0.1.0"
 dependencies = [

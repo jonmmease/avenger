@@ -1,0 +1,173 @@
+//! The lumped genres from DataFusion, and a click on the Other bar, which selects every genre
+//! outside the kept ones and grays the movies of the kept genres.
+
+use std::time::Duration;
+
+use arrow::{
+    array::{Array, ArrayRef, AsArray, Float64Array},
+    compute::cast,
+    datatypes::Int64Type,
+};
+use avenger_common::time::Instant;
+use avenger_eventstream::window::{
+    ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
+};
+use avenger_scenegraph::marks::mark::SceneMark;
+
+use super::*;
+
+/// The tables of the chart, through DataFusion.
+fn lumped() -> Tables {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(tables(movies()))
+        .unwrap()
+}
+
+/// The row of the Other group among the counts of the genres.
+fn other_row(genres: &RecordBatch) -> usize {
+    let lumped = genres.column_by_name("lumped").unwrap().as_struct();
+    (0..genres.num_rows())
+        .find(|&row| lumped.column(1).is_valid(row))
+        .expect("an Other group")
+}
+
+#[test]
+fn the_lump_keeps_the_five_genres_with_the_most_movies() {
+    let tables = lumped();
+    let lumped = tables.genres.column_by_name("lumped").unwrap();
+    assert!(
+        avenger_chart::lump::is_lump(lumped.data_type()),
+        "{}",
+        lumped.data_type()
+    );
+    assert_eq!(tables.genres.num_rows(), KEPT + 1);
+    let lumped = lumped.as_struct();
+    let other = other_row(&tables.genres);
+    assert_eq!(lumped.column(1).as_string::<i32>().value(other), "Other");
+    // The Other group holds every movie outside the kept genres, those without a genre among them,
+    // and names its number of genres.
+    let movies = tables
+        .genres
+        .column_by_name("movies")
+        .unwrap()
+        .as_primitive::<Int64Type>();
+    let total: i64 = movies.values().iter().sum();
+    assert_eq!(total as usize, tables.movies.num_rows());
+    let genres = lumped.column(3).as_primitive::<Int64Type>();
+    assert!(genres.value(other) > 1, "{genres:?}");
+    let weights = lumped
+        .column(2)
+        .as_primitive::<arrow::datatypes::Float64Type>();
+    assert_eq!(weights.value(other), movies.value(other) as f64);
+}
+
+/// The fills of the symbols of the plot `name` of a scene.
+fn fills(marks: &[SceneMark], name: &str) -> Vec<[f32; 4]> {
+    marks
+        .iter()
+        .flat_map(|mark| match mark {
+            SceneMark::Group(group) if group.name == name => (group.marks.iter())
+                .filter_map(|mark| match mark {
+                    SceneMark::Symbol(symbol) => Some(
+                        (symbol.fill.as_vec(symbol.len as usize, None).into_iter())
+                            .map(|fill| match fill {
+                                avenger_color::ColorOrGradient::Color(color) => color,
+                                _ => [0.0; 4],
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    _ => None,
+                })
+                .flatten()
+                .collect(),
+            SceneMark::Group(group) => fills(&group.marks, name),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+fn light_gray(fill: &[f32; 4]) -> bool {
+    fill[..3]
+        .iter()
+        .all(|channel| (channel - 211.0 / 255.0).abs() < 1e-3)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
+    let tables = tokio::task::spawn_blocking(lumped).await.unwrap();
+    let mut app = ChartApp::new(chart(&tables), cascade(), engine())
+        .size(SIZE)
+        .build()
+        .await
+        .unwrap()
+        .with_runtime(tokio::runtime::Handle::current())
+        .unwrap();
+    assert!(
+        app.state().warnings().is_empty(),
+        "{:?}",
+        app.state().warnings()
+    );
+    let before = fills(&app.scenes()[0].marks, "ratings");
+    assert!(!before.iter().any(light_gray));
+
+    // The middle of the Other bar.
+    let other = other_row(&tables.genres);
+    let plot = &app.state().plots()[0];
+    let key = avenger_chart::lump::keys(tables.genres.column_by_name("lumped").unwrap())
+        .unwrap()
+        .slice(other, 1);
+    let movies = cast(
+        tables.genres.column_by_name("movies").unwrap(),
+        &DataType::Float64,
+    )
+    .unwrap();
+    let half: ArrayRef = Arc::new(Float64Array::from(vec![
+        movies
+            .as_primitive::<arrow::datatypes::Float64Type>()
+            .value(other)
+            / 2.0,
+    ]));
+    let [x, y] = plot.coords.pixels([&key, &half]).unwrap();
+    let at = [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)];
+    let events = [
+        WindowEvent::CursorMoved(WindowCursorMoved { position: at }),
+        WindowEvent::MouseInput(WindowMouseInput {
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+        }),
+        WindowEvent::MouseInput(WindowMouseInput {
+            state: ElementState::Released,
+            button: MouseButton::Left,
+        }),
+    ];
+    for event in events {
+        std::thread::sleep(Duration::from_millis(10));
+        app.update(&event, Instant::now()).await;
+    }
+
+    // The selection holds every genre outside the five kept ones.
+    let clauses = &app.state().evaluator().selections()[GENRES].clauses;
+    match &clauses[..] {
+        [clause] => match &clause.conditions[..] {
+            [avenger_selection::Condition::Set {
+                columns, others, ..
+            }] => {
+                assert_eq!(columns, &["genre".to_string()]);
+                assert_eq!(others.as_ref().map(|others| others[0].len()), Some(KEPT));
+            }
+            conditions => panic!("a set, and not {conditions:?}"),
+        },
+        clauses => panic!("one clause, and not {clauses:?}"),
+    }
+
+    // The movies of the kept genres are gray, and the others, without a genre among them, keep
+    // their color.
+    let after = fills(&app.scenes()[0].marks, "ratings");
+    let lumped = tables.movies.column_by_name("lumped").unwrap().as_struct();
+    let others = lumped.column(1);
+    assert_eq!(after.len(), tables.movies.num_rows());
+    for (row, fill) in after.iter().enumerate() {
+        assert_eq!(light_gray(fill), others.is_null(row), "row {row}: {fill:?}");
+    }
+}
