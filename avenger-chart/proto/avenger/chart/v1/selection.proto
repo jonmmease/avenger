@@ -72,9 +72,10 @@ message Condition {
 // A set of tuples of values of one or more columns, as a point selection records the keys of the
 // instances that it selects. A row matches when its values of the columns equal one tuple, so a
 // set of `carrier` and `dest` with the tuples (UA, ATL) and (AA, BOS) does not match a row of UA
-// and BOS. A complement matches each row whose values equal none of its tuples instead, where a
-// null equals a null, so it selects everything except some tuples, as a click on the Other group
-// of a lump selects every category outside the kept ones.
+// and BOS. A null equals a null, so a set that holds a null matches the rows whose value is null.
+// A complement matches each row whose values equal none of its tuples instead, so it selects
+// everything except some tuples, as a click on the Other group of a lump selects every category
+// outside the kept ones.
 message ValueSet {
   // The columns, at least one.
   repeated SetColumn columns = 1 [(avenger.chart.v1.required) = true];

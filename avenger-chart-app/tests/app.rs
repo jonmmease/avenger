@@ -738,6 +738,57 @@ async fn a_click_of_a_point_selection_writes_the_keys_of_the_instance() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_an_instance_whose_key_is_null_selects_the_null_rows() {
+    // The cars, where the first car and one other have no name.
+    let cars = cars();
+    let names: Vec<Option<String>> = (0..cars.num_rows())
+        .map(|row| (row != 0 && row != 5).then(|| format!("car {row}")))
+        .collect();
+    let named = RecordBatch::try_from_iter([
+        ("weight", cars.column_by_name("weight").unwrap().clone()),
+        ("mpg", cars.column_by_name("mpg").unwrap().clone()),
+        (
+            "name",
+            Arc::new(StringArray::from(names)) as arrow::array::ArrayRef,
+        ),
+    ])
+    .unwrap();
+    let symbols = CartesianLayer::symbol(named.clone(), SymbolMark::builder().x("weight").y("mpg"))
+        .id("points");
+    let points = Select::points("brush", PointSelect::builder().keys(["name"]));
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("plot").tools([points]))
+        .selections([Selection::new("brush", SelectionResolution::Union)])
+        .build()
+        .unwrap();
+    let (mut app, _, _) = app(chart).await;
+    let at = first_car(&app, 0, &named);
+    send(
+        &mut app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    let clauses = brush(&app);
+    let [clause] = &clauses[..] else {
+        panic!("one clause, and not {clauses:?}");
+    };
+    let [condition] = &clause.conditions[..] else {
+        panic!("one condition, and not {clause:?}");
+    };
+    // The set holds a null, which matches both cars without a name and no other.
+    let matched = condition
+        .matches(&[named.column_by_name("name").unwrap().clone()])
+        .unwrap();
+    let rows: Vec<usize> = (0..matched.len())
+        .filter(|&row| matched.value(row))
+        .collect();
+    assert_eq!(rows, [0, 5]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_box_in_a_polar_plot_writes_ranges_of_its_angle_and_its_radius() {
     let symbols = PolarLayer::symbol(
         cars(),

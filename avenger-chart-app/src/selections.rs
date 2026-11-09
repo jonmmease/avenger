@@ -661,7 +661,7 @@ fn keyed_instances(state: &ChartAppState, area: &Area, kind: Form) -> Instances<
                 Some(column) => {
                     let column =
                         avenger_chart::lump::keys(column).unwrap_or_else(|| column.clone());
-                    Scalar::try_from_array(column.as_ref(), datum.row).ok()
+                    Scalar::at(column.as_ref(), datum.row).ok()
                 }
                 None => Some(Scalar(partition.clone()?)),
             })
@@ -721,7 +721,6 @@ fn lump_tuples(
         return Vec::new();
     };
     (0..kept.len())
-        .filter(|&row| values.is_valid(row))
         .filter_map(|row| tuple(&kept, row))
         .collect()
 }
@@ -807,7 +806,7 @@ fn keys_of(state: &ChartAppState, area: &Area, kind: Form) -> Vec<Vec<Scalar>> {
                 let count = values.first().map_or(0, |list| list.len());
                 tuples.extend((0..count).filter_map(|row| {
                     (values.iter())
-                        .map(|list| Scalar::try_from_array(list.as_ref(), row).ok())
+                        .map(|list| Scalar::at(list.as_ref(), row).ok())
                         .collect::<Option<Vec<_>>>()
                 }));
             }

@@ -27,7 +27,7 @@ A `Clause` holds its owner's id, the owner's partition values when the plot is a
 | `Polygon` with cells | The point's cell in each of the two grids is one of the cells that the lasso covers |
 | `CyclicRange` | Its value is from the start forward to the end, in a dimension that wraps after a period, such as longitude |
 
-A null matches no condition. A set's values and a range's ends are cast to the columns' types, and a dictionary column compares by its values. A set holds one list of values for each of its columns, all of the same length, and its tuples are the rows of those lists. A set of two columns therefore selects pairs, such as the clicked bars of a grouped chart, and not every combination of their values. A polygon condition holds several polygons, so one condition covers several lassos.
+A null is a value of a set, so a set that holds a null matches the null rows, and a set's complement matches the rows that the set does not. A null matches no other condition. A set's values and a range's ends are cast to the columns' types, and a dictionary column compares by its values. A set holds one list of values for each of its columns, all of the same length, and its tuples are the rows of those lists. A set of two columns therefore selects pairs, such as the clicked bars of a grouped chart, and not every combination of their values. A polygon condition holds several polygons, so one condition covers several lassos.
 
 A set, a range, and a cyclic range record, for each column, the label of the channel that the selection came through, such as `x`. A renderer reads the label to give a scale the domain of a selection.
 

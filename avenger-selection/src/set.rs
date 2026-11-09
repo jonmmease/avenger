@@ -2,8 +2,8 @@
 //! and each tuple is the packed positions of its values, so matching a row looks up each of its
 //! values once. Integer, temporal, and boolean columns use a table over their range or a hash
 //! table, string and binary columns a hash table of their bytes, and a dictionary column maps its
-//! dictionary's values once for each array. A set of other types has no index and matches through
-//! Arrow's row format.
+//! dictionary's values once for each array. A null is a value of its own, with a position when the
+//! set holds it. A set of other types has no index and matches through Arrow's row format.
 
 use std::collections::{HashMap, HashSet};
 
@@ -39,7 +39,7 @@ pub(crate) struct SetIndex {
 impl SetIndex {
     /// The index of the tuples of `values`, one list for each column, already in the value types
     /// of the columns, or `None` when a column's type has no index or the packed positions do not
-    /// fit 64 bits. A tuple with a null is in no index.
+    /// fit 64 bits. A null equals a null.
     pub(crate) fn new(values: &[ArrayRef]) -> Option<Self> {
         let columns = (values.iter())
             .map(ColumnIndex::new)
@@ -68,7 +68,7 @@ impl SetIndex {
     }
 
     /// Whether each row of `columns`, of the value types that the index was built for, equals
-    /// one of the tuples. A row with a null equals none.
+    /// one of the tuples, where a null equals a null.
     pub(crate) fn contains(&self, columns: &[ArrayRef]) -> BooleanArray {
         let len = columns.first().map_or(0, |column| column.len());
         let Some(tuples) = &self.tuples else {
@@ -156,38 +156,54 @@ macro_rules! by_key {
     }};
 }
 
-/// The positions of one column's distinct set values.
-enum ColumnIndex {
+/// The positions of one column's distinct set values, and of a null when the set holds one.
+struct ColumnIndex {
+    values: ValueIndex,
+    /// The position of a null, after the values, or [`NONE`] when the set holds no null.
+    null: u32,
+}
+
+/// The positions of one column's distinct values that are not null.
+enum ValueIndex {
     Integers(IntegerIndex),
     Bytes(HashMap<Box<[u8]>, u32, FixedState>),
 }
 
 impl ColumnIndex {
-    /// The index of the non-null values of `values`, or `None` for a type without an index.
+    /// The index of the values of `values`, or `None` for a type without an index.
     fn new(values: &ArrayRef) -> Option<Self> {
         let valid = |row: &usize| values.is_valid(*row);
-        if let Some(integers) = integers(values.as_ref()) {
-            let distinct = (0..values.len()).filter(valid).map(|row| integers[row]);
-            return Some(ColumnIndex::Integers(IntegerIndex::new(distinct.collect())));
-        }
-        let bytes = Bytes::new(values.as_ref())?;
-        let mut positions: HashMap<Box<[u8]>, u32, FixedState> = HashMap::default();
-        for row in (0..values.len()).filter(valid) {
-            let next = positions.len() as u32;
-            positions.entry(bytes.value(row).into()).or_insert(next);
-        }
-        Some(ColumnIndex::Bytes(positions))
+        let index = match integers(values.as_ref()) {
+            Some(integers) => {
+                let distinct = (0..values.len()).filter(valid).map(|row| integers[row]);
+                ValueIndex::Integers(IntegerIndex::new(distinct.collect()))
+            }
+            None => {
+                let bytes = Bytes::new(values.as_ref())?;
+                let mut positions: HashMap<Box<[u8]>, u32, FixedState> = HashMap::default();
+                for row in (0..values.len()).filter(valid) {
+                    let next = positions.len() as u32;
+                    positions.entry(bytes.value(row).into()).or_insert(next);
+                }
+                ValueIndex::Bytes(positions)
+            }
+        };
+        let null = match values.null_count() {
+            0 => NONE,
+            _ => index.len() as u32,
+        };
+        Some(Self {
+            values: index,
+            null,
+        })
     }
 
-    /// The number of distinct values.
+    /// The number of distinct values, a null among them.
     fn len(&self) -> usize {
-        match self {
-            ColumnIndex::Integers(index) => index.len,
-            ColumnIndex::Bytes(positions) => positions.len(),
-        }
+        self.values.len() + usize::from(self.null != NONE)
     }
 
-    /// Whether each value of `column` is one of the set's values, without nulls.
+    /// Whether each value of `column` is one of the set's values, where a null equals a null.
     fn contains(&self, column: &ArrayRef) -> BooleanBuffer {
         let found = if let DataType::Dictionary(_, _) = column.data_type() {
             let dictionary = column.as_any_dictionary();
@@ -199,24 +215,26 @@ impl ColumnIndex {
                 |row| found.get(keys[row].index()).copied().unwrap_or(false)
             ))
         } else {
-            match self {
-                ColumnIndex::Integers(index) => {
+            match &self.values {
+                ValueIndex::Integers(index) => {
                     index.contains(&integers(column.as_ref()).expect("an integer column"))
                 }
-                ColumnIndex::Bytes(_) => {
+                ValueIndex::Bytes(_) => {
                     let positions = self.positions(column);
                     BooleanBuffer::collect_bool(positions.len(), |row| positions[row] != NONE)
                 }
             }
         };
         match column.nulls() {
+            Some(nulls) if self.null != NONE => &(&found & nulls.inner()) | &!nulls.inner(),
             Some(nulls) => &found & nulls.inner(),
             None => found,
         }
     }
 
-    /// The position of each value of `column` among the set's values, or [`NONE`] for a null and
-    /// a value that is not one of them. A dictionary column maps its dictionary's values once.
+    /// The position of each value of `column` among the set's values, or [`NONE`] for a value
+    /// that is not one of them, and a null when the set holds no null. A dictionary column maps
+    /// its dictionary's values once.
     fn positions(&self, column: &ArrayRef) -> Vec<u32> {
         let len = column.len();
         let mut positions: Vec<u32> = if let DataType::Dictionary(_, _) = column.data_type() {
@@ -226,15 +244,15 @@ impl ColumnIndex {
                 .map(|key| by_key.get(key.index()).copied().unwrap_or(NONE))
                 .collect())
         } else {
-            match self {
-                ColumnIndex::Integers(index) => {
+            match &self.values {
+                ValueIndex::Integers(index) => {
                     let integers = integers(column.as_ref()).expect("an integer column");
                     integers
                         .iter()
                         .map(|value| index.position(*value))
                         .collect()
                 }
-                ColumnIndex::Bytes(table) => {
+                ValueIndex::Bytes(table) => {
                     let bytes = Bytes::new(column.as_ref()).expect("a string or binary column");
                     (0..len)
                         .map(|row| table.get(bytes.value(row)).copied().unwrap_or(NONE))
@@ -244,10 +262,20 @@ impl ColumnIndex {
         };
         if let Some(nulls) = column.nulls() {
             for row in (0..len).filter(|&row| nulls.is_null(row)) {
-                positions[row] = NONE;
+                positions[row] = self.null;
             }
         }
         positions
+    }
+}
+
+impl ValueIndex {
+    /// The number of distinct values.
+    fn len(&self) -> usize {
+        match self {
+            ValueIndex::Integers(index) => index.len,
+            ValueIndex::Bytes(positions) => positions.len(),
+        }
     }
 }
 

@@ -457,15 +457,21 @@ impl Scalar {
         Self::new(Arc::new(list_array))
     }
 
-    /// The value at `index` of `array`, or an error for a null element. A Float32 value is a
-    /// Float64 scalar and a LargeUtf8 or a Utf8View value is a Utf8 scalar, as the scalars that
-    /// `from_f64` and `from_string` make are, and a value of any other type keeps its type.
+    /// The value at `index` of `array`, or an error for a null element, as [`Scalar::at`] gives it.
     pub fn try_from_array(array: &dyn Array, index: usize) -> Result<Self, AvengerScaleError> {
         if array.is_null(index) {
             return Err(AvengerScaleError::InternalError(
                 "Array element is null".to_string(),
             ));
         }
+        Self::at(array, index)
+    }
+
+    /// The value at `index` of `array`, a null among them, such as the key of an instance whose
+    /// value is null. A Float32 value is a Float64 scalar and a LargeUtf8 or a Utf8View value is
+    /// a Utf8 scalar, as the scalars that `from_f64` and `from_string` make are, and a value of any
+    /// other type keeps its type.
+    pub fn at(array: &dyn Array, index: usize) -> Result<Self, AvengerScaleError> {
         // A copy of the one row, which does not keep the rest of the array.
         let value = take(array, &UInt32Array::from(vec![index as u32]), None)?;
         let normal = match array.data_type() {
@@ -646,6 +652,14 @@ mod tests {
             hasher.hash_one(&other),
             hasher.hash_one(Scalar::try_from_array(b.as_ref(), 0)?)
         );
+
+        // A null is a scalar of its type, equal to a null of that type.
+        let nulls: ArrayRef = Arc::new(Int64Array::from(vec![None, Some(1), None]));
+        assert!(Scalar::try_from_array(nulls.as_ref(), 0).is_err());
+        let null = Scalar::at(nulls.as_ref(), 0)?;
+        assert!(null.0.is_null(0));
+        assert_eq!(null, Scalar::at(nulls.as_ref(), 2)?);
+        assert_ne!(null, Scalar::at(nulls.as_ref(), 1)?);
 
         // Floats compare by value as their rows do.
         assert_eq!(Scalar::from_f64(f64::NAN), Scalar::from_f64(f64::NAN));

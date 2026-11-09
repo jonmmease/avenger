@@ -601,6 +601,32 @@ async fn bound_states_keep_names_and_other_placeholders() {
 }
 
 #[tokio::test]
+async fn a_set_with_a_null_lowers_as_its_sql() {
+    // A null equals a null, as a click on the bar of rows without an island writes it.
+    let set = |values: Vec<Option<&str>>| {
+        Condition::values("island", None, Arc::new(StringArray::from(values)))
+    };
+    let cases = [
+        (
+            set(vec![Some("biscoe"), None]),
+            "island IN ('biscoe') OR island IS NULL",
+        ),
+        (set(vec![None]), "island IS NULL"),
+        (set(vec![Some("biscoe")]), "island IN ('biscoe')"),
+    ];
+    for (condition, sql) in cases {
+        let state = SelectionState::new(
+            Resolution::Global,
+            vec![Clause::new("a").condition(condition)],
+        );
+        conforms(state.clone(), PLAIN).await;
+        let expected = format!("SELECT coalesce({sql}, false) AS m FROM t ORDER BY id");
+        let expected = mask(context().sql(&expected).await.unwrap()).await;
+        assert_eq!(lowered(&state, &PLAIN).await, expected, "{sql}");
+    }
+}
+
+#[tokio::test]
 async fn a_complement_lowers_as_its_sql() {
     // Everything except the kept islands, as a click on the Other group of a lump writes it: the
     // row of a null island matches unless the kept islands hold null.
