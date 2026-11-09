@@ -90,3 +90,20 @@ async fn a_chart_for_each_group() {
     assert_eq!(charts.len(), 3, "one chart for each species");
     render(&charts[0], "penguins-adelie-symbols");
 }
+
+#[tokio::test]
+async fn a_map_of_earthquakes() {
+    let query = "FROM earthquakes
+|> AGGREGATE geo_symbol(
+     longitude => longitude,
+     latitude => latitude,
+     size => scaled(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
+     color => depth_km,
+     coord => geo(surface => spherical(
+       projection => 'equal_earth',
+       fit => 'whole_sphere',
+       graticule => graticule(longitude_step => 30, latitude_step => 30)))) AS chart";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "earthquakes-map");
+}
