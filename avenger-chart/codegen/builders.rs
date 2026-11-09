@@ -4,8 +4,10 @@
 //! The rules, for message `Foo`, where the `required` and `required_oneof` options of
 //! `annotation.proto` mark its required content:
 //!
-//! - `FooBuilder`, with `From<Foo> for FooBuilder`, for each message except `ValueRef`,
-//!   `TableRef`, and `Table`, which stand in for data
+//! - `FooBuilder`, an alias of `Builder<Foo>`, for each message except `ValueRef`, `TableRef`,
+//!   and `Table`, which stand in for data, and `Fragment`, the serialized form of a builder, with its setters as an impl of `Builder<Foo>`; the
+//!   generic `Builder` has `From<Foo>`, `Build`, and the fragments, and each message gets `Finish`
+//!   and `Renumber`
 //! - the constructors take the required content as arguments: the required fields in the order of
 //!   their numbers, then the member of a required oneof. A message without required content has
 //!   `Foo::builder()`, a message with required fields and no required oneof has `Foo::new(..)`,
@@ -33,7 +35,8 @@
 //! - the docs of each method are a line that says what it does, then the comment of its field
 //!
 //! `Chart` gets no setters for `version`, `tables`, and `values`, which its `build` writes, and
-//! `Plot` holds the plots that it overlays; the hand-written `compose.rs` adds their methods.
+//! `Plot` gets no `Finish`, because its builder merges the plots that it overlays; the
+//! hand-written `compose.rs` adds their methods.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -47,8 +50,9 @@ use prost_types::{
 
 use super::{annotations::Annotations, camel, ident, snake, Messages, PACKAGE};
 
-/// The messages without builders, which stand in for data.
-const DATA: [&str; 3] = ["ValueRef", "TableRef", "Table"];
+/// The messages without builders: those that stand in for data, and `Fragment`, the serialized
+/// form of a builder.
+pub(super) const DATA: [&str; 4] = ["ValueRef", "TableRef", "Table", "Fragment"];
 
 /// The fields of `Chart` that its `build` writes.
 const CHART_OWNED: [&str; 3] = ["version", "tables", "values"];
@@ -290,21 +294,18 @@ pub(super) fn builders(
         let is_chart = short_name == "Chart";
         let is_plot = short_name == "Plot";
 
-        // The type.
+        // The type: an alias of the generic builder.
         docs(
             &mut code,
             "",
             &format!("A builder of [`{short_name}`]."),
             comments.messages.get(name),
         );
-        code.push_str("#[derive(Clone, Debug, Default)]\n");
-        writeln!(code, "pub struct {builder} {{").unwrap();
-        writeln!(code, "    pub(crate) message: {path},").unwrap();
-        code.push_str("    pub(crate) parts: crate::builder::Parts,\n");
-        if is_plot {
-            code.push_str("    pub(crate) overlays: Vec<crate::proto::NodeBuilder>,\n");
-        }
-        code.push_str("}\n\n");
+        writeln!(
+            code,
+            "pub type {builder} = crate::builder::Builder<{path}>;\n"
+        )
+        .unwrap();
 
         // The required content: the required fields, in the order of their numbers, and the
         // required oneof, whose member a constructor takes last.
@@ -338,7 +339,10 @@ pub(super) fn builders(
             let field_ident = ident(field_name);
             let setter = method(field_name);
             assert!(
-                !matches!(setter.as_str(), "build" | "builder" | "into_parts" | "new"),
+                !matches!(
+                    setter.as_str(),
+                    "build" | "builder" | "into_parts" | "new" | "to_fragment" | "from_fragment"
+                ),
                 "the field `{field_name}` of `{short_name}` names a function of its builder"
             );
             let member = field.oneof_index.filter(|_| !field.proto3_optional());
@@ -638,12 +642,6 @@ pub(super) fn builders(
         }
         code.push_str("}\n\n");
 
-        writeln!(
-            code,
-            "impl From<{path}> for {builder} {{\n    /// A builder of `message` as it is, which holds no tables and no values, so its references refer to none.\n    fn from(message: {path}) -> Self {{\n        Self {{\n            message,\n            ..Default::default()\n        }}\n    }}\n}}\n"
-        )
-        .unwrap();
-
         // The builder's methods.
         writeln!(code, "impl {builder} {{").unwrap();
         code.push_str(&setters);
@@ -651,21 +649,21 @@ pub(super) fn builders(
         if !is_chart {
             writeln!(
                 code,
-                "    /// The message, when the builder holds no tables, no values, and no charts, which get\n    /// their references only in a chart.\n    pub fn build(self) -> Result<{path}, crate::ChartError> {{\n        let (message, parts) = crate::builder::Build::into_parts(self);\n        parts.standalone()?;\n        Ok(message)\n    }}"
+                "    /// The message, when the builder holds no tables, no values, and no charts, which get\n    /// their references only in a chart.\n    pub fn build(self) -> Result<{path}, crate::ChartError> {{\n        let (message, parts) = crate::builder::Build::into_parts(self);\n        parts.standalone()?;\n        Ok(message)\n    }}\n"
+            )
+            .unwrap();
+            writeln!(
+                code,
+                "    /// The fragment of the builder: its message, encoded, and the values that its\n    /// references refer to, in their canonical order. It fails with the first error that the\n    /// setters found, and for a builder that holds a table or an embedded chart, at its path.\n    pub fn to_fragment(self) -> Result<crate::proto::Fragment, crate::ChartError> {{\n        crate::builder::to_fragment(self)\n    }}\n\n    /// The builder of `fragment`, which holds a `{short_name}` of this version of the format and\n    /// the values that its references refer to.\n    pub fn from_fragment(fragment: &crate::proto::Fragment) -> Result<Self, crate::ChartError> {{\n        crate::builder::from_fragment(fragment)\n    }}"
             )
             .unwrap();
         }
         code.push_str("}\n\n");
 
-        let into_parts = match is_plot {
-            true => "crate::compose::overlaid(self)".to_string(),
-            false => "(self.message, self.parts)".to_string(),
-        };
-        writeln!(
-            code,
-            "impl crate::builder::Build for {builder} {{\n    type Message = {path};\n    fn into_parts(self) -> ({path}, crate::builder::Parts) {{\n        {into_parts}\n    }}\n}}\n"
-        )
-        .unwrap();
+        // `compose.rs` finishes a plot, which merges the plots that it overlays.
+        if !is_plot {
+            writeln!(code, "impl crate::builder::Finish for {path} {{}}\n").unwrap();
+        }
 
         let mut renumber = String::new();
         if values.contains(name) {

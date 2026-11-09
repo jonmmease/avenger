@@ -11,10 +11,12 @@ use arrow::array::{
 use prost::bytes::Bytes;
 
 use crate::{
-    codec::list_value,
+    codec::{list_value, values_from_ipc, values_to_ipc},
+    normalize::canonical_values,
     proto,
     validate::{is_position, scaled, scales_numbers, scales_strings, takes_scale},
-    ChartError, MarkMessage,
+    walk::VisitValues,
+    ChartError, MarkMessage, FORMAT_VERSION,
 };
 
 /// A value of a field that takes a `ValueRef`: an array of one element, such as a scalar or a list.
@@ -213,6 +215,10 @@ pub(crate) struct Parts {
     pub(crate) errors: Vec<(String, String)>,
     /// The path of the first table, value, or chart, for the error of a `build` below `Chart`.
     pub(crate) datum: Option<String>,
+    /// The path of the first table or chart, for the error of a fragment, which holds only values.
+    pub(crate) tabular: Option<String>,
+    /// The nodes that the builder of a plot overlays, which its [`Finish`] merges into the plot.
+    pub(crate) overlays: Vec<proto::NodeBuilder>,
 }
 
 /// `path` below `prefix`.
@@ -244,6 +250,7 @@ impl Parts {
     /// Adds `table` at the field `path` and returns its reference.
     pub(crate) fn table(&mut self, path: &str, table: RecordBatch) -> proto::TableRef {
         self.datum.get_or_insert_with(|| path.to_string());
+        self.tabular.get_or_insert_with(|| path.to_string());
         self.tables.push((table, None));
         proto::TableRef {
             index: (self.tables.len() - 1) as u32,
@@ -270,7 +277,14 @@ impl Parts {
             syntaxes,
             errors,
             datum,
+            tabular,
+            overlays,
         } = parts;
+        // Only a plot overlays nodes, and its `finish` takes them before it is embedded.
+        debug_assert!(
+            overlays.is_empty(),
+            "the overlays of an embedded plot are merged"
+        );
         self.modes.extend(modes);
         self.tables.extend(own_tables);
         self.values.extend(own_values);
@@ -286,6 +300,9 @@ impl Parts {
         (self.errors).extend((errors.into_iter()).map(|(at, reason)| (join(path, &at), reason)));
         if self.datum.is_none() {
             self.datum = datum.map(|at| join(path, &at));
+        }
+        if self.tabular.is_none() {
+            self.tabular = tabular.map(|at| join(path, &at));
         }
         message
     }
@@ -313,17 +330,139 @@ impl Parts {
     }
 }
 
-/// A builder of a message: its message and the parts that its references refer to. build.rs
-/// implements it for each builder.
+/// A builder of a message of the format: the message and what its setters collected beside it,
+/// such as the values and the tables that its references refer to.
+///
+/// Each message `Foo` of [`proto`] has the alias `FooBuilder = Builder<Foo>`, whose page lists the
+/// setters of `Foo`, and the constructors on the message, such as `Foo::builder()`. A message
+/// converts to its builder as it is, which holds no tables and no values. A builder of a message
+/// other than a chart converts to and from a [`Fragment`](proto::Fragment), its serialized form.
+#[derive(Clone, Debug, Default)]
+pub struct Builder<M> {
+    pub(crate) message: M,
+    pub(crate) parts: Parts,
+}
+
+impl<M> From<M> for Builder<M> {
+    /// A builder of `message` as it is, which holds no tables and no values, so its references
+    /// refer to none.
+    fn from(message: M) -> Self {
+        Self {
+            message,
+            parts: Parts::default(),
+        }
+    }
+}
+
+/// The fragment of `builder`: its message, encoded, and the values that its references refer
+/// to, in their canonical order. It fails with the first error that the setters found, and for
+/// a builder that holds a table or an embedded chart, at its path.
+pub(crate) fn to_fragment<M>(builder: Builder<M>) -> Result<proto::Fragment, ChartError>
+where
+    M: Finish + VisitValues + prost::Message + prost::Name,
+{
+    let (mut message, parts) = builder.into_parts();
+    parts.error("")?;
+    if let Some(path) = parts.tabular {
+        return Err(ChartError::invalid(
+            path,
+            "a fragment holds a message and its values, and this builder holds a table or a \
+             chart, which mean something only in a chart",
+        ));
+    }
+    let values = canonical_values(&mut message, &parts.values);
+    let values = match values.is_empty() {
+        true => None,
+        false => Some(proto::Table {
+            padding: Bytes::new(),
+            ipc: values_to_ipc(&values)?,
+        }),
+    };
+    Ok(proto::Fragment {
+        version: FORMAT_VERSION,
+        r#type: M::full_name(),
+        message: message.encode_to_vec().into(),
+        values,
+    })
+}
+
+/// The builder of `fragment`, which holds a message of type `M` of this version of the format
+/// and the values that its references refer to.
+pub(crate) fn from_fragment<M>(fragment: &proto::Fragment) -> Result<Builder<M>, ChartError>
+where
+    M: VisitValues + prost::Message + prost::Name + Default,
+{
+    if fragment.version != FORMAT_VERSION {
+        return Err(ChartError::invalid(
+            "version",
+            format!(
+                "the fragment has version {}, and this reader reads version {FORMAT_VERSION}",
+                fragment.version
+            ),
+        ));
+    }
+    let name = M::full_name();
+    if fragment.r#type != name {
+        return Err(ChartError::invalid(
+            "type",
+            format!("the fragment holds a `{}`, not a `{name}`", fragment.r#type),
+        ));
+    }
+    let message = M::decode(fragment.message.clone())
+        .map_err(|error| ChartError::invalid("message", error.to_string()))?;
+    let values = match &fragment.values {
+        Some(values) => values_from_ipc(&values.ipc)?,
+        None => Vec::new(),
+    };
+    let mut outside = None;
+    message.visit_values(&mut |value| {
+        if value.index as usize >= values.len() {
+            outside.get_or_insert(value.index);
+        }
+    });
+    if let Some(index) = outside {
+        return Err(ChartError::invalid(
+            "values",
+            format!(
+                "the message refers to value {index}, and the fragment holds {}",
+                values.len()
+            ),
+        ));
+    }
+    let parts = Parts {
+        datum: (!values.is_empty()).then(String::new),
+        values,
+        ..Parts::default()
+    };
+    Ok(Builder { message, parts })
+}
+
+/// A builder of a message: its message and the parts that its references refer to.
 pub(crate) trait Build {
     type Message: Renumber;
     fn into_parts(self) -> (Self::Message, Parts);
+}
+
+impl<M: Finish> Build for Builder<M> {
+    type Message = M;
+    fn into_parts(self) -> (M, Parts) {
+        M::finish(self.message, self.parts)
+    }
 }
 
 /// A message whose references shift by the counts of the values and the tables before its own.
 /// build.rs implements it for each message with a builder.
 pub(crate) trait Renumber {
     fn renumber(&mut self, values: u32, tables: u32);
+}
+
+/// A message that its builder's parts complete when the builder ends. build.rs implements it as
+/// the identity for each message with a builder except `Plot`, whose builder merges the plots that
+/// it overlays.
+pub(crate) trait Finish: Renumber + Sized {
+    fn finish(message: Self, parts: Parts) -> (Self, Parts) {
+        (message, parts)
+    }
 }
 
 /// Hides the axis of `scale`, keeping its other fields.

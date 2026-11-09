@@ -28,6 +28,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "modes",
         ],
     ),
+    ("Fragment", &["version", "type", "message", "values"]),
     ("Table", &["padding", "ipc"]),
     ("Node", &["plot", "concat", "wrap", "empty"]),
     (

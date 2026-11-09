@@ -75,6 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Every `bytes` field is a `bytes::Bytes`, which decodes as a slice of its input, so the
         // Arrow payloads of a chart decode without a copy.
         .bytes(["."])
+        // Each message implements `prost::Name`, whose full name a fragment records.
+        .enable_type_names()
         .compile_protos(
             &files,
             &[PathBuf::from("proto"), protoc_bin_vendored::include_path()?],
@@ -86,11 +88,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .retain(|file| format!(".{}", file.package()) == PACKAGE);
     let messages = Messages::new(&set);
     let mut walk = String::new();
-    for (target, visitor, method) in [
-        ("ValueRef", "VisitValues", "visit_values"),
-        ("TableRef", "VisitTables", "visit_tables"),
+    // Every message with a builder visits its values, as an empty walk when it holds none, so a
+    // fragment of any message orders its values.
+    for (target, visitor, method, every) in [
+        ("ValueRef", "VisitValues", "visit_values", true),
+        ("TableRef", "VisitTables", "visit_tables", false),
     ] {
-        messages.visitors(&mut walk, &format!("{PACKAGE}.{target}"), visitor, method);
+        messages.visitors(
+            &mut walk,
+            &format!("{PACKAGE}.{target}"),
+            visitor,
+            method,
+            every,
+        );
     }
     messages.enum_visitors(&mut walk);
     enum_error(&mut walk, &set);
@@ -782,11 +792,18 @@ impl<'a> Messages<'a> {
     /// reads each `target` and a method `{method}_mut` that changes it. Each calls its function
     /// with each `target` in the order that the `.proto` files declare the fields, where a oneof
     /// takes the place of its first member.
-    fn visitors(&self, code: &mut String, target: &str, visitor: &str, method: &str) {
+    fn visitors(&self, code: &mut String, target: &str, visitor: &str, method: &str, every: bool) {
         let holders = self.holders(target);
         let (_, target_path, _) = self.get(target).expect("the target is a message");
         for (name, path, message) in &self.all {
             if !holders.contains(name) {
+                if every && !builders::DATA.contains(&message.name()) {
+                    writeln!(
+                        code,
+                        "impl {visitor} for {path} {{\n    fn {method}(&self, _: &mut dyn FnMut(&{target_path})) {{}}\n    fn {method}_mut(&mut self, _: &mut dyn FnMut(&mut {target_path})) {{}}\n}}\n"
+                    )
+                    .unwrap();
+                }
                 continue;
             }
             writeln!(code, "impl {visitor} for {path} {{").unwrap();

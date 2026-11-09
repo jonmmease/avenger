@@ -170,6 +170,25 @@ message Padding {
   optional float left = 4;
 }
 
+// A message of the format outside a chart, with the values that its references refer to: the
+// serialized form of the builder of the message, such as the value of an option constructor.
+//
+// A fragment holds no tables, selections, modes, or embedded charts, which mean something only in
+// a chart. Its bytes are canonical: the values come in the order of the references of the
+// message, grouped by type, as a chart orders its values, so builders that set equal content in
+// different orders encode to equal bytes.
+message Fragment {
+  // The format version, as `Chart.version`.
+  uint32 version = 1;
+  // The full name of the message, such as `avenger.chart.v1.Axis`.
+  string type = 2;
+  // The encoded message.
+  bytes message = 3;
+  // The Arrow values that the `ValueRef` fields of the message refer to, in the layout of
+  // `Chart.values`. Absent when the message has none.
+  Table values = 4;
+}
+
 // A data table of a chart, or its values: an IPC stream of one record batch, after padding that
 // aligns it.
 message Table {

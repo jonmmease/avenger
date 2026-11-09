@@ -104,7 +104,7 @@ match Chart::from_parts(empty, vec![table], vec![]) {
 
 ## Producing charts
 
-Each message `Foo` of `proto` has a builder, `FooBuilder`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. The constructors take the content that the `required` and `required_oneof` options of `annotation.proto` mark as required, so a builder cannot leave it out:
+Each message `Foo` of `proto` has a builder, `FooBuilder`, an alias of the generic `builder::Builder<Foo>`, whose methods set the fields of the message and nothing else: a builder applies no defaults, so an absent field keeps the meaning that its comment gives. The constructors take the content that the `required` and `required_oneof` options of `annotation.proto` mark as required, so a builder cannot leave it out:
 
 | Message | Constructors |
 |---|---|
@@ -152,6 +152,8 @@ The builders also compose charts:
 | `Node::partitions` | One node for each value of a column of a table, in the order in which the values appear or sorted, from the rows that hold the value |
 
 Every error of a builder, such as two overlaid plots with different titles, is a `ChartError::Invalid` at the path of its field in the chart.
+
+A builder of a message other than a chart converts to and from a `proto::Fragment`, the serialized form of a builder outside a chart: `to_fragment` encodes the message with the values that its references refer to, and `from_fragment` decodes it, after it checks the version, the full name of the message, and each reference. A fragment holds no tables and no embedded charts, which mean something only in a chart, and its bytes are canonical, so builders that set equal content in different orders give equal fragments.
 
 `use avenger_chart::prelude::*` imports everything that building a chart takes: the checked `Chart`, every message and its builder, every enum of the format, `Value`, `IntoValue`, `IntoEncoding`, `PartitionOrder`, and `ChartError`. The prelude names the message `proto::Chart`, the wire form of a chart, `ChartMessage`, so `Chart` is the checked chart, whose `Chart::builder(root)` builds one.
 
