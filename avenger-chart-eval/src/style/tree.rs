@@ -431,6 +431,10 @@ fn guide_nodes(
         tree.set_attribute(node, "scale", scale_type(&group.spec));
         tree.set_attribute(node, "kind", scale_kind(chart, resolved, group, kind));
     };
+    let lumps =
+        (values_type(chart, resolved, group).as_ref()).is_some_and(avenger_chart::lump::is_lump);
+    // The label of the Other group of a lump is the `other` variant of the guide's `label`.
+    let other = |tree: &mut Styled, label: NodeId| lumps.then(|| tree.add(label, Element::Other));
     match guide_kind(group, kind)? {
         GuideKind::PolarAxis => {
             let axis = tree.add(owner, Element::Axis);
@@ -439,6 +443,7 @@ fn guide_nodes(
                 axis,
                 title: tree.add(axis, Element::Title),
                 label: tree.add(axis, Element::Label),
+                other: None,
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -456,10 +461,13 @@ fn guide_nodes(
         GuideKind::Axis => {
             let axis = tree.add(owner, Element::Axis);
             attributes(tree, axis);
+            let title = tree.add(axis, Element::Title);
+            let label = tree.add(axis, Element::Label);
             let nodes = AxisNodes {
                 axis,
-                title: tree.add(axis, Element::Title),
-                label: tree.add(axis, Element::Label),
+                title,
+                label,
+                other: other(tree, label),
                 tick: tree.add(axis, Element::Tick),
                 rule: tree.add(axis, Element::Rule),
                 grid: tree.add(axis, Element::Grid),
@@ -480,11 +488,15 @@ fn guide_nodes(
             let legend = tree.add(owner, Element::Legend);
             tree.set_attribute(legend, "type", "symbol");
             attributes(tree, legend);
+            let title = tree.add(legend, Element::Title);
+            let swatch = tree.add(legend, Element::Swatch);
+            let label = tree.add(legend, Element::Label);
             let nodes = LegendNodes {
                 legend,
-                title: tree.add(legend, Element::Title),
-                swatch: tree.add(legend, Element::Swatch),
-                label: tree.add(legend, Element::Label),
+                title,
+                swatch,
+                label,
+                other: other(tree, label),
             };
             if let Some(message) = &group.spec.legend {
                 identify(tree, legend, &message.id, &message.classes);

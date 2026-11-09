@@ -3,6 +3,7 @@ pub mod axis;
 pub mod error;
 pub mod facet;
 mod guide;
+pub mod label_variant;
 pub mod legend;
 pub mod title;
 

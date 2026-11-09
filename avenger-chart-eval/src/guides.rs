@@ -26,6 +26,7 @@ use avenger_guides::{
     attribution::{Attribution, AttributionAlign, AttributionConfig},
     axis::{Axis, AxisConfig, AxisStyle, AxisTickInterval, AxisTicks, NestedBandAxisLevelConfig},
     facet::{FacetGuide, FacetGuideConfig, FacetGuidePart, FacetGuideStyle},
+    label_variant::{vary_labels, LabelVariant},
     legend::{
         Colorbar, ColorbarConfig, Legend, LegendConfig, LegendLayout, LegendStyle, LegendSwatches,
         LegendWrap, LineSwatches, SymbolSwatches,
@@ -202,6 +203,21 @@ pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4]
         Paint::Color(color) => color,
         Paint::Contrast { otherwise } => otherwise,
         Paint::None => [0.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// How the text style of `other`, the `other` node of a guide's `label`, differs from `label`'s.
+fn label_variant(label: &ComputedStyle, other: &ComputedStyle) -> LabelVariant {
+    fn differs<T: PartialEq>(label: T, other: T) -> Option<T> {
+        (label != other).then_some(other)
+    }
+    let italic = |style: &ComputedStyle| style.keyword(Property::FontStyle) == Some("italic");
+    LabelVariant {
+        color: differs(text_color(label), text_color(other)),
+        font_family: differs(font_family(label), font_family(other)),
+        font_size: differs(label.font_size(), other.font_size()),
+        font_weight: differs(font_weight(label), font_weight(other)),
+        italic: differs(italic(label), italic(other)),
     }
 }
 
@@ -507,7 +523,10 @@ fn axis(
         let labels = spec.labels.as_ref();
         let tick_format = labels.map_or_else(String::new, |labels| labels.format.clone());
         if let Some(lumps) = &inputs.lumps[index] {
-            style.category_labels = Some(lumps.category_labels(&tick_format, inputs.engine)?);
+            let variant =
+                (nodes.other).map(|other| label_variant(&styles[nodes.label], &styles[other]));
+            style.category_labels =
+                Some(lumps.category_labels(&tick_format, variant, inputs.engine)?);
         }
         let config = AxisConfig {
             side,
@@ -1227,6 +1246,20 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let legend_style = &styles[nodes.legend];
     let title_style = &styles[nodes.title];
     let label_style = &styles[nodes.label];
+    // The label of the Other group of a lump takes the style of the label's `other` node.
+    let variants: Vec<Option<LabelVariant>> = match (
+        nodes.other,
+        other_entries(draft.categories.as_ref(), draft.labels.len()),
+    ) {
+        (Some(other), Some(others)) => {
+            let variant = label_variant(label_style, &styles[other]);
+            (others.into_iter())
+                .map(|is_other| is_other.then(|| variant.clone()))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let (labels, label_syntax) = vary_labels(draft.labels, draft.label_syntax, &variants);
     let spec = &draft.spec;
     let style = LegendStyle {
         background: background(legend_style),
@@ -1239,7 +1272,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         label_font_family: font_family(label_style),
         label_font_size: label_style.font_size(),
         label_font_weight: font_weight(label_style),
-        label_syntax: draft.label_syntax,
+        label_syntax,
         column_gap: style_number(legend_style, Property::ColumnGap),
         row_gap: style_number(legend_style, Property::RowGap),
     };
@@ -1255,7 +1288,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let title = (visible(title_style) && !draft.title.is_empty()).then_some(draft.title);
     let config = LegendConfig {
         title,
-        text: ScalarOrArray::new_array(draft.labels),
+        text: ScalarOrArray::new_array(labels),
         swatches,
         text_padding: style_number(legend_style, Property::LabelPadding),
         layout: LegendLayout { side, wrap },

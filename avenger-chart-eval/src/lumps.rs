@@ -11,6 +11,7 @@ use arrow::{
 };
 use avenger_chart::lump;
 use avenger_format::PrecisionSharing;
+use avenger_guides::label_variant::LabelVariant;
 use avenger_typst_label::{LabelEngine, LabelValue, LabelValues};
 
 use crate::{fit::MemberValues, EvalError};
@@ -186,15 +187,20 @@ impl Lumps {
 
 impl Lumps {
     /// The values that the labels of every key of the rows bind, for a band or a point axis, as
-    /// `label_values` gives them.
+    /// `label_values` gives them, with the label of the Other group in `other`.
     pub(crate) fn category_labels(
         &self,
         pattern: &str,
+        other: Option<LabelVariant>,
         engine: &LabelEngine,
     ) -> Result<avenger_guides::axis::CategoryLabels> {
+        let others = self.keys.as_struct().column(1).clone();
         Ok(avenger_guides::axis::CategoryLabels {
             categories: self.keys.clone(),
             values: self.label_values(&self.keys, pattern, engine)?,
+            variants: (0..self.keys.len())
+                .map(|key| others.is_valid(key).then(|| other.clone()).flatten())
+                .collect(),
         })
     }
 

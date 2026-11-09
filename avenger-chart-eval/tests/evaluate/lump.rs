@@ -203,6 +203,18 @@ fn a_label_shared_by_partitions_with_other_counts_names_no_count() {
     );
 }
 
+/// `chart` at `size` with the base stylesheet and `css`.
+fn evaluate_styled(chart: Chart, css: &str, size: [f32; 2]) -> avenger_chart_eval::EvaluatedChart {
+    let mut evaluator = avenger_chart_eval::ChartEvaluator::new(
+        chart,
+        cascade_with(css),
+        engine(),
+        avenger_chart_eval::Registry::new(),
+    )
+    .unwrap();
+    evaluator.evaluate(&host(size)).unwrap()
+}
+
 /// The scatter plot of the lumped cars, colored by their lumped cylinders, with `css`.
 fn styled_scatter(css: &str) -> avenger_chart_eval::EvaluatedChart {
     let symbols = CartesianLayer::symbol(
@@ -213,14 +225,7 @@ fn styled_scatter(css: &str) -> avenger_chart_eval::EvaluatedChart {
         .number_format_syntax("d3")
         .build()
         .unwrap();
-    let mut evaluator = avenger_chart_eval::ChartEvaluator::new(
-        chart,
-        cascade_with(css),
-        engine(),
-        avenger_chart_eval::Registry::new(),
-    )
-    .unwrap();
-    evaluator.evaluate(&host([480.0, 320.0])).unwrap()
+    evaluate_styled(chart, css, [480.0, 320.0])
 }
 
 /// The gray of the Other group in the base stylesheet.
@@ -270,4 +275,31 @@ fn a_stylesheet_draws_the_other_symbols_as_outlines() {
     );
     let strokes = legend_symbol_strokes(&evaluated);
     assert!(is_color(strokes.last().unwrap(), OTHER_GRAY), "{strokes:?}");
+}
+
+#[test]
+fn a_stylesheet_styles_the_labels_of_the_other_group() {
+    let css = "axis > label > other, legend > label > other { font-style: italic; color: #888; }";
+    let evaluated = evaluate_styled(bars(Scale::builder(), None), css, [360.0, 240.0]);
+    assert_image(&evaluated, "lump-label-styled");
+    let labels = axis_labels(&evaluated);
+    // The Other label becomes markup, with its text escaped.
+    let other = labels.last().unwrap();
+    assert!(
+        other.starts_with("#text(")
+            && other.contains(r#"style: "italic""#)
+            && other.ends_with(r"[Ot\her]"),
+        "{labels:?}"
+    );
+    // The kept categories' labels stay as they are.
+    assert_eq!(labels[0], "4", "{labels:?}");
+
+    let texts = scene_texts(&styled_scatter(css).scene.marks);
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains(r#"style: "italic""#) && text.ends_with(r"[Ot\her]")),
+        "{texts:?}"
+    );
+    assert!(texts.iter().any(|text| text == "4"), "{texts:?}");
 }

@@ -2,7 +2,7 @@ use arrow::array::ArrayRef;
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_typst_label::LabelValues;
 
-use crate::GuideSide;
+use crate::{label_variant::LabelVariant, GuideSide};
 
 /// What an axis shows and how it looks, at any length.
 #[derive(Debug, Clone)]
@@ -23,11 +23,13 @@ pub struct AxisConfig {
 /// The values that the labels of the categories of a band or a point axis bind: for each of
 /// `categories`, a map that holds at least `value`, which a label without `tick_label` shows, and
 /// any other names that `tick_label` reads, such as `#value (#count)`. A category without a map
-/// takes the category as `tick_format` formats it.
+/// takes the category as `tick_format` formats it. The label of each category with a variant in
+/// `variants` takes its text style, such as the label of the Other group of a lump.
 #[derive(Debug, Clone)]
 pub struct CategoryLabels {
     pub categories: ArrayRef,
     pub values: Vec<LabelValues>,
+    pub variants: Vec<Option<LabelVariant>>,
 }
 
 /// Axis appearance and tick placement. `AxisStyle::default()` is the default look, and
