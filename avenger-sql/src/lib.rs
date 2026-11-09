@@ -18,15 +18,21 @@
 //!   that it omits, because DataFusion binds named arguments only as a prefix of the parameters.
 //!   An omitted parameter of an avenger function and `NULL` mean the same thing.
 //!
-//! [`register`] adds the mark functions of avenger-chart to a session.
+//! [`register`] adds the mark functions and the constructors of avenger-chart to a session, and
+//! the transforms of avenger-datafusion-transforms: the window functions `bin`, `stack`,
+//! `timeunit`, and `lump`, and the table function `impute`.
 
 mod pipeline;
 
-use datafusion::prelude::SessionContext;
+use datafusion::{common::Result, prelude::SessionContext};
 
 pub use pipeline::{expand, sql};
 
-/// Registers the mark functions of avenger-chart, `scaled`, and `direct` in `ctx`.
-pub fn register(ctx: &SessionContext) {
+/// Registers the mark functions, the constructors, `scaled`, and `direct` of avenger-chart, and
+/// the transforms of avenger-datafusion-transforms, in `ctx`. The transforms plan their table
+/// functions with a query planner of their own, so `ctx` must have DataFusion's default query
+/// planner, and registering two times adds their optimizer rules once.
+pub fn register(ctx: &SessionContext) -> Result<()> {
     avenger_chart::datafusion::register(ctx);
+    avenger_datafusion_transforms::register(ctx)
 }

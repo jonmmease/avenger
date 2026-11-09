@@ -1075,6 +1075,7 @@ dependencies = [
  "arrow",
  "avenger-chart",
  "avenger-chart-eval",
+ "avenger-datafusion-transforms",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-render-fixtures",
