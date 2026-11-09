@@ -209,44 +209,23 @@ fn a_point_selection_names_the_source_of_its_lump() {
 }
 
 #[test]
-fn a_set_with_others_round_trips() {
-    let clause = || {
-        Clause::new([Condition::set([
-            SetColumn::new("harbor", ["Rotterdam"]).others(["Rotterdam", "Hamburg"])
-        ])])
-        .owner("bars")
-    };
-    let chart = picked(PointSelect::builder().keys(["port"]), vec![clause()]).unwrap();
+fn a_complement_round_trips() {
+    let clause = Clause::new([Condition::set(
+        ValueSetBuilder::from([SetColumn::new("harbor", ["Rotterdam", "Hamburg"])])
+            .complement(true),
+    )])
+    .owner("bars");
+    let chart = picked(PointSelect::builder().keys(["port"]), vec![clause]).unwrap();
     let read = Chart::from_bytes(chart.to_bytes().unwrap()).unwrap();
     let set = match &read.selections()[0].initial[0].conditions[0].kind {
         Some(avenger_chart::proto::condition::Kind::Set(set)) => set.clone(),
         kind => panic!("a set, and not {kind:?}"),
     };
-    let others = read.list_elements(set.columns[0].others.as_ref().unwrap());
-    let others = others.as_any().downcast_ref::<StringArray>().unwrap();
+    assert!(set.complement);
+    let values = read.list_elements(set.columns[0].values.as_ref().unwrap());
+    let values = values.as_any().downcast_ref::<StringArray>().unwrap();
     assert_eq!(
-        others.iter().flatten().collect::<Vec<_>>(),
+        values.iter().flatten().collect::<Vec<_>>(),
         ["Rotterdam", "Hamburg"]
-    );
-
-    // Every column of a set has others, or none does, and others have the column's type.
-    let mixed = Clause::new([Condition::set([
-        SetColumn::new("harbor", ["Rotterdam"]).others(["Hamburg"]),
-        SetColumn::new("tons", [40.0]),
-    ])])
-    .owner("bars");
-    invalid(
-        picked(PointSelect::builder().keys(["port"]), vec![mixed]),
-        "selections[0].initial[0].conditions[0].set",
-        "or none does",
-    );
-    let typed = Clause::new([Condition::set([
-        SetColumn::new("harbor", ["Rotterdam"]).others([1.0])
-    ])])
-    .owner("bars");
-    invalid(
-        picked(PointSelect::builder().keys(["port"]), vec![typed]),
-        "selections[0].initial[0].conditions[0].set.columns[0].others",
-        "the type of its values",
     );
 }

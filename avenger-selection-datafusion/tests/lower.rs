@@ -601,27 +601,24 @@ async fn bound_states_keep_names_and_other_placeholders() {
 }
 
 #[tokio::test]
-async fn a_set_with_a_complement_lowers_as_its_sql() {
-    // Kept islands outside of which a set also matches, as a click on the Other group of a lump
-    // writes them: the row of a null island matches unless the kept islands hold null.
-    let complement = |values: Vec<Option<&str>>, others: Vec<Option<&str>>| {
+async fn a_complement_lowers_as_its_sql() {
+    // Everything except the kept islands, as a click on the Other group of a lump writes it: the
+    // row of a null island matches unless the kept islands hold null.
+    let complement = |values: Vec<Option<&str>>| {
         Condition::values("island", None, Arc::new(StringArray::from(values)))
-            .with_others(vec![Arc::new(StringArray::from(others))])
+            .complement()
             .unwrap()
     };
     let cases = [
         (
-            complement(vec![], vec![Some("biscoe")]),
+            complement(vec![Some("biscoe")]),
             "island NOT IN ('biscoe') OR island IS NULL",
         ),
         (
-            complement(vec![], vec![Some("biscoe"), None]),
+            complement(vec![Some("biscoe"), None]),
             "island NOT IN ('biscoe') AND island IS NOT NULL",
         ),
-        (
-            complement(vec![Some("biscoe")], vec![Some("biscoe"), Some("dream")]),
-            "island = 'biscoe' OR island NOT IN ('biscoe', 'dream') OR island IS NULL",
-        ),
+        (complement(vec![]), "true"),
     ];
     for (condition, sql) in cases {
         let state = SelectionState::new(
@@ -635,7 +632,7 @@ async fn a_set_with_a_complement_lowers_as_its_sql() {
     }
     // A dictionary column takes a complement of its values.
     let species = Condition::values("species", None, Arc::new(StringArray::from(vec!["adelie"])))
-        .with_others(vec![Arc::new(StringArray::from(vec!["adelie", "gentoo"]))])
+        .complement()
         .unwrap();
     let state = SelectionState::new(
         Resolution::Global,

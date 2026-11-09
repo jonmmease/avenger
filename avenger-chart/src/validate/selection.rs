@@ -45,14 +45,6 @@ impl Checker<'_> {
                 condition::Kind::Set(set) => {
                     let path = format!("{path}.set");
                     let mut length = None;
-                    let mut others_length = None;
-                    let complements = set.columns.iter().filter(|c| c.others.is_some()).count();
-                    if complements != 0 && complements != set.columns.len() {
-                        return Err(fail(
-                            &path,
-                            "every column of a set has `others`, or none does",
-                        ));
-                    }
                     for (position, column) in set.columns.iter().enumerate() {
                         let path = format!("{path}.columns[{position}]");
                         let values = self
@@ -65,23 +57,6 @@ impl Checker<'_> {
                             ));
                         }
                         length = Some(values.len());
-                        if let Some(others) = &column.others {
-                            let others_path = format!("{path}.others");
-                            let others = self.values.list(Some(others), &others_path)?;
-                            if !values.is_empty() && others.data_type() != values.data_type() {
-                                return Err(fail(
-                                    &others_path,
-                                    "the `others` of a column of a set have the type of its values",
-                                ));
-                            }
-                            if others_length.is_some_and(|length| length != others.len()) {
-                                return Err(fail(
-                                    &others_path,
-                                    "the `others` of the columns of a set have one length",
-                                ));
-                            }
-                            others_length = Some(others.len());
-                        }
                     }
                 }
                 condition::Kind::Range(range) => {

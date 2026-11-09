@@ -44,16 +44,10 @@ pub(crate) fn hash_condition<H: Hasher>(condition: &Condition, hasher: &mut H) {
             columns,
             channels,
             values,
-            others,
+            complement,
         } => {
-            (
-                columns,
-                channels,
-                values.len(),
-                others.as_ref().map(Vec::len),
-            )
-                .hash(hasher);
-            for list in values.iter().chain(others.iter().flatten()) {
+            (columns, channels, values.len(), complement).hash(hasher);
+            for list in values {
                 hash_array(list.as_ref(), hasher);
             }
         }

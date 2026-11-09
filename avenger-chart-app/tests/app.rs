@@ -379,7 +379,7 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
             [avenger_selection::Condition::Set {
                 columns,
                 values,
-                others,
+                complement,
                 ..
             }] => {
                 assert_eq!(columns, &["cylinders".to_string()]);
@@ -390,17 +390,14 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
                         .unwrap();
                     values.iter().flatten().collect::<Vec<i64>>()
                 };
-                (
-                    numbers(&values[0]),
-                    others.as_ref().map(|others| numbers(&others[0])),
-                )
+                (numbers(&values[0]), *complement)
             }
             conditions => panic!("a set, and not {conditions:?}"),
         },
         clauses => panic!("one clause, and not {clauses:?}"),
     };
 
-    // A click of the Other bar selects every value outside the kept 4 and 8.
+    // A click of the Other bar selects every value outside the kept 4 and 8, their complement.
     let other = bar(&app, 2);
     send(
         &mut app,
@@ -411,19 +408,19 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
         ],
     )
     .await;
-    assert_eq!(set(&app), (vec![], Some(vec![4, 8])));
+    assert_eq!(set(&app), (vec![4, 8], true));
 
-    // A Shift click of the 4 bar adds it.
+    // A Shift click of the 4 bar adds it, so the complement leaves out only 8.
     std::thread::sleep(Duration::from_millis(600));
     let four = bar(&app, 0);
     send(&mut app, shift_click(four)).await;
-    assert_eq!(set(&app), (vec![4], Some(vec![4, 8])));
+    assert_eq!(set(&app), (vec![8], true));
 
     // Another Shift click of the Other bar removes the Other group.
     std::thread::sleep(Duration::from_millis(600));
     let other = bar(&app, 2);
     send(&mut app, shift_click(other)).await;
-    assert_eq!(set(&app), (vec![4], None));
+    assert_eq!(set(&app), (vec![4], false));
 }
 
 #[tokio::test(flavor = "multi_thread")]

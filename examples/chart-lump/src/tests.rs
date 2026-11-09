@@ -146,15 +146,18 @@ async fn a_click_on_the_other_bar_grays_the_movies_of_the_kept_genres() {
         app.update(&event, Instant::now()).await;
     }
 
-    // The selection holds every genre outside the five kept ones.
+    // The selection is the complement of the five kept genres.
     let clauses = &app.state().evaluator().selections()[GENRES].clauses;
     match &clauses[..] {
         [clause] => match &clause.conditions[..] {
             [avenger_selection::Condition::Set {
-                columns, others, ..
+                columns,
+                values,
+                complement: true,
+                ..
             }] => {
                 assert_eq!(columns, &["genre".to_string()]);
-                assert_eq!(others.as_ref().map(|others| others[0].len()), Some(KEPT));
+                assert_eq!(values[0].len(), KEPT);
             }
             conditions => panic!("a set, and not {conditions:?}"),
         },

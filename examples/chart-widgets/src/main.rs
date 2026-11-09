@@ -227,13 +227,15 @@ fn describe(condition: &Condition) -> String {
         Condition::Set {
             columns,
             values: sets,
+            complement,
             ..
         } => {
             let sets = sets
                 .iter()
                 .map(|set| values(set).join(", "))
                 .collect::<Vec<_>>();
-            format!("{} in [{}]", columns.join(", "), sets.join("; "))
+            let within = if *complement { "not in" } else { "in" };
+            format!("{} {within} [{}]", columns.join(", "), sets.join("; "))
         }
         condition => format!("{condition:?}"),
     }

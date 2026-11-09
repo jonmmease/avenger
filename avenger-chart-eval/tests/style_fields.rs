@@ -750,8 +750,8 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("Selection", &["name", "resolution", "initial"]),
     ("Clause", &["owner", "conditions", "partition", "widget"]),
     ("Condition", &["set", "range", "polygon", "cyclic_range"]),
-    ("ValueSet", &["columns"]),
-    ("SetColumn", &["column", "channel", "values", "others"]),
+    ("ValueSet", &["columns", "complement"]),
+    ("SetColumn", &["column", "channel", "values"]),
     (
         "ValueRange",
         &["column", "channel", "low", "high", "exclude_end"],

@@ -344,9 +344,9 @@ fn a_stylesheet_draws_the_other_bar_gray_with_a_pattern() {
     assert!(is_color(&fills[2], OTHER_GRAY), "{fills:?}");
 }
 
-/// Whether each bar of the counted cars is light gray, outside the selection `pick` of
-/// `condition`, which a point selection of the lumps writes over their source, `cylinders`.
-fn picked_bars(condition: SetColumnBuilder) -> Vec<bool> {
+/// Whether each bar of the counted cars is light gray, outside the selection `pick` of the set
+/// `set`, which a point selection of the lumps writes over their source, `cylinders`.
+fn picked_bars(set: impl Into<ValueSetBuilder>) -> Vec<bool> {
     let color = Encoding::scaled_field("lumped").conditional([ConditionalValue::direct_value(
         Predicate::negate(Predicate::selected("pick")),
         "lightgray",
@@ -361,7 +361,7 @@ fn picked_bars(condition: SetColumnBuilder) -> Vec<bool> {
     .id("bars")
     .tools([Select::points("pick", pick)]);
     let selection = Selection::new("pick", SelectionResolution::Union)
-        .initial([Clause::new([Condition::set([condition])]).owner("bars")]);
+        .initial([Clause::new([Condition::set(set)]).owner("bars")]);
     let chart = Chart::builder(Plot::cartesian([bars]).id("plot"))
         .selections([selection])
         .build()
@@ -382,20 +382,19 @@ fn picked_bars(condition: SetColumnBuilder) -> Vec<bool> {
 
 #[test]
 fn a_selection_of_the_source_of_a_lump_selects_its_kept_bars_and_the_other_bar() {
-    // The bars of 4, 8, 6, and Other. A set of 8, and of every value outside the kept 4, 8, and
-    // 6, selects the 8 bar and the Other bar.
-    let with_other = SetColumn::new("cylinders", [8i64]).others([4i64, 8, 6]);
-    assert_eq!(picked_bars(with_other), [true, false, true, false]);
-    // Without the complement, the Other bar is outside the selection.
+    // The bars of 4, 8, 6, and Other. The complement of 4 and 6 selects the 8 bar and the Other
+    // bar.
+    let complement = |values: &[i64]| {
+        ValueSetBuilder::from([SetColumn::new("cylinders", values.to_vec())]).complement(true)
+    };
+    assert_eq!(picked_bars(complement(&[4, 6])), [true, false, true, false]);
+    // A set of 8 leaves the Other bar outside the selection.
     assert_eq!(
-        picked_bars(SetColumn::new("cylinders", [8i64])),
+        picked_bars([SetColumn::new("cylinders", [8i64])]),
         [true, false, true, true]
     );
     // A category that was Other at the click and is kept now matches as its value does.
-    assert_eq!(
-        picked_bars(SetColumn::new("cylinders", [6i64]).others([4i64, 8])),
-        [true, true, false, false]
-    );
+    assert_eq!(picked_bars(complement(&[4, 8])), [true, true, false, false]);
 }
 
 #[test]

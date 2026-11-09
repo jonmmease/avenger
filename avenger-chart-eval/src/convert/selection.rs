@@ -94,17 +94,9 @@ fn condition(chart: &Chart, condition: &proto::Condition) -> Result<Condition> {
                     })
                     .collect(),
             )?;
-            let others: Option<Vec<ArrayRef>> = (set.columns.iter())
-                .map(|column| {
-                    column
-                        .others
-                        .as_ref()
-                        .map(|others| chart.list_elements(others))
-                })
-                .collect();
-            match others {
-                Some(others) => converted.with_others(others)?,
-                None => converted,
+            match set.complement {
+                true => converted.complement()?,
+                false => converted,
             }
         }
         condition::Kind::Range(range) => {
@@ -202,14 +194,18 @@ pub(crate) enum SelectionValues {
 }
 
 /// Whether a clause of `state` holds a range or a set through `channel`, which a selection domain
-/// of `channel` takes its values from.
+/// of `channel` takes its values from. A complement, which holds no list of values, is not one.
 pub(crate) fn has_channel(state: &SelectionState, channel: Channel) -> bool {
     let label = Some(channel.field_name().to_string());
     (state.clauses.iter())
         .flat_map(|clause| &clause.conditions)
         .any(|condition| match condition {
             Condition::Range { channel, .. } => *channel == label,
-            Condition::Set { channels, .. } => channels.contains(&label),
+            Condition::Set {
+                channels,
+                complement: false,
+                ..
+            } => channels.contains(&label),
             _ => false,
         })
 }
@@ -232,7 +228,10 @@ pub(crate) fn domain_values(
                     ranges.push(ends.clone())
                 }
                 Condition::Set {
-                    channels, values, ..
+                    channels,
+                    values,
+                    complement: false,
+                    ..
                 } => {
                     if let Some(index) = channels.iter().position(|through| *through == label) {
                         clause_sets.push(values[index].clone());
@@ -356,10 +355,9 @@ pub(crate) fn lump_keys(name: &str, table: &arrow::array::RecordBatch) -> Option
 
 /// `condition` for the rows of `table`, which hold lumps of `sources` in place of their source
 /// columns: each column of a set that is the source of a lump that `table` lacks, while it holds
-/// the lump's key column, tests the keys of the lumps, which [`lump_keys`] gives. A selected value is the key of its kept
-/// category, and the complement's values are the keys of the kept categories outside of which the
-/// set also matches, so the Other group, whose key is none of them, is in every complement, and a
-/// kept category matches as its value would. Other conditions are as they are.
+/// the lump's key column, tests the keys of the lumps, which [`lump_keys`] gives. A value is the key
+/// of its kept category, so a kept category matches as its value would, and the Other group, whose
+/// key is none of them, matches a complement and no set. Other conditions are as they are.
 pub(crate) fn through_lumps(
     condition: &Condition,
     sources: &[(String, String)],
@@ -369,7 +367,7 @@ pub(crate) fn through_lumps(
         columns,
         channels,
         values,
-        others,
+        complement,
     } = condition
     else {
         return Ok(condition.clone());
@@ -390,32 +388,26 @@ pub(crate) fn through_lumps(
     }
     let mut new_columns = Vec::with_capacity(columns.len());
     let mut new_values = Vec::with_capacity(columns.len());
-    let mut new_others = others.as_ref().map(|_| Vec::with_capacity(columns.len()));
     for (index, (column, key)) in columns.iter().zip(&keys).enumerate() {
         match key {
             Some((name, lumps)) => {
                 let key_type = avenger_chart::lump::key_type(lumps.data_type())
                     .expect("a column of lumps has keys");
                 new_columns.push(format!("{name}{KEYS}"));
-                // A null value selects no row, so its key is a null struct, which matches none.
-                new_values.push(kept_keys(&key_type, &values[index], true)?);
-                if let (Some(new_others), Some(others)) = (&mut new_others, others) {
-                    new_others.push(kept_keys(&key_type, &others[index], false)?);
-                }
+                // A null value of a set selects no row, so its key is a null struct, which matches
+                // none, and a complement's null is the key of a null value, which it leaves out.
+                new_values.push(kept_keys(&key_type, &values[index], !complement)?);
             }
             None => {
                 new_columns.push(column.clone());
                 new_values.push(values[index].clone());
-                if let (Some(new_others), Some(others)) = (&mut new_others, others) {
-                    new_others.push(others[index].clone());
-                }
             }
         }
     }
     let set = Condition::set(new_columns, channels.clone(), new_values)?;
-    Ok(match new_others {
-        Some(others) => set.with_others(others)?,
-        None => set,
+    Ok(match complement {
+        true => set.complement()?,
+        false => set,
     })
 }
 

@@ -201,9 +201,9 @@ message PointSelect {
   bool toggle = 2;
   // The source columns of keys that are columns of lumps. The selection holds a set of the source
   // column in place of the lump: a click on a kept category selects its value, and a click on the
-  // Other group selects every value outside the kept categories of the clicked plot's rows, so a
-  // query filters its rows before it lumps them again. A point selection with a source has the
-  // lump as its one key.
+  // Other group selects the complement of the kept categories of the clicked plot's rows that the
+  // selection does not hold, so a query filters its rows before it lumps them again. A point
+  // selection with a source has the lump as its one key.
   repeated LumpSource sources = 3;
 }
 
