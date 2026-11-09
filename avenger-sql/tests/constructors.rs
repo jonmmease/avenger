@@ -323,7 +323,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         ),
         (
             "SELECT bar(x => species, y => body_mass_g, coord => geo(surface => 'planar')) FROM penguins",
-            "`coord` takes a `Cartesian`, not a `Geo`",
+            "`coord` takes `cartesian(...)`, not `geo(...)`",
         ),
     ] {
         let ctx = common::session();
