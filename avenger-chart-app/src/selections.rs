@@ -726,9 +726,10 @@ fn lump_tuples(
 }
 
 /// The set over the source `source` of the lumps of `key` of the tuples of keys `tuples` in the
-/// plot of `declared`: the value of each kept category, or when the tuples hold the Other group,
-/// the complement of the plot's kept categories outside the tuples, so the selection holds every
-/// value that the plot draws as Other and the kept categories of the tuples.
+/// plot of `declared`: the value of each kept category, NULL for the NULL category, or when the
+/// tuples hold the Other group, the complement of the plot's kept categories outside the tuples,
+/// so the selection holds every value that the plot draws as Other and the kept categories of the
+/// tuples. The complement of a lump that drops NULL leaves NULL out too.
 fn lump_set(
     state: &ChartAppState,
     declared: &Declared,
@@ -757,10 +758,13 @@ fn lump_set(
     let selected = arrow::compute::concat(&selected).ok()?;
     let positions = (CategoryIndex::new(&selected).ok()?.positions(&drawn)).ok()?;
     let other = avenger_chart::lump::others(&drawn)?;
-    let excluded = (0..drawn.len())
+    let mut excluded = (0..drawn.len())
         .filter(|&row| !other.value(row) && positions[row].is_none())
         .map(|row| drawn.as_struct().column(0).slice(row, 1))
         .collect::<Vec<_>>();
+    if state.evaluator.drops_null_lumps(declared.index, key) {
+        excluded.push(arrow::array::new_null_array(&value_type, 1));
+    }
     let excluded = values(excluded.iter().map(|value| value.as_ref()).collect())?;
     Condition::values(source.to_string(), None, excluded)
         .complement()

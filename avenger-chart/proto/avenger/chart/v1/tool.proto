@@ -209,8 +209,11 @@ message PointKey {
   // of `column`, so other plots and the query itself can filter the source's rows. The type of
   // `column` decides how a click selects its source, and a key with a source is the point
   // selection's one key. A key can be a column of lumps: a click on a kept category selects its
-  // value, and a click on the Other group selects the complement of the kept categories of the
-  // clicked plot's rows that the selection does not hold.
+  // value, a click on the NULL category selects NULL, and a click on the Other group selects the
+  // complement of the kept categories of the clicked plot's rows that the selection does not
+  // hold, and of NULL when the plot's rows hold NULL lumps, which a lump writes with
+  // `'nulls', 'drop'`. A query that removes the NULL lumps before the chart leaves NULL in the
+  // Other group of the selection.
   optional string source = 2;
 }
 

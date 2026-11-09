@@ -422,6 +422,196 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
     assert_eq!(set(&app), (vec![4], false));
 }
 
+/// Counts of cars by their lumped cylinders: one row of each kept value, of the Other group where
+/// `others` names it, and of the NULL category where both are NULL, with `cars` cars each. With
+/// `valid`, a row where it is false is a NULL lump, as `'nulls', 'drop'` writes it.
+fn lumped_counts(
+    values: Vec<Option<i64>>,
+    others: Vec<Option<&str>>,
+    cars: Vec<f64>,
+    valid: Option<Vec<bool>>,
+) -> RecordBatch {
+    let fields = arrow::datatypes::Fields::from(vec![
+        arrow::datatypes::Field::new("value", arrow::datatypes::DataType::Int64, true),
+        arrow::datatypes::Field::new("other", arrow::datatypes::DataType::Utf8, true),
+        arrow::datatypes::Field::new("weight", arrow::datatypes::DataType::Float64, true),
+        arrow::datatypes::Field::new("category_count", arrow::datatypes::DataType::Int64, true),
+    ]);
+    let counts: Vec<i64> = others
+        .iter()
+        .map(|other| if other.is_some() { 3 } else { 1 })
+        .collect();
+    let lumped = arrow::array::StructArray::new(
+        fields,
+        vec![
+            Arc::new(arrow::array::Int64Array::from(values)),
+            Arc::new(StringArray::from(others)),
+            Arc::new(Float64Array::from(cars.clone())),
+            Arc::new(arrow::array::Int64Array::from(counts)),
+        ],
+        valid.map(Into::into),
+    );
+    RecordBatch::try_from_iter([
+        ("lumped", Arc::new(lumped) as arrow::array::ArrayRef),
+        ("cars", Arc::new(Float64Array::from(cars))),
+    ])
+    .unwrap()
+}
+
+/// An app of bars of `counts`, keyed by the column `key` with the source `source` when it has
+/// one, with a point selection `brush` that a Shift click toggles.
+async fn bars_app(
+    counts: &RecordBatch,
+    key: &str,
+    source: Option<&str>,
+) -> AvengerApp<ChartAppState> {
+    let point_key = match source {
+        Some(source) => PointKey::new(key).source(source),
+        None => PointKey::new(key),
+    };
+    let points = PointSelect::builder().keys([point_key]).toggle(true);
+    let bars = CartesianLayer::bar(counts.clone(), BarMark::builder().x(key).y("cars"));
+    let chart = Chart::builder(
+        Plot::cartesian([bars])
+            .id("plot")
+            .tools([Select::points("brush", points)]),
+    )
+    .selections([Selection::new("brush", SelectionResolution::Union)])
+    .build()
+    .unwrap();
+    app(chart).await.0
+}
+
+/// The middle of the bar of `row` of `counts`, whose first column the bars' x encodes.
+fn bar_of(app: &AvengerApp<ChartAppState>, counts: &RecordBatch, row: usize) -> [f32; 2] {
+    let plot = &app.state().plots()[0];
+    let column = counts.column(0);
+    let x = avenger_chart::lump::keys(column).unwrap_or_else(|| column.clone());
+    let cars = counts
+        .column(1)
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .unwrap();
+    let y: arrow::array::ArrayRef = Arc::new(Float64Array::from(vec![cars.value(row) / 2.0]));
+    let [x, y] = plot.coords.pixels([&x.slice(row, 1), &y]).unwrap();
+    [plot.rect[0] + x.value(0), plot.rect[1] + y.value(0)]
+}
+
+/// A click at `at`.
+async fn click_at(app: &mut AvengerApp<ChartAppState>, at: [f32; 2]) {
+    send(
+        app,
+        [
+            moved(at),
+            mouse(ElementState::Pressed),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+}
+
+/// The values of the one set of the selection `brush` over the source `cylinders`, NULL as
+/// `None`, sorted, and whether it is a complement.
+fn cylinders_set(app: &AvengerApp<ChartAppState>) -> (Vec<Option<i64>>, bool) {
+    match &brush(app)[..] {
+        [clause] => match &clause.conditions[..] {
+            [avenger_selection::Condition::Set {
+                columns,
+                values,
+                complement,
+                ..
+            }] => {
+                assert_eq!(columns, &["cylinders".to_string()]);
+                let values = values[0]
+                    .as_any()
+                    .downcast_ref::<arrow::array::Int64Array>()
+                    .unwrap();
+                let mut values: Vec<Option<i64>> = values.iter().collect();
+                values.sort();
+                (values, *complement)
+            }
+            conditions => panic!("a set, and not {conditions:?}"),
+        },
+        clauses => panic!("one clause, and not {clauses:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_the_null_bar_of_a_column_selects_its_null_rows() {
+    let counts = RecordBatch::try_from_iter([
+        (
+            "origin",
+            Arc::new(StringArray::from(vec![Some("USA"), None, Some("Japan")]))
+                as arrow::array::ArrayRef,
+        ),
+        (
+            "cars",
+            Arc::new(Float64Array::from(vec![249.0, 14.0, 79.0])),
+        ),
+    ])
+    .unwrap();
+    let mut app = bars_app(&counts, "origin", None).await;
+    let at = bar_of(&app, &counts, 1);
+    click_at(&mut app, at).await;
+    let clauses = brush(&app);
+    let [clause] = &clauses[..] else {
+        panic!("one clause, and not {clauses:?}");
+    };
+    // The set matches the cars of another table without an origin, and no other car.
+    let origins: arrow::array::ArrayRef = Arc::new(StringArray::from(vec![
+        Some("Japan"),
+        None,
+        Some("USA"),
+        None,
+    ]));
+    let matched = clause.conditions[0].matches(&[origins]).unwrap();
+    let rows: Vec<usize> = (0..matched.len())
+        .filter(|&row| matched.value(row))
+        .collect();
+    assert_eq!(rows, [1, 3]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_the_null_bar_of_a_lump_selects_null_and_the_other_bar_leaves_it_out() {
+    // 4 and 8 are kept, 6, 3, and 5 are the Other group, and the NULL category is its own.
+    let counts = lumped_counts(
+        vec![Some(4), Some(8), None, None],
+        vec![None, None, Some("Other"), None],
+        vec![207.0, 108.0, 91.0, 5.0],
+        None,
+    );
+    let mut app = bars_app(&counts, "lumped", Some("cylinders")).await;
+    let null = bar_of(&app, &counts, 3);
+    click_at(&mut app, null).await;
+    assert_eq!(cylinders_set(&app), (vec![None], false));
+
+    // A Shift click of the Other bar adds it, so the complement leaves out the kept 4 and 8.
+    std::thread::sleep(Duration::from_millis(600));
+    let other = bar_of(&app, &counts, 2);
+    send(&mut app, shift_click(other)).await;
+    assert_eq!(cylinders_set(&app), (vec![Some(4), Some(8)], true));
+
+    // A click of the Other bar alone leaves out the kept 4 and 8 and the NULL category.
+    std::thread::sleep(Duration::from_millis(600));
+    click_at(&mut app, other).await;
+    assert_eq!(cylinders_set(&app), (vec![None, Some(4), Some(8)], true));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_of_the_other_bar_of_a_lump_that_drops_null_leaves_null_out() {
+    // The last row is a NULL lump, the cars of an unknown number of cylinders that the lump drops.
+    let counts = lumped_counts(
+        vec![Some(4), Some(8), None, None],
+        vec![None, None, Some("Other"), None],
+        vec![207.0, 108.0, 91.0, 5.0],
+        Some(vec![true, true, true, false]),
+    );
+    let mut app = bars_app(&counts, "lumped", Some("cylinders")).await;
+    let other = bar_of(&app, &counts, 2);
+    click_at(&mut app, other).await;
+    assert_eq!(cylinders_set(&app), (vec![None, Some(4), Some(8)], true));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_box_writes_the_clause_of_its_plot_and_grays_the_rows_outside_it() {
     let select = vec![ToolBuilder::from(Select::interval(

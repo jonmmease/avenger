@@ -1164,6 +1164,21 @@ impl ChartEvaluator {
         Ok(Some(avenger_scales::categories::distinct(&keys)?))
     }
 
+    /// Whether a layer of the plot at index `plot` holds a NULL lump of the column `column`, the
+    /// row of a NULL category that the lump drops, which the layer does not draw. A point
+    /// selection over the lumps leaves NULL out of the Other group that a click selects.
+    pub fn drops_null_lumps(&self, plot: usize, column: &str) -> bool {
+        let resolved = self.chart.resolve();
+        let Some(plot_ref) = resolved.tree.plots.get(plot) else {
+            return false;
+        };
+        (plot_ref.layers.clone()).any(|index| {
+            (resolved.tree.layers[index].table.column_by_name(column)).is_some_and(|column| {
+                avenger_chart::lump::is_lump(column.data_type()) && column.null_count() > 0
+            })
+        })
+    }
+
     /// Whether every row that the layers of the plot at index `plot` draw matches `condition`,
     /// with the partition values of the layers. A plot shows a clause of a selection when it draws
     /// some of its conditions and every other condition holds there. A layer without a column of
