@@ -40,6 +40,7 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `item`, `group`, `entry` | Virtual nodes: a mark item, a group of items, and a legend entry | |
 | `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
 | `track`, `thumb`, `readout` | The parts of a slider: its track, its thumbs, and the readout of its value | |
+| `other` | The variant of its parent for the Other group of a lump: under a `mark`, the marks of the Other rows, and under the `label` of an axis or a legend, the Other label. Every property applies to it, and it keeps each value of its parent that no declaration changes. | |
 
 The attributes have these values:
 

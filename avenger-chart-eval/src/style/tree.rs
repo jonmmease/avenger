@@ -54,6 +54,9 @@ pub(crate) struct StyleNodes {
     pub(crate) attributions: Vec<Option<NodeId>>,
     /// The `mark` of each layer, in the order of `Tree::layers`.
     pub(crate) marks: Vec<NodeId>,
+    /// The `other` of the `mark` of each layer whose encodings read a column of lumps, which
+    /// styles the rows of the Other group, in the order of `Tree::layers`.
+    pub(crate) others: Vec<Option<NodeId>>,
     /// The `scale` of each scale group, in the order of `Resolved::scales`.
     pub(crate) scales: Vec<NodeId>,
     /// The nodes of each scale group's guide, or `None` for a group without a guide.
@@ -116,6 +119,7 @@ pub(crate) fn build(
     );
 
     let mut marks = Vec::with_capacity(resolved.tree.layers.len());
+    let mut others = Vec::with_capacity(resolved.tree.layers.len());
     for layer in &resolved.tree.layers {
         let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
@@ -136,6 +140,17 @@ pub(crate) fn build(
             }
         }
         marks.push(node);
+        let reads_lumps = layer
+            .mark
+            .encodings()
+            .any(|(_, encoding)| match &encoding.kind {
+                Some(encoding::Kind::ScaledField(name) | encoding::Kind::DirectField(name)) => {
+                    (layer.table.column_by_name(name))
+                        .is_some_and(|column| avenger_chart::lump::is_lump(column.data_type()))
+                }
+                _ => false,
+            });
+        others.push(reads_lumps.then(|| tree.add(node, Element::Other)));
     }
 
     let mut scales = Vec::with_capacity(resolved.scales.len());
@@ -186,6 +201,7 @@ pub(crate) fn build(
         nodes,
         attributions,
         marks,
+        others,
         scales,
         guides,
         facets,

@@ -98,6 +98,9 @@ mark[type=trail] { size: 2; }
 mark[type=text] { max-lines: none; }
 mark[type=image] { width: 50; height: 50; }
 mark[type=shape] { stroke: env(background, white); stroke-width: 0.5; }
+
+/* The Other group of a lump: gray, whatever the scale's colors. */
+mark > other { color: #bab0ac; }
 mark[type=rect][store] {
   fill: color-mix(in srgb,
           color-mix(in srgb, env(foreground, contrast-color(env(background, white))) 80%,

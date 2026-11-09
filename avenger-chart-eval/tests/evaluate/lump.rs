@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float64Array, Int64Array, RecordBatch, StringArray, StructArray},
+    array::{
+        Array, ArrayRef, AsArray, Float64Array, Int64Array, RecordBatch, StringArray, StructArray,
+    },
     datatypes::{DataType, Field, Fields, Int64Type},
 };
 use avenger_chart::prelude::*;
@@ -199,4 +201,73 @@ fn a_label_shared_by_partitions_with_other_counts_names_no_count() {
         texts.iter().any(|text| text.contains("(#(\"?\"))")),
         "{texts:?}"
     );
+}
+
+/// The scatter plot of the lumped cars, colored by their lumped cylinders, with `css`.
+fn styled_scatter(css: &str) -> avenger_chart_eval::EvaluatedChart {
+    let symbols = CartesianLayer::symbol(
+        lumped_cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("lumped"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let mut evaluator = avenger_chart_eval::ChartEvaluator::new(
+        chart,
+        cascade_with(css),
+        engine(),
+        avenger_chart_eval::Registry::new(),
+    )
+    .unwrap();
+    evaluator.evaluate(&host([480.0, 320.0])).unwrap()
+}
+
+/// The gray of the Other group in the base stylesheet.
+const OTHER_GRAY: [f32; 4] = [186.0 / 255.0, 176.0 / 255.0, 172.0 / 255.0, 1.0];
+
+fn is_color(color: &avenger_color::ColorOrGradient, expected: [f32; 4]) -> bool {
+    matches!(color, avenger_color::ColorOrGradient::Color(color)
+        if color.iter().zip(expected).all(|(a, b)| (a - b).abs() < 1e-3))
+}
+
+#[test]
+fn the_other_group_is_gray_whatever_the_colors_of_its_scale() {
+    let evaluated = styled_scatter("");
+    let cars = cars_dataset();
+    let cylinders = cars
+        .column_by_name("cylinders")
+        .unwrap()
+        .as_primitive::<Int64Type>();
+    // The drawn symbols are the cars with both a weight and an mpg.
+    let drawn = |name: &str| cars.column_by_name(name).unwrap().clone();
+    let (weight, mpg) = (drawn("weight"), drawn("mpg"));
+    let others: Vec<bool> = (cylinders.iter().enumerate())
+        .filter(|(row, _)| weight.is_valid(*row) && mpg.is_valid(*row))
+        .map(|(_, cylinders)| matches!(cylinders, Some(3 | 5)))
+        .collect();
+    let symbols = plot_symbols(&evaluated);
+    let fills = symbols.fill.as_vec(symbols.len as usize, None);
+    assert_eq!(fills.len(), others.len());
+    for (row, (fill, other)) in fills.iter().zip(&others).enumerate() {
+        assert_eq!(is_color(fill, OTHER_GRAY), *other, "row {row}: {fill:?}");
+    }
+    // The legend's last entry, the Other group, is gray too.
+    let legend = legend_symbol_fills(&evaluated);
+    assert!(is_color(legend.last().unwrap(), OTHER_GRAY), "{legend:?}");
+    assert!(!is_color(&legend[0], OTHER_GRAY), "{legend:?}");
+}
+
+#[test]
+fn a_stylesheet_draws_the_other_symbols_as_outlines() {
+    let evaluated =
+        styled_scatter("mark[type=symbol] > other { fill: none; stroke: currentColor; }");
+    assert_image(&evaluated, "lump-styled");
+    let legend = legend_symbol_fills(&evaluated);
+    assert!(
+        matches!(legend.last().unwrap(), avenger_color::ColorOrGradient::Color(color) if color[3] == 0.0),
+        "{legend:?}"
+    );
+    let strokes = legend_symbol_strokes(&evaluated);
+    assert!(is_color(strokes.last().unwrap(), OTHER_GRAY), "{strokes:?}");
 }

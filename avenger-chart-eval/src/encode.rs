@@ -130,6 +130,9 @@ pub(crate) struct LayerRows<'a> {
     /// `currentColor` against the color of each row.
     pub(crate) styles: &'a ComputedStyles,
     pub(crate) node: NodeId,
+    /// The `other` node of the mark, which styles the rows of the Other group of the lumps that
+    /// the layer's encodings read.
+    pub(crate) other: Option<NodeId>,
     /// The rows that draw an instance, in order.
     pub(crate) table: RecordBatch,
     /// The partition values of the layer, by column.
@@ -332,7 +335,58 @@ impl<'a> LayerRows<'a> {
         &self,
         channel: Channel,
     ) -> Result<Option<ScalarOrArray<ColorOrGradient>>> {
-        self.resolve(channel, &colors)
+        let Some(colors) = self.resolve(channel, &colors)? else {
+            return Ok(None);
+        };
+        // A row of the Other group of a lump that the channel reads takes the `other` node's color
+        // or paint in place of the scale's.
+        let (Some(other), Some(mask)) = (self.other_style(), self.other_mask(channel)) else {
+            return Ok(Some(colors));
+        };
+        let replacement = match channel {
+            Channel::Fill => Self::other_paint(self, Property::Fill),
+            Channel::Stroke => Self::other_paint(self, Property::Stroke),
+            _ => {
+                ColorOrGradient::Color(other.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]))
+            }
+        };
+        let colors = colors.as_vec(self.len(), None);
+        Ok(Some(ScalarOrArray::new_array(
+            (colors.into_iter().zip(mask))
+                .map(|(color, other)| if other { replacement.clone() } else { color })
+                .collect(),
+        )))
+    }
+
+    /// The computed style of the mark's `other` node, which styles the rows of the Other group of
+    /// the lumps that the layer reads.
+    fn other_style(&self) -> Option<&ComputedStyle> {
+        self.other.map(|other| &self.styles[other])
+    }
+
+    /// Whether each row is in the Other group of the column of lumps that the scaled field of the
+    /// encoding of `channel` reads, or `None` when it reads no lumps or no row is in the group.
+    fn other_mask(&self, channel: Channel) -> Option<Vec<bool>> {
+        let Some(encoding::Kind::ScaledField(name)) = &self.encoding(channel)?.kind else {
+            return None;
+        };
+        let others = avenger_chart::lump::others(&self.column(name)?)?;
+        let mask: Vec<bool> = others.iter().map(|other| other == Some(true)).collect();
+        mask.contains(&true).then_some(mask)
+    }
+
+    /// Whether each row is in the Other group of a column of lumps that the scaled field of any
+    /// encoding of the layer reads, which the `other` node styles where the mark node would, or
+    /// `None` when no row is.
+    fn other_rows(&self) -> Option<Vec<bool>> {
+        self.other?;
+        let mut rows = vec![false; self.len()];
+        for channel in self.mark.channels() {
+            for (row, other) in self.other_mask(*channel).into_iter().flatten().enumerate() {
+                rows[row] |= other;
+            }
+        }
+        rows.contains(&true).then_some(rows)
     }
 
     pub(crate) fn strings(&self, channel: Channel) -> Result<Option<ScalarOrArray<String>>> {
@@ -356,14 +410,31 @@ impl<'a> LayerRows<'a> {
         channel: Channel,
         property: Property,
     ) -> Result<ScalarOrArray<f32>> {
-        Ok(match self.numbers(channel)? {
+        let of = |style: &ComputedStyle| {
+            (style.number(property))
+                .unwrap_or_else(|| property.initial().trim().parse().unwrap_or(0.0))
+        };
+        let values = match self.numbers(channel)? {
             Some(values) => values,
             // A percentage `size` that no band divides draws at the initial `size`.
-            None => scalar(
-                (self.style.number(property))
-                    .unwrap_or_else(|| property.initial().trim().parse().unwrap_or(0.0)),
-            ),
-        })
+            None => scalar(of(self.style)),
+        };
+        // The rows of the Other group take the `other` node's value where the mark node's
+        // applies: without an encoding, or through one that reads the lumps.
+        let rows = match self.encoding(channel) {
+            None => self.other_rows(),
+            Some(_) => self.other_mask(channel),
+        };
+        let (Some(other), Some(rows)) = (self.other_style(), rows) else {
+            return Ok(values);
+        };
+        let replacement = of(other);
+        let values = values.as_vec(self.len(), None);
+        Ok(ScalarOrArray::new_array(
+            (values.into_iter().zip(rows))
+                .map(|(value, is_other)| if is_other { replacement } else { value })
+                .collect(),
+        ))
     }
 
     /// The computed `size` of the mark node as a fraction of its band, when it is a percentage and
@@ -493,6 +564,49 @@ impl<'a> LayerRows<'a> {
         property: Property,
         channel: Channel,
     ) -> Result<ScalarOrArray<ColorOrGradient>> {
+        let paint = self.mark_paint_of(property, channel)?;
+        // The rows of the Other group take the `other` node's paint where the mark node's applies:
+        // without an encoding of the channel, or through one that reads the lumps.
+        let rows = match (self.encoding(channel), self.other_rows()) {
+            (None, Some(rows)) => rows,
+            _ => return Ok(paint),
+        };
+        let row_colors = self
+            .colors(Channel::Color)?
+            .map(|colors| colors.as_vec(self.len(), None));
+        let other = self
+            .other
+            .expect("rows of the Other group have an `other` node");
+        let painted = |paint: Paint| match paint {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        };
+        let paint = paint.as_vec(self.len(), None);
+        Ok(ScalarOrArray::new_array(
+            (paint.into_iter().zip(rows).enumerate())
+                .map(|(row, (paint, is_other))| match (is_other, &row_colors) {
+                    (false, _) => paint,
+                    (true, Some(colors)) => match &colors[row] {
+                        ColorOrGradient::Color(color) => {
+                            painted(self.styles.paint_with(other, property, *color))
+                        }
+                        _ => Self::other_paint(self, property),
+                    },
+                    (true, None) => Self::other_paint(self, property),
+                })
+                .collect(),
+        ))
+    }
+
+    /// The paint of `property` for each row from the channel or the mark node, as `paint_of`
+    /// gives it before the rows of the Other group.
+    fn mark_paint_of(
+        &self,
+        property: Property,
+        channel: Channel,
+    ) -> Result<ScalarOrArray<ColorOrGradient>> {
         if let Some(values) = self.colors(channel)? {
             return Ok(values);
         }
@@ -527,6 +641,22 @@ impl<'a> LayerRows<'a> {
                 ScalarOrArray::new_array(colors.iter().map(resolve).collect())
             }
         })
+    }
+
+    /// The computed paint of `property` of the `other` node of `rows`, as a color: `auto` and
+    /// `currentColor` read the node's own `color`.
+    fn other_paint(rows: &LayerRows, property: Property) -> ColorOrGradient {
+        let Some(other) = rows.other else {
+            return ColorOrGradient::transparent();
+        };
+        let style = &rows.styles[other];
+        let color = style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        match rows.styles.paint_with(other, property, color) {
+            Paint::None => ColorOrGradient::transparent(),
+            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
+                ColorOrGradient::Color(color)
+            }
+        }
     }
 
     /// The fill and the stroke of each row, with their alphas times the opacities.

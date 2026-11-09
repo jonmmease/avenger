@@ -59,6 +59,7 @@ elements! {
     Track = "track",
     Thumb = "thumb",
     Readout = "readout",
+    Other = "other",
 }
 
 impl Element {
