@@ -16,7 +16,7 @@ use avenger_style::{ComputedStyle, ComputedStyles};
 
 use crate::{
     convert::{
-        domain::{domain_options, source, DomainSource, Fit, FitDefaults},
+        domain::{domain_options, source, DomainSource, Fit, FitDefaults, SpecOrder},
         scale::{fit_kind, range, range_shape, unfitted},
     },
     lumps::Lumps,
@@ -118,7 +118,7 @@ fn fitting_of(
             }),
         ));
     }
-    if fit.preferred.is_some() {
+    if matches!(fit.spec_order, Some(SpecOrder::Preferred(_))) {
         if let DomainOptions::Categories(_) = &fit.options {
             let ascending = scale.clone().with_range_interval((0.0, 1.0)).fit_domain(
                 &DomainOptions::Categories(CategoryOptions::default()),
@@ -149,14 +149,17 @@ fn lump_domain(
         .fit_domain(&fit.options, &summary.without_extents())?
         .config
         .domain;
-    let preferred = (fit.preferred.as_ref())
-        .map(|preferred| lumps.kept_keys(preferred))
-        .transpose()?;
+    let spec_order = match &fit.spec_order {
+        Some(SpecOrder::Preferred(preferred)) => {
+            Some(SpecOrder::Preferred(lumps.kept_keys(preferred)?))
+        }
+        order => order.clone(),
+    };
     let keyed = Fit {
-        preferred,
+        spec_order,
         ..fit.clone()
     };
-    lumps.order(&keyed.order(domain)?, fit.ordered)
+    lumps.order(&keyed.order(domain)?, fit.spec_order.is_some())
 }
 
 /// A position scale of a plot, which fits its domain at each length.
