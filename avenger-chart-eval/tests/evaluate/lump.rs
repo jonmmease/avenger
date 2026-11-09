@@ -137,20 +137,19 @@ fn a_band_axis_of_lumps_places_the_kept_categories_by_weight_and_other_last() {
 }
 
 #[test]
-fn labels_of_lumps_name_the_count_and_the_weight_of_the_other_group() {
+fn labels_of_lumps_name_the_count_of_the_other_group() {
     let chart = bars(
         Scale::builder(),
-        Some(Labels::builder().markup("#value (#count, #weight)")),
+        Some(Labels::builder().markup("#if other [#value (#count)] else [#value]")),
     );
     let evaluated = render(&chart, [360.0, 240.0], "lump-bars-counted");
     let labels = axis_labels(&evaluated);
     let other = labels.last().unwrap();
     assert!(
-        other.contains("Other") && other.contains("#(2)"),
+        other.starts_with("#if (true)") && other.contains("#(2)"),
         "{labels:?}"
     );
-    assert!(other.contains("\"7\""), "{labels:?}");
-    assert!(labels[0].contains("207"), "{labels:?}");
+    assert!(labels[0].starts_with("#if (false)"), "{labels:?}");
 }
 
 #[test]

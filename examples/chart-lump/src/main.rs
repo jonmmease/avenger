@@ -103,11 +103,11 @@ fn color() -> EncodingBuilder {
 /// The bars of the number of movies of each lumped genre, where a click selects a genre and a
 /// click on the Other bar selects every genre outside the kept ones.
 fn bars(genres: &RecordBatch) -> PlotBuilder {
-    // Each label names the number of movies of its bar, the weight of its lump.
+    // The label of the Other bar names the number of genres it holds.
     let x = Encoding::scaled_field("lumped").scale(
         Axis::builder()
             .title("Genre")
-            .labels(Labels::builder().markup("#value (#weight)")),
+            .labels(Labels::builder().markup("#if other [#value (#count)] else [#value]")),
     );
     let y = Encoding::scaled_field("movies").scale(Axis::builder().title("Movies"));
     let tooltip = Tooltip::exact()
