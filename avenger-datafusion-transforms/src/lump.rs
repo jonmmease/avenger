@@ -31,12 +31,14 @@
 //! window can also have an order of its own, `OVER (ORDER BY max(tons) DESC, port)`, and a
 //! frame without an order is an error, because the categories have no order of their own.
 //!
-//! The result is `struct<value, other, weight>`: for a kept category, the category and its
-//! weight; for the Other group, the label and the weight of all rows of the dropped
-//! categories. The weight is always DOUBLE, because the type of a window function is fixed
-//! before anything parses the `weight` string. A NULL category is a category: it ranks last among
-//! equal weights, and when it is kept, `value` and `other` are both NULL, so `other` tells it
-//! from the Other group.
+//! The result is `struct<value, other, weight, category_count>`: for a kept category, the
+//! category, its weight, and 1; for the Other group, the label, the weight of all rows of the
+//! dropped categories, and the number of dropped categories of the window partition, for a
+//! label such as "Other (12)". The weight is always DOUBLE, because the type of a window
+//! function is fixed before anything parses the `weight` string. A NULL category is a
+//! category: it ranks last among equal weights, it counts in `category_count` when it is
+//! dropped, and when it is kept, `value` and `other` are both NULL, so `other` tells it from
+//! the Other group.
 //!
 //! The strings can read the rows of the window's input as the table `__input`, for example
 //! in a subquery, which reads all of the input, not only the partition.
@@ -52,7 +54,7 @@ use std::sync::Arc;
 
 use avenger_datafusion_aggregate_state::Family;
 use datafusion::arrow::array::{
-    Array, ArrayRef, Float64Array, StringArray, StructArray, UInt32Array,
+    Array, ArrayRef, Float64Array, Int64Array, StringArray, StructArray, UInt32Array,
 };
 use datafusion::arrow::compute::take;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields, SchemaRef};
@@ -168,12 +170,14 @@ impl LumpOptions {
     }
 }
 
-/// The fields of the lump struct.
+/// The fields of the lump struct: the kept category, the label of the Other group, the
+/// weight, and the number of categories of the value, 1 for a kept category.
 pub fn lump_fields(category: &DataType) -> Fields {
     Fields::from(vec![
         Field::new("value", category.clone(), true),
         Field::new("other", DataType::Utf8, true),
         Field::new("weight", DataType::Float64, true),
+        Field::new("category_count", DataType::Int64, false),
     ])
 }
 
@@ -292,6 +296,7 @@ impl PartitionEvaluator for LumpEvaluator {
             .filter(|&c| !kept[c])
             .map(|c| counts[c])
             .sum();
+        let dropped = kept.iter().filter(|k| !**k).count() as i64;
 
         let value_idx: UInt32Array = row_cat
             .iter()
@@ -307,9 +312,18 @@ impl PartitionEvaluator for LumpEvaluator {
             .iter()
             .map(|&c| Some(if kept[c] { counts[c] } else { other_weight }))
             .collect();
+        let category_count: Int64Array = row_cat
+            .iter()
+            .map(|&c| if kept[c] { 1 } else { dropped })
+            .collect();
         Ok(Arc::new(StructArray::new(
             lump_fields(category.data_type()),
-            vec![value, Arc::new(other), Arc::new(weight)],
+            vec![
+                value,
+                Arc::new(other),
+                Arc::new(weight),
+                Arc::new(category_count),
+            ],
             None,
         )))
     }
@@ -382,6 +396,20 @@ const INPUT: &str = "__input";
 
 fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+/// The decisions of `decided`, a query grouped by the partition keys `keys` and the category,
+/// with the number of dropped categories of each partition, `__dropped`.
+fn counted(keys: &[String], decided: &str) -> String {
+    let part = if keys.is_empty() {
+        String::new()
+    } else {
+        let keys: Vec<String> = keys.iter().map(|k| quote(k)).collect();
+        format!("PARTITION BY {}", keys.join(", "))
+    };
+    format!(
+        "SELECT *, count(*) FILTER (WHERE NOT \"__keep\") OVER ({part}) AS \"__dropped\" FROM ({decided}) AS \"__decided\""
+    )
 }
 
 /// Parses an expression string of an option, for errors that name the option.
@@ -700,6 +728,7 @@ impl<'a> LumpPlan<'a> {
              FROM {input_name} GROUP BY {}",
             group_by.join(", ")
         );
+        let decided = counted(&keys, &decided);
         let mut plan = Self {
             input: input_name.clone(),
             registry,
@@ -788,12 +817,13 @@ impl<'a> LumpPlan<'a> {
         )
     }
 
-    /// The three fields of the lump, for rows of `__cat` joined to the decisions as `d`.
+    /// The four fields of the lump, for rows of `__cat` joined to the decisions as `d`.
     fn fields_sql(&self, cat: &str) -> String {
         format!(
             "CASE WHEN d.\"__keep\" THEN {cat} END AS \"__lvalue\", \
              CASE WHEN d.\"__keep\" THEN NULL ELSE '{label}' END AS \"__lother\", \
-             CASE WHEN d.\"__keep\" THEN d.\"__weight\" ELSE d.\"__other\" END AS \"__lweight\"",
+             CASE WHEN d.\"__keep\" THEN d.\"__weight\" ELSE d.\"__other\" END AS \"__lweight\", \
+             CASE WHEN d.\"__keep\" THEN 1 ELSE d.\"__dropped\" END AS \"__lcategory_count\"",
             label = self.label
         )
     }
@@ -846,7 +876,8 @@ impl<'a> LumpPlan<'a> {
         table.table() == INPUT || table.table() == self.input
     }
 
-    /// The lump struct from the columns `__lvalue`, `__lother`, and `__lweight` of `schema`.
+    /// The lump struct from the columns `__lvalue`, `__lother`, `__lweight`, and
+    /// `__lcategory_count` of `schema`.
     fn struct_expr(&self, schema: &datafusion::common::DFSchema) -> Result<Expr> {
         let col = |name: &str| -> Result<Expr> {
             Ok(Expr::Column(
@@ -866,6 +897,10 @@ impl<'a> LumpPlan<'a> {
             )),
             Expr::Cast(Cast::new(Box::new(col("__lother")?), DataType::Utf8)),
             Expr::Cast(Cast::new(Box::new(col("__lweight")?), DataType::Float64)),
+            Expr::Cast(Cast::new(
+                Box::new(col("__lcategory_count")?),
+                DataType::Int64,
+            )),
         ];
         let field = Field::new(
             "lump",
@@ -1414,6 +1449,7 @@ impl LumpAggregateFusion {
                 states = states.concat(),
                 groups = groups.join(", "),
             );
+            let decided = counted(&lp.keys, &decided);
             let decisions = match other {
                 Some(other) => {
                     format!("SELECT *, CAST(({other}) AS DOUBLE) AS \"__other\" FROM decided")
@@ -1422,7 +1458,7 @@ impl LumpAggregateFusion {
             };
             format!(
                 "WITH decided AS ({decided}), decisions AS ({decisions}) \
-                 SELECT {}, {} FROM decisions d GROUP BY 1, 2, 3",
+                 SELECT {}, {} FROM decisions d GROUP BY 1, 2, 3, 4",
                 lp.fields_sql("d.\"__cat\""),
                 finals("d"),
             )
@@ -1462,13 +1498,19 @@ impl LumpAggregateFusion {
                     format!(
                         "WITH fine AS (SELECT {fg}, {states} FROM {input} GROUP BY {fg}), \
                          named AS (SELECT *{aliases} FROM fine), \
-                         decided AS (SELECT {dg}, CAST(({by}) AS DOUBLE) AS \"__weight\", coalesce(({keep}), false) AS \"__keep\"{merged} \
-                                     FROM named GROUP BY {dg}), \
+                         decided AS ({decided}), \
                          decisions AS (SELECT *, CAST(({other}) AS DOUBLE) AS \"__other\" FROM decided)",
                         fg = fine_groups.join(", "),
                         states = states.join(", "),
-                        dg = decision_groups.join(", "),
-                        merged = merged.concat(),
+                        decided = counted(
+                            &lp.keys,
+                            &format!(
+                                "SELECT {dg}, CAST(({by}) AS DOUBLE) AS \"__weight\", coalesce(({keep}), false) AS \"__keep\"{merged} \
+                                 FROM named GROUP BY {dg}",
+                                dg = decision_groups.join(", "),
+                                merged = merged.concat(),
+                            )
+                        ),
                         other = other_window(&by_other, &m_cols),
                     )
                 }
@@ -1485,7 +1527,7 @@ impl LumpAggregateFusion {
                 .enumerate()
                 .map(|(j, g)| format!(", f.{g} AS \"__g{j}\""))
                 .collect();
-            let group_by: String = (1..=3 + other_groups.len())
+            let group_by: String = (1..=4 + other_groups.len())
                 .map(|i| i.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");

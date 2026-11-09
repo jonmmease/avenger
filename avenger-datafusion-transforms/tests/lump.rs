@@ -269,14 +269,19 @@ fn hand_query(table: &str, c: &Case, keys: &str) -> String {
     format!(
         "WITH t2 AS (SELECT *, {cat} AS cat FROM {table}),
          cats AS (SELECT {k}{cat} AS cat, CAST({weight} AS DOUBLE) AS w, {keep} AS kept FROM {table} GROUP BY {k}{cat}),
-         oth AS ({other_from})
+         oth AS ({other_from}),
+         dropped AS (SELECT {k}count(*) AS n FROM cats WHERE kept IS NOT TRUE{dropped_by})
          SELECT t2.*, named_struct('value', CASE WHEN k.kept IS TRUE THEN t2.cat END,
                                    'other', CASE WHEN k.kept IS TRUE THEN NULL ELSE '{other}' END,
-                                   'weight', CASE WHEN k.kept IS TRUE THEN k.w ELSE o.ow END) AS l
+                                   'weight', CASE WHEN k.kept IS TRUE THEN k.w ELSE o.ow END,
+                                   'category_count', CASE WHEN k.kept IS TRUE THEN 1 ELSE dc.n END) AS l
          FROM t2 JOIN cats k ON {}(t2.cat IS NOT DISTINCT FROM k.cat)
-         LEFT JOIN oth o ON {}",
+         LEFT JOIN oth o ON {}
+         LEFT JOIN dropped dc ON {}",
         key_on("t2", "k"),
         if keys.is_empty() { "true".to_string() } else { format!("t2.{keys} IS NOT DISTINCT FROM o.{keys}") },
+        if keys.is_empty() { "true".to_string() } else { format!("t2.{keys} IS NOT DISTINCT FROM dc.{keys}") },
+        dropped_by = if keys.is_empty() { String::new() } else { format!(" GROUP BY {keys}") },
         cat = c.category,
         k = kc(""),
         weight = c.weight,
@@ -313,8 +318,7 @@ async fn rows(ctx: &SessionContext, sql: &str, columns: &str) -> Result<Vec<Stri
     Ok(out)
 }
 
-const COLUMNS: &str =
-    "region, port, tons, l['value'] AS value, l['other'] AS other, round(l['weight'], 9) AS weight";
+const COLUMNS: &str = "region, port, tons, l['value'] AS value, l['other'] AS other, round(l['weight'], 9) AS weight, l['category_count'] AS category_count";
 
 #[tokio::test]
 async fn hand_sql() -> Result<()> {
@@ -341,7 +345,7 @@ async fn aggregates() -> Result<()> {
     let fused = context(session(true)).await?;
     let joined = unfused().await?;
     let aggs = "count(*) AS n, count(tons) AS nt, sum(tons) AS s, min(tons) AS lo, max(tons) AS hi, avg(tons) AS mean, var_samp(tons) AS vs, stddev_pop(tons) AS sp";
-    let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, round(l['weight'], 9) AS w, n, nt, round(s, 9) AS s, lo, hi, round(mean, 9) AS mean, round(vs, 9) AS vs, round(sp, 9) AS sp";
+    let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, round(l['weight'], 9) AS w, l['category_count'] AS c, n, nt, round(s, 9) AS s, lo, hi, round(mean, 9) AS mean, round(vs, 9) AS vs, round(sp, 9) AS sp";
     for c in cases() {
         for (over, keys) in WINDOWS {
             for extra in ["", ", region"] {
@@ -377,6 +381,30 @@ async fn fuses(ctx: &SessionContext, sql: &str) -> Result<bool> {
             .to_string()
             .contains("_merge("),
     )
+}
+
+/// The number of categories of each lump value: 1 for a kept category, and for the Other
+/// group the number of categories that the lump drops in its window partition, where a NULL
+/// category is one. In region N, the 2 largest of the ports a, b, c, 'Other', and NULL are a
+/// and b; in region S, of a, b, c, d, and e, they are b and c; the NULL region has 2 ports.
+#[tokio::test]
+async fn category_count() -> Result<()> {
+    let sql = "SELECT *, lump(port, 'n', 2) OVER (PARTITION BY region) AS l FROM c";
+    let cols = "region, l['other'] AS other, l['category_count'] AS category_count";
+    let want = [
+        "N | NULL | 1",
+        "N | Other | 3",
+        "NULL | NULL | 1",
+        "S | NULL | 1",
+        "S | Other | 3",
+    ];
+    // Through the rule, and through the window's own evaluator.
+    for ctx in [unfused().await?, context(session(false)).await?] {
+        let mut got = rows(&ctx, sql, cols).await?;
+        got.dedup();
+        assert_eq!(got, want);
+    }
+    Ok(())
 }
 
 #[tokio::test]
@@ -520,7 +548,7 @@ async fn errors() -> Result<()> {
 #[tokio::test]
 async fn mixed_and_volatile() -> Result<()> {
     let rules = unfused().await?;
-    let cols = "region, port, tons, l['value'] AS value, l['other'] AS other, round(l['weight'], 9) AS weight, t";
+    let cols = "region, port, tons, l['value'] AS value, l['other'] AS other, round(l['weight'], 9) AS weight, l['category_count'] AS category_count, t";
     let mixed =
         "SELECT *, lump(port, 'keep', 'count(*) >= 2') OVER () AS l, sum(tons) OVER () AS t FROM c";
     let single = "SELECT *, lump(port, 'keep', 'count(*) >= 2') OVER () AS l, (SELECT sum(tons) FROM c) AS t FROM c";
@@ -576,7 +604,7 @@ async fn aggregates_that_do_not_fuse() -> Result<()> {
             true,
         ),
     ] {
-        let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, n";
+        let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, l['category_count'] AS c, n";
         assert_eq!(
             rows(&fused, grouped, cols).await?,
             rows(&joined, grouped, cols).await?,

@@ -17,7 +17,7 @@ SELECT * FROM impute(sales, month, [region], units, value => 0)
 | `bin` | `struct<start, end>` | Bins of a nice step, for at most `maxbins` bins, over the extent of each window partition or an explicit `extent`. `bin_params(lo, hi, ...)` gives the bins of an extent. |
 | `stack` | `struct<start, end>` | The layers of each stack, with the offsets `zero`, `normalize`, and `center`, which centers each stack on zero. |
 | `timeunit` | `struct<start, end, unit>` | A calendar unit in the time zone of the value's type, chosen for each window partition or given with `'unit'`. Units include fiscal quarters and years, and collapsing units such as `'month_of_year'`. |
-| `lump` | `struct<value, other, weight>` | Keeps the top categories, or the categories that a condition keeps, and lumps the rest into an Other group. The `'weight'` and `'keep'` options are SQL. |
+| `lump` | `struct<value, other, weight, category_count>` | Keeps the top categories, or the categories that a condition keeps, and lumps the rest into an Other group, with the number of categories that it holds. The `'weight'` and `'keep'` options are SQL. |
 | `impute` | the input's rows, then the added rows | Adds the rows that each group lacks, with a constant or a statistic over a frame. `fill_gaps` adds the bins, time units, or dates that no row has, and `partition_by` imputes partitions separately. |
 
 A table function such as `impute` reads an input relation: a subquery, a CTE of the statement, or a table by name. Every table function takes `partition_by`, which transforms partitions separately and in parallel. The module `table_function` holds this machinery for new table functions.
