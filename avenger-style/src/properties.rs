@@ -331,10 +331,10 @@ impl Property {
 
     /// Whether a node of `element` accepts the property.
     #[inline]
-    /// Whether the property applies to `element`. Every property applies to `other`, the variant
-    /// of its parent for the Other group of a lump, which takes what its parent takes.
+    /// Whether the property applies to `element`. Every property applies to a variant of its
+    /// parent, `other` or `null`, which takes what its parent takes.
     pub fn applies_to(self, element: Element) -> bool {
-        element == Element::Other || self.element_mask() & (1 << element as u32) != 0
+        element.is_variant() || self.element_mask() & (1 << element as u32) != 0
     }
 
     /// Parses a value of the property from CSS text without `var()`, `env()`, or a CSS-wide

@@ -206,7 +206,51 @@ pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4]
     }
 }
 
-/// How the text style of `other`, the `other` node of a guide's `label`, differs from `label`'s.
+/// The values and the variants of the labels of a band or a point axis of the scale group `group`
+/// with the label nodes `label` and `variants`: those of its lumps, with the labels of the Other
+/// group and the NULL category in the styles of their variant nodes, or for an axis whose label
+/// has a `null` node, those of the NULL category alone, in the type of the group's values, or
+/// `None`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn category_labels(
+    chart: &Chart,
+    resolved: &avenger_chart::resolve::Resolved,
+    group: &ScaleGroup,
+    lumps: Option<&crate::lumps::Lumps>,
+    label: avenger_style::NodeId,
+    variants: crate::variants::Variants,
+    styles: &avenger_style::ComputedStyles,
+    tick_format: &str,
+    engine: &LabelEngine,
+) -> Result<Option<avenger_guides::axis::CategoryLabels>> {
+    use crate::variants::Variant;
+    let variant =
+        |of: Variant| (variants.node(of)).map(|node| label_variant(&styles[label], &styles[node]));
+    if let Some(lumps) = lumps {
+        let labels = lumps.category_labels(
+            tick_format,
+            variant(Variant::Other),
+            variant(Variant::Null),
+            engine,
+        )?;
+        return Ok(Some(labels));
+    }
+    let (Some(null), Some(data_type)) = (
+        variant(Variant::Null),
+        crate::style::tree::values_type(chart, resolved, group),
+    ) else {
+        return Ok(None);
+    };
+    let categories = arrow::array::new_null_array(&data_type, 1);
+    let values = avenger_guides::axis::category_values(&categories, vec![LabelValue::None]);
+    Ok(Some(avenger_guides::axis::CategoryLabels {
+        categories,
+        values,
+        variants: vec![Some(null)],
+    }))
+}
+
+/// How the text style of `other`, the variant node of a guide's `label`, differs from `label`'s.
 pub(crate) fn label_variant(label: &ComputedStyle, other: &ComputedStyle) -> LabelVariant {
     fn differs<T: PartialEq>(label: T, other: T) -> Option<T> {
         (label != other).then_some(other)
@@ -522,12 +566,17 @@ fn axis(
         }
         let labels = spec.labels.as_ref();
         let tick_format = labels.map_or_else(String::new, |labels| labels.format.clone());
-        if let Some(lumps) = &inputs.lumps[index] {
-            let variant =
-                (nodes.other).map(|other| label_variant(&styles[nodes.label], &styles[other]));
-            style.category_labels =
-                Some(lumps.category_labels(&tick_format, variant, inputs.engine)?);
-        }
+        style.category_labels = category_labels(
+            inputs.chart,
+            inputs.resolved,
+            group,
+            inputs.lumps[index].as_ref(),
+            nodes.label,
+            nodes.variants,
+            styles,
+            &tick_format,
+            inputs.engine,
+        )?;
         let config = AxisConfig {
             side,
             tick_format,
@@ -1023,12 +1072,17 @@ fn replaced<T: Clone + Send + Sync>(
     )
 }
 
-/// Whether each of the `len` entries of a legend whose categories are `categories` is the Other
-/// group of a lump, or `None` for a legend without such an entry.
-fn other_entries(categories: Option<&ArrayRef>, len: usize) -> Option<Vec<bool>> {
-    let others = avenger_chart::lump::others(categories?)?;
+/// Whether each of the `len` entries of a legend whose categories are `categories` is in
+/// `variant`, the Other group of a lump or the NULL category, or `None` for a legend without such
+/// an entry.
+fn variant_entries(
+    variant: crate::variants::Variant,
+    categories: Option<&ArrayRef>,
+    len: usize,
+) -> Option<Vec<bool>> {
+    let mask = variant.mask(categories?)?;
     let entries: Vec<bool> = (0..len)
-        .map(|entry| entry < others.len() && others.value(entry))
+        .map(|entry| mask.get(entry).copied().unwrap_or(false))
         .collect();
     entries.contains(&true).then_some(entries)
 }
@@ -1088,15 +1142,17 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 .collect(),
         )
     };
-    // The entries of the Other group of a lump draw as the rows of the group do, through the
-    // layer's `other` node.
-    let others = match (
-        other_entries(draft.categories.as_ref(), len),
-        inputs.nodes.others[layer_index],
-    ) {
-        (Some(entries), Some(other)) => Some((entries, other)),
-        _ => None,
-    };
+    // The entries of the Other group of a lump and of the NULL category draw as the rows of the
+    // variant do, through the layer's variant node, in the order in which the variants apply.
+    let others: Vec<(Vec<bool>, avenger_style::NodeId)> = (inputs.nodes.variants[layer_index])
+        .nodes()
+        .filter_map(|(variant, node)| {
+            Some((
+                variant_entries(variant, draft.categories.as_ref(), len)?,
+                node,
+            ))
+        })
+        .collect();
     let other_paint = |other: avenger_style::NodeId, property: Property| {
         let color = style_color(&styles[other], Property::Color);
         match styles.paint_with(other, property, color) {
@@ -1138,7 +1194,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 _ => {}
             }
         }
-        if let Some((entries, other)) = &others {
+        for (entries, other) in &others {
             let stroke = other_paint(*other, Property::Stroke);
             let width = style_number(&styles[*other], Property::StrokeWidth);
             let dash = crate::encode::style_dashes(&styles[*other]);
@@ -1227,7 +1283,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
                 Swatch::StrokeDash(_) => {}
             }
         }
-        if let Some((entries, other)) = &others {
+        for (entries, other) in &others {
             let (fill, stroke) = (
                 other_paint(*other, Property::Fill),
                 other_paint(*other, Property::Stroke),
@@ -1258,19 +1314,21 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
     let legend_style = &styles[nodes.legend];
     let title_style = &styles[nodes.title];
     let label_style = &styles[nodes.label];
-    // The label of the Other group of a lump takes the style of the label's `other` node.
-    let variants: Vec<Option<LabelVariant>> = match (
-        nodes.other,
-        other_entries(draft.categories.as_ref(), draft.labels.len()),
-    ) {
-        (Some(other), Some(others)) => {
-            let variant = label_variant(label_style, &styles[other]);
-            (others.into_iter())
-                .map(|is_other| is_other.then(|| variant.clone()))
-                .collect()
+    // The labels of the Other group of a lump and of the NULL category take the styles of the
+    // label's variant nodes.
+    let mut variants: Vec<Option<LabelVariant>> = vec![None; draft.labels.len()];
+    for (variant, node) in nodes.variants.nodes() {
+        let Some(entries) = variant_entries(variant, draft.categories.as_ref(), draft.labels.len())
+        else {
+            continue;
+        };
+        let style = label_variant(label_style, &styles[node]);
+        for (label, is) in variants.iter_mut().zip(entries) {
+            if is {
+                *label = Some(style.clone());
+            }
         }
-        _ => Vec::new(),
-    };
+    }
     let (labels, label_syntax) = vary_labels(draft.labels, draft.label_syntax, &variants);
     let spec = &draft.spec;
     let style = LegendStyle {

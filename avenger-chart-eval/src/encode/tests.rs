@@ -92,7 +92,7 @@ fn rows<'a>(
         style: &styles[node],
         styles,
         node,
-        other: None,
+        variants: Default::default(),
         table: chart.tables()[0].clone(),
         partition,
         scales,

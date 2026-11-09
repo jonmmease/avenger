@@ -31,7 +31,11 @@ use avenger_selection::{Condition, SelectionState};
 use avenger_style::{Computed, ComputedStyle, ComputedStyles, NodeId, Paint, Property};
 use avenger_typst_label::LabelEngine;
 
-use crate::{convert::selection::predicate, EvalError, EvalWarning};
+use crate::{
+    convert::selection::predicate,
+    variants::{Variant, Variants},
+    EvalError, EvalWarning,
+};
 
 pub(crate) type Result<T> = std::result::Result<T, EvalError>;
 
@@ -140,9 +144,10 @@ pub(crate) struct LayerRows<'a> {
     /// `currentColor` against the color of each row.
     pub(crate) styles: &'a ComputedStyles,
     pub(crate) node: NodeId,
-    /// The `other` node of the mark, which styles the rows of the Other group of the lumps that
-    /// the layer's encodings read.
-    pub(crate) other: Option<NodeId>,
+    /// The variant nodes of the mark: its `other`, which styles the rows of the Other group of
+    /// the lumps that the layer's encodings read, and its `null`, which styles the rows of a NULL
+    /// category.
+    pub(crate) variants: Variants,
     /// The rows that draw an instance, in order.
     pub(crate) table: RecordBatch,
     /// The partition values of the layer, by column.
@@ -348,83 +353,103 @@ impl<'a> LayerRows<'a> {
         let Some(colors) = self.resolve(channel, &colors)? else {
             return Ok(None);
         };
-        // A row of the Other group of a lump that the channel reads takes the `other` node's color
-        // or paint in place of the scale's.
-        let Some(other) = self.other_style() else {
-            return Ok(Some(colors));
-        };
-        let replacement = match channel {
-            Channel::Fill => Self::other_paint(self, Property::Fill),
-            Channel::Stroke => Self::other_paint(self, Property::Stroke),
-            _ => {
-                ColorOrGradient::Color(other.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]))
-            }
-        };
-        Ok(Some(self.with_others(colors, channel, replacement)))
+        // A row of the Other group of a lump or of a NULL category that the channel reads takes
+        // the color or the paint of its variant node in place of the scale's.
+        let mut colors = colors;
+        for (variant, node) in self.variants.nodes() {
+            let replacement = match channel {
+                Channel::Fill => self.variant_paint(variant, Property::Fill),
+                Channel::Stroke => self.variant_paint(variant, Property::Stroke),
+                _ => ColorOrGradient::Color(
+                    (self.styles[node].color(Property::Color)).unwrap_or([0.0, 0.0, 0.0, 1.0]),
+                ),
+            };
+            colors = self.with_variant(variant, colors, channel, replacement);
+        }
+        Ok(Some(colors))
     }
 
-    /// Whether each row takes the `other` node's value of `channel` in place of the mark's: the
-    /// rows of the Other group of every column of lumps that the layer reads, without an encoding
-    /// of the channel, or of the column that the channel's encoding reads, except the rows that a
+    /// Whether each row takes the value of `channel` of the `variant` node in place of the
+    /// mark's: the rows of the variant in every column that the layer reads, without an encoding
+    /// of the channel, or in the column that the channel's encoding reads, except the rows that a
     /// conditional value of the channel gives their value. `None` when no row does.
-    pub(crate) fn styled_others(&self, channel: Channel) -> Option<Vec<bool>> {
-        self.other?;
+    pub(crate) fn styled_rows(&self, variant: Variant, channel: Channel) -> Option<Vec<bool>> {
+        self.variants.node(variant)?;
         let mut rows = match self.encoding(channel) {
-            None => self.other_rows()?,
-            Some(_) => self.other_mask(channel)?,
+            None => self.variant_rows(variant)?,
+            Some(_) => self.variant_mask(variant, channel)?,
         };
         for conditional in self.masks.get(&channel).into_iter().flatten() {
-            for (other, conditioned) in rows.iter_mut().zip(conditional) {
-                *other &= !conditioned;
+            for (styled, conditioned) in rows.iter_mut().zip(conditional) {
+                *styled &= !conditioned;
             }
         }
         rows.contains(&true).then_some(rows)
     }
 
-    /// `values` of `channel`, with `other`, the `other` node's value, on the rows that
-    /// [`styled_others`](Self::styled_others) gives.
-    pub(crate) fn with_others<T: Clone + Send + Sync>(
+    /// `values` of `channel`, with `value`, the `variant` node's value, on the rows that
+    /// [`styled_rows`](Self::styled_rows) gives.
+    pub(crate) fn with_variant<T: Clone + Send + Sync>(
         &self,
+        variant: Variant,
         values: ScalarOrArray<T>,
         channel: Channel,
-        other: T,
+        value: T,
     ) -> ScalarOrArray<T> {
-        let Some(rows) = self.styled_others(channel) else {
+        let Some(rows) = self.styled_rows(variant, channel) else {
             return values;
         };
         ScalarOrArray::new_array(
             (values.as_vec(self.len(), None).into_iter().zip(rows))
-                .map(|(value, is_other)| if is_other { other.clone() } else { value })
+                .map(|(known, styled)| if styled { value.clone() } else { known })
                 .collect(),
         )
     }
 
-    /// The computed style of the mark's `other` node, which styles the rows of the Other group of
-    /// the lumps that the layer reads.
-    pub(crate) fn other_style(&self) -> Option<&ComputedStyle> {
-        self.other.map(|other| &self.styles[other])
+    /// `values` of `channel`, with the value that `of` gives for each variant node's computed
+    /// style on its rows, the variants in the order in which they apply.
+    pub(crate) fn with_variants<T: Clone + Send + Sync>(
+        &self,
+        values: ScalarOrArray<T>,
+        channel: Channel,
+        of: impl Fn(&ComputedStyle) -> T,
+    ) -> ScalarOrArray<T> {
+        (self.variants.nodes()).fold(values, |values, (variant, node)| {
+            self.with_variant(variant, values, channel, of(&self.styles[node]))
+        })
     }
 
-    /// Whether each row is in the Other group of the column of lumps that the scaled field of the
-    /// encoding of `channel` reads, or `None` when it reads no lumps or no row is in the group.
-    pub(crate) fn other_mask(&self, channel: Channel) -> Option<Vec<bool>> {
+    /// Whether each row is in `variant` in the column that the scaled field of the encoding of
+    /// `channel` reads: the Other group of a column of lumps, or the NULL category of a column of
+    /// lumps or of a column through a categorical scale. `None` when no row is.
+    pub(crate) fn variant_mask(&self, variant: Variant, channel: Channel) -> Option<Vec<bool>> {
         let Some(encoding::Kind::ScaledField(name)) = &self.encoding(channel)?.kind else {
             return None;
         };
-        let others = avenger_chart::lump::others(&self.column(name)?)?;
-        let mask: Vec<bool> = others.iter().map(|other| other == Some(true)).collect();
+        let column = self.column(name)?;
+        let lumps = avenger_chart::lump::keys(&column);
+        if variant == Variant::Null && lumps.is_none() {
+            let categorical = (self.scale_for(channel)).is_some_and(|scale| {
+                matches!(scale.scale_impl.scale_type(), "band" | "point" | "ordinal")
+            });
+            if !categorical {
+                return None;
+            }
+        }
+        let mask = variant.mask(&lumps.unwrap_or(column))?;
         mask.contains(&true).then_some(mask)
     }
 
-    /// Whether each row is in the Other group of a column of lumps that the scaled field of any
-    /// encoding of the layer reads, which the `other` node styles where the mark node would, or
-    /// `None` when no row is.
-    pub(crate) fn other_rows(&self) -> Option<Vec<bool>> {
-        self.other?;
+    /// Whether each row is in `variant` in a column that the scaled field of any encoding of the
+    /// layer reads, which the variant node styles where the mark node would, or `None` when no
+    /// row is.
+    pub(crate) fn variant_rows(&self, variant: Variant) -> Option<Vec<bool>> {
+        self.variants.node(variant)?;
         let mut rows = vec![false; self.len()];
         for channel in self.mark.channels() {
-            for (row, other) in self.other_mask(*channel).into_iter().flatten().enumerate() {
-                rows[row] |= other;
+            let mask = self.variant_mask(variant, *channel);
+            for (row, styled) in mask.into_iter().flatten().enumerate() {
+                rows[row] |= styled;
             }
         }
         rows.contains(&true).then_some(rows)
@@ -460,10 +485,7 @@ impl<'a> LayerRows<'a> {
             // A percentage `size` that no band divides draws at the initial `size`.
             None => scalar(of(self.style)),
         };
-        Ok(match self.other_style() {
-            Some(other) => self.with_others(values, channel, of(other)),
-            None => values,
-        })
+        Ok(self.with_variants(values, channel, of))
     }
 
     /// The computed `size` of the mark node as a fraction of its band, when it is a percentage and
@@ -510,14 +532,18 @@ impl<'a> LayerRows<'a> {
             Some(dashes) => Some(dashes),
             None => style_dashes(self.style).map(scalar),
         };
-        // The rows of the Other group take the `other` node's dashes, where no dashes is solid.
-        let (Some(other), Some(_)) = (self.other_style(), self.styled_others(Channel::StrokeDash))
-        else {
+        // The rows of a variant take its node's dashes, where no dashes is solid.
+        let styled = (Variant::ALL.into_iter())
+            .any(|variant| self.styled_rows(variant, Channel::StrokeDash).is_some());
+        if !styled {
             return Ok(dashes);
-        };
+        }
         let dashes = dashes.unwrap_or_else(|| scalar(Vec::new()));
-        let other = style_dashes(other).unwrap_or_default();
-        Ok(Some(self.with_others(dashes, Channel::StrokeDash, other)))
+        Ok(Some(self.with_variants(
+            dashes,
+            Channel::StrokeDash,
+            |style| style_dashes(style).unwrap_or_default(),
+        )))
     }
 
     /// The band of each row along `channel` on a band or a nested band scale: its start, the edge
@@ -588,41 +614,43 @@ impl<'a> LayerRows<'a> {
         property: Property,
         channel: Channel,
     ) -> Result<ScalarOrArray<ColorOrGradient>> {
-        let paint = self.mark_paint_of(property, channel)?;
-        // Without an encoding of the channel, the rows of the Other group take the `other` node's
-        // paint, of their own colors, where the mark node's applies. An encoding's colors have
-        // their Other rows already.
-        let rows = match (self.encoding(channel), self.styled_others(channel)) {
-            (None, Some(rows)) => rows,
-            _ => return Ok(paint),
-        };
-        let row_colors = self
-            .colors(Channel::Color)?
-            .map(|colors| colors.as_vec(self.len(), None));
-        let other = self
-            .other
-            .expect("rows of the Other group have an `other` node");
+        let mut paint = self.mark_paint_of(property, channel)?;
+        // Without an encoding of the channel, the rows of a variant take its node's paint, of
+        // their own colors, where the mark node's applies. An encoding's colors have their
+        // variant rows already.
+        if self.encoding(channel).is_some() {
+            return Ok(paint);
+        }
         let painted = |paint: Paint| match paint {
             Paint::None => ColorOrGradient::transparent(),
             Paint::Color(color) | Paint::Contrast { otherwise: color } => {
                 ColorOrGradient::Color(color)
             }
         };
-        let paint = paint.as_vec(self.len(), None);
-        Ok(ScalarOrArray::new_array(
-            (paint.into_iter().zip(rows).enumerate())
-                .map(|(row, (paint, is_other))| match (is_other, &row_colors) {
-                    (false, _) => paint,
-                    (true, Some(colors)) => match &colors[row] {
-                        ColorOrGradient::Color(color) => {
-                            painted(self.styles.paint_with(other, property, *color))
-                        }
-                        _ => Self::other_paint(self, property),
-                    },
-                    (true, None) => Self::other_paint(self, property),
-                })
-                .collect(),
-        ))
+        for (variant, node) in self.variants.nodes() {
+            let Some(rows) = self.styled_rows(variant, channel) else {
+                continue;
+            };
+            let row_colors = self
+                .colors(Channel::Color)?
+                .map(|colors| colors.as_vec(self.len(), None));
+            let known = paint.as_vec(self.len(), None);
+            paint = ScalarOrArray::new_array(
+                (known.into_iter().zip(rows).enumerate())
+                    .map(|(row, (known, styled))| match (styled, &row_colors) {
+                        (false, _) => known,
+                        (true, Some(colors)) => match &colors[row] {
+                            ColorOrGradient::Color(color) => {
+                                painted(self.styles.paint_with(node, property, *color))
+                            }
+                            _ => self.variant_paint(variant, property),
+                        },
+                        (true, None) => self.variant_paint(variant, property),
+                    })
+                    .collect(),
+            );
+        }
+        Ok(paint)
     }
 
     /// The paint of `property` for each row from the channel or the mark node, as `paint_of`
@@ -668,15 +696,15 @@ impl<'a> LayerRows<'a> {
         })
     }
 
-    /// The computed paint of `property` of the `other` node of `rows`, as a color: `auto` and
+    /// The computed paint of `property` of the `variant` node, as a color: `auto` and
     /// `currentColor` read the node's own `color`.
-    fn other_paint(rows: &LayerRows, property: Property) -> ColorOrGradient {
-        let Some(other) = rows.other else {
+    fn variant_paint(&self, variant: Variant, property: Property) -> ColorOrGradient {
+        let Some(node) = self.variants.node(variant) else {
             return ColorOrGradient::transparent();
         };
-        let style = &rows.styles[other];
+        let style = &self.styles[node];
         let color = style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]);
-        match rows.styles.paint_with(other, property, color) {
+        match self.styles.paint_with(node, property, color) {
             Paint::None => ColorOrGradient::transparent(),
             Paint::Color(color) | Paint::Contrast { otherwise: color } => {
                 ColorOrGradient::Color(color)

@@ -191,19 +191,26 @@ impl Lumps {
 
 impl Lumps {
     /// The values that the labels of every key of the rows bind, for a band or a point axis, as
-    /// `label_values` gives them, with the label of the Other group in `other`.
+    /// `label_values` gives them, with the label of the Other group in `other` and the label of
+    /// the NULL category in `null`.
     pub(crate) fn category_labels(
         &self,
         pattern: &str,
         other: Option<LabelVariant>,
+        null: Option<LabelVariant>,
         engine: &LabelEngine,
     ) -> Result<avenger_guides::axis::CategoryLabels> {
         let others = lump::others(&self.keys).expect("the keys of lumps");
+        let nulls = lump::nulls(&self.keys).expect("the keys of lumps");
         Ok(avenger_guides::axis::CategoryLabels {
             categories: self.keys.clone(),
             values: self.label_values(&self.keys, pattern, engine)?,
-            variants: (others.iter())
-                .map(|is_other| is_other.unwrap_or(false).then(|| other.clone()).flatten())
+            variants: (0..self.keys.len())
+                .map(|key| match (others.value(key), nulls.value(key)) {
+                    (true, _) => other.clone(),
+                    (_, true) => null.clone(),
+                    _ => None,
+                })
                 .collect(),
         })
     }

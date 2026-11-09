@@ -597,3 +597,28 @@ fn a_kept_null_category_of_a_lump_comes_after_the_other_group() {
     let drawn = (rect_lefts(&evaluated).into_iter()).filter(|left| left.is_finite());
     assert_eq!(drawn.count(), 4);
 }
+
+#[test]
+fn the_null_category_of_a_lump_takes_its_null_node_and_the_other_group_its_other_node() {
+    let bars = CartesianLayer::bar(
+        counted_cars_with_nulls(false),
+        BarMark::builder().x("lumped").y("cars"),
+    );
+    let chart = Chart::builder(Plot::cartesian([bars]))
+        .number_format_syntax("d3")
+        .build()
+        .unwrap();
+    let evaluated = evaluate_styled(chart, "mark > null { color: black; }", [360.0, 240.0]);
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let rects = (plot_group(&evaluated).marks.iter())
+        .find_map(|mark| match mark {
+            avenger_scenegraph::marks::mark::SceneMark::Rect(rect) => Some(rect),
+            _ => None,
+        })
+        .expect("a rect mark");
+    let fills = rects.fill.as_vec(rects.len as usize, None);
+    // The rows: 4, 8, 6, the Other group, and the NULL category.
+    assert!(is_color(&fills[3], OTHER_GRAY), "{fills:?}");
+    assert!(is_color(&fills[4], [0.0, 0.0, 0.0, 1.0]), "{fills:?}");
+    assert!(!is_color(&fills[0], [0.0, 0.0, 0.0, 1.0]), "{fills:?}");
+}

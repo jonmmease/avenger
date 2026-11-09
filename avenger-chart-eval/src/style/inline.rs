@@ -705,9 +705,10 @@ pub(crate) struct AxisNodes {
     pub(crate) axis: NodeId,
     pub(crate) title: NodeId,
     pub(crate) label: NodeId,
-    /// The `other` of the `label` of an axis over a column of lumps, which styles the label of the
-    /// Other group.
-    pub(crate) other: Option<NodeId>,
+    /// The variants of the `label` of an axis: an `other` over a column of lumps, which styles the
+    /// label of the Other group, and a `null` where the scale has a NULL category, which styles
+    /// its label.
+    pub(crate) variants: crate::variants::Variants,
     pub(crate) tick: NodeId,
     pub(crate) rule: NodeId,
     pub(crate) grid: NodeId,
@@ -847,9 +848,10 @@ pub(crate) struct LegendNodes {
     pub(crate) title: NodeId,
     pub(crate) swatch: NodeId,
     pub(crate) label: NodeId,
-    /// The `other` of the `label` of a legend over a column of lumps, which styles the label of
-    /// the Other group.
-    pub(crate) other: Option<NodeId>,
+    /// The variants of the `label` of a legend: an `other` over a column of lumps, which styles
+    /// the label of the Other group, and a `null` where the scale has a NULL category, which
+    /// styles its label.
+    pub(crate) variants: crate::variants::Variants,
 }
 
 /// A `Legend` on its nodes.

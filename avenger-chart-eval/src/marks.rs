@@ -118,21 +118,22 @@ pub(crate) fn pattern_fills(patterns: Option<ScalarOrArray<Option<PatternFill>>>
 }
 
 /// The patterns of each row: the `pattern` channel, or the computed `pattern` of the mark node,
-/// and on the rows of the Other group of a lump, the `pattern` of the `other` node.
+/// and on the rows of the Other group of a lump or of a NULL category, the `pattern` of the
+/// variant node.
 pub(crate) fn row_patterns(rows: &LayerRows) -> Result<Option<ScalarOrArray<Option<PatternFill>>>> {
-    let patterns = match rows.patterns(Channel::Pattern)? {
+    let mut patterns = match rows.patterns(Channel::Pattern)? {
         Some(patterns) => Some(patterns),
         None => style_pattern(rows.style)?.map(|pattern| scalar(Some(pattern))),
     };
-    let (Some(other), Some(_)) = (rows.other_style(), rows.styled_others(Channel::Pattern)) else {
-        return Ok(patterns);
-    };
-    let patterns = patterns.unwrap_or_else(|| scalar(None));
-    Ok(Some(rows.with_others(
-        patterns,
-        Channel::Pattern,
-        style_pattern(other)?,
-    )))
+    for (variant, node) in rows.variants.nodes() {
+        if rows.styled_rows(variant, Channel::Pattern).is_none() {
+            continue;
+        }
+        let pattern = style_pattern(&rows.styles[node])?;
+        let known = patterns.unwrap_or_else(|| scalar(None));
+        patterns = Some(rows.with_variant(variant, known, Channel::Pattern, pattern));
+    }
+    Ok(patterns)
 }
 
 /// The computed `pattern` of a node.
@@ -179,7 +180,7 @@ pub(crate) fn shapes(
 }
 
 /// The names of the shapes of each row: the `shape` channel, or the computed `shape`, and on the
-/// rows of the Other group of a lump, the `other` node's `shape`.
+/// rows of the Other group of a lump or of a NULL category, the variant node's `shape`.
 pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
     let shape = |style: &ComputedStyle| {
         (style.string(Property::Shape))
@@ -190,11 +191,7 @@ pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
         Some(names) => names,
         None => scalar(shape(rows.style)),
     };
-    // The rows of the Other group take the `other` node's shape.
-    Ok(match rows.other_style() {
-        Some(other) => rows.with_others(names, Channel::Shape, shape(other)),
-        None => names,
-    })
+    Ok(rows.with_variants(names, Channel::Shape, shape))
 }
 
 /// The stroke width of a mark whose stroke shows, or none.
