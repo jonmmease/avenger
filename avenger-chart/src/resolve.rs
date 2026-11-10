@@ -43,7 +43,9 @@ pub enum Id {
     /// The id that the chart gives the part.
     Given(String),
     /// The path of a plot or a layer without an id, such as `root.concat.children[1].plot`, which
-    /// names it by its place in the tree.
+    /// names it by its place in the tree. The cells of a facet take `children[*]` for their index,
+    /// because their partitions tell them apart, so a cell keeps its identity when the facet gains
+    /// or loses other cells.
     Path(String),
 }
 
@@ -212,7 +214,12 @@ impl<'a> Tree<'a> {
                 partitions: HashMap::new(),
             },
         };
-        walk.node(chart.root(), "root".to_string(), &BTreeMap::new())?;
+        walk.node(
+            chart.root(),
+            "root".to_string(),
+            "root".to_string(),
+            &BTreeMap::new(),
+        )?;
         let tree = walk.tree;
         unique(tree.identities())?;
         Ok(tree)
@@ -291,17 +298,19 @@ impl<'a> Walk<'a> {
         Ok(partition)
     }
 
-    /// Visits `node` at `path`, with the partition of its ancestors, and returns the partitions
-    /// of the layers and the empty cells below it.
+    /// Visits `node` at `path`, whose identities take the path `place`, with the partition of its
+    /// ancestors, and returns the partitions of the layers and the empty cells below it.
     fn node(
         &mut self,
         node: &'a proto::Node,
         path: String,
+        place: String,
         inherited: &BTreeMap<String, ArrayRef>,
     ) -> Result<Vec<BTreeMap<String, ArrayRef>>> {
         match node.node.as_ref().expect("a valid node has a kind") {
             Node::Plot(plot) => {
                 let path = format!("{path}.plot");
+                let place = format!("{place}.plot");
                 let own = self.add(inherited, &plot.partition, &path)?;
                 let kind = CoordKind::of(plot).expect("a valid plot has a coordinate system");
                 let index = self.tree.plots.len();
@@ -313,7 +322,7 @@ impl<'a> Walk<'a> {
                     let partition = self.add(&own, layer.partition(), &layer_path)?;
                     let identity = Identity {
                         id: match layer.id() {
-                            "" => Id::Path(layer_path.clone()),
+                            "" => Id::Path(format!("{place}.{coord}.layers[{position}]")),
                             id => Id::Given(id.to_string()),
                         },
                         partition: partition.clone(),
@@ -336,7 +345,7 @@ impl<'a> Walk<'a> {
                 self.tree.partitions.insert(path.clone(), partition.clone());
                 let identity = Identity {
                     id: match plot.id.as_str() {
-                        "" => Id::Path(path.clone()),
+                        "" => Id::Path(place),
                         id => Id::Given(id.to_string()),
                     },
                     partition: partition.clone(),
@@ -378,6 +387,7 @@ impl<'a> Walk<'a> {
                     _ => "wrap",
                 };
                 let path = format!("{path}.{kind}");
+                let place = format!("{place}.{kind}");
                 let own = self.add(inherited, partition, &path)?;
                 self.ancestors.push(Ancestor {
                     path: path.clone(),
@@ -385,7 +395,12 @@ impl<'a> Walk<'a> {
                 });
                 let mut leaves = Vec::new();
                 for (index, child) in children.iter().enumerate() {
-                    leaves.extend(self.node(child, format!("{path}.children[{index}]"), &own)?);
+                    let child_place = match facet {
+                        Some(_) => format!("{place}.children[*]"),
+                        None => format!("{place}.children[{index}]"),
+                    };
+                    let child_path = format!("{path}.children[{index}]");
+                    leaves.extend(self.node(child, child_path, child_place, &own)?);
                 }
                 self.ancestors.pop();
                 // A concat or a wrap without children holds its place as an empty cell does.

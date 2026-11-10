@@ -769,7 +769,8 @@ impl ChartEvaluator {
 /// projections, and the installation of a new chart, which carries them.
 impl ChartEvaluator {
     /// Installs `prepared` in place of the chart, and carries the state of the old chart by
-    /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
+    /// `options`: the fitted domains of its scales and projections, the views of pans and zooms of
+    /// scales of the same type and fields,
     /// the clauses of its selections, as they stand at the installation, and the modes that a
     /// widget or the host turned on or off, which stand while the new chart declares them. A scale carries over
     /// when the new chart has a scale with its identity and its kind of fit, and a projection when
@@ -789,6 +790,7 @@ impl ChartEvaluator {
             plot_groups,
         } = prepared;
         let new_resolved = chart.resolve();
+        let old_resolved = self.chart.resolve();
         let mut views = BTreeMap::new();
         let mut carried = BTreeMap::new();
         for (index, identity) in identities.iter().enumerate() {
@@ -804,9 +806,12 @@ impl ChartEvaluator {
                 continue;
             }
             let group = &new_resolved.scales[index];
+            // A view stands for the new scale when the new scale scales the same values: a plot
+            // of the same structure that scales other fields starts at its fit.
             let viewable = group.is_navigated()
                 && kinds[index] == FitKind::Interval
-                && !state::selection_domain(&group.spec);
+                && !state::selection_domain(&group.spec)
+                && state::same_values(&old_resolved, old_index, &new_resolved, index);
             if let (true, true, Some(view)) = (
                 options.keeps_views(),
                 viewable,

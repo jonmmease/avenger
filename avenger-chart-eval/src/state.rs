@@ -123,6 +123,33 @@ pub(crate) fn plot_groups(resolved: &Resolved) -> Vec<BTreeMap<Channel, usize>> 
 }
 
 /// Whether the domain of `spec` reads a selection.
+/// Whether the scale groups `a` of `resolved_a` and `b` of `resolved_b` scale the same values: their
+/// scales have one type, and their encodings scale the same fields, so a view of one stands for the
+/// other.
+pub(crate) fn same_values(
+    resolved_a: &Resolved,
+    a: usize,
+    resolved_b: &Resolved,
+    b: usize,
+) -> bool {
+    let fields = |resolved: &Resolved, index: usize| {
+        let mut fields: Vec<String> = (resolved.scales[index].members.iter())
+            .filter_map(|member| {
+                let mark = resolved.tree.layers[member.layer].mark;
+                match &mark.encoding(member.channel)?.kind {
+                    Some(proto::encoding::Kind::ScaledField(name)) => Some(name.clone()),
+                    _ => None,
+                }
+            })
+            .collect();
+        fields.sort();
+        fields.dedup();
+        fields
+    };
+    resolved_a.scales[a].spec.r#type == resolved_b.scales[b].spec.r#type
+        && fields(resolved_a, a) == fields(resolved_b, b)
+}
+
 pub(crate) fn selection_domain(spec: &proto::Scale) -> bool {
     matches!(
         spec.domain
