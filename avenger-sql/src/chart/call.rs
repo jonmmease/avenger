@@ -1,5 +1,5 @@
 //! The mark call of a chart call, read against the parameters of its mark: its channels, its
-//! properties and `coord`, and its draw order.
+//! properties and `coord`, its `impute` option, and its draw order.
 
 use std::ops::ControlFlow;
 
@@ -27,9 +27,16 @@ pub(super) struct MarkCall {
     /// The properties, the options of the plot and the layer, and `coord`, in the order of the
     /// mark's parameters.
     pub(super) properties: Vec<(Ident, Expr)>,
+    /// The `impute` option, a parameter of the mark calls of `|> CHART` that the lifting reads
+    /// as written ([`super::impute`]), with its name as written.
+    pub(super) impute: Option<(Ident, Expr)>,
     /// The draw order.
     pub(super) order: Vec<OrderByExpr>,
 }
+
+/// The parameter of the mark calls of `|> CHART` that imputes the rows of its key channel, after
+/// the parameters of the mark.
+pub(super) const IMPUTE: &str = "impute";
 
 impl MarkCall {
     /// The span of the mark's name.
@@ -92,6 +99,7 @@ pub(super) fn read(expr: &Expr) -> Result<MarkCall> {
         .chain(mark.options.iter().map(|option| option.name))
         .chain([COORD])
         .collect();
+    let mut impute = None;
     let mut given: Vec<Option<(Ident, Expr)>> = vec![None; parameters.len()];
     for (position, argument) in list.args.iter().enumerate() {
         let (index, ident, value) = match argument {
@@ -117,6 +125,13 @@ pub(super) fn read(expr: &Expr) -> Result<MarkCall> {
                     Some(_) => ident.value.clone(),
                     None => ident.value.to_lowercase(),
                 };
+                if written == IMPUTE && !parameters.contains(&IMPUTE) {
+                    if impute.is_some() {
+                        return Err(at(ident.span, format!("{name}() takes `{IMPUTE}` once")));
+                    }
+                    impute = Some((ident.clone(), value.clone()));
+                    continue;
+                }
                 let Some(index) = parameters.iter().position(|p| *p == written) else {
                     return Err(at(
                         ident.span,
@@ -162,6 +177,7 @@ pub(super) fn read(expr: &Expr) -> Result<MarkCall> {
         mark,
         channels,
         properties,
+        impute,
         order,
     })
 }

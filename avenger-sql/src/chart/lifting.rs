@@ -4,6 +4,8 @@
 //! - Stage 1: one `EXTEND` for each depth of the discretizers, `bin`, `timeunit`, and `lump`.
 //! - Stage 2: in a grouping call, an `AGGREGATE` of the aggregates of the channels and of the draw
 //!   order, grouped by the partition columns and the keys.
+//! - Stage 3: with the `impute` option, the pipe `CALL` of the table function `impute`, then an
+//!   `EXTEND` of the keys that are functions of the imputed key ([`impute`]).
 //! - Stage 4: an `EXTEND` of the stacks and the window functions of the channels and of the draw
 //!   order ([`stage4`]).
 //! - Stage 5: an `AGGREGATE` of the mark aggregate with the draw order, grouped by the partition
@@ -32,6 +34,7 @@ use datafusion::{
 use super::{
     call::{self, ChannelValue, MarkCall},
     classify::{self, call_kind, first_argument, level, CallKind, Level},
+    impute::{self, GroupingKeys},
     roles::{self, Roles},
     stage4,
 };
@@ -89,6 +92,7 @@ pub(super) fn generate(
     for value in checked(&call) {
         classify::check_calls(value, env)?;
     }
+    let imputation = impute::read(&call)?;
     for column in partition {
         env.data_type(column.clone(), schema)?;
     }
@@ -122,15 +126,69 @@ pub(super) fn generate(
     let mut stage5: Vec<(Expr, Expr)> = Vec::new();
     let aggregates = aggregates(&call, &discretized, &mut names, env);
     // A call groups when an aggregate is in a channel or in its draw order.
-    if !aggregates.is_empty() {
+    let grouping = !aggregates.is_empty();
+    // The roles of an imputation, which V10 checks before the planning of the stages, and of a
+    // path, which connects its points in the order of its key.
+    let roles = match imputation.is_some() || roles::is_path(call.mark.name) {
+        true => roles::decide(&call, &channel_levels, &stage1_schema, &discretized, env)?,
+        false => None,
+    };
+    let target = match &imputation {
+        Some(imputation) => Some(impute::target(
+            &call,
+            imputation,
+            roles.as_ref(),
+            grouping,
+            env,
+        )?),
+        None => None,
+    };
+    let mut grouping_keys = None;
+    let mut dependent = Vec::new();
+    if grouping {
         let keys = keys(&call, &channel_levels, partition, &discretized, &mut names);
         check_keys(&call, &channel_levels, &order_levels, &keys, partition, env)?;
+        // The keys that are functions of the imputed key compute after stage 3 from its column,
+        // so stage 2 does not group by them.
+        let imputed = (target.as_ref())
+            .map(|target| &call.channels[target.key].value)
+            .and_then(|value| keys.iter().find(|key| &key.from == value));
+        let mut groups = Vec::new();
+        let mut grouped = Vec::new();
+        for key in &keys {
+            match imputed {
+                Some(imputed) if !std::ptr::eq(key, imputed) => {
+                    if impute::dependent(&key.group.expr, &imputed.group.expr) {
+                        let name = key.group.alias.clone().expect("a key expression");
+                        let stage = replaced(
+                            &key.group.expr,
+                            &[(imputed.group.expr.clone(), imputed.column.clone())],
+                        );
+                        dependent.push(SelectItem::ExprWithAlias {
+                            expr: stage,
+                            alias: name,
+                        });
+                        continue;
+                    }
+                    groups.push(key.column.clone());
+                }
+                _ => {}
+            }
+            grouped.push(key.group.clone());
+        }
+        if let Some(target) = &target {
+            let key = match imputed {
+                Some(imputed) => imputed.column.clone(),
+                None => call.channels[target.key].value.clone(),
+            };
+            grouping_keys = Some(GroupingKeys { key, groups });
+        }
         let group_by = (partition.iter())
             .map(|column| ExprWithAlias {
                 expr: column.clone(),
                 alias: None,
             })
-            .chain(keys.iter().map(|key| key.group.clone()))
+            .chain(grouped)
             .map(plain)
             .collect();
         let full_table_exprs = (aggregates.iter())
@@ -155,6 +213,26 @@ pub(super) fn generate(
     }
     stage5.extend(discretized.iter().cloned());
 
+    let mut flag = None;
+    if let (Some(imputation), Some(target)) = (&imputation, &target) {
+        let stage3 = impute::stage3(
+            &call,
+            imputation,
+            target,
+            &channel_levels,
+            partition,
+            grouping_keys.as_ref(),
+            &stage5,
+            &mut names,
+            env,
+        )?;
+        operators.push(stage3.operator);
+        if !dependent.is_empty() {
+            operators.push(PipeOperator::Extend { exprs: dependent });
+        }
+        flag = Some(stage3.flag);
+    }
+
     let (windows, roles) = stage4::windows(
         &call,
         &channel_levels,
@@ -162,6 +240,8 @@ pub(super) fn generate(
         &stage5,
         &stage1_schema,
         &discretized,
+        roles,
+        flag.as_ref(),
         &mut names,
         env,
     )?;
@@ -658,7 +738,7 @@ fn title(expr: &Expr, registry: &dyn Registry) -> String {
 }
 
 /// A call of `name` with `args` at `span`.
-fn function(name: &str, span: Span, args: Vec<FunctionArg>) -> Function {
+pub(super) fn function(name: &str, span: Span, args: Vec<FunctionArg>) -> Function {
     Function {
         name: ObjectName::from(vec![Ident::with_span(span, name)]),
         uses_odbc_syntax: false,
@@ -676,7 +756,7 @@ fn function(name: &str, span: Span, args: Vec<FunctionArg>) -> Function {
 }
 
 /// The named argument `name => value`.
-fn named(name: Ident, value: Expr) -> FunctionArg {
+pub(super) fn named(name: Ident, value: Expr) -> FunctionArg {
     FunctionArg::Named {
         name,
         arg: FunctionArgExpr::Expr(value),
@@ -726,6 +806,19 @@ fn mark_call(
             })
             .collect();
         clauses.push(FunctionArgumentClause::OrderBy(order));
+    } else if let Some(key) =
+        (roles.filter(|_| roles::is_path(call.mark.name))).and_then(|roles| roles.key)
+    {
+        // A line or an area connects the points of each series in the order of its rows, which
+        // is the order of its key channel without a draw order.
+        clauses.push(FunctionArgumentClause::OrderBy(vec![OrderByExpr {
+            expr: replaced(&call.channels[key].value, stage5),
+            options: OrderByOptions {
+                asc: Some(true),
+                nulls_first: Some(false),
+            },
+            with_fill: None,
+        }]));
     }
     Function {
         args: FunctionArguments::List(FunctionArgumentList {

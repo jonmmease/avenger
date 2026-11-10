@@ -9,6 +9,7 @@
 
 mod call;
 mod classify;
+mod impute;
 mod lifting;
 mod roles;
 mod stage4;

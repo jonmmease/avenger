@@ -182,6 +182,22 @@ async fn a_stacked_histogram_of_chart() {
     render(&charts[0], "chart-stacked-histogram");
 }
 
+/// A stacked area of the months of three regions, where the west region has no sales in March
+/// and April, so `impute` gives it a zero in those months and every region has a layer at every
+/// month.
+#[tokio::test]
+async fn a_stacked_area_with_imputed_months() {
+    let query = "FROM generate_series(0, 181)
+|> SELECT to_timestamp_millis(1704067200000 + value * 86400000) AS t,
+     CASE value % 3 WHEN 0 THEN 'east' WHEN 1 THEN 'west' ELSE 'north' END AS region,
+     CAST((value * 7) % 11 AS DOUBLE) AS units
+|> WHERE NOT (region = 'west' AND t >= TIMESTAMP '2024-03-01' AND t < TIMESTAMP '2024-05-01')
+|> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => 0)";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-impute-stacked-area");
+}
+
 /// A title and a subtitle are Typst markup without a syntax, and the axis titles from column
 /// names stay plain.
 #[tokio::test]

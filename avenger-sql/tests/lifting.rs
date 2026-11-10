@@ -741,3 +741,220 @@ async fn the_options_of_the_plot_and_the_layer_pass_as_written() {
     )
     .await;
 }
+
+/// The sales without the west region in March and April.
+const SPARSE: &str = "FROM sales |> WHERE NOT (region = 'west' AND t >= TIMESTAMP '2024-03-01' AND t < TIMESTAMP '2024-05-01')";
+
+/// The values of the column `name` of the table of the first layer of `chart`, as text.
+fn values(chart: &Chart, name: &str) -> Vec<String> {
+    let table = table(chart);
+    let column = table
+        .column_by_name(name)
+        .unwrap_or_else(|| panic!("a column `{name}`: {:?}", table.schema()));
+    (0..column.len())
+        .map(|row| arrow::util::display::array_value_to_string(column, row).unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn impute_adds_the_keys_that_a_group_lacks() {
+    let charts = lifted(
+        "impute-bar",
+        &format!("{SPARSE} |> CHART bar(x => date_trunc('month', t), y => sum(units), color => region, impute => 0)"),
+    )
+    .await;
+    // 6 months of 3 regions, with the 2 months of the west region that impute adds.
+    assert_eq!(table(&charts[0]).num_rows(), 18);
+    let added = values(&charts[0], "sum_units");
+    assert_eq!(
+        added.iter().filter(|value| *value == "0.0").count(),
+        2,
+        "{added:?}"
+    );
+}
+
+#[tokio::test]
+async fn impute_fills_the_units_of_a_stacked_area() {
+    let charts = lifted(
+        "impute-stacked-area",
+        &format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => 0)"),
+    )
+    .await;
+    assert_eq!(table(&charts[0]).num_rows(), 18);
+}
+
+#[tokio::test]
+async fn impute_fills_the_empty_bins_of_a_histogram() {
+    let query = |impute: &str| {
+        format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species{impute})")
+    };
+    let without = charts(&query("")).await;
+    let charts = lifted("impute-bins", &query(", impute => 0")).await;
+    let (bins, filled) = (table(&without[0]).num_rows(), table(&charts[0]).num_rows());
+    assert!(filled > bins, "{filled} rows, {bins} without impute");
+    assert_eq!(filled % 3, 0, "every bin of every species");
+}
+
+#[tokio::test]
+async fn impute_fills_the_bins_of_each_panel() {
+    let charts = lifted(
+        "impute-bins-panel",
+        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => stack(count(*)), color => sex, impute => 0) GROUP BY island"),
+    )
+    .await;
+    assert_eq!(charts.len(), 3);
+}
+
+#[tokio::test]
+async fn impute_takes_the_keys_of_an_explicit_domain() {
+    let charts = lifted(
+        "impute-domain",
+        &format!("{SPARSE} |> WHERE region <> 'north' |> CHART bar(x => scaled(region, scale => scale(domain => ['east', 'west', 'north'])), y => sum(units), impute => 0)"),
+    )
+    .await;
+    assert_eq!(values(&charts[0], "region").len(), 3, "north, with 0 units");
+    // `keys` replaces the keys of the domain, and `extra_keys` adds to them.
+    let charts = lifted(
+        "impute-extra-keys",
+        &format!("{SPARSE} |> CHART bar(x => region, y => sum(units), impute => impute(value => 0, extra_keys => ['south']))"),
+    )
+    .await;
+    assert_eq!(values(&charts[0], "region").len(), 4);
+}
+
+#[tokio::test]
+async fn impute_computes_a_statistic_or_a_gap() {
+    let charts = lifted(
+        "impute-mean",
+        &format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'mean', frame => [-1, 1]))"),
+    )
+    .await;
+    assert_eq!(table(&charts[0]).num_rows(), 18);
+    let charts = lifted(
+        "impute-gap",
+        &format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'gap'))"),
+    )
+    .await;
+    let added = values(&charts[0], "sum_units");
+    assert_eq!(
+        added.iter().filter(|value| value.is_empty()).count(),
+        2,
+        "{added:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_key_of_the_imputed_key_computes_after_the_imputation() {
+    let charts = lifted(
+        "impute-dependent",
+        &format!("{SPARSE} |> CHART text(x => date_trunc('month', t), y => sum(units), color => region, text => to_char(date_trunc('month', t), '%b'), impute => 0)"),
+    )
+    .await;
+    let months = values(&charts[0], "text_expr");
+    assert_eq!(months.len(), 18);
+    assert!(months.iter().all(|month| !month.is_empty()), "{months:?}");
+}
+
+#[tokio::test]
+async fn impute_in_a_call_that_does_not_group() {
+    let charts = lifted(
+        "impute-rows",
+        &format!("{SPARSE} |> AGGREGATE sum(units) AS units GROUP BY date_trunc('month', t) AS month, region |> CHART line(x => month, y => units, color => region, impute => 0)"),
+    )
+    .await;
+    assert_eq!(table(&charts[0]).num_rows(), 18);
+}
+
+#[tokio::test]
+async fn v10_the_impute_option() {
+    let bar =
+        |impute: &str| format!("{SPARSE} |> CHART bar(x => region, y => sum(units), {impute})");
+    fails(
+        &format!("{SPARSE} |> CHART polar_bar(theta => region, radius => sum(units), impute => 0)"),
+        "`impute` is valid only on bar(), area(), line(), symbol(), and text(); found on polar_bar()",
+        "impute =>",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*), impute => island)"),
+        "option `impute` of bar() needs a plan-time constant; `island` is a column",
+        "island",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(frame => [-1, 1])"),
+        "an impute() option needs exactly one of `value` and `method`",
+        "impute(frame",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(value => 0, method => 'mean')"),
+        "exactly one of `value` and `method`",
+        "impute(value",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(method => 'linear')"),
+        "`method` must be 'mean', 'median', 'min', 'max', or 'gap'; found 'linear'",
+        "'linear'",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(value => 0, frame => [-1, 1])"),
+        "`frame` needs a method of 'mean', 'median', 'min', or 'max'; found `value`",
+        "frame",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(method => 'gap', frame => [-1, 1])"),
+        "found 'gap'",
+        "frame",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(method => 'mean', frame => [1, -1])"),
+        "the start of `frame`, 1, is after its end, -1",
+        "frame",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(method => 'mean', frame => [1.5, 2])"),
+        "`frame` is a list of two bounds, each an integer or NULL",
+        "1.5",
+    )
+    .await;
+    fails(
+        &bar("impute => impute(value => 0, limit => 3)"),
+        "impute() has no argument `limit`",
+        "limit",
+    )
+    .await;
+    fails(
+        &format!("{SPARSE} |> CHART bar(y => sum(units), impute => 0)"),
+        "`impute` needs a key channel; this bar has no x",
+        "impute =>",
+    )
+    .await;
+    fails(
+        &format!("{SPARSE} |> CHART bar(x => region, y => sum(units) / 2, impute => 0)"),
+        "`impute` fills the measure of bar(), which is one aggregate, such as sum(units), in a chart that aggregates; found `sum(units) / 2`",
+        "sum(units) / 2",
+    )
+    .await;
+    fails(
+        &format!("{SPARSE} |> CHART line(x => t, y => units * 2, impute => 0)"),
+        "a column in a chart that does not aggregate; found `units * 2`",
+        "units * 2",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (PARTITION BY sex), y => count(*), impute => 0)"),
+        "`impute` fills the bins of each `sex`, which is not a key of this chart",
+        "sex)",
+    )
+    .await;
+    // The option is a parameter of the mark calls of CHART, not of the mark aggregates.
+    let error =
+        error("FROM sales |> AGGREGATE bar(x => region, y => units, impute => 0) AS chart").await;
+    assert!(error.to_string().contains("impute"), "{error}");
+}
