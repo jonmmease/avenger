@@ -784,6 +784,32 @@ async fn a_plot_without_an_id_keeps_its_view_while_the_chart_keeps_its_structure
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_view_stays_with_the_fields_of_its_scale() {
+    let scatter = |x: &str, y: &str| {
+        let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x(x).y(y));
+        Chart::builder(Plot::cartesian([symbols]).tools(navigate()))
+            .build()
+            .unwrap()
+    };
+    let (mut app, updates, _) = app(scatter("weight", "mpg")).await;
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    assert!(app.state().evaluator().scale_view(0, Channel::X).is_some());
+
+    // A chart of the same structure that scales other fields starts at its fit.
+    updates.send(scatter("mpg", "weight"));
+    refresh_until(&mut app, |app| {
+        app.state().chart().tables()[0]
+            .schema()
+            .index_of("mpg")
+            .is_ok()
+            && app.state().evaluator().scale_view(0, Channel::X).is_none()
+    })
+    .await;
+    assert!(app.state().evaluator().scale_view(0, Channel::Y).is_none());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn updates_apply_in_the_order_of_their_calls_and_a_newer_chart_overtakes_an_older_one() {
     let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
     // An older chart, a mode, and a newer chart that overtakes the older one.
@@ -1099,15 +1125,24 @@ async fn a_navigation_of_a_selection_domain_moves_the_selection() {
                 )))
                 .y("mpg"),
         );
-    let chart = Chart::builder(
-        Plot::cartesian([symbols])
-            .id("plot")
-            .tools([Navigate::builder().channels([Channel::X])]),
-    )
-    .selections([Selection::new("brush", SelectionResolution::Union)])
-    .build()
-    .unwrap();
-    let (mut app, _, changes) = app(chart).await;
+    let chart = |id: &str| {
+        Chart::builder(
+            Plot::cartesian([symbols.clone()])
+                .id(id)
+                .tools([Navigate::builder().channels([Channel::X])]),
+        )
+        .selections([Selection::new("brush", SelectionResolution::Union)])
+        .build()
+    };
+    // The clauses of the navigation name the plot by its id.
+    let error = chart("").unwrap_err();
+    assert!(
+        error.to_string().contains(
+            "a plot whose navigation moves a scale whose domain reads a selection has an id"
+        ),
+        "{error}"
+    );
+    let (mut app, _, changes) = app(chart("plot").unwrap()).await;
     let fitted = domains(&app, 0)[0];
     let at = center(&app, 0);
     send(&mut app, drag(at, [at[0] + 50.0, at[1]])).await;
