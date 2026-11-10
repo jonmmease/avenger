@@ -27,6 +27,13 @@
 //!   that it omits, because DataFusion binds named arguments only as a prefix of the parameters.
 //!   An omitted parameter of an avenger function and `NULL` mean the same thing.
 //!
+//! - `|> CHART <mark call> [AS name] [GROUP BY ...]`, which parses as a pipe `AGGREGATE`, becomes
+//!   the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...],
+//!   name => <name>)`, with a chart for each group, which the mark planner
+//!   plans as the lifting of the call: stages that compute the discretizers, `bin`, `timeunit`,
+//!   and `lump`, and the aggregates of its channels, then the mark aggregate over their columns.
+//!   [`lift`] prints the lifting, which runs to the same chart.
+//!
 //! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,
 //! and [`register`] has DataFusion record them, so an error of a column points to its text.
 //!
@@ -34,14 +41,17 @@
 //! the transforms of avenger-datafusion-transforms: the window functions `bin`, `stack`,
 //! `timeunit`, and `lump`, and the table function `impute`.
 
+mod chart;
 mod error;
 mod functions;
 mod pipeline;
+mod registry;
 mod syntax;
 mod tokens;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
+pub use chart::lift;
 pub use pipeline::{expand, sql};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` of avenger-chart, and
@@ -54,5 +64,6 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
         .sql_parser
         .collect_spans = true;
     functions::register(ctx);
+    chart::register(ctx)?;
     avenger_datafusion_transforms::register(ctx)
 }

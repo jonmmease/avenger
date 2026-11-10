@@ -1,0 +1,1 @@
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND bin(body_mass_g) OVER (PARTITION BY island) AS body_mass_g_bin |> AGGREGATE count(*) AS n GROUP BY island, body_mass_g_bin |> AGGREGATE bar(x => scaled(body_mass_g_bin, title => 'body_mass_g'), y => scaled(n, title => 'count(*)')) AS chart GROUP BY island

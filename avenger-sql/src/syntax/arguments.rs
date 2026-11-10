@@ -18,7 +18,7 @@ const TRANSFORMS: [&str; 4] = ["bin", "timeunit", "lump", "stack"];
 const EXPRESSION_OPTIONS: [&str; 2] = ["weight", "keep"];
 
 /// The name of the function of `function`, lowercase unless it is quoted, when it has one part.
-pub(super) fn function_name(function: &Function) -> Option<String> {
+pub(crate) fn function_name(function: &Function) -> Option<String> {
     match function.name.0.as_slice() {
         [ObjectNamePart::Identifier(ident)] => Some(match ident.quote_style {
             Some(_) => ident.value.clone(),
