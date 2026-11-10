@@ -111,7 +111,7 @@ impl<State> Tooltips<State> {
                 let swatch = (target.swatch)
                     .then(|| instance_color(mark, below.graph()))
                     .flatten();
-                let content = content(target, &datum, swatch, engine)?;
+                let content = content(target, &mark.name, &datum, swatch, engine)?;
                 let placement = match target.anchor {
                     TooltipAnchor::Data => {
                         let envelope = instance.envelope();
@@ -143,6 +143,7 @@ impl<State> Tooltips<State> {
 /// its fields.
 fn content(
     target: &InstanceTarget,
+    mark: &str,
     datum: &Datum,
     swatch: Option<[f32; 4]>,
     engine: &LabelEngine,
@@ -151,7 +152,7 @@ fn content(
         Some(field) => Some(value(datum, field, target.values.as_ref(), engine)?),
         None => None,
     };
-    let rows = fields_of(target.fields.as_deref(), datum)
+    let rows = fields_of(target.fields.as_deref(), &target.titles, mark, datum)
         .iter()
         .map(|field| {
             let text = value(datum, field, target.values.as_ref(), engine)?;

@@ -349,18 +349,22 @@ fn settled_projection(state: &mut ChartAppState, identity: &Identity) {
 }
 
 /// The tool of tooltips, which describes the instances of the marks of each plot and layer that
-/// declares a `Tooltip` that is active in the chart's modes, on a scene above the chart. A layer's tooltip describes its own marks.
+/// declares a `Tooltip` that is active in the chart's modes, on a scene above the chart. A layer's
+/// tooltip describes its own marks. A tooltip without fields titles each column with the title of
+/// the first encoding of its layer that reads it and sets one, as its axis or legend shows it.
 pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
     Tooltips::new(TOOLTIP_SCENE, 2).targets(|state: &ChartAppState| {
         (state.declaring())
             .flat_map(|declared| {
                 let marks = declared.marks.clone();
+                let titles = declared.titles.clone();
                 (declared.tools.iter())
                     .filter_map(move |tool| match &tool.kind {
                         Some(tool::Kind::Tooltip(tooltip))
                             if state.evaluator.is_active(&tool.modes) =>
                         {
-                            Some(target(tooltip).with_marks(marks.clone()))
+                            let target = target(tooltip).with_marks(marks.clone());
+                            Some(target.with_titles(titles.clone()))
                         }
                         _ => None,
                     })
