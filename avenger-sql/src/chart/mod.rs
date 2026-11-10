@@ -27,9 +27,14 @@ use datafusion::{
     prelude::SessionContext,
     sql::{
         parser::Statement as DFStatement,
-        sqlparser::ast::{
-            Expr, FunctionArg, FunctionArgExpr, Ident, ObjectName, PipeOperator, Query, Statement,
-            TableFactor, Visit, VisitMut, Visitor, VisitorMut,
+        sqlparser::{
+            ast::{
+                helpers::attached_token::AttachedToken, Cte, Expr, FunctionArg, FunctionArgExpr,
+                Ident, Join, JoinConstraint, JoinOperator, ObjectName, PipeOperator, Query,
+                SelectFlavor, Statement, TableAlias, TableFactor, Visit, VisitMut, Visitor,
+                VisitorMut, With,
+            },
+            tokenizer::{Token, Tokenizer},
         },
     },
 };
@@ -233,6 +238,7 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
     let mut statement = pipeline::parse_tokens(text)?;
     while let ControlFlow::Break(found) = Visit::visit(&statement, &mut FirstMarker) {
         let (mut prefix, chart) = found?;
+        chart.check_aggregates(&state)?;
         prefix.pipe_operators.extend(chart.extend.clone());
         let mut lowered = prefix;
         syntax::lower_query(&state, &mut lowered)?;
@@ -249,11 +255,27 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
             &chart.name,
             &schema,
         )?;
-        let operators = (chart.extend.into_iter()).chain(operators).collect();
+        let splice = match chart.aggregates.is_empty() {
+            true => Splice::Operators(
+                (chart.extend.clone().into_iter())
+                    .chain(operators)
+                    .collect(),
+            ),
+            false => {
+                let mut taken = words(&statement.to_string());
+                let mut fresh = |base: &str| fresh(base, &mut taken);
+                let names = [fresh("chart_input"), fresh("aggregates"), fresh("charts")];
+                Splice::Join {
+                    chart: Box::new(chart),
+                    lifting: operators,
+                    names: names.map(Ident::new),
+                }
+            }
+        };
         let _ = VisitMut::visit(
             &mut statement,
             &mut SpliceMarker {
-                operators: Some(operators),
+                splice: Some(splice),
             },
         );
     }
@@ -281,10 +303,56 @@ impl Visitor for FirstMarker {
     }
 }
 
-/// Replaces the first `|> CHART` with the operators of its lifting, which compute its group
-/// expressions first.
+/// The lifting of a `|> CHART`, in place of the operator.
+enum Splice {
+    /// The operators of the lifting, which compute the group expressions first.
+    Operators(Vec<PipeOperator>),
+    /// The join of the aggregate items and the lifting of the chart over the input, which a CTE
+    /// of the query holds, with the names of the CTE, the aggregates, and the charts.
+    Join {
+        chart: Box<ChartOperator>,
+        lifting: Vec<PipeOperator>,
+        names: [Ident; 3],
+    },
+}
+
+/// Replaces the first `|> CHART` with its lifting.
 struct SpliceMarker {
-    operators: Option<Vec<PipeOperator>>,
+    splice: Option<Splice>,
+}
+
+/// The words of `text`, in lowercase.
+fn words(text: &str) -> std::collections::HashSet<String> {
+    let dialect = datafusion::sql::sqlparser::dialect::GenericDialect {};
+    (Tokenizer::new(&dialect, text)
+        .tokenize()
+        .unwrap_or_default()
+        .into_iter())
+    .filter_map(|token| match token {
+        Token::Word(word) => Some(word.value.to_lowercase()),
+        _ => None,
+    })
+    .collect()
+}
+
+/// The name `base`, or `base` with the smallest free suffix `_2`, `_3`, and so on, that `taken`
+/// does not hold, which it then holds.
+fn fresh(base: &str, taken: &mut std::collections::HashSet<String>) -> String {
+    let name = std::iter::once(base.to_string())
+        .chain((2..).map(|n| format!("{base}_{n}")))
+        .find(|name| !taken.contains(name))
+        .expect("a free name");
+    taken.insert(name.clone());
+    name
+}
+
+/// `query`, a query of the CTE `input` without operators, with `operators`.
+fn from_input(input: &Ident, operators: Vec<PipeOperator>) -> Query {
+    let mut select = build::select(Vec::new(), Some(table(&input.value)));
+    select.flavor = SelectFlavor::FromFirstNoSelect;
+    let mut query = build::query(select);
+    query.pipe_operators = operators;
+    query
 }
 
 impl VisitorMut for SpliceMarker {
@@ -296,9 +364,56 @@ impl VisitorMut for SpliceMarker {
         };
         let rest = query.pipe_operators.split_off(index + 1);
         query.pipe_operators.pop();
-        query
-            .pipe_operators
-            .extend(self.operators.take().unwrap_or_default());
+        match self.splice.take().expect("the lifting") {
+            Splice::Operators(operators) => query.pipe_operators.extend(operators),
+            Splice::Join {
+                chart,
+                lifting,
+                names: [input, aggregates, charts],
+            } => {
+                // The query before the operator, with the group expressions, is the CTE `input`.
+                let with = query.with.take();
+                let mut body = std::mem::replace(query, from_input(&input, Vec::new()));
+                body.pipe_operators.extend(chart.extend.clone());
+                let cte = Cte {
+                    alias: TableAlias {
+                        explicit: false,
+                        name: input.clone(),
+                        columns: Vec::new(),
+                        at: None,
+                    },
+                    query: Box::new(body),
+                    from: None,
+                    materialized: None,
+                    closing_paren_token: AttachedToken::empty(),
+                };
+                let mut with = with.unwrap_or(With {
+                    with_token: AttachedToken::empty(),
+                    recursive: false,
+                    cte_tables: Vec::new(),
+                });
+                with.cte_tables.push(cte);
+                query.with = Some(with);
+                let charts_table =
+                    syntax::aliased(build::derived(from_input(&input, lifting)), &charts);
+                query.pipe_operators = vec![
+                    chart.aggregate(),
+                    PipeOperator::As {
+                        alias: aggregates.clone(),
+                    },
+                    PipeOperator::Join(Join {
+                        relation: charts_table,
+                        global: false,
+                        join_operator: JoinOperator::LeftOuter(JoinConstraint::On(
+                            chart.join_condition(&aggregates, &charts),
+                        )),
+                    }),
+                    PipeOperator::Select {
+                        exprs: chart.projection(&aggregates, &charts),
+                    },
+                ];
+            }
+        }
         query.pipe_operators.extend(rest);
         ControlFlow::Break(())
     }

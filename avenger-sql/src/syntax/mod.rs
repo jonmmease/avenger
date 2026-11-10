@@ -32,7 +32,7 @@ use datafusion::{
 };
 
 pub(crate) use arguments::function_name;
-pub(crate) use chart::{is_marker as is_chart, read as read_chart, ChartOperator};
+pub(crate) use chart::{aliased, is_marker as is_chart, read as read_chart, ChartOperator};
 
 use crate::registry::Registry;
 
@@ -93,7 +93,7 @@ impl VisitorMut for Lower<'_> {
         }) {
             let operator = &query.pipe_operators[index];
             let split = match (chart::is_marker(operator), call::is_call(operator)) {
-                (true, _) => chart::split(query, index),
+                (true, _) => chart::split(query, index, self.registry),
                 (false, true) => call::split(query, index),
                 (false, false) => {
                     windows::split(query, index);

@@ -273,3 +273,31 @@ async fn the_arguments_of_a_pipe_call_are_lowered() {
         expand(query)
     );
 }
+
+#[tokio::test]
+async fn the_aggregate_items_of_chart_join_its_charts() {
+    let query =
+        "FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island";
+    let expanded = expand(query);
+    assert!(
+        expanded.starts_with("SELECT __avenger_aggregates.island, __avenger_charts.chart, __avenger_aggregates.n FROM (SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY island) AS __avenger_aggregates LEFT OUTER JOIN __avenger_chart("),
+        "{expanded}"
+    );
+    assert!(
+        expanded.ends_with("AS __avenger_charts ON __avenger_aggregates.island IS NOT DISTINCT FROM __avenger_charts.island"),
+        "{expanded}"
+    );
+    // Without groups, the join is ON true. Without aggregate items, there is no join.
+    let expanded = expand("FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n");
+    assert!(
+        expanded.ends_with("AS __avenger_charts ON true"),
+        "{expanded}"
+    );
+    let expanded =
+        expand("FROM penguins |> CHART bar(x => species, y => count(*)) GROUP BY island");
+    assert!(!expanded.contains("JOIN"), "{expanded}");
+    assert_eq!(
+        rows("FROM (FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island) |> SELECT island, n").await,
+        rows("FROM penguins |> AGGREGATE count(*) AS n GROUP BY island").await
+    );
+}

@@ -14,7 +14,7 @@ FROM penguins
 - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over a derived table of the operators before it, because DataFusion plans a window of a pipe `EXTEND` and fails to run it. So `FROM t |> EXTEND rank() OVER (ORDER BY x) AS r` becomes `SELECT *, rank() OVER (ORDER BY x) AS r FROM (SELECT * FROM t)`. The derived table keeps the qualifiers of the tables before it, so `x.b` stays valid after a window over `t AS x`, and the CTEs of the query stay readable after it.
 - A pipe `CALL f(<args>) [OVER (PARTITION BY ...)] [AS t]` becomes `SELECT * FROM f((<input>), <args>, partition_by => [...]) [AS t]`, the `FROM`-position call of the table function over the operators before it, because DataFusion does not plan a pipe `CALL` of a table function. So `FROM t |> AGGREGATE sum(units) AS units GROUP BY month, region |> CALL impute(month, [region], units, value => 0) OVER (PARTITION BY series)` adds the missing months of each region in each series, and the operators after the call read its rows. The `OVER` clause holds only a `PARTITION BY` list of columns, and a call without it passes no `partition_by`.
-- `|> CHART <mark call> [AS name] [GROUP BY ...]` becomes the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name => <name>)`, which the mark planner plans ([`|> CHART`](#-chart)). The token pass writes the operator as a pipe `AGGREGATE`, so its items and its `GROUP BY` parse as those of an `AGGREGATE`, and a group expression becomes a column of the input. The pass does not lower the mark call, whose channels the mark planner reads as written.
+- `|> CHART <mark call> [AS name] [, <aggregate> [AS name], ...] [GROUP BY ...]` becomes the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name => <name>)`, which the mark planner plans ([`|> CHART`](#-chart)), and with aggregate items, the `LEFT JOIN` of that call to the pipe `AGGREGATE` of the items over a copy of the input. The token pass writes the operator as a pipe `AGGREGATE`, so its items and its `GROUP BY` parse as those of an `AGGREGATE`, and a group expression becomes a column of the input. The pass does not lower the mark call, whose channels the mark planner reads as written.
 - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the transform, after the positional arguments, so `bin(x, maxbins => 30)` becomes `bin(x, 'maxbins', 30)`. The `weight` and `keep` of `lump` are SQL expressions over the rows of each category, and the pass passes their text, so `weight => sum(units)` becomes `'weight', 'sum(units)'`.
 - A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.
 
@@ -103,6 +103,29 @@ FROM penguins
 ```
 
 The chart column is `chart`, or the alias of the mark call, as in `|> CHART bar(...) AS counts GROUP BY island`. A group expression is a column of its alias or of its text, so `GROUP BY upper(island) AS isle` returns `isle` and `chart`. A mark call takes no `OVER` clause, and an item or a group takes no `ASC` or `DESC`.
+
+The other items of a `CHART` are aggregates, as the items of an `AGGREGATE` are, beside the chart of each group, in the order of the items:
+
+```sql
+FROM penguins
+|> CHART bar(x => bin(body_mass_g), y => count(*)) AS chart, count(*) AS penguins, avg(body_mass_g) AS mean_mass
+   GROUP BY island
+|> ORDER BY penguins DESC
+```
+
+The items are a pipe `AGGREGATE` of their own, over the same input, which the charts join on the groups, with `IS NOT DISTINCT FROM`, so a `NULL` group has its chart and its items. Every aggregate works, such as `count(DISTINCT species)`, `array_agg(species ORDER BY body_mass_g)`, and `percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g)`, and an item without an alias is named by its text. The two branches compute the input two times, because DataFusion does not share a subplan between them. An item reads a column only inside its aggregates or as a group, and calls no window function, and the planner reports either at its text, which DataFusion does not check in a pipe `AGGREGATE`. A mark call is the complete value of its item, and a `CHART` takes one. `lift` prints the input once, in a `WITH` clause:
+
+```sql
+WITH chart_input AS (FROM penguins)
+FROM chart_input
+|> AGGREGATE count(*) AS penguins, avg(body_mass_g) AS mean_mass GROUP BY island
+|> AS aggregates
+|> LEFT OUTER JOIN (FROM chart_input |> <the lifting of the chart>) AS charts
+     ON aggregates.island IS NOT DISTINCT FROM charts.island
+|> SELECT aggregates.island, charts.chart, aggregates.penguins, aggregates.mean_mass
+```
+
+The names `chart_input`, `aggregates`, and `charts` take the smallest free suffix, `_2`, `_3`, and so on, among the words of the statement.
 
 The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, a stack window without an order, a stack without a key channel or a measure channel, an `impute` option that [Imputation](#imputation) rejects, an option that is not a plan-time constant, an `OVER` clause of the call with more than a `PARTITION BY` list of columns, and an argument of a transform of a type that the transform rejects, with the error of the transform.
 
