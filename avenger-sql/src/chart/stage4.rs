@@ -29,12 +29,13 @@ use super::{
     call::MarkCall,
     classify::{first_argument, unknown_window, CallKind, Level, PANEL, STACKED, STACKS},
     lifting::{calls, column_name, replaced, Added, Env, Names},
-    roles::{self, Roles, SERIES},
+    roles::{self, DomainOrder, Roles, SERIES},
 };
 use crate::{error::at, syntax::function_name};
 
 /// The stage 4 columns of the call: one for each distinct stack and window function, with its
-/// arguments and its window items over the columns of `stage5`, and its named windows resolved.
+/// arguments and its window items over the columns of `stage5`, and its named windows resolved,
+/// with the roles of the channels when a stack or a stack window needs them.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn windows(
     call: &MarkCall,
@@ -45,7 +46,7 @@ pub(super) fn windows(
     discretized: &[(Expr, Expr)],
     names: &mut Names,
     env: &mut dyn Env,
-) -> Result<Vec<Added>> {
+) -> Result<(Vec<Added>, Option<Roles>)> {
     let uses: Vec<(&str, &Expr)> = (call.channels.iter().map(|c| (c.channel.name, &c.value)))
         .chain(call.order.iter().map(|item| ("order", &item.expr)))
         .collect();
@@ -60,7 +61,7 @@ pub(super) fn windows(
         }
     }
     if found.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), None));
     }
     let needs_roles = found.iter().any(|(_, from)| match from {
         Expr::Function(function) => is_stack(function) || names_stacks(function),
@@ -122,7 +123,7 @@ pub(super) fn windows(
             stage: Expr::Function(stage),
         });
     }
-    Ok(added)
+    Ok((added, roles))
 }
 
 /// The window of the discretizer `function`: `OVER ()` without one, or the written window with
@@ -319,17 +320,21 @@ impl Named<'_> {
             series.push(&channel.value);
             let column = replaced(&channel.value, self.stage5);
             let lump = matches!(&channel.value, Expr::Function(f) if function_name(f).as_deref() == Some("lump"));
-            let items = match (lump, roles::domain_list(channel)) {
+            let items = match (lump, roles::domain_order(channel)) {
                 (true, _) => vec![
                     ascending(Expr::IsNotNull(Box::new(field(&column, "other")))),
                     descending(field(&column, "weight")),
                     ascending(field(&column, "value")),
                 ],
-                (false, Some(list)) => vec![ascending(call_of(
-                    "array_position",
-                    column.span(),
-                    vec![list, column.clone()],
-                ))],
+                (false, Some(DomainOrder::List(list))) => vec![
+                    ascending(call_of(
+                        "array_position",
+                        column.span(),
+                        vec![*list, column.clone()],
+                    )),
+                    ascending(column.clone()),
+                ],
+                (false, Some(DomainOrder::Descending)) => vec![descending(column.clone())],
                 (false, None) => vec![ascending(column.clone())],
             };
             order.extend(items.into_iter().map(|item| match vertical {

@@ -10,7 +10,8 @@ use datafusion::{
     arrow::datatypes::DataType,
     common::{DFSchema, Result},
     sql::sqlparser::ast::{
-        Expr, Function, FunctionArg, FunctionArgExpr, FunctionArguments, Value, Visit, Visitor,
+        Array, Expr, Function, FunctionArg, FunctionArgExpr, FunctionArguments, Spanned, Value,
+        Visit, Visitor,
     },
 };
 
@@ -19,7 +20,7 @@ use super::{
     classify::{call_kind, CallKind, Level},
     lifting::Env,
 };
-use crate::syntax::function_name;
+use crate::{error::at, syntax::function_name};
 
 /// The roles of a call: its key channel, when it has one, and its measure channel, as indexes of
 /// its channels, and whether its stacks are vertical, which reverses the domain orders.
@@ -79,7 +80,10 @@ pub(super) fn decide(
         _ => None,
     };
     let horizontal = match horizontal {
-        Some(horizontal) => horizontal,
+        Some(horizontal) => {
+            check_orient(call, horizontal, if horizontal { first } else { second })?;
+            horizontal
+        }
         None => {
             let mut discrete = |i: Option<usize>| -> Result<bool> {
                 match i {
@@ -88,9 +92,15 @@ pub(super) fn decide(
                 }
             };
             match (discrete(a)?, discrete(b)?) {
-                (false, true) => true,
-                (true, false) => false,
-                _ => orient_property(call) == Some("horizontal"),
+                (false, true) => {
+                    check_orient(call, true, first)?;
+                    true
+                }
+                (true, false) => {
+                    check_orient(call, false, second)?;
+                    false
+                }
+                _ => orient_property(call).is_some_and(|(orient, _)| orient == "horizontal"),
             }
         }
     };
@@ -224,41 +234,100 @@ fn option<'a>(args: &'a [FunctionArg], name: &str) -> Option<&'a Expr> {
     })
 }
 
-/// The `orient` property of the call, when it is a string literal.
-fn orient_property(call: &MarkCall) -> Option<&str> {
+/// The `orient` property of the call, in lowercase, with its value, when it is a string literal.
+fn orient_property(call: &MarkCall) -> Option<(String, &Expr)> {
     (call.properties.iter())
         .find(|(name, _)| name.value.eq_ignore_ascii_case("orient"))
         .and_then(|(_, value)| match value {
-            Expr::Value(value) => match &value.value {
-                Value::SingleQuotedString(s) => Some(s.as_str()),
+            Expr::Value(literal) => match &literal.value {
+                Value::SingleQuotedString(s) => Some((s.to_lowercase(), value)),
                 _ => None,
             },
             _ => None,
         })
 }
 
-/// The explicit order of the domain of the series channel `channel`: the list of a `domain` of
-/// its `scale`, or of the `order` of a `category_fit`.
-pub(super) fn domain_list(channel: &ChannelValue) -> Option<Expr> {
+/// Checks that a written `orient` agrees with the orientation that a rule before the property rule
+/// decides: horizontal when `horizontal`, with its measure on `measure`.
+fn check_orient(call: &MarkCall, horizontal: bool, measure: &str) -> Result<()> {
+    let Some((written, value)) = orient_property(call) else {
+        return Ok(());
+    };
+    let decided = match horizontal {
+        true => "horizontal",
+        false => "vertical",
+    };
+    if written == decided {
+        return Ok(());
+    }
+    Err(at(
+        value.span(),
+        format!(
+            "this {} measures `{measure}`, so its orient is '{decided}', not '{written}'",
+            call.mark.name
+        ),
+    ))
+}
+
+/// Whether the mark `mark` has an `orient` property, which the stage 5 call writes from the roles.
+pub(super) fn has_orient(mark: &str) -> bool {
+    matches!(mark, "bar" | "area" | "polar_bar" | "polar_area")
+}
+
+/// The written `orient` of `call`, when it has one.
+pub(super) fn writes_orient(call: &MarkCall) -> bool {
+    (call.properties.iter()).any(|(name, _)| name.value.eq_ignore_ascii_case("orient"))
+}
+
+/// A written order of the domain of a series channel, which the legend follows.
+pub(super) enum DomainOrder {
+    /// A list, of a `domain` of its `scale` or of the preferred categories of a `category_fit`:
+    /// the categories of the list in its order, then the others, ascending.
+    List(Box<Expr>),
+    /// The `order => 'descending'` of a `category_fit`: from the greatest category to the least.
+    Descending,
+}
+
+/// The written order of the domain of the series channel `channel`, or `None` for the ascending
+/// order of its values.
+pub(super) fn domain_order(channel: &ChannelValue) -> Option<DomainOrder> {
     let scale = option(channel.options(), "scale")?;
-    struct Find(Option<Expr>);
+    struct Find(Option<DomainOrder>);
     impl Visitor for Find {
         type Break = ();
         fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
             let Expr::Function(function) = expr else {
                 return ControlFlow::Continue(());
             };
-            let list = match function_name(function).as_deref() {
-                Some("scale") => named(function, "domain"),
-                Some("category_fit") => named(function, "order"),
+            let order = match function_name(function).as_deref() {
+                Some("scale") => match named(function, "domain") {
+                    Some(list @ Expr::Array(_)) => Some(DomainOrder::List(Box::new(list.clone()))),
+                    _ => None,
+                },
+                Some("category_fit") => match named(function, "order") {
+                    Some(list @ Expr::Array(_)) => Some(DomainOrder::List(Box::new(list.clone()))),
+                    Some(Expr::Value(value)) => match &value.value {
+                        Value::SingleQuotedString(sort)
+                            if sort.eq_ignore_ascii_case("descending") =>
+                        {
+                            Some(DomainOrder::Descending)
+                        }
+                        Value::SingleQuotedString(_) => None,
+                        _ => Some(DomainOrder::List(Box::new(Expr::Array(Array {
+                            elem: vec![Expr::Value(value.clone())],
+                            named: false,
+                        })))),
+                    },
+                    _ => None,
+                },
                 _ => None,
             };
-            match list {
-                Some(list @ Expr::Array(_)) => {
-                    self.0 = Some(list.clone());
+            match order {
+                Some(order) => {
+                    self.0 = Some(order);
                     ControlFlow::Break(())
                 }
-                _ => ControlFlow::Continue(()),
+                None => ControlFlow::Continue(()),
             }
         }
     }

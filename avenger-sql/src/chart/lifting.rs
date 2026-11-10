@@ -32,6 +32,7 @@ use datafusion::{
 use super::{
     call::{self, ChannelValue, MarkCall},
     classify::{self, call_kind, first_argument, level, CallKind, Level},
+    roles::{self, Roles},
     stage4,
 };
 use crate::{
@@ -154,7 +155,7 @@ pub(super) fn generate(
     }
     stage5.extend(discretized.iter().cloned());
 
-    let windows = stage4::windows(
+    let (windows, roles) = stage4::windows(
         &call,
         &channel_levels,
         partition,
@@ -175,7 +176,7 @@ pub(super) fn generate(
         stage5.extend((windows.iter()).map(|window| (window.from.clone(), column(&window.name))));
     }
 
-    let chart = mark_call(&call, &channel_levels, &stage5, env);
+    let chart = mark_call(&call, &channel_levels, &stage5, roles.as_ref(), env);
     operators.push(PipeOperator::Aggregate {
         full_table_exprs: vec![plain(ExprWithAlias {
             expr: Expr::Function(chart),
@@ -690,6 +691,7 @@ fn mark_call(
     call: &MarkCall,
     levels: &[Level],
     stage5: &[(Expr, Expr)],
+    roles: Option<&Roles>,
     registry: &dyn Registry,
 ) -> Function {
     let mut args = Vec::new();
@@ -701,6 +703,19 @@ fn mark_call(
     }
     for (name, value) in &call.properties {
         args.push(named(name.clone(), value.clone()));
+    }
+    // The orientation that the roles decide, which the chart would otherwise infer by its own rule.
+    if let Some(roles) =
+        roles.filter(|_| roles::has_orient(call.mark.name) && !roles::writes_orient(call))
+    {
+        let orient = match roles.vertical {
+            true => "vertical",
+            false => "horizontal",
+        };
+        args.push(named(
+            Ident::with_span(call.span(), "orient"),
+            Expr::Value(Value::SingleQuotedString(orient.to_string()).with_span(call.span())),
+        ));
     }
     let mut clauses = Vec::new();
     if !call.order.is_empty() {
