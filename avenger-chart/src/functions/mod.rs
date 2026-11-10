@@ -18,12 +18,14 @@
 
 mod argument;
 mod call;
+mod compose;
 mod error;
 
 use std::fmt::Write;
 
 pub use argument::{Arg, Class};
 pub use call::{ChannelArg, MarkCall, MarkTemplate};
+pub use compose::{composition, compositions, Child, ChildOrder, Composition, CompositionKind};
 pub use error::{ArgError, Expected, Reason};
 
 use crate::{proto, CoordKind};
@@ -75,7 +77,7 @@ impl std::fmt::Debug for Constructor {
 
 /// A parameter of a function: a field outside a oneof, or a oneof, with the inputs that it
 /// accepts.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Param {
     pub name: &'static str,
     pub doc: &'static str,
@@ -88,7 +90,7 @@ pub struct Param {
 /// of that field. `interval_fit(...) -> interval -> fit -> data` of a domain is a fragment of
 /// `IntervalFit` in the member `interval` of `DomainFit`, which is the `fit` of a `DataDomain`,
 /// which is the member `data` of the domain.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Accept {
     pub class: Class,
     pub chain: &'static [&'static str],
@@ -96,7 +98,7 @@ pub struct Accept {
 }
 
 /// What a field holds, as an argument sets it.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum Shape {
     Bool,
     Int,
@@ -122,7 +124,7 @@ pub enum Shape {
 
 /// A name that a string argument gives, with its documentation: a value of an enum, or a member
 /// of a oneof.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Name {
     pub name: &'static str,
     pub doc: &'static str,
@@ -133,9 +135,13 @@ pub struct Name {
 /// message, and `Encoding`, and the table of the constructors on top of it.
 #[allow(dead_code, unreachable_patterns, clippy::all)]
 pub(crate) mod generated {
-    use super::{Accept, Arg, ArgError, Class, Constructor, Expected, Name, Param, Shape};
+    use super::{
+        Accept, Arg, ArgError, Class, Composition, CompositionKind, Constructor, Expected, Name,
+        Param, Shape,
+    };
     include!(concat!(env!("OUT_DIR"), "/parameters.rs"));
     include!(concat!(env!("OUT_DIR"), "/constructors.rs"));
+    include!(concat!(env!("OUT_DIR"), "/compositions.rs"));
 }
 
 /// The constructors, in the order of the option tree.
@@ -155,23 +161,30 @@ pub fn encoding_options() -> &'static [Param] {
     generated::PARAMS_ENCODING
 }
 
-/// The text of every constructor's parameters and the inputs that each accepts, which the snapshot
-/// test of the constructors compares.
+/// The text of every constructor's and every composition's parameters and the inputs that each
+/// accepts, which the snapshot test of the constructors compares.
 pub fn surface() -> String {
     let mut text = String::new();
-    for constructor in constructors() {
-        let names: Vec<&str> = constructor.params.iter().map(|param| param.name).collect();
-        writeln!(text, "{}({})", constructor.name, names.join(", ")).unwrap();
-        for param in constructor.params {
+    let mut function = |name: &str, leading: &[&str], params: &[Param]| {
+        let names: Vec<&str> = (leading.iter().copied())
+            .chain(params.iter().map(|param| param.name))
+            .collect();
+        writeln!(text, "{name}({})", names.join(", ")).unwrap();
+        for param in params {
             let required = if param.required { " (required)" } else { "" };
-            writeln!(
-                text,
-                "  {}{required}: {}",
-                param.name,
-                describe_accepts(param.accepts)
-            )
-            .unwrap();
+            let accepts = describe_accepts(param.accepts);
+            writeln!(text, "  {}{required}: {accepts}", param.name).unwrap();
         }
+    };
+    for constructor in constructors() {
+        function(constructor.name, &[], constructor.params);
+    }
+    for composition in compositions() {
+        let leading: &[&str] = match composition.kind.takes_key() {
+            true => &["chart", "key"],
+            false => &["chart"],
+        };
+        function(composition.name, leading, composition.params);
     }
     text
 }
