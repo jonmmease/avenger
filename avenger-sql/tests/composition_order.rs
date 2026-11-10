@@ -101,6 +101,34 @@ async fn the_branches_of_a_union_all_order_the_layers() {
 }
 
 #[tokio::test]
+async fn the_branches_of_a_union_by_name_order_the_layers() {
+    // `UNION ALL BY NAME` writes a projection over the union before it, and the branches under it
+    // still number among all the branches.
+    let union =
+        [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL BY NAME ");
+    let pipe = format!(
+        "{} |> UNION ALL BY NAME ({}) |> UNION ALL BY NAME ({})",
+        branch("red", ""),
+        branch("green", ""),
+        branch("blue", "")
+    );
+    for union in [union, pipe] {
+        let query = format!("{union} |> AGGREGATE layer(chart) AS chart");
+        assert_eq!(fills(&chart(&query).await), ["red", "green", "blue"]);
+        let plan = avenger_sql::sql(&session(), &query)
+            .await
+            .unwrap()
+            .into_optimized_plan()
+            .unwrap();
+        let plan = plan.display_indent().to_string();
+        for ordinal in 0..3 {
+            let column = format!("Int64({ordinal}) AS __avenger_branch");
+            assert_eq!(plan.matches(&column).count(), 1, "{column} in {plan}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn an_order_by_comes_first_and_the_branch_breaks_its_ties() {
     let union = [
         branch("red", ", 2 AS k"),

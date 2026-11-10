@@ -125,29 +125,7 @@ fn add_keys(expr: Expr, keys: &[SortExpr]) -> Result<Expr> {
 fn with_branch(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     let branch = || Expr::Column(Column::new_unqualified(BRANCH));
     Ok(Some(match plan {
-        LogicalPlan::Union(union) => {
-            // `a UNION ALL b UNION ALL c` nests one union in another, and each branch takes its
-            // position among all of them.
-            let mut branches = Vec::new();
-            for input in &union.inputs {
-                flatten(input, &mut branches);
-            }
-            let inputs = (branches.iter().enumerate())
-                .map(|(index, input)| {
-                    let mut exprs: Vec<Expr> = (input.schema().iter())
-                        .map(|(qualifier, field)| {
-                            Expr::Column(Column::new(qualifier.cloned(), field.name()))
-                        })
-                        .collect();
-                    exprs.push(lit(index as i64).alias(BRANCH));
-                    Ok(Arc::new(LogicalPlan::Projection(Projection::try_new(
-                        exprs,
-                        Arc::clone(input),
-                    )?)))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            LogicalPlan::Union(Union::try_new_with_loose_types(inputs)?)
-        }
+        LogicalPlan::Union(_) => number(plan, &mut 0)?,
         LogicalPlan::Projection(projection) => {
             let Some(input) = with_branch(&projection.input)? else {
                 return Ok(None);
@@ -184,15 +162,48 @@ fn with_branch(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     }))
 }
 
-/// The branches of the unions of `plan`, in order: the inputs of a `UNION ALL`, with the inputs of
-/// each union in it, or `plan` itself.
-fn flatten(plan: &Arc<LogicalPlan>, branches: &mut Vec<Arc<LogicalPlan>>) {
-    match plan.as_ref() {
+/// `plan` with the column of the branch ordinal on each of its branches, numbered from `next` in
+/// order. A union inside a union, also under the projections and the aliases that `UNION ALL BY
+/// NAME` writes over a union, numbers its branches among all of them, so `a UNION ALL BY NAME b
+/// UNION ALL BY NAME c` gives `a`, `b`, and `c` the ordinals 0, 1, and 2.
+fn number(plan: &LogicalPlan, next: &mut i64) -> Result<LogicalPlan> {
+    let branch = || Expr::Column(Column::new_unqualified(BRANCH));
+    Ok(match plan {
         LogicalPlan::Union(union) => {
-            for input in &union.inputs {
-                flatten(input, branches);
-            }
+            let inputs = (union.inputs.iter())
+                .map(|input| number(input, next).map(Arc::new))
+                .collect::<Result<Vec<_>>>()?;
+            LogicalPlan::Union(Union::try_new_with_loose_types(inputs)?)
         }
-        _ => branches.push(Arc::clone(plan)),
+        LogicalPlan::Projection(projection) if holds_union(plan) => {
+            let input = number(&projection.input, next)?;
+            let mut exprs = projection.expr.clone();
+            exprs.push(branch());
+            LogicalPlan::Projection(Projection::try_new(exprs, Arc::new(input))?)
+        }
+        LogicalPlan::SubqueryAlias(alias) if holds_union(plan) => {
+            let input = number(&alias.input, next)?;
+            plan.with_new_exprs(plan.expressions(), vec![input])?
+        }
+        branch_plan => {
+            let mut exprs: Vec<Expr> = (branch_plan.schema().iter())
+                .map(|(qualifier, field)| {
+                    Expr::Column(Column::new(qualifier.cloned(), field.name()))
+                })
+                .collect();
+            exprs.push(lit(*next).alias(BRANCH));
+            *next += 1;
+            LogicalPlan::Projection(Projection::try_new(exprs, Arc::new(branch_plan.clone()))?)
+        }
+    })
+}
+
+/// Whether `plan` is a union, or projections and aliases over one.
+fn holds_union(plan: &LogicalPlan) -> bool {
+    match plan {
+        LogicalPlan::Union(_) => true,
+        LogicalPlan::Projection(projection) => holds_union(&projection.input),
+        LogicalPlan::SubqueryAlias(alias) => holds_union(&alias.input),
+        _ => false,
     }
 }
