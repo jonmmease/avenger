@@ -181,3 +181,17 @@ async fn a_stacked_histogram_of_chart() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-stacked-histogram");
 }
+
+/// A title and a subtitle are Typst markup without a syntax, and the axis titles from column
+/// names stay plain.
+#[tokio::test]
+async fn a_typst_title_and_subtitle() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> CHART symbol(x => bill_length_mm, y => bill_depth_mm, color => species,
+     title => title(text => '*Bills* of the _Pygoscelis_ penguins',
+                    subtitle => 'Length $times$ depth, in mm'))";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-typst-title");
+}

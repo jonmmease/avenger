@@ -21,7 +21,11 @@ message Title {
   string text = 1 [(avenger.chart.v1.required) = true];
   // When unset, the styles give it.
   TitleSide side = 2;
-  // How the text engine reads the text and the subtitle.
+  // How the text engine reads the text and the subtitle. When unset, it reads them as Typst
+  // markup, because a title is the producer's text, so `*Revenue* in $"USD"$` draws bold text and
+  // math. A title of text that is not markup, such as one from an untrusted source, sets
+  // `TEXT_SYNTAX_PLAIN`. A title that a part takes from the data, such as the titles of an axis's
+  // encodings or the name of a facet's column, has no `Title` and reads as plain text.
   TextSyntax syntax = 3;
   // The style of the text.
   TextStyle style = 4;
