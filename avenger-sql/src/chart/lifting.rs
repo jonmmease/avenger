@@ -4,6 +4,8 @@
 //! - Stage 1: one `EXTEND` for each depth of the discretizers, `bin`, `timeunit`, and `lump`.
 //! - Stage 2: in a grouping call, an `AGGREGATE` of the aggregates of the channels and of the draw
 //!   order, grouped by the partition columns and the keys.
+//! - Stage 4: an `EXTEND` of the stacks and the window functions of the channels and of the draw
+//!   order ([`stage4`]).
 //! - Stage 5: an `AGGREGATE` of the mark aggregate with the draw order, grouped by the partition
 //!   columns.
 //!
@@ -21,7 +23,7 @@ use datafusion::{
             Expr, ExprWithAlias, ExprWithAliasAndOrderBy, Function, FunctionArg, FunctionArgExpr,
             FunctionArgOperator, FunctionArgumentClause, FunctionArgumentList, FunctionArguments,
             Ident, ObjectName, OrderByExpr, OrderByOptions, PipeOperator, SelectItem, Spanned,
-            Value, Visit, VisitMut, Visitor, VisitorMut, WindowSpec, WindowType,
+            Value, Visit, VisitMut, Visitor, VisitorMut, WindowType,
         },
         tokenizer::Span,
     },
@@ -29,7 +31,8 @@ use datafusion::{
 
 use super::{
     call::{self, ChannelValue, MarkCall},
-    classify::{self, call_kind, first_argument, level, CallKind, Level, PANEL},
+    classify::{self, call_kind, first_argument, level, CallKind, Level},
+    stage4,
 };
 use crate::{
     error::{at, at_with_help},
@@ -46,10 +49,10 @@ pub(super) trait Env: Registry {
 
 /// A column that the lifting adds: the expression that it replaces, its name, and the expression
 /// of its stage.
-struct Added {
-    from: Expr,
-    name: Ident,
-    stage: Expr,
+pub(super) struct Added {
+    pub(super) from: Expr,
+    pub(super) name: Ident,
+    pub(super) stage: Expr,
 }
 
 /// A discretizer of stage 1.
@@ -94,11 +97,10 @@ pub(super) fn generate(
     let order_levels: Vec<Level> = (call.order.iter())
         .map(|item| level(&item.expr, env))
         .collect();
-    let grouping = (channel_levels.iter().chain(&order_levels)).any(|l| *l >= Level::Aggregated);
 
     let mut names = Names::new(schema, partition);
     let discretizers = discretizers(&call, partition, &mut names, env)?;
-    check_types(&discretizers, schema, env)?;
+    let stage1_schema = check_types(&discretizers, schema, env)?;
     let discretized: Vec<(Expr, Expr)> = (discretizers.iter())
         .map(|d| (d.added.from.clone(), column(&d.added.name)))
         .collect();
@@ -117,8 +119,9 @@ pub(super) fn generate(
     }
 
     let mut stage5: Vec<(Expr, Expr)> = Vec::new();
-    if grouping {
-        let aggregates = aggregates(&call, &discretized, &mut names, env);
+    let aggregates = aggregates(&call, &discretized, &mut names, env);
+    // A call groups when an aggregate is in a channel or in its draw order.
+    if !aggregates.is_empty() {
         let keys = keys(&call, &channel_levels, partition, &discretized, &mut names);
         check_keys(&call, &channel_levels, &order_levels, &keys, partition, env)?;
         let group_by = (partition.iter())
@@ -151,6 +154,27 @@ pub(super) fn generate(
     }
     stage5.extend(discretized.iter().cloned());
 
+    let windows = stage4::windows(
+        &call,
+        &channel_levels,
+        partition,
+        &stage5,
+        &stage1_schema,
+        &discretized,
+        &mut names,
+        env,
+    )?;
+    if !windows.is_empty() {
+        let exprs = (windows.iter())
+            .map(|window| SelectItem::ExprWithAlias {
+                expr: window.stage.clone(),
+                alias: window.name.clone(),
+            })
+            .collect();
+        operators.push(PipeOperator::Extend { exprs });
+        stage5.extend((windows.iter()).map(|window| (window.from.clone(), column(&window.name))));
+    }
+
     let chart = mark_call(&call, &channel_levels, &stage5, env);
     operators.push(PipeOperator::Aggregate {
         full_table_exprs: vec![plain(ExprWithAlias {
@@ -170,13 +194,13 @@ pub(super) fn generate(
 }
 
 /// The checked expressions of a call: its channel values and its draw-order items.
-fn checked(call: &MarkCall) -> impl Iterator<Item = &Expr> {
+pub(super) fn checked(call: &MarkCall) -> impl Iterator<Item = &Expr> {
     (call.channels.iter().map(|channel| &channel.value))
         .chain(call.order.iter().map(|item| &item.expr))
 }
 
 /// A column reference to `name`.
-fn column(name: &Ident) -> Expr {
+pub(super) fn column(name: &Ident) -> Expr {
     Expr::Identifier(name.clone())
 }
 
@@ -194,7 +218,7 @@ fn plain(expr: ExprWithAlias) -> ExprWithAliasAndOrderBy {
 /// The names of the columns of a lifting: the short names of `r[lift.rule.names]`, with the
 /// smallest free suffix `_2`, `_3`, and so on for a name that an input column or another added
 /// column has.
-struct Names {
+pub(super) struct Names {
     taken: HashSet<String>,
 }
 
@@ -214,7 +238,7 @@ impl Names {
     }
 
     /// A free name from `base`, at `span`.
-    fn fresh(&mut self, base: &str, span: Span) -> Ident {
+    pub(super) fn fresh(&mut self, base: &str, span: Span) -> Ident {
         let base = base.to_lowercase();
         let name = std::iter::once(base.clone())
             .chain((2..).map(|n| format!("{base}_{n}")))
@@ -226,7 +250,7 @@ impl Names {
 }
 
 /// The name of the column of `expr`, when it is a column reference.
-fn column_name(expr: &Expr) -> Option<String> {
+pub(super) fn column_name(expr: &Expr) -> Option<String> {
     match expr {
         Expr::Identifier(ident) => Some(ident.value.clone()),
         Expr::CompoundIdentifier(parts) => parts.last().map(|ident| ident.value.clone()),
@@ -236,7 +260,7 @@ fn column_name(expr: &Expr) -> Option<String> {
 
 /// The calls of the kinds that `keep` accepts in `expr`, inner calls first, each once, outside
 /// the arguments of the calls of the kinds that `skip` accepts.
-fn calls(
+pub(super) fn calls(
     expr: &Expr,
     registry: &dyn Registry,
     keep: &dyn Fn(CallKind) -> bool,
@@ -287,7 +311,7 @@ fn calls(
 
 /// `node` with each subexpression that `map` holds replaced by its replacement, outer
 /// subexpressions first.
-fn replace<T: VisitMut>(node: &mut T, map: &[(Expr, Expr)]) {
+pub(super) fn replace<T: VisitMut>(node: &mut T, map: &[(Expr, Expr)]) {
     struct Replace<'a> {
         map: &'a [(Expr, Expr)],
     }
@@ -304,7 +328,7 @@ fn replace<T: VisitMut>(node: &mut T, map: &[(Expr, Expr)]) {
 }
 
 /// `expr` with the replacements of `map`.
-fn replaced(expr: &Expr, map: &[(Expr, Expr)]) -> Expr {
+pub(super) fn replaced(expr: &Expr, map: &[(Expr, Expr)]) -> Expr {
     let mut expr = expr.clone();
     replace(&mut expr, map);
     expr
@@ -339,7 +363,9 @@ fn discretizers(
                 .collect();
             let mut stage = function.clone();
             replace(&mut stage.args, &map);
-            stage.over = Some(resolve_window(function.over.as_ref(), partition));
+            let mut window = stage4::discretizer_window(call, partition, function)?;
+            replace(&mut window, &map);
+            stage.over = Some(WindowType::WindowSpec(window));
             let inner = (found.iter())
                 .filter(|d| {
                     let in_args = |expr: &Expr| {
@@ -370,37 +396,14 @@ fn discretizers(
     Ok(found)
 }
 
-/// The window of a discretizer: `OVER ()` without one, `panel` resolved to `PARTITION BY` the
-/// partition columns, or the written window.
-fn resolve_window(over: Option<&WindowType>, partition: &[Expr]) -> WindowType {
-    let panel = || WindowSpec {
-        window_name: None,
-        partition_by: partition.to_vec(),
-        order_by: Vec::new(),
-        window_frame: None,
-    };
-    match over {
-        None => WindowType::WindowSpec(WindowSpec {
-            window_name: None,
-            partition_by: Vec::new(),
-            order_by: Vec::new(),
-            window_frame: None,
-        }),
-        Some(WindowType::NamedWindow(name)) if name.value.eq_ignore_ascii_case(PANEL) => {
-            WindowType::WindowSpec(panel())
-        }
-        Some(WindowType::WindowSpec(spec))
-            if (spec.window_name.as_ref()).is_some_and(|n| n.value.eq_ignore_ascii_case(PANEL)) =>
-        {
-            WindowType::WindowSpec(panel())
-        }
-        Some(window) => window.clone(),
-    }
-}
-
 /// The types of the discretizers over the input and the columns of the discretizers of a smaller
-/// depth (V9). A transform that rejects its argument reports its error at the argument.
-fn check_types(discretizers: &[Discretized], schema: &DFSchema, env: &mut dyn Env) -> Result<()> {
+/// depth (V9). A transform that rejects its argument reports its error at the argument. It returns
+/// the schema of the input with the columns of the discretizers.
+fn check_types(
+    discretizers: &[Discretized],
+    schema: &DFSchema,
+    env: &mut dyn Env,
+) -> Result<DFSchema> {
     let mut schema = schema.clone();
     let max_depth = discretizers.iter().map(|d| d.depth).max().unwrap_or(0);
     for depth in 1..=max_depth {
@@ -425,7 +428,7 @@ fn check_types(discretizers: &[Discretized], schema: &DFSchema, env: &mut dyn En
         let added = DFSchema::from_unqualified_fields(fields.into(), Default::default())?;
         schema = schema.join(&added)?;
     }
-    Ok(())
+    Ok(schema)
 }
 
 /// The aggregates of the channels and of the draw order, in the order of first use, each once,

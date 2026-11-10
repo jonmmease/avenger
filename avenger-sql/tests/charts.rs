@@ -171,3 +171,13 @@ async fn a_facet_of_histograms_with_shared_and_own_bins() {
         render(&charts[0], name);
     }
 }
+
+#[tokio::test]
+async fn a_stacked_histogram_of_chart() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => stack(count(*)), color => species)";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-stacked-histogram");
+}

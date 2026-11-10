@@ -9,7 +9,7 @@ use datafusion::{
     sql::sqlparser::{
         ast::{
             Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgumentClause,
-            FunctionArguments, Spanned, Value, Visit, Visitor, WindowType,
+            FunctionArguments, Ident, Spanned, Value, Visit, Visitor, WindowType,
         },
         tokenizer::Span,
     },
@@ -290,10 +290,33 @@ fn check_call(function: &Function, registry: &dyn Registry) -> Result<()> {
                     "OVER panel, for each panel",
                 ));
             }
-            Err(at(
-                function.name.span(),
-                format!("`{}`: stacks and window functions in the channels of CHART are not supported yet", function.name),
-            ))
+            for argument in arguments(function) {
+                if level(argument, registry) > Level::Aggregated {
+                    return Err(at_with_help(
+                        argument.span(),
+                        format!(
+                            "`{argument}` cannot be an argument of `{name}`, because {name} computes beside the other windows"
+                        ),
+                        "compute the window before the chart with |> EXTEND",
+                    ));
+                }
+            }
+            if let Some(WindowType::WindowSpec(spec)) = &function.over {
+                let items =
+                    (spec.partition_by.iter()).chain(spec.order_by.iter().map(|item| &item.expr));
+                for item in items {
+                    if level(item, registry) > Level::Aggregated {
+                        return Err(at(
+                            item.span(),
+                            format!("`{item}` cannot order or partition `{name}`, because {name} computes beside the other windows"),
+                        ));
+                    }
+                }
+                if name == "stack" && spec.window_frame.is_some() {
+                    return Err(at(function.name.span(), "a stack takes no frame"));
+                }
+            }
+            Ok(())
         }
         None => Ok(()),
     }
@@ -405,19 +428,35 @@ fn check_discretizer_window(
     }
 }
 
-/// The named windows of the mark: `panel`.
+/// The named windows of the mark: `panel`, the partition of the call, `stacks`, which adds the key
+/// channel, and `stacked`, which adds the implied stack order.
 pub(super) const PANEL: &str = "panel";
+pub(super) const STACKS: &str = "stacks";
+pub(super) const STACKED: &str = "stacked";
 
-/// `window` names a window of the mark (V6).
-fn window_name(window: &datafusion::sql::sqlparser::ast::Ident) -> Result<()> {
-    match window.value.to_lowercase() == PANEL {
-        true => Ok(()),
-        false => Err(at(
+/// The error of a window name that the mark does not define (V6).
+pub(super) fn unknown_window(window: &Ident) -> datafusion::common::DataFusionError {
+    at(
+        window.span,
+        format!(
+            "no window `{}` in this chart; the windows are panel, stacks, and stacked",
+            window.value
+        ),
+    )
+}
+
+/// `window` names the window of a discretizer, `panel` (V6): a discretizer computes before the
+/// stacks.
+fn window_name(window: &Ident) -> Result<()> {
+    match window.value.to_lowercase().as_str() {
+        PANEL => Ok(()),
+        STACKS | STACKED => Err(at(
             window.span,
             format!(
-                "no window `{}` in this chart; the window is panel",
+                "the window `{}` holds the stacks, which a discretizer computes before; a discretizer takes OVER (), OVER panel, or a PARTITION BY list",
                 window.value
             ),
         )),
+        _ => Err(unknown_window(window)),
     }
 }
