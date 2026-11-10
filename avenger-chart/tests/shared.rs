@@ -75,6 +75,36 @@ fn a_plot_or_a_layer_without_an_id_is_identified_by_its_path() {
 }
 
 #[test]
+fn the_cells_of_a_facet_keep_their_identities_when_the_facet_changes() {
+    // The cells of a facet take `children[*]` in their paths, so a cell keeps its identity when
+    // a cell before it leaves.
+    let facet = |values: &[u32]| {
+        let mut row = concat(
+            proto::Direction::Row,
+            (values.iter())
+                .map(|index| plot_with("", vec![value("sex", *index)], vec![symbols(0)]))
+                .collect(),
+        );
+        concat_mut(&mut row).facet = Some(proto::Facet {
+            column: "sex".to_string(),
+            ..Default::default()
+        });
+        row
+    };
+    let both = read(parts(facet(&[0, 1]), strings(&["female", "male"]))).unwrap();
+    let male = read(parts(facet(&[0]), strings(&["male"]))).unwrap();
+    let (both, male) = (both.resolve(), male.resolve());
+    assert_eq!(
+        both.tree.plots[1].identity.name(),
+        "root.concat.children[*].plot[sex=male]"
+    );
+    assert_eq!(both.tree.plots[1].identity, male.tree.plots[0].identity);
+    assert_ne!(both.tree.plots[0].identity, male.tree.plots[0].identity);
+    // The path of a cell in an error keeps its index.
+    assert_eq!(both.tree.plots[1].path, "root.concat.children[1].plot");
+}
+
+#[test]
 fn a_leaf_gets_one_value_of_each_partition_column() {
     let mut root = concat(
         proto::Direction::Row,
