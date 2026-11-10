@@ -30,12 +30,14 @@ mod annotations;
 mod builders;
 #[path = "codegen/constructors.rs"]
 mod constructors;
-#[path = "codegen/functions.rs"]
-mod functions;
+#[path = "codegen/mark_functions.rs"]
+mod mark_functions;
 #[path = "codegen/model.rs"]
 mod model;
 #[path = "codegen/options.rs"]
 mod options;
+#[path = "codegen/parameters.rs"]
+mod parameters;
 use prost_types::{
     field_descriptor_proto::{Label, Type},
     DescriptorProto, EnumDescriptorProto, FieldDescriptorProto, FileDescriptorSet,
@@ -142,18 +144,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
     if std::env::var_os("CARGO_FEATURE_FUNCTIONS").is_some() {
+        let comments = builders::Comments::new(&set);
         std::fs::write(
-            out.join("functions.rs"),
-            functions::functions(&set, &messages, &annotations)?,
+            out.join("parameters.rs"),
+            parameters::parameters(&set, &model, &comments)?,
         )?;
         std::fs::write(
             out.join("constructors.rs"),
-            constructors::constructors(
-                &set,
-                &model,
-                &builders::Comments::new(&set),
-                &constructor_names,
-            )?,
+            constructors::constructors(&model, &comments, &constructor_names)?,
+        )?;
+        std::fs::write(
+            out.join("mark_functions.rs"),
+            mark_functions::mark_functions(&set, &messages, &annotations)?,
         )?;
     }
     Ok(())

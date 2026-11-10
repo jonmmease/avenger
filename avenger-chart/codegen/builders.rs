@@ -957,3 +957,14 @@ pub(super) fn prelude(set: &FileDescriptorSet, messages: &Messages) -> String {
     code.push_str("};\n");
     code
 }
+
+/// `comment`, a comment of a `.proto` file, as paragraphs: the lines of each paragraph, which
+/// the file wraps, joined by spaces, and the paragraphs by a blank line.
+pub(super) fn clean(comment: &str) -> String {
+    let lines: Vec<&str> = comment.lines().map(str::trim).collect();
+    let paragraphs: Vec<String> = (lines.split(|line| line.is_empty()))
+        .filter(|paragraph| !paragraph.is_empty())
+        .map(|paragraph| paragraph.join(" "))
+        .collect();
+    paragraphs.join("\n\n")
+}
