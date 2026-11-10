@@ -263,6 +263,7 @@ fn lines(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
             len: series.len() as u32,
             x: subset(&x, &series),
             y: subset(&y, &series),
+            defined: defined(&[&x, &y], &series),
             stroke: at(&stroke, first),
             stroke_width: at(&width, first),
             stroke_dash: (dash.as_ref())
@@ -276,6 +277,19 @@ fn lines(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
         })
     })
     .collect()
+}
+
+/// Whether each row of `series` has a finite value of every one of `positions`, so a line or an
+/// area breaks at a row whose position is `NULL`, such as a row that `impute(method => 'gap')`
+/// adds. A series without such a row is defined everywhere.
+fn defined(positions: &[&ScalarOrArray<f32>], series: &[u32]) -> ScalarOrArray<bool> {
+    let defined: Vec<bool> = (series.iter())
+        .map(|row| (positions.iter()).all(|position| at(position, *row as usize).is_finite()))
+        .collect();
+    match defined.iter().all(|defined| *defined) {
+        true => scalar(true),
+        false => ScalarOrArray::new_array(defined),
+    }
 }
 
 fn trails(rows: &LayerRows) -> Result<Vec<Drawn>> {
@@ -328,6 +342,7 @@ fn areas(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
         .enumerate())
     .map(|(index, series)| {
         let first = series[0] as usize;
+        let defined = defined(&[&along_values, &across_values, &base], &series);
         let (x, y, x2, y2) = match horizontal {
             true => (
                 subset(&across_values, &series),
@@ -353,6 +368,7 @@ fn areas(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
             y,
             x2,
             y2,
+            defined,
             fill: at(&fill, first),
             fill_pattern: pattern.as_ref().and_then(|pattern| at(pattern, first)),
             stroke: at(&stroke, first),

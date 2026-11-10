@@ -39,7 +39,8 @@ message SymbolMark {
 // Each series connects its rows in ascending order of `order`, with `NULL` last and equal values in
 // row order, and without `order`, in the order of their positions along its key: `x` when
 // vertical, and `y` when horizontal. `order` orders the path only: the first row of each series
-// orders the series, which draw in that order.
+// orders the series, which draw in that order. A row without a position, such as a row of a `NULL`
+// `y`, breaks the line there.
 message LineMark {
   // When unset, the line is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
@@ -76,7 +77,8 @@ message TrailMark {
 // Each series connects its rows in ascending order of `order`, with `NULL` last and equal values in
 // row order, and without `order`, in the order of their positions along its key: `x` when
 // vertical, and `y` when horizontal. `order` orders the path only: the first row of each series
-// orders the series, which draw in that order.
+// orders the series, which draw in that order. A row without a position, such as a row of a `NULL`
+// `y`, breaks the area there, so each run of the other rows is a region of its own.
 message AreaMark {
   // When unset, the area is vertical unless only its `x` scale is continuous.
   Orient orient = 1;

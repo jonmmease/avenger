@@ -1424,36 +1424,63 @@ impl Drawer<'_, '_> {
         };
         for (index, series) in rows.path_series(|row| along[row])?.into_iter().enumerate() {
             let first = series[0] as usize;
-            let line = self.polyline(&series, |row| [angles[row], radii[row]], canvas);
-            let reversed: Vec<u32> = series.iter().rev().copied().collect();
-            let base_line = self.polyline(
-                &reversed,
-                |row| match horizontal {
-                    true => [base[row], radii[row]],
-                    false => [angles[row], base[row]],
-                },
-                canvas,
-            );
-            // The region runs out along the line and back along the base.
-            let mut x: Vec<f32> = line.x.iter().chain(&base_line.x).copied().collect();
-            let mut y: Vec<f32> = line.y.iter().chain(&base_line.y).copied().collect();
-            let mut vertex_rows: Vec<u32> =
-                line.rows.iter().chain(&base_line.rows).copied().collect();
+            // A row without a finite angle, radius, or base, such as a row of a `NULL` radius,
+            // breaks the area, so each run of the other rows is a region of its own.
+            let finite = |row: &u32| {
+                let row = *row as usize;
+                angles[row].is_finite() && radii[row].is_finite() && base[row].is_finite()
+            };
+            // The vertices of the line around the regions, with an undefined vertex between them.
+            let (mut x, mut y, mut vertex_rows) = (Vec::new(), Vec::new(), Vec::new());
             let mut builder = Path::builder();
-            let mut open = false;
-            for (x, y) in x.iter().zip(&y) {
-                if !x.is_finite() || !y.is_finite() {
-                    continue;
+            for run in series
+                .split(|row| !finite(row))
+                .filter(|run| !run.is_empty())
+            {
+                let line = self.polyline(run, |row| [angles[row], radii[row]], canvas);
+                let reversed: Vec<u32> = run.iter().rev().copied().collect();
+                let base_line = self.polyline(
+                    &reversed,
+                    |row| match horizontal {
+                        true => [base[row], radii[row]],
+                        false => [angles[row], base[row]],
+                    },
+                    canvas,
+                );
+                // The region runs out along the line and back along the base.
+                let ring: Vec<([f32; 2], u32)> = (line.x.iter().zip(&line.y).zip(&line.rows))
+                    .chain(base_line.x.iter().zip(&base_line.y).zip(&base_line.rows))
+                    .map(|((x, y), row)| ([*x, *y], *row))
+                    .collect();
+                let mut open = false;
+                for ([x, y], _) in &ring {
+                    if !x.is_finite() || !y.is_finite() {
+                        continue;
+                    }
+                    if open {
+                        builder.line_to(Point2D::new(*x, *y));
+                    } else {
+                        builder.begin(Point2D::new(*x, *y));
+                        open = true;
+                    }
                 }
                 if open {
-                    builder.line_to(Point2D::new(*x, *y));
-                } else {
-                    builder.begin(Point2D::new(*x, *y));
-                    open = true;
+                    builder.end(true);
                 }
-            }
-            if open {
-                builder.end(true);
+                let Some(&(start, start_row)) = ring.first() else {
+                    continue;
+                };
+                if !x.is_empty() {
+                    x.push(f32::NAN);
+                    y.push(f32::NAN);
+                    vertex_rows.push(start_row);
+                }
+                // The line around the region ends where it starts.
+                for ([px, py], row) in ring.iter().copied().chain([(start, start_row)]) {
+                    x.push(px);
+                    y.push(py);
+                    vertex_rows.push(row);
+                }
             }
             drawn.push(Drawn {
                 mark: ScenePathMark {
@@ -1472,10 +1499,6 @@ impl Drawer<'_, '_> {
             });
             let stroke_width = at(&width, first);
             if stroke_width > 0.0 && !x.is_empty() {
-                // The line around the region ends where it starts.
-                x.push(x[0]);
-                y.push(y[0]);
-                vertex_rows.push(vertex_rows[0]);
                 drawn.push(Drawn {
                     mark: SceneLineMark {
                         name: format!("{}/{index}/outline", rows.name),

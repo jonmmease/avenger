@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// The vertices of a polyline through the pieces of segments, with an undefined vertex between
-/// pieces that do not meet, so the line breaks there.
+/// pieces that do not meet and at each point without a finite pixel, so the line breaks there.
 #[derive(Default)]
 pub(crate) struct Polyline {
     pub(crate) x: Vec<f32>,
@@ -64,7 +64,9 @@ impl Polyline {
                 continue;
             }
             let along = if total > 0.0 { length / total } else { 0.0 };
-            self.push_vertex(*point, true, ends, along);
+            // A point without a finite pixel, such as one of a `NULL` position, breaks the line.
+            let defined = point.iter().all(|value| value.is_finite());
+            self.push_vertex(*point, defined, ends, along);
         }
     }
 }

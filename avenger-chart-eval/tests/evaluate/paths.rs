@@ -1,6 +1,7 @@
 //! The path order of lines and areas: each series connects its rows in ascending order of `order`,
 //! or without it, along the key, `x` when vertical and `y` when horizontal, with equal values in
-//! row order. The first row of each series orders the series.
+//! row order. The first row of each series orders the series. A row without a position breaks the
+//! path.
 
 use std::sync::Arc;
 
@@ -231,4 +232,159 @@ fn a_polar_area_connects_its_rows_along_theta() {
         Chart::builder(Plot::polar([areas, lines])).build().unwrap()
     };
     assert_eq!(scene(&chart(rows)), scene(&chart(sorted)));
+}
+
+/// Whether each vertex of each line and area of the first plot is defined.
+fn defined(evaluated: &EvaluatedChart) -> Vec<Vec<bool>> {
+    (plot_group(evaluated).marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Line(line) => Some(line.defined.as_vec(line.len as usize, None)),
+            SceneMark::Area(area) => Some(area.defined.as_vec(area.len as usize, None)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A row whose position is `NULL`, such as a row that `impute(method => 'gap')` adds, breaks a
+/// line and an area there, and a series without one is defined everywhere.
+#[test]
+fn a_null_position_breaks_a_line_and_an_area() {
+    let rows = RecordBatch::try_from_iter([
+        (
+            "key",
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0])) as ArrayRef,
+        ),
+        (
+            "value",
+            Arc::new(Float64Array::from(vec![
+                Some(1.0),
+                None,
+                Some(2.0),
+                Some(3.0),
+            ])),
+        ),
+    ])
+    .unwrap();
+    let gap = vec![vec![true, false, true, true]];
+    let evaluated = evaluate(
+        &line(rows.clone(), LineMark::builder().x("key").y("value")),
+        [320.0, 240.0],
+    );
+    assert_eq!(defined(&evaluated), gap);
+    let evaluated = evaluate(
+        &area(rows, AreaMark::builder().x("key").y("value")),
+        [320.0, 240.0],
+    );
+    assert_eq!(defined(&evaluated), gap);
+    let (dense, _) = shuffled();
+    let evaluated = evaluate(
+        &line(dense, LineMark::builder().x("key").y("value")),
+        [320.0, 240.0],
+    );
+    assert_eq!(defined(&evaluated), vec![vec![true; 5]]);
+}
+
+/// A polar line breaks at a row whose radius is `NULL`, and every vertex that it draws has a
+/// finite pixel.
+#[test]
+fn a_null_radius_breaks_a_polar_line() {
+    let rows = RecordBatch::try_from_iter([
+        (
+            "key",
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0])) as ArrayRef,
+        ),
+        (
+            "value",
+            Arc::new(Float64Array::from(vec![
+                Some(1.0),
+                None,
+                Some(2.0),
+                Some(3.0),
+            ])),
+        ),
+    ])
+    .unwrap();
+    let chart = Chart::builder(Plot::polar([PolarLayer::line(
+        rows,
+        PolarLineMark::builder().theta("key").radius("value"),
+    )]))
+    .build()
+    .unwrap();
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
+    let lines: Vec<_> = (plot_group(&evaluated).marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Line(line) => Some(line),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lines.len(), 1);
+    let line = lines[0];
+    let len = line.len as usize;
+    let vertices: Vec<_> = (line.x.as_vec(len, None).into_iter())
+        .zip(line.y.as_vec(len, None))
+        .zip(line.defined.as_vec(len, None))
+        .collect();
+    assert!(vertices.iter().any(|(_, defined)| !defined), "{vertices:?}");
+    assert!(
+        (vertices.iter())
+            .filter(|(_, defined)| *defined)
+            .all(|((x, y), _)| x.is_finite() && y.is_finite()),
+        "{vertices:?}"
+    );
+}
+
+/// A polar area breaks at a row whose radius is `NULL` into a region for each run of the other
+/// rows, and its outline breaks there too.
+#[test]
+fn a_null_radius_breaks_a_polar_area_into_regions() {
+    let rows = RecordBatch::try_from_iter([
+        (
+            "key",
+            Arc::new(Float64Array::from(vec![0.0, 1.0, 2.0, 3.0, 4.0])) as ArrayRef,
+        ),
+        (
+            "value",
+            Arc::new(Float64Array::from(vec![
+                Some(1.0),
+                Some(2.0),
+                None,
+                Some(2.0),
+                Some(3.0),
+            ])),
+        ),
+    ])
+    .unwrap();
+    let chart = Chart::builder(Plot::polar([PolarLayer::area(
+        rows,
+        PolarAreaMark::builder()
+            .theta("key")
+            .radius("value")
+            .stroke_width(1.0),
+    )]))
+    .build()
+    .unwrap();
+    let evaluated = evaluate(&chart, [320.0, 240.0]);
+    let marks = &plot_group(&evaluated).marks;
+    let regions: Vec<usize> = (marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Path(path) => Some(
+                (path.path.as_vec(1, None)[0].iter())
+                    .filter(|event| matches!(event, lyon_path::Event::Begin { .. }))
+                    .count(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(regions, vec![2]);
+    let breaks: Vec<usize> = (marks.iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Line(line) => Some(
+                (line.defined.as_vec(line.len as usize, None).into_iter())
+                    .filter(|defined| !defined)
+                    .count(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(breaks, vec![1]);
 }

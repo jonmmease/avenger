@@ -15,7 +15,7 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 use avenger_chart::{
-    layer::{LayerRef, MarkMessage},
+    layer::{LayerRef, MarkMessage, MarkType},
     proto::{self, conditional_value, encoding, Channel},
     resolve::scale_channel,
     Chart, FitKind,
@@ -42,12 +42,16 @@ pub(crate) type Result<T> = std::result::Result<T, EvalError>;
 
 /// The rows of `table` that draw an instance: those whose encoded position columns hold values.
 /// On a channel of `categorical`, whose scale fits categories, a NULL is the NULL category, which
-/// draws, and a NULL struct, a NULL lump or a NULL path of nested bands, does not.
+/// draws, and a NULL struct, a NULL lump or a NULL path of nested bands, does not. A line or an
+/// area keeps every row, and breaks its path at a row without a position.
 pub(crate) fn drawn_rows(
     mark: &dyn MarkMessage,
     table: &RecordBatch,
     categorical: &[Channel],
 ) -> Result<RecordBatch> {
+    if matches!(mark.mark_type(), MarkType::Line | MarkType::Area) {
+        return Ok(table.clone());
+    }
     let positions = mark.kind().pairs().concat();
     let columns: Vec<ArrayRef> = mark
         .encodings()
@@ -509,7 +513,7 @@ impl<'a> LayerRows<'a> {
     /// Why a percentage `size` draws at the initial `size`: a mark other than a symbol, a bar,
     /// and a rect, or one without a band, has no band that it divides.
     pub(crate) fn size_warning(&self) -> Result<Option<String>> {
-        use avenger_chart::layer::{CoordKind, MarkType};
+        use avenger_chart::layer::CoordKind;
         if self.band_size().is_none() {
             return Ok(None);
         }
