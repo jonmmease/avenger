@@ -27,11 +27,12 @@ message Encoding {
   // conditional direct value that grays the rows outside a brush.
   //
   // A field of a position channel with a partner, `x`, `y`, `theta`, or `radius`, can name a
-  // column of spans: structs of exactly a `start` and an `end` field, in that order, of one
-  // numeric or temporal type, such as the bins of a histogram. The column gives the channel its
-  // starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark takes the
-  // partner, and the partner is unset, which the reader fills with the same field, or names the
-  // same column.
+  // column of spans: structs of a `start` and an `end` field, in that order, of one numeric or
+  // temporal type, such as the bins of a histogram, and optionally a third field, a `unit` of text
+  // that the chart ignores, such as the units of the `timeunit` transform. The column gives the
+  // channel its starts and the partner, `x2`, `y2`, `theta2`, or `radius2`, its ends. The mark
+  // takes the partner, and the partner is unset, which the reader fills with the same field, or
+  // names the same column.
   //
   // A field of a categorical channel can name a column of lumps, the structs that the `lump`
   // transform writes: exactly a `value`, an `other` of Utf8, a `weight` of Float64, and a
