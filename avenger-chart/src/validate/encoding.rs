@@ -357,11 +357,12 @@ impl Checker<'_> {
             self.scale(scale, channel, kind, &scaled_type, &format!("{path}.scale"))?;
         }
         band_placement(encoding, channel, &value_type, path)?;
-        if !encoding.conditional.is_empty() && (is_position(channel) || channel == Channel::Detail)
+        if !encoding.conditional.is_empty()
+            && (is_position(channel) || matches!(channel, Channel::Detail | Channel::Order))
         {
             return Err(fail(
                 path,
-                "the position channels and `detail` have no conditional values",
+                "the position channels, `detail`, and `order` have no conditional values",
             ));
         }
         for (index, conditional) in encoding.conditional.iter().enumerate() {

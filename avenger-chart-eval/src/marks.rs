@@ -56,7 +56,7 @@ pub(crate) fn marks(rows: &LayerRows, mark: &cartesian_layer::Mark) -> Result<Ve
     use cartesian_layer::Mark;
     match mark {
         Mark::Symbol(_) => symbols(rows),
-        Mark::Line(_) => lines(rows),
+        Mark::Line(line) => lines(rows, line.orient),
         Mark::Trail(_) => trails(rows),
         Mark::Area(area) => areas(rows, area.orient),
         Mark::Bar(bar) => bars(rows, bar.orient),
@@ -242,33 +242,40 @@ pub(crate) fn symbol_mark(
     })
 }
 
-fn lines(rows: &LayerRows) -> Result<Vec<Drawn>> {
+fn lines(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
     let x = rows.position(Channel::X)?;
     let y = rows.position(Channel::Y)?;
     let (_, stroke) = rows.paint()?;
     let width = rows.numbers_or(Channel::StrokeWidth, Property::StrokeWidth)?;
     let dash = rows.dashes_or_style()?;
-    (rows.series()?.into_iter().enumerate())
-        .map(|(index, series)| {
-            let first = series[0] as usize;
-            let mark = SceneLineMark {
-                name: format!("{}/{index}", rows.name),
-                len: series.len() as u32,
-                x: subset(&x, &series),
-                y: subset(&y, &series),
-                stroke: at(&stroke, first),
-                stroke_width: at(&width, first),
-                stroke_dash: (dash.as_ref())
-                    .map(|dash| at(dash, first))
-                    .filter(|dash| !dash.is_empty()),
-                ..Default::default()
-            };
-            Ok(Drawn {
-                mark: mark.into(),
-                rows: rows.rows(&series)?,
-            })
+    let along = match rows.horizontal(orient) {
+        true => &y,
+        false => &x,
+    };
+    (rows
+        .path_series(|row| at(along, row))?
+        .into_iter()
+        .enumerate())
+    .map(|(index, series)| {
+        let first = series[0] as usize;
+        let mark = SceneLineMark {
+            name: format!("{}/{index}", rows.name),
+            len: series.len() as u32,
+            x: subset(&x, &series),
+            y: subset(&y, &series),
+            stroke: at(&stroke, first),
+            stroke_width: at(&width, first),
+            stroke_dash: (dash.as_ref())
+                .map(|dash| at(dash, first))
+                .filter(|dash| !dash.is_empty()),
+            ..Default::default()
+        };
+        Ok(Drawn {
+            mark: mark.into(),
+            rows: rows.rows(&series)?,
         })
-        .collect()
+    })
+    .collect()
 }
 
 fn trails(rows: &LayerRows) -> Result<Vec<Drawn>> {
@@ -315,49 +322,52 @@ fn areas(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
     };
     let dash = rows.dashes_or_style()?;
     let pattern = row_patterns(rows)?;
-    (rows.series()?.into_iter().enumerate())
-        .map(|(index, series)| {
-            let first = series[0] as usize;
-            let (x, y, x2, y2) = match horizontal {
-                true => (
-                    subset(&across_values, &series),
-                    subset(&along_values, &series),
-                    subset(&base, &series),
-                    scalar(0.0),
-                ),
-                false => (
-                    subset(&along_values, &series),
-                    subset(&across_values, &series),
-                    scalar(0.0),
-                    subset(&base, &series),
-                ),
-            };
-            let mark = SceneAreaMark {
-                name: format!("{}/{index}", rows.name),
-                len: series.len() as u32,
-                orientation: match horizontal {
-                    true => AreaOrientation::Horizontal,
-                    false => AreaOrientation::Vertical,
-                },
-                x,
-                y,
-                x2,
-                y2,
-                fill: at(&fill, first),
-                fill_pattern: pattern.as_ref().and_then(|pattern| at(pattern, first)),
-                stroke: at(&stroke, first),
-                stroke_width: at(&width, first),
-                stroke_dash: (dash.as_ref())
-                    .map(|dash| at(dash, first))
-                    .filter(|dash| !dash.is_empty()),
-                ..Default::default()
-            };
-            Ok(Drawn {
-                mark: mark.into(),
-                rows: rows.rows(&series)?,
-            })
+    (rows
+        .path_series(|row| at(&along_values, row))?
+        .into_iter()
+        .enumerate())
+    .map(|(index, series)| {
+        let first = series[0] as usize;
+        let (x, y, x2, y2) = match horizontal {
+            true => (
+                subset(&across_values, &series),
+                subset(&along_values, &series),
+                subset(&base, &series),
+                scalar(0.0),
+            ),
+            false => (
+                subset(&along_values, &series),
+                subset(&across_values, &series),
+                scalar(0.0),
+                subset(&base, &series),
+            ),
+        };
+        let mark = SceneAreaMark {
+            name: format!("{}/{index}", rows.name),
+            len: series.len() as u32,
+            orientation: match horizontal {
+                true => AreaOrientation::Horizontal,
+                false => AreaOrientation::Vertical,
+            },
+            x,
+            y,
+            x2,
+            y2,
+            fill: at(&fill, first),
+            fill_pattern: pattern.as_ref().and_then(|pattern| at(pattern, first)),
+            stroke: at(&stroke, first),
+            stroke_width: at(&width, first),
+            stroke_dash: (dash.as_ref())
+                .map(|dash| at(dash, first))
+                .filter(|dash| !dash.is_empty()),
+            ..Default::default()
+        };
+        Ok(Drawn {
+            mark: mark.into(),
+            rows: rows.rows(&series)?,
         })
-        .collect()
+    })
+    .collect()
 }
 
 /// The pixel span of each row along `channel`: from its position to the position of `second`,

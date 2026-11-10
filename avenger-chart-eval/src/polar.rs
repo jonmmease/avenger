@@ -1101,7 +1101,7 @@ pub(crate) fn marks(
     let drawer = Drawer { rows, fit };
     match mark {
         Mark::Symbol(_) => drawer.symbols(),
-        Mark::Line(line) => drawer.lines(canvas(line.route)),
+        Mark::Line(line) => drawer.lines(line.orient, canvas(line.route)),
         Mark::Trail(trail) => drawer.trails(canvas(trail.route)),
         Mark::Area(area) => drawer.areas(area.orient, canvas(area.route)),
         Mark::Bar(bar) => drawer.bars(bar.orient, canvas(bar.route)),
@@ -1198,10 +1198,26 @@ impl Drawer<'_, '_> {
         )
     }
 
-    /// The polyline of each series of a line or a trail through its rows along its route.
-    fn series_polylines(&self, canvas: bool) -> Result<Vec<(Vec<u32>, Polyline)>> {
+    /// The polyline of each series of a line or a trail through its rows along its route: a
+    /// trail in the order of its rows, and a line in the order of its path, along `theta` when
+    /// vertical and `radius` when horizontal, when `path` holds its orient.
+    fn series_polylines(
+        &self,
+        canvas: bool,
+        path: Option<i32>,
+    ) -> Result<Vec<(Vec<u32>, Polyline)>> {
         let (angles, radii) = (self.angles()?, self.radii()?);
-        Ok((self.rows.series()?.into_iter())
+        let series = match path {
+            Some(orient) => {
+                let along = match self.rows.horizontal(orient) {
+                    true => &radii,
+                    false => &angles,
+                };
+                self.rows.path_series(|row| along[row])?
+            }
+            None => self.rows.series()?,
+        };
+        Ok((series.into_iter())
             .map(|series| {
                 let polyline = self.polyline(&series, |row| [angles[row], radii[row]], canvas);
                 (series, polyline)
@@ -1209,12 +1225,12 @@ impl Drawer<'_, '_> {
             .collect())
     }
 
-    fn lines(&self, canvas: bool) -> Result<Vec<Drawn>> {
-        series_lines(self.rows, self.series_polylines(canvas)?)
+    fn lines(&self, orient: i32, canvas: bool) -> Result<Vec<Drawn>> {
+        series_lines(self.rows, self.series_polylines(canvas, Some(orient))?)
     }
 
     fn trails(&self, canvas: bool) -> Result<Vec<Drawn>> {
-        series_trails(self.rows, self.series_polylines(canvas)?)
+        series_trails(self.rows, self.series_polylines(canvas, None)?)
     }
 
     /// The baseline of a bar or an area along `channel`: zero when its scale's domain holds it,
@@ -1402,7 +1418,11 @@ impl Drawer<'_, '_> {
         let dash = rows.dashes_or_style()?;
         let pattern = row_patterns(rows)?;
         let mut drawn = Vec::new();
-        for (index, series) in rows.series()?.into_iter().enumerate() {
+        let along = match horizontal {
+            true => &radii,
+            false => &angles,
+        };
+        for (index, series) in rows.path_series(|row| along[row])?.into_iter().enumerate() {
             let first = series[0] as usize;
             let line = self.polyline(&series, |row| [angles[row], radii[row]], canvas);
             let reversed: Vec<u32> = series.iter().rev().copied().collect();

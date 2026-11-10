@@ -9,6 +9,7 @@ use std::{
 
 use arrow::{
     array::{new_null_array, Array, ArrayRef, AsArray, Float64Array, RecordBatch, UInt32Array},
+    compute::SortOptions,
     compute::{cast, take_record_batch},
     datatypes::DataType,
     row::{RowConverter, SortField},
@@ -792,6 +793,48 @@ impl<'a> LayerRows<'a> {
             .into_iter()
             .map(|key| series.remove(&key).unwrap_or_default())
             .collect())
+    }
+
+    /// The rows of each series of a line or an area in the order of its path: ascending by
+    /// `order`, with `NULL` last, or without `order`, by `along`, the position of each row along
+    /// the key, with an undefined position last. Equal values keep their row order.
+    pub(crate) fn path_series(&self, along: impl Fn(usize) -> f32) -> Result<Vec<Vec<u32>>> {
+        let mut series = self.series()?;
+        let order = match self.encoding(Channel::Order).and_then(|e| e.kind.as_ref()) {
+            Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
+                self.column(name)
+            }
+            _ => None,
+        };
+        match order {
+            Some(order) => {
+                let converter = RowConverter::new(vec![SortField::new_with_options(
+                    order.data_type().clone(),
+                    SortOptions {
+                        descending: false,
+                        nulls_first: false,
+                    },
+                )])?;
+                let keys = converter.convert_columns(&[order])?;
+                for rows in &mut series {
+                    rows.sort_by(|a, b| keys.row(*a as usize).cmp(&keys.row(*b as usize)));
+                }
+            }
+            // A constant order keeps the row order.
+            None if self.has(Channel::Order) => {}
+            None => {
+                for rows in &mut series {
+                    rows.sort_by(|a, b| {
+                        let (a, b) = (along(*a as usize), along(*b as usize));
+                        match (a.is_nan(), b.is_nan()) {
+                            (false, false) => a.total_cmp(&b),
+                            (a, b) => a.cmp(&b),
+                        }
+                    });
+                }
+            }
+        }
+        Ok(series)
     }
 
     pub(crate) fn rows(&self, rows: &[u32]) -> Result<RecordBatch> {

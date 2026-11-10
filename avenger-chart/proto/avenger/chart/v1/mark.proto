@@ -34,10 +34,16 @@ message SymbolMark {
   Encoding pattern = 128;
 }
 
-// A line through the rows of each series, in the order of the rows. The `detail` and the color
-// channels split the rows into series. The channels other than the positions take one value for
-// each series.
+// A line through the rows of each series. The `detail` and the color channels split the rows into
+// series. The channels other than the positions and `order` take one value for each series.
+// Each series connects its rows in ascending order of `order`, with `NULL` last and equal values in
+// row order, and without `order`, in the order of their positions along its key: `x` when
+// vertical, and `y` when horizontal. `order` orders the path only: the first row of each series
+// orders the series, which draw in that order.
 message LineMark {
+  // When unset, the line is vertical unless only its `x` scale is continuous.
+  Orient orient = 1;
+
   Encoding x = 101;
   Encoding y = 102;
   Encoding color = 117;
@@ -47,10 +53,12 @@ message LineMark {
   Encoding stroke_width = 123;
   Encoding stroke_dash = 124;
   Encoding detail = 133;
+  Encoding order = 134;
 }
 
-// A line through the rows of each series, as for `LineMark`, whose width at each row is its `size`,
-// in pixels. `color`, `stroke`, and `opacity` take one value for each series.
+// A line through the rows of each series, in the order of the rows, whose width at each row is its
+// `size`, in pixels. The `detail` and the color channels split the rows into series, and `color`,
+// `stroke`, and `opacity` take one value for each series.
 message TrailMark {
   Encoding x = 101;
   Encoding y = 102;
@@ -64,7 +72,11 @@ message TrailMark {
 
 // The region of each series between a line and a baseline: `y2`, or zero, along `x` for a vertical
 // area, and `x2`, or zero, along `y` for a horizontal area. The channels other than the positions
-// take one value for each series.
+// and `order` take one value for each series.
+// Each series connects its rows in ascending order of `order`, with `NULL` last and equal values in
+// row order, and without `order`, in the order of their positions along its key: `x` when
+// vertical, and `y` when horizontal. `order` orders the path only: the first row of each series
+// orders the series, which draw in that order.
 message AreaMark {
   // When unset, the area is vertical unless only its `x` scale is continuous.
   Orient orient = 1;
@@ -83,6 +95,7 @@ message AreaMark {
   Encoding stroke_dash = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
+  Encoding order = 134;
 }
 
 // A rectangle from a baseline to a value, along a band, or at a continuous key with the thickness
@@ -251,11 +264,14 @@ message PolarSymbolMark {
   Encoding pattern = 128;
 }
 
-// A line through the rows of each series of a polar plot, in the order of the rows, as for
-// `LineMark`. Each segment between two rows takes the line's route.
+// A line through the rows of each series of a polar plot, as for `LineMark`, where `theta` takes
+// the place of `x` and `radius` the place of `y`, so a vertical line runs along `theta`. Each
+// segment between two rows takes the line's route.
 message PolarLineMark {
+  // When unset, the line is vertical unless only its `theta` scale is continuous.
+  Orient orient = 1;
   // How each segment between two points runs, as `Route` describes.
-  Route route = 1;
+  Route route = 2;
 
   Encoding theta = 105;
   Encoding radius = 106;
@@ -266,6 +282,7 @@ message PolarLineMark {
   Encoding stroke_width = 123;
   Encoding stroke_dash = 124;
   Encoding detail = 133;
+  Encoding order = 134;
 }
 
 // A trail through the rows of each series of a polar plot, as for `TrailMark`. Each segment between
@@ -309,6 +326,7 @@ message PolarAreaMark {
   Encoding stroke_dash = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
+  Encoding order = 134;
 }
 
 // A bar of a polar plot, as for `BarMark`, where `theta` takes the place of `x` and `radius` the

@@ -114,7 +114,9 @@ counts at its computed `contain-intrinsic-size`, or along a band, a point, or a 
 scale with a `step`, at the step times the steps of the scale, so a bar chart of 40 categories draws
 wider than one of 3. avenger-layout places the plot and the parts of its axes and legends, each
 position scale fits its domain to the plot's length with room for the reach of its marks, and the
-marks encode their rows through the fitted scales.
+marks encode their rows through the fitted scales. A line or an area connects the rows of each
+series in the order of its `order` channel, or without one, of their positions along its key, `x`
+when vertical and `y` when horizontal, so the rows of its table can come in any order.
 
 ```rust
 use std::sync::Arc;

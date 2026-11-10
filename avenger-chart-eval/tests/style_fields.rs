@@ -147,6 +147,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     (
         "LineMark",
         &[
+            "orient",
             "x",
             "y",
             "color",
@@ -156,6 +157,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_width",
             "stroke_dash",
             "detail",
+            "order",
         ],
     ),
     (
@@ -180,6 +182,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_dash",
             "pattern",
             "detail",
+            "order",
         ],
     ),
     (
@@ -539,6 +542,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     (
         "PolarLineMark",
         &[
+            "orient",
             "route",
             "theta",
             "radius",
@@ -549,6 +553,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_width",
             "stroke_dash",
             "detail",
+            "order",
         ],
     ),
     (
@@ -576,6 +581,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_dash",
             "pattern",
             "detail",
+            "order",
         ],
     ),
     (
