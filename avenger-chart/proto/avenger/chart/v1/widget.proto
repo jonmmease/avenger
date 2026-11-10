@@ -33,7 +33,7 @@ import "avenger/chart/v1/value.proto";
 // A widget's identity is its key and the anchor of its group: the child of a concat or a wrap, or
 // the layer of a plot, that an independent rule made the group for. A group that no independent
 // rule splits anchors at the root and has no anchor. An anchor other than the root has an id, as a
-// plot that declares a tool does, so that initial clauses and chart updates name it. A widget's
+// plot that declares a selection does, so that initial clauses and chart updates name it. A widget's
 // clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`,
 // and leaves `owner` empty for a group that anchors at the root.
 //

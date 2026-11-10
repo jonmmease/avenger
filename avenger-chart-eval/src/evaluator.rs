@@ -73,8 +73,8 @@ pub struct EvaluatedPlot {
     /// The name of its identity, or its node path when its node has no id, which names its group
     /// in the scene.
     pub name: String,
-    /// The identity of its node, when it has an id.
-    pub identity: Option<Identity>,
+    /// The identity of its node: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// The kind of its coordinate system, whose positions its coordinates take.
     pub kind: CoordKind,
     /// Its left, top, width, and height in the scene.
@@ -91,8 +91,8 @@ pub struct EvaluatedPlot {
 pub struct EvaluatedLayer {
     /// Its path in the chart, such as `root.plot.cartesian.layers[0]`.
     pub path: String,
-    /// The identity of the layer, when it has an id.
-    pub identity: Option<Identity>,
+    /// The identity of the layer: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// The names of its marks with rows in `EvaluatedChart::data`, in the order that they draw.
     pub marks: Vec<String>,
     /// The coordinates of the plot with the scales of the layer's `x` and `y`, which differ from
@@ -1311,7 +1311,7 @@ fn carry_states(
     options: &UpdateOptions,
 ) -> BTreeMap<String, SelectionState> {
     let owners: std::collections::BTreeSet<String> = (resolved.tree.identities())
-        .map(|(identity, _)| identity.id.clone())
+        .filter_map(|(identity, _)| identity.given_id().map(String::from))
         .collect();
     let names: std::collections::BTreeSet<String> =
         old.keys().chain(initial.keys()).cloned().collect();
@@ -1749,10 +1749,9 @@ fn layer_kinds(resolved: &Resolved, layer: usize, kinds: &[FitKind]) -> BTreeMap
 
 /// The owners of the rows of a layer: the ids of the layer and of its plot.
 fn owners(plot: &PlotRef, layer: &Layer) -> Vec<String> {
-    [layer.identity.as_ref(), plot.identity.as_ref()]
+    [&layer.identity, &plot.identity]
         .into_iter()
-        .flatten()
-        .map(|identity| identity.id.clone())
+        .filter_map(|identity| identity.given_id().map(String::from))
         .collect()
 }
 

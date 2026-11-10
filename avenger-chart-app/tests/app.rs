@@ -124,7 +124,7 @@ async fn a_settled_navigation_reports_the_domains_of_its_scales_in_one_change() 
         panic!("one settled change, and not {changes:?}");
     };
     assert!(selections.is_empty());
-    let usa = app.state().plots()[0].identity.clone().unwrap();
+    let usa = app.state().plots()[0].identity.clone();
     let scales: Vec<&ScaleIdentity> = settled.iter().map(|(scale, _)| scale).collect();
     assert_eq!(
         scales,
@@ -740,6 +740,47 @@ async fn a_new_chart_keeps_the_views_of_the_scales_that_it_still_has() {
         .iter()
         .all(|channel| evaluator.scale_view(plot, *channel).is_none())));
     assert_ne!(domains(&app, 0)[0], zoomed[0]);
+}
+
+/// A scatter plot of `cars` without an id that navigates: the root, or the first of two plots in a
+/// row, at another path.
+fn unnamed(cars: RecordBatch, in_a_row: bool) -> Chart {
+    let plot = || {
+        let symbols =
+            CartesianLayer::symbol(cars.clone(), SymbolMark::builder().x("weight").y("mpg"));
+        Plot::cartesian([symbols]).tools(navigate())
+    };
+    match in_a_row {
+        false => Chart::builder(plot()).build().unwrap(),
+        true => Chart::builder(Concat::new(Direction::Row).children([plot(), plot()]))
+            .build()
+            .unwrap(),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plot_without_an_id_keeps_its_view_while_the_chart_keeps_its_structure() {
+    let (mut app, updates, _) = app(unnamed(cars(), false)).await;
+    let at = center(&app, 0);
+    send(&mut app, [moved(at), wheel(2.0)]).await;
+    let zoomed = domains(&app, 0);
+    assert!(app.state().evaluator().scale_view(0, Channel::X).is_some());
+
+    // New rows in the same structure keep the view, by the plot's path.
+    let fewer = cars_of(&["USA", "Japan"]);
+    let rows = fewer.num_rows();
+    updates.send(unnamed(fewer, false));
+    refresh_until(&mut app, |app| {
+        app.state().chart().tables()[0].num_rows() == rows
+    })
+    .await;
+    assert_eq!(domains(&app, 0), zoomed);
+
+    // The plot at another path starts at its fit.
+    updates.send(unnamed(cars(), true));
+    refresh_until(&mut app, |app| app.state().plots().len() == 2).await;
+    let evaluator = app.state().evaluator();
+    assert!((0..2).all(|plot| evaluator.scale_view(plot, Channel::X).is_none()));
 }
 
 #[tokio::test(flavor = "multi_thread")]

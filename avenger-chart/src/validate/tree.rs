@@ -213,8 +213,15 @@ impl Checker<'_> {
                     None => unreachable!("{REQUIRED}"),
                 }
             }
-            if !layer.tools().is_empty() && layer.id().is_empty() {
-                return Err(fail(&path, "a layer that declares a tool has an id"));
+            // A selection's clauses name their owner by id, and a layer without one is a part of
+            // the chart by its path, which no clause names.
+            let selects = (layer.tools().iter())
+                .any(|tool| matches!(tool.kind, Some(layer_tool::Kind::Select(_))));
+            if selects && layer.id().is_empty() {
+                return Err(fail(
+                    &path,
+                    "a layer that declares a selection has an id, which its clauses name",
+                ));
             }
             self.widgets(layer.widgets(), table, &layer_scope, &path)?;
             classes(layer.classes(), &path)?;
@@ -257,8 +264,15 @@ impl Checker<'_> {
                 None => unreachable!("{REQUIRED}"),
             }
         }
-        if !plot.tools.is_empty() && plot.id.is_empty() {
-            return Err(fail(path, "a plot that declares a tool has an id"));
+        // A selection's clauses name their owner by id, and a plot without one is a part of the
+        // chart by its path, which no clause names.
+        let selects =
+            (plot.tools.iter()).any(|tool| matches!(tool.kind, Some(tool::Kind::Select(_))));
+        if selects && plot.id.is_empty() {
+            return Err(fail(
+                path,
+                "a plot that declares a selection has an id, which its clauses name",
+            ));
         }
         Ok(())
     }
