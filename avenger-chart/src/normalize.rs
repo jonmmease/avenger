@@ -290,7 +290,7 @@ impl Hoist<'_> {
 fn rule_order(rule: &proto::Resolve) -> (u8, i32, String) {
     match &rule.key {
         Some(proto::resolve::Key::Channel(channel)) => (0, *channel, String::new()),
-        Some(proto::resolve::Key::Widget(key)) => (1, 0, key.clone()),
+        Some(proto::resolve::Key::Widget(widget)) => (1, 0, widget.key.clone()),
         None => (2, 0, String::new()),
     }
 }

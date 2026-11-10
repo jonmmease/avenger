@@ -670,6 +670,7 @@ const CONTENT: &[(&str, &[&str])] = &[
         ],
     ),
     ("Resolve", &["channel", "widget", "sharing"]),
+    ("WidgetKey", &["key"]),
     (
         "Scale",
         &[
