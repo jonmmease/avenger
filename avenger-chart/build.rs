@@ -125,7 +125,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &options::excluded(&messages),
     )?;
     // The messages with constructors: those of the tree with fields, except the marks, whose
-    // mark functions take their parameters, and the composition nodes, whose aggregates take them.
+    // mark functions take their parameters, and the composition nodes, whose compositions take
+    // them.
     let mut functions_own = options::marks(&messages);
     functions_own
         .extend((options::COMPOSITION_NODES.iter()).map(|(node, _)| format!("{PACKAGE}.{node}")));

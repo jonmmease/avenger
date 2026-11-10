@@ -1,5 +1,4 @@
-facet(column, show, title, show_title, side, labels, label_angle, label_padding, tick_length, rule_color, rule_width, classes, id)
-  column: string
+facet(show, title, show_title, side, labels, label_angle, label_padding, tick_length, rule_color, rule_width, classes, id)
   show: Boolean
   title: string -> text; title(...)
   show_title: Boolean

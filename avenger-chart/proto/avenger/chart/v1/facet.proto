@@ -27,7 +27,8 @@ import "avenger/chart/v1/side.proto";
 // or wraps share each channel alike and facet one column, so the rows of a facet grid cannot
 // disagree.
 message Facet {
-  // The partition column of the children, not empty. A facet aggregate sets it from its key.
+  // The partition column of the children, not empty. The composition that builds a facet sets it
+  // from its key.
   string column = 1 [(avenger.chart.v1.lift) = true];
   // Whether the facet draws its title and labels. When unset, it does. `false` draws neither, and
   // the children still split the column.

@@ -203,11 +203,13 @@ fn the_options_of_the_composition_nodes_have_constructors() {
     assert_eq!(layout.gap, Some(8.0));
     assert_eq!(layout.tracks.len(), 1);
 
-    // A facet constructor takes no column: a facet aggregate sets it from its key.
+    // A facet constructor takes no column: the composition that builds a facet sets it from its key.
     let facet = call("facet", vec![("side", Arg::Str("bottom".into()))]).unwrap();
     let facet = proto::Facet::decode(facet.message).unwrap();
     assert!(facet.column.is_empty());
     assert_eq!(facet.side, proto::Side::Bottom as i32);
+    let params = &constructor("facet").unwrap().params;
+    assert!(params.iter().all(|param| param.name != "column"));
 }
 
 #[test]

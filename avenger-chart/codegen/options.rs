@@ -8,7 +8,7 @@
 //!   are not channels
 //! - the `options` of each plot of a coordinate system: `CartesianPlot`, `PolarPlot`, and `GeoPlot`
 //! - the composition nodes `Plot`, `Concat`, and `Wrap`, whose fields other than the structural ones
-//!   are the options of the composition aggregates
+//!   are the options of the compositions that build them
 //!
 //! The tree stops at `ValueRef`, `TableRef`, `Table`, and `Encoding`, which are values, tables,
 //! and channels, not options. build.rs fails, in every build, when a oneof of the tree has two
@@ -29,8 +29,8 @@ use super::{Messages, PACKAGE};
 const STOPS: [&str; 4] = ["ValueRef", "TableRef", "Table", "Encoding"];
 
 /// The composition nodes, each with its structural fields: its children, its partition, and what
-/// a composition aggregate sets, such as the direction of a concat. Their other fields are the
-/// options of the aggregates.
+/// a composition sets, such as the direction of a concat. Their other fields are the options of
+/// the compositions.
 pub(super) const COMPOSITION_NODES: [(&str, &[&str]); 3] = [
     ("Plot", &["partition", "cartesian", "polar", "geo"]),
     ("Concat", &["direction", "children", "partition"]),
@@ -93,7 +93,8 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
 }
 
 /// The fields that are not options of a message of the tree or of `Encoding`, by the message's
-/// full name and the field's name: the structural fields of the composition nodes, the members of
+/// full name and the field's name: the structural fields of the composition nodes, the column of a
+/// facet, which the composition that builds a facet sets from its key, the members of
 /// `Encoding.kind`, which `scaled` and `direct` set, and `Encoding.conditional`.
 pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
     let encoding = format!("{PACKAGE}.Encoding");
@@ -103,6 +104,7 @@ pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
             excluded.insert((format!("{PACKAGE}.{node}"), field.to_string()));
         }
     }
+    excluded.insert((format!("{PACKAGE}.Facet"), "column".to_string()));
     if let Some((_, _, message)) = messages.get(&encoding) {
         let kind = (message.oneof_decl.iter()).position(|oneof| oneof.name() == "kind");
         for field in &message.field {

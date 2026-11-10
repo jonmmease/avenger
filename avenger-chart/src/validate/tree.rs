@@ -717,8 +717,9 @@ fn part_rules(rules: &[proto::PartRule], path: &str) -> Result<()> {
     )
 }
 
-/// A facet names its column. The constructor of a facet takes no column, because a facet aggregate
-/// sets it from its key, so the reader checks it here rather than through `required`.
+/// A facet names its column. The constructor of a facet takes no column, because the composition
+/// that builds a facet sets it from its key, so the reader checks it here rather than through
+/// `required`.
 fn facet_column(facet: &proto::Facet, path: &str) -> Result<()> {
     match facet.column.is_empty() {
         true => Err(fail(
