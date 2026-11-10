@@ -30,11 +30,11 @@ pub struct GroupBox<State> {
 }
 
 impl<State> GroupBox<State> {
-    /// Create a group box named `id` with the plain-text `title`.
-    pub fn new(id: &str, title: &str) -> Self {
+    /// Create a group box named `id` with `title`, plain text or Typst markup (`Text::markup`).
+    pub fn new(id: &str, title: impl Into<Text>) -> Self {
         Self {
             id: id.to_string(),
-            title: Text::plain(title),
+            title: title.into(),
             enabled: None,
         }
     }

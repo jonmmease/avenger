@@ -31,6 +31,7 @@ mod widgets;
 pub use button::{Button, ButtonState};
 pub use checkbox::{Checkbox, CheckboxState, CheckboxView};
 pub use checkboxes::{CheckboxList, CheckboxListState, CheckboxListView};
+pub use draw::Text;
 pub use group_box::GroupBox;
 pub use radio::{RadioDirection, RadioGroup, RadioGroupState, RadioGroupView};
 pub use range_slider::{RangeSlider, RangeSliderState, RangeSliderView};

@@ -4,6 +4,7 @@
 use arrow::array::Array;
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{EvaluatedChart, SliderComparison as Comparison, WidgetSpec, WidgetValue};
+use avenger_widgets::Text;
 
 use crate::support::*;
 
@@ -64,7 +65,8 @@ fn a_slider_stands_above_its_plot_at_the_value_of_its_clause() {
     let [widget] = &evaluated.widgets[..] else {
         panic!("one widget: {:#?}", evaluated.widgets);
     };
-    assert_eq!(widget.title, "Weight at least");
+    // A widget's `Title` is Typst markup.
+    assert_eq!(widget.title, Text::markup("Weight at least"));
     let WidgetSpec::Slider {
         comparison, domain, ..
     } = &widget.spec
@@ -174,6 +176,17 @@ fn widgets_share_a_row_until_their_side_is_full() {
     let bottom = narrow.widgets[0].rects[0][1] + narrow.widgets[0].rects[0][3];
     assert!(bottom <= plot[1], "{rows:?} {plot:?}");
     assert!(rows.iter().any(|&row| row < rows[0]), "{rows:?}");
+}
+
+#[test]
+fn a_widget_without_a_title_takes_its_column_as_plain_text() {
+    let checkbox = Widget::checkbox("eight", CheckboxWidget::new(target("cylinders"), 8_i64));
+    let chart = cars_with(vec![checkbox], Vec::new(), Some(Side::Bottom));
+    let evaluated = evaluate(&chart, [360.0, 320.0]);
+    let [widget] = &evaluated.widgets[..] else {
+        panic!("one widget: {:#?}", evaluated.widgets);
+    };
+    assert_eq!(widget.title, Text::plain("cylinders"));
 }
 
 #[test]
@@ -405,16 +418,17 @@ fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
         panic!("two widgets: {:#?}", evaluated.widgets);
     };
     assert_eq!(group.target, avenger_chart_eval::WidgetTarget::Modes);
-    // A widget of a group has no title, and a widget of a toggle takes the toggle's label.
+    // A widget of a group has no title, and a widget of a toggle takes the toggle's label, which
+    // is Typst markup, as the labels of the group's modes are.
     assert_eq!(
-        (group.title.as_str(), toggle.title.as_str()),
-        ("", "Tooltips")
+        (&group.title, &toggle.title),
+        (&Text::plain(""), &Text::markup("Tooltips"))
     );
     let WidgetSpec::ModeGroup { modes, labels } = &group.spec else {
         panic!("a widget of a group: {:?}", group.spec);
     };
     assert_eq!(modes, &["pan", "box"]);
-    assert_eq!(labels, &["Pan", "Box"]);
+    assert_eq!(labels, &[Text::markup("Pan"), Text::markup("Box")]);
 
     // The group starts in its first mode, and the toggle on.
     let [pan, select, tooltips] = ["pan", "box", "tooltips"].map(|mode| vec![mode.to_string()]);
