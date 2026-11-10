@@ -20,6 +20,9 @@
 //! - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over
 //!   a derived table of the operators before it, because DataFusion fails to run a window of a
 //!   pipe `EXTEND`. The derived table keeps the qualifiers of the tables before it.
+//! - A pipe `CALL f(<args>) [OVER (PARTITION BY ...)]` becomes `SELECT * FROM f((<input>),
+//!   <args>, partition_by => [...])`, the `FROM`-position call of the table function over the
+//!   operators before it, because DataFusion does not plan a pipe `CALL` of a table function.
 //! - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the
 //!   transform, so `bin(x, maxbins => 30)` is `bin(x, 'maxbins', 30)`. The `weight` and `keep` of
 //!   `lump` pass the text of their expressions.
