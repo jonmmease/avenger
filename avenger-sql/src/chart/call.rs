@@ -24,7 +24,8 @@ pub(super) struct MarkCall {
     pub(super) mark: &'static Mark,
     /// The channels, in the order of the mark's parameters.
     pub(super) channels: Vec<ChannelValue>,
-    /// The properties and `coord`, in the order of the mark's parameters.
+    /// The properties, the options of the plot and the layer, and `coord`, in the order of the
+    /// mark's parameters.
     pub(super) properties: Vec<(Ident, Expr)>,
     /// The draw order.
     pub(super) order: Vec<OrderByExpr>,
@@ -88,6 +89,7 @@ pub(super) fn read(expr: &Expr) -> Result<MarkCall> {
     };
     let parameters: Vec<&str> = (mark.channels.iter().map(|channel| channel.name))
         .chain(mark.properties.iter().map(|property| property.name))
+        .chain(mark.options.iter().map(|option| option.name))
         .chain([COORD])
         .collect();
     let mut given: Vec<Option<(Ident, Expr)>> = vec![None; parameters.len()];

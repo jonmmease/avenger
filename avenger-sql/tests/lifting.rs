@@ -730,3 +730,14 @@ async fn a_stack_follows_the_order_of_a_category_fit() {
     let ascending = charts(&order("'ascending'")).await;
     assert_eq!(segment_start(&ascending[0], "Dream", "Chinstrap"), 0.0);
 }
+
+#[tokio::test]
+async fn the_options_of_the_plot_and_the_layer_pass_as_written() {
+    lifted(
+        "tools",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => count(*), title => 'Penguins', id => 'bars', tools => [navigate(), tooltip()])"
+        ),
+    )
+    .await;
+}
