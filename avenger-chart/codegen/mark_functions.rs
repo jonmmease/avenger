@@ -1,4 +1,4 @@
-//! The generation of `functions.rs`, behind the `functions` feature: the table of the mark
+//! The generation of `mark_functions.rs`, behind the `functions` feature: the table of the mark
 //! functions, one for each mark of each layer.
 //!
 //! The rules, for the mark message `FooMark` of a layer:
@@ -20,13 +20,17 @@ use std::{collections::BTreeMap, fmt::Write};
 
 use prost_types::FileDescriptorSet;
 
-use super::{annotations::Annotations, builders::Comments, camel, snake, Messages, KINDS, PACKAGE};
+use super::{
+    annotations::Annotations,
+    builders::{clean, Comments},
+    camel, snake, Messages, KINDS, PACKAGE,
+};
 
 /// The coordinate systems whose marks have functions.
 const KINDS_WITH_FUNCTIONS: [&str; 3] = ["Cartesian", "Polar", "Geo"];
 
-/// The code of `functions.rs`: `MARKS`, a `Mark` for each mark function.
-pub(super) fn functions(
+/// The code of `mark_functions.rs`: `MARKS`, a `Mark` for each mark function.
+pub(super) fn mark_functions(
     set: &FileDescriptorSet,
     messages: &Messages,
     annotations: &Annotations,
@@ -150,15 +154,4 @@ fn channel_comments(set: &FileDescriptorSet) -> BTreeMap<String, String> {
         }
     }
     comments
-}
-
-/// `comment`, a comment of a `.proto` file, as paragraphs: the lines of each paragraph, which
-/// the file wraps, joined by spaces, and the paragraphs by a blank line.
-pub(super) fn clean(comment: &str) -> String {
-    let lines: Vec<&str> = comment.lines().map(str::trim).collect();
-    let paragraphs: Vec<String> = (lines.split(|line| line.is_empty()))
-        .filter(|paragraph| !paragraph.is_empty())
-        .map(|paragraph| paragraph.join(" "))
-        .collect();
-    paragraphs.join("\n\n")
 }

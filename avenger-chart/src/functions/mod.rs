@@ -128,11 +128,13 @@ pub struct Name {
     pub doc: &'static str,
 }
 
-/// The generated code: the tables of the constructors and the parameters, the application of
-/// arguments, and the conversions of each message of the option tree and of `Encoding`.
+/// The generated code: the code of the parameter model, which holds the parameters, the
+/// application of arguments, and the conversions of each message of the option tree, each mark
+/// message, and `Encoding`, and the table of the constructors on top of it.
 #[allow(dead_code, unreachable_patterns, clippy::all)]
 pub(crate) mod generated {
     use super::{Accept, Arg, ArgError, Class, Constructor, Expected, Name, Param, Shape};
+    include!(concat!(env!("OUT_DIR"), "/parameters.rs"));
     include!(concat!(env!("OUT_DIR"), "/constructors.rs"));
 }
 
@@ -299,7 +301,7 @@ impl Kind {
 /// The name of the parameter of a mark function that takes the options of its plot.
 pub const COORD: &str = "coord";
 
-include!(concat!(env!("OUT_DIR"), "/functions.rs"));
+include!(concat!(env!("OUT_DIR"), "/mark_functions.rs"));
 
 /// The mark functions, in the order of the format's layers and their marks.
 pub fn marks() -> &'static [Mark] {
