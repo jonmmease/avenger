@@ -206,7 +206,7 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
     };
     let chart = Chart::builder(
         Wrap::builder()
-            .facet(Facet::new("genre"))
+            .facet(Facet::builder().column("genre"))
             .children([panel("Drama"), panel("Comedy")]),
     )
     .build()
@@ -217,6 +217,18 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
         let path = format!("root.wrap.children[{index}].plot");
         assert!(resolved.tree.partitions[&path].contains_key("genre"));
     }
+}
+
+#[test]
+fn a_facet_names_its_column() {
+    let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+    let panel = Plot::cartesian([symbols]).partition([PartitionValue::new("genre", "Drama")]);
+    let chart = Chart::builder(Wrap::builder().facet(Facet::builder()).children([panel])).build();
+    fails(
+        chart,
+        "root.wrap.facet.column",
+        "`column` is required and not empty",
+    );
 }
 
 #[test]
@@ -255,7 +267,7 @@ fn keyed(keys: ArrayRef) -> RecordBatch {
 fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
     let chart = Chart::builder(
         Concat::new(Direction::Row)
-            .facet(Facet::new("key"))
+            .facet(Facet::builder().column("key"))
             .children(nodes),
     )
     .build()
@@ -563,9 +575,13 @@ fn a_wrapped_facet_of_partitions() {
         Ok(Plot::cartesian([symbols]).id("panel"))
     })
     .unwrap();
-    let chart = Chart::builder(Wrap::builder().facet(Facet::new("origin")).children(panels))
-        .build()
-        .unwrap();
+    let chart = Chart::builder(
+        Wrap::builder()
+            .facet(Facet::builder().column("origin"))
+            .children(panels),
+    )
+    .build()
+    .unwrap();
 
     let Some(node::Node::Wrap(wrap)) = &chart.root().node else {
         panic!("the root is a wrap")
@@ -618,13 +634,13 @@ fn a_facet_grid_of_nested_partitions() {
             Ok(Plot::cartesian([bars]))
         })?;
         Ok(Concat::new(Direction::Row)
-            .facet(Facet::new("channel"))
+            .facet(Facet::builder().column("channel"))
             .children(cells))
     })
     .unwrap();
     let chart = Chart::builder(
         Concat::new(Direction::Column)
-            .facet(Facet::new("region"))
+            .facet(Facet::builder().column("region"))
             .children(rows),
     )
     .build()

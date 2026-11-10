@@ -294,7 +294,7 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
         .unwrap();
         Chart::builder(
             Wrap::builder()
-                .facet("origin")
+                .facet(Facet::builder().column("origin"))
                 .layout(WrapLayout::builder().part_rules(rules))
                 .children(panels),
         )

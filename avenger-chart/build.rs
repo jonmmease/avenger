@@ -125,10 +125,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &options::excluded(&messages),
     )?;
     // The messages with constructors: those of the tree with fields, except the marks, whose
-    // mark functions take their parameters.
-    let mark_messages = options::marks(&messages);
+    // mark functions take their parameters, and the composition nodes, whose aggregates take them.
+    let mut functions_own = options::marks(&messages);
+    functions_own
+        .extend((options::COMPOSITION_NODES.iter()).map(|(node, _)| format!("{PACKAGE}.{node}")));
     let constructors: Vec<&model::MessageModel> = (model.messages.iter())
-        .filter(|message| tree.contains(&message.name) && !mark_messages.contains(&message.name))
+        .filter(|message| tree.contains(&message.name) && !functions_own.contains(&message.name))
         .filter(|message| !message.message.field.is_empty())
         .collect();
     model::check_names(&constructors)?;
