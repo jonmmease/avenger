@@ -64,6 +64,9 @@ pub(super) struct Comments {
     pub(super) fields: BTreeMap<(String, usize), String>,
     /// The comments of the oneofs, by the message's full name and the oneof's index.
     pub(super) oneofs: BTreeMap<(String, usize), String>,
+    /// The comments of the values of the enums of a file, by the enum's full name and the value's
+    /// index.
+    pub(super) enum_values: BTreeMap<(String, usize), String>,
 }
 
 impl Comments {
@@ -71,6 +74,7 @@ impl Comments {
         let mut messages = BTreeMap::new();
         let mut fields = BTreeMap::new();
         let mut oneofs = BTreeMap::new();
+        let mut enum_values = BTreeMap::new();
         for file in &set.file {
             let Some(info) = &file.source_code_info else {
                 continue;
@@ -99,6 +103,13 @@ impl Comments {
                             comment.to_string(),
                         );
                     }
+                    [5, enumeration, 2, value] => {
+                        let name = file.enum_type[*enumeration as usize].name();
+                        enum_values.insert(
+                            (format!("{PACKAGE}.{name}"), *value as usize),
+                            comment.to_string(),
+                        );
+                    }
                     _ => {}
                 }
             }
@@ -107,6 +118,7 @@ impl Comments {
             messages,
             fields,
             oneofs,
+            enum_values,
         }
     }
 }

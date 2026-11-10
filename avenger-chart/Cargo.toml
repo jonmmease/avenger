@@ -9,10 +9,13 @@ readme = "README.md"
 # `proto::FILE_DESCRIPTOR_SET`, the descriptors of the format's messages, for tests that walk the
 # messages and their fields.
 descriptors = []
+# `avenger_chart::functions`: the tables and the calls of the constructors of the options, which
+# build fragments, and of the mark functions, which build charts, for the bindings of interfaces.
+functions = []
 # `avenger_chart::datafusion`: an aggregate function of DataFusion for each mark, which builds a
 # chart of its rows, `scaled` and `direct`, and a constructor for each message of the options,
 # which returns its fragment.
-datafusion = ["dep:datafusion"]
+datafusion = ["functions", "dep:datafusion"]
 
 [dependencies]
 arrow = { workspace = true }
@@ -39,3 +42,7 @@ required-features = ["datafusion"]
 [[test]]
 name = "constructors"
 required-features = ["datafusion"]
+
+[[test]]
+name = "functions"
+required-features = ["functions"]

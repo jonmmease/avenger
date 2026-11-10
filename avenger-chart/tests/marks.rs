@@ -9,7 +9,8 @@ use arrow::{
 };
 use avenger_chart::{
     charts_from_arrow,
-    datafusion::{mark_names, register},
+    datafusion::register,
+    functions::marks,
     prelude::*,
     proto::{encoding, node},
     Decode, LayerRef, EXTENSION_NAME,
@@ -341,7 +342,7 @@ async fn field_metadata_and_struct_types_reach_the_layer_table() {
 
 #[tokio::test]
 async fn every_mark_builds_a_chart_of_its_channels() {
-    let names: Vec<&str> = mark_names().collect();
+    let names: Vec<&str> = marks().iter().map(|mark| mark.name).collect();
     assert!(names.contains(&"bar") && names.contains(&"polar_bar"));
     assert!(names.contains(&"geo_shape") && names.contains(&"geo_symbol"));
     // A geo mark needs `coord`, which the tests of avenger-sql give, because a call in plain
@@ -420,7 +421,7 @@ fn every_mark_has_documentation() {
     let ctx = SessionContext::new();
     register(&ctx);
     let state = ctx.state();
-    for name in mark_names() {
+    for name in marks().iter().map(|mark| mark.name) {
         let function = state.aggregate_functions().get(name).unwrap();
         let documentation = function.documentation().expect("a mark has documentation");
         assert!(!documentation.description.is_empty(), "{name}");

@@ -22,20 +22,9 @@ use datafusion::{
     },
 };
 
-use super::{
-    argument::Arg,
-    constructor::generated::{apply_all_encoding, to_cartesian, to_geo, to_polar},
-    instance::MarkInstance,
-    kind::Kind,
-    MarkSpec, COORD,
-};
-use crate::{
-    builder::{Builder, Parts},
-    chart_field,
-    proto::{self, Encoding, EncodingBuilder},
-    validate::{scales_numbers, scales_strings},
-    CoordKind,
-};
+use super::instance::MarkInstance;
+use crate::chart_field;
+use crate::functions::{Arg, ArgError, ChannelArg, Kind, Mark, Reason, COORD};
 
 /// The documentation section of the mark functions.
 const SECTION: DocSection = DocSection {
@@ -48,13 +37,13 @@ const SECTION: DocSection = DocSection {
 /// and its return field. Its `simplify` hook binds each call to a [`MarkInstance`], so the
 /// declaration itself never runs.
 pub(crate) struct MarkDeclaration {
-    spec: &'static MarkSpec,
+    spec: &'static Mark,
     signature: Signature,
     documentation: Documentation,
 }
 
 impl MarkDeclaration {
-    pub(crate) fn new(spec: &'static MarkSpec) -> Self {
+    pub(crate) fn new(spec: &'static Mark) -> Self {
         let names: Vec<&str> = (spec.channels.iter().map(|channel| channel.name))
             .chain(spec.properties.iter().map(|property| property.name))
             .chain([COORD])
@@ -162,11 +151,7 @@ impl AggregateUDFImpl for MarkDeclaration {
 }
 
 /// The call `call` of the mark `spec`, bound to an instance that takes only its columns.
-fn bind(
-    spec: &'static MarkSpec,
-    call: AggregateFunction,
-    context: &SimplifyContext,
-) -> Result<Expr> {
+fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext) -> Result<Expr> {
     let name = spec.name;
     let params = call.params;
     if params.distinct {
@@ -176,8 +161,11 @@ fn bind(
         return plan_err!("{name}() takes no IGNORE NULLS or RESPECT NULLS");
     }
     let schema = context.schema();
-    let mut mark = (spec.mark)();
-    let mut parts = Parts::default();
+    let failed = |error: ArgError| match error.reason {
+        Reason::Mark(_) => plan_datafusion_err!("{error}"),
+        _ => plan_datafusion_err!("{name}(): {error}"),
+    };
+    let mut mark = spec.call();
     let mut data: Vec<Expr> = Vec::new();
     let mut fields: Vec<FieldRef> = Vec::new();
     let mut args = params.args.into_iter();
@@ -197,16 +185,8 @@ fn bind(
                 declared.name
             );
         }
-        let channel = declared.channel;
-        if explicit == Some(Kind::Scaled) && !scales_strings(channel) && !scales_numbers(channel) {
-            return plan_err!(
-                "scaled() needs a channel with a scale, and `{}` of {name}() has none",
-                declared.name
-            );
-        }
-        // A bare value takes the kind that the builders give it: a constant is scaled on a
-        // position with a scale, and a value of the rows on a channel with a scale.
-        let mut encoding = match argument {
+        // A bare value takes the default kind of its channel, which the mark call gives it.
+        let argument = match argument {
             Expr::Literal(value, _) if value.is_null() && explicit.is_none() => continue,
             Expr::Literal(value, _) if value.data_type() == DataType::Null => {
                 let kind = explicit
@@ -217,13 +197,7 @@ fn bind(
                     declared.name
                 );
             }
-            Expr::Literal(value, _) => {
-                let value = crate::builder::Value::scalar(value.to_array_of_size(1)?);
-                match explicit.map_or(scales_numbers(channel), |kind| kind == Kind::Scaled) {
-                    true => Encoding::scaled_value(value),
-                    false => Encoding::direct_value(value),
-                }
-            }
+            Expr::Literal(value, _) => ChannelArg::Value(value.to_array_of_size(1)?),
             argument => {
                 let column = match data.iter().position(|known| *known == argument) {
                     Some(index) => fields[index].name().clone(),
@@ -234,42 +208,20 @@ fn bind(
                         column
                     }
                 };
-                match explicit.map_or(scales_strings(channel), |kind| kind == Kind::Scaled) {
-                    true => Encoding::scaled_field(column),
-                    false => Encoding::direct_field(column),
-                }
+                ChannelArg::Field(column)
             }
         };
-        if !options.is_empty() {
-            encoding = apply_all_encoding(encoding, &options)
-                .map_err(|error| plan_datafusion_err!("{name}(): `{}` {error}", declared.name))?;
-        }
-        set_encoding(&mut mark, &mut parts, declared.name, channel, encoding);
+        mark.channel(declared.name, argument, explicit, &options)
+            .map_err(failed)?;
     }
     let properties = constants(name, "a property", properties)?;
-    (spec.apply_properties)(&mut mark, &mut parts, &properties)
-        .map_err(|error| plan_datafusion_err!("{name}(): {error}"))?;
+    mark.properties(&properties).map_err(failed)?;
     let coord = constants(name, "`coord`", coord.into_iter().collect())?;
-    let options = match (coord.into_iter().next().flatten(), spec.coord) {
-        (Some(coord), kind) => Some(coord_options(kind, &coord).map_err(|error| {
-            plan_datafusion_err!("{name}(): `coord` {error}")
-        })?),
-        (None, CoordKind::Geo) => {
-            return plan_err!("{name}() needs `coord`, the options of its geo plot, such as `coord => geo(surface => spherical(projection => 'equal_earth'))`")
-        }
-        (None, _) => None,
-    };
-    if let Some(declared) = spec
-        .channels
-        .iter()
-        .find(|declared| declared.required && !has(&mut mark, declared.channel))
-    {
-        return plan_err!("{name}() needs a value for `{}`", declared.name);
+    if let Some(coord) = coord.into_iter().next().flatten() {
+        mark.coord(&coord).map_err(failed)?;
     }
-    if data.is_empty() {
-        return plan_err!("{name}() needs a channel that reads a column");
-    }
-    let instance = MarkInstance::new(spec, mark, parts, options, fields, &params.order_by)?;
+    let template = mark.bind().map_err(failed)?;
+    let instance = MarkInstance::new(template, fields, &params.order_by);
     Ok(Expr::AggregateFunction(AggregateFunction::new_udf(
         Arc::new(AggregateUDF::new_from_impl(instance)),
         data,
@@ -302,23 +254,13 @@ fn kind_argument(expr: Expr) -> std::result::Result<(Kind, Expr, Vec<Expr>), Exp
 fn constants(name: &str, what: &str, exprs: Vec<Expr>) -> Result<Vec<Option<Arg>>> {
     (exprs.into_iter())
         .map(|expr| match expr {
-            Expr::Literal(value, _) => Ok(Arg::new(value)),
+            Expr::Literal(value, _) => super::arg(&value),
             other => plan_err!(
                 "{name}() needs a plan-time constant for {what}, not `{}`",
                 other.human_display()
             ),
         })
         .collect()
-}
-
-/// The fragment of the options of a plot of the coordinate system `kind` from `arg`.
-fn coord_options(kind: CoordKind, arg: &Arg) -> std::result::Result<proto::Fragment, String> {
-    let fragment = match kind {
-        CoordKind::Cartesian => to_cartesian(arg)?.to_fragment(),
-        CoordKind::Polar => to_polar(arg)?.to_fragment(),
-        CoordKind::Geo => to_geo(arg)?.to_fragment(),
-    };
-    fragment.map_err(|error| error.to_string())
 }
 
 /// The name of the first call of `scaled` or `direct` in `expr`.
@@ -366,28 +308,4 @@ fn data_field(argument: &Expr, column: &str, schema: &DFSchema) -> Result<FieldR
         Field::new(column, field.data_type().clone(), field.is_nullable())
             .with_metadata(field.metadata().clone()),
     ))
-}
-
-/// Sets the encoding of `channel` of `mark`, with its values moved into `parts`.
-fn set_encoding(
-    mark: &mut super::LayerMark,
-    parts: &mut Parts,
-    field: &str,
-    channel: proto::Channel,
-    encoding: EncodingBuilder,
-) {
-    let encoding = parts.embed(field, encoding);
-    let slot = (mark.as_mark().encoding_slot(channel))
-        .expect("a declared channel is a channel of its mark");
-    *slot = Some(encoding);
-}
-
-/// Whether `mark` encodes `channel`.
-fn has(mark: &mut super::LayerMark, channel: proto::Channel) -> bool {
-    mark.as_mark().encoding(channel).is_some()
-}
-
-/// A builder of `message` with `parts`.
-pub(super) fn builder<M>(message: M, parts: Parts) -> Builder<M> {
-    Builder { message, parts }
 }

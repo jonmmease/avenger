@@ -141,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         builders::builders(&set, &messages, &annotations),
     )?;
     std::fs::write(out.join("prelude.rs"), builders::prelude(&set, &messages))?;
-    if std::env::var_os("CARGO_FEATURE_DATAFUSION").is_some() {
+    if std::env::var_os("CARGO_FEATURE_FUNCTIONS").is_some() {
         std::fs::write(
             out.join("functions.rs"),
             functions::functions(&set, &messages, &annotations)?,

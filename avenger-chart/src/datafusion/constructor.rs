@@ -13,36 +13,7 @@ use datafusion::{
 };
 use prost::Message;
 
-use super::argument::Arg;
-use crate::proto;
-
-/// The extension name of a column of fragments.
-pub const FRAGMENT_EXTENSION_NAME: &str = "avenger.chart.fragment";
-
-/// A constructor: its name, the full name of its message, its documentation, its parameters, and
-/// the function that builds its fragment from its arguments, one for each parameter.
-pub(crate) struct ConstructorSpec {
-    pub(crate) name: &'static str,
-    pub(crate) message: &'static str,
-    pub(crate) doc: &'static str,
-    pub(crate) params: &'static [ParamSpec],
-    pub(crate) build: fn(&[Option<Arg>]) -> std::result::Result<proto::Fragment, String>,
-}
-
-/// A parameter of a message: a field outside a oneof, or a oneof.
-pub(crate) struct ParamSpec {
-    pub(crate) name: &'static str,
-    pub(crate) doc: &'static str,
-    pub(crate) required: bool,
-}
-
-/// The generated code: the table of the constructors, and the parameters, the application of
-/// arguments, and the conversions of each message of the option tree and of `Encoding`.
-#[allow(dead_code, unreachable_patterns, clippy::all)]
-pub(crate) mod generated {
-    use super::{super::argument::Class, Arg, ConstructorSpec, ParamSpec};
-    include!(concat!(env!("OUT_DIR"), "/constructors.rs"));
-}
+use crate::functions::{Constructor, FRAGMENT_EXTENSION_NAME};
 
 /// The documentation section of the constructors.
 const SECTION: DocSection = DocSection {
@@ -65,13 +36,13 @@ pub(crate) fn fragment_field(name: &str, message: &str) -> Field {
 /// The scalar function of a constructor.
 #[derive(Debug)]
 pub(crate) struct ConstructorFunction {
-    spec: &'static ConstructorSpec,
+    spec: &'static Constructor,
     signature: Signature,
     documentation: Documentation,
 }
 
 impl ConstructorFunction {
-    pub(crate) fn new(spec: &'static ConstructorSpec) -> Self {
+    pub(crate) fn new(spec: &'static Constructor) -> Self {
         let names: Vec<&str> = spec.params.iter().map(|param| param.name).collect();
         let signature = Signature::user_defined(Volatility::Immutable)
             .with_parameter_names(names.clone())
@@ -96,18 +67,14 @@ impl ConstructorFunction {
 
     /// The fragment of the arguments `values`, one for each parameter, or the error of the call.
     fn build(&self, values: Vec<Option<ScalarValue>>) -> std::result::Result<Vec<u8>, String> {
-        let mut args: Vec<Option<Arg>> = values.into_iter().map(|v| v.and_then(Arg::new)).collect();
-        args.resize_with(self.spec.params.len(), || None);
-        let fragment = (self.spec.build)(&args)?;
+        let args = (values.iter())
+            .map(|value| match value {
+                Some(value) => super::arg(value).map_err(|error| error.to_string()),
+                None => Ok(None),
+            })
+            .collect::<std::result::Result<Vec<_>, String>>()?;
+        let fragment = self.spec.build(&args).map_err(|error| error.to_string())?;
         Ok(fragment.encode_to_vec())
-    }
-}
-
-impl std::fmt::Debug for ConstructorSpec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConstructorSpec")
-            .field("name", &self.name)
-            .finish_non_exhaustive()
     }
 }
 

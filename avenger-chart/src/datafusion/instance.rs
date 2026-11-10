@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use crate::{chart_field, functions::MarkTemplate, list_value};
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, AsArray, RecordBatch, RecordBatchOptions},
@@ -16,26 +17,13 @@ use datafusion::{
         Accumulator, AggregateUDFImpl, Signature, SortExpr, Volatility,
     },
 };
-use prost::{bytes::Bytes, Message};
 
-use super::{declaration::builder, LayerMark, MarkSpec};
-use crate::{
-    builder::{from_fragment, to_fragment, Parts},
-    chart_field, list_value,
-    proto::{self, Plot},
-    Chart, ChartError, CoordKind,
-};
-
-/// One bound call of a mark: the encoded fragment of its layer, which holds its encodings and their
-/// values and no table, the encoded fragment of the options of its plot, the fields of the columns
-/// of its table, and the sort options of its draw order. It takes the data arguments of the call,
-/// then the keys of its `ORDER BY`.
+/// One bound call of a mark: its template, the fields of the columns of its table, and the sort
+/// options of its draw order. It takes the data arguments of the call, then the keys of its
+/// `ORDER BY`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MarkInstance {
-    name: &'static str,
-    coord: CoordKind,
-    layer: Bytes,
-    options: Option<Bytes>,
+    template: MarkTemplate,
     fields: Vec<FieldRef>,
     order: Vec<(bool, bool)>,
     signature: Signature,
@@ -43,97 +31,24 @@ pub(crate) struct MarkInstance {
 
 impl MarkInstance {
     pub(crate) fn new(
-        spec: &'static MarkSpec,
-        mark: LayerMark,
-        parts: Parts,
-        options: Option<proto::Fragment>,
+        template: MarkTemplate,
         fields: Vec<FieldRef>,
         order_by: &[SortExpr],
-    ) -> Result<Self> {
-        let fragment = match mark {
-            LayerMark::Cartesian(mark) => to_fragment(builder(
-                proto::CartesianLayer {
-                    mark: Some(mark),
-                    ..Default::default()
-                },
-                parts,
-            )),
-            LayerMark::Polar(mark) => to_fragment(builder(
-                proto::PolarLayer {
-                    mark: Some(mark),
-                    ..Default::default()
-                },
-                parts,
-            )),
-            LayerMark::Geo(mark) => to_fragment(builder(
-                proto::GeoLayer {
-                    mark: Some(mark),
-                    ..Default::default()
-                },
-                parts,
-            )),
-        }
-        .map_err(|error| plan_error(spec.name, error))?;
-        Ok(Self {
-            name: spec.name,
-            coord: spec.coord,
-            layer: fragment.encode_to_vec().into(),
-            options: options.map(|options| options.encode_to_vec().into()),
+    ) -> Self {
+        Self {
+            template,
             fields,
             order: (order_by.iter())
                 .map(|sort| (sort.asc, sort.nulls_first))
                 .collect(),
             signature: Signature::user_defined(Volatility::Immutable),
-        })
+        }
     }
-
-    /// The chart of one layer whose table is `table`, in a plot with the options of the call.
-    fn chart(&self, table: RecordBatch) -> std::result::Result<Chart, ChartError> {
-        let decode = |bytes: &Bytes| {
-            proto::Fragment::decode(bytes.clone())
-                .map_err(|error| ChartError::invalid("", error.to_string()))
-        };
-        let fragment = decode(&self.layer)?;
-        let options = self.options.as_ref().map(decode).transpose()?;
-        let plot = match self.coord {
-            CoordKind::Cartesian => {
-                let mut layer = from_fragment::<proto::CartesianLayer>(&fragment)?;
-                layer.message.table = Some(layer.parts.table("table", table));
-                let mut plot = proto::CartesianPlot::new([layer]);
-                if let Some(options) = &options {
-                    plot = plot.options(from_fragment::<proto::Cartesian>(options)?);
-                }
-                Plot::cartesian(plot)
-            }
-            CoordKind::Polar => {
-                let mut layer = from_fragment::<proto::PolarLayer>(&fragment)?;
-                layer.message.table = Some(layer.parts.table("table", table));
-                let mut plot = proto::PolarPlot::new([layer]);
-                if let Some(options) = &options {
-                    plot = plot.options(from_fragment::<proto::Polar>(options)?);
-                }
-                Plot::polar(plot)
-            }
-            CoordKind::Geo => {
-                let mut layer = from_fragment::<proto::GeoLayer>(&fragment)?;
-                layer.message.table = Some(layer.parts.table("table", table));
-                let options = options.expect("a geo mark has the options of its plot");
-                let options = from_fragment::<proto::Geo>(&options)?;
-                Plot::geo(proto::GeoPlot::new(options, [layer]))
-            }
-        };
-        Chart::builder(plot).build()
-    }
-}
-
-/// A planning error of the mark `name`.
-fn plan_error(name: &str, error: ChartError) -> datafusion::error::DataFusionError {
-    datafusion::error::DataFusionError::Plan(format!("{name}(): {error}"))
 }
 
 impl AggregateUDFImpl for MarkInstance {
     fn name(&self) -> &str {
-        self.name
+        self.template.name()
     }
 
     fn signature(&self) -> &Signature {
@@ -149,7 +64,7 @@ impl AggregateUDFImpl for MarkInstance {
     }
 
     fn return_field(&self, _arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        Ok(Arc::new(chart_field(self.name, true)))
+        Ok(Arc::new(chart_field(self.template.name(), true)))
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
@@ -269,12 +184,12 @@ impl Accumulator for MarkAccumulator {
                 .collect();
             table = take_record_batch(&table, &lexsort_to_indices(&sort, None)?)?;
         }
-        let chart = instance
-            .chart(table)
-            .map_err(|error| exec_datafusion_err!("{}(): {error}", instance.name))?;
+        let name = instance.template.name();
+        let chart = (instance.template.chart(table))
+            .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
         let bytes = chart
             .to_bytes()
-            .map_err(|error| exec_datafusion_err!("{}(): {error}", instance.name))?;
+            .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
         Ok(ScalarValue::BinaryView(Some(bytes.to_vec())))
     }
 

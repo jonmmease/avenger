@@ -211,9 +211,21 @@ A widget is not one of these parts. Layers declare widgets under keys, which rep
 
 A column of charts is a `Binary`, `LargeBinary`, or `BinaryView` column whose field has the extension name `avenger.chart`, which `chart_field` gives. `charts_to_arrow` writes charts to a `BinaryView` column, with each chart at a multiple of 64 bytes, and `charts_from_arrow` reads them, in place or from a copy as `Decode` says.
 
+## Functions for bindings
+
+The `functions` feature adds `avenger_chart::functions`, which a binding of an interface, such as the SQL functions of avenger-sql, uses to expose the constructors of the options and the mark functions. It adds no dependencies.
+
+- `constructors()`, `marks()`, and `encoding_options()`, the options of `scaled`, describe every function: its name, its documentation, and its parameters. A parameter lists each input that it accepts as an `Accept`: the class of the argument, the chain of fields and members from the parameter to the field that the argument sets, and the shape of that field, such as an enum with the names of its values.
+- `Arg` is a constant argument: a Boolean, an integer, a floating-point number, a string, bytes, an array, a fragment, or another value, such as a date, as an Arrow array of one element. `Arg::from_array` reads one element of an Arrow array. `None` in the arguments of a function leaves its parameter unset.
+- `Constructor::build` builds the fragment of a constructor from one argument for each parameter.
+- `Mark::call` gives a `MarkCall`, which takes channel arguments, each a column or a value with its kind, the properties, and `coord`, and checks them by the rules of the mark. Its `bind` gives a `MarkTemplate`, whose `chart` builds the chart of one layer from a table.
+- An `ArgError` holds the path of the parameters from the function to the argument and the reason, with what the parameter accepts, so a binding can word it in the terms of its language. Its display is the text of the SQL errors.
+
+The names of the functions and their parameters are the same in every interface. A binding escapes a name that its language reserves, such as the parameter `lambda` in Python.
+
 ## Mark functions of DataFusion
 
-The `datafusion` feature adds `avenger_chart::datafusion`, with an aggregate function of DataFusion for each mark, which builds a chart of the rows of its group, the scalar functions `scaled` and `direct`, and the constructors of the options. `register` adds them to a session. build.rs generates the functions from the mark messages: the name of a function is the name of its message without `Mark`, in snake case, such as `bar` and `polar_bar`, and its parameters are the channels of its mark, the required channels first, then the others in the order of their field numbers, each named after its field:
+The `datafusion` feature adds `avenger_chart::datafusion`, a binding of the functions, with an aggregate function of DataFusion for each mark, which builds a chart of the rows of its group, the scalar functions `scaled` and `direct`, and the constructors of the options. `register` adds them to a session. build.rs generates the functions from the mark messages: the name of a function is the name of its message without `Mark`, in snake case, such as `bar` and `polar_bar`, and its parameters are the channels of its mark, the required channels first, then the others in the order of their field numbers, each named after its field:
 
 ```sql
 SELECT species, bar(x => island, y => n, color => island) AS chart
