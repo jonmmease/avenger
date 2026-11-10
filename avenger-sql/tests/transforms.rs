@@ -39,11 +39,14 @@ fn register_adds_the_transforms() {
 #[test]
 fn the_transforms_take_no_name_of_avenger_chart() {
     let base = names(&SessionContext::new());
-    let chart = SessionContext::new();
-    avenger_chart::datafusion::register(&chart);
+    use avenger_chart::functions::{constructors, marks, DIRECT, SCALED};
     let transforms = SessionContext::new();
     avenger_datafusion_transforms::register(&transforms).unwrap();
-    let chart: BTreeSet<String> = names(&chart).difference(&base).cloned().collect();
+    let chart: BTreeSet<String> = (marks().iter().map(|mark| mark.name))
+        .chain(constructors().iter().map(|constructor| constructor.name))
+        .chain([SCALED, DIRECT])
+        .map(String::from)
+        .collect();
     let transforms: BTreeSet<String> = names(&transforms).difference(&base).cloned().collect();
     let shared: Vec<&String> = chart.intersection(&transforms).collect();
     assert!(shared.is_empty(), "both register {shared:?}");

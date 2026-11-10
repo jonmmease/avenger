@@ -13,7 +13,7 @@ use datafusion::{
 };
 use prost::Message;
 
-use crate::functions::{Constructor, FRAGMENT_EXTENSION_NAME};
+use avenger_chart::functions::{Constructor, FRAGMENT_EXTENSION_NAME};
 
 /// The documentation section of the constructors.
 const SECTION: DocSection = DocSection {

@@ -1,4 +1,4 @@
-//! The mark functions of the `datafusion` feature: the binding of their calls at planning, and the
+//! The mark functions of avenger-sql: the binding of their calls at planning, and the
 //! charts of their rows.
 
 use std::{collections::HashMap, sync::Arc};
@@ -9,7 +9,6 @@ use arrow::{
 };
 use avenger_chart::{
     charts_from_arrow,
-    datafusion::register,
     functions::marks,
     prelude::*,
     proto::{encoding, node},
@@ -75,7 +74,7 @@ fn batches() -> (Arc<Schema>, Vec<RecordBatch>) {
 /// A session of four partitions with the marks and the table `t`, one batch in each partition.
 fn session() -> SessionContext {
     let ctx = SessionContext::new_with_config(SessionConfig::new().with_target_partitions(4));
-    register(&ctx);
+    avenger_sql::register(&ctx).unwrap();
     let (schema, batches) = batches();
     let partitions = batches.into_iter().map(|batch| vec![batch]).collect();
     let table = MemTable::try_new(schema, partitions).unwrap();
@@ -419,7 +418,7 @@ async fn an_empty_group_gives_a_chart_of_no_rows() {
 #[test]
 fn every_mark_has_documentation() {
     let ctx = SessionContext::new();
-    register(&ctx);
+    avenger_sql::register(&ctx).unwrap();
     let state = ctx.state();
     for name in marks().iter().map(|mark| mark.name) {
         let function = state.aggregate_functions().get(name).unwrap();
