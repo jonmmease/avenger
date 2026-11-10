@@ -116,8 +116,17 @@ The `impute` option of a `bar`, `area`, `line`, `symbol`, or `text` call adds a 
 
 ```sql
 FROM sales
-|> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => 0)
+|> CHART line(x => month, y => sum(units), color => region, impute => impute(method => 'gap'))
 ```
+
+An `area` or a `line` whose measure is a `stack` imputes zero by default, so a stacked area draws every series at every key without the option:
+
+```sql
+FROM sales
+|> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)
+```
+
+The default takes the key values of `impute => 0`, so it also fills the empty bins and units between the keys. It applies only where the option could: a call whose stacked measure is not one aggregate or a column, or whose bins come from a partition that is not a key, keeps its rows. A call of one group whose key values are the distinct keys of its input lacks no key, so it has no stage 3. `impute => FALSE` turns the default off, and `impute => NULL` means an omitted option, as `NULL` does for every parameter.
 
 `impute => 0` is short for `impute => impute(value => 0)`. `impute(...)` takes exactly one of `value`, a constant, and `method`, `'mean'`, `'median'`, `'min'`, `'max'`, or `'gap'`, which is `NULL` and breaks a line. A method of a statistic reads the measures of the existing rows of the group, or with `frame => [lo, hi]`, of the rows from `lo` to `hi` around the added row in key order, where `NULL` is the start or the end of the group. `keys => [...]` gives the key values, and `extra_keys => [...]` adds to them. The option is a parameter of the mark calls of `|> CHART`, which the mark planner reads as written, so it does not collide with the table function `impute`, and the chart holds no imputation.
 

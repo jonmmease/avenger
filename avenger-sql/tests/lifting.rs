@@ -975,3 +975,72 @@ async fn order_is_the_path_order_of_a_line() {
     )
     .await;
 }
+
+/// The lifting of `query`.
+async fn lifting(query: &str) -> String {
+    avenger_sql::lift(&session(), query).await.unwrap()
+}
+
+#[tokio::test]
+async fn a_stacked_path_imputes_zero_by_default() {
+    let area = |impute: &str| {
+        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region{impute})")
+    };
+    let charts = lifted("default-stacked-area", &area("")).await;
+    assert_eq!(table(&charts[0]).num_rows(), 18);
+    assert_eq!(charts, self::charts(&area(", impute => 0")).await);
+    // `impute => NULL` is an omitted option.
+    assert_eq!(
+        lifting(&area(", impute => NULL")).await,
+        lifting(&area("")).await
+    );
+    // A stacked line imputes too, although the format draws no line of spans yet.
+    let line = lifting(&format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => stack(sum(units)), color => region)")).await;
+    assert!(
+        line.contains("|> CALL impute(x_expr, [region], sum_units, value => 0, flag => imputed)"),
+        "{line}"
+    );
+    // A stacked histogram area fills its empty bins.
+    let charts = lifted(
+        "default-stacked-bins",
+        &format!("{PENGUINS} |> CHART area(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species)"),
+    )
+    .await;
+    assert_eq!(
+        table(&charts[0]).num_rows() % 3,
+        0,
+        "every bin of every species"
+    );
+}
+
+#[tokio::test]
+async fn the_default_imputes_only_where_it_applies() {
+    let unimputed = [
+        // Turned off.
+        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => FALSE)"),
+        // A path that does not stack, and a stacked bar.
+        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => sum(units), color => region)"),
+        format!("{SPARSE} |> CHART bar(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)"),
+        // One group, whose keys are the distinct keys of the input.
+        format!("{PENGUINS} |> CHART area(x => species, y => stack(count(*)))"),
+        // Where the written option would be an error: a measure of two aggregates, and the bins of
+        // each sex, which is not a key.
+        format!("{PENGUINS} |> CHART area(x => species, y => stack(count(*) / 2), color => island)"),
+        format!("{PENGUINS} |> CHART area(x => bin(body_mass_g) OVER (PARTITION BY sex), y => stack(count(*)), color => species)"),
+    ];
+    for query in unimputed {
+        let lifting = lifting(&query).await;
+        assert!(!lifting.contains("CALL impute"), "{query}: {lifting}");
+        assert!(!charts(&query).await.is_empty(), "{query}");
+    }
+    // The mark aggregates have no default.
+    let query = "FROM sales |> AGGREGATE sum(units) AS units GROUP BY region, t |> AGGREGATE area(x => t, y => units, color => region) AS chart";
+    assert_eq!(charts(query).await.len(), 1);
+    // FALSE on a mark that does not impute is the error of the option.
+    fails(
+        &format!("{PENGUINS} |> CHART polar_bar(theta => species, radius => count(*), impute => FALSE)"),
+        "`impute` is valid only on bar(), area(), line(), symbol(), and text(); found on polar_bar()",
+        "impute =>",
+    )
+    .await;
+}
