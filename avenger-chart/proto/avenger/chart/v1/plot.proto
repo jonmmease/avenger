@@ -31,7 +31,8 @@ message CartesianLayer {
   // The layer's table.
   TableRef table = 2 [(avenger.chart.v1.required) = true];
   // The tools of the layer, in the order of their declarations, which act on the layer's marks
-  // only, such as a tooltip of one layer. A layer that declares a tool has an id.
+  // only, such as a tooltip of one layer. A layer that declares a selection has an id, which its
+  // clauses name.
   repeated LayerTool tools = 3;
   // The partition values of the layer, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 4;

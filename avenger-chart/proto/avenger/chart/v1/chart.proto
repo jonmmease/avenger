@@ -207,8 +207,12 @@ message Table {
 // scale shares, and the partition of a facet is its concat's or its wrap's. A clause names
 // the plot or the layer that wrote it by both, and an app carries the views and the selections of a
 // plot to a new chart by both, so the plot of a facet keeps them when a new query reorders the
-// facets or drops some of them. A plot or a layer without an id is named by its path in the tree.
-// An id holds no NUL character, which the name of the owner of a widget's clause begins with in a
+// facets or drops some of them. A plot or a layer without an id is identified by its path in the
+// tree and its partition, so an app carries the views and the tooltips of its tools to a new chart
+// of the same structure, and a plot or a layer at another path starts them anew. An id is needed
+// only where something names the part: a stylesheet's `#id`, a clause of a selection, which names
+// its owner by id, so a plot or a layer that declares a selection has one, and the anchor of a
+// widget. An id holds no NUL character, which the name of the owner of a widget's clause begins with in a
 // selection state, so that name equals no id.
 message Node {
   oneof node {
@@ -245,8 +249,8 @@ message Plot {
   // The credits of the plot's sources. When unset, the plot has no attribution.
   Attribution attribution = 3;
   // The tools of the plot, in the order of their declarations, which act on the marks of every
-  // layer. A plot that declares a tool has an id, so an app can carry its views and selections to
-  // a new chart by its id and its partition.
+  // layer. An app carries their views and selections to a new chart by the plot's identity, as
+  // `Node` describes. A plot that declares a selection has an id, which its clauses name.
   repeated Tool tools = 4;
   // The partition values of the plot, keyed by column, as `PartitionValue` describes.
   repeated PartitionValue partition = 5;

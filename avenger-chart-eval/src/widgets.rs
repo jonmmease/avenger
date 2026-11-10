@@ -140,7 +140,7 @@ impl EvaluatedWidget {
     pub fn owner(&self) -> String {
         Identity::owner_name(
             &self.key,
-            self.anchor.as_ref().map_or("", |anchor| anchor.id.as_str()),
+            (self.anchor.as_ref()).map_or("", |anchor| anchor.given_id().unwrap_or_default()),
         )
     }
 

@@ -35,9 +35,9 @@ type Result<T> = std::result::Result<T, EvalError>;
 pub enum ScaleIdentity {
     /// The share family that the specs of the scale name, with the scale's channel.
     Family { family: String, channel: Channel },
-    /// The first plot of the scale with an identity, in tree order, the scale's channel, and the
-    /// position of the scale among the plot's scales of the channel: 0, or 1 for the second scale
-    /// of a channel in one plot.
+    /// The first plot of the scale with an id, or else its first plot, in tree order, the scale's
+    /// channel, and the position of the scale among the plot's scales of the channel: 0, or 1 for
+    /// the second scale of a channel in one plot.
     Plot {
         plot: Identity,
         channel: Channel,
@@ -51,12 +51,11 @@ pub enum ScaleIdentity {
 pub enum ProjectionIdentity {
     /// The share family that the geo specs of the projection name.
     Family(String),
-    /// The first geo plot of the projection with an identity, in tree order.
+    /// The first geo plot of the projection with an id, or else its first plot, in tree order.
     Plot(Identity),
 }
 
-/// The identity of each scale group of `resolved`, by its position in `Resolved::scales`, or
-/// `None` for a group without a family whose plots have no ids.
+/// The identity of each scale group of `resolved`, by its position in `Resolved::scales`.
 pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>> {
     let tree = &resolved.tree;
     let plots_of = |group: &ScaleGroup| {
@@ -75,14 +74,17 @@ pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>
                     channel: group.channel,
                 });
             }
-            let plot =
-                (plots_of(group).into_iter()).find(|plot| tree.plots[*plot].identity.is_some())?;
+            let plots = plots_of(group);
+            let named = plots
+                .iter()
+                .find(|plot| tree.plots[**plot].identity.named().is_some());
+            let plot = *named.or(plots.first())?;
             // The position of the group among the plot's groups of its channel.
             let index = (resolved.scales.iter())
                 .filter(|other| other.channel == group.channel && plots_of(other).contains(&plot))
                 .position(|other| std::ptr::eq(other, group))?;
             Some(ScaleIdentity::Plot {
-                plot: tree.plots[plot].identity.clone()?,
+                plot: tree.plots[plot].identity.clone(),
                 channel: group.channel,
                 index,
             })
@@ -92,7 +94,7 @@ pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>
 
 /// The identity of each projection group of `resolved`, by its position in
 /// `Resolved::projections`: the share family that its specs name, or else the identity of its
-/// first plot with one.
+/// first plot with an id, or of its first plot.
 pub(crate) fn projection_identities(resolved: &Resolved) -> Vec<Option<ProjectionIdentity>> {
     let tree = &resolved.tree;
     (resolved.projections.iter())
@@ -100,9 +102,10 @@ pub(crate) fn projection_identities(resolved: &Resolved) -> Vec<Option<Projectio
             if !group.spec.family.is_empty() {
                 return Some(ProjectionIdentity::Family(group.spec.family.clone()));
             }
-            (group.plots.iter())
-                .find_map(|plot| tree.plots[*plot].identity.clone())
-                .map(ProjectionIdentity::Plot)
+            let named =
+                (group.plots.iter()).find(|plot| tree.plots[**plot].identity.named().is_some());
+            (named.or(group.plots.first()))
+                .map(|plot| ProjectionIdentity::Plot(tree.plots[*plot].identity.clone()))
         })
         .collect()
 }
