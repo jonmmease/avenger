@@ -65,8 +65,9 @@ for an app whose marks change, such as an app that swaps its charts.
 
 A tooltip displays an optional bold title with a color swatch, followed by one row per field. Each
 row places the field title on the left and its value on the right. `without_swatch()` hides the
-swatch. If no fields are configured, the tooltip shows every data column using its name as the
-title.
+swatch. If no fields are configured, the tooltip shows every data column, titled by the title that
+`with_titles` gives for the column of the instance's mark, such as the title of its axis, or by its
+name.
 
 `TooltipField` labels its value with the same formatting as axis ticks. `label_format` selects a
 pattern for the text engine's number or datetime provider, like `tick_format`. `label` supplies
