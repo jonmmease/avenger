@@ -28,7 +28,7 @@ import "avenger/chart/v1/side.proto";
 // disagree.
 message Facet {
   // The partition column of the children, not empty. A facet aggregate sets it from its key.
-  string column = 1;
+  string column = 1 [(avenger.chart.v1.lift) = true];
   // Whether the facet draws its title and labels. When unset, it does. `false` draws neither, and
   // the children still split the column.
   optional bool show = 2;

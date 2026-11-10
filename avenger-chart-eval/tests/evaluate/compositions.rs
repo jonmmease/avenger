@@ -112,14 +112,14 @@ fn a_facet_grid_of_nested_partitions_labels_its_rows_and_columns() {
                 )])
             });
             Ok(Concat::new(Direction::Row)
-                .facet(Facet::builder().column("cylinders"))
+                .facet("cylinders")
                 .children(cells))
         },
     )
     .unwrap();
     let chart = Chart::builder(
         Concat::new(Direction::Column)
-            .facet(Facet::builder().column("origin"))
+            .facet("origin")
             .children(rows),
     )
     .build()
@@ -182,13 +182,9 @@ fn a_wrapped_facet_labels_each_panel() {
         },
     )
     .unwrap();
-    let chart = Chart::builder(
-        Wrap::builder()
-            .facet(Facet::builder().column("origin"))
-            .children(panels),
-    )
-    .build()
-    .unwrap();
+    let chart = Chart::builder(Wrap::builder().facet("origin").children(panels))
+        .build()
+        .unwrap();
     render(&chart, [560.0, 460.0], "facet-wrap");
 
     // Each panel has its label, and the wrap merges the facets' titles into one.
