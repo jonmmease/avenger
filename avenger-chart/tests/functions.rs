@@ -161,6 +161,177 @@ fn bare_arguments_take_the_kinds_of_their_channels() {
     assert_eq!(template.chart(table()).unwrap(), expected);
 }
 
+/// The arguments of the options of `symbol` from named arguments.
+fn mark_options(named: Vec<(&str, Arg)>) -> Vec<Option<Arg>> {
+    let options = mark("symbol").expect("a mark").options;
+    let mut args: Vec<Option<Arg>> = vec![None; options.len()];
+    for (param, arg) in named {
+        let index = (options.iter())
+            .position(|p| p.name == param)
+            .expect("a mark option");
+        args[index] = Some(arg);
+    }
+    args
+}
+
+/// A symbol call of `table` with the mark options `named`.
+fn symbols_with(named: Vec<(&str, Arg)>) -> Chart {
+    let mut call = mark("symbol").expect("a mark").call();
+    call.channel("x", ChannelArg::Field("a".into()), None, &[])
+        .unwrap();
+    call.channel("y", ChannelArg::Field("a".into()), None, &[])
+        .unwrap();
+    call.options(&mark_options(named)).unwrap();
+    call.bind().unwrap().chart(table()).unwrap()
+}
+
+/// The tools `navigate()` and `tooltip()`.
+fn navigate_and_tooltip() -> Arg {
+    let tool = |kind: &str| {
+        let kind = call(kind, vec![]).unwrap();
+        Some(Arg::Fragment(
+            call("tool", vec![("kind", Arg::Fragment(kind))]).unwrap(),
+        ))
+    };
+    Arg::List(vec![tool("navigate"), tool("tooltip")])
+}
+
+/// The plot of the root of `chart`.
+fn root_plot(chart: &Chart) -> &proto::Plot {
+    let Some(proto::node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot")
+    };
+    plot
+}
+
+/// The first layer of the root plot of `chart`.
+fn first_layer(chart: &Chart) -> &proto::CartesianLayer {
+    let Some(proto::plot::Coord::Cartesian(cartesian)) = &root_plot(chart).coord else {
+        panic!("a Cartesian plot")
+    };
+    &cartesian.layers[0]
+}
+
+#[test]
+fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
+    let chart = symbols_with(vec![
+        ("title", Arg::Str("Cars".into())),
+        ("tools", navigate_and_tooltip()),
+        ("width", Arg::Float(200.0)),
+        ("id", Arg::Str("points".into())),
+        ("classes", Arg::List(vec![Some(Arg::Str("muted".into()))])),
+    ]);
+    let plot = root_plot(&chart);
+    assert_eq!(plot.title.as_ref().unwrap().text, "Cars");
+    assert_eq!(plot.width, Some(200.0));
+    // The navigation stays on the plot, and the tooltip acts on the call's layer, which takes the
+    // id. The plot has none, so its path identifies it.
+    assert_eq!(plot.id, "");
+    assert!(matches!(
+        plot.tools.as_slice(),
+        [proto::Tool {
+            kind: Some(proto::tool::Kind::Navigate(_)),
+            ..
+        }]
+    ));
+    let layer = first_layer(&chart);
+    assert_eq!(layer.id, "points");
+    assert_eq!(layer.classes, ["muted"]);
+    assert!(matches!(
+        layer.tools.as_slice(),
+        [proto::LayerTool {
+            kind: Some(proto::layer_tool::Kind::Tooltip(_)),
+            ..
+        }]
+    ));
+    // Without an id, the plot and the layer have none, and their paths identify them.
+    let chart = symbols_with(vec![("tools", navigate_and_tooltip())]);
+    assert_eq!(root_plot(&chart).id, "");
+    assert_eq!(first_layer(&chart).id, "");
+    assert_eq!(first_layer(&chart).tools.len(), 1);
+}
+
+#[test]
+fn a_mark_parameter_wins_over_an_option_of_its_name() {
+    let names = |name: &str| -> Vec<&str> {
+        let options = mark(name).expect("a mark").options;
+        options.iter().map(|option| option.name).collect()
+    };
+    assert_eq!(
+        names("symbol"),
+        [
+            "title",
+            "attribution",
+            "tools",
+            "width",
+            "height",
+            "id",
+            "classes"
+        ]
+    );
+    // The `width` channel of `text` wins over the width of its plot.
+    assert_eq!(
+        names("text"),
+        ["title", "attribution", "tools", "height", "id", "classes"]
+    );
+    assert_eq!(
+        names("image"),
+        ["title", "attribution", "tools", "id", "classes"]
+    );
+}
+
+#[test]
+fn a_layer_composition_merges_the_options_of_its_charts() {
+    let layer = composition("layer").unwrap();
+    let titled = symbols_with(vec![
+        ("title", Arg::Str("Cars".into())),
+        ("tools", navigate_and_tooltip()),
+    ]);
+    let plain = symbols_with(vec![("tools", navigate_and_tooltip())]);
+    let child = |chart: &Chart| Child {
+        chart: Some(chart.clone()),
+        key: None,
+    };
+    let chart = layer
+        .compose(
+            None,
+            vec![child(&titled), child(&plain)],
+            ChildOrder::AsGiven,
+            &[],
+        )
+        .unwrap();
+    let plot = root_plot(&chart);
+    // One title, the two equal navigations as one, and the tooltip of each layer.
+    assert_eq!(plot.title.as_ref().unwrap().text, "Cars");
+    assert_eq!(plot.tools.len(), 1);
+    let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot")
+    };
+    assert!(cartesian.layers.iter().all(|layer| layer.tools.len() == 1));
+    // The ids of the charts name their layers, and the composition's id names the plot.
+    let named = |id: &str| {
+        symbols_with(vec![
+            ("id", Arg::Str(id.into())),
+            ("tools", navigate_and_tooltip()),
+        ])
+    };
+    let options = layer.params.iter().position(|p| p.name == "id").unwrap();
+    let mut args = vec![None; layer.params.len()];
+    args[options] = Some(Arg::Str("both".into()));
+    let charts = vec![child(&named("a")), child(&named("b"))];
+    let chart = layer
+        .compose(None, charts, ChildOrder::AsGiven, &args)
+        .unwrap();
+    assert_eq!(root_plot(&chart).id, "both");
+    let Some(proto::plot::Coord::Cartesian(cartesian)) = &root_plot(&chart).coord else {
+        panic!("a Cartesian plot")
+    };
+    let ids: Vec<&str> = (cartesian.layers.iter())
+        .map(|layer| layer.id.as_str())
+        .collect();
+    assert_eq!(ids, ["a", "b"]);
+}
+
 #[test]
 fn the_rules_of_a_mark_fail_its_call() {
     let mut call = mark("geo_symbol").expect("a mark").call();

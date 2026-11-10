@@ -126,12 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &model::parameter_messages(&tree),
         &options::excluded(&messages),
     )?;
-    // The messages with constructors: those of the tree with fields, except the marks, whose
-    // mark functions take their parameters, and the composition nodes, whose compositions take
-    // them.
+    // The messages with constructors: those of the tree with fields, except the marks and their
+    // layer, whose mark functions take their parameters, and the composition nodes, whose
+    // compositions take them.
     let mut functions_own = options::marks(&messages);
     functions_own
         .extend((options::COMPOSITION_NODES.iter()).map(|(node, _)| format!("{PACKAGE}.{node}")));
+    functions_own.insert(format!("{PACKAGE}.{}", options::MARK_LAYER.0));
     let constructors: Vec<&model::MessageModel> = (model.messages.iter())
         .filter(|message| tree.contains(&message.name) && !functions_own.contains(&message.name))
         .filter(|message| !message.message.field.is_empty())
@@ -161,6 +162,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(
             out.join("compositions.rs"),
             compositions::compositions(&model)?,
+        )?;
+        std::fs::write(
+            out.join("mark_options.rs"),
+            mark_functions::mark_options(&model)?,
         )?;
         std::fs::write(
             out.join("mark_functions.rs"),

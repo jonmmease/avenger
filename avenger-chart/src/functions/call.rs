@@ -1,16 +1,19 @@
-//! The calls of mark functions: a [`MarkCall`] takes the channel arguments, the properties, and
-//! `coord` of a call, checks them by the rules of its mark, and gives a [`MarkTemplate`], which
-//! builds the chart of one layer from a table.
+//! The calls of mark functions: a [`MarkCall`] takes the channel arguments, the properties, the
+//! options of the plot and the layer, and `coord` of a call, checks them by the rules of its mark,
+//! and gives a [`MarkTemplate`], which builds the chart of one layer from a table.
 
 use arrow::array::{ArrayRef, RecordBatch};
 use prost::{bytes::Bytes, Message};
 
 use super::{
-    generated::{apply_all_encoding, to_cartesian, to_geo, to_polar},
+    generated::{
+        apply_all_encoding, apply_all_mark_options, to_cartesian, to_geo, to_polar,
+        PARAMS_MARK_OPTIONS,
+    },
     Arg, ArgError, Kind, Mark, COORD,
 };
 use crate::{
-    builder::{from_fragment, to_fragment, Builder, Parts, Value},
+    builder::{from_fragment, to_fragment, Build, Builder, Parts, Value},
     layer::MarkMessage,
     proto::{self, Encoding, EncodingBuilder, Plot},
     validate::{scales_numbers, scales_strings},
@@ -75,6 +78,8 @@ impl Mark {
             layer: (self.mark)(),
             parts: Parts::default(),
             options: None,
+            plot: Builder::default(),
+            layer_options: Builder::default(),
             columns: Vec::new(),
         }
     }
@@ -87,6 +92,11 @@ pub struct MarkCall {
     layer: LayerMark,
     parts: Parts,
     options: Option<proto::Fragment>,
+    /// The options of the call's plot, which hold the tools that the call declares until `bind`
+    /// places them.
+    plot: Builder<proto::Plot>,
+    /// The options of the call's layer: its id and its classes.
+    layer_options: Builder<proto::CartesianLayer>,
     columns: Vec<String>,
 }
 
@@ -148,6 +158,25 @@ impl MarkCall {
         (self.mark.apply_properties)(&mut self.layer, &mut self.parts, args)
     }
 
+    /// Sets the options of the mark's plot and layer from `args`, in the order of the mark's
+    /// options.
+    pub fn options(&mut self, args: &[Option<Arg>]) -> Result<(), ArgError> {
+        // The mark's options are some of the options of every mark, which apply in their order.
+        let mut all: Vec<Option<Arg>> = vec![None; PARAMS_MARK_OPTIONS.len()];
+        for (option, arg) in self.mark.options.iter().zip(args) {
+            let index = (PARAMS_MARK_OPTIONS.iter())
+                .position(|every| every.name == option.name)
+                .expect("an option of a mark is an option of every mark");
+            all[index] = arg.clone();
+        }
+        let plot = std::mem::take(&mut self.plot);
+        let layer = std::mem::take(&mut self.layer_options);
+        let (plot, layer) = apply_all_mark_options(plot, layer, &all)?;
+        self.plot = plot;
+        self.layer_options = layer;
+        Ok(())
+    }
+
     /// Sets the options of the mark's plot from `arg`, a fragment of the options of its
     /// coordinate system or an argument that converts to one, such as
     /// `spherical(projection => 'mercator')` for a geo plot.
@@ -188,11 +217,35 @@ impl MarkCall {
                 "{name}() needs a channel that reads a column"
             )));
         }
+        let (mut plot, plot_parts) = self.plot.into_parts();
+        let (layer_options, _) = self.layer_options.into_parts();
+        // A tooltip and a selection act on the call's layer, and a navigation on its plot.
+        let mut tools = Vec::new();
+        plot.tools.retain(|tool| {
+            let kind = match &tool.kind {
+                Some(proto::tool::Kind::Tooltip(tooltip)) => {
+                    proto::layer_tool::Kind::Tooltip(tooltip.clone())
+                }
+                Some(proto::tool::Kind::Select(select)) => {
+                    proto::layer_tool::Kind::Select(select.clone())
+                }
+                _ => return true,
+            };
+            tools.push(proto::LayerTool {
+                kind: Some(kind),
+                modes: tool.modes.clone(),
+            });
+            false
+        });
+        let (id, classes) = (layer_options.id, layer_options.classes);
         let parts = self.parts;
         let layer = match self.layer {
             LayerMark::Cartesian(mark) => to_fragment(builder(
                 proto::CartesianLayer {
                     mark: Some(mark),
+                    id,
+                    classes,
+                    tools,
                     ..Default::default()
                 },
                 parts,
@@ -200,6 +253,9 @@ impl MarkCall {
             LayerMark::Polar(mark) => to_fragment(builder(
                 proto::PolarLayer {
                     mark: Some(mark),
+                    id,
+                    classes,
+                    tools,
                     ..Default::default()
                 },
                 parts,
@@ -207,17 +263,25 @@ impl MarkCall {
             LayerMark::Geo(mark) => to_fragment(builder(
                 proto::GeoLayer {
                     mark: Some(mark),
+                    id,
+                    classes,
+                    tools,
                     ..Default::default()
                 },
                 parts,
             )),
         }
         .map_err(ArgError::invalid)?;
+        let plot = match plot == proto::Plot::default() {
+            true => None,
+            false => Some(to_fragment(builder(plot, plot_parts)).map_err(ArgError::invalid)?),
+        };
         Ok(MarkTemplate {
             name,
             coord: mark.coord,
             layer: layer.encode_to_vec().into(),
             options: self.options.map(|options| options.encode_to_vec().into()),
+            plot: plot.map(|plot| plot.encode_to_vec().into()),
             columns: self.columns,
         })
     }
@@ -232,6 +296,9 @@ pub struct MarkTemplate {
     coord: CoordKind,
     layer: Bytes,
     options: Option<Bytes>,
+    /// The encoded fragment of the options of its plot other than those of its coordinate
+    /// system, or `None` when the call sets none.
+    plot: Option<Bytes>,
     columns: Vec<String>,
 }
 
@@ -254,7 +321,7 @@ impl MarkTemplate {
         };
         let fragment = decode(&self.layer)?;
         let options = self.options.as_ref().map(decode).transpose()?;
-        let plot = match self.coord {
+        let mut plot = match self.coord {
             CoordKind::Cartesian => {
                 let mut layer = from_fragment::<proto::CartesianLayer>(&fragment)?;
                 layer.message.table = Some(layer.parts.table("table", table));
@@ -281,6 +348,16 @@ impl MarkTemplate {
                 Plot::geo(proto::GeoPlot::new(options, [layer]))
             }
         };
+        if let Some(bytes) = &self.plot {
+            let (own, parts) = from_fragment::<proto::Plot>(&decode(bytes)?)?.into_parts();
+            let own = plot.parts.adopt("", own, parts);
+            plot.message.id = own.id;
+            plot.message.title = own.title;
+            plot.message.attribution = own.attribution;
+            plot.message.tools = own.tools;
+            plot.message.width = own.width;
+            plot.message.height = own.height;
+        }
         Chart::builder(plot).build()
     }
 }
