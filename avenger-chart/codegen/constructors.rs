@@ -1,12 +1,11 @@
-//! The generation of `constructors.rs`, behind the `datafusion` feature: from the parameter model,
-//! the table of the constructors, and for each message of the model a typed function that applies
-//! one argument to its builder, the conversions of arguments to its builder, the member picking of
-//! each of its oneofs, and the names of the values of each enum that a parameter takes.
+//! The generation of `constructors.rs`, behind the `functions` feature: from the parameter model,
+//! the table of the constructors, and for each message of the model its parameters with the inputs
+//! that each accepts, a typed function that applies one argument to its builder, the conversions
+//! of arguments to its builder, the member picking of each of its oneofs, and the names of the
+//! values of each enum that a parameter takes.
 //!
 //! The generated code calls only the generated setters of the builders, so a constructor builds
-//! what the builder builds for the same content. It also holds `SURFACE`, the text of every
-//! constructor's parameters and the arguments that each takes, which a test compares with its
-//! snapshot.
+//! what the builder builds for the same content.
 
 use std::{collections::BTreeSet, fmt::Write};
 
@@ -28,24 +27,22 @@ pub(super) fn constructors(
     constructors: &[String],
 ) -> Result<String, String> {
     let mut code = String::new();
-    let mut surface = String::new();
     let mut enums: BTreeSet<String> = BTreeSet::new();
     for message in &model.messages {
         emit_message(&mut code, message, model, comments, &mut enums)?;
     }
-    code.push_str("pub(crate) static CONSTRUCTORS: &[ConstructorSpec] = &[\n");
+    code.push_str("pub(crate) static CONSTRUCTORS: &[Constructor] = &[\n");
     for name in constructors {
         let message = model.message(name).ok_or(format!("`{name}` has a model"))?;
         let function = &message.function;
         writeln!(
             code,
-            "    ConstructorSpec {{ name: {function:?}, message: {:?}, doc: {:?}, params: {}, build: build_{function} }},",
+            "    Constructor {{ name: {function:?}, message: {:?}, doc: {:?}, params: {}, build: build_{function} }},",
             name.trim_start_matches('.'),
             doc(comments.messages.get(name)),
             params_const(message)
         )
         .unwrap();
-        describe(&mut surface, message, model, set);
     }
     code.push_str("];\n\n");
     code.push_str("/// The name of the constructor of the message with the full name `message`.\npub(crate) fn constructor_name(message: &str) -> Option<&'static str> {\n    Some(match message {\n");
@@ -65,15 +62,14 @@ pub(super) fn constructors(
         let function = &message.function;
         writeln!(
             code,
-            "fn build_{function}(args: &[Option<Arg>]) -> Result<crate::proto::Fragment, String> {{\n    let builder = apply_all_{function}({}::default(), args)?;\n    builder.to_fragment().map_err(|error| error.to_string())\n}}\n",
+            "fn build_{function}(args: &[Option<Arg>]) -> Result<crate::proto::Fragment, ArgError> {{\n    let builder = apply_all_{function}({}::default(), args)?;\n    builder.to_fragment().map_err(ArgError::invalid)\n}}\n",
             builder(name)
         )
         .unwrap();
     }
     for name in &enums {
-        emit_enum(&mut code, set, name)?;
+        emit_enum(&mut code, set, comments, name)?;
     }
-    writeln!(code, "pub(crate) const SURFACE: &str = {surface:?};").unwrap();
     Ok(code)
 }
 
@@ -100,7 +96,8 @@ fn function_of(model: &Model, name: &str) -> String {
     )
 }
 
-/// The code of one message: its parameters, its apply functions, its conversion, and its oneofs.
+/// The code of one message: its parameters, the inputs of its message and its oneofs, its apply
+/// functions, its conversion, and its oneofs.
 fn emit_message(
     code: &mut String,
     message: &MessageModel,
@@ -112,7 +109,7 @@ fn emit_message(
     let builder = builder(&message.name);
     writeln!(
         code,
-        "pub(crate) const {}: &[ParamSpec] = &[",
+        "pub(crate) const {}: &[Param] = &[",
         params_const(message)
     )
     .unwrap();
@@ -138,15 +135,7 @@ fn emit_message(
             (ParamKind::Oneof(_, members), None) => {
                 let lines: Vec<String> = (members.iter())
                     .filter_map(|(member, _)| {
-                        let index = message
-                            .message
-                            .field
-                            .iter()
-                            .position(|f| f.name() == member.name())?;
-                        // A member without a comment takes the comment of its message.
-                        let own = comments.fields.get(&(message.name.clone(), index));
-                        let message_comment = || comments.messages.get(member.type_name());
-                        let comment = clean(own.or_else(message_comment)?);
+                        let comment = member_comment(message, member, comments)?;
                         let first = comment
                             .split(". ")
                             .next()
@@ -160,9 +149,26 @@ fn emit_message(
             _ => None,
         };
         let comment = comment.or(fallback.as_ref());
+        let accepts = match &param.kind {
+            ParamKind::Field(_, Shape::Message(name)) => accepts_const(model, name, None),
+            ParamKind::Field(_, shape) => {
+                let shape = shape_code(shape, model, enums);
+                let accepts: Vec<String> = (shape_classes(&param.kind))
+                    .into_iter()
+                    .map(|class| {
+                        format!(
+                            "Accept {{ class: Class::{}, chain: &[], shape: {shape} }}",
+                            class.variant()
+                        )
+                    })
+                    .collect();
+                format!("&[{}]", accepts.join(", "))
+            }
+            ParamKind::Oneof(index, _) => accepts_const(model, &message.name, Some(*index)),
+        };
         writeln!(
             code,
-            "    ParamSpec {{ name: {:?}, doc: {:?}, required: {} }},",
+            "    Param {{ name: {:?}, doc: {:?}, required: {}, accepts: {accepts} }},",
             param.name,
             doc(comment),
             param.required
@@ -171,20 +177,37 @@ fn emit_message(
     }
     code.push_str("];\n\n");
 
+    // The inputs of the message, and of each of its oneofs.
+    let node = Node::Message(message.name.clone());
+    emit_accepts(
+        code,
+        model,
+        &node,
+        &accepts_const(model, &message.name, None),
+        enums,
+    );
+    for param in &message.params {
+        if let ParamKind::Oneof(oneof, _) = &param.kind {
+            let node = Node::Oneof(message.name.clone(), *oneof);
+            let name = accepts_const(model, &message.name, Some(*oneof));
+            emit_accepts(code, model, &node, &name, enums);
+        }
+    }
+
     // The application of the argument of each parameter.
     if message.params.is_empty() {
         writeln!(
             code,
-            "pub(crate) fn apply_{function}(builder: {builder}, param: usize, arg: &Arg) -> Result<{builder}, String> {{\n    let _ = (builder, arg);\n    unreachable!(\"`{}` has no parameter {{param}}\")\n}}\n",
+            "pub(crate) fn apply_{function}(builder: {builder}, param: usize, arg: &Arg) -> Result<{builder}, ArgError> {{\n    let _ = (builder, arg);\n    unreachable!(\"`{}` has no parameter {{param}}\")\n}}\n",
             message.message.name()
         )
         .unwrap();
     } else {
         writeln!(
-        code,
-        "pub(crate) fn apply_{function}(builder: {builder}, param: usize, arg: &Arg) -> Result<{builder}, String> {{\n    Ok(match param {{"
-    )
-    .unwrap();
+            code,
+            "pub(crate) fn apply_{function}(builder: {builder}, param: usize, arg: &Arg) -> Result<{builder}, ArgError> {{\n    Ok(match param {{"
+        )
+        .unwrap();
         for (index, param) in message.params.iter().enumerate() {
             match &param.kind {
                 ParamKind::Field(field, shape) => {
@@ -220,7 +243,7 @@ fn emit_message(
     // Every argument in the order of the parameters.
     writeln!(
         code,
-        "pub(crate) fn apply_all_{function}(mut builder: {builder}, args: &[Option<Arg>]) -> Result<{builder}, String> {{\n    for (index, arg) in args.iter().enumerate() {{\n        let param = &{}[index];\n        match arg {{\n            Some(arg) => builder = apply_{function}(builder, index, arg).map_err(|error| format!(\"`{{}}` {{error}}\", param.name))?,\n            None if param.required => return Err(format!(\"`{{}}` is required\", param.name)),\n            None => {{}}\n        }}\n    }}\n    Ok(builder)\n}}\n",
+        "pub(crate) fn apply_all_{function}(mut builder: {builder}, args: &[Option<Arg>]) -> Result<{builder}, ArgError> {{\n    for (index, arg) in args.iter().enumerate() {{\n        let param = &{}[index];\n        match arg {{\n            Some(arg) => builder = apply_{function}(builder, index, arg).map_err(|error| error.within(param.name))?,\n            None if param.required => return Err(ArgError::required(param.name)),\n            None => {{}}\n        }}\n    }}\n    Ok(builder)\n}}\n",
         params_const(message)
     )
     .unwrap();
@@ -233,19 +256,33 @@ fn emit_message(
         let node = Node::Oneof(message.name.clone(), *oneof);
         writeln!(
             code,
-            "fn oneof_{function}_{oneof}(builder: {builder}, arg: &Arg) -> Result<{builder}, String> {{"
+            "fn oneof_{function}_{oneof}(builder: {builder}, arg: &Arg) -> Result<{builder}, ArgError> {{"
         )
         .unwrap();
-        emit_dispatch(code, model, &node, "builder");
+        let accepts = accepts_const(model, &message.name, Some(*oneof));
+        emit_dispatch(code, model, &node, "builder", &accepts);
         code.push_str("}\n\n");
-        // The members that a string names.
         // The members that a string names.
         let Some(named) = model.named.get(&(message.name.clone(), *oneof)) else {
             continue;
         };
+        let names: Vec<String> = (members.iter())
+            .filter(|(member, _)| named.iter().any(|n| n == member.name()))
+            .map(|(member, _)| {
+                let comment = member_comment(message, member, comments).unwrap_or_default();
+                format!("Name {{ name: {:?}, doc: {comment:?} }}", member.name())
+            })
+            .collect();
+        let names_const = names_const(model, &message.name, *oneof);
         writeln!(
             code,
-            "fn names_{function}_{oneof}(builder: {builder}, name: &str) -> Result<{builder}, String> {{\n    Ok(match name {{"
+            "pub(crate) const {names_const}: &[Name] = &[{}];\n",
+            names.join(", ")
+        )
+        .unwrap();
+        writeln!(
+            code,
+            "fn names_{function}_{oneof}(builder: {builder}, name: &str) -> Result<{builder}, ArgError> {{\n    Ok(match name {{"
         )
         .unwrap();
         for (member, shape) in members {
@@ -264,8 +301,7 @@ fn emit_message(
         }
         writeln!(
             code,
-            "        other => return Err(format!(\"takes one of {}, not `{{other}}`\")),\n    }})\n}}\n",
-            named.join(", ")
+            "        other => return Err(ArgError::member({names_const}, other)),\n    }})\n}}\n"
         )
         .unwrap();
     }
@@ -274,12 +310,134 @@ fn emit_message(
     let node = Node::Message(message.name.clone());
     writeln!(
         code,
-        "#[allow(dead_code)]\npub(crate) fn to_{function}(arg: &Arg) -> Result<{builder}, String> {{"
+        "#[allow(dead_code)]\npub(crate) fn to_{function}(arg: &Arg) -> Result<{builder}, ArgError> {{"
     )
     .unwrap();
-    emit_dispatch(code, model, &node, "");
+    let accepts = accepts_const(model, &message.name, None);
+    emit_dispatch(code, model, &node, "", &accepts);
     code.push_str("}\n\n");
     Ok(())
+}
+
+/// The comment of the member `member` of a oneof of `message`, or of its message.
+fn member_comment(
+    message: &MessageModel,
+    member: &prost_types::FieldDescriptorProto,
+    comments: &Comments,
+) -> Option<String> {
+    let index = (message.message.field.iter()).position(|f| f.name() == member.name())?;
+    let own = comments.fields.get(&(message.name.clone(), index));
+    let message_comment = || comments.messages.get(member.type_name());
+    Some(clean(own.or_else(message_comment)?))
+}
+
+/// The classes of the arguments of a field parameter.
+fn shape_classes(kind: &ParamKind) -> Vec<Class> {
+    match kind {
+        ParamKind::Field(_, shape) => shape
+            .classes()
+            .into_iter()
+            .map(|(class, _)| class)
+            .collect(),
+        ParamKind::Oneof(..) => Vec::new(),
+    }
+}
+
+/// The name of the constant of the inputs of the message `name`, or of its oneof `oneof`.
+fn accepts_const(model: &Model, name: &str, oneof: Option<usize>) -> String {
+    let function = function_of(model, name).to_uppercase();
+    match oneof {
+        Some(oneof) => format!("ACCEPTS_{function}_{oneof}"),
+        None => format!("ACCEPTS_{function}"),
+    }
+}
+
+/// The name of the constant of the members that a string names, of the oneof `oneof` of the
+/// message `name`.
+fn names_const(model: &Model, name: &str, oneof: usize) -> String {
+    format!("NAMES_{}_{oneof}", function_of(model, name).to_uppercase())
+}
+
+/// The name of the constant of the values of the enum `name`.
+fn enum_const(name: &str) -> String {
+    format!("ENUM_{}", snake(short(name)).to_uppercase())
+}
+
+/// The constant `name` of the inputs that reach `node`, each with its chain.
+fn emit_accepts(
+    code: &mut String,
+    model: &Model,
+    node: &Node,
+    name: &str,
+    enums: &mut BTreeSet<String>,
+) {
+    let mut accepts = Vec::new();
+    for (source, chain) in model.accepted(node) {
+        let mut steps: Vec<String> = Vec::new();
+        let mut shape = None;
+        for edge in &chain {
+            match &edge.set {
+                Set::Field(field) | Set::Member(field) => steps.push(format!("{:?}", field.name())),
+                Set::Names(message, oneof) => {
+                    shape = Some(format!(
+                        "Shape::Names({})",
+                        names_const(model, message, *oneof)
+                    ));
+                }
+            }
+            if shape.is_none() {
+                if let Input::Class(_, input) = &edge.input {
+                    shape = Some(shape_code(input, model, enums));
+                }
+            }
+        }
+        let (class, shape) = match &source {
+            Source::Fragment(message) => (
+                "Fragment".to_string(),
+                shape_code(&Shape::Message(message.clone()), model, enums),
+            ),
+            Source::Class(class) => (
+                class.variant().to_string(),
+                shape.expect("a chain from a class reads the class"),
+            ),
+        };
+        accepts.push(format!(
+            "    Accept {{ class: Class::{class}, chain: &[{}], shape: {shape} }},",
+            steps.join(", ")
+        ));
+    }
+    writeln!(
+        code,
+        "pub(crate) const {name}: &[Accept] = &[\n{}\n];\n",
+        accepts.join("\n")
+    )
+    .unwrap();
+}
+
+/// The code of a `Shape` of `shape`.
+fn shape_code(shape: &Shape, model: &Model, enums: &mut BTreeSet<String>) -> String {
+    match shape {
+        Shape::Bool => "Shape::Bool".into(),
+        Shape::Int(_) => "Shape::Int".into(),
+        Shape::Float(_) => "Shape::Float".into(),
+        Shape::Str => "Shape::Str".into(),
+        Shape::Bytes => "Shape::Bytes".into(),
+        Shape::Enum(name) => {
+            enums.insert(name.clone());
+            format!(
+                "Shape::Enum {{ name: {:?}, values: {} }}",
+                name.trim_start_matches('.'),
+                enum_const(name)
+            )
+        }
+        Shape::Value => "Shape::Value".into(),
+        Shape::Message(name) => format!(
+            "Shape::Message {{ message: {:?}, constructor: {:?} }}",
+            name.trim_start_matches('.'),
+            function_of(model, name)
+        ),
+        Shape::Repeated(item) => format!("Shape::Array(&{})", shape_code(item, model, enums)),
+    }
 }
 
 /// Records the enums that `shape` holds.
@@ -294,22 +452,22 @@ fn note_enums(shape: &Shape, enums: &mut BTreeSet<String>) {
 }
 
 /// The body of a function that turns `arg` into the target of `node`, on `base` for a oneof, whose
-/// error names what the target takes.
-fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str) {
+/// error names the inputs of the constant `accepts`.
+fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str, accepts: &str) {
     let accepted = model.accepted(node);
-    let what = takes(model, node, &accepted);
-    code.push_str("    match arg.class() {\n");
+    let rejected = format!("Err(ArgError::rejected(Expected::Inputs({accepts}), arg))");
+    code.push_str("    match arg {\n");
     let fragments: Vec<&(Source, Vec<&Edge>)> = (accepted.iter())
         .filter(|(source, _)| matches!(source, Source::Fragment(_)))
         .collect();
     if !fragments.is_empty() {
-        code.push_str("        Class::Fragment(fragment) => match fragment.r#type.as_str() {\n");
+        code.push_str("        Arg::Fragment(fragment) => match fragment.r#type.as_str() {\n");
         for (source, chain) in &fragments {
             let Source::Fragment(name) = source else {
                 unreachable!()
             };
             let start = format!(
-                "crate::builder::from_fragment::<{}>(fragment).map_err(|error| error.to_string())?",
+                "crate::builder::from_fragment::<{}>(fragment).map_err(ArgError::invalid)?",
                 rust_path(name)
             );
             writeln!(
@@ -320,11 +478,7 @@ fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str) {
             )
             .unwrap();
         }
-        writeln!(
-            code,
-            "            _ => Err(format!(\"takes {what}, not {{}}\", arg.class().describe())),\n        }},"
-        )
-        .unwrap();
+        writeln!(code, "            _ => {rejected},\n        }},").unwrap();
     }
     for (source, chain) in &accepted {
         let Source::Class(class) = source else {
@@ -332,74 +486,25 @@ fn emit_dispatch(code: &mut String, model: &Model, node: &Node, base: &str) {
         };
         writeln!(
             code,
-            "        Class::{} => Ok({}),",
-            class.variant(),
+            "        Arg::{}(..) => Ok({}),",
+            arg_variant(*class),
             chain_code(chain, None, base, model)
         )
         .unwrap();
     }
-    writeln!(
-        code,
-        "        other => Err(format!(\"takes {what}, not {{}}\", other.describe())),\n    }}"
-    )
-    .unwrap();
+    writeln!(code, "        _ => {rejected},\n    }}").unwrap();
 }
 
-/// The words of what `node` takes, for the errors of its arguments: the names that pick a member,
-/// the messages of the fragments that it takes, and the classes of the values.
-fn takes(model: &Model, node: &Node, accepted: &[(Source, Vec<&Edge>)]) -> String {
-    // Every class of constant, which a `ValueRef` takes, is one part.
-    let constants = [
-        Class::Bool,
-        Class::Int,
-        Class::Float,
-        Class::Str,
-        Class::Array,
-        Class::Other,
-    ];
-    let any = constants.iter().all(|class| {
-        accepted
-            .iter()
-            .any(|(source, _)| *source == Source::Class(*class))
-    });
-    let mut parts: Vec<String> = Vec::new();
-    if any {
-        parts.push("any constant".to_string());
-    }
-    for (source, chain) in accepted {
-        let part = match source {
-            Source::Class(class) if any && constants.contains(class) => continue,
-            Source::Fragment(name) => format!("`{}(...)`", function_of(model, name)),
-            Source::Class(class) => match chain.first().map(|edge| (&edge.input, &edge.set)) {
-                Some((Input::Name, Set::Names(message, oneof))) => {
-                    let names = &model.named[&(message.clone(), *oneof)];
-                    format!("a name ({})", names.join(", "))
-                }
-                _ => describe_class(*class).to_string(),
-            },
-        };
-        if !parts.contains(&part) {
-            parts.push(part);
-        }
-    }
-    let _ = node;
-    match parts.as_slice() {
-        [] => "nothing".to_string(),
-        [one] => one.clone(),
-        [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
-    }
-}
-
-/// A class of argument in the words of an error.
-fn describe_class(class: Class) -> &'static str {
+/// The variant of `Arg` of a class.
+fn arg_variant(class: Class) -> &'static str {
     match class {
-        Class::Bool => "a Boolean",
-        Class::Int => "an integer",
-        Class::Float => "a floating-point number",
-        Class::Str => "a string",
-        Class::Array => "an array",
-        Class::Bytes => "bytes",
-        Class::Other => "a constant of another type",
+        Class::Bool => "Bool",
+        Class::Int => "Int",
+        Class::Float => "Float",
+        Class::Str => "Str",
+        Class::Array => "List",
+        Class::Bytes => "Bytes",
+        Class::Other => "Value",
     }
 }
 
@@ -448,7 +553,7 @@ fn conversion(shape: &Shape, arg: &str, model: &Model) -> String {
         Shape::Value => format!("{arg}.value()?"),
         Shape::Message(name) => format!("to_{}({arg})?", function_of(model, name)),
         Shape::Repeated(item) => format!(
-            "{arg}.items()?.iter().map(|item| Ok::<_, String>({})).collect::<Result<Vec<_>, String>>()?",
+            "{arg}.items()?.into_iter().map(|item| Ok::<_, ArgError>({})).collect::<Result<Vec<_>, ArgError>>()?",
             conversion(item, "item", model)
         ),
     }
@@ -459,8 +564,14 @@ fn short(name: &str) -> &str {
     name.rsplit('.').next().unwrap_or(name)
 }
 
-/// The function that reads a value of the enum `name` from its lowercase name.
-fn emit_enum(code: &mut String, set: &FileDescriptorSet, name: &str) -> Result<(), String> {
+/// The constant of the values of the enum `name`, and the function that reads a value from its
+/// lowercase name.
+fn emit_enum(
+    code: &mut String,
+    set: &FileDescriptorSet,
+    comments: &Comments,
+    name: &str,
+) -> Result<(), String> {
     let short_name = short(name);
     let enumeration = (set.file.iter())
         .flat_map(|file| &file.enum_type)
@@ -468,113 +579,30 @@ fn emit_enum(code: &mut String, set: &FileDescriptorSet, name: &str) -> Result<(
         .ok_or(format!("`{name}` is an enum"))?;
     let prefix = format!("{}_", snake(short_name).to_uppercase());
     let path = rust_path(name);
-    let mut names = Vec::new();
-    writeln!(
-        code,
-        "fn enum_{}(arg: &Arg) -> Result<{path}, String> {{\n    let name = arg.string()?;\n    Ok(match name.as_str() {{",
-        snake(short_name)
-    )
-    .unwrap();
-    for value in &enumeration.value {
+    let mut values = Vec::new();
+    let mut arms = String::new();
+    for (index, value) in enumeration.value.iter().enumerate() {
         if value.number() == 0 {
             continue;
         }
         let suffix = value.name().strip_prefix(&prefix).unwrap_or(value.name());
         let lower = suffix.to_lowercase();
-        writeln!(code, "        {lower:?} => {path}::{},", camel(&lower)).unwrap();
-        names.push(lower);
+        let comment = doc(comments.enum_values.get(&(name.to_string(), index)));
+        values.push(format!("Name {{ name: {lower:?}, doc: {comment:?} }}"));
+        writeln!(arms, "        {lower:?} => {path}::{},", camel(&lower)).unwrap();
     }
+    let values_const = enum_const(name);
     writeln!(
         code,
-        "        other => return Err(format!(\"takes {}, not '{{other}}'\")),\n    }})\n}}\n",
-        names.join(", ")
+        "pub(crate) const {values_const}: &[Name] = &[{}];\n",
+        values.join(", ")
+    )
+    .unwrap();
+    writeln!(
+        code,
+        "fn enum_{}(arg: &Arg) -> Result<{path}, ArgError> {{\n    let name = arg.string()?;\n    Ok(match name.as_str() {{\n{arms}        other => return Err(ArgError::value({values_const}, other)),\n    }})\n}}\n",
+        snake(short_name)
     )
     .unwrap();
     Ok(())
-}
-
-/// The text of the parameters of the constructor of `message` and what each takes.
-fn describe(surface: &mut String, message: &MessageModel, model: &Model, set: &FileDescriptorSet) {
-    let params: Vec<&str> = message.params.iter().map(|p| p.name.as_str()).collect();
-    writeln!(surface, "{}({})", message.function, params.join(", ")).unwrap();
-    for param in &message.params {
-        let required = if param.required { " (required)" } else { "" };
-        let takes = match &param.kind {
-            ParamKind::Field(_, Shape::Message(name)) => {
-                sources(model, &Node::Message(name.clone()))
-            }
-            ParamKind::Field(_, shape) => describe_shape(shape, model, set),
-            ParamKind::Oneof(index, _) => {
-                sources(model, &Node::Oneof(message.name.clone(), *index))
-            }
-        };
-        writeln!(surface, "  {}{required}: {takes}", param.name).unwrap();
-    }
-}
-
-/// The text of what a field of `shape` takes.
-fn describe_shape(shape: &Shape, model: &Model, set: &FileDescriptorSet) -> String {
-    match shape {
-        Shape::Bool => "Boolean".into(),
-        Shape::Int(_) => "integer".into(),
-        Shape::Float(_) => "number".into(),
-        Shape::Str => "string".into(),
-        Shape::Bytes => "bytes".into(),
-        Shape::Enum(name) => format!("one of {}", enum_names(set, name).join(", ")),
-        Shape::Value => "any constant".into(),
-        Shape::Message(name) => format!("{}(...)", function_of(model, name)),
-        Shape::Repeated(item) => format!("array of {}", describe_shape(item, model, set)),
-    }
-}
-
-/// The text of the sources that reach `node`, each with its chain.
-fn sources(model: &Model, node: &Node) -> String {
-    let mut parts = Vec::new();
-    for (source, chain) in model.accepted(node) {
-        let mut steps: Vec<String> = Vec::new();
-        for edge in &chain {
-            let step = match &edge.set {
-                Set::Field(field) | Set::Member(field) => field.name().to_string(),
-                Set::Names(..) => "a member's name".to_string(),
-            };
-            steps.push(step);
-        }
-        let start = match &source {
-            Source::Fragment(name) => format!("{}(...)", function_of(model, name)),
-            Source::Class(class) => match class {
-                Class::Bool => "Boolean".into(),
-                Class::Int => "integer".into(),
-                Class::Float => "float".into(),
-                Class::Str => "string".into(),
-                Class::Array => "array".into(),
-                Class::Bytes => "bytes".into(),
-                Class::Other => "other".into(),
-            },
-        };
-        parts.push(match steps.is_empty() {
-            true => start,
-            false => format!("{start} -> {}", steps.join(" -> ")),
-        });
-    }
-    parts.join("; ")
-}
-
-/// The names that SQL arguments give the values of the enum `name`: each value's name without the
-/// enum's prefix, in lowercase, except the zero value.
-fn enum_names(set: &FileDescriptorSet, name: &str) -> Vec<String> {
-    let short_name = short(name);
-    let prefix = format!("{}_", snake(short_name).to_uppercase());
-    (set.file.iter())
-        .flat_map(|file| &file.enum_type)
-        .filter(|e| format!("{PACKAGE}.{}", e.name()) == name)
-        .flat_map(|e| &e.value)
-        .filter(|value| value.number() != 0)
-        .map(|value| {
-            value
-                .name()
-                .strip_prefix(&prefix)
-                .unwrap_or(value.name())
-                .to_lowercase()
-        })
-        .collect()
 }

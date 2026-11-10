@@ -1,4 +1,4 @@
-//! The generation of `functions.rs`, behind the `datafusion` feature: the table of the mark
+//! The generation of `functions.rs`, behind the `functions` feature: the table of the mark
 //! functions, one for each mark of each layer.
 //!
 //! The rules, for the mark message `FooMark` of a layer:
@@ -25,7 +25,7 @@ use super::{annotations::Annotations, builders::Comments, camel, snake, Messages
 /// The coordinate systems whose marks have functions.
 const KINDS_WITH_FUNCTIONS: [&str; 3] = ["Cartesian", "Polar", "Geo"];
 
-/// The code of `functions.rs`: `MARKS`, a `MarkSpec` for each mark function.
+/// The code of `functions.rs`: `MARKS`, a `Mark` for each mark function.
 pub(super) fn functions(
     set: &FileDescriptorSet,
     messages: &Messages,
@@ -35,7 +35,7 @@ pub(super) fn functions(
     let channel_comments = channel_comments(set);
     let encoding = format!("{PACKAGE}.Encoding");
     let mut names = Vec::new();
-    let mut code = String::from("pub(crate) static MARKS: &[MarkSpec] = &[\n");
+    let mut code = String::from("pub(crate) static MARKS: &[Mark] = &[\n");
     for (_, layer_path, layer) in &messages.all {
         let Some(oneof) = (layer.oneof_decl.iter()).position(|oneof| oneof.name() == "mark") else {
             continue;
@@ -77,7 +77,7 @@ pub(super) fn functions(
             let doc = |comment: Option<&String>| {
                 format!("{:?}", comment.map_or(String::new(), |c| clean(c)))
             };
-            writeln!(code, "    MarkSpec {{").unwrap();
+            writeln!(code, "    Mark {{").unwrap();
             writeln!(code, "        name: {name:?},").unwrap();
             writeln!(code, "        coord: crate::CoordKind::{kind},").unwrap();
             writeln!(
@@ -88,7 +88,7 @@ pub(super) fn functions(
             .unwrap();
             writeln!(
                 code,
-                "        mark: || LayerMark::{kind}({module}::Mark::{}(Default::default())),",
+                "        mark: || call::LayerMark::{kind}({module}::Mark::{}(Default::default())),",
                 camel(member.name())
             )
             .unwrap();
@@ -97,7 +97,7 @@ pub(super) fn functions(
                 let field = &mark.field[index];
                 writeln!(
                     code,
-                    "            ChannelSpec {{ name: {:?}, channel: crate::proto::Channel::{}, required: {}, doc: {} }},",
+                    "            Channel {{ name: {:?}, channel: crate::proto::Channel::{}, required: {}, doc: {} }},",
                     field.name(),
                     camel(field.name()),
                     !optional,
@@ -113,13 +113,13 @@ pub(super) fn functions(
             let function = snake(mark.name());
             writeln!(
                 code,
-                "        properties: constructor::generated::PARAMS_{},",
+                "        properties: generated::PARAMS_{},",
                 function.to_uppercase()
             )
             .unwrap();
             writeln!(
                 code,
-                "        apply_properties: |mark, parts, args| {{\n            let LayerMark::{kind}({module}::Mark::{}(message)) = mark else {{\n                unreachable!(\"the mark of its function\")\n            }};\n            let builder = crate::builder::Builder {{\n                message: std::mem::take(message),\n                parts: std::mem::take(parts),\n            }};\n            let builder = constructor::generated::apply_all_{function}(builder, args)?;\n            *message = builder.message;\n            *parts = builder.parts;\n            Ok(())\n        }},",
+                "        apply_properties: |mark, parts, args| {{\n            let call::LayerMark::{kind}({module}::Mark::{}(message)) = mark else {{\n                unreachable!(\"the mark of its function\")\n            }};\n            let builder = crate::builder::Builder {{\n                message: std::mem::take(message),\n                parts: std::mem::take(parts),\n            }};\n            let builder = generated::apply_all_{function}(builder, args)?;\n            *message = builder.message;\n            *parts = builder.parts;\n            Ok(())\n        }},",
                 camel(member.name())
             )
             .unwrap();

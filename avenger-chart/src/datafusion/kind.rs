@@ -8,38 +8,7 @@ use datafusion::{
     },
 };
 
-/// The name of `scaled`, whose argument a mark draws through the channel's scale: a
-/// `scaled_field` or a `scaled_value`.
-pub const SCALED: &str = "scaled";
-
-/// The name of `direct`, whose argument a mark draws as it is: a `direct_field` or a
-/// `direct_value`.
-pub const DIRECT: &str = "direct";
-
-/// The kind of a channel value that a call names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum Kind {
-    Scaled,
-    Direct,
-}
-
-impl Kind {
-    /// The kind that the function `name` gives.
-    pub(crate) fn of(name: &str) -> Option<Self> {
-        match name {
-            SCALED => Some(Self::Scaled),
-            DIRECT => Some(Self::Direct),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Scaled => SCALED,
-            Self::Direct => DIRECT,
-        }
-    }
-}
+use crate::functions::{encoding_options, Kind};
 
 /// `scaled(value)` or `direct(value)`, whose result is `value`. A mark function reads a channel
 /// argument that calls one of them as an encoding of its kind.
@@ -57,7 +26,7 @@ impl KindFunction {
         let signature = match kind {
             // `scaled` takes the options of `Encoding` after its value.
             Kind::Scaled => {
-                let options = super::constructor::generated::PARAMS_ENCODING.iter();
+                let options = encoding_options().iter();
                 let names: Vec<&str> = std::iter::once("value")
                     .chain(options.map(|p| p.name))
                     .collect();

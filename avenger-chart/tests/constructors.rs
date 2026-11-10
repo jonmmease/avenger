@@ -4,7 +4,10 @@
 
 use std::path::Path;
 
-use avenger_chart::datafusion::{constructor_names, constructor_surface, register};
+use avenger_chart::{
+    datafusion::register,
+    functions::{constructors, surface, FRAGMENT_EXTENSION_NAME},
+};
 use datafusion::prelude::SessionContext;
 
 fn session() -> SessionContext {
@@ -29,7 +32,7 @@ async fn a_constant_call_folds_to_a_literal() {
 #[tokio::test]
 async fn every_constructor_is_callable_and_none_shadows_a_function() {
     let builtins = SessionContext::new().state();
-    for name in constructor_names() {
+    for name in constructors().iter().map(|constructor| constructor.name) {
         assert!(
             !builtins.scalar_functions().contains_key(name)
                 && !builtins.aggregate_functions().contains_key(name)
@@ -52,11 +55,12 @@ fn the_sql_surface_matches_its_snapshot() {
     let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let output = tests.join("output").join("constructors.txt");
     std::fs::create_dir_all(output.parent().unwrap()).unwrap();
-    std::fs::write(&output, constructor_surface()).unwrap();
+    let surface = surface();
+    std::fs::write(&output, &surface).unwrap();
     let baseline = tests.join("baselines").join("constructors.txt");
     let expected = std::fs::read_to_string(&baseline).unwrap_or_default();
     assert!(
-        expected == constructor_surface(),
+        expected == surface,
         "the constructors changed; to accept {}, copy it to {}",
         output.display(),
         baseline.display()
@@ -76,7 +80,7 @@ async fn a_column_of_fragments_has_the_extension_of_fragments() {
     let metadata = schema.field(0).metadata();
     assert_eq!(
         metadata.get("ARROW:extension:name").map(String::as_str),
-        Some(avenger_chart::datafusion::FRAGMENT_EXTENSION_NAME)
+        Some(FRAGMENT_EXTENSION_NAME)
     );
     assert_eq!(
         metadata.get("ARROW:extension:metadata").map(String::as_str),

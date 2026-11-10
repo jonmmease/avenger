@@ -67,3 +67,5 @@ pub use validate::FitKind;
 
 #[cfg(feature = "datafusion")]
 pub mod datafusion;
+#[cfg(feature = "functions")]
+pub mod functions;

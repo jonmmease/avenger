@@ -28,7 +28,6 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
-mod argument;
 mod constructor;
 mod declaration;
 mod instance;
@@ -38,95 +37,28 @@ use std::sync::Arc;
 
 use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::SessionContext};
 
-use crate::{layer::MarkMessage, proto, CoordKind};
-
-pub use constructor::FRAGMENT_EXTENSION_NAME;
-pub use kind::{DIRECT, SCALED};
-
-/// A mark function: its name, the coordinate system of its mark, its documentation, its mark in
-/// its layer's `mark` oneof, without encodings, its channels, which are its first parameters, and
-/// its properties, which follow them, with the function that applies their arguments.
-pub(crate) struct MarkSpec {
-    pub(crate) name: &'static str,
-    pub(crate) coord: CoordKind,
-    pub(crate) doc: &'static str,
-    pub(crate) mark: fn() -> LayerMark,
-    pub(crate) channels: &'static [ChannelSpec],
-    pub(crate) properties: &'static [constructor::ParamSpec],
-    pub(crate) apply_properties: ApplyProperties,
-}
-
-/// The function that applies the arguments of the properties of a mark to its message and its
-/// parts, with the error of an argument.
-pub(crate) type ApplyProperties = fn(
-    &mut LayerMark,
-    &mut crate::builder::Parts,
-    &[Option<argument::Arg>],
-) -> std::result::Result<(), String>;
-
-/// A channel of a mark function: a parameter that takes any expression, named after its field.
-pub(crate) struct ChannelSpec {
-    pub(crate) name: &'static str,
-    pub(crate) channel: proto::Channel,
-    pub(crate) required: bool,
-    pub(crate) doc: &'static str,
-}
-
-/// A mark in the `mark` oneof of its layer.
-pub(crate) enum LayerMark {
-    Cartesian(proto::cartesian_layer::Mark),
-    Polar(proto::polar_layer::Mark),
-    Geo(proto::geo_layer::Mark),
-}
-
-impl LayerMark {
-    fn as_mark(&mut self) -> &mut dyn MarkMessage {
-        match self {
-            Self::Cartesian(mark) => mark,
-            Self::Polar(mark) => mark,
-            Self::Geo(mark) => mark,
-        }
-    }
-}
-
-/// The name of the parameter of a mark function that takes the options of its plot.
-const COORD: &str = "coord";
-
-include!(concat!(env!("OUT_DIR"), "/functions.rs"));
-
-/// The names of the mark functions, in the order of the format's layers and their marks.
-pub fn mark_names() -> impl Iterator<Item = &'static str> {
-    MARKS.iter().map(|spec| spec.name)
-}
+use crate::functions::{constructors, marks, Arg, Kind};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` in `ctx`.
 pub fn register(ctx: &SessionContext) {
-    for spec in MARKS {
+    for mark in marks() {
         ctx.register_udaf(AggregateUDF::new_from_impl(
-            declaration::MarkDeclaration::new(spec),
+            declaration::MarkDeclaration::new(mark),
         ));
     }
-    for spec in constructor::generated::CONSTRUCTORS {
+    for constructor in constructors() {
         ctx.register_udf(ScalarUDF::new_from_impl(
-            constructor::ConstructorFunction::new(spec),
+            constructor::ConstructorFunction::new(constructor),
         ));
     }
-    for kind in [kind::Kind::Scaled, kind::Kind::Direct] {
+    for kind in [Kind::Scaled, Kind::Direct] {
         ctx.register_udf(ScalarUDF::new_from_shared_impl(Arc::new(
             kind::KindFunction::new(kind),
         )));
     }
 }
 
-/// The names of the constructors, in the order of the option tree.
-pub fn constructor_names() -> impl Iterator<Item = &'static str> {
-    constructor::generated::CONSTRUCTORS
-        .iter()
-        .map(|spec| spec.name)
-}
-
-/// The text of every constructor's parameters and the arguments that each takes, which the
-/// snapshot test of the constructors compares.
-pub fn constructor_surface() -> &'static str {
-    constructor::generated::SURFACE
+/// The argument of the constant `value`, or `None` for `NULL`.
+fn arg(value: &datafusion::common::ScalarValue) -> datafusion::common::Result<Option<Arg>> {
+    Ok(Arg::from_array(value.to_array_of_size(1)?.as_ref(), 0))
 }
