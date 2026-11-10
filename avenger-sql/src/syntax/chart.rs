@@ -42,20 +42,33 @@ pub(crate) fn is_marker(operator: &PipeOperator) -> bool {
     )
 }
 
-/// A `|> CHART` operator: its mark call, the name of its chart column, its group columns, and the
-/// group expressions, which the operators before it compute as columns, and its aggregate items,
-/// each with its name, with the position of the mark call among the items.
+/// A `|> CHART` operator: its mark items, its aggregate items, each with its name, the order of the
+/// items, its group columns, and the group expressions, which the operators before it compute as
+/// columns.
 pub(crate) struct ChartOperator {
-    pub(crate) mark: Expr,
-    pub(crate) name: Ident,
+    pub(crate) marks: Vec<MarkItem>,
+    pub(crate) aggregates: Vec<(Expr, Ident)>,
+    pub(crate) items: Vec<Item>,
     pub(crate) groups: Vec<Expr>,
     pub(crate) extend: Option<PipeOperator>,
-    pub(crate) aggregates: Vec<(Expr, Ident)>,
-    pub(crate) mark_position: usize,
 }
 
-/// The name of a relation of the join of a `|> CHART` with aggregate items: the aggregates, and the
-/// charts.
+/// A mark item: the mark call and the name of its chart column.
+pub(crate) struct MarkItem {
+    pub(crate) mark: Expr,
+    pub(crate) name: Ident,
+}
+
+/// An item of a `|> CHART`, in the order of the items: a mark item or an aggregate item, by its
+/// index.
+#[derive(Clone, Copy)]
+pub(crate) enum Item {
+    Mark(usize),
+    Aggregate(usize),
+}
+
+/// The names of the relations of the join of a `|> CHART` with aggregate items or several mark
+/// items: the aggregates, and the charts, the second `__avenger_charts_2`, and so on.
 const AGGREGATES: &str = "__avenger_aggregates";
 const CHARTS: &str = "__avenger_charts";
 
@@ -87,10 +100,11 @@ fn normalized(name: &Ident) -> Ident {
     }
 }
 
-/// Reads the `|> CHART` operator `operator`: its items, of which one is a mark call without
-/// `OVER`, named by its alias or `chart`, and the others aggregates, named by their aliases or
-/// their text, and the `GROUP BY` list, whose columns group as they are and whose expressions are
-/// columns named by their aliases or their text. An item and a group take no `ASC` or `DESC`.
+/// Reads the `|> CHART` operator `operator`: its items, of which the mark calls without `OVER` are
+/// its charts, and the others aggregates, named by their aliases or their text, and the `GROUP BY`
+/// list, whose columns group as they are and whose expressions are columns named by their aliases
+/// or their text. One mark call is named `chart` without an alias, and each of several mark calls
+/// needs one (D4). An item and a group take no `ASC` or `DESC`, and two take no one name.
 pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
     let PipeOperator::Aggregate {
         full_table_exprs,
@@ -100,25 +114,25 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
         unreachable!("the marker is a pipe AGGREGATE")
     };
     let items = &full_table_exprs[1..];
-    let mut mark = None;
+    let mut marks: Vec<(&ExprWithAliasAndOrderBy, &Expr)> = Vec::new();
     let mut aggregates = Vec::new();
+    let mut order = Vec::new();
     for item in items {
         unordered(item, "an item of CHART")?;
         let expr = &item.expr.expr;
-        if !is_mark(expr) {
-            nested_mark(expr)?;
-            aggregates.push((expr.clone(), named(expr, &item.expr.alias)));
-            continue;
+        match is_mark(expr) {
+            true => {
+                order.push(Item::Mark(marks.len()));
+                marks.push((item, expr));
+            }
+            false => {
+                nested_mark(expr)?;
+                order.push(Item::Aggregate(aggregates.len()));
+                aggregates.push((expr.clone(), named(expr, &item.expr.alias)));
+            }
         }
-        if mark.is_some() {
-            return Err(at(
-                expr.span(),
-                "CHART takes one mark call; draw another chart in a CHART of its own",
-            ));
-        }
-        mark = Some((item, aggregates.len()));
     }
-    let Some((item, mark_position)) = mark else {
+    if marks.is_empty() {
         let first = &items[0].expr.expr;
         return Err(match first {
             Expr::Function(function) => at(
@@ -133,22 +147,39 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
                 format!("CHART takes a mark call, not `{first}`"),
             ),
         });
-    };
-    let mark = item.expr.expr.clone();
-    let Expr::Function(function) = &mark else {
-        unreachable!("a mark call is a call")
-    };
-    if function.over.is_some() {
-        return Err(at_with_help(
-            function.name.span(),
-            format!("the mark call of CHART takes no OVER clause, so `{}` has none", function.name),
-            "draw a chart for each group with GROUP BY, such as `|> CHART bar(x => species, y => count(*)) GROUP BY island`",
-        ));
     }
-    let name = match &item.expr.alias {
-        Some(alias) => normalized(alias),
-        None => Ident::with_span(function.name.span(), CHART),
-    };
+    let several = marks.len() > 1;
+    let mut mark_items = Vec::new();
+    for (item, mark) in marks {
+        let Expr::Function(function) = mark else {
+            unreachable!("a mark call is a call")
+        };
+        if function.over.is_some() {
+            return Err(at_with_help(
+                function.name.span(),
+                format!("the mark call of CHART takes no OVER clause, so `{}` has none", function.name),
+                "draw a chart for each group with GROUP BY, such as `|> CHART bar(x => species, y => count(*)) GROUP BY island`",
+            ));
+        }
+        let name = match (&item.expr.alias, several) {
+            (Some(alias), _) => normalized(alias),
+            (None, false) => Ident::with_span(function.name.span(), CHART),
+            (None, true) => {
+                return Err(at_with_help(
+                    function.name.span(),
+                    format!(
+                        "this CHART draws several charts, so `{}` needs a name",
+                        function.name
+                    ),
+                    "name each chart, such as `|> CHART bar(...) AS bars, line(...) AS lines`",
+                ))
+            }
+        };
+        mark_items.push(MarkItem {
+            mark: mark.clone(),
+            name,
+        });
+    }
     let mut groups = Vec::new();
     let mut extend = Vec::new();
     for group in group_by_expr {
@@ -166,15 +197,15 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
             }
         }
     }
-    unique_names(&name, mark_position, &groups, &aggregates)?;
-    Ok(ChartOperator {
-        mark,
-        name,
+    let chart = ChartOperator {
+        marks: mark_items,
+        aggregates,
+        items: order,
         groups,
         extend: (!extend.is_empty()).then_some(PipeOperator::Extend { exprs: extend }),
-        aggregates,
-        mark_position,
-    })
+    };
+    chart.unique_names()?;
+    Ok(chart)
 }
 
 /// An aggregate item holds no call of a mark function, which is the complete value of its item.
@@ -202,6 +233,42 @@ fn nested_mark(expr: &Expr) -> Result<()> {
 }
 
 impl ChartOperator {
+    /// The name of the item `item`.
+    fn name(&self, item: Item) -> &Ident {
+        match item {
+            Item::Mark(index) => &self.marks[index].name,
+            Item::Aggregate(index) => &self.aggregates[index].1,
+        }
+    }
+
+    /// Each column of the output, an item or a group, has a name of its own, or the second of two
+    /// columns of one name, in the order of the text, is an error at it. The output holds the
+    /// columns without the qualifiers of the input, so `GROUP BY a.island, b.island` names two
+    /// columns `island`.
+    fn unique_names(&self) -> Result<()> {
+        let items = (self.items.iter()).map(|item| {
+            let name = self.name(*item);
+            (name.value.clone(), name.span)
+        });
+        let groups = (self.groups.iter()).map(|group| (group_name(group).value, group.span()));
+        let mut seen = std::collections::HashSet::new();
+        for (name, span) in items.chain(groups) {
+            if !seen.insert(name.clone()) {
+                return Err(at_with_help(
+                    span,
+                    format!("`{name}` names two columns of this CHART"),
+                    "give one of them an alias of its own, such as `GROUP BY a.island, b.island AS other_island`; a mark call without an alias names its column `chart`",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether the operator joins relations: the aggregate items and the charts, or several charts.
+    pub(crate) fn joins(&self) -> bool {
+        !self.aggregates.is_empty() || self.marks.len() > 1
+    }
+
     /// Each aggregate item reads columns only inside its aggregates, or groups, and calls no window
     /// function, as an item of `AGGREGATE` does. DataFusion 55.2 checks neither in a pipe
     /// `AGGREGATE`, which fails at execution, so the pass checks them at their text.
@@ -243,8 +310,8 @@ impl ChartOperator {
         }
     }
 
-    /// The condition of the join of the aggregates `aggregates` and the charts `charts`: each group
-    /// is not distinct from its group, so a `NULL` group joins, or `TRUE` without groups.
+    /// The condition of the join of the relation `aggregates`, the first, and the charts `charts`:
+    /// each group is not distinct from its group, so a `NULL` group joins, or `TRUE` without groups.
     pub(crate) fn join_condition(&self, aggregates: &Ident, charts: &Ident) -> Expr {
         (self.groups.iter())
             .map(|group| {
@@ -265,21 +332,40 @@ impl ChartOperator {
             .unwrap_or_else(|| Expr::value(Value::Boolean(true)))
     }
 
-    /// The output of the join, as `AGGREGATE` gives it: the groups, then the items in their order,
-    /// the aggregates from `aggregates` and the chart from `charts`.
-    pub(crate) fn projection(&self, aggregates: &Ident, charts: &Ident) -> Vec<SelectItem> {
-        let column = |relation: &Ident, name: Ident| {
-            SelectItem::UnnamedExpr(Expr::CompoundIdentifier(vec![relation.clone(), name]))
+    /// The output of the join, as `AGGREGATE` gives it: the groups, from the first relation, then
+    /// the items in their order, the aggregates from `aggregates` and each chart from its relation
+    /// of `charts`.
+    pub(crate) fn projection(&self, aggregates: &Ident, charts: &[Ident]) -> Vec<SelectItem> {
+        let column = |relation: &Ident, name: &Ident| {
+            SelectItem::UnnamedExpr(Expr::CompoundIdentifier(vec![
+                relation.clone(),
+                name.clone(),
+            ]))
         };
-        let mut items: Vec<SelectItem> = (self.groups.iter())
-            .map(|group| column(aggregates, group_name(group)))
-            .collect();
-        let mut names: Vec<SelectItem> = (self.aggregates.iter())
-            .map(|(_, name)| column(aggregates, name.clone()))
-            .collect();
-        names.insert(self.mark_position, column(charts, self.name.clone()));
-        items.extend(names);
-        items
+        let first = self.first(aggregates, charts);
+        let groups = (self.groups.iter()).map(|group| column(first, &group_name(group)));
+        let items = self.items.iter().map(|item| match item {
+            Item::Mark(index) => column(&charts[*index], &self.marks[*index].name),
+            Item::Aggregate(index) => column(aggregates, &self.aggregates[*index].1),
+        });
+        groups.chain(items).collect()
+    }
+
+    /// The first relation of the join: the aggregate items, or without them, the first chart.
+    pub(crate) fn first<'a>(&self, aggregates: &'a Ident, charts: &'a [Ident]) -> &'a Ident {
+        match self.aggregates.is_empty() {
+            true => &charts[0],
+            false => aggregates,
+        }
+    }
+
+    /// The charts that join the first relation, with their names: every chart after the aggregate
+    /// items, or every chart but the first.
+    pub(crate) fn joined<'a>(&self, charts: &'a [Ident]) -> &'a [Ident] {
+        match self.aggregates.is_empty() {
+            true => &charts[1..],
+            false => charts,
+        }
     }
 }
 
@@ -364,37 +450,6 @@ fn group_name(group: &Expr) -> Ident {
     }
 }
 
-/// Each column of the output, the groups, the chart `name`, and the `aggregates`, has a name of its
-/// own, or the second of two columns of one name is an error at its text. The output of the join
-/// holds the columns without the qualifiers of the input, so `GROUP BY a.island, b.island` names
-/// two columns `island`.
-fn unique_names(
-    name: &Ident,
-    mark_position: usize,
-    groups: &[Expr],
-    aggregates: &[(Expr, Ident)],
-) -> Result<()> {
-    // The columns in the order of their text: the items, with the chart in its place, then the
-    // groups.
-    let mut columns: Vec<(Ident, datafusion::sql::sqlparser::tokenizer::Span)> = (aggregates
-        .iter())
-    .map(|(expr, alias)| (alias.clone(), expr.span()))
-    .collect();
-    columns.insert(mark_position, (name.clone(), name.span));
-    columns.extend(groups.iter().map(|group| (group_name(group), group.span())));
-    let mut seen = std::collections::HashSet::new();
-    for (column, span) in columns {
-        if !seen.insert(column.value.clone()) {
-            return Err(at_with_help(
-                span,
-                format!("`{}` names two columns of this CHART", column.value),
-                "give one of them an alias of its own, such as `GROUP BY a.island, b.island AS other_island`",
-            ));
-        }
-    }
-    Ok(())
-}
-
 /// `item` has no `ASC` or `DESC` and no `NULLS FIRST` or `NULLS LAST`, which pipe syntax allows
 /// in an `AGGREGATE`.
 fn unordered(item: &ExprWithAliasAndOrderBy, what: &str) -> Result<()> {
@@ -417,38 +472,53 @@ pub(super) fn split(query: &mut Query, index: usize, registry: &dyn Registry) ->
     chart.check_aggregates(registry)?;
     let (mut prefix, _) = split_prefix(query, index);
     prefix.pipe_operators.extend(chart.extend.clone());
-    let span = chart.name.span;
-    let charts = chart_call(&chart, prefix.clone(), span);
-    let select = match chart.aggregates.is_empty() {
-        true => build::select(vec![build::wildcard()], Some(charts)),
+    let span = chart.marks[0].name.span;
+    let calls: Vec<TableFactor> = (chart.marks.iter())
+        .map(|mark| chart_call(mark, &chart.groups, prefix.clone(), span))
+        .collect();
+    if !chart.joins() {
+        let call = calls.into_iter().next().expect("a chart");
+        *query.body = SetExpr::Select(Box::new(build::select(vec![build::wildcard()], Some(call))));
+        return Ok(());
+    }
+    let aggregates = Ident::with_span(span, AGGREGATES);
+    let charts: Vec<Ident> = (1..=calls.len())
+        .map(|n| match n {
+            1 => Ident::with_span(span, CHARTS),
+            n => Ident::with_span(span, format!("{CHARTS}_{n}")),
+        })
+        .collect();
+    let mut relations = (calls.into_iter().zip(&charts))
+        .map(|(call, name)| aliased(call, name))
+        .collect::<Vec<_>>()
+        .into_iter();
+    let first = match chart.aggregates.is_empty() {
+        true => relations.next().expect("a chart"),
         false => {
-            let (aggregates, charts_name) = (
-                Ident::with_span(span, AGGREGATES),
-                Ident::with_span(span, CHARTS),
-            );
             let mut input = prefix;
             input.pipe_operators.push(chart.aggregate());
-            let mut select = build::select(
-                chart.projection(&aggregates, &charts_name),
-                Some(aliased(build::derived(input), &aggregates)),
-            );
-            select.from[0].joins.push(Join {
-                relation: aliased(charts, &charts_name),
-                global: false,
-                join_operator: JoinOperator::LeftOuter(JoinConstraint::On(
-                    chart.join_condition(&aggregates, &charts_name),
-                )),
-            });
-            select
+            aliased(build::derived(input), &aggregates)
         }
     };
+    let mut select = build::select(chart.projection(&aggregates, &charts), Some(first));
+    let first_name = chart.first(&aggregates, &charts);
+    for (relation, name) in relations.zip(chart.joined(&charts)) {
+        select.from[0].joins.push(Join {
+            relation,
+            global: false,
+            join_operator: JoinOperator::LeftOuter(JoinConstraint::On(
+                chart.join_condition(first_name, name),
+            )),
+        });
+    }
     *query.body = SetExpr::Select(Box::new(select));
     Ok(())
 }
 
-/// The `FROM`-position call of the mark planner of `chart` over `input`.
+/// The `FROM`-position call of the mark planner of `mark` over `input`, grouped by `groups`.
 fn chart_call(
-    chart: &ChartOperator,
+    mark: &MarkItem,
+    groups: &[Expr],
     input: Query,
     span: datafusion::sql::sqlparser::tokenizer::Span,
 ) -> TableFactor {
@@ -459,15 +529,15 @@ fn chart_call(
     };
     let args = vec![
         FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Subquery(Box::new(input)))),
-        FunctionArg::Unnamed(FunctionArgExpr::Expr(chart.mark.clone())),
+        FunctionArg::Unnamed(FunctionArgExpr::Expr(mark.mark.clone())),
         named(
             PARTITION_BY,
             Expr::Array(Array {
-                elem: chart.groups.clone(),
+                elem: groups.to_vec(),
                 named: false,
             }),
         ),
-        named(NAME, Expr::Identifier(chart.name.clone())),
+        named(NAME, Expr::Identifier(mark.name.clone())),
     ];
     TableFactor::Table {
         name: ObjectName::from(vec![Ident::with_span(span, MARKER)]),

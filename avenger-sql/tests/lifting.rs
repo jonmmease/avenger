@@ -50,6 +50,11 @@ fn session() -> SessionContext {
 
 /// The charts of `query`, in the order of its rows.
 async fn charts(query: &str) -> Vec<Chart> {
+    charts_in(query, "chart").await
+}
+
+/// The charts of the column `name` of `query`, in the order of its rows.
+async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
     let batches = avenger_sql::sql(&session(), query)
         .await
         .unwrap_or_else(|error| panic!("{query}: {error}"))
@@ -58,7 +63,7 @@ async fn charts(query: &str) -> Vec<Chart> {
         .unwrap_or_else(|error| panic!("{query}: {error}"));
     let mut charts = Vec::new();
     for batch in batches {
-        let column = batch.column_by_name("chart").expect("a chart column");
+        let column = batch.column_by_name(name).expect("a chart column");
         for chart in charts_from_arrow(column, Decode::Auto).unwrap() {
             charts.push(chart.unwrap());
         }
@@ -69,6 +74,12 @@ async fn charts(query: &str) -> Vec<Chart> {
 /// Checks that `query` draws the charts of its lifting, and that `lift` prints the lifting of the
 /// baseline `name`. It returns the charts.
 async fn lifted(name: &str, query: &str) -> Vec<Chart> {
+    lifted_in(name, query, &["chart"]).await.remove(0)
+}
+
+/// Checks that each chart column of `columns` of `query` holds the charts of its lifting, and that
+/// `lift` prints the lifting of the baseline `name`. It returns the charts of each column.
+async fn lifted_in(name: &str, query: &str, columns: &[&str]) -> Vec<Vec<Chart>> {
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
     assert!(!lifting.contains("__avenger_"), "no marker in {lifting}");
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
@@ -78,10 +89,18 @@ async fn lifted(name: &str, query: &str) -> Vec<Chart> {
     let baseline = std::fs::read_to_string(format!("{dir}/baselines/liftings/{name}.sql"))
         .unwrap_or_else(|_| panic!("no baseline of {name}: accept {output}"));
     assert_eq!(baseline.trim_end(), lifting, "the lifting of {name}");
-    let chart = charts(query).await;
-    assert!(!chart.is_empty(), "{query}");
-    assert_eq!(chart, charts(&lifting).await, "the charts of {name}");
-    chart
+    let mut charts = Vec::new();
+    for column in columns {
+        let chart = charts_in(query, column).await;
+        assert!(!chart.is_empty(), "{query}");
+        assert_eq!(
+            chart,
+            charts_in(&lifting, column).await,
+            "the charts of {name}"
+        );
+        charts.push(chart);
+    }
+    charts
 }
 
 /// The error of planning `query`.
@@ -488,13 +507,13 @@ async fn chart_groups_its_rows_and_names_its_chart() {
     let query =
         format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island)");
     assert_eq!(columns(&query).await, ["upper(island)", "chart"]);
-    // CHART takes one mark call.
+    // Each of several mark calls has a name (D4).
     fails(
         &format!(
             "{PENGUINS} |> CHART bar(x => species, y => count(*)), symbol(x => species, y => count(*)) AS dots GROUP BY island"
         ),
-        "CHART takes one mark call",
-        "symbol",
+        "this CHART draws several charts, so `bar` needs a name",
+        "bar",
     )
     .await;
     fails(
@@ -1191,8 +1210,92 @@ async fn the_errors_of_items() {
         "`count` is not a mark function, and CHART takes a mark call",
         "count",
     )
-    .await; // Each column of the output has a name of its own, without the qualifiers of the input, and
-            // the second of two columns of one name is the error.
+    .await;
+}
+
+/// The bills and the counts of the species of each island, as two mark items of one CHART, with
+/// `items` between them.
+fn bills_and_counts(items: &str, groups: &str) -> String {
+    format!("{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills{items}, bar(x => species, y => count(*)) AS counts{groups}")
+}
+
+#[tokio::test]
+async fn several_mark_calls_draw_a_chart_each() {
+    let query = format!(
+        "{} |> ORDER BY island",
+        bills_and_counts("", " GROUP BY island")
+    );
+    let charts = lifted_in("several-marks", &query, &["bills", "counts"]).await;
+    assert_eq!(columns(&query).await, ["island", "bills", "counts"]);
+    // The charts are those of two CHART calls with the same groups.
+    let alone =
+        |mark: &str| format!("{PENGUINS} |> CHART {mark} GROUP BY island |> ORDER BY island");
+    assert_eq!(
+        charts[0],
+        self::charts(&alone(
+            "symbol(x => bill_length_mm, y => bill_depth_mm, color => species)"
+        ))
+        .await
+    );
+    assert_eq!(
+        charts[1],
+        self::charts(&alone("bar(x => species, y => count(*))")).await
+    );
+    // An aggregate item between the charts takes its place among the items.
+    let query = bills_and_counts(", count(*) AS penguins", " GROUP BY island");
+    assert_eq!(
+        columns(&query).await,
+        ["island", "bills", "penguins", "counts"]
+    );
+    lifted_in(
+        "several-marks-items",
+        &format!("{query} |> ORDER BY island"),
+        &["bills", "counts"],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn several_mark_calls_join_on_every_group() {
+    // Without groups, one row.
+    let query = bills_and_counts("", "");
+    assert_eq!(columns(&query).await, ["bills", "counts"]);
+    assert_eq!(
+        text_rows(&format!("FROM ({query}) |> AGGREGATE count(*) AS n")).await[3],
+        "| 1 |"
+    );
+    // A NULL group has both of its charts.
+    let query = bills_and_counts("", " GROUP BY sex");
+    let rows = text_rows(&format!("FROM ({query}) |> SELECT sex, bills IS NOT NULL AS b, counts IS NOT NULL AS c |> ORDER BY sex")).await;
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("|        | true | true |")),
+        "{rows:#?}"
+    );
+    // A chart whose FILTER selects no row of a group keeps the row of the group.
+    let query = format!("{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm) AS bills, bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') AS gentoo GROUP BY island");
+    let rows = text_rows(&format!("FROM ({query}) |> SELECT island, bills IS NOT NULL AS b, gentoo IS NOT NULL AS g |> ORDER BY island")).await;
+    assert_eq!(rows.len(), 7, "{rows:#?}");
+}
+
+#[tokio::test]
+async fn the_names_of_the_items_are_unique() {
+    fails(
+        &bills_and_counts(", count(*) AS bills", " GROUP BY island"),
+        "`bills` names two columns of this CHART",
+        "bills, bar",
+    )
+    .await;
+    // The second of two columns of one name, in the order of the text, is the error, and the
+    // columns have no qualifiers of the input.
+    fails(
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => count(*)) AS island GROUP BY penguins.island"
+        ),
+        "`island` names two columns of this CHART",
+        "penguins.island",
+    )
+    .await;
     fails(
         "FROM penguins AS a JOIN penguins AS b USING (species) \
          |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",

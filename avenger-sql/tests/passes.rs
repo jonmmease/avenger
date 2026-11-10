@@ -301,3 +301,16 @@ async fn the_aggregate_items_of_chart_join_its_charts() {
         rows("FROM penguins |> AGGREGATE count(*) AS n GROUP BY island").await
     );
 }
+
+#[tokio::test]
+async fn the_mark_items_of_chart_join_their_charts() {
+    let expanded = expand("FROM penguins |> CHART bar(x => species, y => count(*)) AS a, bar(x => sex, y => count(*)) AS b GROUP BY island");
+    assert!(
+        expanded.starts_with("SELECT __avenger_charts.island, __avenger_charts.a, __avenger_charts_2.b FROM __avenger_chart("),
+        "{expanded}"
+    );
+    assert!(
+        expanded.ends_with("AS __avenger_charts_2 ON __avenger_charts.island IS NOT DISTINCT FROM __avenger_charts_2.island"),
+        "{expanded}"
+    );
+}
