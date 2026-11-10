@@ -126,10 +126,7 @@ fn scales_take_the_identity_of_their_family_or_their_first_plot() {
     assert_eq!(
         evaluator.scale_identity(0, Channel::X),
         Some(&ScaleIdentity::Plot {
-            plot: Identity {
-                id: "cars".into(),
-                partition: BTreeMap::new(),
-            },
+            plot: Identity::given("cars", BTreeMap::new()),
             channel: Channel::X,
             index: 0,
         })
@@ -149,8 +146,18 @@ fn scales_take_the_identity_of_their_family_or_their_first_plot() {
             channel: Channel::X,
         })
     );
-    // A plot without an id gives its scales no identity.
-    assert_eq!(evaluator.scale_identity(0, Channel::Y), None);
+    // A plot without an id gives its scales the identity of its path.
+    assert_eq!(
+        evaluator.scale_identity(0, Channel::Y),
+        Some(&ScaleIdentity::Plot {
+            plot: Identity {
+                id: avenger_chart::resolve::Id::Path("root.plot".to_string()),
+                partition: BTreeMap::new(),
+            },
+            channel: Channel::Y,
+            index: 0,
+        })
+    );
 }
 
 #[test]
@@ -254,10 +261,7 @@ fn an_update_refits_keeps_or_extends_the_fitted_domains() {
 
     // A fit of one identity overrides the fit of the others.
     let identity = ScaleIdentity::Plot {
-        plot: Identity {
-            id: "cars".into(),
-            partition: BTreeMap::new(),
-        },
+        plot: Identity::given("cars", BTreeMap::new()),
         channel: Channel::X,
         index: 0,
     };
