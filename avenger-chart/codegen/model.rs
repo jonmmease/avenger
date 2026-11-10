@@ -13,7 +13,7 @@
 //! - rule A: a message whose only required content is one field, from the argument of that field
 //! - rule O: a message whose first field, by number, is a member of a oneof, and whose other fields
 //!   are not required, from an argument of the oneof
-//! - rule F: a message without required content, from the argument of a field that the `lift`
+//! - rule F: a message without required content, from the argument of a parameter that the `lift`
 //!   option marks and that is not repeated
 //!
 //! An argument of a oneof sets a member by the same steps: a name of a member without required
@@ -340,12 +340,16 @@ impl<'a> Model<'a> {
                     }
                 }
             }
-            // Rule F: the lifted fields of a message without required content.
+            // Rule F: the lifted fields of a message without required content that are parameters.
             if required.is_empty() {
                 for field in &message.field {
-                    let lifted = annotations
-                        .lift
-                        .contains(&(name.clone(), field.name().to_string()));
+                    let parameter = (model.params.iter()).any(|param| {
+                        matches!(param.kind, ParamKind::Field(of, _) if of.name() == field.name())
+                    });
+                    let lifted = parameter
+                        && annotations
+                            .lift
+                            .contains(&(name.clone(), field.name().to_string()));
                     match (lifted, Shape::of(field)) {
                         (true, Some(Shape::Repeated(_))) | (_, None) | (false, _) => {}
                         (true, Some(shape)) => {

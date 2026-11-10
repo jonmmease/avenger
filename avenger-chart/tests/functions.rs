@@ -208,6 +208,8 @@ fn the_options_of_the_composition_nodes_have_constructors() {
     let facet = proto::Facet::decode(facet.message).unwrap();
     assert!(facet.column.is_empty());
     assert_eq!(facet.side, proto::Side::Bottom as i32);
+    let params = &constructor("facet").unwrap().params;
+    assert!(params.iter().all(|param| param.name != "column"));
 }
 
 #[test]

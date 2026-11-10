@@ -93,8 +93,9 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
 }
 
 /// The fields that are not options of a message of the tree or of `Encoding`, by the message's
-/// full name and the field's name: the structural fields of the composition nodes, the members of
-/// `Encoding.kind`, which `scaled` and `direct` set, and `Encoding.conditional`.
+/// full name and the field's name: the structural fields of the composition nodes, the column of a
+/// facet, which a facet aggregate sets from its key, the members of `Encoding.kind`, which `scaled`
+/// and `direct` set, and `Encoding.conditional`.
 pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
     let encoding = format!("{PACKAGE}.Encoding");
     let mut excluded = BTreeSet::new();
@@ -103,6 +104,7 @@ pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
             excluded.insert((format!("{PACKAGE}.{node}"), field.to_string()));
         }
     }
+    excluded.insert((format!("{PACKAGE}.Facet"), "column".to_string()));
     if let Some((_, _, message)) = messages.get(&encoding) {
         let kind = (message.oneof_decl.iter()).position(|oneof| oneof.name() == "kind");
         for field in &message.field {
