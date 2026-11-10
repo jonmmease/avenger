@@ -8,7 +8,7 @@ use datafusion::{
     },
 };
 
-use crate::functions::{encoding_options, Kind};
+use avenger_chart::functions::{encoding_options, Kind};
 
 /// `scaled(value)` or `direct(value)`, whose result is `value`. A mark function reads a channel
 /// argument that calls one of them as an encoding of its kind.

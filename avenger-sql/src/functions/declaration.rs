@@ -23,8 +23,8 @@ use datafusion::{
 };
 
 use super::instance::MarkInstance;
-use crate::chart_field;
-use crate::functions::{Arg, ArgError, ChannelArg, Kind, Mark, Reason, COORD};
+use avenger_chart::chart_field;
+use avenger_chart::functions::{Arg, ArgError, ChannelArg, Kind, Mark, Reason, COORD};
 
 /// The documentation section of the mark functions.
 const SECTION: DocSection = DocSection {

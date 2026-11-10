@@ -12,14 +12,9 @@ descriptors = []
 # `avenger_chart::functions`: the tables and the calls of the constructors of the options, which
 # build fragments, and of the mark functions, which build charts, for the bindings of interfaces.
 functions = []
-# `avenger_chart::datafusion`: an aggregate function of DataFusion for each mark, which builds a
-# chart of its rows, `scaled` and `direct`, and a constructor for each message of the options,
-# which returns its fragment.
-datafusion = ["functions", "dep:datafusion"]
 
 [dependencies]
 arrow = { workspace = true }
-datafusion = { workspace = true, optional = true }
 prost = { workspace = true }
 thiserror = { workspace = true }
 
@@ -32,16 +27,10 @@ protoc-bin-vendored = { workspace = true }
 [dev-dependencies]
 # Tests write a compressed IPC stream, which a reader rejects.
 arrow = { workspace = true, features = ["ipc_compression"] }
-datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-
-[[test]]
-name = "marks"
-required-features = ["datafusion"]
 
 [[test]]
 name = "constructors"
-required-features = ["datafusion"]
+required-features = ["functions"]
 
 [[test]]
 name = "functions"

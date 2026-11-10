@@ -6,9 +6,10 @@ description = "DataFusion SQL that builds avenger charts"
 readme = "README.md"
 
 [dependencies]
-avenger-chart = { path = "../avenger-chart", features = ["datafusion"] }
+avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
+prost = { workspace = true }
 
 [dev-dependencies]
 arrow = { workspace = true }
@@ -19,5 +20,4 @@ avenger-render-fixtures = { path = "../avenger-render-fixtures" }
 avenger-style = { path = "../avenger-style" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-typst-label = { path = "../avenger-typst-label" }
-prost = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
