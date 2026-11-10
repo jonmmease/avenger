@@ -227,8 +227,10 @@ impl PlotBuilder {
     /// - the id, the title, the attribution, the sizes, and the options of the coordinate system
     ///   are those that one overlaid plot sets, where two different values are an error
     /// - the resolve rules of the plot replace the overlaid plots' rules of their channels
-    /// - the tools are those of the plot, then those of the overlaid plots, and the classes are
-    ///   those of the plot, then the overlaid plots' classes that the plot lacks
+    /// - the tools are those of the plot, then those of the overlaid plots, where the overlaid
+    ///   plots' navigations join when they are equal and are a conflict when they differ, and give
+    ///   way to a navigation of the plot itself, and the classes are those of the plot, then the
+    ///   overlaid plots' classes that the plot lacks
     /// - the plot's own layers come first, then the layers of each overlaid plot in order, and the
     ///   partition values of each overlaid plot move to its layers
     pub fn overlay(mut self, plots: impl IntoIterator<Item = impl Into<NodeBuilder>>) -> Self {
@@ -328,8 +330,34 @@ fn merge(plot: &mut proto::Plot, plots: Vec<(String, proto::Plot)>) -> Result<()
                 .cloned(),
         );
     }
+    // A plot navigates in one way: its own navigation wins, and the overlaid plots' navigations
+    // join when they are equal and are a conflict when they differ.
+    let is_navigation =
+        |tool: &&proto::Tool| matches!(tool.kind, Some(proto::tool::Kind::Navigate(_)));
+    let own_navigation = plot.tools.iter().any(|tool| is_navigation(&tool));
+    let mut navigation: Option<(&proto::Tool, &String)> = None;
+    for (path, child) in &plots {
+        for tool in &child.tools {
+            if is_navigation(&tool) {
+                match navigation {
+                    _ if own_navigation => continue,
+                    Some((known, _)) if known == tool => continue,
+                    Some((_, first)) => {
+                        return Err((
+                            path.clone(),
+                            format!(
+                                "the overlaid plot declares a navigation other than that of \
+                                 `{first}`, which is a conflict"
+                            ),
+                        ))
+                    }
+                    None => navigation = Some((tool, path)),
+                }
+            }
+            plot.tools.push(tool.clone());
+        }
+    }
     for (_, child) in &plots {
-        plot.tools.extend(child.tools.iter().cloned());
         for class in &child.classes {
             if !plot.classes.contains(class) {
                 plot.classes.push(class.clone());
