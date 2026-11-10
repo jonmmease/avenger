@@ -10,30 +10,49 @@
 //! |> AGGREGATE bar(x => species, y => n) AS chart
 //! ```
 //!
-//! [`sql`] plans a query in a session after the rewrites that DataFusion 55.2 needs to plan it,
-//! and [`expand`] returns the SQL after them:
+//! [`sql`] plans a query in a session after two passes that DataFusion 55.2 needs to plan it, and
+//! [`expand`] returns the SQL after them. The token pass rewrites the tokens of the text before
+//! parsing, and the syntax pass rewrites the parsed statement:
 //!
+//! - A word that starts with `__avenger_`, a prefix of the names that the passes generate, is an
+//!   error at the word.
 //! - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
+//! - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over
+//!   a derived table of the operators before it, because DataFusion fails to run a window of a
+//!   pipe `EXTEND`. The derived table keeps the qualifiers of the tables before it.
+//! - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the
+//!   transform, so `bin(x, maxbins => 30)` is `bin(x, 'maxbins', 30)`. The `weight` and `keep` of
+//!   `lump` pass the text of their expressions.
 //! - A call with named arguments passes `NULL` for each parameter before its last named argument
 //!   that it omits, because DataFusion binds named arguments only as a prefix of the parameters.
 //!   An omitted parameter of an avenger function and `NULL` mean the same thing.
+//!
+//! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,
+//! and [`register`] has DataFusion record them, so an error of a column points to its text.
 //!
 //! [`register`] adds the mark functions and the constructors of avenger-chart to a session, and
 //! the transforms of avenger-datafusion-transforms: the window functions `bin`, `stack`,
 //! `timeunit`, and `lump`, and the table function `impute`.
 
+mod error;
 mod functions;
 mod pipeline;
+mod syntax;
+mod tokens;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
 pub use pipeline::{expand, sql};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` of avenger-chart, and
-/// the transforms of avenger-datafusion-transforms, in `ctx`. The transforms plan their table
-/// functions with a query planner of their own, so `ctx` must have DataFusion's default query
-/// planner, and registering two times adds their optimizer rules once.
+/// the transforms of avenger-datafusion-transforms, in `ctx`, and has its planner record the spans
+/// of the text (`datafusion.sql_parser.collect_spans`). The transforms plan their table functions
+/// with a query planner of their own, so `ctx` must have DataFusion's default query planner, and
+/// registering two times adds their optimizer rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
+    (ctx.state_ref().write().config_mut().options_mut())
+        .sql_parser
+        .collect_spans = true;
     functions::register(ctx);
     avenger_datafusion_transforms::register(ctx)
 }
