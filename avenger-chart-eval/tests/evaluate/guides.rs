@@ -52,6 +52,83 @@ fn guides_that_leave_the_plot_no_room() {
     }
 }
 
+/// The text and the syntax of every text mark of a scene, its groups included.
+fn text_syntaxes(
+    marks: &[avenger_scenegraph::marks::mark::SceneMark],
+) -> Vec<(String, avenger_common::types::TextSyntaxMode)> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    let mut out = Vec::new();
+    for mark in marks {
+        match mark {
+            SceneMark::Group(group) => out.extend(text_syntaxes(&group.marks)),
+            SceneMark::Text(text) => out.extend(
+                (text.text.as_vec(text.len as usize, None).into_iter())
+                    .map(|label| (label, text.text_syntax)),
+            ),
+            _ => {}
+        }
+    }
+    out
+}
+
+#[test]
+fn a_title_reads_as_typst_markup_and_a_title_from_the_data_as_plain_text() {
+    use avenger_common::types::TextSyntaxMode::{Plain, TypstMarkup};
+    let chart = |title: TitleBuilder| {
+        let symbols = CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("weight").title("count(*)"))
+                .y("mpg"),
+        );
+        Chart::builder(Plot::cartesian([symbols]).title(title))
+            .build()
+            .unwrap()
+    };
+    // A title and its subtitle without a syntax are Typst markup, and the axis titles from an
+    // encoding's title and a column's name are plain.
+    let evaluated = evaluate(
+        &chart(Title::new("*Fuel* economy").subtitle("in _miles_")),
+        [320.0, 240.0],
+    );
+    let texts = text_syntaxes(&evaluated.scene.marks);
+    for expected in [
+        ("*Fuel* economy".to_string(), TypstMarkup),
+        ("in _miles_".to_string(), TypstMarkup),
+        ("count(*)".to_string(), Plain),
+        ("mpg".to_string(), Plain),
+    ] {
+        assert!(texts.contains(&expected), "{expected:?} in {texts:?}");
+    }
+    // A plain title draws its characters as they are.
+    let evaluated = evaluate(
+        &chart(Title::new("*Fuel* economy").syntax(TextSyntax::Plain)),
+        [320.0, 240.0],
+    );
+    let texts = text_syntaxes(&evaluated.scene.marks);
+    assert!(
+        texts.contains(&("*Fuel* economy".to_string(), Plain)),
+        "{texts:?}"
+    );
+
+    // A facet's title from its column is plain.
+    let panels = Node::partitions(
+        &cars_dataset(),
+        "origin",
+        PartitionOrder::Ascending,
+        |rows| {
+            let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"));
+            Ok(Plot::cartesian([symbols]))
+        },
+    )
+    .unwrap();
+    let facets = Chart::builder(Wrap::builder().facet("origin").children(panels))
+        .build()
+        .unwrap();
+    let texts = text_syntaxes(&evaluate(&facets, [560.0, 460.0]).scene.marks);
+    assert!(texts.contains(&("origin".to_string(), Plain)), "{texts:?}");
+}
+
 #[test]
 fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.

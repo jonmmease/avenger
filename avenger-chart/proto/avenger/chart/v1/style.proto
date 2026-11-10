@@ -20,7 +20,9 @@ message TextStyle {
 
 // How the text engine reads a text.
 enum TextSyntax {
-  // Unset, which reads the text as `TEXT_SYNTAX_PLAIN` does.
+  // Unset, which the field gives the meaning of: a title, which the producer writes, reads as
+  // `TEXT_SYNTAX_TYPST`, and the text of a text mark, which comes from rows, reads as
+  // `TEXT_SYNTAX_PLAIN`.
   TEXT_SYNTAX_UNSPECIFIED = 0;
   // Literal text, whose newlines are spaces.
   TEXT_SYNTAX_PLAIN = 1;
