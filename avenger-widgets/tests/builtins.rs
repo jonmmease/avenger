@@ -11,6 +11,7 @@ use avenger_app::error::AvengerAppError;
 use avenger_app_tools::text_selection::TextSelection;
 use avenger_color::ColorOrGradient;
 use avenger_common::time::Instant;
+use avenger_common::types::TextSyntaxMode;
 use avenger_eventstream::manager::{EventStreamHandler, SceneTrees};
 use avenger_eventstream::scene::{SceneGraphEvent, SceneGraphEventType};
 use avenger_eventstream::stream::{EventStreamConfig, Rebuild};
@@ -26,7 +27,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_typst_label::{bundled_label_engine, LabelEngine};
-use avenger_widgets::{Button, Checkbox, GroupBox, RadioGroup, Slider, WidgetStyle, Widgets};
+use avenger_widgets::{Button, Checkbox, GroupBox, RadioGroup, Slider, Text, WidgetStyle, Widgets};
 
 const CHART: &str = "chart";
 const CONTROLS: &str = "controls";
@@ -516,6 +517,35 @@ fn a_held_key_ends_when_the_window_loses_focus() {
         ])
         .await;
         assert_eq!(f.state().presses, 2);
+    });
+}
+
+#[test]
+fn a_label_is_plain_text_or_typst_markup() {
+    pollster::block_on(async {
+        let check = |label: Text| {
+            Checkbox::new("check")
+                .label(label)
+                .value(|s: &State| s.checked)
+                .on_change(|s, on| {
+                    s.checked = on;
+                    Rebuild::none()
+                })
+        };
+        let syntax = |f: &Fixture| {
+            (f.marks("check").into_iter())
+                .find_map(|mark| match mark {
+                    SceneMark::Text(text) => Some(text.text_syntax),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let plain = Widgets::new(CONTROLS, 10, placed).with(check("*Grid*".into()));
+        let f = fixture_of(stacked(), plain).await;
+        assert_eq!(syntax(&f), TextSyntaxMode::Plain);
+        let markup = Widgets::new(CONTROLS, 10, placed).with(check(Text::markup("*Grid*")));
+        let f = fixture_of(stacked(), markup).await;
+        assert_eq!(syntax(&f), TextSyntaxMode::TypstMarkup);
     });
 }
 

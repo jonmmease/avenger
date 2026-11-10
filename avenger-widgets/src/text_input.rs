@@ -55,9 +55,9 @@ impl<State> TextInput<State> {
         }
     }
 
-    /// Show the plain-text `label` above the box.
-    pub fn label(mut self, label: &str) -> Self {
-        self.label = Some(Text::plain(label));
+    /// Show `label`, plain text or Typst markup (`Text::markup`), above the box.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = Some(label.into());
         self
     }
 

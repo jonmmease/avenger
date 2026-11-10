@@ -31,7 +31,7 @@ use avenger_typst_label::LabelEngine;
 use avenger_widgets::{
     Checkbox, CheckboxList, CheckboxListState, CheckboxListView, CheckboxState, CheckboxView, Look,
     Paint, Palette, Placed, RadioDirection, RadioGroup, RadioGroupState, RadioGroupView,
-    RangeSlider, RangeSliderState, RangeSliderView, Slider, SliderState, SliderView, Widget,
+    RangeSlider, RangeSliderState, RangeSliderView, Slider, SliderState, SliderView, Text, Widget,
     WidgetContext, WidgetError, WidgetEvent, WidgetStyle,
 };
 
@@ -82,10 +82,10 @@ pub enum WidgetSpec {
     /// One check box, which writes `value` while it is checked.
     Checkbox { value: ArrayRef },
     /// One of the `modes` of a group of the chart's modes, with a label for each, which turns on
-    /// the chosen mode.
+    /// the chosen mode: the mode's label as Typst markup, or its name as plain text.
     ModeGroup {
         modes: Vec<String>,
-        labels: Vec<String>,
+        labels: Vec<Text>,
     },
     /// One check box, which turns the toggle `mode` on and off.
     ModeToggle { mode: String },
@@ -124,8 +124,10 @@ pub struct EvaluatedWidget {
     /// The anchor of the widget's group, or `None` for a group that anchors at the root.
     pub anchor: Option<Identity>,
     pub target: WidgetTarget,
-    /// The title, or empty for a widget without one.
-    pub title: String,
+    /// The title, or empty for a widget without one: a widget's `Title`, Typst markup unless its
+    /// syntax is plain, a mode's label as Typst markup, or as plain text the name of a column or
+    /// a mode.
+    pub title: Text,
     pub spec: WidgetSpec,
     pub style: WidgetStyle,
     /// The side of the plot or the concat that the widget stands on, along which the items of a
@@ -421,7 +423,7 @@ impl<State: Send + Sync + 'static> Control<State> {
         settle: impl Fn(&mut State, WidgetValue) -> Rebuild + Send + Sync + 'static,
     ) -> Self {
         let owner = widget.owner();
-        let (id, title, spec) = (owner.as_str(), widget.title.as_str(), &widget.spec);
+        let (id, title, spec) = (owner.as_str(), &widget.title, &widget.spec);
         let direction = match widget.side.is_vertical() {
             true => RadioDirection::Column,
             false => RadioDirection::Row,
@@ -437,8 +439,8 @@ impl<State: Send + Sync + 'static> Control<State> {
                 ..
             } => {
                 let mut slider = Slider::new(id, domain[0]..=domain[1]);
-                if !title.is_empty() {
-                    slider = slider.label(title);
+                if !title.source().is_empty() {
+                    slider = slider.label(title.clone());
                 }
                 if !readout.is_empty() {
                     slider = slider.readout(readout);
@@ -463,8 +465,8 @@ impl<State: Send + Sync + 'static> Control<State> {
                 readout,
             } => {
                 let mut slider = RangeSlider::new(id, domain[0]..=domain[1]);
-                if !title.is_empty() {
-                    slider = slider.label(title);
+                if !title.source().is_empty() {
+                    slider = slider.label(title.clone());
                 }
                 if !readout.is_empty() {
                     slider = slider.readout(readout);
@@ -485,15 +487,16 @@ impl<State: Send + Sync + 'static> Control<State> {
             }
             WidgetSpec::Radio { labels, clear, .. } => {
                 let clear = clear.as_deref();
-                Self::Radio(radio(id, title, labels, clear, direction, read, write))
+                let labels: Vec<Text> = labels.iter().map(Text::from).collect();
+                Self::Radio(radio(id, title, &labels, clear, direction, read, write))
             }
             WidgetSpec::ModeGroup { labels, .. } => {
                 Self::Radio(radio(id, title, labels, None, direction, read, write))
             }
             WidgetSpec::Checkboxes { labels, .. } => {
                 let mut list = CheckboxList::new(id, labels.iter().cloned().enumerate());
-                if !title.is_empty() {
-                    list = list.label(title);
+                if !title.source().is_empty() {
+                    list = list.label(title.clone());
                 }
                 Self::Checkboxes(
                     list.direction(direction)
@@ -506,8 +509,8 @@ impl<State: Send + Sync + 'static> Control<State> {
             }
             WidgetSpec::Checkbox { .. } | WidgetSpec::ModeToggle { .. } => {
                 let mut checkbox = Checkbox::new(id);
-                if !title.is_empty() {
-                    checkbox = checkbox.label(title);
+                if !title.source().is_empty() {
+                    checkbox = checkbox.label(title.clone());
                 }
                 Self::Checkbox(
                     checkbox
@@ -526,18 +529,18 @@ impl<State: Send + Sync + 'static> Control<State> {
 /// its value with `read` and writes it with `write`.
 fn radio<State: Send + Sync + 'static>(
     id: &str,
-    title: &str,
-    labels: &[String],
+    title: &Text,
+    labels: &[Text],
     clear: Option<&str>,
     direction: RadioDirection,
     read: Read<State>,
     write: Write<State>,
 ) -> RadioGroup<State, Option<usize>> {
-    let clearing = clear.map(|label| (None, label.to_string()));
+    let clearing = clear.map(|label| (None, Text::plain(label)));
     let items = (labels.iter().enumerate()).map(|(index, label)| (Some(index), label.clone()));
     let mut radio = RadioGroup::new(id, clearing.into_iter().chain(items));
-    if !title.is_empty() {
-        radio = radio.label(title);
+    if !title.source().is_empty() {
+        radio = radio.label(title.clone());
     }
     radio
         .direction(direction)
@@ -937,11 +940,11 @@ fn spec(chart: &Chart, group: &WidgetGroup, drawn: &[RecordBatch]) -> Result<Wid
     })
 }
 
-/// The label of `mode`: its own, or its name.
-fn mode_label(mode: &proto::Mode) -> String {
+/// The label of `mode`: its own, as Typst markup, or its name, as plain text.
+fn mode_label(mode: &proto::Mode) -> Text {
     match mode.label.is_empty() {
-        true => mode.name.clone(),
-        false => mode.label.clone(),
+        true => Text::plain(mode.name.as_str()),
+        false => Text::markup(mode.label.as_str()),
     }
 }
 
@@ -981,14 +984,17 @@ pub(crate) fn widgets(
         // A widget without a title takes the name of its column, a mode widget of a toggle takes
         // the toggle's label, and a mode widget of a group has none.
         let title = match (&group.widget.title, &target, &spec) {
-            (Some(title), _, _) => title.text.clone(),
-            (None, WidgetTarget::Selection { column, .. }, _) => column.clone(),
+            (Some(title), _, _) => Text::new(
+                title.text.as_str(),
+                crate::guides::title_syntax(Some(title)),
+            ),
+            (None, WidgetTarget::Selection { column, .. }, _) => Text::plain(column.as_str()),
             (None, WidgetTarget::Modes, WidgetSpec::ModeToggle { mode }) => {
                 (inputs.chart.message().modes.iter())
                     .find(|declared| &declared.name == mode)
-                    .map_or_else(|| mode.clone(), mode_label)
+                    .map_or_else(|| Text::plain(mode.as_str()), mode_label)
             }
-            (None, WidgetTarget::Modes, _) => String::new(),
+            (None, WidgetTarget::Modes, _) => Text::plain(""),
         };
         let side = side_of(group.widget.side, style);
         let evaluated = EvaluatedWidget {

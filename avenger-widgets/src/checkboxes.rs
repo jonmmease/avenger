@@ -30,13 +30,14 @@ pub struct CheckboxList<State, T> {
 }
 
 impl<State, T: Clone + PartialEq + Send + Sync + 'static> CheckboxList<State, T> {
-    /// Create a list named `id` from value and plain-text label pairs in `items`.
-    pub fn new(id: &str, items: impl IntoIterator<Item = (T, impl Into<String>)>) -> Self {
+    /// Create a list named `id` from pairs of a value and a label, plain text or Typst markup
+    /// (`Text::markup`), in `items`.
+    pub fn new(id: &str, items: impl IntoIterator<Item = (T, impl Into<Text>)>) -> Self {
         Self {
             id: id.to_string(),
             label: None,
             items: (items.into_iter())
-                .map(|(value, label)| (value, Text::plain(label)))
+                .map(|(value, label)| (value, label.into()))
                 .collect(),
             value: None,
             on_change: None,
@@ -45,9 +46,10 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> CheckboxList<State, T>
         }
     }
 
-    /// Show the plain-text `label` above the items. Omit it when a group box supplies the title.
-    pub fn label(mut self, label: &str) -> Self {
-        self.label = Some(Text::plain(label));
+    /// Show `label`, plain text or Typst markup (`Text::markup`), above the items. Omit it when a
+    /// group box supplies the title.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = Some(label.into());
         self
     }
 
