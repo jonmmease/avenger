@@ -206,7 +206,7 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
     };
     let chart = Chart::builder(
         Wrap::builder()
-            .facet(Facet::builder().column("genre"))
+            .facet("genre")
             .children([panel("Drama"), panel("Comedy")]),
     )
     .build()
@@ -265,13 +265,9 @@ fn keyed(keys: ArrayRef) -> RecordBatch {
 
 /// The value of each node of `nodes`, in order, and the rows of its table, in a facet of `key`.
 fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
-    let chart = Chart::builder(
-        Concat::new(Direction::Row)
-            .facet(Facet::builder().column("key"))
-            .children(nodes),
-    )
-    .build()
-    .unwrap();
+    let chart = Chart::builder(Concat::new(Direction::Row).facet("key").children(nodes))
+        .build()
+        .unwrap();
     let Some(node::Node::Concat(concat)) = &chart.root().node else {
         panic!("the root is a concat")
     };
@@ -575,13 +571,9 @@ fn a_wrapped_facet_of_partitions() {
         Ok(Plot::cartesian([symbols]).id("panel"))
     })
     .unwrap();
-    let chart = Chart::builder(
-        Wrap::builder()
-            .facet(Facet::builder().column("origin"))
-            .children(panels),
-    )
-    .build()
-    .unwrap();
+    let chart = Chart::builder(Wrap::builder().facet("origin").children(panels))
+        .build()
+        .unwrap();
 
     let Some(node::Node::Wrap(wrap)) = &chart.root().node else {
         panic!("the root is a wrap")
@@ -633,14 +625,12 @@ fn a_facet_grid_of_nested_partitions() {
             let bars = CartesianLayer::bar(cell, BarMark::builder().x("channel").y("amount"));
             Ok(Plot::cartesian([bars]))
         })?;
-        Ok(Concat::new(Direction::Row)
-            .facet(Facet::builder().column("channel"))
-            .children(cells))
+        Ok(Concat::new(Direction::Row).facet("channel").children(cells))
     })
     .unwrap();
     let chart = Chart::builder(
         Concat::new(Direction::Column)
-            .facet(Facet::builder().column("region"))
+            .facet("region")
             .children(rows),
     )
     .build()

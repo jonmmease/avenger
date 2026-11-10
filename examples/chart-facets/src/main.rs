@@ -152,20 +152,16 @@ fn grid(movies: &RecordBatch) -> Chart {
             Ok(panel(cell))
         })?;
         Ok(Concat::new(Direction::Row)
-            .facet(Facet::builder().column(GENRE))
+            .facet(GENRE)
             .resolve([Resolve::channel(Sharing::Independent, Channel::X)])
             .children(panels))
     })
     .unwrap();
-    Chart::builder(
-        Concat::new(Direction::Column)
-            .facet(Facet::builder().column(ERA))
-            .children(rows),
-    )
-    .number_format_syntax("d3")
-    .datetime_format_syntax("d3")
-    .build()
-    .unwrap()
+    Chart::builder(Concat::new(Direction::Column).facet(ERA).children(rows))
+        .number_format_syntax("d3")
+        .datetime_format_syntax("d3")
+        .build()
+        .unwrap()
 }
 
 /// `chart` decoded from its bytes, as a reader of a stored chart gets it.

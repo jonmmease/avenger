@@ -15,8 +15,9 @@ extend google.protobuf.FieldOptions {
   // member of a oneof, the rule applies when the oneof holds the member.
   bool required = 50001;
   // A builder of the field's message converts from the field's type, with only this field set,
-  // so `.scale(Domain::explicit(..))` builds a scale with that domain. A type that two lifted
-  // fields of one message take converts to neither.
+  // so `.scale(Domain::explicit(..))` builds a scale with that domain and `.facet("genre")` a
+  // facet of that column. A repeated field is not lifted. A type that two lifted fields of one
+  // message take converts to neither.
   bool lift = 50003;
 }
 

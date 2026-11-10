@@ -132,7 +132,7 @@ A builder converts from other types where the conversion is unambiguous:
 
 - A message whose only required content is one field converts from that field's argument, so `Plot::cartesian([layer])`, `Predicate::selected("brush")`, and `Scale::custom("dots")` build the message with that field.
 - A message with one oneof and no required field converts from each member that is a message of its own type, so `.scale(BandScale::builder())` and `Chart::builder(plot)` set the member.
-- A scale converts from its domain, its range, its axis, and its legend, the fields that the `lift` option marks, so `.scale(Domain::explicit([0.0, 10.0]))` and `.scale(Axis::builder().show_grid(true))` set that field. A conversion is one step, so it takes part in no other conversion.
+- A scale converts from its domain, its range, its axis, and its legend, the fields that the `lift` option marks, so `.scale(Domain::explicit([0.0, 10.0]))` and `.scale(Axis::builder().show_grid(true))` set that field. A facet converts from its column, which the option also marks, so `.facet("genre")` facets the column `genre`. A conversion is one step, so it takes part in no other conversion.
 
 `EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and geo plots hides the axes and the legends of the scales of the plot's layers.
 
@@ -140,7 +140,7 @@ A builder holds the tables and the values that its fields take, and `ChartBuilde
 
 The reader infers the unset scale of each encoding of a scaled value, and the unset type and domain of its scale, so a chart that another language writes gets the defaults that a builder's chart gets: a position of numbers takes a linear scale, of dates and timestamps a time scale, and of categories a band scale for bars and rects and a point scale for other marks, categories on `size`, the opacities, and `stroke_width` take a point scale, which spreads them over the range, categories on another channel take an ordinal scale, and an unset domain is the layer's data domain. The comments of `Scale.type` and `Scale.domain` give the rules. Inference leaves fits, sort orders, axes, legends, titles, and styles to the producer and the renderer's stylesheets, and it never changes a field that is set.
 
-A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale`, and the `channel_scale` and `position` options of the values of `Channel`.
+A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of the fields of `Scale` and `Facet`, and the `channel_scale` and `position` options of the values of `Channel`.
 
 The builders also compose charts:
 
