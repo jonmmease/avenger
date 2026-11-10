@@ -158,7 +158,8 @@ message TextMark {
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
-  // How the text engine reads each text.
+  // How the text engine reads each text. When unset, it reads each as plain text, because the
+  // text comes from the rows.
   TextSyntax syntax = 5;
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
@@ -403,7 +404,8 @@ message PolarTextMark {
   string format = 1;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 2;
-  // How the text engine reads each text.
+  // How the text engine reads each text. When unset, it reads each as plain text, because the
+  // text comes from the rows.
   TextSyntax syntax = 3;
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
@@ -532,7 +534,8 @@ message GeoTextMark {
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 4;
-  // How the text engine reads each text.
+  // How the text engine reads each text. When unset, it reads each as plain text, because the
+  // text comes from the rows.
   TextSyntax syntax = 5;
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.

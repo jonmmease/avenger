@@ -319,11 +319,17 @@ pub(crate) fn visible(style: &ComputedStyle) -> bool {
     !style.is_hidden()
 }
 
-fn text_syntax(syntax: i32) -> TextSyntaxMode {
-    match proto::TextSyntax::try_from(syntax).unwrap_or_default() {
-        proto::TextSyntax::Typst => TextSyntaxMode::TypstMarkup,
+/// The syntax of a title: a `Title`, which the producer writes, reads its syntax, Typst markup when
+/// it is unset, and a title from the data, such as the titles of an axis's encodings or a facet's
+/// column, has no `Title` and is plain.
+fn title_syntax(title: Option<&proto::Title>) -> TextSyntaxMode {
+    let Some(title) = title else {
+        return TextSyntaxMode::Plain;
+    };
+    match proto::TextSyntax::try_from(title.syntax).unwrap_or_default() {
+        proto::TextSyntax::Plain => TextSyntaxMode::Plain,
         proto::TextSyntax::PlainLines => TextSyntaxMode::PlainLines,
-        _ => TextSyntaxMode::Plain,
+        proto::TextSyntax::Typst | proto::TextSyntax::Unspecified => TextSyntaxMode::TypstMarkup,
     }
 }
 
@@ -546,7 +552,7 @@ fn axis(
         let styles = inputs.styles;
         let spec = axis_spec(group);
         let grid = visible(&styles[nodes.grid]) && !second;
-        let title_syntax = text_syntax(spec.title.as_ref().map_or(0, |title| title.syntax));
+        let title_syntax = title_syntax(spec.title.as_ref());
         let mut style = axis_style(
             inputs.chart,
             &styles[nodes.axis],
@@ -1339,7 +1345,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         title_font_family: font_family(title_style),
         title_font_size: title_style.font_size(),
         title_font_weight: font_weight(title_style),
-        title_syntax: text_syntax(spec.title.as_ref().map_or(0, |title| title.syntax)),
+        title_syntax: title_syntax(spec.title.as_ref()),
         label_color: text_color(label_style),
         label_font_family: font_family(label_style),
         label_font_size: label_style.font_size(),
@@ -1424,7 +1430,7 @@ fn colorbar(
         &styles[nodes.rule],
         None,
         axis_spec.ticks.as_ref(),
-        text_syntax(axis_spec.title.as_ref().map_or(0, |title| title.syntax)),
+        title_syntax(axis_spec.title.as_ref()),
     );
     let labels = axis_spec.labels.as_ref();
     let ramp = &styles[nodes.ramp];
@@ -1480,7 +1486,7 @@ fn title(inputs: &GuideInputs, path: &str, title: &proto::Title) -> Result<Optio
     if style.is_hidden() {
         return Ok(None);
     }
-    let syntax = text_syntax(title.syntax);
+    let syntax = title_syntax(Some(title));
     let side = match style.keyword(Property::Orient) {
         Some("bottom" | "bottom-left" | "bottom-right") => GuideSide::Bottom,
         Some("left") => GuideSide::Left,
@@ -1642,7 +1648,7 @@ fn facet_guide(
     let label = &styles[nodes.label];
     let title_style = &styles[nodes.title];
     let rule = &styles[nodes.rule];
-    let title_syntax = text_syntax(facet.title.as_ref().map_or(0, |title| title.syntax));
+    let title_syntax = title_syntax(facet.title.as_ref());
     let style = FacetGuideStyle {
         label_padding: style_number(facet_style, Property::LabelPadding),
         label_angle: facet_style.number(Property::LabelAngle),
