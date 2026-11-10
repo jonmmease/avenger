@@ -55,7 +55,12 @@ fn branch(fill: &str, columns: &str) -> String {
 
 /// The constant fill of each layer of a layered chart, in draw order.
 fn fills(chart: &Chart) -> Vec<String> {
-    let Some(proto::node::Node::Plot(plot)) = &chart.root().node else {
+    fills_of(chart, chart.root())
+}
+
+/// The constant fill of each layer of the plot `node` of `chart`, in draw order.
+fn fills_of(chart: &Chart, node: &proto::Node) -> Vec<String> {
+    let Some(proto::node::Node::Plot(plot)) = &node.node else {
         panic!("a plot");
     };
     let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
@@ -178,4 +183,65 @@ async fn a_union_without_all_has_no_branch_order() {
     let union = [branch("red", ", 2 AS k"), branch("green", ", 1 AS k")].join(" UNION ");
     let chart = chart(&format!("{union} |> AGGREGATE layer(chart) AS chart")).await;
     assert_eq!(fills(&chart), ["green", "red"]);
+}
+
+#[tokio::test]
+async fn a_standard_select_reads_the_composition_by_its_name() {
+    // The keys of the rule change the name of the call, so the call keeps the name of its output
+    // for the projection of the SELECT.
+    let union = [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL ");
+    let aliased = chart(&format!("SELECT layer(chart) AS chart FROM ({union})")).await;
+    assert_eq!(fills(&aliased), ["red", "green", "blue"]);
+    let renamed = chart(&format!(
+        "SELECT * FROM (SELECT layer(chart) FROM ({union})) AS t(chart)"
+    ))
+    .await;
+    assert_eq!(fills(&renamed), ["red", "green", "blue"]);
+}
+
+#[tokio::test]
+async fn a_composition_of_compositions_of_a_union_all_numbers_its_branches_once() {
+    let union = [
+        branch("red", ", 1 AS k"),
+        branch("green", ", 2 AS k"),
+        branch("blue", ", 1 AS k"),
+    ]
+    .join(" UNION ALL ");
+    let chart = chart(&format!(
+        "{union} |> AGGREGATE layer(chart) AS chart GROUP BY k |> AGGREGATE hconcat(chart) AS chart"
+    ))
+    .await;
+    let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {
+        panic!("a concat");
+    };
+    let layers: Vec<Vec<String>> = (concat.children.iter())
+        .map(|child| fills_of(&chart, child))
+        .collect();
+    assert_eq!(layers, [vec!["red", "blue"], vec!["green"]]);
+}
+
+#[tokio::test]
+async fn a_facet_with_an_order_by_breaks_ties_by_its_key() {
+    let chart = chart(
+        "FROM penguins |> WHERE body_mass_g IS NOT NULL \
+         |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart, min(1) AS n \
+            GROUP BY island \
+         |> AGGREGATE facet_col(chart, island ORDER BY n) AS chart",
+    )
+    .await;
+    let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {
+        panic!("a concat");
+    };
+    let facet = concat.facet.as_ref().expect("a facet");
+    let islands: Vec<String> = (concat.children.iter())
+        .map(|child| {
+            let Some(proto::node::Node::Plot(plot)) = &child.node else {
+                panic!("a plot");
+            };
+            let value = plot.partition[0].value.as_ref().expect("a value");
+            arrow::util::display::array_value_to_string(chart.value(value), 0).unwrap()
+        })
+        .collect();
+    assert_eq!(facet.column, "island");
+    assert_eq!(islands, ["Biscoe", "Dream", "Torgersen"]);
 }

@@ -13,7 +13,9 @@
 //! 2. Each other column of the call's input that holds no charts and that the aggregate does not
 //!    group by, ascending with `NULL` last, in the order of the input schema.
 //!
-//! The facets order their charts by their keys, so the rule leaves them as they are.
+//! A facet orders its charts by its key, so the rule gives a facet call that has its own `ORDER BY`
+//! only its key, ascending with `NULL` last, after the keys of that `ORDER BY`. A rewritten call
+//! keeps the name of its output, so the plan above it still reads the column.
 
 use std::sync::Arc;
 
@@ -33,6 +35,9 @@ const BRANCH: &str = "__avenger_branch";
 /// The compositions whose children the rule orders.
 const ORDERED: [&str; 3] = ["layer", "hconcat", "vconcat"];
 
+/// The facets, which take their key after the keys of their own `ORDER BY`.
+const FACETS: [&str; 3] = ["facet_row", "facet_col", "facet_wrap"];
+
 /// The analyzer rule of the order of the children of compositions.
 #[derive(Debug, Default)]
 pub(crate) struct CompositionOrder;
@@ -51,16 +56,23 @@ impl AnalyzerRule for CompositionOrder {
     }
 }
 
-/// Whether `aggregate` calls a composition whose children the rule orders.
+/// Whether `aggregate` calls a composition whose children the rule orders, or a facet with its own
+/// `ORDER BY`.
 fn composes(aggregate: &Aggregate) -> bool {
     (aggregate.aggr_expr.iter()).any(|expr| composition(expr).is_some())
 }
 
-/// The call of a composition that `expr` is, under its alias.
+/// The call of a composition that `expr` is, under its alias: a composition whose children the
+/// rule orders, or a facet with its own `ORDER BY`.
 fn composition(expr: &Expr) -> Option<&AggregateFunction> {
     match expr {
         Expr::Alias(alias) => composition(&alias.expr),
         Expr::AggregateFunction(call) if ORDERED.contains(&call.func.name()) => Some(call),
+        Expr::AggregateFunction(call)
+            if FACETS.contains(&call.func.name()) && !call.params.order_by.is_empty() =>
+        {
+            Some(call)
+        }
         _ => None,
     }
 }
@@ -73,7 +85,10 @@ fn order(aggregate: Aggregate) -> Result<Transformed<LogicalPlan>> {
         aggr_expr,
         ..
     } = aggregate;
-    let (input, branch) = match with_branch(&input)? {
+    let ordered = (aggr_expr.iter())
+        .filter_map(composition)
+        .any(|call| ORDERED.contains(&call.func.name()));
+    let (input, branch) = match ordered.then(|| with_branch(&input)).transpose()?.flatten() {
         Some(input) => (Arc::new(input), true),
         None => (input, false),
     };
@@ -105,25 +120,50 @@ fn order(aggregate: Aggregate) -> Result<Transformed<LogicalPlan>> {
     Ok(Transformed::yes(LogicalPlan::Aggregate(aggregate)))
 }
 
-/// `expr` with the keys `keys` after the keys of its composition call's `ORDER BY`.
+/// `expr` with the keys `keys` after the keys of its composition call's `ORDER BY`, or for a facet
+/// with its own `ORDER BY`, the facet's key. A call without an alias takes the name of its output
+/// as an alias, because the keys change the name of the call.
 fn add_keys(expr: Expr, keys: &[SortExpr]) -> Result<Expr> {
     match expr {
         Expr::Alias(mut alias) => {
-            *alias.expr = add_keys(*alias.expr, keys)?;
+            *alias.expr = extend(*alias.expr, keys);
             Ok(Expr::Alias(alias))
         }
-        Expr::AggregateFunction(mut call) if ORDERED.contains(&call.func.name()) => {
-            call.params.order_by.extend(keys.iter().cloned());
-            Ok(Expr::AggregateFunction(call))
+        expr if composition(&expr).is_some() => {
+            let name = expr.schema_name().to_string();
+            Ok(extend(expr, keys).alias(name))
         }
         expr => Ok(expr),
     }
 }
 
+/// The composition call `expr` with its keys added, or `expr` when it is no such call.
+fn extend(expr: Expr, keys: &[SortExpr]) -> Expr {
+    match expr {
+        Expr::AggregateFunction(mut call) if ORDERED.contains(&call.func.name()) => {
+            call.params.order_by.extend(keys.iter().cloned());
+            Expr::AggregateFunction(call)
+        }
+        Expr::AggregateFunction(mut call)
+            if FACETS.contains(&call.func.name()) && !call.params.order_by.is_empty() =>
+        {
+            if let Some(key) = call.params.args.get(1).cloned() {
+                call.params.order_by.push(key.sort(true, false));
+            }
+            Expr::AggregateFunction(call)
+        }
+        expr => expr,
+    }
+}
+
 /// `plan` with the column of the branch ordinal, when a `UNION ALL` feeds it through the nodes
-/// that keep the ordinal of a row.
+/// that keep the ordinal of a row. A plan that has the column already, such as the input of an
+/// inner composition, keeps it.
 fn with_branch(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     let branch = || Expr::Column(Column::new_unqualified(BRANCH));
+    if has_branch(plan) {
+        return Ok(Some(plan.clone()));
+    }
     Ok(Some(match plan {
         LogicalPlan::Union(_) => number(plan, &mut 0)?,
         LogicalPlan::Projection(projection) => {
@@ -187,6 +227,7 @@ fn number(plan: &LogicalPlan, next: &mut i64) -> Result<LogicalPlan> {
         }
         branch_plan => {
             let mut exprs: Vec<Expr> = (branch_plan.schema().iter())
+                .filter(|(_, field)| field.name() != BRANCH)
                 .map(|(qualifier, field)| {
                     Expr::Column(Column::new(qualifier.cloned(), field.name()))
                 })
@@ -196,6 +237,11 @@ fn number(plan: &LogicalPlan, next: &mut i64) -> Result<LogicalPlan> {
             LogicalPlan::Projection(Projection::try_new(exprs, Arc::new(branch_plan.clone()))?)
         }
     })
+}
+
+/// Whether the output of `plan` has the column of the branch ordinal.
+fn has_branch(plan: &LogicalPlan) -> bool {
+    (plan.schema().iter()).any(|(_, field)| field.name() == BRANCH)
 }
 
 /// Whether `plan` is a union, or projections and aliases over one.
