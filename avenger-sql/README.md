@@ -41,7 +41,7 @@ FROM penguins
 |> AGGREGATE facet_row(chart, sex) AS chart
 ```
 
-- `layer(chart)` overlays the plots of the charts, `hconcat(chart)` places them in a row, and `vconcat(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer(chart ORDER BY k)`. Without `ORDER BY`, the order is undefined.
+- `layer(chart)` overlays the plots of the charts, `hconcat(chart)` places them in a row, and `vconcat(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer(chart ORDER BY k)`. The branches of a `UNION ALL` that feeds the call come next, in their order, and then the other columns of the call's input that hold no charts and that the query does not group by, ascending with `NULL` last. So `(a) UNION ALL (b) |> AGGREGATE layer(chart) AS chart` draws `b` over `a`. A `UNION` without `ALL` removes duplicate rows, so its branches have no order.
 - `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY`. A facet labels each chart with its value, and its column is the name of the key's column. Two rows with one key value are an error, and a `NULL` chart is an empty cell.
 - A `facet_row` of `facet_col` charts, or a `facet_col` of `facet_row` charts, aligns their cells, with an empty cell for each value that an inner facet lacks, so it is a grid.
 - The options are those of the format's `Plot`, `Concat`, and `Wrap`, such as `layout => concat_layout(gap => 8)` and `facet => facet(side => 'bottom')`, and they are plan-time constants.
