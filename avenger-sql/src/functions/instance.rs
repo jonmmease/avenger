@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::{chart_field, functions::MarkTemplate, list_value};
+use avenger_chart::{chart_field, functions::MarkTemplate, list_value};
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, AsArray, RecordBatch, RecordBatchOptions},

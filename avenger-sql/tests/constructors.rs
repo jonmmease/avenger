@@ -6,6 +6,7 @@ mod common;
 
 use arrow::array::AsArray;
 use avenger_chart::{prelude::*, proto::Fragment};
+use datafusion::prelude::SessionContext;
 use prost::Message;
 
 /// The fragment of the one value of `SELECT <expression>`.
@@ -334,4 +335,70 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         let message = planned.expect_err("the call fails to plan").to_string();
         assert!(message.contains(expected), "{query}: {message}");
     }
+}
+
+/// A session with the functions of avenger-sql, which plans SQL without the rewrites of
+/// [`avenger_sql::sql`].
+fn plain_session() -> SessionContext {
+    let ctx = SessionContext::new();
+    avenger_sql::register(&ctx).unwrap();
+    ctx
+}
+
+#[tokio::test]
+async fn a_constant_call_folds_to_a_literal() {
+    let ctx = plain_session();
+    let plan = ctx
+        .sql("SELECT axis(title => 'Mass') AS a")
+        .await
+        .unwrap()
+        .into_optimized_plan()
+        .unwrap();
+    let display = plan.display_indent().to_string();
+    assert!(!display.contains("axis("), "the call folds: {display}");
+}
+
+#[tokio::test]
+async fn every_constructor_is_callable_and_none_shadows_a_function() {
+    let builtins = SessionContext::new().state();
+    for name in avenger_chart::functions::constructors()
+        .iter()
+        .map(|c| c.name)
+    {
+        assert!(
+            !builtins.scalar_functions().contains_key(name)
+                && !builtins.aggregate_functions().contains_key(name)
+                && !builtins.window_functions().contains_key(name),
+            "`{name}` is the name of a DataFusion function"
+        );
+        // A call parses and reaches the constructor, so a keyword does not take its name.
+        match plain_session().sql(&format!("SELECT {name}()")).await {
+            Ok(_) => {}
+            Err(error) => {
+                let message = error.to_string();
+                assert!(message.contains(&format!("{name}():")), "{name}: {message}");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_column_of_fragments_has_the_extension_of_fragments() {
+    let batches = plain_session()
+        .sql("SELECT axis() AS a")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let schema = batches[0].schema();
+    let metadata = schema.field(0).metadata();
+    assert_eq!(
+        metadata.get("ARROW:extension:name").map(String::as_str),
+        Some(avenger_chart::functions::FRAGMENT_EXTENSION_NAME)
+    );
+    assert_eq!(
+        metadata.get("ARROW:extension:metadata").map(String::as_str),
+        Some("avenger.chart.v1.Axis")
+    );
 }

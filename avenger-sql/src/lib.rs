@@ -22,6 +22,7 @@
 //! the transforms of avenger-datafusion-transforms: the window functions `bin`, `stack`,
 //! `timeunit`, and `lump`, and the table function `impute`.
 
+mod functions;
 mod pipeline;
 
 use datafusion::{common::Result, prelude::SessionContext};
@@ -33,6 +34,6 @@ pub use pipeline::{expand, sql};
 /// functions with a query planner of their own, so `ctx` must have DataFusion's default query
 /// planner, and registering two times adds their optimizer rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
-    avenger_chart::datafusion::register(ctx);
+    functions::register(ctx);
     avenger_datafusion_transforms::register(ctx)
 }

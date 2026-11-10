@@ -1,6 +1,7 @@
-//! The mark functions of DataFusion, behind the `datafusion` feature: an aggregate function for
-//! each mark of each layer, which builds a chart of the rows of its group,
-//! and the scalar functions `scaled` and `direct`.
+//! The functions of avenger-chart in DataFusion: an aggregate function for each mark of each layer,
+//! which builds a chart of the rows of its group, a scalar function for each constructor, which
+//! returns the fragment of its message, and the scalar functions `scaled` and `direct`. They are
+//! a binding of `avenger_chart::functions`.
 //!
 //! A mark function takes each channel of its mark as a named parameter:
 //!
@@ -11,7 +12,7 @@
 //! A channel argument that reads the rows is a column of the chart's layer table, named by the
 //! expression without the qualifiers of its columns, such as `body_mass * 2`. Channels with equal
 //! expressions share one column. A bare value takes the kind that the builders of the format give
-//! it ([`IntoEncoding`](crate::builder::IntoEncoding)):
+//! it ([`IntoEncoding`](avenger_chart::builder::IntoEncoding)):
 //!
 //! - `NULL`, the value of an omitted parameter, leaves the channel unset.
 //! - A value of the rows is a scaled field on a channel with a scale, such as `color`, and a
@@ -37,10 +38,10 @@ use std::sync::Arc;
 
 use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::SessionContext};
 
-use crate::functions::{constructors, marks, Arg, Kind};
+use avenger_chart::functions::{constructors, marks, Arg, Kind};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` in `ctx`.
-pub fn register(ctx: &SessionContext) {
+pub(crate) fn register(ctx: &SessionContext) {
     for mark in marks() {
         ctx.register_udaf(AggregateUDF::new_from_impl(
             declaration::MarkDeclaration::new(mark),
