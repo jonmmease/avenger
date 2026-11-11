@@ -187,3 +187,51 @@ fn the_rules_of_a_mark_fail_its_call() {
         "{error}"
     );
 }
+
+#[test]
+fn the_options_of_the_composition_nodes_have_constructors() {
+    let track = call("track", vec![("size", Arg::Int(120))]).unwrap();
+    let layout = call(
+        "concat_layout",
+        vec![
+            ("gap", Arg::Int(8)),
+            ("tracks", Arg::List(vec![Some(Arg::Fragment(track))])),
+        ],
+    )
+    .unwrap();
+    let layout = proto::ConcatLayout::decode(layout.message).unwrap();
+    assert_eq!(layout.gap, Some(8.0));
+    assert_eq!(layout.tracks.len(), 1);
+
+    // A facet constructor takes no column: a facet aggregate sets it from its key.
+    let facet = call("facet", vec![("side", Arg::Str("bottom".into()))]).unwrap();
+    let facet = proto::Facet::decode(facet.message).unwrap();
+    assert!(facet.column.is_empty());
+    assert_eq!(facet.side, proto::Side::Bottom as i32);
+    let params = &constructor("facet").unwrap().params;
+    assert!(params.iter().all(|param| param.name != "column"));
+}
+
+#[test]
+fn a_string_key_of_a_resolve_rule_names_a_channel() {
+    let sharing = ("sharing", Arg::Str("independent".into()));
+    let channel = call(
+        "resolve",
+        vec![("key", Arg::Str("y".into())), sharing.clone()],
+    )
+    .unwrap();
+    let channel = proto::Resolve::decode(channel.message).unwrap();
+    assert_eq!(
+        channel.key,
+        Some(proto::resolve::Key::Channel(proto::Channel::Y as i32))
+    );
+    let widget = call("widget_key", vec![("key", Arg::Str("w".into()))]).unwrap();
+    let widget = call("resolve", vec![("key", Arg::Fragment(widget)), sharing]).unwrap();
+    let widget = proto::Resolve::decode(widget.message).unwrap();
+    assert_eq!(
+        widget.key,
+        Some(proto::resolve::Key::Widget(proto::WidgetKey {
+            key: "w".into()
+        }))
+    );
+}

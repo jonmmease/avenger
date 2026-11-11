@@ -30,7 +30,8 @@
 //!   is a message that appears in one member only and is not the message itself, from its builder
 //!   and from the message
 //! - rule F: a message without required content converts from the type of each field that the
-//!   `lift` option marks, from its builder and from the message, with only that field set
+//!   `lift` option marks, with only that field set: a field that is not repeated, from the
+//!   argument types of rule A, and a message field also from the message
 //! - a type that two rules would convert from converts by none
 //! - the docs of each method are a line that says what it does, then the comment of its field
 //!
@@ -879,7 +880,8 @@ fn conversions(
         }
     }
 
-    // Rule F: a message without required content converts from the type of each lifted field.
+    // Rule F: a message without required content converts from the type of each lifted field that
+    // is not repeated.
     if unrequired {
         for field in &message.field {
             if !annotations
@@ -888,28 +890,36 @@ fn conversions(
             {
                 continue;
             }
-            let Kind::Message(type_name) = kind(field) else {
+            if field.label() == Label::Repeated {
                 continue;
-            };
-            let field_path = rust_path(&type_name);
+            }
             let setter = method(field.name());
             let summary = format!(
                 "Converts to `{}` with `{}` set to `value`.",
                 short(name),
                 field.name()
             );
-            push(
-                "",
-                format!("{field_path}Builder"),
-                summary.clone(),
-                format!("Self::default().{setter}(value)"),
-            );
-            push(
-                "",
-                field_path,
-                summary,
-                format!("Self::default().{setter}(value)"),
-            );
+            let body = format!("Self::default().{setter}(value)");
+            match kind(field) {
+                Kind::Message(type_name) => {
+                    let field_path = rust_path(&type_name);
+                    push(
+                        "",
+                        format!("{field_path}Builder"),
+                        summary.clone(),
+                        body.clone(),
+                    );
+                    push("", field_path, summary, body);
+                }
+                Kind::Scalar(argument, _) if argument == "impl Into<String>" => {
+                    push("<'a>", "&'a str".to_string(), summary.clone(), body.clone());
+                    push("", "String".to_string(), summary, body);
+                }
+                Kind::Scalar(argument, _) if !argument.starts_with("impl") => {
+                    push("", argument, summary, body);
+                }
+                _ => {}
+            }
         }
     }
 

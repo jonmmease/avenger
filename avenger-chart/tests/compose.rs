@@ -206,7 +206,7 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
     };
     let chart = Chart::builder(
         Wrap::builder()
-            .facet(Facet::new("genre"))
+            .facet("genre")
             .children([panel("Drama"), panel("Comedy")]),
     )
     .build()
@@ -217,6 +217,18 @@ fn a_wrapped_facet_keeps_the_partitions_of_its_children() {
         let path = format!("root.wrap.children[{index}].plot");
         assert!(resolved.tree.partitions[&path].contains_key("genre"));
     }
+}
+
+#[test]
+fn a_facet_names_its_column() {
+    let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+    let panel = Plot::cartesian([symbols]).partition([PartitionValue::new("genre", "Drama")]);
+    let chart = Chart::builder(Wrap::builder().facet(Facet::builder()).children([panel])).build();
+    fails(
+        chart,
+        "root.wrap.facet.column",
+        "`column` is required and not empty",
+    );
 }
 
 #[test]
@@ -253,13 +265,9 @@ fn keyed(keys: ArrayRef) -> RecordBatch {
 
 /// The value of each node of `nodes`, in order, and the rows of its table, in a facet of `key`.
 fn cells(nodes: Vec<NodeBuilder>) -> Vec<(String, Vec<f64>)> {
-    let chart = Chart::builder(
-        Concat::new(Direction::Row)
-            .facet(Facet::new("key"))
-            .children(nodes),
-    )
-    .build()
-    .unwrap();
+    let chart = Chart::builder(Concat::new(Direction::Row).facet("key").children(nodes))
+        .build()
+        .unwrap();
     let Some(node::Node::Concat(concat)) = &chart.root().node else {
         panic!("the root is a concat")
     };
@@ -563,7 +571,7 @@ fn a_wrapped_facet_of_partitions() {
         Ok(Plot::cartesian([symbols]).id("panel"))
     })
     .unwrap();
-    let chart = Chart::builder(Wrap::builder().facet(Facet::new("origin")).children(panels))
+    let chart = Chart::builder(Wrap::builder().facet("origin").children(panels))
         .build()
         .unwrap();
 
@@ -617,14 +625,12 @@ fn a_facet_grid_of_nested_partitions() {
             let bars = CartesianLayer::bar(cell, BarMark::builder().x("channel").y("amount"));
             Ok(Plot::cartesian([bars]))
         })?;
-        Ok(Concat::new(Direction::Row)
-            .facet(Facet::new("channel"))
-            .children(cells))
+        Ok(Concat::new(Direction::Row).facet("channel").children(cells))
     })
     .unwrap();
     let chart = Chart::builder(
         Concat::new(Direction::Column)
-            .facet(Facet::new("region"))
+            .facet("region")
             .children(rows),
     )
     .build()
