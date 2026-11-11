@@ -488,13 +488,13 @@ async fn chart_groups_its_rows_and_names_its_chart() {
     let query =
         format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island)");
     assert_eq!(columns(&query).await, ["upper(island)", "chart"]);
-    // CHART takes one item.
+    // CHART takes one mark call.
     fails(
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island"
+            "{PENGUINS} |> CHART bar(x => species, y => count(*)), symbol(x => species, y => count(*)) AS dots GROUP BY island"
         ),
-        "CHART takes one item, a mark call",
-        "count(*) AS n",
+        "CHART takes one mark call",
+        "symbol",
     )
     .await;
     fails(
@@ -1043,4 +1043,186 @@ async fn the_default_imputes_only_where_it_applies() {
         "impute =>",
     )
     .await;
+}
+
+/// The rows of `query`, as lines of text in their order.
+async fn text_rows(query: &str) -> Vec<String> {
+    let batches = avenger_sql::sql(&session(), query)
+        .await
+        .unwrap_or_else(|error| panic!("{query}: {error}"))
+        .collect()
+        .await
+        .unwrap();
+    let text = arrow::util::pretty::pretty_format_batches(&batches)
+        .unwrap()
+        .to_string();
+    text.lines().map(String::from).collect()
+}
+
+/// A histogram of the body masses of each island, with `items` after it.
+fn histograms(items: &str, groups: &str) -> String {
+    format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*)) AS chart{items}{groups}")
+}
+
+#[tokio::test]
+async fn aggregate_items_join_the_charts_of_their_groups() {
+    let query = histograms(
+        ", count(*) AS penguins, avg(body_mass_g) AS mean_mass",
+        " GROUP BY island",
+    );
+    let charts = lifted("items", &format!("{query} |> ORDER BY island")).await;
+    assert_eq!(
+        columns(&query).await,
+        ["island", "chart", "penguins", "mean_mass"]
+    );
+    // The charts are those of the call without the items, and the items those of an AGGREGATE.
+    assert_eq!(
+        charts,
+        self::charts(&format!(
+            "{} |> ORDER BY island",
+            histograms("", " GROUP BY island")
+        ))
+        .await
+    );
+    assert_eq!(
+        text_rows(&format!("FROM ({query}) |> SELECT island, penguins, mean_mass |> ORDER BY island")).await,
+        text_rows(&format!("{PENGUINS} |> AGGREGATE count(*) AS penguins, avg(body_mass_g) AS mean_mass GROUP BY island |> ORDER BY island")).await
+    );
+    // The mark call takes its place among the items.
+    let query = histograms(", count(*) AS penguins", " GROUP BY island").replace(
+        "|> CHART bar(",
+        "|> CHART count(DISTINCT species) AS species, bar(",
+    );
+    assert_eq!(
+        columns(&query).await,
+        ["island", "species", "chart", "penguins"]
+    );
+}
+
+#[tokio::test]
+async fn every_aggregate_of_aggregate_is_an_item() {
+    let items = "count(DISTINCT species) AS species, median(body_mass_g) AS median_mass, \
+        count(*) FILTER (WHERE sex = 'male') AS males, \
+        array_agg(species ORDER BY body_mass_g, species) AS lightest_first, \
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g) AS percentile, \
+        island || ' (' || CAST(count(*) AS VARCHAR) || ')' AS label, count(*)";
+    let query = histograms(&format!(", {items}"), " GROUP BY island");
+    assert_eq!(
+        text_rows(&format!(
+            "FROM ({query}) |> SELECT * EXCLUDE (chart) |> ORDER BY island"
+        ))
+        .await,
+        text_rows(&format!(
+            "{PENGUINS} |> AGGREGATE {items} GROUP BY island |> ORDER BY island"
+        ))
+        .await
+    );
+    // An unaliased item is named by its text.
+    assert_eq!(columns(&query).await.last().unwrap(), "count(*)");
+}
+
+#[tokio::test]
+async fn a_null_group_has_its_chart_and_its_items() {
+    let query = histograms(", count(*) AS penguins", " GROUP BY sex");
+    let rows = text_rows(&format!(
+        "FROM ({query}) |> SELECT sex, chart IS NOT NULL AS charted, penguins |> ORDER BY sex"
+    ))
+    .await;
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("|        | true    | 9 ")),
+        "{rows:#?}"
+    );
+    assert_eq!(charts(&query).await.len(), 3);
+    // Without groups, the call has one row.
+    let query = histograms(", count(*) AS penguins", "");
+    assert_eq!(columns(&query).await, ["chart", "penguins"]);
+    let charts = lifted("items-without-groups", &query).await;
+    assert_eq!(charts.len(), 1);
+    // A group expression, with an item.
+    lifted(
+        "items-group-expression",
+        &histograms(
+            ", count(*) AS penguins",
+            " GROUP BY upper(island) AS isle |> ORDER BY isle",
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_lifting_of_items_takes_free_names() {
+    let query = "WITH aggregates AS (FROM penguins |> WHERE body_mass_g IS NOT NULL), \
+        charts AS (FROM aggregates) \
+        FROM charts |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    assert!(lifting.contains("|> AS aggregates_2"), "{lifting}");
+    assert!(lifting.contains(") AS charts_2 ON"), "{lifting}");
+    assert_eq!(charts(query).await, charts(&lifting).await);
+}
+
+#[tokio::test]
+async fn the_errors_of_items() {
+    // An item reads columns inside its aggregates or groups, and calls no window function.
+    fails(
+        &histograms(", species AS name", " GROUP BY island"),
+        "`species` is neither a group of this CHART nor inside an aggregate",
+        "species AS",
+    )
+    .await;
+    fails(
+        &histograms(", row_number() OVER () AS r", " GROUP BY island"),
+        "an item of CHART is an aggregate, not the window function `row_number`",
+        "row_number",
+    )
+    .await;
+    // A mark call is the complete value of its item, and CHART takes one.
+    fails(
+        &histograms(
+            ", coalesce(symbol(x => species, y => count(*)), NULL) AS dots",
+            " GROUP BY island",
+        ),
+        "a mark call is the complete value of an item of CHART",
+        "symbol",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART count(*) AS n GROUP BY island"),
+        "`count` is not a mark function, and CHART takes a mark call",
+        "count",
+    )
+    .await; // Each column of the output has a name of its own, without the qualifiers of the input, and
+            // the second of two columns of one name is the error.
+    fails(
+        "FROM penguins AS a JOIN penguins AS b USING (species) \
+         |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",
+        "`island` names two columns of this CHART",
+        "b.island",
+    )
+    .await;
+    fails(
+        &histograms(", count(*) AS Island", " GROUP BY island"),
+        "`island` names two columns of this CHART",
+        "island",
+    )
+    .await;
+}
+
+/// An unquoted alias of an item or of the chart names its column in lowercase, as DataFusion
+/// normalizes an identifier, so a reference of any case finds it, and a quoted alias keeps its
+/// case. The lifting keeps the qualifiers of the input's tables.
+#[tokio::test]
+async fn items_take_normalized_names_and_keep_qualifiers() {
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => count(*)) AS Counts, count(*) AS Penguins, \
+         count(*) AS \"Total\" GROUP BY Island |> ORDER BY PENGUINS"
+    );
+    assert_eq!(
+        columns(&query).await,
+        ["island", "counts", "penguins", "Total"]
+    );
+    let query = "FROM penguins AS p |> WHERE p.body_mass_g IS NOT NULL \
+        |> CHART bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    assert_eq!(charts(query).await, charts(&lifting).await, "{lifting}");
 }
