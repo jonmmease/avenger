@@ -99,7 +99,9 @@ impl FittingScale {
     /// The scale with its range across `extent`, whose ends can come in either order, from the
     /// low end to the high end for a [`Forward`](Direction::Forward) scale and from the high end to
     /// the low end for a [`Reverse`](Direction::Reverse) scale. A scale with a summary fits its
-    /// domain, or the clip padding of a band or point scale, to that range.
+    /// domain, or the clip padding of a band or point scale, to that range. An extent without
+    /// length, such as the plot of a chart that its guides leave no room, has no room for the
+    /// marks, so the domain fits the values alone and the marks do not fit.
     pub fn at(&self, extent: (f64, f64)) -> Result<ScaleAt, AvengerScaleError> {
         let (low, high) = (extent.0.min(extent.1), extent.0.max(extent.1));
         let range = match self.direction {
@@ -113,6 +115,16 @@ impl FittingScale {
                 marks_fit: true,
             });
         };
+        // Without the marks' extents, any length fits the same domain, so a unit range fits it.
+        let length = high - low;
+        if length.is_nan() || length <= 0.0 {
+            let unit = (scale.clone().with_range_interval((0.0, 1.0)))
+                .fit_domain(options, &summary.without_extents())?;
+            return Ok(ScaleAt {
+                scale: unit.with_range_interval(range),
+                marks_fit: false,
+            });
+        }
         match scale.clone().fit_domain(options, summary) {
             Ok(scale) => Ok(ScaleAt {
                 scale,

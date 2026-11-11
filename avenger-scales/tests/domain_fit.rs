@@ -727,6 +727,25 @@ fn fitting_scales_fit_the_domain_at_each_length() {
     assert_eq!(range(&at.scale), (0.0, 250.0));
 }
 
+/// An extent with no length, as the plot of a chart that its guides leave no room, fits the values
+/// without room for the marks, so the scale has a domain, and the marks do not fit.
+#[test]
+fn an_extent_without_length_fits_the_values_without_the_marks() {
+    let unit = circles(Direction::Forward, interval_options());
+    let values = (unit.scale().clone().with_range_interval((0.0, 1.0)))
+        .fit_domain(
+            &interval_options(),
+            &unit.summary().unwrap().without_extents(),
+        )
+        .unwrap();
+    for extent in [(0.0, 0.0), (40.0, 40.0), (0.0, f64::NAN)] {
+        let at = unit.at(extent).unwrap();
+        assert!(!at.marks_fit, "{extent:?}");
+        assert_eq!(interval(&at.scale), interval(&values), "{extent:?}");
+    }
+    assert_eq!(range(&unit.at((40.0, 40.0)).unwrap().scale), (40.0, 40.0));
+}
+
 /// The direction orients the range across an extent, whatever the order of the configured range
 /// or of the extent's ends, and an extent can start away from 0.
 #[test]

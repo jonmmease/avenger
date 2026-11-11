@@ -38,6 +38,20 @@ fn titles_and_attributions() {
     render_both(&caption, "caption");
 }
 
+/// A chart whose axes and legend leave its plot no room evaluates, with the plot's marks on its
+/// empty extent.
+#[test]
+fn guides_that_leave_the_plot_no_room() {
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder().x("weight").y("mpg").color("origin"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    for size in [[120.0, 100.0], [40.0, 40.0], [1.0, 1.0]] {
+        evaluate(&chart, size);
+    }
+}
+
 #[test]
 fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.
