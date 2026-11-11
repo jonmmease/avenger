@@ -237,6 +237,27 @@ fn tooltip_texts(app: &AvengerApp<ChartAppState>) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_tooltip_without_fields_titles_its_columns_as_their_encodings_do() {
+    // `weight` has the title of its encoding, and `mpg` has none, so it keeps its column's name.
+    let usa = cars_of(&["USA"]);
+    let symbols = CartesianLayer::symbol(
+        usa.clone(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight").title("Weight (lb)"))
+            .y("mpg"),
+    )
+    .tools([Tooltip::nearest(NearestFind::builder().max_radius(10.0))]);
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let (mut app, _, _) = app(chart).await;
+    let car = first_car(&app, 0, &usa);
+    send(&mut app, [moved(car)]).await;
+    let texts = tooltip_texts(&app);
+    assert!(texts.iter().any(|text| text == "Weight (lb)"), "{texts:?}");
+    assert!(texts.iter().any(|text| text == "mpg"), "{texts:?}");
+    assert!(!texts.iter().any(|text| text == "weight"), "{texts:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_tooltip_of_a_lump_shows_its_category_or_the_other_label() {
     // Ports by tons, lumped to the top 2: Rotterdam and Hamburg are kept, and Antwerp and Le Havre
     // are the Other group.

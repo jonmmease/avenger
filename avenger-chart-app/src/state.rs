@@ -7,8 +7,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use arrow::array::ArrayRef;
 use avenger_app_tools::brushes::Lasso;
 use avenger_chart::{
-    proto::{self, layer_tool, tool, Channel},
-    resolve::Identity,
+    proto::{self, encoding, layer_tool, tool, Channel},
+    resolve::{Identity, Layer},
     Chart,
 };
 use avenger_chart_eval::{
@@ -115,6 +115,29 @@ pub(crate) struct Declaration {
     /// The position of the layer among the plot's layers, for a layer's tools.
     pub(crate) layer: Option<usize>,
     pub(crate) tools: Vec<proto::Tool>,
+    /// The titles of the columns of the layers whose marks the tools act on, by the layer's
+    /// position among the plot's layers: the title of the first encoding of the layer that reads
+    /// the column and sets one, as its axis or its legend shows it.
+    pub(crate) titles: Vec<(usize, String, String)>,
+}
+
+/// The titles of the columns of `layer`: the title of the first encoding that reads each column
+/// and sets one.
+fn titles(position: usize, layer: &Layer) -> Vec<(usize, String, String)> {
+    let mut titles: Vec<(usize, String, String)> = Vec::new();
+    for (_, encoding) in layer.mark.encodings() {
+        let column = match &encoding.kind {
+            Some(encoding::Kind::ScaledField(column) | encoding::Kind::DirectField(column)) => {
+                column
+            }
+            _ => continue,
+        };
+        let title = encoding.title.as_deref().unwrap_or_default();
+        if !title.is_empty() && !titles.iter().any(|(_, known, _)| known == column) {
+            titles.push((position, column.clone(), title.to_string()));
+        }
+    }
+    titles
 }
 
 /// The tools that the plots and the layers of `chart` declare, built once when the app installs
@@ -123,11 +146,15 @@ fn declarations(chart: &Chart) -> Vec<Declaration> {
     let resolved = chart.resolve();
     let mut declarations = Vec::new();
     for (index, plot) in resolved.tree.plots.iter().enumerate() {
+        let layers = &resolved.tree.layers[plot.layers.clone()];
         if !plot.plot.tools.is_empty() {
             declarations.push(Declaration {
                 plot: index,
                 layer: None,
                 tools: plot.plot.tools.clone(),
+                titles: (layers.iter().enumerate())
+                    .flat_map(|(position, layer)| titles(position, layer))
+                    .collect(),
             });
         }
         for (position, layer) in resolved.tree.layers[plot.layers.clone()].iter().enumerate() {
@@ -148,6 +175,7 @@ fn declarations(chart: &Chart) -> Vec<Declaration> {
                     plot: index,
                     layer: Some(position),
                     tools,
+                    titles: titles(position, layer),
                 });
             }
         }
@@ -166,6 +194,9 @@ pub(crate) struct Declared<'a> {
     pub(crate) tools: &'a [proto::Tool],
     /// Whether the declaration is a plot's, whose navigation and selections share its area.
     pub(crate) plot_tools: bool,
+    /// The titles of the columns of the marks that the tools act on: the name of a mark, a
+    /// column, and its title.
+    pub(crate) titles: Vec<(String, String, String)>,
 }
 
 /// Whether `clause` is the clause of `owner`: its id and its partition values. A clause names its
@@ -287,6 +318,13 @@ impl ChartAppState {
                     (&layer.identity, layer.marks.clone(), &layer.coords)
                 }
             };
+            let titles = (declaration.titles.iter())
+                .flat_map(|(position, column, title)| {
+                    let marks = plot.layers.get(*position).map(|layer| &layer.marks);
+                    (marks.into_iter().flatten())
+                        .map(|mark| (mark.clone(), column.clone(), title.clone()))
+                })
+                .collect();
             Some(Declared {
                 index: declaration.plot,
                 plot,
@@ -295,6 +333,7 @@ impl ChartAppState {
                 coords,
                 tools: &declaration.tools,
                 plot_tools: declaration.layer.is_none(),
+                titles,
             })
         })
     }
