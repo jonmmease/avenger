@@ -359,8 +359,10 @@ async fn a_commented_out_last_argument_leaves_a_trailing_comma() {
 
 #[tokio::test]
 async fn a_comma_before_the_name_of_an_argument_stays() {
-    // `order` and `limit` name arguments here, not clauses.
+    // `order` names an argument here, not a clause, with `=>` or with `:=`.
     let query = "FROM penguins |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order => body_mass_g)";
+    assert_eq!(charts(query).await.len(), 1);
+    let query = "FROM penguins |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order := body_mass_g)";
     assert_eq!(charts(query).await.len(), 1);
     let query = "FROM penguins |> CHART bar(x => species, y => count(*), impute => impute(value => 0, extra_keys => ['x'],),)";
     assert_eq!(charts(query).await.len(), 1);
@@ -368,6 +370,31 @@ async fn a_comma_before_the_name_of_an_argument_stays() {
 
 #[tokio::test]
 async fn a_comma_before_a_word_that_names_a_column_stays() {
+    // A clause keyword that does not start its clause is a column, so a comma before it separates
+    // items: `order` and `group` without `BY`, and `limit`, `from`, `where`, and `having` before a
+    // closer or an operator. `ORDER BY x, limit + 1` orders by two columns, with no LIMIT.
+    let query = r#"WITH t AS (SELECT x, 1 AS "limit" FROM unnest([3, 1, 2]) AS u(x))
+        SELECT x FROM t ORDER BY x, limit + 1"#;
+    assert_eq!(rows(query).await.len(), 7, "{:#?}", rows(query).await);
+    for query in [
+        r#"WITH t AS (SELECT 'a' AS family, 'b' AS "order") SELECT family, count(*) AS n FROM t GROUP BY family, order"#,
+        r#"WITH t AS (SELECT 1 AS "group", 2 AS a) SELECT greatest(a, group) AS m FROM t"#,
+        r#"WITH t AS (SELECT 1 AS "from", 2 AS "where", 3 AS "having") SELECT greatest(from, where, having) AS m FROM t"#,
+    ] {
+        assert_eq!(
+            rows(query).await.len(),
+            5,
+            "{query}: {:#?}",
+            rows(query).await
+        );
+    }
+    // A comma right after an opener is no trailing comma, so `greatest(,)` is still an error, and
+    // a comma before `}` is trailing.
+    assert!(avenger_sql::sql(&session(), "SELECT greatest(,) AS m")
+        .await
+        .is_err());
+    let query = "SELECT {'a': 1,} AS s";
+    assert_eq!(rows(query).await.len(), 5, "{:#?}", rows(query).await);
     // WINDOW and QUALIFY can be bare column names, so a comma before them separates items.
     let query = r#"SELECT x, window, qualify FROM (SELECT 1 AS x, 2 AS "window", 3 AS "qualify")"#;
     assert_eq!(rows(query).await.len(), 5, "{:#?}", rows(query).await);

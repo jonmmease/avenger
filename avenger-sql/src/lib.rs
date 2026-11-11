@@ -16,8 +16,8 @@
 //!
 //! - A word that starts with `__avenger_`, a prefix of the names that the passes generate, is an
 //!   error at the word.
-//! - A trailing comma, before `)`, `]`, `|>`, `;`, the end of the text, or a clause keyword such
-//!   as `GROUP` that does not name an argument, is a space, so a call, a list, or the items of an
+//! - A trailing comma, before `)`, `]`, `}`, `|>`, `;`, the end of the text, or a clause keyword
+//!   that starts its clause, such as `GROUP BY`, is a space, so a call, a list, or the items of an
 //!   operator can end in a comma.
 //! - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 //! - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over
