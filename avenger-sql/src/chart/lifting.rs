@@ -133,13 +133,7 @@ pub(super) fn generate(
         None => None,
     };
     let target = match &imputation {
-        Some(imputation) => Some(impute::target(
-            &call,
-            imputation,
-            roles.as_ref(),
-            grouping,
-            env,
-        )?),
+        Some(imputation) => impute::target(&call, imputation, roles.as_ref(), grouping, env)?,
         None => None,
     };
     let mut grouping_keys = None;
@@ -225,11 +219,15 @@ pub(super) fn generate(
             &mut names,
             env,
         )?;
-        operators.push(stage3.operator);
-        if !dependent.is_empty() {
-            operators.push(PipeOperator::Extend { exprs: dependent });
+        if let Some(stage3) = stage3 {
+            operators.push(stage3.operator);
+            flag = Some(stage3.flag);
         }
-        flag = Some(stage3.flag);
+    }
+    // The keys of the imputed key, which stage 2 does not group by, computed after stage 3, or
+    // after stage 2 when a default adds no stage 3.
+    if !dependent.is_empty() {
+        operators.push(PipeOperator::Extend { exprs: dependent });
     }
 
     let (windows, roles) = stage4::windows(

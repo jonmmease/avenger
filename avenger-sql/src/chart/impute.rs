@@ -8,6 +8,10 @@
 //! function `impute`, and the chart has no imputation: stage 3 is the pipe
 //! `CALL impute(<key>, [<groups>], <measure>, ...)` of the table function, and stage 5 does not
 //! read the option.
+//!
+//! An `area` or a `line` whose measure is a `stack` imputes zero by default, where the option
+//! could apply and would add rows. `impute => FALSE` turns the default off, and `impute => NULL`
+//! means an omitted option.
 
 use std::ops::ControlFlow;
 
@@ -35,10 +39,17 @@ use crate::{error::at, registry::Registry, syntax::function_name};
 /// The marks that impute: the marks with a key channel and a measure channel (`r[impute.channel]`).
 const MARKS: [&str; 5] = ["bar", "area", "line", "symbol", "text"];
 
-/// The `impute` option of a mark call, as written.
+/// The marks whose calls impute zero by default when their measure stacks, as a stacked path draws
+/// a series at each key of the stack.
+const PATHS: [&str; 2] = ["area", "line"];
+
+/// The `impute` option of a mark call, as written, or the default of a stacked path.
 pub(super) struct Imputation {
-    /// The name of the option, where its errors of the roles point.
+    /// The name of the option, where its errors of the roles point, or of the mark for a default.
     option: Ident,
+    /// Whether the call does not write the option: a default that applies only where it can, without
+    /// an error, and only where it adds rows.
+    default: bool,
     fill: Fill,
     /// The `frame` of a statistic, with its name as written.
     frame: Option<(Ident, Expr)>,
@@ -60,9 +71,13 @@ enum Fill {
 /// The `impute` option of `call`, checked as V10 checks its syntax: a plan-time constant (V8),
 /// on a mark that imputes, with exactly one of `value` and `method`, a method of the spec, and a
 /// `frame` of two bounds with a method of a statistic.
+///
+/// `impute => NULL` means an omitted option, the default of the mark, and `impute => FALSE` turns
+/// the default off.
 pub(super) fn read(call: &MarkCall) -> Result<Option<Imputation>> {
-    let Some((option, value)) = &call.impute else {
-        return Ok(None);
+    let written = (call.impute.as_ref()).filter(|(_, value)| !is_literal(value, &Value::Null));
+    let Some((option, value)) = written else {
+        return Ok(default(call));
     };
     let mark = call.mark.name;
     if !MARKS.contains(&mark) {
@@ -72,6 +87,9 @@ pub(super) fn read(call: &MarkCall) -> Result<Option<Imputation>> {
                 "`{IMPUTE}` is valid only on bar(), area(), line(), symbol(), and text(); found on {mark}()"
             ),
         ));
+    }
+    if is_literal(value, &Value::Boolean(false)) {
+        return Ok(None);
     }
     classify::constant(value, &format!("option `{IMPUTE}` of {mark}()"))?;
     let constructor = match value {
@@ -83,6 +101,7 @@ pub(super) fn read(call: &MarkCall) -> Result<Option<Imputation>> {
                 frame: None,
                 keys: None,
                 extra_keys: None,
+                default: false,
             }))
         }
     };
@@ -164,7 +183,34 @@ pub(super) fn read(call: &MarkCall) -> Result<Option<Imputation>> {
         frame,
         keys: keys.map(|(_, keys)| keys),
         extra_keys: extra_keys.map(|(_, keys)| keys),
+        default: false,
     }))
+}
+
+/// The default imputation of `call`: `impute => 0` for an `area` or a `line` whose channels stack.
+/// [`target`] keeps it only when the stack is in the measure channel.
+fn default(call: &MarkCall) -> Option<Imputation> {
+    let stacks = (call.channels.iter()).any(|channel| is_stack(&channel.value));
+    (PATHS.contains(&call.mark.name) && stacks).then(|| Imputation {
+        option: Ident::with_span(call.span(), IMPUTE),
+        fill: Fill::Value(Box::new(Expr::Value(
+            Value::Number("0".to_string(), false).with_span(call.span()),
+        ))),
+        frame: None,
+        keys: None,
+        extra_keys: None,
+        default: true,
+    })
+}
+
+/// Whether `value` is a call of `stack`.
+fn is_stack(value: &Expr) -> bool {
+    matches!(value, Expr::Function(function) if function_name(function).as_deref() == Some("stack"))
+}
+
+/// Whether `value` is the literal `literal`.
+fn is_literal(value: &Expr, literal: &Value) -> bool {
+    matches!(value, Expr::Value(value) if value.value == *literal)
 }
 
 /// The fill of `method`, one of the methods of the spec (`r[impute.method.invalid]`).
@@ -238,12 +284,32 @@ pub(super) struct Target {
     /// The index of the key channel in the channels of the call.
     pub(super) key: usize,
     measure: Expr,
+    /// Whether the measure channel is a `stack`.
+    stacked: bool,
 }
 
 /// The target of `imputation`, checked as V10 checks the roles: the call has a key channel and a
 /// measure channel (`r[impute.key]`), and the measure, without its `stack`, is one aggregate in a
 /// grouping call or a column in a call that does not group (`r[impute.value]`).
+///
+/// A default applies only where its measure stacks, and where the option would be an error, the
+/// call has no imputation.
 pub(super) fn target(
+    call: &MarkCall,
+    imputation: &Imputation,
+    roles: Option<&Roles>,
+    grouping: bool,
+    registry: &dyn Registry,
+) -> Result<Option<Target>> {
+    let target = checked_target(call, imputation, roles, grouping, registry);
+    match imputation.default {
+        false => target.map(Some),
+        true => Ok(target.ok().filter(|target| target.stacked)),
+    }
+}
+
+/// The target of [`target`], or the error of V10.
+fn checked_target(
     call: &MarkCall,
     imputation: &Imputation,
     roles: Option<&Roles>,
@@ -275,6 +341,7 @@ pub(super) fn target(
         ));
     };
     let mut value = &call.channels[measure].value;
+    let stacked = is_stack(value);
     if let Expr::Function(function) = value {
         if function_name(function).as_deref() == Some("stack") {
             if let Some(argument) = first_argument(function) {
@@ -301,6 +368,7 @@ pub(super) fn target(
     Ok(Target {
         key,
         measure: value.clone(),
+        stacked,
     })
 }
 
@@ -359,6 +427,9 @@ pub(super) struct Stage3 {
 /// Stage 3 of `call`: `CALL impute(<key>, [<groups>], <measure>, <fill>, <keys>, flag =>
 /// <flag>) [OVER (PARTITION BY ...)]` over the columns of `stage5`. `grouping` holds the keys of a
 /// grouping call.
+///
+/// A default has no stage 3 where the option would be an error, or where it adds no rows: without
+/// groups, with the distinct keys of the input as its key values.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn stage3(
     call: &MarkCall,
@@ -370,7 +441,29 @@ pub(super) fn stage3(
     stage5: &[(Expr, Expr)],
     names: &mut Names,
     registry: &dyn Registry,
-) -> Result<Stage3> {
+) -> Result<Option<Stage3>> {
+    let stage3 = checked_stage3(
+        call, imputation, target, levels, partition, grouping, stage5, names, registry,
+    );
+    match imputation.default {
+        false => stage3,
+        true => Ok(stage3.ok().flatten()),
+    }
+}
+
+/// The stage 3 of [`stage3`], none for a default that adds no rows, or the error of V10.
+#[allow(clippy::too_many_arguments)]
+fn checked_stage3(
+    call: &MarkCall,
+    imputation: &Imputation,
+    target: &Target,
+    levels: &[Level],
+    partition: &[Expr],
+    grouping: Option<&GroupingKeys>,
+    stage5: &[(Expr, Expr)],
+    names: &mut Names,
+    registry: &dyn Registry,
+) -> Result<Option<Stage3>> {
     let span = imputation.option.span;
     let key_channel = &call.channels[target.key];
     let (key, groups) = match grouping {
@@ -427,17 +520,30 @@ pub(super) fn stage3(
         Some(DomainOrder::List(list)) => Some(*list),
         _ => None,
     };
-    match (&imputation.keys, domain, discretizer) {
-        (Some(keys), _, _) => args.push(named(at_span("keys"), keys.clone())),
-        (None, Some(domain), _) => args.push(named(at_span("keys"), domain)),
-        (None, None, Some((Discretizer::Bin | Discretizer::TimeUnit, _))) => args.push(named(
-            at_span("fill_gaps"),
-            Expr::Value(Value::Boolean(true).with_span(span)),
-        )),
-        _ => {}
-    }
+    let distinct = match (&imputation.keys, domain, discretizer) {
+        (Some(keys), _, _) => {
+            args.push(named(at_span("keys"), keys.clone()));
+            false
+        }
+        (None, Some(domain), _) => {
+            args.push(named(at_span("keys"), domain));
+            false
+        }
+        (None, None, Some((Discretizer::Bin | Discretizer::TimeUnit, _))) => {
+            args.push(named(
+                at_span("fill_gaps"),
+                Expr::Value(Value::Boolean(true).with_span(span)),
+            ));
+            false
+        }
+        _ => true,
+    };
     if let Some(extra_keys) = &imputation.extra_keys {
         args.push(named(at_span("extra_keys"), extra_keys.clone()));
+    }
+    // One group, whose key values are the distinct keys of the input, lacks no key.
+    if imputation.default && distinct && groups.is_empty() && imputation.extra_keys.is_none() {
+        return Ok(None);
     }
     let flag = names.fresh("imputed", span);
     args.push(named(at_span("flag"), column(&flag)));
@@ -482,13 +588,13 @@ pub(super) fn stage3(
             }));
         }
     }
-    Ok(Stage3 {
+    Ok(Some(Stage3 {
         operator: PipeOperator::Call {
             function,
             alias: None,
         },
         flag,
-    })
+    }))
 }
 
 /// The arguments of the call `function`.
