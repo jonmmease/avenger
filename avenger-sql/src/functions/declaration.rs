@@ -282,7 +282,7 @@ fn contained_kind(expr: &Expr) -> Option<String> {
 /// The name of the layer table's column of the data argument `argument`: the name of a column
 /// reference, or the display of another expression without the qualifiers of its columns, such as
 /// `body_mass * 2`, which axis and legend titles show.
-fn column_name(argument: &Expr) -> String {
+pub(super) fn column_name(argument: &Expr) -> String {
     if let Expr::Column(column) = argument {
         return column.name.clone();
     }

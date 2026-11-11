@@ -107,3 +107,28 @@ async fn a_map_of_earthquakes() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "earthquakes-map");
 }
+
+#[tokio::test]
+async fn a_facet_of_scatter_plots_by_island() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+   GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "facet-col-islands");
+}
+
+#[tokio::test]
+async fn a_grid_of_scatter_plots_by_sex_and_island() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL AND sex IS NOT NULL
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+   GROUP BY sex, island
+|> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
+|> AGGREGATE facet_row(chart, sex) AS chart";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "facet-grid-sex-island");
+}

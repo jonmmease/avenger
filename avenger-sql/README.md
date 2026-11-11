@@ -30,4 +30,20 @@ The constructors of avenger-chart set the options of a chart: `scaled(flipper_le
 
 A channel argument of a mark function is an expression of each row, so the aggregates of a chart come from an `AGGREGATE` before the mark function, as `count(*)` does above. A window function, such as a bin of avenger-datafusion-transforms, goes in a standard `SELECT`, because DataFusion 55.2 fails to execute a window function in pipe `EXTEND`.
 
+## Compositions
+
+The compositions of avenger-chart's `functions` feature are aggregate functions over a column of charts, so a query composes the charts of the rows of each group:
+
+```sql
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY sex, island
+|> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
+|> AGGREGATE facet_row(chart, sex) AS chart
+```
+
+- `layer(chart)` overlays the plots of the charts, `hconcat(chart)` places them in a row, and `vconcat(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer(chart ORDER BY k)`. Without `ORDER BY`, the order is undefined.
+- `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY`. A facet labels each chart with its value, and its column is the name of the key's column. Two rows with one key value are an error, and a `NULL` chart is an empty cell.
+- A `facet_row` of `facet_col` charts, or a `facet_col` of `facet_row` charts, aligns their cells, with an empty cell for each value that an inner facet lacks, so it is a grid.
+- The options are those of the format's `Plot`, `Concat`, and `Wrap`, such as `layout => concat_layout(gap => 8)` and `facet => facet(side => 'bottom')`, and they are plan-time constants.
+
 The example `sql-chart` shows the chart of a query in a chart app.

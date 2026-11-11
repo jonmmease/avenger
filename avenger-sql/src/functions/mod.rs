@@ -29,18 +29,21 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
+mod composition;
 mod constructor;
 mod declaration;
 mod instance;
 mod kind;
+mod rows;
 
 use std::sync::Arc;
 
 use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::SessionContext};
 
-use avenger_chart::functions::{constructors, marks, Arg, Kind};
+use avenger_chart::functions::{compositions, constructors, marks, Arg, Kind};
 
-/// Registers the mark functions, the constructors, `scaled`, and `direct` in `ctx`.
+/// Registers the mark functions, the constructors, the compositions, `scaled`, and `direct` in
+/// `ctx`.
 pub(crate) fn register(ctx: &SessionContext) {
     for mark in marks() {
         ctx.register_udaf(AggregateUDF::new_from_impl(
@@ -50,6 +53,11 @@ pub(crate) fn register(ctx: &SessionContext) {
     for constructor in constructors() {
         ctx.register_udf(ScalarUDF::new_from_impl(
             constructor::ConstructorFunction::new(constructor),
+        ));
+    }
+    for composition in compositions() {
+        ctx.register_udaf(AggregateUDF::new_from_impl(
+            composition::CompositionDeclaration::new(composition),
         ));
     }
     for kind in [Kind::Scaled, Kind::Direct] {
