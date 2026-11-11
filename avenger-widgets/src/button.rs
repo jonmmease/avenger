@@ -34,9 +34,9 @@ impl<State> Button<State> {
         }
     }
 
-    /// Show the plain-text `label` on the button.
-    pub fn label(mut self, label: &str) -> Self {
-        self.label = Some(Text::plain(label));
+    /// Show `label`, plain text or Typst markup (`Text::markup`), on the button.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = Some(label.into());
         self
     }
 

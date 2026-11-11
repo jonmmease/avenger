@@ -322,7 +322,7 @@ pub(crate) fn visible(style: &ComputedStyle) -> bool {
 /// The syntax of a title: a `Title`, which the producer writes, reads its syntax, Typst markup when
 /// it is unset, and a title from the data, such as the titles of an axis's encodings or a facet's
 /// column, has no `Title` and is plain.
-fn title_syntax(title: Option<&proto::Title>) -> TextSyntaxMode {
+pub(crate) fn title_syntax(title: Option<&proto::Title>) -> TextSyntaxMode {
     let Some(title) = title else {
         return TextSyntaxMode::Plain;
     };

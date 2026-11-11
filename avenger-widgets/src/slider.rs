@@ -55,9 +55,9 @@ impl<State> Slider<State> {
         }
     }
 
-    /// Show the plain-text `label` above the track.
-    pub fn label(mut self, label: &str) -> Self {
-        self.label = Some(Text::plain(label));
+    /// Show `label`, plain text or Typst markup (`Text::markup`), above the track.
+    pub fn label(mut self, label: impl Into<Text>) -> Self {
+        self.label = Some(label.into());
         self
     }
 

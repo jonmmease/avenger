@@ -113,7 +113,8 @@ async fn the_widgets_of_the_modes_stand_in_a_row_above_the_maps() {
         panic!("a widget of a group: {:?}", drag.spec);
     };
     assert_eq!(modes, &["pan", "box", "lasso"]);
-    assert_eq!(labels, &["Pan", "Box", "Lasso"]);
+    let labels: Vec<_> = labels.iter().map(|label| label.source()).collect();
+    assert_eq!(labels, ["Pan", "Box", "Lasso"]);
     assert!(matches!(&tooltips.spec, WidgetSpec::ModeToggle { mode } if mode == "tooltips"));
     // The maps share each widget, which draws once, above both, and the check box stands beside
     // the radio group.

@@ -45,8 +45,9 @@ message Widget {
   // The key, which lines the declaration up with the other copies of the widget. Keys
   // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
   string key = 1 [(avenger.chart.v1.required) = true];
-  // The title. When unset, the title is the name of the target's column, the title of a mode
-  // widget of a toggle is the toggle's label, and a mode widget of a group has no title.
+  // The title, Typst markup unless its syntax is plain, as for every `Title`. When unset, the
+  // title is the name of the target's column, as plain text, the title of a mode widget of a
+  // toggle is the toggle's label, as Typst markup, and a mode widget of a group has no title.
   Title title = 2;
   // Whether the widget shows its title. When unset, the styles decide.
   optional bool show_title = 5;
