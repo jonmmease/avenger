@@ -173,6 +173,7 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
             .theta(theta())
             .radius(radius())
             .color("unit")
+            .order("step")
             .fill_opacity(0.25),
     );
     let lines = PolarLayer::line(
@@ -181,7 +182,8 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
             .route(Route::Canvas)
             .theta(theta())
             .radius(radius())
-            .color("unit"),
+            .color("unit")
+            .order("step"),
     );
     let points = PolarLayer::symbol(
         skills(),

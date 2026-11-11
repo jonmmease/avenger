@@ -127,11 +127,10 @@ pub(super) fn generate(
     let aggregates = aggregates(&call, &discretized, &mut names, env);
     // A call groups when an aggregate is in a channel or in its draw order.
     let grouping = !aggregates.is_empty();
-    // The roles of an imputation, which V10 checks before the planning of the stages, and of a
-    // path, which connects its points in the order of its key.
-    let roles = match imputation.is_some() || roles::is_path(call.mark.name) {
-        true => roles::decide(&call, &channel_levels, &stage1_schema, &discretized, env)?,
-        false => None,
+    // The roles of an imputation, which V10 checks before the planning of the stages.
+    let roles = match imputation {
+        Some(_) => roles::decide(&call, &channel_levels, &stage1_schema, &discretized, env)?,
+        None => None,
     };
     let target = match &imputation {
         Some(imputation) => Some(impute::target(
@@ -806,19 +805,6 @@ fn mark_call(
             })
             .collect();
         clauses.push(FunctionArgumentClause::OrderBy(order));
-    } else if let Some(key) =
-        (roles.filter(|_| roles::is_path(call.mark.name))).and_then(|roles| roles.key)
-    {
-        // A line or an area connects the points of each series in the order of its rows, which
-        // is the order of its key channel without a draw order.
-        clauses.push(FunctionArgumentClause::OrderBy(vec![OrderByExpr {
-            expr: replaced(&call.channels[key].value, stage5),
-            options: OrderByOptions {
-                asc: Some(true),
-                nulls_first: Some(false),
-            },
-            with_fill: None,
-        }]));
     }
     Function {
         args: FunctionArguments::List(FunctionArgumentList {

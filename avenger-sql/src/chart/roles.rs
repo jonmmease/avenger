@@ -270,15 +270,12 @@ fn check_orient(call: &MarkCall, horizontal: bool, measure: &str) -> Result<()> 
     ))
 }
 
-/// Whether the mark `mark` is a path, a `line` or an `area`, whose points the stage 5 call orders
-/// by its key channel without a draw order.
-pub(super) fn is_path(mark: &str) -> bool {
-    matches!(mark, "line" | "area")
-}
-
 /// Whether the mark `mark` has an `orient` property, which the stage 5 call writes from the roles.
 pub(super) fn has_orient(mark: &str) -> bool {
-    matches!(mark, "bar" | "area" | "polar_bar" | "polar_area")
+    matches!(
+        mark,
+        "bar" | "area" | "line" | "polar_bar" | "polar_area" | "polar_line"
+    )
 }
 
 /// The written `orient` of `call`, when it has one.

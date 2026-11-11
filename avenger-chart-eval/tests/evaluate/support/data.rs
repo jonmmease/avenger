@@ -293,22 +293,26 @@ pub(crate) fn slices() -> RecordBatch {
 }
 
 /// Two series over five skills of a radar chart, in the order of the skills around the circle,
-/// each closed by repeating its first row at its end.
+/// each closed by repeating its first row at its end, with `step`, the position of each row along
+/// its path, which orders a path that returns to its start.
 pub(crate) fn skills() -> RecordBatch {
     let skills = ["Armor", "Power", "Range", "Speed", "Stealth"];
     let values = [[2.0, 3.0, 5.0, 4.0, 4.0], [4.0, 5.0, 3.0, 2.0, 1.0]];
-    let (mut names, mut skill, mut value) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut names, mut skill, mut value, mut step) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for (series, row) in ["Scout", "Tank"].iter().zip(values) {
-        for index in (0..skills.len()).chain([0]) {
+        for (position, index) in (0..skills.len()).chain([0]).enumerate() {
             names.push(*series);
             skill.push(skills[index]);
             value.push(row[index]);
+            step.push(position as f64);
         }
     }
     RecordBatch::try_from_iter([
         ("unit", Arc::new(StringArray::from(names)) as ArrayRef),
         ("skill", Arc::new(StringArray::from(skill))),
         ("value", numbers(&value)),
+        ("step", numbers(&step)),
     ])
     .unwrap()
 }

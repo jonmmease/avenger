@@ -91,7 +91,9 @@ fn the_rows_of_each_mark_are_its_instances() {
     let lines = CartesianLayer::line(table, LineMark::builder().x("x").y("y").color("group"));
 
     let engine = engine();
-    for layer in [symbols, lines] {
+    // The symbols draw the 4 rows with an x, and the lines keep every row, breaking at the 2
+    // without an x.
+    for (layer, drawn) in [(symbols, 4), (lines, 6)] {
         let chart = Chart::builder(Plot::cartesian([layer])).build().unwrap();
         let evaluated = evaluate(&chart, [300.0, 200.0]);
         SceneGraphRTree::from_scene_graph_with_data(&evaluated.scene, &evaluated.data, &engine)
@@ -100,7 +102,7 @@ fn the_rows_of_each_mark_are_its_instances() {
             .filter_map(|name| evaluated.data.rows(name))
             .map(|rows| rows.num_rows())
             .sum();
-        assert_eq!(rows, 4);
+        assert_eq!(rows, drawn);
     }
 }
 

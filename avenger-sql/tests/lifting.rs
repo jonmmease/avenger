@@ -958,3 +958,20 @@ async fn v10_the_impute_option() {
         error("FROM sales |> AGGREGATE bar(x => region, y => units, impute => 0) AS chart").await;
     assert!(error.to_string().contains("impute"), "{error}");
 }
+
+#[tokio::test]
+async fn order_is_the_path_order_of_a_line() {
+    let charts = lifted(
+        "path-order",
+        &format!("{PENGUINS} |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), order => body_mass_g)"),
+    )
+    .await;
+    assert!(table(&charts[0]).num_rows() > 1);
+    // `order` is a channel of the paths only.
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*), order => island)"),
+        "bar() has no parameter `order`",
+        "order =>",
+    )
+    .await;
+}
