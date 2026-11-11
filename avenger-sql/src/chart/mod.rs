@@ -266,9 +266,9 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
             true => {
                 let mut taken = words(&statement.to_string());
                 let mut fresh = |base: &str| Ident::new(fresh(base, &mut taken));
-                let aggregates = match chart.aggregates.is_empty() {
-                    true => Ident::new("aggregates"),
-                    false => fresh("aggregates"),
+                let aggregates = match chart.groups_first() {
+                    true => fresh("aggregates"),
+                    false => Ident::new("aggregates"),
                 };
                 let charts = liftings.iter().map(|_| fresh("charts")).collect();
                 Splice::Join {
@@ -379,9 +379,9 @@ impl VisitorMut for SpliceMarker {
                 let mut copy = query.clone();
                 copy.with = None;
                 let mut liftings = liftings.into_iter();
-                let first = match chart.aggregates.is_empty() {
-                    true => liftings.next().expect("a chart"),
-                    false => vec![chart.aggregate()],
+                let first = match chart.groups_first() {
+                    true => vec![chart.aggregate()],
+                    false => liftings.next().expect("a chart"),
                 };
                 let first_name = chart.first(&aggregates, &charts).clone();
                 query.pipe_operators.extend(first);

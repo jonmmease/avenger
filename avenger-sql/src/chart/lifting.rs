@@ -110,7 +110,13 @@ pub(super) fn generate(
         .map(|d| (d.added.from.clone(), column(&d.added.name)))
         .collect();
 
-    let mut operators = Vec::new();
+    // The `FILTER` of the call selects the rows of every stage, as a `WHERE` before them, so the
+    // discretizers, the aggregates, the imputation, and the windows read only the rows it selects.
+    let mut operators: Vec<PipeOperator> = (call.function.filter.iter())
+        .map(|condition| PipeOperator::Where {
+            expr: (**condition).clone(),
+        })
+        .collect();
     let max_depth = discretizers.iter().map(|d| d.depth).max().unwrap_or(0);
     for depth in 1..=max_depth {
         let exprs = (discretizers.iter())
@@ -810,6 +816,7 @@ fn mark_call(
             args,
             clauses,
         }),
+        filter: None,
         ..call.function.clone()
     }
 }

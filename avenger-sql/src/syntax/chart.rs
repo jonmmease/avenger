@@ -1,13 +1,14 @@
 //! `|> CHART`: the token pass writes `|> CHART <items> [GROUP BY ...]` as the pipe `AGGREGATE` of
 //! the marker `__avenger_chart() AS __avenger_chart` and the items, so the parser reads the items,
-//! their aliases, and the `GROUP BY` list of an `AGGREGATE`. The pass writes it as the
+//! their aliases, and the `GROUP BY` list of an `AGGREGATE`. The pass writes each mark call as the
 //! `FROM`-position call `__avenger_chart((<prefix>), <mark call>, partition_by => [...], name =>
 //! <alias>)`, which the mark planner plans: one row for each group, with the group columns and the
 //! chart. `CHART` is an operator of avenger-sql, so no upstream change removes the item.
 //!
-//! The other items are aggregates, a pipe `AGGREGATE` of their own over a copy of the prefix,
-//! which the charts join on the group columns: `LEFT JOIN ... ON <group> IS NOT DISTINCT FROM
-//! <group>`, so a `NULL` group has its chart, and the output has the columns of an `AGGREGATE`.
+//! The aggregate items are a pipe `AGGREGATE` of their own over a copy of the prefix, which has
+//! every group. The other relations, the charts, join the first, the aggregate items or the first
+//! chart, on the group columns: `LEFT JOIN ... ON <group> IS NOT DISTINCT FROM <group>`, so a
+//! `NULL` group has its chart. The output has the groups, then the items in their order.
 
 use std::ops::ControlFlow;
 
@@ -264,9 +265,20 @@ impl ChartOperator {
         Ok(())
     }
 
-    /// Whether the operator joins relations: the aggregate items and the charts, or several charts.
+    /// Whether the operator joins relations: the groups, or the aggregate items, and the charts,
+    /// or several charts.
     pub(crate) fn joins(&self) -> bool {
-        !self.aggregates.is_empty() || self.marks.len() > 1
+        self.groups_first() || self.marks.len() > 1
+    }
+
+    /// Whether the first relation of the join is the `AGGREGATE` of the items over the groups,
+    /// which has every group: with aggregate items, or with groups and a mark call with a
+    /// `FILTER`, whose relation lacks a group of whose rows the `FILTER` selects none.
+    pub(crate) fn groups_first(&self) -> bool {
+        let filtered = (self.marks.iter()).any(
+            |mark| matches!(&mark.mark, Expr::Function(function) if function.filter.is_some()),
+        );
+        !self.aggregates.is_empty() || (filtered && !self.groups.is_empty())
     }
 
     /// Each aggregate item reads columns only inside its aggregates, or groups, and calls no window
@@ -351,20 +363,20 @@ impl ChartOperator {
         groups.chain(items).collect()
     }
 
-    /// The first relation of the join: the aggregate items, or without them, the first chart.
+    /// The first relation of the join: the aggregate items over the groups, or the first chart.
     pub(crate) fn first<'a>(&self, aggregates: &'a Ident, charts: &'a [Ident]) -> &'a Ident {
-        match self.aggregates.is_empty() {
-            true => &charts[0],
-            false => aggregates,
+        match self.groups_first() {
+            true => aggregates,
+            false => &charts[0],
         }
     }
 
     /// The charts that join the first relation, with their names: every chart after the aggregate
     /// items, or every chart but the first.
     pub(crate) fn joined<'a>(&self, charts: &'a [Ident]) -> &'a [Ident] {
-        match self.aggregates.is_empty() {
-            true => &charts[1..],
-            false => charts,
+        match self.groups_first() {
+            true => charts,
+            false => &charts[1..],
         }
     }
 }
@@ -465,8 +477,9 @@ fn unordered(item: &ExprWithAliasAndOrderBy, what: &str) -> Result<()> {
 }
 
 /// Writes the `|> CHART` at `index` of `query` as the `FROM`-position call of the mark planner over
-/// the prefix, the query before it, with the columns of its group expressions. With aggregate
-/// items, the call joins the pipe `AGGREGATE` of the items over a copy of the prefix.
+/// the prefix, the query before it, with the columns of its group expressions, for each mark call.
+/// With aggregate items, or with a `FILTER` and groups, the charts join the pipe `AGGREGATE` of the
+/// items over a copy of the prefix, and with several mark calls, the other charts join the first.
 pub(super) fn split(query: &mut Query, index: usize, registry: &dyn Registry) -> Result<()> {
     let chart = read(&query.pipe_operators[index])?;
     chart.check_aggregates(registry)?;
@@ -492,13 +505,13 @@ pub(super) fn split(query: &mut Query, index: usize, registry: &dyn Registry) ->
         .map(|(call, name)| aliased(call, name))
         .collect::<Vec<_>>()
         .into_iter();
-    let first = match chart.aggregates.is_empty() {
-        true => relations.next().expect("a chart"),
-        false => {
+    let first = match chart.groups_first() {
+        true => {
             let mut input = prefix;
             input.pipe_operators.push(chart.aggregate());
             aliased(build::derived(input), &aggregates)
         }
+        false => relations.next().expect("a chart"),
     };
     let mut select = build::select(chart.projection(&aggregates, &charts), Some(first));
     let first_name = chart.first(&aggregates, &charts);

@@ -8,7 +8,9 @@ mod common;
 use std::sync::Arc;
 
 use arrow::{
-    array::{Array, ArrayRef, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray},
+    array::{
+        Array, ArrayRef, AsArray, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray,
+    },
     datatypes::DataType,
 };
 use avenger_chart::{charts_from_arrow, proto, Chart, Decode};
@@ -1272,10 +1274,58 @@ async fn several_mark_calls_join_on_every_group() {
             .any(|row| row.starts_with("|        | true | true |")),
         "{rows:#?}"
     );
-    // A chart whose FILTER selects no row of a group keeps the row of the group.
-    let query = format!("{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm) AS bills, bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') AS gentoo GROUP BY island");
-    let rows = text_rows(&format!("FROM ({query}) |> SELECT island, bills IS NOT NULL AS b, gentoo IS NOT NULL AS g |> ORDER BY island")).await;
-    assert_eq!(rows.len(), 7, "{rows:#?}");
+}
+
+/// The `FILTER` of a mark call selects the rows of every stage, so the chart is the chart of the
+/// rows that a `WHERE` keeps: on a column that is not a key, and in a stack, whose offsets count
+/// only the selected rows.
+#[tokio::test]
+async fn a_filter_selects_the_rows_of_every_stage() {
+    for (mark, condition) in [
+        ("bar(x => species, y => count(*))", "sex = 'male'"),
+        (
+            "bar(x => island, y => stack(count(*)), color => species)",
+            "species <> 'Gentoo'",
+        ),
+        (
+            "bar(x => island, y => CAST(count(*) AS DOUBLE) / sum(count(*)) OVER ())",
+            "species <> 'Adelie'",
+        ),
+    ] {
+        let filtered = charts(&format!(
+            "{PENGUINS} |> CHART {mark} FILTER (WHERE {condition})"
+        ))
+        .await;
+        let selected = charts(&format!("{PENGUINS} |> WHERE {condition} |> CHART {mark}")).await;
+        assert_eq!(filtered, selected, "{mark} FILTER (WHERE {condition})");
+    }
+}
+
+/// A group of whose rows the `FILTER` of a mark call selects none keeps its row, with no chart of
+/// that mark, also when the mark call is the first.
+#[tokio::test]
+async fn a_filter_keeps_every_group() {
+    let query = format!(
+        "FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') \
+         AS gentoo GROUP BY island) |> SELECT island, gentoo IS NOT NULL AS drawn |> ORDER BY island"
+    );
+    let frame = avenger_sql::sql(&session(), &query).await.unwrap();
+    let batches = frame.collect().await.unwrap();
+    let rows: Vec<(String, bool)> = (batches.iter())
+        .flat_map(|batch| {
+            let islands = batch.column(0).as_string::<i32>().clone();
+            let drawn = batch.column(1).as_boolean().clone();
+            (0..batch.num_rows()).map(move |row| (islands.value(row).to_string(), drawn.value(row)))
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Biscoe".to_string(), true),
+            ("Dream".to_string(), false),
+            ("Torgersen".to_string(), false)
+        ]
+    );
 }
 
 #[tokio::test]
