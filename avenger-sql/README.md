@@ -44,7 +44,18 @@ A channel argument of a mark function is an expression of each row, so the aggre
 
 ## Compositions
 
-The compositions of avenger-chart's `functions` feature are aggregate functions over a column of charts, so a query composes the charts of the rows of each group:
+The compositions of avenger-chart's `functions` feature compose charts in two ways. The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a row, the charts that a query writes as columns, so they hold the structure that a query authors:
+
+```sql
+FROM penguins
+|> AGGREGATE
+     symbol(x => bill_length_mm, y => bill_depth_mm) AS bills,
+     symbol(x => flipper_length_mm, y => body_mass_g) AS sizes,
+   GROUP BY island
+|> SELECT island, hconcat(bills, sizes) AS chart
+```
+
+The aggregate functions compose the charts of the rows of a group, so they hold the structure that the data gives, one chart for each value of a key:
 
 ```sql
 FROM penguins
@@ -52,6 +63,8 @@ FROM penguins
 |> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
 |> AGGREGATE facet_row(chart, sex) AS chart
 ```
+
+- `layer(chart, ...)` overlays the plots of its charts, `hconcat(chart, ...)` places them in a row, and `vconcat(chart, ...)` in a column, in the order of the arguments, up to 16 charts. A `NULL` chart is no child, and a composition without children is the empty chart. The options of a scalar are those of its aggregate, by name, such as `hconcat(a, b, layout => concat_layout(gap => 24))`, and a scalar over mark aggregates, such as `layer(symbol(...), symbol(...))`, composes the marks of each group.
 
 - `layer_agg(chart)` overlays the plots of the charts of a group, `hconcat_agg(chart)` places them in a row, and `vconcat_agg(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer_agg(chart ORDER BY k)`. The branches of a `UNION ALL` that feeds the call come next, in their order, and then the other columns of the call's input that hold no charts and that the query does not group by, ascending with `NULL` last. So `(a) UNION ALL (b) |> AGGREGATE layer_agg(chart) AS chart` draws `b` over `a`. A `UNION` without `ALL` removes duplicate rows, so its branches have no order.
 - `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY`. A facet labels each chart with its value, and its column is the name of the key's column. Two rows with one key value are an error, and a `NULL` chart is an empty cell.

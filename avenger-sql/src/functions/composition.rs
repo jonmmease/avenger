@@ -45,10 +45,13 @@ use super::{
 };
 
 /// The documentation section of the compositions.
-const SECTION: DocSection = DocSection {
+pub(super) const SECTION: DocSection = DocSection {
     include: true,
     label: "Chart Compositions",
-    description: Some("Aggregate functions that compose avenger charts."),
+    description: Some(
+        "Functions that compose avenger charts: scalars of the charts of a row, and aggregates of \
+         the charts of a group.",
+    ),
 };
 
 /// The registered function of a composition: its signature, its parameter names, and its
