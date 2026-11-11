@@ -269,10 +269,25 @@ impl LabelEngine {
                         }
                     }?;
                     log_warnings(&typeset.warnings);
-                    Ok(TextBounds::new(&typeset.metrics(), label.options.text.font_size))
+                    let mut bounds =
+                        TextBounds::new(&typeset.metrics(), label.options.text.font_size);
+                    if typeset.flags.has_math {
+                        bounds.overhang = self.overhang(label, bounds.height)?;
+                    }
+                    Ok(bounds)
                 })
             },
         )
+    }
+
+    /// How far the ink of `label`, whose box is `height` tall, reaches above the box's top and
+    /// below its bottom.
+    fn overhang(&self, label: &Label, height: f32) -> Result<[f32; 2], LabelError> {
+        let outline = self.outline(label)?;
+        let ys = outline.contours.iter().flatten().map(|point| point[1]);
+        let (top, bottom) =
+            ys.fold((0.0_f32, height), |(top, bottom), y| (top.min(y), bottom.max(y)));
+        Ok([-top, bottom - height])
     }
 
     /// The outline of a label's glyphs and shapes in its box, memoized, or its source's as
@@ -946,6 +961,7 @@ impl CompiledLabel {
                     width: self.frame.size.x,
                     height: self.frame.size.y,
                     anchor: BoxAnchor::Path(bent.origin),
+                    overhang: [0.0; 2],
                 },
                 0.0,
             ),

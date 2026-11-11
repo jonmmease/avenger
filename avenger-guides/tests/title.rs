@@ -258,6 +258,79 @@ fn a_title_without_text_takes_no_space() {
     ));
 }
 
+/// A subtitle of math whose fraction and sums reach past its box, as Typst lays out inline math.
+const MATH: &str = "$hat(beta)_1 = (sum_(i=1)^n (x_i - macron(x))(y_i - macron(y))) / (sum_(i=1)^n (x_i - macron(x))^2)$";
+
+/// The configuration of a title whose subtitle is Typst markup.
+fn markup_subtitle(side: GuideSide) -> TitleConfig {
+    let mut config = config(side, TitleAlign::Start);
+    config.subtitle.syntax = TextSyntaxMode::TypstMarkup;
+    config
+}
+
+#[test]
+fn the_overhang_of_math_keeps_a_subtitle_apart_from_the_title() {
+    let config = markup_subtitle(GuideSide::Top);
+    let (_, title_height) = measure(TITLE, &config, false);
+    let style = &config.subtitle;
+    let options = LabelOptions {
+        text: text_style(
+            &style.font_family,
+            style.font_size,
+            style.font_weight,
+            style.font_style,
+            style.color,
+        ),
+        ..Default::default()
+    };
+    let bounds = engine()
+        .bounds(&text_label(MATH, style.syntax, options))
+        .unwrap();
+    let [above, below] = bounds.overhang;
+    assert!(above > 0.0 && below > 0.0, "{bounds:?}");
+    let title = Title::new(TITLE, Some(MATH), &config, &engine()).unwrap();
+    // The subtitle takes its box and the overhang of its math, so its ink stands a gap below
+    // the title's box and inside the slab.
+    let thickness = title_height + config.gap + above + bounds.height + below;
+    assert!(close(title.extent(400.0).thickness, thickness));
+    let texts = texts(&title.part(400.0).unwrap());
+    let across = GuideSide::Top.along_across(texts[1].1).1;
+    assert!(close(across, below + bounds.height / 2.0), "{across}");
+}
+
+#[test]
+fn a_subtitle_of_math_matches_the_baseline() {
+    let engine = engine();
+    // The title's slab, 8 pixels above a plot outline.
+    let size = [560.0, 160.0];
+    let title = Title::new(TITLE, Some(MATH), &markup_subtitle(GuideSide::Top), &engine).unwrap();
+    let thickness = title.extent(size[0]).thickness;
+    let plot = SceneRectMark {
+        len: 1,
+        x: 20.0.into(),
+        y: (20.0 + thickness + 8.0).into(),
+        width: Some((size[0] - 40.0).into()),
+        height: Some((size[1] - 48.0 - thickness).into()),
+        fill: ColorOrGradient::Color([0.94, 0.94, 0.94, 1.0]).into(),
+        stroke: ColorOrGradient::Color([0.6, 0.6, 0.6, 1.0]).into(),
+        stroke_width: 1.0.into(),
+        ..Default::default()
+    };
+    let mut group = title.part(size[0] - 40.0).unwrap();
+    group.origin = title.origin([20.0, 20.0, size[0] - 40.0, thickness]);
+    let scene = SceneGraph {
+        marks: vec![plot.into(), group.into()],
+        width: size[0],
+        height: size[1],
+        origin: [0.0, 0.0],
+    };
+    let svg = SvgRenderer::new()
+        .render_scene_graph(&scene, &engine)
+        .unwrap();
+    let png = svg_to_png(&svg, 2.0);
+    assert_baseline(env!("CARGO_MANIFEST_DIR"), &png, "title-math-subtitle");
+}
+
 /// A plot outline with a title and a subtitle on each side, aligned to the start on the top,
 /// the center on the bottom and the left, and the end on the right.
 #[test]

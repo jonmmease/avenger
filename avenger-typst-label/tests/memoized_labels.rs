@@ -149,6 +149,27 @@ fn boxes_measure_math_emoji_bidi_and_complex_scripts() {
 }
 
 #[test]
+fn boxes_report_how_far_their_math_reaches_past_them() {
+    let engine = engine();
+    // Plain text keeps to its box, but for the descenders that the line box covers.
+    assert_eq!(engine.bounds(&markup("Penguins")).unwrap().overhang, [0.0; 2]);
+    // Typst lets a tall fraction reach into the leading around its line, past the box, and
+    // the box reports how far its ink reaches.
+    let fraction = markup("$(a + b) / (c + d)$");
+    let bounds = engine.bounds(&fraction).unwrap();
+    let [above, below] = bounds.overhang;
+    assert!(above > 0.0 && below > 0.0, "{bounds:?}");
+    let ys: Vec<f32> = (engine.outline(&fraction).unwrap().contours.iter())
+        .flatten()
+        .map(|point| point[1])
+        .collect();
+    let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
+    let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    assert!((top + above).abs() < 1e-4, "{top} {bounds:?}");
+    assert!((bottom - bounds.height - below).abs() < 1e-4, "{bottom} {bounds:?}");
+}
+
+#[test]
 fn rasters_draw_whole_labels_with_math_and_emoji() {
     // With the system's fonts, the emoji draw in color.
     let mut options = common::engine_options();

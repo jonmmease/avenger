@@ -613,6 +613,7 @@ impl<'a, Id: Clone + Eq + Hash> Painter<'a, Id> {
                     ascent: 0.0,
                     leading: 0.0,
                 },
+                overhang: [0.0; 2],
             }),
         }
     }
