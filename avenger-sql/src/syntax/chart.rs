@@ -5,6 +5,12 @@
 //! <alias>)`, which the mark planner plans: one row for each group, with the group columns and the
 //! chart. `CHART` is an operator of avenger-sql, so no upstream change removes the item.
 //!
+//! An item that holds mark calls inside an expression, such as `layer(bar(...), rule(...))`, is
+//! an expression item: each mark call is a chart column of its own, each other part of the
+//! expression without a mark call is an aggregate column, and the item is the expression over
+//! those columns, which the output computes for each group. An expression whose value is a chart
+//! in a field without the chart extension, such as a `CASE`, is in a call of `chart`.
+//!
 //! The aggregate items are a pipe `AGGREGATE` of their own over a copy of the prefix, which has
 //! every group. The other relations, the charts, join the first, the aggregate items or the first
 //! chart, on the group columns: `LEFT JOIN ... ON <group> IS NOT DISTINCT FROM <group>`, so a
@@ -14,11 +20,15 @@ use std::ops::ControlFlow;
 
 use datafusion::{
     common::Result,
-    sql::sqlparser::ast::{
-        Array, BinaryOperator, Expr, ExprWithAlias, ExprWithAliasAndOrderBy, FunctionArg,
-        FunctionArgExpr, FunctionArgOperator, Ident, Join, JoinConstraint, JoinOperator,
-        ObjectName, OrderByOptions, PipeOperator, Query, SelectItem, SetExpr, Spanned, TableAlias,
-        TableFactor, TableFunctionArgs, Value, Visit, Visitor,
+    sql::sqlparser::{
+        ast::{
+            Array, BinaryOperator, Expr, ExprWithAlias, ExprWithAliasAndOrderBy, Function,
+            FunctionArg, FunctionArgExpr, FunctionArgOperator, FunctionArgumentList,
+            FunctionArguments, Ident, Join, JoinConstraint, JoinOperator, ObjectName,
+            OrderByOptions, PipeOperator, Query, SelectItem, SetExpr, Spanned, TableAlias,
+            TableFactor, TableFunctionArgs, Value, Visit, VisitMut, Visitor, VisitorMut,
+        },
+        tokenizer::Span,
     },
 };
 
@@ -43,15 +53,32 @@ pub(crate) fn is_marker(operator: &PipeOperator) -> bool {
     )
 }
 
-/// A `|> CHART` operator: its mark items, its aggregate items, each with its name, the order of the
-/// items, its group columns, and the group expressions, which the operators before it compute as
-/// columns.
+/// A `|> CHART` operator: its mark calls, its aggregate items, each with its name, its expression
+/// items, the order of the items, its group columns, and the group expressions, which the
+/// operators before it compute as columns. The mark calls and the aggregates of an expression
+/// item are mark calls and aggregate items of the operator, which the output does not show.
 pub(crate) struct ChartOperator {
     pub(crate) marks: Vec<MarkItem>,
     pub(crate) aggregates: Vec<(Expr, Ident)>,
+    pub(crate) expressions: Vec<ExpressionItem>,
     pub(crate) items: Vec<Item>,
     pub(crate) groups: Vec<Expr>,
     pub(crate) extend: Option<PipeOperator>,
+}
+
+/// An item whose expression holds mark calls: the expression with a placeholder in place of each
+/// part, its name, and the part of each placeholder.
+pub(crate) struct ExpressionItem {
+    template: Expr,
+    name: Ident,
+    parts: Vec<(String, Part)>,
+}
+
+/// A part of an expression item: a mark call or an aggregate of the operator, by its index.
+#[derive(Clone, Copy)]
+enum Part {
+    Mark(usize),
+    Aggregate(usize),
 }
 
 /// A mark item: the mark call and the name of its chart column.
@@ -60,12 +87,13 @@ pub(crate) struct MarkItem {
     pub(crate) name: Ident,
 }
 
-/// An item of a `|> CHART`, in the order of the items: a mark item or an aggregate item, by its
-/// index.
+/// An item of a `|> CHART`, in the order of the items: a mark item, an aggregate item, or an
+/// expression item, by its index.
 #[derive(Clone, Copy)]
 pub(crate) enum Item {
     Mark(usize),
     Aggregate(usize),
+    Expression(usize),
 }
 
 /// The names of the relations of the join of a `|> CHART` with aggregate items or several mark
@@ -115,25 +143,11 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
         unreachable!("the marker is a pipe AGGREGATE")
     };
     let items = &full_table_exprs[1..];
-    let mut marks: Vec<(&ExprWithAliasAndOrderBy, &Expr)> = Vec::new();
-    let mut aggregates = Vec::new();
-    let mut order = Vec::new();
-    for item in items {
-        unordered(item, "an item of CHART")?;
-        let expr = &item.expr.expr;
-        match is_mark(expr) {
-            true => {
-                order.push(Item::Mark(marks.len()));
-                marks.push((item, expr));
-            }
-            false => {
-                nested_mark(expr)?;
-                order.push(Item::Aggregate(aggregates.len()));
-                aggregates.push((expr.clone(), named(expr, &item.expr.alias)));
-            }
-        }
-    }
-    if marks.is_empty() {
+    // The kind of each item: a mark call, an expression with mark calls, or an aggregate.
+    let charts = (items.iter())
+        .filter(|item| contains_mark(&item.expr.expr))
+        .count();
+    if charts == 0 {
         let first = &items[0].expr.expr;
         return Err(match first {
             Expr::Function(function) => at(
@@ -149,37 +163,50 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
             ),
         });
     }
-    let several = marks.len() > 1;
-    let mut mark_items = Vec::new();
-    for (item, mark) in marks {
-        let Expr::Function(function) = mark else {
-            unreachable!("a mark call is a call")
-        };
-        if function.over.is_some() {
-            return Err(at_with_help(
-                function.name.span(),
-                format!("the mark call of CHART takes no OVER clause, so `{}` has none", function.name),
-                "draw a chart for each group with GROUP BY, such as `|> CHART bar(x => species, y => count(*)) GROUP BY island`",
-            ));
+    let several = charts > 1;
+    let mut marks = Vec::new();
+    let mut aggregates = Vec::new();
+    let mut expressions = Vec::new();
+    let mut order = Vec::new();
+    for item in items {
+        unordered(item, "an item of CHART")?;
+        let expr = &item.expr.expr;
+        if !contains_mark(expr) {
+            order.push(Item::Aggregate(aggregates.len()));
+            aggregates.push((expr.clone(), named(expr, &item.expr.alias)));
+            continue;
         }
+        let first = first_mark(expr);
         let name = match (&item.expr.alias, several) {
             (Some(alias), _) => normalized(alias),
-            (None, false) => Ident::with_span(function.name.span(), CHART),
+            (None, false) => Ident::with_span(first.name.span(), CHART),
             (None, true) => {
                 return Err(at_with_help(
-                    function.name.span(),
+                    first.name.span(),
                     format!(
                         "this CHART draws several charts, so `{}` needs a name",
-                        function.name
+                        first.name
                     ),
                     "name each chart, such as `|> CHART bar(...) AS bars, line(...) AS lines`",
                 ))
             }
         };
-        mark_items.push(MarkItem {
-            mark: mark.clone(),
-            name,
-        });
+        if is_mark(expr) {
+            no_over(expr)?;
+            order.push(Item::Mark(marks.len()));
+            marks.push(MarkItem {
+                mark: expr.clone(),
+                name,
+            });
+            continue;
+        }
+        let offset = expressions
+            .iter()
+            .map(|e: &ExpressionItem| e.parts.len())
+            .sum();
+        let expression = expression_item(expr, name, offset, &mut marks, &mut aggregates)?;
+        order.push(Item::Expression(expressions.len()));
+        expressions.push(expression);
     }
     let mut groups = Vec::new();
     let mut extend = Vec::new();
@@ -199,8 +226,9 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
         }
     }
     let chart = ChartOperator {
-        marks: mark_items,
+        marks,
         aggregates,
+        expressions,
         items: order,
         groups,
         extend: (!extend.is_empty()).then_some(PipeOperator::Extend { exprs: extend }),
@@ -209,36 +237,195 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
     Ok(chart)
 }
 
-/// An aggregate item holds no call of a mark function, which is the complete value of its item.
-fn nested_mark(expr: &Expr) -> Result<()> {
+/// Whether `expr` holds a call of a mark function.
+fn contains_mark(expr: &Expr) -> bool {
     struct Find;
     impl Visitor for Find {
-        type Break = Expr;
-        fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Expr> {
+        type Break = ();
+        fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<()> {
             match is_mark(expr) {
-                true => ControlFlow::Break(expr.clone()),
+                true => ControlFlow::Break(()),
                 false => ControlFlow::Continue(()),
             }
         }
     }
+    Visit::visit(expr, &mut Find).is_break()
+}
+
+/// The first mark call of `expr`, which holds one.
+fn first_mark(expr: &Expr) -> Function {
+    struct Find;
+    impl Visitor for Find {
+        type Break = Function;
+        fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
+            match expr {
+                Expr::Function(function) if is_mark(expr) => ControlFlow::Break(function.clone()),
+                _ => ControlFlow::Continue(()),
+            }
+        }
+    }
     match Visit::visit(expr, &mut Find) {
-        ControlFlow::Break(Expr::Function(function)) => Err(at(
-            function.name.span(),
-            format!(
-                "a mark call is the complete value of an item of CHART, so `{}` takes no expression around it",
-                function.name
-            ),
-        )),
-        _ => Ok(()),
+        ControlFlow::Break(function) => function,
+        ControlFlow::Continue(()) => unreachable!("an expression with a mark call"),
     }
 }
 
+/// A mark call takes no `OVER` clause: `GROUP BY` gives its groups.
+fn no_over(mark: &Expr) -> Result<()> {
+    let Expr::Function(function) = mark else {
+        unreachable!("a mark call is a call")
+    };
+    if function.over.is_some() {
+        return Err(at_with_help(
+            function.name.span(),
+            format!("the mark call of CHART takes no OVER clause, so `{}` has none", function.name),
+            "draw a chart for each group with GROUP BY, such as `|> CHART bar(x => species, y => count(*)) GROUP BY island`",
+        ));
+    }
+    Ok(())
+}
+
+/// The expression item of `expr`, named `name`: each mark call in it is a mark call of the
+/// operator, and each other maximal part without a mark call is an aggregate item, such as
+/// `count(*) > 100`. Each part is a reserved column, `__avenger_part_<n>`, numbered in the order of
+/// the text after the `offset` parts of the items before it, and the expression reads the column
+/// in its place. A literal and the value of a named argument, such as an option of a composition,
+/// stay in the expression, so an option stays a plan-time constant.
+fn expression_item(
+    expr: &Expr,
+    name: Ident,
+    offset: usize,
+    marks: &mut Vec<MarkItem>,
+    aggregates: &mut Vec<(Expr, Ident)>,
+) -> Result<ExpressionItem> {
+    struct Hoist<'a> {
+        offset: usize,
+        marks: &'a mut Vec<MarkItem>,
+        aggregates: &'a mut Vec<(Expr, Ident)>,
+        parts: Vec<(String, Part)>,
+        error: Option<datafusion::common::DataFusionError>,
+        /// The values of the named arguments of the calls around mark calls, by address.
+        named: std::collections::HashSet<*const Expr>,
+        /// The named argument that the visit is inside, whose expressions stay in place.
+        inside: Option<*const Expr>,
+    }
+    impl Hoist<'_> {
+        /// The reserved name of the column of the next part, at `span`.
+        fn next(&mut self, span: Span) -> (String, Ident) {
+            let name = format!("__avenger_part_{}", self.offset + self.parts.len() + 1);
+            (name.clone(), Ident::with_span(span, name))
+        }
+    }
+    impl VisitorMut for Hoist<'_> {
+        type Break = ();
+        fn pre_visit_expr(&mut self, expr: &mut Expr) -> ControlFlow<()> {
+            let address = &*expr as *const Expr;
+            if self.inside.is_none() && self.named.contains(&address) {
+                self.inside = Some(address);
+            }
+            let part = match (is_mark(expr), contains_mark(expr)) {
+                (true, _) => {
+                    if let Err(error) = no_over(expr) {
+                        self.error = Some(error);
+                        return ControlFlow::Break(());
+                    }
+                    let (placeholder, column) = self.next(expr.span());
+                    self.marks.push(MarkItem {
+                        mark: expr.clone(),
+                        name: column,
+                    });
+                    Some((placeholder, Part::Mark(self.marks.len() - 1)))
+                }
+                (false, true) => {
+                    if let Expr::Function(function) = &*expr {
+                        if let FunctionArguments::List(list) = &function.args {
+                            for arg in &list.args {
+                                if let FunctionArg::Named {
+                                    arg: FunctionArgExpr::Expr(value),
+                                    ..
+                                } = arg
+                                {
+                                    self.named.insert(value as *const Expr);
+                                }
+                            }
+                        }
+                    }
+                    None
+                }
+                (false, false) if !matches!(expr, Expr::Value(_)) && self.inside.is_none() => {
+                    let (placeholder, column) = self.next(expr.span());
+                    self.aggregates.push((expr.clone(), column));
+                    Some((placeholder, Part::Aggregate(self.aggregates.len() - 1)))
+                }
+                _ => None,
+            };
+            if let Some((placeholder, part)) = part {
+                *expr = Expr::Identifier(Ident::with_span(expr.span(), placeholder.clone()));
+                self.parts.push((placeholder, part));
+            }
+            ControlFlow::Continue(())
+        }
+        fn post_visit_expr(&mut self, expr: &mut Expr) -> ControlFlow<()> {
+            if self.inside == Some(&*expr as *const Expr) {
+                self.inside = None;
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    let mut template = expr.clone();
+    let mut hoist = Hoist {
+        offset,
+        marks,
+        aggregates,
+        parts: Vec::new(),
+        error: None,
+        named: std::collections::HashSet::new(),
+        inside: None,
+    };
+    let _ = VisitMut::visit(&mut template, &mut hoist);
+    if let Some(error) = hoist.error {
+        return Err(error);
+    }
+    let parts = hoist.parts;
+    Ok(ExpressionItem {
+        template,
+        name,
+        parts,
+    })
+}
+
 impl ChartOperator {
+    /// Renames the column of each part of the expression items with `fresh`, from the name of its
+    /// item and the name of its mark function, such as `chart_bar`, or `value`, such as
+    /// `chart_value`, so that a lifting prints no reserved name.
+    pub(crate) fn name_parts(&mut self, mut fresh: impl FnMut(&str) -> Ident) {
+        for expression in &self.expressions {
+            let item: String = (expression.name.value.to_lowercase().chars())
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect();
+            for (_, part) in &expression.parts {
+                match *part {
+                    Part::Mark(index) => {
+                        let Expr::Function(function) = &self.marks[index].mark else {
+                            unreachable!("a mark call is a call")
+                        };
+                        let mark = function_name(function).unwrap_or_default().to_lowercase();
+                        self.marks[index].name = fresh(&format!("{item}_{mark}"));
+                    }
+                    Part::Aggregate(index) => {
+                        self.aggregates[index].1 = fresh(&format!("{item}_value"));
+                    }
+                }
+            }
+        }
+    }
+
     /// The name of the item `item`.
     fn name(&self, item: Item) -> &Ident {
         match item {
             Item::Mark(index) => &self.marks[index].name,
             Item::Aggregate(index) => &self.aggregates[index].1,
+            Item::Expression(index) => &self.expressions[index].name,
         }
     }
 
@@ -268,7 +455,7 @@ impl ChartOperator {
     /// Whether the operator joins relations: the groups, or the aggregate items, and the charts,
     /// or several charts.
     pub(crate) fn joins(&self) -> bool {
-        self.groups_first() || self.marks.len() > 1
+        self.groups_first() || self.marks.len() > 1 || !self.expressions.is_empty()
     }
 
     /// Whether the first relation of the join is the `AGGREGATE` of the items over the groups,
@@ -297,6 +484,14 @@ impl ChartOperator {
                 inside: Vec::new(),
             };
             if let ControlFlow::Break(error) = Visit::visit(expr, &mut check) {
+                return Err(error);
+            }
+        }
+        // The expression around the mark calls of an item reads the columns of one group, so it
+        // calls no aggregate or window function.
+        for expression in &self.expressions {
+            let mut find = AroundMarks { registry };
+            if let ControlFlow::Break(error) = Visit::visit(&expression.template, &mut find) {
                 return Err(error);
             }
         }
@@ -356,9 +551,32 @@ impl ChartOperator {
         };
         let first = self.first(aggregates, charts);
         let groups = (self.groups.iter()).map(|group| column(first, &group_name(group)));
+        let reference = |relation: &Ident, name: &Ident| {
+            Expr::CompoundIdentifier(vec![relation.clone(), name.clone()])
+        };
         let items = self.items.iter().map(|item| match item {
             Item::Mark(index) => column(&charts[*index], &self.marks[*index].name),
             Item::Aggregate(index) => column(aggregates, &self.aggregates[*index].1),
+            Item::Expression(index) => {
+                let expression = &self.expressions[*index];
+                let map: Vec<(String, Expr)> = (expression.parts.iter())
+                    .map(|(placeholder, part)| {
+                        let part = match part {
+                            Part::Mark(index) => {
+                                reference(&charts[*index], &self.marks[*index].name)
+                            }
+                            Part::Aggregate(index) => {
+                                reference(aggregates, &self.aggregates[*index].1)
+                            }
+                        };
+                        (placeholder.clone(), part)
+                    })
+                    .collect();
+                SelectItem::ExprWithAlias {
+                    expr: marked(replace_placeholders(&expression.template, &map)),
+                    alias: expression.name.clone(),
+                }
+            }
         });
         groups.chain(items).collect()
     }
@@ -379,6 +597,91 @@ impl ChartOperator {
             false => &charts[1..],
         }
     }
+}
+
+/// Breaks at an aggregate or a window function around a mark call.
+struct AroundMarks<'a> {
+    registry: &'a dyn Registry,
+}
+
+impl Visitor for AroundMarks<'_> {
+    type Break = datafusion::common::DataFusionError;
+
+    fn pre_visit_expr(&mut self, expr: &Expr) -> ControlFlow<Self::Break> {
+        let Expr::Function(function) = expr else {
+            return ControlFlow::Continue(());
+        };
+        let aggregate =
+            function_name(function).is_some_and(|name| self.registry.is_aggregate(&name));
+        match aggregate || function.over.is_some() {
+            true => ControlFlow::Break(at_with_help(
+                function.name.span(),
+                format!(
+                    "an item of CHART composes the charts of its group, so `{}` takes no mark call",
+                    function.name
+                ),
+                "compose the charts of a group after the CHART, such as `|> AGGREGATE layer_agg(chart)`",
+            )),
+            false => ControlFlow::Continue(()),
+        }
+    }
+}
+
+/// The compositions of a row, whose result is a column of charts.
+const COMPOSITIONS: [&str; 3] = ["layer", "hconcat", "vconcat"];
+
+/// `expr` in a call of `chart` when its value is a chart in a field that DataFusion does not
+/// mark: a `CASE`, a cast, the field of an array or a struct, or the call of a function other than
+/// a composition, such as `coalesce`. A composition marks its result, and an expression of another
+/// kind, such as `bar(...) IS NULL`, is not a chart.
+fn marked(expr: Expr) -> Expr {
+    let mut inner = &expr;
+    while let Expr::Nested(nested) = inner {
+        inner = nested;
+    }
+    let unmarked = match inner {
+        Expr::Function(function) => !(function_name(function))
+            .is_some_and(|name| COMPOSITIONS.contains(&name.as_str()) || name == "chart"),
+        Expr::Case { .. } | Expr::Cast { .. } | Expr::CompoundFieldAccess { .. } => true,
+        _ => false,
+    };
+    if !unmarked {
+        return expr;
+    }
+    let span = expr.span();
+    Expr::Function(Function {
+        name: ObjectName::from(vec![Ident::with_span(span, "chart")]),
+        uses_odbc_syntax: false,
+        parameters: FunctionArguments::None,
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))],
+            clauses: Vec::new(),
+        }),
+        filter: None,
+        null_treatment: None,
+        over: None,
+        within_group: Vec::new(),
+    })
+}
+
+/// `template` with each placeholder of `map` replaced by its expression.
+fn replace_placeholders(template: &Expr, map: &[(String, Expr)]) -> Expr {
+    struct Replace<'a>(&'a [(String, Expr)]);
+    impl VisitorMut for Replace<'_> {
+        type Break = ();
+        fn pre_visit_expr(&mut self, expr: &mut Expr) -> ControlFlow<()> {
+            if let Expr::Identifier(ident) = expr {
+                if let Some((_, to)) = self.0.iter().find(|(from, _)| *from == ident.value) {
+                    *expr = to.clone();
+                }
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    let mut expr = template.clone();
+    let _ = VisitMut::visit(&mut expr, &mut Replace(map));
+    expr
 }
 
 /// The check of an aggregate item: the depth of the aggregates and of the subqueries that the visit
@@ -529,12 +832,7 @@ pub(super) fn split(query: &mut Query, index: usize, registry: &dyn Registry) ->
 }
 
 /// The `FROM`-position call of the mark planner of `mark` over `input`, grouped by `groups`.
-fn chart_call(
-    mark: &MarkItem,
-    groups: &[Expr],
-    input: Query,
-    span: datafusion::sql::sqlparser::tokenizer::Span,
-) -> TableFactor {
+fn chart_call(mark: &MarkItem, groups: &[Expr], input: Query, span: Span) -> TableFactor {
     let named = |name: &str, value: Expr| FunctionArg::Named {
         name: Ident::with_span(span, name),
         arg: FunctionArgExpr::Expr(value),

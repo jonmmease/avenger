@@ -1,8 +1,8 @@
 //! The functions of avenger-chart in DataFusion: an aggregate function for each mark of each layer,
 //! which builds a chart of the rows of its group, a scalar function for each constructor, which
 //! returns the fragment of its message, the compositions, as aggregates of the charts of a group
-//! and as scalars of the charts of a row, and the scalar functions `scaled` and `direct`. They
-//! are a binding of `avenger_chart::functions`.
+//! and as scalars of the charts of a row, `chart`, which marks a column of charts, and the scalar
+//! functions `scaled` and `direct`. They are a binding of `avenger_chart::functions`.
 //!
 //! A mark function takes each channel of its mark as a named parameter:
 //!
@@ -30,6 +30,7 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
+mod charts;
 mod combine;
 mod composition;
 mod constructor;
@@ -42,14 +43,20 @@ mod rows;
 use std::sync::Arc;
 
 use datafusion::{
-    logical_expr::AggregateUDF, logical_expr::ScalarUDF, optimizer::AnalyzerRule,
+    arrow::datatypes::{DataType, Field},
+    logical_expr::AggregateUDF,
+    logical_expr::ScalarUDF,
+    optimizer::AnalyzerRule,
     prelude::SessionContext,
 };
 
-use avenger_chart::functions::{compositions, constructors, marks, Arg, Kind};
+use avenger_chart::{
+    functions::{compositions, constructors, marks, Arg, Kind},
+    EXTENSION_NAME,
+};
 
-/// Registers the mark functions, the constructors, the compositions, `scaled`, and `direct` in
-/// `ctx`.
+/// Registers the mark functions, the constructors, the compositions, `chart`, `scaled`, and
+/// `direct` in `ctx`.
 pub(crate) fn register(ctx: &SessionContext) {
     for mark in marks() {
         ctx.register_udaf(AggregateUDF::new_from_impl(
@@ -78,11 +85,24 @@ pub(crate) fn register(ctx: &SessionContext) {
     if !known {
         ctx.add_analyzer_rule(Arc::new(rule));
     }
+    ctx.register_udf(ScalarUDF::new_from_impl(charts::ChartFunction::new()));
     for kind in [Kind::Scaled, Kind::Direct] {
         ctx.register_udf(ScalarUDF::new_from_shared_impl(Arc::new(
             kind::KindFunction::new(kind),
         )));
     }
+}
+
+/// Whether a column of `field` can hold charts: a column of the chart extension, or any
+/// `BinaryView` column, because DataFusion drops the extension of a field through many functions,
+/// such as `CASE` and `coalesce`. A function that reads charts decodes the values of such a column
+/// and fails on a value that is not a chart.
+pub(crate) fn holds_charts(field: &Field) -> bool {
+    let marked = field
+        .metadata()
+        .get("ARROW:extension:name")
+        .map(String::as_str);
+    marked == Some(EXTENSION_NAME) || field.data_type() == &DataType::BinaryView
 }
 
 /// The argument of the constant `value`, or `None` for `NULL`.

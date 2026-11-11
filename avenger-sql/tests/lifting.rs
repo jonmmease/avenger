@@ -55,7 +55,8 @@ async fn charts(query: &str) -> Vec<Chart> {
     charts_in(query, "chart").await
 }
 
-/// The charts of the column `name` of `query`, in the order of its rows.
+/// The charts of the column `name` of `query`, in the order of its rows, a column of the chart
+/// extension.
 async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
     let batches = avenger_sql::sql(&session(), query)
         .await
@@ -66,6 +67,15 @@ async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
     let mut charts = Vec::new();
     for batch in batches {
         let column = batch.column_by_name(name).expect("a chart column");
+        let schema = batch.schema();
+        let extension = (schema.field_with_name(name).unwrap().metadata())
+            .get("ARROW:extension:name")
+            .cloned();
+        assert_eq!(
+            extension.as_deref(),
+            Some(avenger_chart::EXTENSION_NAME),
+            "the column `{name}` of {query}"
+        );
         for chart in charts_from_arrow(column, Decode::Auto).unwrap() {
             charts.push(chart.unwrap());
         }
@@ -1197,16 +1207,7 @@ async fn the_errors_of_items() {
         "row_number",
     )
     .await;
-    // A mark call is the complete value of its item, and CHART takes one.
-    fails(
-        &histograms(
-            ", coalesce(symbol(x => species, y => count(*)), NULL) AS dots",
-            " GROUP BY island",
-        ),
-        "a mark call is the complete value of an item of CHART",
-        "symbol",
-    )
-    .await;
+    // CHART takes a mark call.
     fails(
         &format!("{PENGUINS} |> CHART count(*) AS n GROUP BY island"),
         "`count` is not a mark function, and CHART takes a mark call",
@@ -1378,4 +1379,126 @@ async fn items_take_normalized_names_and_keep_qualifiers() {
         |> CHART bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
     assert_eq!(charts(query).await, charts(&lifting).await, "{lifting}");
+}
+
+/// The bars of the mean body mass of each species and a rule at the mean of all, as named mark
+/// calls of one CHART.
+const BARS: &str = "bar(x => species, y => avg(body_mass_g))";
+const MEAN: &str = "rule(y => avg(body_mass_g))";
+
+#[tokio::test]
+async fn an_expression_item_composes_its_mark_calls() {
+    let query = format!(
+        "{PENGUINS} |> CHART layer({BARS}, {MEAN}) AS chart GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted("expression-item", &query).await;
+    assert_eq!(columns(&query).await, ["island", "chart"]);
+    // The item is the composition of the columns of its mark calls.
+    let columns_first = format!(
+        "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean GROUP BY island \
+         |> SELECT island, layer(bars, mean) AS chart |> ORDER BY island"
+    );
+    assert_eq!(charts, self::charts(&columns_first).await);
+    // The only item of charts takes the name `chart`, and an aggregate item takes its place.
+    let query = format!("{PENGUINS} |> CHART count(*) AS n, layer({BARS}, {MEAN}) GROUP BY island");
+    assert_eq!(columns(&query).await, ["island", "n", "chart"]);
+    lifted(
+        "expression-item-aggregate",
+        &format!("{query} |> ORDER BY island"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn expression_items_nest_and_take_options() {
+    let query = format!(
+        "{PENGUINS} |> CHART hconcat(layer({BARS}, {MEAN}), symbol(x => bill_length_mm, y => bill_depth_mm), \
+         layout => concat_layout(gap => 24)) AS chart GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted("expression-item-nested", &query).await;
+    // A call in an option stays in the expression, as without groups.
+    let tools =
+        format!("{PENGUINS} |> CHART layer({BARS}, {MEAN}, tools => [navigate(), tooltip()])");
+    assert_eq!(
+        self::charts(&tools).await,
+        self::charts(&format!(
+            "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean \
+             |> SELECT layer(bars, mean, tools => [navigate(), tooltip()]) AS chart"
+        ))
+        .await
+    );
+    let columns_first = format!(
+        "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean, \
+         symbol(x => bill_length_mm, y => bill_depth_mm) AS bills GROUP BY island \
+         |> SELECT island, hconcat(layer(bars, mean), bills, layout => concat_layout(gap => 24)) AS chart \
+         |> ORDER BY island"
+    );
+    assert_eq!(charts, self::charts(&columns_first).await);
+    // Two items of charts, each with a name.
+    let query = format!(
+        "{PENGUINS} |> CHART layer({BARS}, {MEAN}) AS means, hconcat({BARS}, {MEAN}) AS side \
+         GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted_in("expression-items", &query, &["means", "side"]).await;
+    assert_ne!(charts[0], charts[1]);
+}
+
+#[tokio::test]
+async fn an_expression_item_reads_aggregates_outside_its_mark_calls() {
+    // The islands of more than 100 penguins have bars, and the others have the bills.
+    let bills = "symbol(x => bill_length_mm, y => bill_depth_mm)";
+    let query = format!(
+        "{PENGUINS} |> CHART CASE WHEN count(*) > 100 THEN {BARS} ELSE {bills} END AS chart \
+         GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted("expression-item-case", &query).await;
+    let alone =
+        |mark: &str| format!("{PENGUINS} |> CHART {mark} GROUP BY island |> ORDER BY island");
+    let bars = self::charts(&alone(BARS)).await;
+    let bills = self::charts(&alone(bills)).await;
+    assert_eq!(charts, [bars[0].clone(), bars[1].clone(), bills[2].clone()]);
+    // A composition reads the charts of a `CASE`, and an island without bars has the mean only.
+    let query = format!(
+        "{PENGUINS} |> CHART layer(CASE WHEN count(*) > 100 THEN {BARS} END, {MEAN}) AS chart \
+         GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted("expression-item-case-layer", &query).await;
+    let columns_first = format!(
+        "{PENGUINS} |> CHART count(*) AS n, {BARS} AS bars, {MEAN} AS mean GROUP BY island \
+         |> SELECT island, layer(CASE WHEN n > 100 THEN bars END, mean) AS chart |> ORDER BY island"
+    );
+    assert_eq!(charts, self::charts(&columns_first).await);
+    assert_eq!(charts[2], self::charts(&alone(MEAN)).await[2]);
+}
+
+#[tokio::test]
+async fn the_errors_of_expression_items() {
+    // Each of two items of charts has a name.
+    fails(
+        &format!("{PENGUINS} |> CHART layer({BARS}, {MEAN}), {BARS} AS bars GROUP BY island"),
+        "this CHART draws several charts, so `bar` needs a name",
+        "bar",
+    )
+    .await;
+    // A column outside a mark call is a group or inside an aggregate.
+    fails(
+        &format!("{PENGUINS} |> CHART coalesce({BARS}, species) AS chart GROUP BY island"),
+        "`species` is neither a group of this CHART nor inside an aggregate",
+        "species) AS",
+    )
+    .await;
+    // An item composes the charts of its group, so no aggregate takes a mark call.
+    fails(
+        &format!("{PENGUINS} |> CHART layer_agg({BARS}) AS chart GROUP BY island"),
+        "an item of CHART composes the charts of its group, so `layer_agg` takes no mark call",
+        "layer_agg",
+    )
+    .await;
+    // A mark call in an expression takes no OVER clause.
+    fails(
+        &format!("{PENGUINS} |> CHART layer({BARS}, rule(y => avg(body_mass_g)) OVER ()) AS chart"),
+        "the mark call of CHART takes no OVER clause, so `rule` has none",
+        "rule",
+    )
+    .await;
 }

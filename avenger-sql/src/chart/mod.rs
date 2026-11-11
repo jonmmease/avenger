@@ -236,8 +236,10 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
     let state = ctx.state();
     let mut statement = pipeline::parse_tokens(text)?;
     while let ControlFlow::Break(found) = Visit::visit(&statement, &mut FirstMarker) {
-        let (mut prefix, chart) = found?;
+        let (mut prefix, mut chart) = found?;
         chart.check_aggregates(&state)?;
+        let mut taken = words(&statement.to_string());
+        chart.name_parts(|base| Ident::new(fresh(base, &mut taken)));
         prefix.pipe_operators.extend(chart.extend.clone());
         let mut lowered = prefix;
         syntax::lower_query(&state, &mut lowered)?;
@@ -264,7 +266,6 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
                     .collect(),
             ),
             true => {
-                let mut taken = words(&statement.to_string());
                 let mut fresh = |base: &str| Ident::new(fresh(base, &mut taken));
                 let aggregates = match chart.groups_first() {
                     true => fresh("aggregates"),

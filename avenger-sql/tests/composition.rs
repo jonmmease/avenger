@@ -354,7 +354,7 @@ async fn the_errors_of_a_scalar_composition() {
     ))
     .await;
     assert!(
-        message.contains("layer() composes charts, and its argument 2 is not a chart"),
+        message.contains("layer() composes charts, and its argument 2 is a Int64, not a chart"),
         "{message}"
     );
     // A facet has no scalar form.
@@ -364,4 +364,122 @@ async fn the_errors_of_a_scalar_composition() {
     ))
     .await;
     assert!(message.contains("facet_col"), "{message}");
+}
+
+/// Whether each output column of `query`, in its schema and in its batches, has the chart
+/// extension, by name.
+async fn marked(query: &str) -> Vec<(String, bool)> {
+    let ctx = session();
+    let frame = avenger_sql::sql(&ctx, query).await.unwrap();
+    let schema = frame.schema().as_arrow().clone();
+    let batches = frame.collect().await.unwrap();
+    let is_chart = |field: &arrow::datatypes::Field| {
+        field
+            .metadata()
+            .get("ARROW:extension:name")
+            .map(String::as_str)
+            == Some(avenger_chart::EXTENSION_NAME)
+    };
+    (schema.fields().iter())
+        .map(|field| {
+            for batch in &batches {
+                let batch_field = batch
+                    .schema()
+                    .field_with_name(field.name())
+                    .unwrap()
+                    .clone();
+                assert_eq!(
+                    is_chart(&batch_field),
+                    is_chart(field),
+                    "{query}: {}",
+                    field.name()
+                );
+            }
+            (field.name().clone(), is_chart(field))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_composition_reads_charts_that_lost_their_extension() {
+    // `coalesce` and `CASE` return the charts in a `BinaryView` without the chart extension.
+    let unmarked = format!(
+        "FROM ({}) |> SELECT coalesce(a, b) AS a, CASE WHEN b IS NOT NULL THEN b END AS b",
+        three("")
+    );
+    assert_eq!(
+        marked(&unmarked).await,
+        [("a".into(), false), ("b".into(), false)]
+    );
+    assert_eq!(
+        chart(&format!("FROM ({unmarked}) |> SELECT layer(a, b) AS chart")).await,
+        chart(&format!(
+            "FROM ({}) |> SELECT layer(a, b) AS chart",
+            three("")
+        ))
+        .await
+    );
+    assert_eq!(
+        chart(&format!(
+            "{} |> AGGREGATE hconcat_agg(CASE WHEN chart IS NOT NULL THEN chart END) AS chart",
+            rows(&["a", "b"])
+        ))
+        .await,
+        chart(&format!(
+            "{} |> AGGREGATE hconcat_agg(chart) AS chart",
+            rows(&["a", "b"])
+        ))
+        .await
+    );
+    // A value that is not a chart fails when the composition decodes it.
+    let bytes = "arrow_cast(X'FF', 'BinaryView')";
+    for (query, expected) in [
+        (
+            format!("FROM ({}) |> SELECT layer(a, {bytes}) AS chart", three("")),
+            "layer(): argument 2:",
+        ),
+        (
+            format!(
+                "FROM ({}) |> AGGREGATE layer_agg({bytes}) AS chart",
+                three("")
+            ),
+            "layer_agg():",
+        ),
+    ] {
+        let message = error(&query).await;
+        assert!(message.contains(expected), "{query}: {message}");
+    }
+}
+
+#[tokio::test]
+async fn chart_marks_a_column_of_charts() {
+    let query = format!(
+        "FROM ({}) |> SELECT coalesce(a, b) AS plain, chart(coalesce(a, b)) AS chart, chart(NULL) AS none",
+        three("")
+    );
+    assert_eq!(
+        marked(&query).await,
+        [
+            ("plain".into(), false),
+            ("chart".into(), true),
+            ("none".into(), true)
+        ]
+    );
+    assert_eq!(
+        charts(&query).await,
+        charts(&format!("FROM ({}) |> SELECT a AS chart", three(""))).await
+    );
+    for (query, expected) in [
+        (
+            "SELECT chart('a') AS chart",
+            "chart() takes a BinaryView of charts, and its argument is a Utf8",
+        ),
+        (
+            "SELECT chart(arrow_cast(X'FF', 'BinaryView')) AS chart",
+            "chart():",
+        ),
+    ] {
+        let message = error(query).await;
+        assert!(message.contains(expected), "{query}: {message}");
+    }
 }
