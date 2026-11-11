@@ -84,12 +84,12 @@ fn fills_of(chart: &Chart, node: &proto::Node) -> Vec<String> {
 async fn the_branches_of_a_union_all_order_the_layers() {
     let union = [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL ");
     for _ in 0..4 {
-        let chart = chart(&format!("{union} |> AGGREGATE layer(chart) AS chart")).await;
+        let chart = chart(&format!("{union} |> AGGREGATE layer_agg(chart) AS chart")).await;
         assert_eq!(fills(&chart), ["red", "green", "blue"]);
     }
     let plan = avenger_sql::sql(
         &session(),
-        &format!("{union} |> AGGREGATE layer(chart) AS chart"),
+        &format!("{union} |> AGGREGATE layer_agg(chart) AS chart"),
     )
     .await
     .unwrap()
@@ -99,14 +99,14 @@ async fn the_branches_of_a_union_all_order_the_layers() {
     assert!(plan.contains("__avenger_branch"), "{plan}");
     // The ordinal survives a filter and an extension.
     let chart = chart(&format!(
-        "{union} |> WHERE chart IS NOT NULL |> EXTEND 1 AS one |> AGGREGATE layer(chart) AS chart"
+        "{union} |> WHERE chart IS NOT NULL |> EXTEND 1 AS one |> AGGREGATE layer_agg(chart) AS chart"
     ))
     .await;
     assert_eq!(fills(&chart), ["red", "green", "blue"]);
     // The ordinal survives a window, which the syntax pass writes as a derived table. The window
     // value is one count for every row, so it orders nothing.
     let windowed =
-        format!("{union} |> EXTEND count(*) OVER () AS c |> AGGREGATE layer(chart) AS chart");
+        format!("{union} |> EXTEND count(*) OVER () AS c |> AGGREGATE layer_agg(chart) AS chart");
     assert_eq!(
         fills(&self::chart(&windowed).await),
         ["red", "green", "blue"]
@@ -133,7 +133,7 @@ async fn the_branches_of_a_union_by_name_order_the_layers() {
         branch("blue", "")
     );
     for union in [union, pipe] {
-        let query = format!("{union} |> AGGREGATE layer(chart) AS chart");
+        let query = format!("{union} |> AGGREGATE layer_agg(chart) AS chart");
         assert_eq!(fills(&chart(&query).await), ["red", "green", "blue"]);
         let plan = avenger_sql::sql(&session(), &query)
             .await
@@ -157,7 +157,7 @@ async fn an_order_by_comes_first_and_the_branch_breaks_its_ties() {
     ]
     .join(" UNION ALL ");
     let chart = chart(&format!(
-        "{union} |> AGGREGATE layer(chart ORDER BY k) AS chart"
+        "{union} |> AGGREGATE layer_agg(chart ORDER BY k) AS chart"
     ))
     .await;
     assert_eq!(fills(&chart), ["green", "red", "blue"]);
@@ -170,7 +170,7 @@ async fn without_a_union_the_other_columns_order_the_children() {
         "FROM penguins |> WHERE body_mass_g IS NOT NULL \
          |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, fill => island) AS chart \
             GROUP BY island \
-         |> AGGREGATE hconcat(chart) AS chart",
+         |> AGGREGATE hconcat_agg(chart) AS chart",
     )
     .await;
     let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {
@@ -196,7 +196,7 @@ async fn without_a_union_the_other_columns_order_the_children() {
 async fn a_union_without_all_has_no_branch_order() {
     // A distinct union orders its rows by its other columns only.
     let union = [branch("red", ", 2 AS k"), branch("green", ", 1 AS k")].join(" UNION ");
-    let chart = chart(&format!("{union} |> AGGREGATE layer(chart) AS chart")).await;
+    let chart = chart(&format!("{union} |> AGGREGATE layer_agg(chart) AS chart")).await;
     assert_eq!(fills(&chart), ["green", "red"]);
 }
 
@@ -205,10 +205,10 @@ async fn a_standard_select_reads_the_composition_by_its_name() {
     // The keys of the rule change the name of the call, so the call keeps the name of its output
     // for the projection of the SELECT.
     let union = [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL ");
-    let aliased = chart(&format!("SELECT layer(chart) AS chart FROM ({union})")).await;
+    let aliased = chart(&format!("SELECT layer_agg(chart) AS chart FROM ({union})")).await;
     assert_eq!(fills(&aliased), ["red", "green", "blue"]);
     let renamed = chart(&format!(
-        "SELECT * FROM (SELECT layer(chart) FROM ({union})) AS t(chart)"
+        "SELECT * FROM (SELECT layer_agg(chart) FROM ({union})) AS t(chart)"
     ))
     .await;
     assert_eq!(fills(&renamed), ["red", "green", "blue"]);
@@ -223,7 +223,7 @@ async fn a_composition_of_compositions_of_a_union_all_numbers_its_branches_once(
     ]
     .join(" UNION ALL ");
     let chart = chart(&format!(
-        "{union} |> AGGREGATE layer(chart) AS chart GROUP BY k |> AGGREGATE hconcat(chart) AS chart"
+        "{union} |> AGGREGATE layer_agg(chart) AS chart GROUP BY k |> AGGREGATE hconcat_agg(chart) AS chart"
     ))
     .await;
     let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {

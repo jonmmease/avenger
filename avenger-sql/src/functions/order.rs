@@ -1,4 +1,4 @@
-//! The order of the children of `layer`, `hconcat`, and `vconcat`: an analyzer rule that gives
+//! The order of the children of `layer_agg`, `hconcat_agg`, and `vconcat_agg`: an analyzer rule that gives
 //! each call an order of its rows that DataFusion keeps, as the spec orders the children of a
 //! composition (`r[panel.order.ordinal]`).
 //!
@@ -33,7 +33,7 @@ use datafusion::{
 const BRANCH: &str = "__avenger_branch";
 
 /// The compositions whose children the rule orders.
-const ORDERED: [&str; 3] = ["layer", "hconcat", "vconcat"];
+const ORDERED: [&str; 3] = ["layer_agg", "hconcat_agg", "vconcat_agg"];
 
 /// The facets, which take their key after the keys of their own `ORDER BY`.
 const FACETS: [&str; 3] = ["facet_row", "facet_col", "facet_wrap"];

@@ -18,7 +18,7 @@ use std::{
 
 use avenger_chart::{
     chart_field, charts_from_arrow,
-    functions::{Arg, Child, ChildOrder, Composition},
+    functions::{Arg, Child, ChildOrder, Composition, CompositionKind},
     Decode, EXTENSION_NAME,
 };
 use datafusion::{
@@ -70,7 +70,7 @@ impl CompositionDeclaration {
             .collect();
         let syntax = format!(
             "{}({}{}{} [ORDER BY ...])",
-            spec.name,
+            aggregate_name(spec),
             leading(spec).join(", "),
             if syntax.is_empty() { "" } else { ", " },
             syntax.join(", ")
@@ -94,6 +94,18 @@ impl CompositionDeclaration {
             signature,
             documentation: documentation.build(),
         }
+    }
+}
+
+/// The SQL name of the aggregate of a composition: `layer_agg`, `hconcat_agg`, and `vconcat_agg`
+/// for a layer and the concats, whose scalar forms take their names, and its name for a facet,
+/// which has no scalar form.
+pub(crate) fn aggregate_name(spec: &Composition) -> &'static str {
+    match spec.kind {
+        CompositionKind::Layer => "layer_agg",
+        CompositionKind::HConcat => "hconcat_agg",
+        CompositionKind::VConcat => "vconcat_agg",
+        _ => spec.name,
     }
 }
 
@@ -136,7 +148,7 @@ impl Hash for CompositionDeclaration {
 
 impl AggregateUDFImpl for CompositionDeclaration {
     fn name(&self) -> &str {
-        self.spec.name
+        aggregate_name(self.spec)
     }
 
     fn signature(&self) -> &Signature {
@@ -144,7 +156,7 @@ impl AggregateUDFImpl for CompositionDeclaration {
     }
 
     fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
-        let (name, count) = (self.spec.name, names(self.spec).len());
+        let (name, count) = (aggregate_name(self.spec), names(self.spec).len());
         if arg_types.len() > count {
             return plan_err!(
                 "{name}() takes {count} arguments at most, not {}",
@@ -159,14 +171,14 @@ impl AggregateUDFImpl for CompositionDeclaration {
     }
 
     fn return_field(&self, _arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        Ok(Arc::new(chart_field(self.spec.name, true)))
+        Ok(Arc::new(chart_field(aggregate_name(self.spec), true)))
     }
 
     fn accumulator(&self, _acc_args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
         internal_err!(
             "{}() runs only after the simplifier binds its call, which a session that skips \
              failed optimizer rules can leave unbound",
-            self.spec.name
+            aggregate_name(self.spec)
         )
     }
 
@@ -191,7 +203,7 @@ fn bind(
     call: AggregateFunction,
     context: &SimplifyContext,
 ) -> Result<Expr> {
-    let name = spec.name;
+    let name = aggregate_name(spec);
     let params = call.params;
     if params.distinct {
         return plan_err!("{name}() takes no DISTINCT");
@@ -245,6 +257,7 @@ fn bind(
         .map_err(|error| plan_datafusion_err!("{name}(): {error}"))?;
     let instance = CompositionInstance {
         spec: spec.name,
+        name,
         column,
         options,
         order: rows::order(&params.order_by),
@@ -266,6 +279,8 @@ fn bind(
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct CompositionInstance {
     spec: &'static str,
+    /// The SQL name of the aggregate.
+    name: &'static str,
     column: Option<String>,
     options: Vec<Option<ScalarValue>>,
     order: Vec<(bool, bool)>,
@@ -285,7 +300,7 @@ impl CompositionInstance {
 
 impl AggregateUDFImpl for CompositionInstance {
     fn name(&self) -> &str {
-        self.spec
+        self.name
     }
 
     fn signature(&self) -> &Signature {
@@ -301,7 +316,7 @@ impl AggregateUDFImpl for CompositionInstance {
     }
 
     fn return_field(&self, _arg_fields: &[FieldRef]) -> Result<FieldRef> {
-        Ok(Arc::new(chart_field(self.spec, true)))
+        Ok(Arc::new(chart_field(self.name, true)))
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
@@ -359,7 +374,7 @@ impl Accumulator for CompositionAccumulator {
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
         let instance = &self.instance;
-        let name = instance.spec;
+        let name = instance.name;
         let columns = self.rows.sorted(instance.data(), &instance.order)?;
         let charts = charts_from_arrow(columns[0].as_ref(), Decode::Auto)
             .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
