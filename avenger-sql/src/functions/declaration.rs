@@ -46,6 +46,7 @@ impl MarkDeclaration {
     pub(crate) fn new(spec: &'static Mark) -> Self {
         let names: Vec<&str> = (spec.channels.iter().map(|channel| channel.name))
             .chain(spec.properties.iter().map(|property| property.name))
+            .chain(spec.options.iter().map(|option| option.name))
             .chain([COORD])
             .collect();
         let signature = Signature::user_defined(Volatility::Immutable)
@@ -64,6 +65,9 @@ impl MarkDeclaration {
         }
         for property in spec.properties {
             documentation = documentation.with_argument(property.name, property.doc);
+        }
+        for option in spec.options {
+            documentation = documentation.with_argument(option.name, option.doc);
         }
         documentation = documentation.with_argument(
             COORD,
@@ -110,7 +114,8 @@ impl AggregateUDFImpl for MarkDeclaration {
 
     fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
         let spec = self.spec;
-        let (name, count) = (spec.name, spec.channels.len() + spec.properties.len() + 1);
+        let count = spec.channels.len() + spec.properties.len() + spec.options.len() + 1;
+        let name = spec.name;
         if arg_types.len() > count {
             return plan_err!(
                 "{name}() takes {count} arguments at most, not {}",
@@ -171,6 +176,7 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
     let mut args = params.args.into_iter();
     let channels: Vec<Expr> = args.by_ref().take(spec.channels.len()).collect();
     let properties: Vec<Expr> = args.by_ref().take(spec.properties.len()).collect();
+    let options: Vec<Expr> = args.by_ref().take(spec.options.len()).collect();
     let coord = args.next();
     for (declared, argument) in spec.channels.iter().zip(channels) {
         let (argument, explicit, options) = match kind_argument(argument) {
@@ -216,6 +222,8 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
     }
     let properties = constants(name, "a property", properties)?;
     mark.properties(&properties).map_err(failed)?;
+    let options = constants(name, "an option of its plot or its layer", options)?;
+    mark.options(&options).map_err(failed)?;
     let coord = constants(name, "`coord`", coord.into_iter().collect())?;
     if let Some(coord) = coord.into_iter().next().flatten() {
         mark.coord(&coord).map_err(failed)?;

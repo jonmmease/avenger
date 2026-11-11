@@ -2,12 +2,14 @@
 //!
 //! The example reads the movies of `movie-search` into a DataFusion session with the mark
 //! functions of avenger-sql, and runs one query, whose `|> CHART` call counts the movies of each
-//! genre in a bar chart:
+//! genre in a bar chart, which pans and zooms and shows a tooltip of each bar:
 //!
 //! ```sql
 //! FROM movies
 //! |> WHERE genre IS NOT NULL
-//! |> CHART bar(x => count(*), y => genre ORDER BY count(*) DESC)
+//! |> CHART bar(
+//!      x => count(*), y => genre, tools => [navigate(channels => ['x']), tooltip()]
+//!      ORDER BY count(*) DESC)
 //! ```
 //!
 //! The query returns one row, whose `chart` column holds the chart, which the chart app shows at
@@ -33,7 +35,9 @@ use datafusion::{datasource::MemTable, prelude::SessionContext};
 /// The query that builds the chart.
 const QUERY: &str = "FROM movies
 |> WHERE genre IS NOT NULL
-|> CHART bar(x => count(*), y => genre ORDER BY count(*) DESC)";
+|> CHART bar(
+     x => count(*), y => genre, tools => [navigate(channels => ['x']), tooltip()]
+     ORDER BY count(*) DESC)";
 
 /// The size of the window.
 const SIZE: [f32; 2] = [800.0, 600.0];
@@ -113,7 +117,10 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use avenger_chart::{proto::node, LayerRef};
+    use avenger_chart::{
+        proto::{self, node},
+        LayerRef,
+    };
 
     /// The query builds one bar chart, with a row for each genre of the movies.
     #[tokio::test]
@@ -124,6 +131,21 @@ mod tests {
         };
         let layer = LayerRef::of(plot).remove(0);
         assert_eq!(layer.mark().unwrap().name(), "bar");
+        // The plot pans and zooms, and the bars show tooltips.
+        assert!(matches!(
+            plot.tools.as_slice(),
+            [proto::Tool {
+                kind: Some(proto::tool::Kind::Navigate(_)),
+                ..
+            }]
+        ));
+        assert!(matches!(
+            layer.tools(),
+            [proto::LayerTool {
+                kind: Some(proto::layer_tool::Kind::Tooltip(_)),
+                ..
+            }]
+        ));
         let table = chart.table(layer.table().unwrap());
         let names: Vec<&str> = table
             .schema_ref()
