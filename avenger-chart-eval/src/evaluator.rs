@@ -73,8 +73,8 @@ pub struct EvaluatedPlot {
     /// The name of its identity, or its node path when its node has no id, which names its group
     /// in the scene.
     pub name: String,
-    /// The identity of its node, when it has an id.
-    pub identity: Option<Identity>,
+    /// The identity of its node: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// The kind of its coordinate system, whose positions its coordinates take.
     pub kind: CoordKind,
     /// Its left, top, width, and height in the scene.
@@ -91,8 +91,8 @@ pub struct EvaluatedPlot {
 pub struct EvaluatedLayer {
     /// Its path in the chart, such as `root.plot.cartesian.layers[0]`.
     pub path: String,
-    /// The identity of the layer, when it has an id.
-    pub identity: Option<Identity>,
+    /// The identity of the layer: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// The names of its marks with rows in `EvaluatedChart::data`, in the order that they draw.
     pub marks: Vec<String>,
     /// The coordinates of the plot with the scales of the layer's `x` and `y`, which differ from
@@ -769,7 +769,8 @@ impl ChartEvaluator {
 /// projections, and the installation of a new chart, which carries them.
 impl ChartEvaluator {
     /// Installs `prepared` in place of the chart, and carries the state of the old chart by
-    /// `options`: the fitted domains of its scales and projections, the views of pans and zooms,
+    /// `options`: the fitted domains of its scales and projections, the views of pans and zooms of
+    /// scales of the same type and fields,
     /// the clauses of its selections, as they stand at the installation, and the modes that a
     /// widget or the host turned on or off, which stand while the new chart declares them. A scale carries over
     /// when the new chart has a scale with its identity and its kind of fit, and a projection when
@@ -789,6 +790,7 @@ impl ChartEvaluator {
             plot_groups,
         } = prepared;
         let new_resolved = chart.resolve();
+        let old_resolved = self.chart.resolve();
         let mut views = BTreeMap::new();
         let mut carried = BTreeMap::new();
         for (index, identity) in identities.iter().enumerate() {
@@ -804,9 +806,12 @@ impl ChartEvaluator {
                 continue;
             }
             let group = &new_resolved.scales[index];
+            // A view stands for the new scale when the new scale scales the same values: a plot
+            // of the same structure that scales other fields starts at its fit.
             let viewable = group.is_navigated()
                 && kinds[index] == FitKind::Interval
-                && !state::selection_domain(&group.spec);
+                && !state::selection_domain(&group.spec)
+                && state::same_values(&old_resolved, old_index, &new_resolved, index);
             if let (true, true, Some(view)) = (
                 options.keeps_views(),
                 viewable,
@@ -1311,7 +1316,7 @@ fn carry_states(
     options: &UpdateOptions,
 ) -> BTreeMap<String, SelectionState> {
     let owners: std::collections::BTreeSet<String> = (resolved.tree.identities())
-        .map(|(identity, _)| identity.id.clone())
+        .filter_map(|(identity, _)| identity.given_id().map(String::from))
         .collect();
     let names: std::collections::BTreeSet<String> =
         old.keys().chain(initial.keys()).cloned().collect();
@@ -1749,10 +1754,9 @@ fn layer_kinds(resolved: &Resolved, layer: usize, kinds: &[FitKind]) -> BTreeMap
 
 /// The owners of the rows of a layer: the ids of the layer and of its plot.
 fn owners(plot: &PlotRef, layer: &Layer) -> Vec<String> {
-    [layer.identity.as_ref(), plot.identity.as_ref()]
+    [&layer.identity, &plot.identity]
         .into_iter()
-        .flatten()
-        .map(|identity| identity.id.clone())
+        .filter_map(|identity| identity.given_id().map(String::from))
         .collect()
 }
 

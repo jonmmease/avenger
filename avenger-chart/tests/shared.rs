@@ -11,6 +11,7 @@ use arrow::{
 };
 use avenger_chart::{
     proto::{self, node, plot, scale, track, CartesianLayer, Encoding, Node, Plot, ValueRef},
+    resolve::{Id, Identity},
     Chart,
 };
 use support::*;
@@ -32,6 +33,75 @@ fn nodes_with_one_id_have_different_partitions() {
         "root.concat.children[1].plot",
         "one id and one partition",
     );
+}
+
+#[test]
+fn a_plot_or_a_layer_without_an_id_is_identified_by_its_path() {
+    let row = concat(
+        proto::Direction::Row,
+        vec![
+            plot_with("", vec![value("sex", 0)], vec![symbols(0)]),
+            plot_with("", vec![value("sex", 1)], vec![symbols(0)]),
+        ],
+    );
+    let chart = read(parts(row, strings(&["female", "male"]))).unwrap();
+    let resolved = chart.resolve();
+    let plots: Vec<String> = (resolved.tree.plots.iter())
+        .map(|plot| plot.identity.name())
+        .collect();
+    assert_eq!(
+        plots,
+        [
+            "root.concat.children[0].plot[sex=female]",
+            "root.concat.children[1].plot[sex=male]",
+        ]
+    );
+    let first = &resolved.tree.plots[0].identity;
+    assert_eq!(
+        first.id,
+        Id::Path("root.concat.children[0].plot".to_string())
+    );
+    assert_eq!(first.given_id(), None);
+    let layer = &resolved.tree.layers[0].identity;
+    assert_eq!(
+        layer.id,
+        Id::Path("root.concat.children[0].plot.cartesian.layers[0]".to_string())
+    );
+    // An id that equals a path is a different identity.
+    assert_ne!(
+        Identity::given("root.concat.children[0].plot", first.partition.clone()),
+        *first
+    );
+}
+
+#[test]
+fn the_cells_of_a_facet_keep_their_identities_when_the_facet_changes() {
+    // The cells of a facet take `children[*]` in their paths, so a cell keeps its identity when
+    // a cell before it leaves.
+    let facet = |values: &[u32]| {
+        let mut row = concat(
+            proto::Direction::Row,
+            (values.iter())
+                .map(|index| plot_with("", vec![value("sex", *index)], vec![symbols(0)]))
+                .collect(),
+        );
+        concat_mut(&mut row).facet = Some(proto::Facet {
+            column: "sex".to_string(),
+            ..Default::default()
+        });
+        row
+    };
+    let both = read(parts(facet(&[0, 1]), strings(&["female", "male"]))).unwrap();
+    let male = read(parts(facet(&[0]), strings(&["male"]))).unwrap();
+    let (both, male) = (both.resolve(), male.resolve());
+    assert_eq!(
+        both.tree.plots[1].identity.name(),
+        "root.concat.children[*].plot[sex=male]"
+    );
+    assert_eq!(both.tree.plots[1].identity, male.tree.plots[0].identity);
+    assert_ne!(both.tree.plots[0].identity, male.tree.plots[0].identity);
+    // The path of a cell in an error keeps its index.
+    assert_eq!(both.tree.plots[1].path, "root.concat.children[1].plot");
 }
 
 #[test]

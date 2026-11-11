@@ -213,8 +213,15 @@ impl Checker<'_> {
                     None => unreachable!("{REQUIRED}"),
                 }
             }
-            if !layer.tools().is_empty() && layer.id().is_empty() {
-                return Err(fail(&path, "a layer that declares a tool has an id"));
+            // A selection's clauses name their owner by id, and a layer without one is a part of
+            // the chart by its path, which no clause names.
+            let selects = (layer.tools().iter())
+                .any(|tool| matches!(tool.kind, Some(layer_tool::Kind::Select(_))));
+            if selects && layer.id().is_empty() {
+                return Err(fail(
+                    &path,
+                    "a layer that declares a selection has an id, which its clauses name",
+                ));
             }
             self.widgets(layer.widgets(), table, &layer_scope, &path)?;
             classes(layer.classes(), &path)?;
@@ -257,8 +264,23 @@ impl Checker<'_> {
                 None => unreachable!("{REQUIRED}"),
             }
         }
-        if !plot.tools.is_empty() && plot.id.is_empty() {
-            return Err(fail(path, "a plot that declares a tool has an id"));
+        // A selection's clauses name their owner by id, and a plot without one is a part of the
+        // chart by its path, which no clause names. A navigation that moves a scale whose domain
+        // reads a selection writes a clause too.
+        let selects =
+            (plot.tools.iter()).any(|tool| matches!(tool.kind, Some(tool::Kind::Select(_))));
+        if selects && plot.id.is_empty() {
+            return Err(fail(
+                path,
+                "a plot that declares a selection has an id, which its clauses name",
+            ));
+        }
+        if plot.id.is_empty() && navigates_selection(plot, kind, &layers) {
+            return Err(fail(
+                path,
+                "a plot whose navigation moves a scale whose domain reads a selection has an id, \
+                 which the clauses of its navigation name",
+            ));
         }
         Ok(())
     }
@@ -727,4 +749,29 @@ fn facet_column(facet: &proto::Facet, path: &str) -> Result<()> {
         )),
         false => Ok(()),
     }
+}
+
+/// Whether a navigation of `plot` moves a channel whose scale domain, on an encoding of one of its
+/// `layers`, reads a selection.
+fn navigates_selection(plot: &proto::Plot, kind: CoordKind, layers: &[LayerRef]) -> bool {
+    let moved: Vec<Channel> = (plot.tools.iter())
+        .filter_map(|tool| match &tool.kind {
+            Some(tool::Kind::Navigate(navigate)) => Some(navigate),
+            _ => None,
+        })
+        .flat_map(|navigate| match navigate.channels.is_empty() {
+            true => kind.navigated().to_vec(),
+            false => (navigate.channels.iter())
+                .map(|channel| Channel::try_from(*channel).unwrap_or_default())
+                .collect(),
+        })
+        .collect();
+    (layers.iter().filter_map(|layer| layer.mark())).any(|mark| {
+        mark.encodings().any(|(channel, encoding)| {
+            let domain = (encoding.scale.as_ref())
+                .and_then(|scale| scale.domain.as_ref())
+                .and_then(|domain| domain.domain.as_ref());
+            moved.contains(&channel) && matches!(domain, Some(proto::domain::Domain::Selection(_)))
+        })
+    })
 }
