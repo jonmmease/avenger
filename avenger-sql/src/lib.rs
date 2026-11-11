@@ -30,14 +30,15 @@
 //!   that it omits, because DataFusion binds named arguments only as a prefix of the parameters.
 //!   An omitted parameter of an avenger function and `NULL` mean the same thing.
 //!
-//! - `|> CHART <mark call> [AS name] [, <aggregate> [AS name], ...] [GROUP BY ...]`, which parses
-//!   as a pipe `AGGREGATE`, becomes the `FROM`-position call `__avenger_chart((<input>), <mark
-//!   call>, partition_by => [...], name => <name>)`, with a chart for each group, which the mark
-//!   planner plans as the lifting of the call: stages that compute the discretizers, `bin`,
-//!   `timeunit`, and `lump`, the aggregates, the rows of its `impute` option, and the stacks and
-//!   the window functions of its channels, then the mark aggregate over their columns. With
-//!   aggregate items, the call joins the `AGGREGATE` of the items over a copy of the input on the
-//!   groups. [`lift`] prints the lifting, which runs to the same chart.
+//! - `|> CHART <item> [AS name], ... [GROUP BY ...]`, whose items are mark calls and aggregates,
+//!   parses as a pipe `AGGREGATE` and becomes the `FROM`-position call `__avenger_chart((<input>),
+//!   <mark call>, partition_by => [...], name => <name>)` of each mark call, with a chart for each
+//!   group, which the mark planner plans as the lifting of the call: stages that compute the
+//!   discretizers, `bin`, `timeunit`, and `lump`, the aggregates, the rows of its `impute` option,
+//!   and the stacks and the window functions of its channels, then the mark aggregate over their
+//!   columns. With aggregate items or several mark calls, the calls and the `AGGREGATE` of the
+//!   aggregate items, each over a copy of the input, join on the groups. [`lift`] prints the
+//!   lifting, which runs to the same charts.
 //!
 //! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,
 //! and [`register`] has DataFusion record them, so an error of a column points to its text.

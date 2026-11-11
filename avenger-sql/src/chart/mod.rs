@@ -247,27 +247,35 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
             ))))
             .await?;
         let schema = plan.schema().as_ref().clone();
-        let operators = lifting::generate(
-            &mut LiftEnv { state: &state },
-            &chart.mark,
-            &chart.groups,
-            &chart.name,
-            &schema,
-        )?;
-        let splice = match chart.aggregates.is_empty() {
-            true => Splice::Operators(
+        let mut liftings = Vec::new();
+        for mark in &chart.marks {
+            liftings.push(lifting::generate(
+                &mut LiftEnv { state: &state },
+                &mark.mark,
+                &chart.groups,
+                &mark.name,
+                &schema,
+            )?);
+        }
+        let splice = match chart.joins() {
+            false => Splice::Operators(
                 (chart.extend.clone().into_iter())
-                    .chain(operators)
+                    .chain(liftings.into_iter().flatten())
                     .collect(),
             ),
-            false => {
+            true => {
                 let mut taken = words(&statement.to_string());
-                let mut fresh = |base: &str| fresh(base, &mut taken);
-                let names = [fresh("aggregates"), fresh("charts")];
+                let mut fresh = |base: &str| Ident::new(fresh(base, &mut taken));
+                let aggregates = match chart.groups_first() {
+                    true => fresh("aggregates"),
+                    false => Ident::new("aggregates"),
+                };
+                let charts = liftings.iter().map(|_| fresh("charts")).collect();
                 Splice::Join {
                     chart: Box::new(chart),
-                    lifting: operators,
-                    names: names.map(Ident::new),
+                    liftings,
+                    aggregates,
+                    charts,
                 }
             }
         };
@@ -306,12 +314,13 @@ impl Visitor for FirstMarker {
 enum Splice {
     /// The operators of the lifting, which compute the group expressions first.
     Operators(Vec<PipeOperator>),
-    /// The join of the aggregate items over the input and the lifting of the chart over a copy of
-    /// the input, with the names of the aggregates and the charts.
+    /// The join of the aggregate items and the liftings of the charts, each over a copy of the
+    /// input, with the names of the aggregates and the charts.
     Join {
         chart: Box<ChartOperator>,
-        lifting: Vec<PipeOperator>,
-        names: [Ident; 2],
+        liftings: Vec<Vec<PipeOperator>>,
+        aggregates: Ident,
+        charts: Vec<Ident>,
     },
 }
 
@@ -358,33 +367,41 @@ impl VisitorMut for SpliceMarker {
             Splice::Operators(operators) => query.pipe_operators.extend(operators),
             Splice::Join {
                 chart,
-                lifting,
-                names: [aggregates, charts],
+                liftings,
+                aggregates,
+                charts,
             } => {
                 // The query before the operator, with the group expressions, is the input of the
-                // aggregates, and a copy of it is the input of the lifting, which keeps the
-                // qualifiers of its tables. The copy sees the CTEs of the query, so it takes none.
+                // first relation, the aggregate items or the first chart, and a copy of it is the
+                // input of each other chart, so the qualifiers of its tables stay valid. A copy
+                // sees the CTEs of the query, so it takes none.
                 query.pipe_operators.extend(chart.extend.clone());
-                let mut input = query.clone();
-                input.with = None;
-                input.pipe_operators.extend(lifting);
-                let charts_table = syntax::aliased(build::derived(input), &charts);
-                query.pipe_operators.extend([
-                    chart.aggregate(),
-                    PipeOperator::As {
-                        alias: aggregates.clone(),
-                    },
-                    PipeOperator::Join(Join {
-                        relation: charts_table,
+                let mut copy = query.clone();
+                copy.with = None;
+                let mut liftings = liftings.into_iter();
+                let first = match chart.groups_first() {
+                    true => vec![chart.aggregate()],
+                    false => liftings.next().expect("a chart"),
+                };
+                let first_name = chart.first(&aggregates, &charts).clone();
+                query.pipe_operators.extend(first);
+                query.pipe_operators.push(PipeOperator::As {
+                    alias: first_name.clone(),
+                });
+                for (lifting, name) in liftings.zip(chart.joined(&charts)) {
+                    let mut input = copy.clone();
+                    input.pipe_operators.extend(lifting);
+                    query.pipe_operators.push(PipeOperator::Join(Join {
+                        relation: syntax::aliased(build::derived(input), name),
                         global: false,
                         join_operator: JoinOperator::LeftOuter(JoinConstraint::On(
-                            chart.join_condition(&aggregates, &charts),
+                            chart.join_condition(&first_name, name),
                         )),
-                    }),
-                    PipeOperator::Select {
-                        exprs: chart.projection(&aggregates, &charts),
-                    },
-                ]);
+                    }));
+                }
+                query.pipe_operators.push(PipeOperator::Select {
+                    exprs: chart.projection(&aggregates, &charts),
+                });
             }
         }
         query.pipe_operators.extend(rest);
