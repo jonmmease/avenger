@@ -9,7 +9,10 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
 };
 use avenger_chart::{
-    functions::{constructor, mark, Arg, ArgError, ChannelArg, Class, Expected, Kind, Reason},
+    functions::{
+        composition, constructor, mark, Arg, ArgError, ChannelArg, Child, ChildOrder, Class,
+        Expected, Kind, Reason,
+    },
     prelude::*,
     proto::{self, Fragment},
 };
@@ -234,4 +237,259 @@ fn a_string_key_of_a_resolve_rule_names_a_channel() {
             key: "w".into()
         }))
     );
+}
+
+/// A chart of one plot of symbols, with the id `id`.
+fn plot(id: &str) -> Chart {
+    let layer = CartesianLayer::symbol(table(), SymbolMark::builder().x("c").y("a"));
+    Chart::builder(Plot::cartesian([layer]).id(id))
+        .build()
+        .unwrap()
+}
+
+/// The children of a chart in its order, with each child's member.
+fn children(node: &proto::Node) -> &[proto::Node] {
+    match &node.node {
+        Some(proto::node::Node::Concat(concat)) => &concat.children,
+        Some(proto::node::Node::Wrap(wrap)) => &wrap.children,
+        other => panic!("a concat or a wrap, not {other:?}"),
+    }
+}
+
+/// The values of the partition column `column` of the children of `chart`'s root, as strings,
+/// with `None` for a null value, and whether each child is empty.
+fn cells(chart: &Chart, node: &proto::Node, column: &str) -> Vec<(Option<String>, bool)> {
+    children(node)
+        .iter()
+        .map(|child| {
+            let (partition, empty) = match &child.node {
+                Some(proto::node::Node::Plot(plot)) => (&plot.partition, false),
+                Some(proto::node::Node::Concat(concat)) => (&concat.partition, false),
+                Some(proto::node::Node::Wrap(wrap)) => (&wrap.partition, false),
+                Some(proto::node::Node::Empty(empty)) => (&empty.partition, true),
+                None => panic!("a node"),
+            };
+            let value = partition
+                .iter()
+                .find(|value| value.column == column)
+                .unwrap();
+            let value = chart.partition_value(value);
+            let text = (!value.is_null(0))
+                .then(|| arrow::util::display::array_value_to_string(value.as_ref(), 0).unwrap());
+            (text, empty)
+        })
+        .collect()
+}
+
+fn key(value: Option<&str>) -> Option<ArrayRef> {
+    Some(Arc::new(StringArray::from(vec![value])))
+}
+
+fn child(chart: Option<Chart>, value: Option<&str>) -> Child {
+    Child {
+        chart,
+        key: key(value),
+    }
+}
+
+#[test]
+fn layer_overlays_the_plots_of_its_charts() {
+    let layer = composition("layer").unwrap();
+    let charts = vec![
+        Child {
+            chart: Some(plot("a")),
+            key: None,
+        },
+        Child {
+            chart: None,
+            key: None,
+        },
+        Child {
+            chart: Some(plot("a")),
+            key: None,
+        },
+    ];
+    let chart = layer
+        .compose(None, charts, ChildOrder::AsGiven, &[])
+        .unwrap();
+    let expected = Chart::builder(Plot::overlay([plot("a"), plot("a")]))
+        .build()
+        .unwrap();
+    assert_eq!(chart, expected);
+
+    let concat = Chart::builder(Concat::new(Direction::Row).children([plot("a")]))
+        .build()
+        .unwrap();
+    let charts = vec![Child {
+        chart: Some(concat),
+        key: None,
+    }];
+    let error = layer
+        .compose(None, charts, ChildOrder::AsGiven, &[])
+        .unwrap_err();
+    assert!(matches!(error.reason, Reason::Composition(_)), "{error:?}");
+    assert!(
+        error.to_string().contains("has a concat at its root"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_concat_takes_the_options_of_its_node() {
+    let gap = call("concat_layout", vec![("gap", Arg::Int(8))]).unwrap();
+    for (name, direction) in [("hconcat", Direction::Row), ("vconcat", Direction::Column)] {
+        let concat = composition(name).unwrap();
+        let mut options = vec![None; concat.params.len()];
+        let at = |param: &str| concat.params.iter().position(|p| p.name == param).unwrap();
+        options[at("id")] = Some(Arg::Str("pair".into()));
+        options[at("layout")] = Some(Arg::Fragment(gap.clone()));
+        let charts = vec![
+            Child {
+                chart: Some(plot("a")),
+                key: None,
+            },
+            Child {
+                chart: Some(plot("b")),
+                key: None,
+            },
+        ];
+        let chart = concat
+            .compose(None, charts, ChildOrder::AsGiven, &options)
+            .unwrap();
+        let Some(proto::node::Node::Concat(root)) = &chart.root().node else {
+            panic!("a concat");
+        };
+        assert_eq!(root.direction, direction as i32);
+        assert_eq!(root.id, "pair");
+        assert_eq!(
+            root.layout.as_ref().and_then(|layout| layout.gap),
+            Some(8.0)
+        );
+        assert_eq!(root.children.len(), 2);
+    }
+}
+
+#[test]
+fn a_facet_orders_its_keys_with_null_last_and_draws_an_empty_cell_for_a_null_chart() {
+    let facet = composition("facet_col").unwrap();
+    let charts = vec![
+        child(Some(plot("p")), Some("Torgersen")),
+        child(Some(plot("p")), None),
+        child(None, Some("Biscoe")),
+        child(Some(plot("p")), Some("Dream")),
+    ];
+    let chart = facet
+        .compose(Some("island"), charts, ChildOrder::ByKey, &[])
+        .unwrap();
+    let Some(proto::node::Node::Concat(root)) = &chart.root().node else {
+        panic!("a concat");
+    };
+    assert_eq!(root.direction, Direction::Row as i32);
+    assert_eq!(root.facet.as_ref().unwrap().column, "island");
+    let expected = [
+        (Some("Biscoe".to_string()), true),
+        (Some("Dream".to_string()), false),
+        (Some("Torgersen".to_string()), false),
+        (None, false),
+    ];
+    assert_eq!(cells(&chart, chart.root(), "island"), expected);
+}
+
+#[test]
+fn a_facet_takes_one_chart_for_each_key_value() {
+    let facet = composition("facet_row").unwrap();
+    let charts = vec![
+        child(Some(plot("p")), Some("a")),
+        child(Some(plot("p")), Some("a")),
+    ];
+    let error = facet
+        .compose(Some("k"), charts, ChildOrder::ByKey, &[])
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("two rows have the key value a"),
+        "{error}"
+    );
+
+    // The constructor takes no column, but a fragment of a facet can name one.
+    let other = proto::FacetBuilder::from("other").to_fragment().unwrap();
+    let mut options = vec![None; facet.params.len()];
+    let at = facet.params.iter().position(|p| p.name == "facet").unwrap();
+    options[at] = Some(Arg::Fragment(other));
+    let charts = vec![child(Some(plot("p")), Some("a"))];
+    let error = facet
+        .compose(Some("k"), charts, ChildOrder::ByKey, &options)
+        .unwrap_err();
+    assert_eq!(error.path, ["facet"]);
+    assert!(
+        error.to_string().contains("names the column `other`"),
+        "{error}"
+    );
+    // A binding checks the options before it composes rows.
+    let checked = facet.check(Some("k"), &options).unwrap_err();
+    assert_eq!(checked.to_string(), error.to_string());
+    facet.check(Some("other"), &options).unwrap();
+}
+
+#[test]
+fn a_facet_of_facets_aligns_their_cells() {
+    let cols = composition("facet_col").unwrap();
+    let row = |values: &[&str]| {
+        let charts = values
+            .iter()
+            .map(|v| child(Some(plot("p")), Some(v)))
+            .collect();
+        cols.compose(Some("island"), charts, ChildOrder::ByKey, &[])
+            .unwrap()
+    };
+    // The male row lacks Dream.
+    let charts = vec![
+        child(Some(row(&["Biscoe", "Dream"])), Some("female")),
+        child(Some(row(&["Biscoe"])), Some("male")),
+    ];
+    let grid = composition("facet_row")
+        .unwrap()
+        .compose(Some("sex"), charts, ChildOrder::ByKey, &[])
+        .unwrap();
+    let rows = children(grid.root());
+    assert_eq!(rows.len(), 2);
+    let biscoe = (Some("Biscoe".to_string()), false);
+    assert_eq!(
+        cells(&grid, &rows[0], "island"),
+        [biscoe.clone(), (Some("Dream".to_string()), false)]
+    );
+    assert_eq!(
+        cells(&grid, &rows[1], "island"),
+        [biscoe, (Some("Dream".to_string()), true)]
+    );
+}
+
+#[test]
+fn a_wrapped_facet_and_an_empty_composition() {
+    let wrap = composition("facet_wrap").unwrap();
+    let charts = vec![
+        child(Some(plot("p")), Some("b")),
+        child(Some(plot("p")), Some("a")),
+    ];
+    let chart = wrap
+        .compose(Some("k"), charts, ChildOrder::AsGiven, &[])
+        .unwrap();
+    let Some(proto::node::Node::Wrap(root)) = &chart.root().node else {
+        panic!("a wrap");
+    };
+    assert_eq!(root.facet.as_ref().unwrap().column, "k");
+    let order: Vec<Option<String>> = (cells(&chart, chart.root(), "k").into_iter())
+        .map(|(value, _)| value)
+        .collect();
+    assert_eq!(order, [Some("b".to_string()), Some("a".to_string())]);
+
+    for name in ["layer", "hconcat", "facet_col"] {
+        let chart = composition(name)
+            .unwrap()
+            .compose(Some("k"), Vec::new(), ChildOrder::ByKey, &[])
+            .unwrap();
+        assert!(matches!(
+            chart.root().node,
+            Some(proto::node::Node::Empty(_))
+        ));
+    }
 }

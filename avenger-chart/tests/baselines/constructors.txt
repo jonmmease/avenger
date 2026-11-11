@@ -355,3 +355,50 @@ log_scale(base, clamp, round)
 linear_scale(clamp, round)
   clamp: Boolean
   round: Boolean
+layer(chart, id, title, attribution, tools, resolve, width, height, classes)
+  id: string
+  title: string -> text; title(...)
+  attribution: attribution(...)
+  tools: array of tool(...)
+  resolve: array of resolve(...)
+  width: number
+  height: number
+  classes: array of string
+hconcat(chart, id, resolve, layout, title, projection, classes)
+  id: string
+  resolve: array of resolve(...)
+  layout: concat_layout(...)
+  title: string -> text; title(...)
+  projection: one of shared, independent
+  classes: array of string
+vconcat(chart, id, resolve, layout, title, projection, classes)
+  id: string
+  resolve: array of resolve(...)
+  layout: concat_layout(...)
+  title: string -> text; title(...)
+  projection: one of shared, independent
+  classes: array of string
+facet_row(chart, key, id, resolve, layout, title, projection, facet, classes)
+  id: string
+  resolve: array of resolve(...)
+  layout: concat_layout(...)
+  title: string -> text; title(...)
+  projection: one of shared, independent
+  facet: facet(...)
+  classes: array of string
+facet_col(chart, key, id, resolve, layout, title, projection, facet, classes)
+  id: string
+  resolve: array of resolve(...)
+  layout: concat_layout(...)
+  title: string -> text; title(...)
+  projection: one of shared, independent
+  facet: facet(...)
+  classes: array of string
+facet_wrap(chart, key, id, resolve, layout, title, projection, facet, classes)
+  id: string
+  resolve: array of resolve(...)
+  layout: wrap_layout(...)
+  title: string -> text; title(...)
+  projection: one of shared, independent
+  facet: facet(...)
+  classes: array of string

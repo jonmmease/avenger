@@ -28,6 +28,8 @@ use prost::Message;
 mod annotations;
 #[path = "codegen/builders.rs"]
 mod builders;
+#[path = "codegen/compositions.rs"]
+mod compositions;
 #[path = "codegen/constructors.rs"]
 mod constructors;
 #[path = "codegen/mark_functions.rs"]
@@ -154,6 +156,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::write(
             out.join("constructors.rs"),
             constructors::constructors(&model, &comments, &constructor_names)?,
+        )?;
+        std::fs::write(
+            out.join("compositions.rs"),
+            compositions::compositions(&model)?,
         )?;
         std::fs::write(
             out.join("mark_functions.rs"),

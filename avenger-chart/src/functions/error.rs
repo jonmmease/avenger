@@ -45,6 +45,9 @@ pub enum Reason {
     NullItem,
     /// A call of a mark function that breaks a rule of its mark.
     Mark(String),
+    /// A composition of charts that breaks a rule of its composition, such as two charts of a facet
+    /// with one key value.
+    Composition(String),
     /// A message that the builders reject.
     Invalid(ChartError),
 }
@@ -110,6 +113,10 @@ impl ArgError {
         Self::new(Reason::Mark(message.into()))
     }
 
+    pub(crate) fn composition(message: impl Into<String>) -> Self {
+        Self::new(Reason::Composition(message.into()))
+    }
+
     pub(crate) fn invalid(error: ChartError) -> Self {
         Self::new(Reason::Invalid(error))
     }
@@ -151,7 +158,7 @@ impl fmt::Display for ArgError {
                 write!(f, "takes one of {}, not `{found}`", names(members, ", "))
             }
             Reason::NullItem => write!(f, "takes an array without NULL items"),
-            Reason::Mark(message) => write!(f, "{message}"),
+            Reason::Mark(message) | Reason::Composition(message) => write!(f, "{message}"),
             Reason::Invalid(error) => write!(f, "{error}"),
         }
     }
