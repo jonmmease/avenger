@@ -2,13 +2,22 @@
 //! sqlparser-rs 0.62 does not parse. It reads no schemas and no functions:
 //!
 //! - A word with the reserved prefix `__avenger_` is an error at the word.
+//! - A trailing comma becomes a space: a comma before `)`, `]`, `|>`, `;`, the end of the text,
+//!   or a clause keyword that cannot start an expression, `FROM`, `WHERE`, `GROUP`, `HAVING`,
+//!   `ORDER`, or `LIMIT`, without `=>` after it, which makes it the name of an argument, as in
+//!   `order => year`. So a call, a list, or the items of an operator can end in a comma. Each
+//!   is a parser error of sqlparser-rs 0.62, which takes a trailing comma only in a `SELECT` list.
+//!   Removed by sqlparser-rs parsing trailing commas in these lists.
 //! - `|> CHART <items> [GROUP BY ...]` becomes `|> AGGREGATE __avenger_chart() AS __avenger_chart,
 //!   <items> [GROUP BY ...]`, the `AGGREGATE` of a marker and the items, which the syntax pass
 //!   consumes. `CHART` is an operator of avenger-sql, so no upstream change removes the item.
 
 use datafusion::{
     common::Result,
-    sql::sqlparser::tokenizer::{Token, TokenWithSpan, Whitespace},
+    sql::sqlparser::{
+        keywords::Keyword,
+        tokenizer::{Token, TokenWithSpan, Whitespace},
+    },
 };
 
 use crate::{chart::MARKER, error::at};
@@ -31,7 +40,51 @@ pub(crate) fn rewrite(tokens: Vec<TokenWithSpan>) -> Result<Vec<TokenWithSpan>> 
             }
         }
     }
-    chart_markers(tokens)
+    chart_markers(trailing_commas(tokens))
+}
+
+/// The clause keywords before which a comma is a trailing comma: none can be a bare column name,
+/// so none starts an expression after a comma. `WINDOW` and `QUALIFY` can, so a comma before them
+/// stays.
+const CLAUSES: [Keyword; 6] = [
+    Keyword::FROM,
+    Keyword::WHERE,
+    Keyword::GROUP,
+    Keyword::HAVING,
+    Keyword::ORDER,
+    Keyword::LIMIT,
+];
+
+/// `tokens` with each trailing comma written as a space, which keeps the spans of the others. A
+/// clause keyword followed by `=>` names an argument, so a comma before it stays.
+fn trailing_commas(mut tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
+    for index in 0..tokens.len() {
+        if tokens[index].token != Token::Comma {
+            continue;
+        }
+        let after = next(&tokens, index + 1);
+        let named = matches!(
+            tokens.get(next(&tokens, after + 1)).map(|t| &t.token),
+            Some(Token::RArrow)
+        );
+        let trailing = match tokens.get(after).map(|t| &t.token) {
+            None | Some(Token::EOF) => true,
+            Some(
+                Token::RParen
+                | Token::RBracket
+                | Token::VerticalBarRightAngleBracket
+                | Token::SemiColon,
+            ) => true,
+            Some(Token::Word(word)) => {
+                word.quote_style.is_none() && CLAUSES.contains(&word.keyword) && !named
+            }
+            Some(_) => false,
+        };
+        if trailing {
+            tokens[index].token = Token::Whitespace(Whitespace::Space);
+        }
+    }
+    tokens
 }
 
 /// Whether `token` is whitespace or a comment, which the parser skips.

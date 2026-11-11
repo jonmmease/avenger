@@ -314,3 +314,73 @@ async fn the_mark_items_of_chart_join_their_charts() {
         "{expanded}"
     );
 }
+
+#[tokio::test]
+async fn a_trailing_comma_ends_a_call_a_list_or_the_items_of_an_operator() {
+    // The arguments of a call, and a list.
+    assert_eq!(expand("SELECT abs(-1,), [1, 2,]"), "SELECT abs(-1), [1, 2]");
+    assert_eq!(
+        rows("SELECT abs(-1,) AS a").await,
+        rows("SELECT 1 AS a").await
+    );
+    // The items of a pipe AGGREGATE before GROUP BY, and a GROUP BY list before the next operator.
+    let query = "FROM penguins |> AGGREGATE count(*) AS n, GROUP BY island, |> WHERE n > 100";
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT island, count(*) AS n FROM penguins GROUP BY island HAVING count(*) > 100")
+            .await
+    );
+    // A select list before FROM, and the end of a statement.
+    assert_eq!(
+        rows("SELECT island, FROM penguins |> AGGREGATE count(*) AS n,").await,
+        rows("SELECT count(*) AS n FROM penguins").await
+    );
+}
+
+#[tokio::test]
+async fn a_commented_out_last_argument_leaves_a_trailing_comma() {
+    let query = "FROM penguins
+|> CHART bar(
+     x => species,
+     y => count(*),
+     -- color => island,
+   ),
+   count(*) AS n,
+   GROUP BY island,
+|> ORDER BY island";
+    assert_eq!(
+        rows(&format!("FROM ({query}) |> SELECT island, n")).await,
+        rows("FROM penguins |> AGGREGATE count(*) AS n GROUP BY island |> ORDER BY island").await
+    );
+    // The tools of a mark, a list of calls.
+    let query = "FROM penguins |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, tools => [navigate(), tooltip(),],)";
+    assert_eq!(charts(query).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_comma_before_the_name_of_an_argument_stays() {
+    // `order` and `limit` name arguments here, not clauses.
+    let query = "FROM penguins |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order => body_mass_g)";
+    assert_eq!(charts(query).await.len(), 1);
+    let query = "FROM penguins |> CHART bar(x => species, y => count(*), impute => impute(value => 0, extra_keys => ['x'],),)";
+    assert_eq!(charts(query).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_comma_before_a_word_that_names_a_column_stays() {
+    // WINDOW and QUALIFY can be bare column names, so a comma before them separates items.
+    let query = r#"SELECT x, window, qualify FROM (SELECT 1 AS x, 2 AS "window", 3 AS "qualify")"#;
+    assert_eq!(rows(query).await.len(), 5, "{:#?}", rows(query).await);
+    assert!(rows(query)
+        .await
+        .iter()
+        .any(|row| row.contains("| 1 | 2      | 3       |")));
+}
+
+#[tokio::test]
+async fn an_error_after_a_trailing_comma_points_to_its_text() {
+    let query = "SELECT abs(-1,), nosuch FROM penguins";
+    let error = planning_error(query).await;
+    assert!(error.to_string().contains("nosuch"), "{error}");
+    assert_eq!(position(&error), (1, column_of(query, "nosuch")));
+}
