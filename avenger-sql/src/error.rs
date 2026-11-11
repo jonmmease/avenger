@@ -14,3 +14,16 @@ pub(crate) fn at(span: tokenizer::Span, message: impl Into<String>) -> DataFusio
         Span::try_from_sqlparser_span(span),
     ))
 }
+
+/// A planning error at `span`, as [`at`], with the help `help`.
+pub(crate) fn at_with_help(
+    span: tokenizer::Span,
+    message: impl Into<String>,
+    help: impl Into<String>,
+) -> DataFusionError {
+    let message = message.into();
+    let mut diagnostic =
+        Diagnostic::new_error(message.clone(), Span::try_from_sqlparser_span(span));
+    diagnostic.add_help(help, None);
+    DataFusionError::Plan(message).with_diagnostic(diagnostic)
+}

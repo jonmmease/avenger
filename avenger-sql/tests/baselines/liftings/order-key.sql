@@ -1,0 +1,1 @@
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n GROUP BY species, island |> AGGREGATE bar(x => species, y => scaled(n, title => 'count(*)'), color => island ORDER BY island DESC) AS chart

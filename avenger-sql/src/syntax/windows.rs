@@ -7,46 +7,34 @@
 use std::ops::ControlFlow;
 
 use datafusion::sql::sqlparser::ast::{
-    helpers::attached_token::AttachedToken, Expr, GroupByExpr, ObjectNamePart, PipeOperator, Query,
-    Select, SelectFlavor, SelectItem, SetExpr, TableFactor, TableWithJoins, Visit, Visitor,
-    WildcardAdditionalOptions,
+    Expr, ObjectNamePart, PipeOperator, Query, SetExpr, Visit, Visitor,
 };
 
-/// Writes each pipe `SELECT` or `EXTEND` of `query` whose items call a window function or
-/// `unnest` as `SELECT <items> FROM (<prefix>)`, or `SELECT *, <items> FROM (<prefix>)`, where
-/// the prefix is the query before the operator. The operators after it continue on the derived
-/// table, which keeps the qualifiers of the prefix in DataFusion 55.2, and the `WITH` clause of
-/// `query` stays on the outer query, so the later operators read its tables.
-pub(super) fn split(query: &mut Query) {
-    while let Some(index) = query.pipe_operators.iter().position(windowed) {
-        let rest = query.pipe_operators.split_off(index + 1);
-        let projection = match query.pipe_operators.pop() {
-            Some(PipeOperator::Select { exprs }) => exprs,
-            Some(PipeOperator::Extend { exprs }) => {
-                let mut items = vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
-                items.extend(exprs);
-                items
-            }
-            _ => unreachable!("the operator is a SELECT or an EXTEND"),
-        };
-        let with = query.with.take();
-        let prefix = std::mem::replace(query, empty_query());
-        *query = Query {
-            with,
-            body: Box::new(SetExpr::Select(Box::new(select(projection, prefix)))),
-            pipe_operators: rest,
-            ..empty_query()
-        };
-    }
-}
+use super::{build, split_prefix};
 
 /// Whether `operator` is a pipe `SELECT` or `EXTEND` whose items call a window function or
 /// `unnest`.
-fn windowed(operator: &PipeOperator) -> bool {
+pub(super) fn windowed(operator: &PipeOperator) -> bool {
     let (PipeOperator::Select { exprs } | PipeOperator::Extend { exprs }) = operator else {
         return false;
     };
     exprs.visit(&mut Windowed).is_break()
+}
+
+/// Writes the pipe `SELECT` or `EXTEND` at `index` of `query` as `SELECT <items> FROM (<prefix>)`,
+/// or `SELECT *, <items> FROM (<prefix>)`, where the prefix is the query before the operator. The
+/// derived table keeps the qualifiers of the prefix in DataFusion 55.2.
+pub(super) fn split(query: &mut Query, index: usize) {
+    let (prefix, operator) = split_prefix(query, index);
+    let projection = match operator {
+        PipeOperator::Select { exprs } => exprs,
+        PipeOperator::Extend { exprs } => std::iter::once(build::wildcard()).chain(exprs).collect(),
+        _ => unreachable!("the operator is a SELECT or an EXTEND"),
+    };
+    *query.body = SetExpr::Select(Box::new(build::select(
+        projection,
+        Some(build::derived(prefix)),
+    )));
 }
 
 /// Breaks at a call with `OVER` or a call of `unnest`.
@@ -69,65 +57,5 @@ impl Visitor for Windowed {
             }
             _ => ControlFlow::Continue(()),
         }
-    }
-
-    fn pre_visit_query(&mut self, _query: &Query) -> ControlFlow<()> {
-        // A subquery plans on its own.
-        ControlFlow::Continue(())
-    }
-}
-
-/// A query of no rows and no operators, which the caller fills.
-fn empty_query() -> Query {
-    Query {
-        with: None,
-        body: Box::new(SetExpr::Select(Box::new(select(Vec::new(), None)))),
-        order_by: None,
-        limit_clause: None,
-        fetch: None,
-        locks: Vec::new(),
-        for_clause: None,
-        settings: None,
-        format_clause: None,
-        pipe_operators: Vec::new(),
-    }
-}
-
-/// `SELECT <projection> FROM (<from>)`, or a `SELECT` without `FROM`.
-fn select(projection: Vec<SelectItem>, from: impl Into<Option<Query>>) -> Select {
-    let from = from.into().map(|query| TableWithJoins {
-        relation: TableFactor::Derived {
-            lateral: false,
-            subquery: Box::new(query),
-            alias: None,
-            sample: None,
-        },
-        joins: Vec::new(),
-    });
-    Select {
-        select_token: AttachedToken::empty(),
-        optimizer_hints: Vec::new(),
-        distinct: None,
-        select_modifiers: None,
-        top: None,
-        top_before_distinct: false,
-        projection,
-        exclude: None,
-        into: None,
-        from: from.into_iter().collect(),
-        lateral_views: Vec::new(),
-        prewhere: None,
-        selection: None,
-        connect_by: Vec::new(),
-        group_by: GroupByExpr::Expressions(Vec::new(), Vec::new()),
-        cluster_by: Vec::new(),
-        distribute_by: Vec::new(),
-        sort_by: Vec::new(),
-        having: None,
-        named_window: Vec::new(),
-        qualify: None,
-        window_before_qualify: false,
-        value_table_mode: None,
-        flavor: SelectFlavor::Standard,
     }
 }

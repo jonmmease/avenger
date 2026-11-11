@@ -132,3 +132,42 @@ async fn a_grid_of_scatter_plots_by_sex_and_island() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "facet-grid-sex-island");
 }
+
+#[tokio::test]
+async fn a_histogram_of_chart() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*))";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-histogram");
+}
+
+#[tokio::test]
+async fn a_lump_bar_of_chart() {
+    let query = "FROM penguins
+|> CHART bar(x => lump(species, n => 2), y => count(*), color => lump(species, n => 2))";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-lump-bar");
+}
+
+/// The panels of a facet of histograms share their bins with the default `OVER ()`, and each
+/// panel has its own bins with `OVER panel`.
+#[tokio::test]
+async fn a_facet_of_histograms_with_shared_and_own_bins() {
+    for (window, name) in [
+        ("", "chart-facet-histograms"),
+        (" OVER panel", "chart-facet-histograms-panel"),
+    ] {
+        let query = format!(
+            "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> CHART bar(x => bin(body_mass_g){window}, y => count(*)) GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart"
+        );
+        let charts = charts(&query).await;
+        assert_eq!(charts.len(), 1);
+        render(&charts[0], name);
+    }
+}

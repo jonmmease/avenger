@@ -13,6 +13,7 @@ FROM penguins
 - A word that starts with `__avenger_` is an error at the word. The passes generate the names with this prefix, so a query cannot collide with them.
 - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over a derived table of the operators before it, because DataFusion plans a window of a pipe `EXTEND` and fails to run it. So `FROM t |> EXTEND rank() OVER (ORDER BY x) AS r` becomes `SELECT *, rank() OVER (ORDER BY x) AS r FROM (SELECT * FROM t)`. The derived table keeps the qualifiers of the tables before it, so `x.b` stays valid after a window over `t AS x`, and the CTEs of the query stay readable after it.
+- `|> CHART <mark call> [AS name] [GROUP BY ...]` becomes the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name => <name>)`, which the mark planner plans ([`|> CHART`](#-chart)). The token pass writes the operator as a pipe `AGGREGATE`, so its items and its `GROUP BY` parse as those of an `AGGREGATE`, and a group expression becomes a column of the input. The pass does not lower the mark call, whose channels the mark planner reads as written.
 - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the transform, after the positional arguments, so `bin(x, maxbins => 30)` becomes `bin(x, 'maxbins', 30)`. The `weight` and `keep` of `lump` are SQL expressions over the rows of each category, and the pass passes their text, so `weight => sum(units)` becomes `'weight', 'sum(units)'`.
 - A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.
 
@@ -50,5 +51,46 @@ FROM penguins
 - `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY`. A facet labels each chart with its value, and its column is the name of the key's column. Two rows with one key value are an error, and a `NULL` chart is an empty cell.
 - A `facet_row` of `facet_col` charts, or a `facet_col` of `facet_row` charts, aligns their cells, with an empty cell for each value that an inner facet lacks, so it is a grid.
 - The options are those of the format's `Plot`, `Concat`, and `Wrap`, such as `layout => concat_layout(gap => 8)` and `facet => facet(side => 'bottom')`, and they are plan-time constants.
+
+## `|> CHART`
+
+The pipe operator `|> CHART` takes a mark call whose channels compute their statistics: `bin`, `timeunit`, and `lump`, and aggregates, with a draw order, and groups its rows as a pipe `AGGREGATE` does, with a chart for each group:
+
+```sql
+FROM penguins
+|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*), color => lump(species, n => 2))
+   GROUP BY island
+```
+
+The call means its lifting, a query of stages that ends in the mark aggregate over column references, and `lift` prints it:
+
+```sql
+FROM penguins
+|> EXTEND bin(body_mass_g, maxbins => 20) OVER () AS body_mass_g_bin,
+          lump(species, n => 2) OVER () AS species_lump
+|> AGGREGATE count(*) AS n GROUP BY island, body_mass_g_bin, species_lump
+|> AGGREGATE bar(x => scaled(body_mass_g_bin, title => 'body_mass_g'), y => scaled(n, title => 'count(*)'),
+     color => scaled(species_lump, title => 'species')) AS chart GROUP BY island
+```
+
+- **Stage 1** computes the discretizers, `bin`, `timeunit`, and `lump`, in one `EXTEND` for each depth of nesting, so `lump(timeunit(t, unit => 'month'), n => 3)` truncates in the first and lumps in the second.
+- **Stage 2** computes the aggregates of a call that aggregates in a channel or in its draw order, grouped by the group columns and the keys: the channel values without an aggregate, such as `species`, a discretizer, or a key expression, such as `upper(species)`, which takes the name `x_expr`. An expression over aggregates and keys, such as `count(*) / 2`, reads their columns.
+- **Stage 5** is the mark aggregate, with the draw order of the call over the columns of the earlier stages, grouped by the group columns.
+
+The added columns take short names: `n` for `count(*)`, `<aggregate>_<column>` such as `sum_units`, `<column>_bin`, `<column>_unit`, `<column>_lump`, and `<channel>_expr`, with the smallest free suffix `_2`, `_3`, and so on for a name that the input already has. A scaled channel whose column the lifting creates takes the title of its source: a discretizer the title of its argument, so the axis of `bin(body_mass_g)` is `body_mass_g`, and another value its text, such as `count(*)`. A `title` of its `scaled` wins.
+
+Each group is a panel. A discretizer without a window computes over every row of the input, `OVER ()`, so the panels share their bins, their units, and their kept categories, and compare. `OVER panel` computes in each panel, the window `PARTITION BY` the group columns, and a window with only a `PARTITION BY` list computes in its own partition. The output of the call is the group columns, in the order of the `GROUP BY` list, and the chart, one row for each panel, as a pipe `AGGREGATE` gives them, so a composition aggregate composes the panels ([Compositions](#compositions)):
+
+```sql
+FROM penguins
+|> CHART bar(x => bin(body_mass_g), y => count(*)) GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
+```
+
+The chart column is `chart`, or the alias of the mark call, as in `|> CHART bar(...) AS counts GROUP BY island`. A group expression is a column of its alias or of its text, so `GROUP BY upper(island) AS isle` returns `isle` and `chart`. A mark call takes no `OVER` clause, and an item or a group takes no `ASC` or `DESC`.
+
+The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, an option that is not a plan-time constant, and an argument of a transform of a type that the transform rejects, with the error of the transform.
+
+These forms are not supported yet: stacks and window functions in channels, conditional channels, a `CASE` with `scaled` or `direct` in a result, domain orders by an aggregate, `impute`, and inline compositions.
 
 The example `sql-chart` shows the chart of a query in a chart app.
