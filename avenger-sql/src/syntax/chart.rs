@@ -8,7 +8,8 @@
 //! An item that holds mark calls inside an expression, such as `layer(bar(...), rule(...))`, is
 //! an expression item: each mark call is a chart column of its own, each other part of the
 //! expression without a mark call is an aggregate column, and the item is the expression over
-//! those columns, which the output computes for each group.
+//! those columns, which the output computes for each group. An expression whose value is a chart
+//! in a field without the chart extension, such as a `CASE`, is in a call of `chart`.
 //!
 //! The aggregate items are a pipe `AGGREGATE` of their own over a copy of the prefix, which has
 //! every group. The other relations, the charts, join the first, the aggregate items or the first
@@ -22,10 +23,10 @@ use datafusion::{
     sql::sqlparser::{
         ast::{
             Array, BinaryOperator, Expr, ExprWithAlias, ExprWithAliasAndOrderBy, Function,
-            FunctionArg, FunctionArgExpr, FunctionArgOperator, FunctionArguments, Ident, Join,
-            JoinConstraint, JoinOperator, ObjectName, OrderByOptions, PipeOperator, Query,
-            SelectItem, SetExpr, Spanned, TableAlias, TableFactor, TableFunctionArgs, Value, Visit,
-            VisitMut, Visitor, VisitorMut,
+            FunctionArg, FunctionArgExpr, FunctionArgOperator, FunctionArgumentList,
+            FunctionArguments, Ident, Join, JoinConstraint, JoinOperator, ObjectName,
+            OrderByOptions, PipeOperator, Query, SelectItem, SetExpr, Spanned, TableAlias,
+            TableFactor, TableFunctionArgs, Value, Visit, VisitMut, Visitor, VisitorMut,
         },
         tokenizer::Span,
     },
@@ -572,7 +573,7 @@ impl ChartOperator {
                     })
                     .collect();
                 SelectItem::ExprWithAlias {
-                    expr: replace_placeholders(&expression.template, &map),
+                    expr: marked(replace_placeholders(&expression.template, &map)),
                     alias: expression.name.clone(),
                 }
             }
@@ -624,6 +625,44 @@ impl Visitor for AroundMarks<'_> {
             false => ControlFlow::Continue(()),
         }
     }
+}
+
+/// The compositions of a row, whose result is a column of charts.
+const COMPOSITIONS: [&str; 3] = ["layer", "hconcat", "vconcat"];
+
+/// `expr` in a call of `chart` when its value is a chart in a field that DataFusion does not
+/// mark: a `CASE`, a cast, the field of an array or a struct, or the call of a function other than
+/// a composition, such as `coalesce`. A composition marks its result, and an expression of another
+/// kind, such as `bar(...) IS NULL`, is not a chart.
+fn marked(expr: Expr) -> Expr {
+    let mut inner = &expr;
+    while let Expr::Nested(nested) = inner {
+        inner = nested;
+    }
+    let unmarked = match inner {
+        Expr::Function(function) => !(function_name(function))
+            .is_some_and(|name| COMPOSITIONS.contains(&name.as_str()) || name == "chart"),
+        Expr::Case { .. } | Expr::Cast { .. } | Expr::CompoundFieldAccess { .. } => true,
+        _ => false,
+    };
+    if !unmarked {
+        return expr;
+    }
+    let span = expr.span();
+    Expr::Function(Function {
+        name: ObjectName::from(vec![Ident::with_span(span, "chart")]),
+        uses_odbc_syntax: false,
+        parameters: FunctionArguments::None,
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            args: vec![FunctionArg::Unnamed(FunctionArgExpr::Expr(expr))],
+            clauses: Vec::new(),
+        }),
+        filter: None,
+        null_treatment: None,
+        over: None,
+        within_group: Vec::new(),
+    })
 }
 
 /// `template` with each placeholder of `map` replaced by its expression.

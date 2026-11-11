@@ -19,7 +19,6 @@
 
 use std::sync::Arc;
 
-use avenger_chart::EXTENSION_NAME;
 use datafusion::{
     common::{config::ConfigOptions, tree_node::Transformed, Column, Result},
     functions_aggregate::expr_fn::min,
@@ -103,12 +102,7 @@ fn order(aggregate: Aggregate) -> Result<Transformed<LogicalPlan>> {
     }
     for (qualifier, field) in input.schema().iter() {
         let column = Column::new(qualifier.cloned(), field.name());
-        let chart = field
-            .metadata()
-            .get("ARROW:extension:name")
-            .map(String::as_str)
-            == Some(EXTENSION_NAME);
-        if field.name() == BRANCH || chart || grouped.contains(&column) {
+        if field.name() == BRANCH || super::holds_charts(field) || grouped.contains(&column) {
             continue;
         }
         keys.push(Expr::Column(column).sort(true, false));

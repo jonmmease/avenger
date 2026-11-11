@@ -55,7 +55,8 @@ async fn charts(query: &str) -> Vec<Chart> {
     charts_in(query, "chart").await
 }
 
-/// The charts of the column `name` of `query`, in the order of its rows.
+/// The charts of the column `name` of `query`, in the order of its rows, a column of the chart
+/// extension.
 async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
     let batches = avenger_sql::sql(&session(), query)
         .await
@@ -66,6 +67,15 @@ async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
     let mut charts = Vec::new();
     for batch in batches {
         let column = batch.column_by_name(name).expect("a chart column");
+        let schema = batch.schema();
+        let extension = (schema.field_with_name(name).unwrap().metadata())
+            .get("ARROW:extension:name")
+            .cloned();
+        assert_eq!(
+            extension.as_deref(),
+            Some(avenger_chart::EXTENSION_NAME),
+            "the column `{name}` of {query}"
+        );
         for chart in charts_from_arrow(column, Decode::Auto).unwrap() {
             charts.push(chart.unwrap());
         }
@@ -1447,6 +1457,18 @@ async fn an_expression_item_reads_aggregates_outside_its_mark_calls() {
     let bars = self::charts(&alone(BARS)).await;
     let bills = self::charts(&alone(bills)).await;
     assert_eq!(charts, [bars[0].clone(), bars[1].clone(), bills[2].clone()]);
+    // A composition reads the charts of a `CASE`, and an island without bars has the mean only.
+    let query = format!(
+        "{PENGUINS} |> CHART layer(CASE WHEN count(*) > 100 THEN {BARS} END, {MEAN}) AS chart \
+         GROUP BY island |> ORDER BY island"
+    );
+    let charts = lifted("expression-item-case-layer", &query).await;
+    let columns_first = format!(
+        "{PENGUINS} |> CHART count(*) AS n, {BARS} AS bars, {MEAN} AS mean GROUP BY island \
+         |> SELECT island, layer(CASE WHEN n > 100 THEN bars END, mean) AS chart |> ORDER BY island"
+    );
+    assert_eq!(charts, self::charts(&columns_first).await);
+    assert_eq!(charts[2], self::charts(&alone(MEAN)).await[2]);
 }
 
 #[tokio::test]

@@ -12,14 +12,15 @@
 //! `vconcat_agg` compose the charts of a group. A call takes up to [`CHARTS`] charts, its
 //! children in the order of the arguments, then the options of its composition by name. The
 //! syntax pass passes `NULL` for each chart that a call with options omits, and a `NULL` chart is
-//! no child, as for the aggregates.
+//! no child, as for the aggregates. A chart argument is a column of charts or a `BinaryView`
+//! without the chart extension, such as the result of a `CASE`, whose values decode as charts.
 
 use std::sync::Arc;
 
 use avenger_chart::{
     chart_field, charts_from_arrow,
     functions::{Arg, Child, ChildOrder, Composition},
-    Decode, EXTENSION_NAME,
+    Decode,
 };
 use datafusion::{
     arrow::{
@@ -150,15 +151,11 @@ impl ScalarUDFImpl for CombineFunction {
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
         let name = self.spec.name;
         for (index, field) in args.arg_fields.iter().take(CHARTS).enumerate() {
-            let chart = field
-                .metadata()
-                .get("ARROW:extension:name")
-                .map(String::as_str)
-                == Some(EXTENSION_NAME);
-            if !chart && field.data_type() != &DataType::Null {
+            if !super::holds_charts(field) && field.data_type() != &DataType::Null {
                 return plan_err!(
-                    "{name}() composes charts, and its argument {} is not a chart",
-                    index + 1
+                    "{name}() composes charts, and its argument {} is a {}, not a chart",
+                    index + 1,
+                    field.data_type()
                 );
             }
         }
@@ -202,13 +199,12 @@ impl ScalarUDFImpl for CombineFunction {
         }
         let options = self.options(&options.iter().map(Some).collect::<Vec<_>>())?;
         let mut charts = Vec::with_capacity(arrays.len());
-        for array in &arrays {
+        for (index, array) in arrays.iter().enumerate() {
             match array.data_type() {
                 DataType::Null => charts.push(vec![None; rows]),
-                _ => charts.push(
-                    charts_from_arrow(array.as_ref(), Decode::Auto)
-                        .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?,
-                ),
+                _ => charts.push(charts_from_arrow(array.as_ref(), Decode::Auto).map_err(
+                    |error| exec_datafusion_err!("{name}(): argument {}: {error}", index + 1),
+                )?),
             }
         }
         let mut builder = BinaryViewBuilder::with_capacity(rows);

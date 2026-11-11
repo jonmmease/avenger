@@ -19,7 +19,7 @@ use std::{
 use avenger_chart::{
     chart_field, charts_from_arrow,
     functions::{Arg, Child, ChildOrder, Composition, CompositionKind},
-    Decode, EXTENSION_NAME,
+    Decode,
 };
 use datafusion::{
     arrow::{
@@ -217,12 +217,7 @@ fn bind(
         return plan_err!("{name}() needs a column of charts");
     };
     let (_, field) = chart.to_field(schema)?;
-    if field
-        .metadata()
-        .get("ARROW:extension:name")
-        .map(String::as_str)
-        != Some(EXTENSION_NAME)
-    {
+    if !super::holds_charts(&field) {
         return plan_err!(
             "{name}() takes a column of charts, and `{}` is not one",
             column_name(&chart)
