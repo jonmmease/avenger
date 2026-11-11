@@ -22,6 +22,8 @@ Every constructor of a `Chart` decodes the chart, checks it against every rule o
 
 A chart that breaks a rule, or two parts that conflict, give a `ChartError::Invalid` that names the path of the field and the rule, such as `root.plot.cartesian.layers: a plot has a layer or more`. The checks that need a renderer are left to the renderer: the names of custom scales and custom projections, and whether its text engine has formatters of the chart's format syntaxes.
 
+Text that the producer writes is Typst markup, and text from the data is plain. A `Title`, the title and the subtitle of a plot, a concat, a wrap, an axis, a legend, a facet, or a widget, reads as Typst markup unless its `syntax` is plain, so `Title::new("*Fuel* economy")` draws bold text, and a title of untrusted text sets `TextSyntax::Plain`. The titles that a part takes from the data are plain: an axis's or a legend's title from the titles of its encodings or its columns' names, and a facet's or a widget's title from its column's name. The values of labels, tooltips, and the `text` channel are plain, and the markup of labels, the credits of an attribution, and the labels of modes are Typst markup.
+
 The canonical form:
 
 - declares each partition value once, on the highest node whose layers and empty cells all hold it
