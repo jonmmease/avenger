@@ -30,6 +30,13 @@ pub(super) struct MarkCall {
     pub(super) order: Vec<OrderByExpr>,
 }
 
+impl MarkCall {
+    /// The span of the mark's name.
+    pub(super) fn span(&self) -> Span {
+        self.function.name.span()
+    }
+}
+
 /// The value of a channel: its kind when `scaled` or `direct` wraps it, and the value inside.
 pub(super) struct ChannelValue {
     /// The parameter name as written.

@@ -54,7 +54,7 @@ FROM penguins
 
 ## `|> CHART`
 
-The pipe operator `|> CHART` takes a mark call whose channels compute their statistics: `bin`, `timeunit`, and `lump`, and aggregates, with a draw order, and groups its rows as a pipe `AGGREGATE` does, with a chart for each group:
+The pipe operator `|> CHART` takes a mark call whose channels compute their statistics: `bin`, `timeunit`, and `lump`, aggregates, `stack`, and window functions, with a draw order, and groups its rows as a pipe `AGGREGATE` does, with a chart for each group:
 
 ```sql
 FROM penguins
@@ -75,11 +75,20 @@ FROM penguins
 
 - **Stage 1** computes the discretizers, `bin`, `timeunit`, and `lump`, in one `EXTEND` for each depth of nesting, so `lump(timeunit(t, unit => 'month'), n => 3)` truncates in the first and lumps in the second.
 - **Stage 2** computes the aggregates of a call that aggregates in a channel or in its draw order, grouped by the group columns and the keys: the channel values without an aggregate, such as `species`, a discretizer, or a key expression, such as `upper(species)`, which takes the name `x_expr`. An expression over aggregates and keys, such as `count(*) / 2`, reads their columns.
+- **Stage 4** computes the stacks and the window functions in one `EXTEND` over the columns of stage 2, so `y => stack(count(*))` stacks the counts, and `count(*) / sum(count(*)) OVER panel` is the share of each count in its panel. A stack is a struct of a `start` and an `end`, which draws from its start to its end.
 - **Stage 5** is the mark aggregate, with the draw order of the call over the columns of the earlier stages, grouped by the group columns.
 
-The added columns take short names: `n` for `count(*)`, `<aggregate>_<column>` such as `sum_units`, `<column>_bin`, `<column>_unit`, `<column>_lump`, and `<channel>_expr`, with the smallest free suffix `_2`, `_3`, and so on for a name that the input already has. A scaled channel whose column the lifting creates takes the title of its source: a discretizer the title of its argument, so the axis of `bin(body_mass_g)` is `body_mass_g`, and another value its text, such as `count(*)`. A `title` of its `scaled` wins.
+The added columns take short names: `n` for `count(*)`, `<aggregate>_<column>` such as `sum_units`, `<column>_bin`, `<column>_unit`, `<column>_lump`, `<column>_stack`, `<function>_<column>_window` such as `sum_n_window`, and `<channel>_expr`, with the smallest free suffix `_2`, `_3`, and so on for a name that the input already has. A scaled channel whose column the lifting creates takes the title of its source: a discretizer or a stack the title of its argument, so the axis of `bin(body_mass_g)` is `body_mass_g`, and another value its text, such as `count(*)`. A `title` of its `scaled` wins.
 
-Each group is a panel. A discretizer without a window computes over every row of the input, `OVER ()`, so the panels share their bins, their units, and their kept categories, and compare. `OVER panel` computes in each panel, the window `PARTITION BY` the group columns, and a window with only a `PARTITION BY` list computes in its own partition. The output of the call is the group columns, in the order of the `GROUP BY` list, and the chart, one row for each panel, as a pipe `AGGREGATE` gives them, so a composition aggregate composes the panels ([Compositions](#compositions)):
+Each group is a panel. A discretizer without a window computes over every row of the input, `OVER ()`, so the panels share their bins, their units, and their kept categories, and compare. A window function of stage 4 also computes over every row of its stage, so `sum(count(*)) OVER ()` sums over every panel. The mark names three windows, which a window clause uses as the named windows of SQL, alone or with an `ORDER BY` and a frame:
+
+- `panel`: `PARTITION BY` the group columns, so `OVER panel` computes in each panel.
+- `stacks`: `panel` and the column of the key channel, for a stack with an order of its own, such as `stack(count(*)) OVER (stacks ORDER BY count(*) DESC)`.
+- `stacked`: `stacks` with the implied order, the default window of `stack`.
+
+A discretizer takes `OVER ()`, `OVER panel`, or a window with only a `PARTITION BY` list. The key channel and the measure channel of a stack come from the orientation of the mark: a channel with an aggregate or a stack is the measure when the other position has neither, then a discrete position, a string, a boolean, a discretizer, or a channel with a band, point, or ordinal scale, is the key when the other is continuous, and then the `orient` property decides, with `x` the key by default. A polar bar reads `theta` and `radius` in place of `x` and `y`, and a polar bar with a stack in `theta` and no `radius` is an arc, which stacks without a key. The implied order follows the legends: the domain order of each series channel, `color`, `fill`, `stroke`, `opacity`, `stroke_dash`, `stroke_width`, `pattern`, and `detail`, in this order, reversed in a vertical stack so that the first category of the legend is the top segment. A domain is ascending with `NULL` last, a `lump` orders its kept categories by weight with the Other group last, and a `domain` or a `category_fit` order of the channel's `scale` orders by its list. The argument of the stack and the other channel columns, ascending, break the ties.
+
+The output of the call is the group columns, in the order of the `GROUP BY` list, and the chart, one row for each panel, as a pipe `AGGREGATE` gives them, so a composition aggregate composes the panels ([Compositions](#compositions)):
 
 ```sql
 FROM penguins
@@ -89,8 +98,8 @@ FROM penguins
 
 The chart column is `chart`, or the alias of the mark call, as in `|> CHART bar(...) AS counts GROUP BY island`. A group expression is a column of its alias or of its text, so `GROUP BY upper(island) AS isle` returns `isle` and `chart`. A mark call takes no `OVER` clause, and an item or a group takes no `ASC` or `DESC`.
 
-The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, an option that is not a plan-time constant, and an argument of a transform of a type that the transform rejects, with the error of the transform.
+The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, a stack window without an order, a stack without a key channel or a measure channel, an option that is not a plan-time constant, and an argument of a transform of a type that the transform rejects, with the error of the transform.
 
-These forms are not supported yet: stacks and window functions in channels, conditional channels, a `CASE` with `scaled` or `direct` in a result, domain orders by an aggregate, `impute`, and inline compositions.
+A stack window that crosses panels, one whose `PARTITION BY` list lacks a group column, has no warning, because the SQL planner of DataFusion 55.2 keeps its warnings to itself. These forms are not supported yet: conditional channels, a `CASE` with `scaled` or `direct` in a result, domain orders by an aggregate, `impute`, and inline compositions.
 
 The example `sql-chart` shows the chart of a query in a chart app.
