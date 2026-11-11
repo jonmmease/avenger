@@ -1,7 +1,8 @@
 //! The functions of avenger-chart in DataFusion: an aggregate function for each mark of each layer,
 //! which builds a chart of the rows of its group, a scalar function for each constructor, which
-//! returns the fragment of its message, and the scalar functions `scaled` and `direct`. They are
-//! a binding of `avenger_chart::functions`.
+//! returns the fragment of its message, the compositions, as aggregates of the charts of a group
+//! and as scalars of the charts of a row, and the scalar functions `scaled` and `direct`. They
+//! are a binding of `avenger_chart::functions`.
 //!
 //! A mark function takes each channel of its mark as a named parameter:
 //!
@@ -29,6 +30,7 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
+mod combine;
 mod composition;
 mod constructor;
 mod declaration;
@@ -63,6 +65,12 @@ pub(crate) fn register(ctx: &SessionContext) {
         ctx.register_udaf(AggregateUDF::new_from_impl(
             composition::CompositionDeclaration::new(composition),
         ));
+        // A layer and the concats also compose the charts of a row; a facet lays out rows.
+        if !composition.kind.takes_key() {
+            ctx.register_udf(ScalarUDF::new_from_impl(combine::CombineFunction::new(
+                composition,
+            )));
+        }
     }
     // The rule orders the children of compositions, one time however often the session registers.
     let rule = order::CompositionOrder;
