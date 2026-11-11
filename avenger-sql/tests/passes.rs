@@ -213,3 +213,63 @@ async fn an_unknown_column_in_a_lowered_operator_points_to_its_text() {
     assert!(error.to_string().contains("body_mas"), "{error}");
     assert_eq!(position(&error), (1, column_of(query, "body_mas")));
 }
+
+#[tokio::test]
+async fn a_pipe_call_is_the_call_of_its_table_function_over_the_query_before_it() {
+    let query = "FROM penguins |> AGGREGATE count(*) AS n GROUP BY species, island |> CALL impute(island, [species], n, value => 0)";
+    assert_eq!(
+        expand(query),
+        "SELECT * FROM impute((SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY species, island), island, [species], n, value => 0)"
+    );
+    let lines = rows(query).await;
+    assert_eq!(
+        lines,
+        rows("SELECT * FROM impute((SELECT species, island, count(*) AS n FROM penguins GROUP BY species, island), island, [species], n, value => 0)").await
+    );
+    // The 5 pairs of a species and an island, and 4 that impute adds.
+    assert_eq!(lines.len() - 4, 9, "{lines:#?}");
+}
+
+#[tokio::test]
+async fn the_over_clause_of_a_pipe_call_is_its_partition() {
+    let query = "FROM penguins |> AGGREGATE count(*) AS n GROUP BY sex, species, island |> CALL impute(island, [species], n, value => 0) OVER (PARTITION BY sex) AS filled |> WHERE filled.n = 0 |> AGGREGATE count(*) AS added GROUP BY sex";
+    assert_eq!(
+        expand(query),
+        "SELECT * FROM impute((SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY sex, species, island), island, [species], n, value => 0, partition_by => [sex]) AS filled |> WHERE filled.n = 0 |> AGGREGATE count(*) AS added GROUP BY sex"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT sex, count(*) AS added FROM impute((SELECT sex, species, island, count(*) AS n FROM penguins GROUP BY sex, species, island), island, [species], n, value => 0, partition_by => [sex]) WHERE n = 0 GROUP BY sex").await
+    );
+}
+
+#[tokio::test]
+async fn the_over_clause_of_a_pipe_call_has_only_a_partition() {
+    let query = "FROM penguins |> CALL impute(island, [species], body_mass_g, value => 0) OVER (ORDER BY species)";
+    let error = planning_error(query).await;
+    assert!(
+        error.to_string().contains(
+            "the OVER clause of CALL impute has only a PARTITION BY list of columns, not an ORDER BY"
+        ),
+        "{error}"
+    );
+    assert_eq!(position(&error), (1, column_of(query, "species)")));
+    let query = "FROM penguins |> CALL impute(island, [species], body_mass_g, value => 0) OVER (PARTITION BY upper(sex))";
+    let error = planning_error(query).await;
+    assert!(
+        (error.to_string()).contains("a partition of CALL impute is a column, not `upper(sex)`"),
+        "{error}"
+    );
+    assert_eq!(position(&error), (1, column_of(query, "upper(sex)")));
+}
+
+#[tokio::test]
+async fn the_arguments_of_a_pipe_call_are_lowered() {
+    // A named option of a transform in an argument of the call is an option pair.
+    let query = "FROM penguins |> CALL impute(island, [species], body_mass_g, value => (SELECT max(b) FROM (SELECT bin(body_mass_g, maxbins => 5) OVER () AS b FROM penguins) |> SELECT b.start AS b))";
+    assert!(
+        expand(query).contains("bin(body_mass_g, 'maxbins', 5)"),
+        "{}",
+        expand(query)
+    );
+}

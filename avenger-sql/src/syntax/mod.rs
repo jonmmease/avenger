@@ -6,6 +6,8 @@
 //!   Removed by DataFusion planning FROM-first queries.
 //! - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over
 //!   a derived table ([`windows`]).
+//! - A pipe `CALL` becomes the `FROM`-position call of its table function over the query before
+//!   it ([`call`]).
 //! - The `AGGREGATE` of a `|> CHART` becomes the `FROM`-position call of the mark planner
 //!   ([`chart`]). The pass does not lower the mark call, whose channels the mark planner reads as
 //!   written.
@@ -15,6 +17,7 @@
 
 mod arguments;
 pub(crate) mod build;
+mod call;
 mod chart;
 mod windows;
 
@@ -85,16 +88,20 @@ impl VisitorMut for Lower<'_> {
     type Break = DataFusionError;
 
     fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<DataFusionError> {
-        while let Some(index) = (query.pipe_operators.iter())
-            .position(|operator| windows::windowed(operator) || chart::is_marker(operator))
-        {
-            match chart::is_marker(&query.pipe_operators[index]) {
-                true => {
-                    if let Err(error) = chart::split(query, index) {
-                        return ControlFlow::Break(error);
-                    }
+        while let Some(index) = (query.pipe_operators.iter()).position(|operator| {
+            windows::windowed(operator) || chart::is_marker(operator) || call::is_call(operator)
+        }) {
+            let operator = &query.pipe_operators[index];
+            let split = match (chart::is_marker(operator), call::is_call(operator)) {
+                (true, _) => chart::split(query, index),
+                (false, true) => call::split(query, index),
+                (false, false) => {
+                    windows::split(query, index);
+                    Ok(())
                 }
-                false => windows::split(query, index),
+            };
+            if let Err(error) = split {
+                return ControlFlow::Break(error);
             }
         }
         if let SetExpr::Select(select) = query.body.as_mut() {
