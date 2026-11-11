@@ -14,11 +14,12 @@ pub struct TextBounds {
     pub height: f32,
     /// What lies at the label's position.
     pub anchor: BoxAnchor,
-    /// How far the ink of a label with math reaches above the box's top and below its bottom,
-    /// or zeros for a label without math. Typst lets inline math reach into the leading around
-    /// its line, so a tall fraction, root, or sum draws past the box. A part that stacks labels
-    /// without that leading between them, such as a title over its subtitle, keeps them apart
-    /// by the box and this overhang.
+    /// How far the ink of a label with math reaches above where the capitals of a plain line
+    /// stand in its box and below the box's bottom, or zeros for a label without math. Typst lets inline math reach
+    /// into the leading around its line, so a tall fraction, root, or sum draws past the box. A
+    /// part that stacks labels without that leading between them, such as a title over its
+    /// subtitle, keeps them apart by the box and this overhang, so the math keeps the clearance
+    /// that a plain line's capitals have below the box's top.
     pub overhang: [f32; 2],
 }
 

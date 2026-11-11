@@ -272,7 +272,7 @@ impl LabelEngine {
                     let mut bounds =
                         TextBounds::new(&typeset.metrics(), label.options.text.font_size);
                     if typeset.flags.has_math {
-                        bounds.overhang = self.overhang(label, bounds.height)?;
+                        bounds.overhang = self.overhang(label, &bounds)?;
                     }
                     Ok(bounds)
                 })
@@ -280,14 +280,31 @@ impl LabelEngine {
         )
     }
 
-    /// How far the ink of `label`, whose box is `height` tall, reaches above the box's top and
-    /// below its bottom.
-    fn overhang(&self, label: &Label, height: f32) -> Result<[f32; 2], LabelError> {
+    /// How far the ink of `label`, in its box `bounds`, reaches above where the capitals of a
+    /// plain line stand and below the box's bottom. A plain line is as tall as its cap height,
+    /// and its box pads it to the font size, so its capitals stand half the difference below
+    /// the box's top. Math that reaches above them keeps that clearance too.
+    fn overhang(
+        &self,
+        label: &Label,
+        bounds: &TextBounds,
+    ) -> Result<[f32; 2], LabelError> {
+        if !matches!(bounds.anchor, BoxAnchor::Lines { .. }) {
+            return Ok([0.0; 2]);
+        }
+        let font_size = label.options.text.font_size;
+        let size = Abs::pt(f64::from(font_size));
+        let cap_height = self
+            .first_face(&label.options.text)
+            .map_or(0.0, |face| face.metrics().cap_height.at(size).to_pt() as f32);
+        let caps = ((font_size - cap_height) / 2.0).max(0.0);
         let outline = self.outline(label)?;
         let ys = outline.contours.iter().flatten().map(|point| point[1]);
-        let (top, bottom) =
-            ys.fold((0.0_f32, height), |(top, bottom), y| (top.min(y), bottom.max(y)));
-        Ok([-top, bottom - height])
+        let (top, bottom) = ys
+            .fold((caps, bounds.height), |(top, bottom), y| (top.min(y), bottom.max(y)));
+        // Ink on the line or the edge, such as a capital on the line, reaches past neither.
+        let past = |distance: f32| if distance > INK_TOLERANCE { distance } else { 0.0 };
+        Ok([past(caps - top), past(bottom - bounds.height)])
     }
 
     /// The outline of a label's glyphs and shapes in its box, memoized, or its source's as
@@ -353,12 +370,14 @@ impl LabelEngine {
                 let key = TextRasterKey::new(LabelKey::new(label), &label.options, scale);
                 self.rasterized.get_or_try_insert(key.clone(), || {
                     let compiled = self.compile_label(label)?;
-                    super::raster::raster(
+                    let mut raster = super::raster::raster(
                         &compiled,
                         label.options.text.font_size,
                         scale,
                         key,
-                    )
+                    )?;
+                    raster.bounds.overhang = self.bounds(label)?.overhang;
+                    Ok(raster)
                 })
             },
         )
@@ -374,7 +393,8 @@ impl LabelEngine {
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 let compiled = self.compile_label(label)?;
-                let (bounds, top) = compiled.placed(label.options.text.font_size);
+                let (_, top) = compiled.placed(label.options.text.font_size);
+                let bounds = self.bounds(label)?;
                 let svg = svg_items(&compiled, &SvgOptions { native_text: true });
                 Ok((bounds, svg_in_box(svg, &bounds, top)))
             },
@@ -391,7 +411,8 @@ impl LabelEngine {
             |error| matches!(error, LabelError::Source { .. }),
             |label| {
                 let compiled = self.compile_label(label)?;
-                let (bounds, top) = compiled.placed(label.options.text.font_size);
+                let (_, top) = compiled.placed(label.options.text.font_size);
+                let bounds = self.bounds(label)?;
                 let pdf = pdf_items(&compiled, &PdfOptions::default());
                 Ok((bounds, pdf_in_box(pdf, &bounds, top)))
             },
@@ -641,6 +662,10 @@ impl LabelEngine {
         Ok(warnings)
     }
 }
+
+/// How far ink reaches past a line or an edge before it counts as overhang, in pixels, so that
+/// a capital on the line of the capitals reaches past nothing.
+const INK_TOLERANCE: f32 = 1e-3;
 
 /// A label's output, or, if its markup is invalid, its source's as literal text. Limit and
 /// font errors don't fall back.

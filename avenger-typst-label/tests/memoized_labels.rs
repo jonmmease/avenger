@@ -154,18 +154,24 @@ fn boxes_report_how_far_their_math_reaches_past_them() {
     // Plain text keeps to its box, but for the descenders that the line box covers.
     assert_eq!(engine.bounds(&markup("Penguins")).unwrap().overhang, [0.0; 2]);
     // Typst lets a tall fraction reach into the leading around its line, past the box, and
-    // the box reports how far its ink reaches.
+    // the box reports how far its ink reaches above the line's capitals and below the box.
+    let extent = |label: &Label| {
+        let ys: Vec<f32> = (engine.outline(label).unwrap().contours.iter())
+            .flatten()
+            .map(|point| point[1])
+            .collect();
+        let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
+        (top, ys.iter().copied().fold(f32::NEG_INFINITY, f32::max))
+    };
+    let (caps, _) = extent(&markup("H"));
+    assert!(caps > 0.0, "a capital stands below the box's top: {caps}");
     let fraction = markup("$(a + b) / (c + d)$");
     let bounds = engine.bounds(&fraction).unwrap();
     let [above, below] = bounds.overhang;
     assert!(above > 0.0 && below > 0.0, "{bounds:?}");
-    let ys: Vec<f32> = (engine.outline(&fraction).unwrap().contours.iter())
-        .flatten()
-        .map(|point| point[1])
-        .collect();
-    let top = ys.iter().copied().fold(f32::INFINITY, f32::min);
-    let bottom = ys.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    assert!((top + above).abs() < 1e-4, "{top} {bounds:?}");
+    // The overhang above starts where the capitals of a plain line stand.
+    let (top, bottom) = extent(&fraction);
+    assert!((top + above - caps).abs() < 0.01, "{caps} {top} {bounds:?}");
     assert!((bottom - bounds.height - below).abs() < 1e-4, "{bottom} {bounds:?}");
 }
 
