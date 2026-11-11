@@ -211,3 +211,18 @@ async fn a_typst_title_and_subtitle() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-typst-title");
 }
+
+/// A layer of the bars of the mean body mass of each species and a rule at the mean of all, as an
+/// expression item of CHART.
+#[tokio::test]
+async fn a_layer_of_bars_and_a_rule_of_chart() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> CHART layer(
+     bar(x => species, y => avg(body_mass_g)),
+     rule(y => avg(body_mass_g), color => direct('firebrick')),
+   )";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "chart-layer-bars-rule");
+}
