@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, RecordBatch, StructArray},
-    datatypes::{DataType, Field},
+    array::{ArrayRef, Date32Array, DictionaryArray, RecordBatch, StructArray},
+    datatypes::{DataType, Field, Int32Type},
 };
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
@@ -164,6 +164,41 @@ fn histogram_of_a_span_column() {
     let bars = CartesianLayer::bar(bins, BarMark::builder().x("bin").y("count"));
     let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     render_both(&chart, "bars-span-histogram");
+}
+
+/// The months of the `timeunit` transform, spans of dates with a `unit`, draw each bar from the
+/// start of its month to its end, so the bars of the months differ in width.
+#[test]
+fn bars_of_a_month_timeunit_column() {
+    // The first days of January to July 2024, as days since the epoch.
+    let firsts = [19723, 19754, 19783, 19814, 19844, 19875, 19905];
+    let units: DictionaryArray<Int32Type> = std::iter::repeat_n("month", 6).collect();
+    let months = StructArray::from(vec![
+        (
+            Arc::new(Field::new("start", DataType::Date32, false)),
+            Arc::new(Date32Array::from(firsts[..6].to_vec())) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("end", DataType::Date32, false)),
+            Arc::new(Date32Array::from(firsts[1..].to_vec())) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new(
+                "unit",
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                false,
+            )),
+            Arc::new(units) as ArrayRef,
+        ),
+    ]);
+    let sales = RecordBatch::try_from_iter([
+        ("month", Arc::new(months) as ArrayRef),
+        ("sales", numbers(&[12.0, 9.0, 15.0, 11.0, 18.0, 14.0])),
+    ])
+    .unwrap();
+    let bars = CartesianLayer::bar(sales, BarMark::builder().x("month").y("sales"));
+    let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
+    render_both(&chart, "bars-month-timeunit");
 }
 
 /// Bins of uneven widths tick at their distinct edges, and uniform bins with an empty bin tick at
