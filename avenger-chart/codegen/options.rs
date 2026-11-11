@@ -37,6 +37,12 @@ pub(super) const COMPOSITION_NODES: [(&str, &[&str]); 3] = [
     ("Wrap", &["children", "partition"]),
 ];
 
+/// The layer of the mark functions, with the fields that a mark call takes: its id and its
+/// classes. Its other fields are its table, its partition, and its mark, which the call builds, its
+/// tools, which the call places from the tools that it declares, and its widgets. The layers of the
+/// other coordinate systems have the same options.
+pub(super) const MARK_LAYER: (&str, &[&str]) = ("CartesianLayer", &["id", "classes"]);
+
 /// The full names of the messages of the option tree, in the order that a walk from the roots
 /// finds them.
 pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
@@ -79,6 +85,10 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
         seen.insert(name.clone());
         tree.push(name);
     }
+    // The layer of the mark functions is a member of the tree, and its options are scalars.
+    let layer = format!("{PACKAGE}.{}", MARK_LAYER.0);
+    seen.insert(layer.clone());
+    tree.push(layer);
     while let Some(name) = roots.pop() {
         if !seen.insert(name.clone()) || stops(&name) {
             continue;
@@ -102,6 +112,12 @@ pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
     for (node, structural) in COMPOSITION_NODES {
         for field in structural {
             excluded.insert((format!("{PACKAGE}.{node}"), field.to_string()));
+        }
+    }
+    let layer = format!("{PACKAGE}.{}", MARK_LAYER.0);
+    if let Some((_, _, message)) = messages.get(&layer) {
+        for field in (message.field.iter()).filter(|field| !MARK_LAYER.1.contains(&field.name())) {
+            excluded.insert((layer.clone(), field.name().to_string()));
         }
     }
     excluded.insert((format!("{PACKAGE}.Facet"), "column".to_string()));
