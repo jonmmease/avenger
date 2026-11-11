@@ -87,7 +87,7 @@ async fn layer_merges_the_options_of_its_charts() {
          title => 'Mass by species', tools => [navigate(), tooltip()]))) \
          UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g), \
          tools => [navigate()]))) \
-         |> AGGREGATE layer(chart) AS chart"
+         |> AGGREGATE layer_agg(chart) AS chart"
     ))
     .await;
     let (root, layers) = plot(&chart);

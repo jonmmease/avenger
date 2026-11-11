@@ -285,7 +285,7 @@ async fn the_output_of_chart_composes() {
     assert_eq!(concat.children.len(), 3);
     // A layer of the charts of a union draws them in the order of its branches.
     let query = format!(
-        "(SELECT * FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)))) UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g)))) |> AGGREGATE layer(chart) AS chart"
+        "(SELECT * FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)))) UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g)))) |> AGGREGATE layer_agg(chart) AS chart"
     );
     let layered = charts(&query).await;
     let Some(proto::node::Node::Plot(plot)) = &layered[0].root().node else {

@@ -111,7 +111,7 @@ async fn layer_overlays_the_charts_of_a_union_in_its_order() {
          UNION ALL BY NAME \
          SELECT *, 1 AS k FROM ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => \
          bill_depth_mm) AS chart) \
-         |> AGGREGATE layer(chart ORDER BY k) AS chart"
+         |> AGGREGATE layer_agg(chart ORDER BY k) AS chart"
     ))
     .await;
     let Some(proto::node::Node::Plot(plot)) = &chart.root().node else {
@@ -132,7 +132,7 @@ async fn layer_overlays_the_charts_of_a_union_in_its_order() {
 #[tokio::test]
 async fn a_concat_composes_the_charts_of_each_group() {
     let charts = charts(&format!(
-        "{} |> AGGREGATE hconcat(chart ORDER BY sex) AS chart GROUP BY island",
+        "{} |> AGGREGATE hconcat_agg(chart ORDER BY sex) AS chart GROUP BY island",
         scatter("island, sex")
     ))
     .await;
@@ -144,7 +144,7 @@ async fn a_concat_composes_the_charts_of_each_group() {
         assert_eq!(concat.direction, proto::Direction::Row as i32);
     }
     let chart = chart(&format!(
-        "{} |> AGGREGATE vconcat(chart, id => 'islands' ORDER BY island DESC) AS chart",
+        "{} |> AGGREGATE vconcat_agg(chart, id => 'islands' ORDER BY island DESC) AS chart",
         scatter("island")
     ))
     .await;
@@ -169,8 +169,8 @@ async fn a_composition_of_no_rows_is_an_empty_chart() {
 async fn the_errors_of_a_composition() {
     for (query, expected) in [
         (
-            format!("{PENGUINS} |> AGGREGATE layer(species) AS chart"),
-            "layer() takes a column of charts, and `species` is not one",
+            format!("{PENGUINS} |> AGGREGATE layer_agg(species) AS chart"),
+            "layer_agg() takes a column of charts, and `species` is not one",
         ),
         (
             format!(
@@ -195,7 +195,7 @@ async fn the_errors_of_a_composition() {
         ),
         (
             format!(
-                "{} |> AGGREGATE hconcat(chart) AS chart |> AGGREGATE layer(chart) AS chart",
+                "{} |> AGGREGATE hconcat_agg(chart) AS chart |> AGGREGATE layer_agg(chart) AS chart",
                 scatter("island")
             ),
             "has a concat at its root",
