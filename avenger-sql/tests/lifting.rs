@@ -1152,16 +1152,17 @@ async fn a_null_group_has_its_chart_and_its_items() {
 
 #[tokio::test]
 async fn the_lifting_of_items_takes_free_names() {
-    let query = "WITH chart_input AS (FROM penguins |> WHERE body_mass_g IS NOT NULL) \
-        FROM chart_input |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
+    let query = "WITH aggregates AS (FROM penguins |> WHERE body_mass_g IS NOT NULL), \
+        charts AS (FROM aggregates) \
+        FROM charts |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
-    assert!(lifting.contains("chart_input_2 AS ("), "{lifting}");
+    assert!(lifting.contains("|> AS aggregates_2"), "{lifting}");
+    assert!(lifting.contains(") AS charts_2 ON"), "{lifting}");
     assert_eq!(charts(query).await, charts(&lifting).await);
 }
 
 #[tokio::test]
 async fn the_errors_of_items() {
-    // The errors of an item are those of its AGGREGATE.
     // An item reads columns inside its aggregates or groups, and calls no window function.
     fails(
         &histograms(", species AS name", " GROUP BY island"),
@@ -1190,5 +1191,38 @@ async fn the_errors_of_items() {
         "`count` is not a mark function, and CHART takes a mark call",
         "count",
     )
+    .await; // Each column of the output has a name of its own, without the qualifiers of the input, and
+            // the second of two columns of one name is the error.
+    fails(
+        "FROM penguins AS a JOIN penguins AS b USING (species) \
+         |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",
+        "`island` names two columns of this CHART",
+        "b.island",
+    )
     .await;
+    fails(
+        &histograms(", count(*) AS Island", " GROUP BY island"),
+        "`island` names two columns of this CHART",
+        "island",
+    )
+    .await;
+}
+
+/// An unquoted alias of an item or of the chart names its column in lowercase, as DataFusion
+/// normalizes an identifier, so a reference of any case finds it, and a quoted alias keeps its
+/// case. The lifting keeps the qualifiers of the input's tables.
+#[tokio::test]
+async fn items_take_normalized_names_and_keep_qualifiers() {
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => count(*)) AS Counts, count(*) AS Penguins, \
+         count(*) AS \"Total\" GROUP BY Island |> ORDER BY PENGUINS"
+    );
+    assert_eq!(
+        columns(&query).await,
+        ["island", "counts", "penguins", "Total"]
+    );
+    let query = "FROM penguins AS p |> WHERE p.body_mass_g IS NOT NULL \
+        |> CHART bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    assert_eq!(charts(query).await, charts(&lifting).await, "{lifting}");
 }

@@ -113,19 +113,18 @@ FROM penguins
 |> ORDER BY penguins DESC
 ```
 
-The items are a pipe `AGGREGATE` of their own, over the same input, which the charts join on the groups, with `IS NOT DISTINCT FROM`, so a `NULL` group has its chart and its items. Every aggregate works, such as `count(DISTINCT species)`, `array_agg(species ORDER BY body_mass_g)`, and `percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g)`, and an item without an alias is named by its text. The two branches compute the input two times, because DataFusion does not share a subplan between them. An item reads a column only inside its aggregates or as a group, and calls no window function, and the planner reports either at its text, which DataFusion does not check in a pipe `AGGREGATE`. A mark call is the complete value of its item, and a `CHART` takes one. `lift` prints the input once, in a `WITH` clause:
+The items are a pipe `AGGREGATE` of their own, over the same input, which the charts join on the groups, with `IS NOT DISTINCT FROM`, so a `NULL` group has its chart and its items. Every aggregate works, such as `count(DISTINCT species)`, `array_agg(species ORDER BY body_mass_g)`, and `percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g)`, and an item without an alias is named by its text. An unquoted alias names its column in lowercase, as DataFusion normalizes an identifier, and each column of the output has a name of its own, without the qualifiers of the input, so `GROUP BY a.island, b.island` is an error at `b.island`. The two branches compute the input two times, because DataFusion does not share a subplan between them, so an input that is not deterministic, such as a sample by `random()` or a `LIMIT` without an `ORDER BY` of every row, can give the items and the charts different rows. An item reads a column only inside its aggregates or as a group, and calls no window function, and the planner reports either at its text, which DataFusion does not check in a pipe `AGGREGATE`. A mark call is the complete value of its item, and a `CHART` takes one. `lift` prints the input for each branch, so the qualifiers of its tables stay valid:
 
 ```sql
-WITH chart_input AS (FROM penguins)
-FROM chart_input
+FROM penguins
 |> AGGREGATE count(*) AS penguins, avg(body_mass_g) AS mean_mass GROUP BY island
 |> AS aggregates
-|> LEFT OUTER JOIN (FROM chart_input |> <the lifting of the chart>) AS charts
+|> LEFT OUTER JOIN (FROM penguins |> <the lifting of the chart>) AS charts
      ON aggregates.island IS NOT DISTINCT FROM charts.island
 |> SELECT aggregates.island, charts.chart, aggregates.penguins, aggregates.mean_mass
 ```
 
-The names `chart_input`, `aggregates`, and `charts` take the smallest free suffix, `_2`, `_3`, and so on, among the words of the statement.
+The names `aggregates` and `charts` take the smallest free suffix, `_2`, `_3`, and so on, among the words of the statement.
 
 The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, a stack window without an order, a stack without a key channel or a measure channel, an `impute` option that [Imputation](#imputation) rejects, an option that is not a plan-time constant, an `OVER` clause of the call with more than a `PARTITION BY` list of columns, and an argument of a transform of a type that the transform rejects, with the error of the transform.
 

@@ -29,10 +29,9 @@ use datafusion::{
         parser::Statement as DFStatement,
         sqlparser::{
             ast::{
-                helpers::attached_token::AttachedToken, Cte, Expr, FunctionArg, FunctionArgExpr,
-                Ident, Join, JoinConstraint, JoinOperator, ObjectName, PipeOperator, Query,
-                SelectFlavor, Statement, TableAlias, TableFactor, Visit, VisitMut, Visitor,
-                VisitorMut, With,
+                Expr, FunctionArg, FunctionArgExpr, Ident, Join, JoinConstraint, JoinOperator,
+                ObjectName, PipeOperator, Query, Statement, TableFactor, Visit, VisitMut, Visitor,
+                VisitorMut,
             },
             tokenizer::{Token, Tokenizer},
         },
@@ -264,7 +263,7 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
             false => {
                 let mut taken = words(&statement.to_string());
                 let mut fresh = |base: &str| fresh(base, &mut taken);
-                let names = [fresh("chart_input"), fresh("aggregates"), fresh("charts")];
+                let names = [fresh("aggregates"), fresh("charts")];
                 Splice::Join {
                     chart: Box::new(chart),
                     lifting: operators,
@@ -307,12 +306,12 @@ impl Visitor for FirstMarker {
 enum Splice {
     /// The operators of the lifting, which compute the group expressions first.
     Operators(Vec<PipeOperator>),
-    /// The join of the aggregate items and the lifting of the chart over the input, which a CTE
-    /// of the query holds, with the names of the CTE, the aggregates, and the charts.
+    /// The join of the aggregate items over the input and the lifting of the chart over a copy of
+    /// the input, with the names of the aggregates and the charts.
     Join {
         chart: Box<ChartOperator>,
         lifting: Vec<PipeOperator>,
-        names: [Ident; 3],
+        names: [Ident; 2],
     },
 }
 
@@ -346,15 +345,6 @@ fn fresh(base: &str, taken: &mut std::collections::HashSet<String>) -> String {
     name
 }
 
-/// `query`, a query of the CTE `input` without operators, with `operators`.
-fn from_input(input: &Ident, operators: Vec<PipeOperator>) -> Query {
-    let mut select = build::select(Vec::new(), Some(table(&input.value)));
-    select.flavor = SelectFlavor::FromFirstNoSelect;
-    let mut query = build::query(select);
-    query.pipe_operators = operators;
-    query
-}
-
 impl VisitorMut for SpliceMarker {
     type Break = ();
 
@@ -369,34 +359,17 @@ impl VisitorMut for SpliceMarker {
             Splice::Join {
                 chart,
                 lifting,
-                names: [input, aggregates, charts],
+                names: [aggregates, charts],
             } => {
-                // The query before the operator, with the group expressions, is the CTE `input`.
-                let with = query.with.take();
-                let mut body = std::mem::replace(query, from_input(&input, Vec::new()));
-                body.pipe_operators.extend(chart.extend.clone());
-                let cte = Cte {
-                    alias: TableAlias {
-                        explicit: false,
-                        name: input.clone(),
-                        columns: Vec::new(),
-                        at: None,
-                    },
-                    query: Box::new(body),
-                    from: None,
-                    materialized: None,
-                    closing_paren_token: AttachedToken::empty(),
-                };
-                let mut with = with.unwrap_or(With {
-                    with_token: AttachedToken::empty(),
-                    recursive: false,
-                    cte_tables: Vec::new(),
-                });
-                with.cte_tables.push(cte);
-                query.with = Some(with);
-                let charts_table =
-                    syntax::aliased(build::derived(from_input(&input, lifting)), &charts);
-                query.pipe_operators = vec![
+                // The query before the operator, with the group expressions, is the input of the
+                // aggregates, and a copy of it is the input of the lifting, which keeps the
+                // qualifiers of its tables. The copy sees the CTEs of the query, so it takes none.
+                query.pipe_operators.extend(chart.extend.clone());
+                let mut input = query.clone();
+                input.with = None;
+                input.pipe_operators.extend(lifting);
+                let charts_table = syntax::aliased(build::derived(input), &charts);
+                query.pipe_operators.extend([
                     chart.aggregate(),
                     PipeOperator::As {
                         alias: aggregates.clone(),
@@ -411,7 +384,7 @@ impl VisitorMut for SpliceMarker {
                     PipeOperator::Select {
                         exprs: chart.projection(&aggregates, &charts),
                     },
-                ];
+                ]);
             }
         }
         query.pipe_operators.extend(rest);

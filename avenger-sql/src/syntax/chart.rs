@@ -66,11 +66,25 @@ fn is_mark(expr: &Expr) -> bool {
 
 /// The column of `expr`, named by `alias` or, without one, by its text.
 fn named(expr: &Expr, alias: &Option<Ident>) -> Ident {
-    alias.clone().unwrap_or_else(|| Ident {
-        value: expr.to_string(),
-        quote_style: Some('"'),
-        span: expr.span(),
-    })
+    match alias {
+        Some(alias) => normalized(alias),
+        None => Ident {
+            value: expr.to_string(),
+            quote_style: Some('"'),
+            span: expr.span(),
+        },
+    }
+}
+
+/// `name` as the column that a reference to it finds: an unquoted name in lowercase, as DataFusion
+/// normalizes identifiers, and a quoted name as written. A pipe `AGGREGATE` keeps the case of an
+/// unquoted alias, so the operators that the pass writes name each column with its normalized
+/// name.
+fn normalized(name: &Ident) -> Ident {
+    match name.quote_style {
+        None => Ident::with_span(name.span, name.value.to_lowercase()),
+        Some(_) => name.clone(),
+    }
 }
 
 /// Reads the `|> CHART` operator `operator`: its items, of which one is a mark call without
@@ -131,8 +145,10 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
             "draw a chart for each group with GROUP BY, such as `|> CHART bar(x => species, y => count(*)) GROUP BY island`",
         ));
     }
-    let name =
-        (item.expr.alias.clone()).unwrap_or_else(|| Ident::with_span(function.name.span(), CHART));
+    let name = match &item.expr.alias {
+        Some(alias) => normalized(alias),
+        None => Ident::with_span(function.name.span(), CHART),
+    };
     let mut groups = Vec::new();
     let mut extend = Vec::new();
     for group in group_by_expr {
@@ -150,6 +166,7 @@ pub(crate) fn read(operator: &PipeOperator) -> Result<ChartOperator> {
             }
         }
     }
+    unique_names(&name, mark_position, &groups, &aggregates)?;
     Ok(ChartOperator {
         mark,
         name,
@@ -338,13 +355,44 @@ impl Visitor for CheckItem<'_> {
     }
 }
 
-/// The name of the column of the group `group`, the last part of its reference.
+/// The name of the column of the group `group`, the last part of its reference, normalized.
 fn group_name(group: &Expr) -> Ident {
     match group {
-        Expr::Identifier(ident) => ident.clone(),
-        Expr::CompoundIdentifier(parts) => parts.last().expect("a part").clone(),
+        Expr::Identifier(ident) => normalized(ident),
+        Expr::CompoundIdentifier(parts) => normalized(parts.last().expect("a part")),
         _ => unreachable!("a group is a column"),
     }
+}
+
+/// Each column of the output, the groups, the chart `name`, and the `aggregates`, has a name of its
+/// own, or the second of two columns of one name is an error at its text. The output of the join
+/// holds the columns without the qualifiers of the input, so `GROUP BY a.island, b.island` names
+/// two columns `island`.
+fn unique_names(
+    name: &Ident,
+    mark_position: usize,
+    groups: &[Expr],
+    aggregates: &[(Expr, Ident)],
+) -> Result<()> {
+    // The columns in the order of their text: the items, with the chart in its place, then the
+    // groups.
+    let mut columns: Vec<(Ident, datafusion::sql::sqlparser::tokenizer::Span)> = (aggregates
+        .iter())
+    .map(|(expr, alias)| (alias.clone(), expr.span()))
+    .collect();
+    columns.insert(mark_position, (name.clone(), name.span));
+    columns.extend(groups.iter().map(|group| (group_name(group), group.span())));
+    let mut seen = std::collections::HashSet::new();
+    for (column, span) in columns {
+        if !seen.insert(column.value.clone()) {
+            return Err(at_with_help(
+                span,
+                format!("`{}` names two columns of this CHART", column.value),
+                "give one of them an alias of its own, such as `GROUP BY a.island, b.island AS other_island`",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `item` has no `ASC` or `DESC` and no `NULLS FIRST` or `NULLS LAST`, which pipe syntax allows
