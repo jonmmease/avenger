@@ -770,6 +770,7 @@ mod tests {
                 ascent: 9.0,
                 leading: 4.0,
             },
+            overhang: [0.0; 2],
         };
         let placement = LabelPlacement::new(
             &bounds,
@@ -964,6 +965,7 @@ mod tests {
                 ascent: 15.0,
                 leading: 4.0,
             },
+            overhang: [0.0; 2],
         };
         let origin = |align, baseline| text_origin(&bounds, [10.0, 10.0], align, baseline);
         assert_eq!(origin(TextAlign::Left, TextBaseline::Top), [10.0, 10.0]);

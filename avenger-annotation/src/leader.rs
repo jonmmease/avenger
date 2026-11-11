@@ -714,6 +714,7 @@ mod tests {
             ascent: 8.0,
             leading: 2.0,
         },
+        overhang: [0.0; 2],
     };
 
     /// A centered 40 × 10 label at `position`, turned by `angle` degrees.

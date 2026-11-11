@@ -98,6 +98,15 @@ struct Line {
     style: TitleTextStyle,
     width: f32,
     height: f32,
+    /// How far the line's math reaches above its box and below it.
+    overhang: [f32; 2],
+}
+
+impl Line {
+    /// The height of the line's box and its overhang.
+    fn full_height(&self) -> f32 {
+        self.overhang[0] + self.height + self.overhang[1]
+    }
 }
 
 impl Title {
@@ -131,6 +140,7 @@ impl Title {
                 style: style.clone(),
                 width: bounds.width,
                 height: bounds.height,
+                overhang: bounds.overhang,
             })
         };
         let lines = [
@@ -160,7 +170,8 @@ impl Title {
     /// The title's thickness and overhang at `length`, and the lengths where they hold.
     ///
     /// The thickness is the height of the title, the gap and the subtitle's height, at every
-    /// length. A line longer than `length` reaches past the slab's end when the title aligns
+    /// length, where the height of a line with math includes how far its math reaches past its
+    /// box. A line longer than `length` reaches past the slab's end when the title aligns
     /// to its start, past its start when it aligns to its end, and half past each when it
     /// centers, and the title reports that as overhang, at `length` only. Otherwise it holds
     /// from the shortest length that fits its longest line. A title without text is empty at
@@ -228,8 +239,8 @@ impl Title {
             .lines
             .iter()
             .map(|line| {
-                let middle = top + line.height / 2.0;
-                top += line.height + self.config.gap;
+                let middle = top + line.overhang[0] + line.height / 2.0;
+                top += line.full_height() + self.config.gap;
                 let across = match side {
                     GuideSide::Bottom => middle,
                     _ => thickness - middle,
@@ -281,9 +292,9 @@ impl Title {
         group
     }
 
-    /// The heights of the lines and the gap between them.
+    /// The heights of the lines, with the overhang of their math, and the gap between them.
     fn thickness(&self) -> f32 {
-        let heights: f32 = self.lines.iter().map(|line| line.height).sum();
+        let heights: f32 = self.lines.iter().map(Line::full_height).sum();
         heights + self.config.gap * self.lines.len().saturating_sub(1) as f32
     }
 

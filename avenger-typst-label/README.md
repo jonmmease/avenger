@@ -140,7 +140,12 @@ invalid markup, for callers that validate it.
   first line's top and the last line's bottom padded so that those lines are at least the font
   size tall. Its anchor, `BoxAnchor::Lines`, holds the distance down to the first baseline and
   the gap that plain lines leave between such boxes, and a line box adds half of that gap above
-  and below.
+  and below. Its `overhang` is how far the ink of a label with math reaches above where the
+  capitals of a plain line stand in the box and below the box, and zeros for a label without
+  math: Typst lets inline math reach into the leading
+  around its line, so a tall fraction, root, or sum draws past the box. A part that stacks labels
+  without that leading between them, such as a title over its subtitle, adds the overhang, so
+  the math keeps the clearance that a plain line's capitals have below the box's top.
 - `raster`, with the `raster` feature, rasterizes a whole label at a scale.
 - `svg` and `pdf` return a label's box and the items that draw it in the box: native text runs,
   paths and color glyph images for SVG (`svg_items`), and glyph runs and paths for PDF
