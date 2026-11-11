@@ -24,6 +24,7 @@ use crate::{error::at, syntax::function_name};
 
 /// The roles of a call: its key channel, when it has one, and its measure channel, as indexes of
 /// its channels, and whether its stacks are vertical, which reverses the domain orders.
+#[derive(Clone, Copy)]
 pub(super) struct Roles {
     pub(super) key: Option<usize>,
     pub(super) measure: Option<usize>,
@@ -267,6 +268,12 @@ fn check_orient(call: &MarkCall, horizontal: bool, measure: &str) -> Result<()> 
             call.mark.name
         ),
     ))
+}
+
+/// Whether the mark `mark` is a path, a `line` or an `area`, whose points the stage 5 call orders
+/// by its key channel without a draw order.
+pub(super) fn is_path(mark: &str) -> bool {
+    matches!(mark, "line" | "area")
 }
 
 /// Whether the mark `mark` has an `orient` property, which the stage 5 call writes from the roles.

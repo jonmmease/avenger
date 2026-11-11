@@ -35,7 +35,8 @@ use crate::{error::at, syntax::function_name};
 
 /// The stage 4 columns of the call: one for each distinct stack and window function, with its
 /// arguments and its window items over the columns of `stage5`, and its named windows resolved,
-/// with the roles of the channels when a stack or a stack window needs them.
+/// with the roles of the channels when a stack or a stack window needs them, or the roles that
+/// `decided` holds. The implied order of a stack ends with the column `flag` of stage 3.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn windows(
     call: &MarkCall,
@@ -44,6 +45,8 @@ pub(super) fn windows(
     stage5: &[(Expr, Expr)],
     schema: &DFSchema,
     discretized: &[(Expr, Expr)],
+    decided: Option<Roles>,
+    flag: Option<&Ident>,
     names: &mut Names,
     env: &mut dyn Env,
 ) -> Result<(Vec<Added>, Option<Roles>)> {
@@ -61,15 +64,16 @@ pub(super) fn windows(
         }
     }
     if found.is_empty() {
-        return Ok((Vec::new(), None));
+        return Ok((Vec::new(), decided));
     }
     let needs_roles = found.iter().any(|(_, from)| match from {
         Expr::Function(function) => is_stack(function) || names_stacks(function),
         _ => false,
     });
-    let roles = match needs_roles {
-        true => roles::decide(call, levels, schema, discretized, env)?,
-        false => None,
+    let roles = match (decided, needs_roles) {
+        (Some(roles), _) => Some(roles),
+        (None, true) => roles::decide(call, levels, schema, discretized, env)?,
+        (None, false) => None,
     };
     let mut added = Vec::new();
     for (channel, from) in found {
@@ -90,6 +94,7 @@ pub(super) fn windows(
             stage5,
             roles: roles.as_ref(),
             argument: argument.clone(),
+            flag,
         };
         let mut window = windows.resolve(function, stack)?;
         for item in window.partition_by.iter_mut() {
@@ -140,6 +145,7 @@ pub(super) fn discretizer_window(
         stage5: &[],
         roles: None,
         argument: None,
+        flag: None,
     };
     named.resolve(function, false)
 }
@@ -207,6 +213,8 @@ struct Named<'a> {
     stage5: &'a [(Expr, Expr)],
     roles: Option<&'a Roles>,
     argument: Option<Expr>,
+    /// The flag column of stage 3, true in an added row, which the implied order reads last.
+    flag: Option<&'a Ident>,
 }
 
 impl Named<'_> {
@@ -300,7 +308,8 @@ impl Named<'_> {
     }
 
     /// The implied order of `stacked`: the domain order of each series channel, reversed in a
-    /// vertical stack, then the argument and each other channel column, ascending.
+    /// vertical stack, then the argument and each other channel column, ascending, and the flag
+    /// of stage 3, ascending, so that an added row follows the rows of its tie.
     fn implied(&self) -> Vec<OrderByExpr> {
         let vertical = self.roles.is_some_and(|roles| roles.vertical);
         let key = self.key();
@@ -367,6 +376,10 @@ impl Named<'_> {
             }
         }
         order.extend(tiebreak.into_iter().map(ascending));
+        order.extend(
+            self.flag
+                .map(|flag| ascending(Expr::Identifier(flag.clone()))),
+        );
         order
     }
 }
