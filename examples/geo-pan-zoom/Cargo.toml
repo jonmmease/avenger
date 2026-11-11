@@ -8,6 +8,9 @@ default-run = "geo-pan-zoom"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [dependencies]
 avenger-app = { path = "../../avenger-app" }
 avenger-app-tools = { path = "../../avenger-app-tools", features = ["geo"] }
