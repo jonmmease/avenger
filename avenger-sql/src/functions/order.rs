@@ -6,8 +6,8 @@
 //! after the keys of its own `ORDER BY`:
 //!
 //! 1. The branch ordinal: the position of the branch of a `UNION ALL` that a row comes from, when
-//!    a `UNION ALL` feeds the call through projections, filters, sorts, limits, aliases, and
-//!    grouped aggregates. A grouped aggregate gives each group the smallest ordinal of its rows
+//!    a `UNION ALL` feeds the call through projections, filters, sorts, limits, aliases, windows,
+//!    and grouped aggregates. A grouped aggregate gives each group the smallest ordinal of its rows
 //!    (`r[panel.order.survive]`). A `UNION` without `ALL` is a distinct union, so its rows have no
 //!    ordinal (`r[panel.order.union-all]`).
 //! 2. Each other column of the call's input that holds no charts and that the aggregate does not
@@ -157,8 +157,8 @@ fn extend(expr: Expr, keys: &[SortExpr]) -> Expr {
 }
 
 /// `plan` with the column of the branch ordinal, when a `UNION ALL` feeds it through the nodes
-/// that keep the ordinal of a row. A plan that has the column already, such as the input of an
-/// inner composition, keeps it.
+/// that keep the ordinal of a row. A window keeps every row and every column of its input. A plan
+/// that has the column already, such as the input of an inner composition, keeps it.
 fn with_branch(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     let branch = || Expr::Column(Column::new_unqualified(BRANCH));
     if has_branch(plan) {
@@ -189,7 +189,8 @@ fn with_branch(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
         LogicalPlan::Filter(_)
         | LogicalPlan::Sort(_)
         | LogicalPlan::Limit(_)
-        | LogicalPlan::SubqueryAlias(_) => {
+        | LogicalPlan::SubqueryAlias(_)
+        | LogicalPlan::Window(_) => {
             let [input] = plan.inputs()[..] else {
                 return Ok(None);
             };

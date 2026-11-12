@@ -103,6 +103,21 @@ async fn the_branches_of_a_union_all_order_the_layers() {
     ))
     .await;
     assert_eq!(fills(&chart), ["red", "green", "blue"]);
+    // The ordinal survives a window, which the syntax pass writes as a derived table. The window
+    // value is one count for every row, so it orders nothing.
+    let windowed =
+        format!("{union} |> EXTEND count(*) OVER () AS c |> AGGREGATE layer(chart) AS chart");
+    assert_eq!(
+        fills(&self::chart(&windowed).await),
+        ["red", "green", "blue"]
+    );
+    let plan = avenger_sql::sql(&session(), &windowed)
+        .await
+        .unwrap()
+        .into_optimized_plan()
+        .unwrap();
+    let plan = plan.display_indent().to_string();
+    assert!(plan.contains("__avenger_branch"), "{plan}");
 }
 
 #[tokio::test]

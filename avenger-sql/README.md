@@ -8,10 +8,15 @@ FROM penguins
 |> AGGREGATE bar(x => species, y => n) AS chart
 ```
 
-`register` adds the mark functions and the constructors of avenger-chart and the transforms of avenger-datafusion-transforms, such as `bin`, `stack`, `timeunit`, `lump`, and `impute`, to a session, `sql` plans a query in a session, and `expand` returns the SQL that `sql` plans. A query is DataFusion SQL after two rewrites, which DataFusion 55.2 needs to plan these queries:
+`register` adds the mark functions and the constructors of avenger-chart and the transforms of avenger-datafusion-transforms, such as `bin`, `stack`, `timeunit`, `lump`, and `impute`, to a session, `sql` plans a query in a session, and `expand` returns the SQL that `sql` plans. A query is DataFusion SQL after two passes, which DataFusion 55.2 needs to plan these queries. The token pass rewrites the tokens of the text before parsing, and the syntax pass rewrites the parsed statement:
 
+- A word that starts with `__avenger_` is an error at the word. The passes generate the names with this prefix, so a query cannot collide with them.
 - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
+- A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over a derived table of the operators before it, because DataFusion plans a window of a pipe `EXTEND` and fails to run it. So `FROM t |> EXTEND rank() OVER (ORDER BY x) AS r` becomes `SELECT *, rank() OVER (ORDER BY x) AS r FROM (SELECT * FROM t)`. The derived table keeps the qualifiers of the tables before it, so `x.b` stays valid after a window over `t AS x`, and the CTEs of the query stay readable after it.
+- A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the transform, after the positional arguments, so `bin(x, maxbins => 30)` becomes `bin(x, 'maxbins', 30)`. The `weight` and `keep` of `lump` are SQL expressions over the rows of each category, and the pass passes their text, so `weight => sum(units)` becomes `'weight', 'sum(units)'`.
 - A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.
+
+The parser reads the tokens of the token pass, not printed text, so the statement keeps the spans of the text. `register` sets `datafusion.sql_parser.collect_spans`, so DataFusion reports an error of a column, such as an unknown column in a lowered `EXTEND`, with a diagnostic at the column's text.
 
 ## Mark functions
 
@@ -28,7 +33,7 @@ A constructor is a scalar function, which returns a fragment of its message in a
 
 The constructors of avenger-chart set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot. Array literals, such as `scale(domain => [0, 100])`, need DataFusion's `nested_expressions` feature, which avenger-sql enables.
 
-A channel argument of a mark function is an expression of each row, so the aggregates of a chart come from an `AGGREGATE` before the mark function, as `count(*)` does above. A window function, such as a bin of avenger-datafusion-transforms, goes in a standard `SELECT`, because DataFusion 55.2 fails to execute a window function in pipe `EXTEND`.
+A channel argument of a mark function is an expression of each row, so the aggregates of a chart come from an `AGGREGATE` before the mark function, as `count(*)` does above. A window function, such as a bin of avenger-datafusion-transforms, goes in a pipe `EXTEND` before it, which the syntax pass writes as a derived table.
 
 ## Compositions
 

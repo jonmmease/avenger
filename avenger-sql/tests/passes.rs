@@ -1,0 +1,215 @@
+//! The token pass and the syntax pass: the reserved prefix, queries that start with `FROM`,
+//! windows in pipe operators, the option pairs of the transforms, omitted named arguments, and the
+//! spans of errors. Each item lowers to the statement that `expand` prints, and the lowered
+//! statement returns the rows of a standard query.
+
+mod common;
+
+use arrow::util::pretty::pretty_format_batches;
+use common::{charts, session};
+use datafusion::common::DataFusionError;
+
+/// The expansion of `query`.
+fn expand(query: &str) -> String {
+    avenger_sql::expand(&session().state(), query).unwrap()
+}
+
+/// The error of planning `query`.
+async fn error(query: &str) -> String {
+    planning_error(query).await.to_string()
+}
+
+/// The error of planning `query`, with its diagnostic.
+async fn planning_error(query: &str) -> DataFusionError {
+    let ctx = session();
+    match avenger_sql::sql(&ctx, query).await {
+        Ok(_) => panic!("`{query}` plans"),
+        Err(error) => error,
+    }
+}
+
+/// The rows of `query`, as sorted lines of text.
+async fn rows(query: &str) -> Vec<String> {
+    let ctx = session();
+    let batches = avenger_sql::sql(&ctx, query)
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let text = pretty_format_batches(&batches).unwrap().to_string();
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    lines.sort();
+    lines
+}
+
+/// The line and the column, both from 1, of the diagnostic of `error`.
+fn position(error: &DataFusionError) -> (u64, u64) {
+    let span = (error.diagnostic())
+        .and_then(|diagnostic| diagnostic.span)
+        .unwrap_or_else(|| panic!("a span: {error}"));
+    (span.start.line, span.start.column)
+}
+
+/// The column, from 1, of the first `needle` in `text`.
+fn column_of(text: &str, needle: &str) -> u64 {
+    text.find(needle).expect("the needle") as u64 + 1
+}
+
+#[test]
+fn a_query_that_starts_with_from_selects_every_column() {
+    assert_eq!(
+        expand("FROM penguins |> AGGREGATE count(*) AS n GROUP BY species"),
+        "SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY species"
+    );
+    assert_eq!(
+        expand("SELECT species FROM penguins"),
+        "SELECT species FROM penguins"
+    );
+}
+
+#[test]
+fn an_omitted_parameter_before_a_named_one_is_null() {
+    assert_eq!(
+        expand("SELECT symbol(x => body_mass_g, y => body_mass_g, fill => species) FROM penguins"),
+        "SELECT symbol(x => body_mass_g, y => body_mass_g, fill => species, color => NULL) FROM penguins"
+    );
+    assert_eq!(
+        expand("SELECT symbol(body_mass_g, y => body_mass_g) FROM penguins"),
+        "SELECT symbol(body_mass_g, y => body_mass_g) FROM penguins",
+        "a call that omits only trailing parameters stays as it is"
+    );
+}
+
+#[tokio::test]
+async fn a_named_argument_after_an_omitted_one_binds() {
+    let query = "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species) AS chart";
+    assert_eq!(charts(query).await.len(), 1);
+}
+
+#[tokio::test]
+async fn an_unknown_parameter_keeps_the_error_of_datafusion() {
+    let message = error("SELECT symbol(x => body_mass_g, colour => species) FROM penguins").await;
+    assert!(
+        message.contains("Unknown parameter name 'colour'"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn a_parser_error_points_at_the_text() {
+    let message = error("FROM penguins |> AGGREGATE symbol(x => ) AS chart").await;
+    assert!(message.contains("Line: 1, Column"), "{message}");
+}
+
+#[tokio::test]
+async fn a_query_holds_one_statement() {
+    let message = error("SELECT 1; SELECT 2").await;
+    assert!(message.contains("one statement, not 2"), "{message}");
+}
+
+#[tokio::test]
+async fn the_prefix_of_the_passes_is_reserved() {
+    let query = "SELECT body_mass_g AS __avenger_x FROM penguins";
+    let error = planning_error(query).await;
+    assert!(
+        error
+            .to_string()
+            .contains("`__avenger_x` starts with `__avenger_`"),
+        "{error}"
+    );
+    assert_eq!(position(&error), (1, column_of(query, "__avenger_x")));
+    let error = planning_error("SELECT \"__AVENGER_branch\" FROM penguins").await;
+    assert!(error.to_string().contains("reserves"), "{error}");
+}
+
+#[tokio::test]
+async fn a_window_of_a_pipe_extend_reads_a_derived_table() {
+    let query = "FROM penguins |> EXTEND row_number() OVER (ORDER BY body_mass_g, species, island, sex) AS r |> WHERE r <= 3 |> SELECT species, r";
+    assert_eq!(
+        expand(query),
+        "SELECT *, row_number() OVER (ORDER BY body_mass_g, species, island, sex) AS r FROM (SELECT * FROM penguins) |> WHERE r <= 3 |> SELECT species, r"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT species, r FROM (SELECT *, row_number() OVER (ORDER BY body_mass_g, species, island, sex) AS r FROM penguins) WHERE r <= 3").await
+    );
+    // A pipe SELECT, and two windows in a row.
+    let query = "FROM penguins |> SELECT species, rank() OVER (ORDER BY species) AS a |> EXTEND dense_rank() OVER (ORDER BY a) AS b |> AGGREGATE count(*) AS n GROUP BY species, a, b";
+    assert_eq!(
+        expand(query),
+        "SELECT *, dense_rank() OVER (ORDER BY a) AS b FROM (SELECT species, rank() OVER (ORDER BY species) AS a FROM (SELECT * FROM penguins)) |> AGGREGATE count(*) AS n GROUP BY species, a, b"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT species, a, b, count(*) AS n FROM (SELECT *, dense_rank() OVER (ORDER BY a) AS b FROM (SELECT species, rank() OVER (ORDER BY species) AS a FROM penguins)) GROUP BY species, a, b").await
+    );
+}
+
+#[tokio::test]
+async fn a_derived_table_keeps_the_qualifiers_and_the_tables_of_the_query() {
+    // The qualifier `p` stays valid after the derived table.
+    let query = "FROM penguins AS p |> EXTEND row_number() OVER (ORDER BY p.body_mass_g, p.species, p.island, p.sex) AS r |> WHERE r <= 2 |> SELECT p.species, r";
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT species, r FROM (SELECT *, row_number() OVER (ORDER BY body_mass_g, species, island, sex) AS r FROM penguins) WHERE r <= 2").await
+    );
+    // The CTEs of the query stay readable after the window.
+    let query = "WITH t AS (SELECT * FROM penguins) FROM t |> EXTEND row_number() OVER () AS r |> AGGREGATE count(*) AS n |> CROSS JOIN (SELECT count(*) AS total FROM t)";
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT 344 AS n, 344 AS total").await
+    );
+}
+
+#[tokio::test]
+async fn unnest_in_a_pipe_extend_reads_a_derived_table() {
+    let query = "SELECT 1 AS a |> EXTEND unnest([10, 20]) AS v";
+    assert_eq!(
+        expand(query),
+        "SELECT *, unnest([10, 20]) AS v FROM (SELECT 1 AS a)"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT 1 AS a, 10 AS v UNION ALL SELECT 1, 20").await
+    );
+}
+
+#[tokio::test]
+async fn a_named_option_of_a_transform_is_an_option_pair() {
+    let query = "FROM penguins |> EXTEND bin(body_mass_g, maxbins => 20) OVER () AS b |> AGGREGATE count(*) AS n GROUP BY b";
+    assert_eq!(
+        expand(query),
+        "SELECT *, bin(body_mass_g, 'maxbins', 20) OVER () AS b FROM (SELECT * FROM penguins) |> AGGREGATE count(*) AS n GROUP BY b"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT b, count(*) AS n FROM (SELECT bin(body_mass_g, 'maxbins', 20) OVER () AS b FROM penguins) GROUP BY b").await
+    );
+    // The options keep the order of the call, after the positional arguments.
+    assert_eq!(
+        expand("SELECT bin(body_mass_g, maxbins => 20, 'nice', false) OVER () FROM penguins"),
+        "SELECT bin(body_mass_g, 'nice', false, 'maxbins', 20) OVER () FROM penguins"
+    );
+}
+
+#[tokio::test]
+async fn the_weight_of_a_lump_is_the_text_of_its_expression() {
+    let query = "FROM penguins |> EXTEND lump(island, n => 1, weight => sum(body_mass_g)) OVER () AS l |> AGGREGATE count(*) AS c GROUP BY l";
+    assert_eq!(
+        expand(query),
+        "SELECT *, lump(island, 'n', 1, 'weight', 'sum(body_mass_g)') OVER () AS l FROM (SELECT * FROM penguins) |> AGGREGATE count(*) AS c GROUP BY l"
+    );
+    assert_eq!(
+        rows(query).await,
+        rows("SELECT l, count(*) AS c FROM (SELECT lump(island, 'n', 1, 'weight', 'sum(body_mass_g)') OVER () AS l FROM penguins) GROUP BY l").await
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_column_in_a_lowered_operator_points_to_its_text() {
+    let query = "FROM penguins |> EXTEND row_number() OVER (ORDER BY body_mas) AS r";
+    let error = planning_error(query).await;
+    assert!(error.to_string().contains("body_mas"), "{error}");
+    assert_eq!(position(&error), (1, column_of(query, "body_mas")));
+}
