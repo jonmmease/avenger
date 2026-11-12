@@ -34,11 +34,15 @@ mod constructor;
 mod declaration;
 mod instance;
 mod kind;
+mod order;
 mod rows;
 
 use std::sync::Arc;
 
-use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::SessionContext};
+use datafusion::{
+    logical_expr::AggregateUDF, logical_expr::ScalarUDF, optimizer::AnalyzerRule,
+    prelude::SessionContext,
+};
 
 use avenger_chart::functions::{compositions, constructors, marks, Arg, Kind};
 
@@ -59,6 +63,12 @@ pub(crate) fn register(ctx: &SessionContext) {
         ctx.register_udaf(AggregateUDF::new_from_impl(
             composition::CompositionDeclaration::new(composition),
         ));
+    }
+    // The rule orders the children of compositions, one time however often the session registers.
+    let rule = order::CompositionOrder;
+    let known = (ctx.state().analyzer().rules.iter()).any(|known| known.name() == rule.name());
+    if !known {
+        ctx.add_analyzer_rule(Arc::new(rule));
     }
     for kind in [Kind::Scaled, Kind::Direct] {
         ctx.register_udf(ScalarUDF::new_from_shared_impl(Arc::new(
