@@ -10,7 +10,7 @@ avenger-app = { path = "../avenger-app" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-coords = { path = "../avenger-coords" }
-avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
 avenger-format = { path = "../avenger-format" }
 avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
@@ -23,6 +23,10 @@ log = { workspace = true }
 lyon_path = { workspace = true }
 rstar = { workspace = true }
 thiserror = { workspace = true }
+
+# Boolean operations of polygons run in parallel on native targets.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+geo = { workspace = true, features = ["multithreading"] }
 
 [features]
 # `GeoPanZoom`, which pans and zooms map projections.

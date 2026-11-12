@@ -80,6 +80,7 @@ pub const TRANSPARENT_CLEAR: LoadOp<wgpu::Color> = LoadOp::Clear(wgpu::Color::TR
 /// A surface frame's attachment, cleared to white. With more than one sample, `multisampled`
 /// (the size the surface is configured to) resolves into `view`. Otherwise the frame draws into
 /// `view` at the size the surface handed out.
+#[cfg(any(feature = "winit", target_arch = "wasm32"))]
 pub(crate) fn surface_frame_target<'a>(
     view: &'a TextureView,
     view_extent: Extent3d,

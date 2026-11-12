@@ -128,7 +128,9 @@ palette = "0.7.6"
 chrono = "0.4.41"
 chrono-tz = "0.10.3"
 geo-types = "0.7.19"
-geo = "0.33.1"
+# Without `multithreading`, which needs threads that a wasm page lacks. Crates whose boolean
+# operations run in parallel on native targets turn it on there.
+geo = { version = "0.33.1", default-features = false, features = ["earcut", "spade"] }
 i_overlay = "4.5.1"
 geo-traits = "0.3"
 geoarrow-array = "0.9"

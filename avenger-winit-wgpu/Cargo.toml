@@ -8,7 +8,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-app = { path = "../avenger-app" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
+avenger-wgpu = { path = "../avenger-wgpu", default-features = false, features = ["winit"] }
 winit = { workspace = true }
 wgpu = { workspace = true }
 log = { workspace = true }

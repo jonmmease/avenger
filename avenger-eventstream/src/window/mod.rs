@@ -1,6 +1,7 @@
 use std::ops::Range;
 use std::path::PathBuf;
 
+#[cfg(feature = "winit_support")]
 mod winit;
 
 /// Native window events, in logical coordinates

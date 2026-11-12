@@ -12,7 +12,7 @@ wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 [dependencies]
 avenger-color = { path = "../../avenger-color" }
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
-avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["winit"] }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 avenger-common = { path = "../../avenger-common" }

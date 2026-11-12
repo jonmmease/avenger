@@ -17,7 +17,7 @@ avenger-app-tools = { path = "../avenger-app-tools" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-eval = { path = "../avenger-chart-eval" }
 avenger-coords = { path = "../avenger-coords" }
-avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
 avenger-geo = { path = "../avenger-geo", optional = true }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-image = { path = "../avenger-image", default-features = false }

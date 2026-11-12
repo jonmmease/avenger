@@ -268,6 +268,30 @@ async fn the_wheel_zooms_about_the_pointer_by_at_most_two_notches() {
     assert_eq!(app.state().builds, [false, false, true]);
 }
 
+/// The wheel during a drag zooms the dragged view, and the drag's next move pans the zoomed view,
+/// as a pinch does: the value under the press stays under the pointer.
+#[tokio::test(flavor = "current_thread")]
+async fn the_wheel_during_a_drag_zooms_the_view_that_the_drag_pans() {
+    let mut app = app(|builder| builder.tool(pan_zoom())).await;
+    let press = [100.0, 80.0];
+    let pressed = values(app.state(), press);
+    let to = [150.0, 110.0];
+    send(
+        &mut app,
+        [
+            moved(press),
+            mouse(ElementState::Pressed),
+            moved([120.0, 90.0]),
+            wheel(1.0),
+            moved(to),
+            mouse(ElementState::Released),
+        ],
+    )
+    .await;
+    assert!((width(&app.state().x) - 100.0 / 1.2).abs() < 1e-9);
+    assert_close(values(app.state(), to), pressed);
+}
+
 /// A pause rebuilds the drag's tree. Releasing without further movement requests no rebuild.
 #[tokio::test(flavor = "current_thread")]
 async fn a_paused_drag_rests_its_view() {

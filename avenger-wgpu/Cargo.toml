@@ -10,12 +10,14 @@ repository = "https://github.com/jonmmease/avenger"
 crate-type = [ "cdylib", "rlib",]
 
 [features]
-default = [ "rayon",]
+default = [ "rayon", "winit",]
+# WindowCanvas, which draws into a winit window.
+winit = [ "dep:winit",]
 deno = []
 
 [dependencies]
 cfg-if = "1.0.1"
-winit = { workspace = true }
+winit = { workspace = true, optional = true }
 wgpu = { workspace = true }
 pollster = "0.4.0"
 itertools = { workspace = true }
