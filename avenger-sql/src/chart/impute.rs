@@ -4,7 +4,7 @@
 //!
 //! `impute => 0` is short for `impute => impute(value => 0)`, and `impute(...)` takes `value` or
 //! `method`, with `frame`, `keys`, and `extra_keys`. The option is a parameter of the mark calls
-//! of `|> CHART` only, which the lifting reads as syntax, so it does not collide with the table
+//! of the mark calls that lift only, which the lifting reads as syntax, so it does not collide with the table
 //! function `impute`, and the chart has no imputation: stage 3 is the pipe
 //! `CALL impute(<key>, [<groups>], <measure>, ...)` of the table function, and stage 5 does not
 //! read the option.

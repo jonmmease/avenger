@@ -24,7 +24,8 @@ A query is DataFusion SQL after two passes, which DataFusion 55.2 needs to plan 
 - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over a derived table of the operators before it, because DataFusion plans a window of a pipe `EXTEND` and fails to run it. So `FROM t |> EXTEND rank() OVER (ORDER BY x) AS r` becomes `SELECT *, rank() OVER (ORDER BY x) AS r FROM (SELECT * FROM t)`. The derived table keeps the qualifiers of the tables before it, so `x.b` stays valid after a window over `t AS x`.
 - A pipe `CALL f(<args>) [OVER (PARTITION BY ...)] [AS t]` becomes `SELECT * FROM f((<input>), <args>, partition_by => [...]) [AS t]`, the `FROM`-position call of the table function over the operators before it, because DataFusion does not plan a pipe `CALL` of a table function. So `FROM t |> AGGREGATE sum(units) AS units GROUP BY month, region |> CALL impute(month, [region], units, value => 0) OVER (PARTITION BY series)` adds the missing months of each region in each series, and the operators after the call read its rows. The `OVER` clause holds only a `PARTITION BY` list of columns, and a call without it passes no `partition_by`.
-- `|> CHART <item> [AS name], ... [GROUP BY ...]`, whose items are mark calls, aggregates, and expressions of mark calls, becomes the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name => <name>)` of each mark call, which the mark planner plans ([`|> CHART`](#-chart)), and with aggregate items, several mark calls, or an expression of mark calls, the `LEFT JOIN` of these calls and the pipe `AGGREGATE` of the aggregate items, each over a copy of the input. The token pass writes the operator as a pipe `AGGREGATE`, so its items and its `GROUP BY` parse as those of an `AGGREGATE`, and a group expression becomes a column of the input. The pass does not lower the mark call, whose channels the mark planner reads as written.
+- A mark call outside an item of a pipe `AGGREGATE` is an error at its text, and an item without an alias that holds a mark call takes the name of its function ([Charts](#charts)).
+- A pipe `AGGREGATE` whose items hold mark calls that lift becomes the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name => <name>)` of each such call, which the mark planner plans ([Charts](#charts)), and with other items, several lifted mark calls, or an expression of them, the `LEFT JOIN` of these calls and the pipe `AGGREGATE` of the other items, each over a copy of the input. A group expression becomes a column of the input. The pass does not lower the mark call, whose channels the mark planner reads as written.
 - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes the option pair of the transform, after the positional arguments, so `bin(x, maxbins => 30)` becomes `bin(x, 'maxbins', 30)`. The `weight` and `keep` of `lump` are SQL expressions over the rows of each category, and the pass passes their text, so `weight => sum(units)` becomes `'weight', 'sum(units)'`.
 - A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.
 
@@ -43,13 +44,13 @@ A mark also takes the options of its plot that concern no other layer, `title`, 
 
 A title is Typst markup, so `title => '*Bills* of the _Pygoscelis_ penguins'` draws bold and italic text, and `title => title(text => 'Length × depth', subtitle => 'in $"mm"$')` a subtitle with math. A title of plain text sets `syntax => 'plain'`, as `title(text => 'Revenue in $', syntax => 'plain')`. The titles that axes and legends take from channels, such as `count(*)` and `body_mass_g`, are plain text.
 
-DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument cannot aggregate, because DataFusion rejects an aggregate inside an aggregate.
+DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument that aggregates, as in `bar(x => species, y => count(*))`, is SQL that DataFusion rejects, and avenger-sql lifts it ([Charts](#charts)).
 
 A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. It is immutable, so a call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors.
 
 The constructors of avenger-chart set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot. Array literals, such as `scale(domain => [0, 100])`, need DataFusion's `nested_expressions` feature, which avenger-sql enables.
 
-A channel argument of a mark function is an expression of each row, so the aggregates of a chart come from an `AGGREGATE` before the mark function, as `count(*)` does above. A window function, such as a bin of avenger-datafusion-transforms, goes in a pipe `EXTEND` before it, which the syntax pass writes as a derived table.
+A channel argument of the mark aggregate is an expression of each row, so the aggregates of a chart can come from an `AGGREGATE` before the mark function, as `count(*)` does above, or from the lifting of a mark call whose channels hold them.
 
 ## Compositions
 
@@ -81,17 +82,19 @@ FROM penguins
 
 A column of charts is a `BinaryView` column whose field has the extension name `avenger.chart`. DataFusion drops the extension of a field through many functions, so their result is a `BinaryView` of charts that its field does not mark: `CASE`, `coalesce`, `nullif`, `nvl2`, `greatest`, `least`, `min`, `max`, a cast, the element of an array or the field of a struct, `unnest`, and the aggregate `nth_value`. A column reference, `first_value`, `last_value`, `any_value`, `lag`, `lead`, a window `nth_value`, a scalar subquery, and `UNION ALL` keep it. So each function that reads charts, a composition or a facet, also reads a `BinaryView` column without the extension, and fails at execution on a value that is not a chart. `chart(value)` gives such a column the field of a column of charts, so that a reader of the result, such as an app, takes its values as charts, as in `|> SELECT island, chart(coalesce(bars, points)) AS chart`, and fails on a value that is not a chart.
 
-## `|> CHART`
+## Charts
 
-The pipe operator `|> CHART` takes a mark call whose channels compute their statistics: `bin`, `timeunit`, and `lump`, aggregates, `stack`, and window functions, with a draw order, and groups its rows as a pipe `AGGREGATE` does, with a chart for each group:
+A mark call builds a chart of the rows of a group, so it is an item of a pipe `AGGREGATE`, beside the aggregates of the group, with a chart for each group. A mark call anywhere else, in `|> SELECT`, `|> EXTEND`, `|> WHERE`, `|> ORDER BY`, a join, a group, the arguments of a table function or of another aggregate, or with `OVER`, is an error at its text. A mark call whose channels read only the rows and constants is a call of its mark aggregate. A mark call whose channels or draw order compute their statistics, `bin`, `timeunit`, and `lump`, aggregates, `stack`, and window functions, or that takes the `impute` option, lifts:
 
 ```sql
 FROM penguins
-|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*), color => lump(species, n => 2))
+|> AGGREGATE bar(x => bin(body_mass_g, maxbins => 20), y => count(*), color => lump(species, n => 2)) AS chart
    GROUP BY island
 ```
 
-The call means its lifting, a query of stages that ends in the mark aggregate over column references, and `lift` prints it:
+Each of these is SQL that DataFusion rejects in the arguments of an aggregate, so lifting changes the meaning of no query that DataFusion plans. A statistic of a mark call computes for each key of the mark within the group, so beside an item `count(*)`, which counts the rows of each island, the `count(*)` of `bar(x => species, y => count(*))` counts the rows of each species of the island.
+
+A mark call that lifts means its lifting, a query of stages that ends in the mark aggregate over column references, and `lift` prints it:
 
 ```sql
 FROM penguins
@@ -118,26 +121,26 @@ Each group is a panel. A discretizer without a window computes over every row of
 
 A discretizer takes `OVER ()`, `OVER panel`, or a window with only a `PARTITION BY` list. The key channel and the measure channel of a stack come from the orientation of the mark: a channel with an aggregate or a stack is the measure when the other position has neither, then a discrete position, a string, a boolean, a discretizer, or a channel with a band, point, or ordinal scale, is the key when the other is continuous, and then the `orient` property decides, with `x` the key by default. A polar bar reads `theta` and `radius` in place of `x` and `y`, and a polar bar with a stack in `theta` and no `radius` is an arc, which stacks without a key. The implied order follows the legends: the domain order of each series channel, `color`, `fill`, `stroke`, `opacity`, `stroke_dash`, `stroke_width`, `pattern`, and `detail`, in this order, reversed in a vertical stack so that the first category of the legend is the top segment. A domain is ascending with `NULL` last, a `lump` orders its kept categories by weight with the Other group last, and a `domain` or a `category_fit` order of the channel's `scale` orders by its list. The argument of the stack and the other channel columns, ascending, break the ties, and then the flag of an imputation, so that an added row follows the rows of its tie.
 
-The output of the call is the group columns, in the order of the `GROUP BY` list, and the chart, one row for each panel, as a pipe `AGGREGATE` gives them, so a composition aggregate composes the panels ([Compositions](#compositions)):
+The output of the `AGGREGATE` is the group columns, in the order of the `GROUP BY` list, and the chart, one row for each panel, as a pipe `AGGREGATE` gives them, so a composition aggregate composes the panels ([Compositions](#compositions)):
 
 ```sql
 FROM penguins
-|> CHART bar(x => bin(body_mass_g), y => count(*)) GROUP BY island
+|> AGGREGATE bar(x => bin(body_mass_g), y => count(*)) AS chart GROUP BY island
 |> AGGREGATE facet_col(chart, island) AS chart
 ```
 
-The chart column is `chart`, or the alias of the mark call, as in `|> CHART bar(...) AS counts GROUP BY island`. A group expression is a column of its alias or of its text, so `GROUP BY upper(island) AS isle` returns `isle` and `chart`. A mark call takes no `OVER` clause, and an item or a group takes no `ASC` or `DESC`.
+A chart column is named by the alias of its item, as in `|> AGGREGATE bar(...) AS counts GROUP BY island`. An item without an alias that holds a mark call and is a call takes the name of its function, in lowercase, so `bar(...)` is `bar` and `layer(bar(...), rule(...))` is `layer`, and an item of another kind that holds a mark call, such as a `CASE`, needs an alias. A group expression is a column of its alias or of its text, so `GROUP BY upper(island) AS isle` returns `isle` and the chart. An item or a group of an `AGGREGATE` whose mark calls lift takes no `ASC` or `DESC`.
 
-The other items of a `CHART` are aggregates, as the items of an `AGGREGATE` are, beside the chart of each group, in the order of the items:
+The other items are aggregates, beside the chart of each group, in the order of the items:
 
 ```sql
 FROM penguins
-|> CHART bar(x => bin(body_mass_g), y => count(*)) AS chart, count(*) AS penguins, avg(body_mass_g) AS mean_mass
+|> AGGREGATE bar(x => bin(body_mass_g), y => count(*)) AS chart, count(*) AS penguins, avg(body_mass_g) AS mean_mass
    GROUP BY island
 |> ORDER BY penguins DESC
 ```
 
-The items are a pipe `AGGREGATE` of their own, over the same input, which the charts join on the groups, with `IS NOT DISTINCT FROM`, so a `NULL` group has its chart and its items. Every aggregate works, such as `count(DISTINCT species)`, `array_agg(species ORDER BY body_mass_g)`, and `percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g)`, and an item without an alias is named by its text. An unquoted alias names its column in lowercase, as DataFusion normalizes an identifier, and each column of the output has a name of its own, without the qualifiers of the input, so `GROUP BY a.island, b.island` is an error at `b.island`. Each relation computes the input, because DataFusion does not share a subplan between them, so an input that is not deterministic, such as a sample by `random()` or a `LIMIT` without an `ORDER BY` of every row, can give the items and the charts different rows. An item reads a column only inside its aggregates or as a group, and calls no window function, and the planner reports either at its text, which DataFusion does not check in a pipe `AGGREGATE`. `lift` prints the input for each branch, so the qualifiers of its tables stay valid:
+The items that do not lift, flat mark calls among them, are a pipe `AGGREGATE` of their own, over the same input, which the lifted charts join on the groups, with `IS NOT DISTINCT FROM`, so a `NULL` group has its chart and its items. Every aggregate works, such as `count(DISTINCT species)`, `array_agg(species ORDER BY body_mass_g)`, and `percentile_cont(0.5) WITHIN GROUP (ORDER BY body_mass_g)`, and an item without an alias is named by its text. An unquoted alias names its column in lowercase, as DataFusion normalizes an identifier, and each column of the output has a name of its own, without the qualifiers of the input, so `GROUP BY a.island, b.island` is an error at `b.island`. Each relation computes the input, because DataFusion does not share a subplan between them, so an input that is not deterministic, such as a sample by `random()` or a `LIMIT` without an `ORDER BY` of every row, can give the items and the charts different rows. An item reads a column only inside its aggregates or as a group, and calls no window function, and the planner reports either at its text, which DataFusion does not check in a pipe `AGGREGATE`. `lift` prints the input for each branch, so the qualifiers of its tables stay valid:
 
 ```sql
 FROM penguins
@@ -150,29 +153,29 @@ FROM penguins
 
 The names `aggregates` and `charts` take the smallest free suffix, `_2`, `_3`, and so on, among the words of the statement.
 
-A `CHART` of several mark calls draws a chart of each, in a column named by its alias, which each of them needs. Each mark call is the lifting of its own copy of the input, and the charts join the first relation, the aggregate items or the first chart, on the groups. Each lifting groups by the groups before its mark aggregate, so each chart has a row for each group. The `FILTER` of a mark call selects the rows of every stage of its lifting, as a `WHERE` before them, so its bins, stacks, and windows read only those rows. With a `FILTER` and groups, the first relation is the `AGGREGATE` of the groups, so a group whose rows the `FILTER` selects none of keeps its row, with a `NULL` in place of that chart:
+An `AGGREGATE` of several mark calls draws a chart of each, in a column of its own name. Each mark call that lifts is the lifting of its own copy of the input, and the charts join the first relation, the aggregate items or the first chart, on the groups. Each lifting groups by the groups before its mark aggregate, so each chart has a row for each group. The `FILTER` of a mark call selects the rows of every stage of its lifting, as a `WHERE` before them, so its bins, stacks, and windows read only those rows. With a `FILTER` and groups, the first relation is the `AGGREGATE` of the groups, so a group whose rows the `FILTER` selects none of keeps its row, with a `NULL` in place of that chart:
 
 ```sql
 FROM penguins
-|> CHART symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills,
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills,
          bar(x => species, y => count(*)) AS counts
    GROUP BY island
 ```
 
-The input computes once for each relation, and `lift` prints the first relation after the input and each other in a `LEFT OUTER JOIN` of its own, named `charts`, `charts_2`, and so on. Two columns of one name, two items, an item and a group, or two groups, are an error at the second in the text, as each name of the output of an `AGGREGATE` is one column, and a mark call without an alias names its column `chart`.
+The input computes once for each relation, and `lift` prints the first relation after the input and each other in a `LEFT OUTER JOIN` of its own, named `charts`, `charts_2`, and so on. In this example, the `symbol` call does not lift, so it is an item of the `AGGREGATE` of the groups, and the `bar` call joins it. Two columns of one name, two items, an item and a group, or two groups, are an error at the second in the text, as each name of the output of an `AGGREGATE` is one column.
 
-An item can hold mark calls inside an expression, such as a composition of them, as an item of `AGGREGATE` can. Each mark call of the item is a chart of the group, lifted as a mark call of its own, each other part of the expression without a mark call is an aggregate of the group in the `AGGREGATE` of the aggregate items, and the item is the expression over these columns. So an item means what the same expression means over named charts:
+An item can hold mark calls inside an expression, such as a composition of them. Each mark call of the item that lifts is a chart of the group, lifted as a mark call of its own, each other part of the expression without one is an aggregate of the group in the `AGGREGATE` of the aggregate items, and the item is the expression over these columns. So an item means what the same expression means over named charts:
 
 ```sql
 FROM penguins
-|> CHART layer(
+|> AGGREGATE layer(
      bar(x => species, y => avg(body_mass_g)),
      rule(y => avg(body_mass_g)),
    ) AS chart
    GROUP BY island
 ```
 
-is the `layer` of the columns of `bar(...) AS bars, rule(...) AS mean`, after the `CHART`. Compositions nest, as in `hconcat(layer(bar(...), rule(...)), symbol(...))`, and an item can choose its chart by its group, as in `CASE WHEN count(*) > 100 THEN bar(...) ELSE symbol(...) END`. An item whose value is a `CASE`, a cast, the element of an array or the field of a struct, or a call of a function other than a composition, such as `coalesce`, is in a call of `chart`, which `lift` prints, so its column is a column of charts. An item of another kind, such as `bar(...) IS NULL`, stays as it is. A literal and the value of a named argument, such as `layout => concat_layout(gap => 24)`, stay in the expression, so an option stays a plan-time constant. The naming rule of several charts applies to items: an item that holds a mark call without an alias is `chart`, and each of two items or more that hold mark calls needs an alias. `lift` names the column of each part by its item and its mark function, such as `chart_bar` and `chart_rule`, or `chart_value` for an aggregate, with the smallest free suffix.
+is the `layer` of the columns of `bar(...) AS bars, rule(...) AS mean`, after the `AGGREGATE`. Compositions nest, as in `hconcat(layer(bar(...), rule(...)), symbol(...))`, and an item can choose its chart by its group, as in `CASE WHEN count(*) > 100 THEN bar(...) ELSE symbol(...) END`. An item whose value is a `CASE`, a cast, the element of an array or the field of a struct, or a call of a function other than a composition, such as `coalesce`, is in a call of `chart`, which `lift` prints, so its column is a column of charts. An item of another kind, such as `bar(...) IS NULL`, stays as it is. A literal and the value of a named argument, such as `layout => concat_layout(gap => 24)`, stay in the expression, so an option stays a plan-time constant. `lift` names the column of each part by its item and its mark function, such as `chart_bar` and `chart_rule`, or `chart_value` for an aggregate, with the smallest free suffix.
 
 The mark planner checks the call before it plans the stages, and reports each error at its text: an argument of a discretizer or an aggregate that reads a later stage, such as `bin(count(*))`, a value of a grouping call that is neither a key nor inside an aggregate, a draw order that is not a key, `scaled` and `direct` that are not the complete value of a channel, a window function without `OVER`, a window that the mark does not name, a stack window without an order, a stack without a key channel or a measure channel, an `impute` option that [Imputation](#imputation) rejects, an option that is not a plan-time constant, an `OVER` clause of the call with more than a `PARTITION BY` list of columns, and an argument of a transform of a type that the transform rejects, with the error of the transform.
 
@@ -186,19 +189,19 @@ The `impute` option of a `bar`, `area`, `line`, `symbol`, or `text` call adds a 
 
 ```sql
 FROM sales
-|> CHART line(x => month, y => sum(units), color => region, impute => impute(method => 'gap'))
+|> AGGREGATE line(x => month, y => sum(units), color => region, impute => impute(method => 'gap')) AS chart
 ```
 
 An `area` or a `line` whose measure is a `stack` imputes zero by default, so a stacked area draws every series at every key without the option:
 
 ```sql
 FROM sales
-|> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)
+|> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region) AS chart
 ```
 
 The default takes the key values of `impute => 0`, so it also fills the empty bins and units between the keys. It applies only where the option could: a call whose stacked measure is not one aggregate or a column, or whose bins come from a partition that is not a key, keeps its rows. A call of one group whose key values are the distinct keys of its input lacks no key, so it has no stage 3. `impute => FALSE` turns the default off, and `impute => NULL` means an omitted option, as `NULL` does for every parameter.
 
-`impute => 0` is short for `impute => impute(value => 0)`. `impute(...)` takes exactly one of `value`, a constant, and `method`, `'mean'`, `'median'`, `'min'`, `'max'`, or `'gap'`, which is `NULL` and breaks a line. A method of a statistic reads the measures of the existing rows of the group, or with `frame => [lo, hi]`, of the rows from `lo` to `hi` around the added row in key order, where `NULL` is the start or the end of the group. `keys => [...]` gives the key values, and `extra_keys => [...]` adds to them. The option is a parameter of the mark calls of `|> CHART`, which the mark planner reads as written, so it does not collide with the table function `impute`, and the chart holds no imputation.
+`impute => 0` is short for `impute => impute(value => 0)`. `impute(...)` takes exactly one of `value`, a constant, and `method`, `'mean'`, `'median'`, `'min'`, `'max'`, or `'gap'`, which is `NULL` and breaks a line. A method of a statistic reads the measures of the existing rows of the group, or with `frame => [lo, hi]`, of the rows from `lo` to `hi` around the added row in key order, where `NULL` is the start or the end of the group. `keys => [...]` gives the key values, and `extra_keys => [...]` adds to them. The option lifts its mark call, and the mark planner reads it as written, so it does not collide with the table function `impute`, and the chart holds no imputation.
 
 The key is the key channel of the mark, and the measure is its measure channel without its `stack`: one aggregate in a call that aggregates, or a column in a call that does not. The groups are the group columns of the call and its other keys, except a key that is a function of the imputed key, such as `text => to_char(month, '%b')` next to `x => month`, which computes after the imputation from the key, so an added row has it. The key values are the `keys` of the option, the list of a `domain` or a `category_fit` order of the key channel's `scale`, every bin or unit between the keys of a `bin` or a `timeunit` key, or the distinct keys of the input. The key values come from every panel, so the panels that share a scale share their keys, except the bins of a `bin` with a partition, such as `bin(v) OVER panel`, which come from the mesh of each partition.
 

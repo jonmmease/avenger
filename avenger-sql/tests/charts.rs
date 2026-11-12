@@ -137,7 +137,7 @@ async fn a_grid_of_scatter_plots_by_sex_and_island() {
 async fn a_histogram_of_chart() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*))";
+|> AGGREGATE bar(x => bin(body_mass_g, maxbins => 20), y => count(*))";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-histogram");
@@ -146,7 +146,7 @@ async fn a_histogram_of_chart() {
 #[tokio::test]
 async fn a_lump_bar_of_chart() {
     let query = "FROM penguins
-|> CHART bar(x => lump(species, n => 2), y => count(*), color => lump(species, n => 2))";
+|> AGGREGATE bar(x => lump(species, n => 2), y => count(*), color => lump(species, n => 2))";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-lump-bar");
@@ -163,7 +163,7 @@ async fn a_facet_of_histograms_with_shared_and_own_bins() {
         let query = format!(
             "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> CHART bar(x => bin(body_mass_g){window}, y => count(*)) GROUP BY island
+|> AGGREGATE bar(x => bin(body_mass_g){window}, y => count(*)) AS chart GROUP BY island
 |> AGGREGATE facet_col(chart, island) AS chart"
         );
         let charts = charts(&query).await;
@@ -176,7 +176,7 @@ async fn a_facet_of_histograms_with_shared_and_own_bins() {
 async fn a_stacked_histogram_of_chart() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> CHART bar(x => bin(body_mass_g, maxbins => 20), y => stack(count(*)), color => species)";
+|> AGGREGATE bar(x => bin(body_mass_g, maxbins => 20), y => stack(count(*)), color => species)";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-stacked-histogram");
@@ -192,7 +192,7 @@ async fn a_stacked_area_with_imputed_months() {
      CASE value % 3 WHEN 0 THEN 'east' WHEN 1 THEN 'west' ELSE 'north' END AS region,
      CAST((value * 7) % 11 AS DOUBLE) AS units
 |> WHERE NOT (region = 'west' AND t >= TIMESTAMP '2024-03-01' AND t < TIMESTAMP '2024-05-01')
-|> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)";
+|> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "chart-impute-stacked-area");
@@ -204,7 +204,7 @@ async fn a_stacked_area_with_imputed_months() {
 async fn a_typst_title_and_subtitle() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> CHART symbol(x => bill_length_mm, y => bill_depth_mm, color => species,
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species,
      title => title(text => '*Bills* of the _Pygoscelis_ penguins',
                     subtitle => 'Length $times$ depth, in mm'))";
     let charts = charts(query).await;
@@ -213,12 +213,12 @@ async fn a_typst_title_and_subtitle() {
 }
 
 /// A layer of the bars of the mean body mass of each species and a rule at the mean of all, as an
-/// expression item of CHART.
+/// expression item of an AGGREGATE.
 #[tokio::test]
 async fn a_layer_of_bars_and_a_rule_of_chart() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> CHART layer(
+|> AGGREGATE layer(
      bar(x => species, y => avg(body_mass_g)),
      rule(y => avg(body_mass_g), color => direct('firebrick')),
    )";

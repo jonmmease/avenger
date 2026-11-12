@@ -14,9 +14,6 @@
 //!   only when it starts with `SELECT` or `WITH`. The inserted tokens have an empty span, which
 //!   marks them for the grammar check ([`crate::grammar`]). Removed by sqlparser-rs reading a
 //!   subquery that starts with `FROM` in a dialect of FROM-first queries.
-//! - `|> CHART <items> [GROUP BY ...]` becomes `|> AGGREGATE __avenger_chart() AS __avenger_chart,
-//!   <items> [GROUP BY ...]`, the `AGGREGATE` of a marker and the items, which the syntax pass
-//!   consumes. `CHART` is an operator of avenger-sql, so no upstream change removes the item.
 
 use datafusion::{
     common::Result,
@@ -26,7 +23,7 @@ use datafusion::{
     },
 };
 
-use crate::{chart::MARKER, error::at};
+use crate::error::at;
 
 /// The prefix of the names that the passes generate, which the text of a query cannot hold.
 pub(crate) const RESERVED: &str = "__avenger_";
@@ -46,7 +43,7 @@ pub(crate) fn rewrite(tokens: Vec<TokenWithSpan>) -> Result<Vec<TokenWithSpan>> 
             }
         }
     }
-    chart_markers(from_first_subqueries(trailing_commas(tokens)))
+    Ok(from_first_subqueries(trailing_commas(tokens)))
 }
 
 /// `tokens` with each trailing comma written as a space, which keeps the spans of the others. A
@@ -139,62 +136,4 @@ fn next(tokens: &[TokenWithSpan], index: usize) -> usize {
     (index..tokens.len())
         .find(|i| !blank(&tokens[*i].token))
         .unwrap_or(tokens.len())
-}
-
-/// Writes each `|> CHART` as `|> AGGREGATE __avenger_chart() AS __avenger_chart,`, so the parser
-/// reads the items and the `GROUP BY` of the `CHART` as those of an `AGGREGATE`. The inserted
-/// tokens take the span of `CHART`, and the tokens after it keep theirs.
-fn chart_markers(tokens: Vec<TokenWithSpan>) -> Result<Vec<TokenWithSpan>> {
-    let mut out = Vec::with_capacity(tokens.len());
-    let mut index = 0;
-    while index < tokens.len() {
-        let token = &tokens[index];
-        out.push(token.clone());
-        index += 1;
-        if token.token != Token::VerticalBarRightAngleBracket {
-            continue;
-        }
-        let chart = next(&tokens, index);
-        let is_chart = matches!(
-            tokens.get(chart).map(|t| &t.token),
-            Some(Token::Word(word)) if word.quote_style.is_none() && word.value.eq_ignore_ascii_case("chart")
-        );
-        if !is_chart {
-            continue;
-        }
-        let span = tokens[chart].span;
-        let item = next(&tokens, chart + 1);
-        let ends = matches!(
-            tokens.get(item).map(|t| &t.token),
-            None | Some(
-                Token::EOF | Token::VerticalBarRightAngleBracket | Token::RParen | Token::SemiColon
-            )
-        );
-        if ends {
-            return Err(at(
-                span,
-                "CHART takes a mark call, such as `|> CHART bar(x => category, y => count(*))`",
-            ));
-        }
-        out.extend(tokens[index..chart].iter().cloned());
-        let inserted = |token: Token| TokenWithSpan::new(token, span);
-        out.extend(
-            [
-                Token::make_keyword("AGGREGATE"),
-                Token::Whitespace(Whitespace::Space),
-                Token::make_word(MARKER, None),
-                Token::LParen,
-                Token::RParen,
-                Token::Whitespace(Whitespace::Space),
-                Token::make_keyword("AS"),
-                Token::Whitespace(Whitespace::Space),
-                Token::make_word(MARKER, None),
-                Token::Comma,
-                Token::Whitespace(Whitespace::Space),
-            ]
-            .map(inserted),
-        );
-        index = chart + 1;
-    }
-    Ok(out)
 }

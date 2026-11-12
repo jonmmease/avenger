@@ -83,10 +83,10 @@ async fn a_mark_declares_a_navigation_of_its_plot_and_a_tooltip_of_its_layer() {
 #[tokio::test]
 async fn layer_merges_the_options_of_its_charts() {
     let chart = chart(&format!(
-        "{PENGUINS} |> CHART bar(x => species, y => avg(body_mass_g), \
-         title => 'Mass by species', tools => [navigate(), tooltip()]) \
-         |> UNION ALL ({PENGUINS} |> CHART rule(y => avg(body_mass_g), \
-         tools => [navigate()])) \
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => avg(body_mass_g), \
+         title => 'Mass by species', tools => [navigate(), tooltip()]) AS chart \
+         |> UNION ALL ({PENGUINS} |> AGGREGATE rule(y => avg(body_mass_g), \
+         tools => [navigate()]) AS chart) \
          |> AGGREGATE layer_agg(chart) AS chart"
     ))
     .await;
@@ -100,8 +100,8 @@ async fn layer_merges_the_options_of_its_charts() {
 #[tokio::test]
 async fn the_panels_of_a_facet_take_tools_without_ids() {
     let chart = chart(&format!(
-        "{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, \
-         tools => [navigate(), tooltip()]) GROUP BY island \
+        "{PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+         tools => [navigate(), tooltip()]) AS chart GROUP BY island \
          |> AGGREGATE facet_col(chart, island) AS chart"
     ))
     .await;
@@ -131,8 +131,9 @@ async fn an_option_is_a_plan_time_constant() {
     ))
     .await;
     assert!(message.contains("needs a plan-time constant"), "{message}");
+    // A mark call that lifts checks its options before its stages.
     let message = error(&format!(
-        "{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, title => species)"
+        "{PENGUINS} |> AGGREGATE symbol(x => species, y => avg(bill_depth_mm), title => species)"
     ))
     .await;
     assert!(

@@ -81,11 +81,11 @@ fn a_query_that_starts_with_from_selects_every_column() {
 fn an_omitted_parameter_before_a_named_one_is_null() {
     assert_eq!(
         expand("FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species)"),
-        "SELECT * FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species, color => NULL)"
+        "SELECT * FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species, color => NULL) AS symbol"
     );
     assert_eq!(
         expand("FROM penguins |> AGGREGATE symbol(body_mass_g, y => body_mass_g)"),
-        "SELECT * FROM penguins |> AGGREGATE symbol(body_mass_g, y => body_mass_g)",
+        "SELECT * FROM penguins |> AGGREGATE symbol(body_mass_g, y => body_mass_g) AS symbol",
         "a call that omits only trailing parameters stays as it is"
     );
 }
@@ -281,10 +281,10 @@ async fn the_arguments_of_a_pipe_call_are_lowered() {
 #[tokio::test]
 async fn the_aggregate_items_of_chart_join_its_charts() {
     let query =
-        "FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island";
+        "FROM penguins |> AGGREGATE bar(x => species, y => count(*)), count(*) AS n GROUP BY island";
     let expanded = expand(query);
     assert!(
-        expanded.starts_with("SELECT __avenger_aggregates.island, __avenger_charts.chart, __avenger_aggregates.n FROM (SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY island) AS __avenger_aggregates LEFT OUTER JOIN __avenger_chart("),
+        expanded.starts_with("SELECT __avenger_aggregates.island, __avenger_charts.bar, __avenger_aggregates.n FROM (SELECT * FROM penguins |> AGGREGATE count(*) AS n GROUP BY island) AS __avenger_aggregates LEFT OUTER JOIN __avenger_chart("),
         "{expanded}"
     );
     assert!(
@@ -292,23 +292,24 @@ async fn the_aggregate_items_of_chart_join_its_charts() {
         "{expanded}"
     );
     // Without groups, the join is ON true. Without aggregate items, there is no join.
-    let expanded = expand("FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n");
+    let expanded =
+        expand("FROM penguins |> AGGREGATE bar(x => species, y => count(*)), count(*) AS n");
     assert!(
         expanded.ends_with("AS __avenger_charts ON true"),
         "{expanded}"
     );
     let expanded =
-        expand("FROM penguins |> CHART bar(x => species, y => count(*)) GROUP BY island");
+        expand("FROM penguins |> AGGREGATE bar(x => species, y => count(*)) GROUP BY island");
     assert!(!expanded.contains("JOIN"), "{expanded}");
     assert_eq!(
-        rows("FROM penguins |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island |> SELECT island, n").await,
+        rows("FROM penguins |> AGGREGATE bar(x => species, y => count(*)), count(*) AS n GROUP BY island |> SELECT island, n").await,
         rows("FROM penguins |> AGGREGATE count(*) AS n GROUP BY island").await
     );
 }
 
 #[tokio::test]
 async fn the_mark_items_of_chart_join_their_charts() {
-    let expanded = expand("FROM penguins |> CHART bar(x => species, y => count(*)) AS a, bar(x => sex, y => count(*)) AS b GROUP BY island");
+    let expanded = expand("FROM penguins |> AGGREGATE bar(x => species, y => count(*)) AS a, bar(x => sex, y => count(*)) AS b GROUP BY island");
     assert!(
         expanded.starts_with("SELECT __avenger_charts.island, __avenger_charts.a, __avenger_charts_2.b FROM __avenger_chart("),
         "{expanded}"
@@ -349,7 +350,7 @@ async fn a_trailing_comma_ends_a_call_a_list_or_the_items_of_an_operator() {
 #[tokio::test]
 async fn a_commented_out_last_argument_leaves_a_trailing_comma() {
     let query = "FROM penguins
-|> CHART bar(
+|> AGGREGATE bar(
      x => species,
      y => count(*),
      -- color => island,
@@ -362,18 +363,18 @@ async fn a_commented_out_last_argument_leaves_a_trailing_comma() {
         rows("FROM penguins |> AGGREGATE count(*) AS n GROUP BY island |> ORDER BY island").await
     );
     // The tools of a mark, a list of calls.
-    let query = "FROM penguins |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, tools => [navigate(), tooltip(),],)";
+    let query = "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, tools => [navigate(), tooltip(),],)";
     assert_eq!(charts(query).await.len(), 1);
 }
 
 #[tokio::test]
 async fn a_comma_before_the_name_of_an_argument_stays() {
     // `order` names an argument here, not a clause, with `=>` or with `:=`.
-    let query = "FROM penguins |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order => body_mass_g)";
+    let query = "FROM penguins |> AGGREGATE line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order => body_mass_g)";
     assert_eq!(charts(query).await.len(), 1);
-    let query = "FROM penguins |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order := body_mass_g)";
+    let query = "FROM penguins |> AGGREGATE line(x => avg(bill_length_mm), y => avg(bill_depth_mm), color => species, order := body_mass_g)";
     assert_eq!(charts(query).await.len(), 1);
-    let query = "FROM penguins |> CHART bar(x => species, y => count(*), impute => impute(value => 0, extra_keys => ['x'],),)";
+    let query = "FROM penguins |> AGGREGATE bar(x => species, y => count(*), impute => impute(value => 0, extra_keys => ['x'],),)";
     assert_eq!(charts(query).await.len(), 1);
 }
 
@@ -536,4 +537,69 @@ async fn a_query_of_another_form_is_an_error_at_its_text() {
             "{query}: {error}"
         );
     }
+}
+
+#[test]
+fn a_flat_mark_call_is_a_call_of_its_mark_aggregate() {
+    // A mark call whose channels read only the rows stays in its AGGREGATE, beside the aggregates.
+    let query = "FROM penguins |> AGGREGATE count(*) AS n, symbol(x => bill_length_mm, y => bill_depth_mm) GROUP BY island";
+    assert_eq!(
+        expand(query),
+        "SELECT * FROM penguins |> AGGREGATE count(*) AS n, symbol(x => bill_length_mm, y => bill_depth_mm) AS symbol GROUP BY island"
+    );
+    // Beside a mark call that lifts, only the lifted one is a call of the mark planner.
+    let expanded = expand(
+        "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS bills, bar(x => species, y => count(*)) AS counts GROUP BY island",
+    );
+    assert_eq!(
+        expanded.matches("__avenger_chart(").count(),
+        1,
+        "{expanded}"
+    );
+    assert!(
+        expanded.contains("AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS bills GROUP BY island) AS __avenger_aggregates"),
+        "{expanded}"
+    );
+}
+
+#[tokio::test]
+async fn a_mark_call_is_valid_only_in_an_item_of_an_aggregate() {
+    let mark = "bar(x => species, y => body_mass_g)";
+    for (query, at) in [
+        (format!("FROM penguins |> SELECT {mark} AS chart"), "bar("),
+        (format!("FROM penguins |> EXTEND {mark} AS chart"), "bar("),
+        (format!("FROM penguins |> WHERE {mark} IS NOT NULL"), "bar("),
+        (format!("FROM penguins |> ORDER BY {mark}"), "bar("),
+        (
+            format!("FROM penguins |> JOIN penguins AS q ON {mark} IS NULL"),
+            "bar(",
+        ),
+        (
+            format!("FROM penguins |> CALL impute(island, [species], {mark}, value => 0)"),
+            "bar(",
+        ),
+    ] {
+        let error = planning_error(&query).await;
+        assert!(
+            error
+                .to_string()
+                .contains("`bar` builds a chart of the rows of a group, so it is valid only in an item of |> AGGREGATE"),
+            "{query}: {error}"
+        );
+        assert_eq!(position(&error), (1, column_of(&query, at)), "{query}");
+    }
+    let query = format!("FROM penguins |> AGGREGATE count(*) AS n GROUP BY {mark}");
+    let error = planning_error(&query).await;
+    assert!(
+        error
+            .to_string()
+            .contains("a group of an AGGREGATE is not a chart"),
+        "{error}"
+    );
+    assert_eq!(position(&error), (1, column_of(&query, "bar(")));
+    // A mark call in a subquery belongs to the AGGREGATE of its query.
+    let query = format!(
+        "FROM penguins |> WHERE EXISTS (FROM penguins |> AGGREGATE {mark} AS chart) |> AGGREGATE count(*) AS n"
+    );
+    avenger_sql::sql(&session(), &query).await.unwrap();
 }

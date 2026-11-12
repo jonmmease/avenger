@@ -40,15 +40,17 @@
 //!   that it omits, because DataFusion binds named arguments only as a prefix of the parameters.
 //!   An omitted parameter of an avenger function and `NULL` mean the same thing.
 //!
-//! - `|> CHART <item> [AS name], ... [GROUP BY ...]`, whose items are mark calls and aggregates,
-//!   parses as a pipe `AGGREGATE` and becomes the `FROM`-position call `__avenger_chart((<input>),
-//!   <mark call>, partition_by => [...], name => <name>)` of each mark call, with a chart for each
-//!   group, which the mark planner plans as the lifting of the call: stages that compute the
-//!   discretizers, `bin`, `timeunit`, and `lump`, the aggregates, the rows of its `impute` option,
+//! - A mark call is valid only in an item of a pipe `AGGREGATE`, and an item without an alias that
+//!   holds one takes the name of its function, such as `bar`. A mark call whose channels or draw
+//!   order hold a statistic, an aggregate, a window function, `stack`, or a discretizer, `bin`,
+//!   `timeunit`, or `lump`, or that takes the `impute` option, lifts: it becomes the
+//!   `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...], name =>
+//!   <name>)`, with a chart for each group, which the mark planner plans as the lifting of the
+//!   call: stages that compute the discretizers, the aggregates, the rows of its `impute` option,
 //!   and the stacks and the window functions of its channels, then the mark aggregate over their
-//!   columns. With aggregate items or several mark calls, the calls and the `AGGREGATE` of the
-//!   aggregate items, each over a copy of the input, join on the groups. [`lift`] prints the
-//!   lifting, which runs to the same charts.
+//!   columns. The other items, flat mark calls among them, are the `AGGREGATE` of the aggregate
+//!   items, and the calls and that `AGGREGATE`, each over a copy of the input, join on the groups.
+//!   [`lift`] prints the lifting, which runs to the same charts.
 //!
 //! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,
 //! and [`register`] has DataFusion record them, so an error of a column points to its text.

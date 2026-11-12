@@ -83,7 +83,8 @@ pub fn session() -> SessionContext {
     ctx
 }
 
-/// The charts of the column `chart` of `query`, in the order of its rows.
+/// The charts of the column `chart` of `query`, or of its one column of charts, a column of the
+/// chart extension, in the order of its rows.
 #[allow(dead_code)]
 pub async fn charts(query: &str) -> Vec<Chart> {
     let ctx = session();
@@ -95,7 +96,24 @@ pub async fn charts(query: &str) -> Vec<Chart> {
         .unwrap();
     let mut charts = Vec::new();
     for batch in batches {
-        let column = batch.column_by_name("chart").expect("a chart column");
+        let schema = batch.schema();
+        let columns: Vec<usize> = (schema.fields().iter().enumerate())
+            .filter(|(_, field)| {
+                field
+                    .metadata()
+                    .get("ARROW:extension:name")
+                    .map(String::as_str)
+                    == Some(avenger_chart::EXTENSION_NAME)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        let column = match batch.column_by_name("chart") {
+            Some(column) => column,
+            None => {
+                assert_eq!(columns.len(), 1, "one column of charts in {query}");
+                batch.column(columns[0])
+            }
+        };
         for chart in charts_from_arrow(column, Decode::Auto).unwrap() {
             charts.push(chart.unwrap());
         }

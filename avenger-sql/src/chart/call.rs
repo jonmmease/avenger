@@ -27,14 +27,14 @@ pub(super) struct MarkCall {
     /// The properties, the options of the plot and the layer, and `coord`, in the order of the
     /// mark's parameters.
     pub(super) properties: Vec<(Ident, Expr)>,
-    /// The `impute` option, a parameter of the mark calls of `|> CHART` that the lifting reads
+    /// The `impute` option, a parameter of the mark calls that lift that the lifting reads
     /// as written ([`super::impute`]), with its name as written.
     pub(super) impute: Option<(Ident, Expr)>,
     /// The draw order.
     pub(super) order: Vec<OrderByExpr>,
 }
 
-/// The parameter of the mark calls of `|> CHART` that imputes the rows of its key channel, after
+/// The parameter of the mark calls that lift that imputes the rows of its key channel, after
 /// the parameters of the mark.
 pub(super) const IMPUTE: &str = "impute";
 
@@ -78,7 +78,7 @@ pub(super) fn read(expr: &Expr) -> Result<MarkCall> {
     let Expr::Function(function) = expr else {
         return Err(at(
             expr.span(),
-            format!("CHART takes a mark call, not `{expr}`"),
+            format!("a lifting takes a mark call, not `{expr}`"),
         ));
     };
     let name = function_name(function).unwrap_or_default();
@@ -216,7 +216,7 @@ fn channel_value(channel: &'static Channel, name: Ident, value: Expr) -> Result<
         if inner.visit(&mut Wrapped).is_break() {
             return Err(at(
                 inner.span(),
-                "conditional channels, a CASE with scaled() or direct() in a result, are not supported in CHART yet",
+                "conditional channels, a CASE with scaled() or direct() in a result, are not supported in a mark call that lifts yet",
             ));
         }
     }

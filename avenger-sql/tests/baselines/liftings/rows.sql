@@ -1,1 +1,1 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND lump(species, n => 2) OVER () AS species_lump |> AGGREGATE symbol(x => bill_length_mm * 2, y => bill_depth_mm, color => scaled(species_lump, title => 'species')) AS chart
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND lump(species, n => 2) OVER () AS species_lump |> AGGREGATE symbol(x => bill_length_mm * 2, y => bill_depth_mm, color => scaled(species_lump, title => 'species')) AS symbol

@@ -15,7 +15,7 @@ use datafusion::{
     sql::sqlparser::{
         ast::{
             GroupByExpr, PipeOperator, Query, Select, SelectFlavor, SelectItem, SetExpr, Spanned,
-            Statement, TableFactor, Visit, Visitor,
+            Statement, TableFactor, Visit, VisitMut, Visitor, VisitorMut,
         },
         tokenizer::Span,
     },
@@ -42,6 +42,26 @@ pub(crate) fn check(statement: &Statement) -> Result<()> {
         ControlFlow::Break(error) => Err(error),
         ControlFlow::Continue(()) => Ok(()),
     }
+}
+
+/// `statement` with each `SELECT *` that the token pass inserts written as the `FROM`-first query
+/// of the text, so that a printed statement starts its queries in parentheses with `FROM`, as the
+/// text does.
+pub(crate) fn as_written(statement: &mut Statement) {
+    struct Restore;
+    impl VisitorMut for Restore {
+        type Break = ();
+        fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<()> {
+            if let SetExpr::Select(select) = query.body.as_mut() {
+                if inserted(select) && from_first(select) {
+                    select.projection.clear();
+                    select.flavor = SelectFlavor::FromFirstNoSelect;
+                }
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    let _ = VisitMut::visit(statement, &mut Restore);
 }
 
 /// The check of each query, which skips the queries of the `VALUES` sources, by address.
