@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart server</title>
+<style>
+  :root { --page: #f6f6f4; --card: #fff; --ink: #1d1d1f; --muted: #5f6066; --line: #dedede; }
+  @media (prefers-color-scheme: dark) {
+    :root { --page: #141416; --card: #1e1e21; --ink: #ececee; --muted: #a3a3aa; --line: #333338; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px; background: var(--page); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 12px; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  select, input, button { font: inherit; color: var(--ink); background: var(--card);
+                          border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  input { width: 6.5em; }
+  button { cursor: pointer; }
+  #chart { height: 480px; background: var(--card); color: var(--ink);
+           border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  #error { color: #c0392b; min-height: 1.5em; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chart server</h1>
+  <p>The server selects the movies with DataFusion and builds the chart. The page only draws it.</p>
+  <form id="choices">
+    <label>Genre <select id="genre"><option value="">Every genre</option></select></label>
+    <label>From <input id="from" type="number" value="1980"></label>
+    <label>To <input id="to" type="number" value="2010"></label>
+    <button type="submit">Show</button>
+  </form>
+  <div id="chart"></div>
+  <p id="error" role="alert"></p>
+</main>
+<script type="module">
+  import { mount } from "/pkg/dist/index.js";
+
+  const error = document.getElementById("error");
+  const genre = document.getElementById("genre");
+  // The chart's handle exists at once: the library loads while the first answer comes, and a new
+  // answer keeps the zoom of the chart before it where their structure is the same.
+  const chart = mount(document.getElementById("chart"), undefined, {
+    lazy: "eager",
+    label: "Movie ratings",
+    onError: (failure) => (error.textContent = failure.message),
+  });
+
+  async function answer() {
+    const choices = {
+      genre: genre.value || null,
+      from: Number(document.getElementById("from").value),
+      to: Number(document.getElementById("to").value),
+    };
+    const response = await fetch("/chart", { method: "POST", body: JSON.stringify(choices) });
+    if (!response.ok) throw new Error(await response.text());
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  async function show() {
+    try {
+      await chart.setChart(await answer());
+      error.textContent = "";
+    } catch (failure) {
+      error.textContent = failure.message ?? String(failure);
+    }
+  }
+
+  for (const name of await (await fetch("/genres")).json()) {
+    genre.add(new Option(name, name));
+  }
+  show();
+  document.getElementById("choices").addEventListener("submit", (event) => {
+    event.preventDefault();
+    show();
+  });
+</script>
+</body>
+</html>

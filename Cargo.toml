@@ -54,6 +54,7 @@ members = [
     "examples/facet-wrap",
     "examples/cross-filter",
     "examples/chart-facets",
+    "examples/chart-server",
     "examples/chart-web",
     "examples/chart-crossfilter",
     "examples/chart-lump",
