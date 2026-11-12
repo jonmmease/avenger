@@ -433,12 +433,20 @@ impl Validator {
     }
 
     /// The strings and bytes literals of a literal, which don't mix, and of a typed literal,
-    /// which takes strings.
+    /// which takes strings, when every part is closed.
     fn literal(&mut self, node: &SyntaxNode) {
         let parts: Vec<SyntaxToken> = tokens(node)
             .filter(|token| matches!(token.kind(), STRING | BYTES))
             .collect();
         let Some(first) = parts.first() else { return };
+        // A part whose closing quote is missing has the lexer's error, and the parts after it
+        // are often text that the open quote took for a literal, so they get no others.
+        if parts
+            .iter()
+            .any(|part| escape::split(part.text()).is_none())
+        {
+            return;
+        }
         if node.kind() == TYPED_LITERAL && first.kind() == BYTES {
             self.error(
                 DiagnosticCode::Expected,
