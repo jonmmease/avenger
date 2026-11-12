@@ -1,1 +1,9 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(bill_length_mm) AS avg_bill_length_mm, avg(bill_depth_mm) AS avg_bill_depth_mm GROUP BY body_mass_g |> AGGREGATE line(x => scaled(avg_bill_length_mm, title => 'avg(bill_length_mm)'), y => scaled(avg_bill_depth_mm, title => 'avg(bill_depth_mm)'), order => body_mass_g) AS line
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE
+     avg(bill_length_mm) AS avg_bill_length_mm,
+     avg(bill_depth_mm) AS avg_bill_depth_mm
+   GROUP BY body_mass_g
+|> AGGREGATE
+     line(
+       x => scaled(avg_bill_length_mm, title => 'avg(bill_length_mm)'),
+       y => scaled(avg_bill_depth_mm, title => 'avg(bill_depth_mm)'),
+       order => body_mass_g) AS line

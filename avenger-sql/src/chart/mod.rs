@@ -14,8 +14,12 @@ mod impute;
 mod lifting;
 mod roles;
 mod stage4;
+mod text;
 
-use std::{ops::ControlFlow, sync::Arc};
+use std::{
+    ops::{ControlFlow, Range},
+    sync::Arc,
+};
 
 use datafusion::{
     arrow::datatypes::DataType,
@@ -31,8 +35,8 @@ use datafusion::{
         sqlparser::{
             ast::{
                 Expr, FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArguments,
-                Ident, Join, JoinConstraint, JoinOperator, ObjectName, PipeOperator, Query,
-                Statement, TableFactor, Visit, VisitMut, Visitor, VisitorMut,
+                Ident, ObjectName, PipeOperator, Query, Statement, TableFactor, Visit, VisitMut,
+                Visitor, VisitorMut,
             },
             tokenizer::{Token, Tokenizer},
         },
@@ -40,7 +44,7 @@ use datafusion::{
 };
 
 use crate::{
-    grammar, pipeline,
+    grammar, layout, pipeline,
     registry::Registry,
     syntax::{self, build, ChartAggregate},
 };
@@ -251,23 +255,44 @@ impl lifting::Env for LiftEnv<'_> {
     }
 }
 
-/// The statement `text` with each pipe `AGGREGATE` whose mark calls lift replaced by their lifting
-/// in pipe form, with the named windows of the mark resolved and the options as written, so that
-/// the text is valid avenger-sql and runs to the same chart. It plans the input of each
-/// `AGGREGATE` for its schema.
-pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
+/// A query in a form that a user could have typed, which [`lift`] returns: its text, and the byte
+/// ranges of the text that `lift` wrote.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lifted {
+    /// The text of the query, with each pipe `AGGREGATE` whose mark calls lift in place of the
+    /// stages of its lifting, and the rest of the text as written.
+    pub text: String,
+    /// The byte ranges of `text` that `lift` wrote, sorted and disjoint: the stages of each
+    /// lifting, and each copy of the text of the query in a new place, such as the operators before
+    /// a lifted `AGGREGATE` in the target of a join.
+    pub generated: Vec<Range<usize>>,
+}
+
+/// The query `text` with each pipe `AGGREGATE` whose mark calls lift replaced by the stages of
+/// their lifting, in pipe form, with the named windows of the mark resolved and the options as
+/// written, so that the text is avenger-sql that a user could have typed, names no function of
+/// the passes, and runs to the same charts. The rest of the text stays as written, its layout and
+/// its comments included, so a query with nothing to lift comes back unchanged, and `lift` lays
+/// out the text that it writes. It plans the input of each `AGGREGATE` for its schema.
+pub async fn lift(ctx: &SessionContext, text: &str) -> Result<Lifted> {
     let state = ctx.state();
-    let mut statement = pipeline::parse_tokens(text)?;
-    syntax::check_marks(&state, &mut statement)?;
-    while let ControlFlow::Break(found) =
-        Visit::visit(&statement, &mut FirstMarker { registry: &state })
-    {
-        let (mut prefix, mut chart) = found?;
+    let mut text = text.to_string();
+    // Whether `lift` wrote each byte of the text.
+    let mut written = vec![false; text.len()];
+    loop {
+        let mut statement = pipeline::parse_tokens(&text)?;
+        syntax::check_marks(&state, &mut statement)?;
+        let ControlFlow::Break(found) =
+            Visit::visit(&statement, &mut FirstMarker { registry: &state })
+        else {
+            break;
+        };
+        let (prefix, operator, mut chart) = found?;
         chart.check_aggregates(&state)?;
-        let mut taken = words(&statement.to_string());
+        let mut taken = words(&text);
         chart.name_parts(|base| Ident::new(fresh(base, &mut taken)));
-        prefix.pipe_operators.extend(chart.extend.clone());
-        let mut lowered = prefix;
+        let mut lowered = prefix.clone();
+        lowered.pipe_operators.extend(chart.extend.clone());
         syntax::lower_query(&state, &mut lowered)?;
         let plan = state
             .statement_to_plan(DFStatement::Statement(Box::new(Statement::Query(
@@ -285,37 +310,93 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
                 &schema,
             )?);
         }
-        let splice = match chart.joins() {
-            false => Splice::Operators(
-                (chart.extend.clone().into_iter())
-                    .chain(liftings.into_iter().flatten())
-                    .collect(),
-            ),
-            true => {
-                let mut fresh = |base: &str| Ident::new(fresh(base, &mut taken));
-                let aggregates = match chart.groups_first() {
-                    true => fresh("aggregates"),
-                    false => Ident::new("aggregates"),
-                };
-                let charts = liftings.iter().map(|_| fresh("charts")).collect();
-                Splice::Join {
-                    chart: Box::new(chart),
-                    liftings,
-                    aggregates,
-                    charts,
-                }
-            }
-        };
-        let _ = VisitMut::visit(
-            &mut statement,
-            &mut SpliceMarker {
-                registry: &state,
-                splice: Some(splice),
-            },
-        );
+        let source = text::Source::new(&text)?;
+        let range = source.operator(&operator)?;
+        let mut input = text[source.query_start(&prefix)?..range.start]
+            .trim_end()
+            .to_string();
+        if text::ends_in_comment(&input) {
+            input.push('\n');
+        }
+        let stages = stages(&chart, liftings, &input, &mut taken);
+        let indent = source.indent(range.start).to_string();
+        let stages = layout::lay_out(&stages).replace('\n', &format!("\n{indent}"));
+        written.splice(range.clone(), std::iter::repeat_n(true, stages.len()));
+        text.replace_range(range, &stages);
     }
-    grammar::as_written(&mut statement);
-    Ok(statement.to_string())
+    Ok(Lifted {
+        generated: text::ranges(&written),
+        text,
+    })
+}
+
+/// The text of the stages of the lifting of `chart`, whose input is the text `input`: the
+/// operators of the lifting, or with aggregate items or several charts, the join of the first
+/// relation, the aggregate items or the first chart, and the liftings of the others, each over a
+/// copy of the input, so the qualifiers of its tables stay valid.
+fn stages(
+    chart: &ChartAggregate,
+    liftings: Vec<Vec<PipeOperator>>,
+    input: &str,
+    taken: &mut std::collections::HashSet<String>,
+) -> String {
+    let operators = |operators: &[PipeOperator]| -> String {
+        (operators.iter())
+            .map(|operator| {
+                let mut operator = operator.clone();
+                grammar::as_written(&mut operator);
+                format!("|> {operator}")
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let extend: Vec<PipeOperator> = chart.extend.clone().into_iter().collect();
+    let join = |parts: Vec<String>| {
+        (parts.into_iter())
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if !chart.joins() {
+        let all: Vec<PipeOperator> = extend
+            .into_iter()
+            .chain(liftings.into_iter().flatten())
+            .collect();
+        return operators(&all);
+    }
+    let mut fresh = |base: &str| Ident::new(fresh(base, taken));
+    let aggregates = match chart.groups_first() {
+        true => fresh("aggregates"),
+        false => Ident::new("aggregates"),
+    };
+    let charts: Vec<Ident> = liftings.iter().map(|_| fresh("charts")).collect();
+    let mut liftings = liftings.into_iter();
+    let first = match chart.groups_first() {
+        true => vec![chart.aggregate()],
+        false => liftings.next().expect("a chart"),
+    };
+    let first_name = chart.first(&aggregates, &charts).clone();
+    let mut parts = vec![
+        operators(&extend),
+        operators(&first),
+        format!("|> AS {first_name}"),
+    ];
+    for (lifting, name) in liftings.zip(chart.joined(&charts)) {
+        let target = join(vec![
+            input.to_string(),
+            operators(&extend),
+            operators(&lifting),
+        ]);
+        parts.push(format!(
+            "|> LEFT OUTER JOIN ({target}) AS {name} ON {}",
+            chart.join_condition(&first_name, name)
+        ));
+    }
+    let projection: Vec<String> = (chart.projection(&aggregates, &charts).iter())
+        .map(ToString::to_string)
+        .collect();
+    parts.push(format!("|> SELECT {}", projection.join(", ")));
+    join(parts)
 }
 
 /// The index of the first `AGGREGATE` of `query` whose mark calls lift.
@@ -323,14 +404,14 @@ fn marker(query: &Query, registry: &dyn Registry) -> Option<usize> {
     (query.pipe_operators.iter()).position(|operator| syntax::lifts(operator, registry))
 }
 
-/// Breaks at the first query with an `AGGREGATE` whose mark calls lift, with the prefix before it
-/// and the operator.
+/// Breaks at the first query with an `AGGREGATE` whose mark calls lift, with the prefix before it,
+/// the operator, and its charts.
 struct FirstMarker<'a> {
     registry: &'a dyn Registry,
 }
 
 impl Visitor for FirstMarker<'_> {
-    type Break = Result<(Query, ChartAggregate)>;
+    type Break = Result<(Query, PipeOperator, ChartAggregate)>;
 
     fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
         let Some(index) = marker(query, self.registry) else {
@@ -339,29 +420,10 @@ impl Visitor for FirstMarker<'_> {
         let mut prefix = query.clone();
         let operator = (prefix.pipe_operators.drain(index..).next()).expect("the operator");
         ControlFlow::Break(
-            syntax::read_charts(&operator, self.registry).map(|chart| (prefix, chart)),
+            syntax::read_charts(&operator, self.registry)
+                .map(|chart| (prefix, operator.clone(), chart)),
         )
     }
-}
-
-/// The lifting of an `AGGREGATE` whose mark calls lift, in place of the operator.
-enum Splice {
-    /// The operators of the lifting, which compute the group expressions first.
-    Operators(Vec<PipeOperator>),
-    /// The join of the aggregate items and the liftings of the charts, each over a copy of the
-    /// input, with the names of the aggregates and the charts.
-    Join {
-        chart: Box<ChartAggregate>,
-        liftings: Vec<Vec<PipeOperator>>,
-        aggregates: Ident,
-        charts: Vec<Ident>,
-    },
-}
-
-/// Replaces the first `AGGREGATE` whose mark calls lift with its lifting.
-struct SpliceMarker<'a> {
-    registry: &'a dyn Registry,
-    splice: Option<Splice>,
 }
 
 /// The words of `text`, in lowercase.
@@ -387,59 +449,4 @@ fn fresh(base: &str, taken: &mut std::collections::HashSet<String>) -> String {
         .expect("a free name");
     taken.insert(name.clone());
     name
-}
-
-impl VisitorMut for SpliceMarker<'_> {
-    type Break = ();
-
-    fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<()> {
-        let Some(index) = marker(query, self.registry) else {
-            return ControlFlow::Continue(());
-        };
-        let rest = query.pipe_operators.split_off(index + 1);
-        query.pipe_operators.pop();
-        match self.splice.take().expect("the lifting") {
-            Splice::Operators(operators) => query.pipe_operators.extend(operators),
-            Splice::Join {
-                chart,
-                liftings,
-                aggregates,
-                charts,
-            } => {
-                // The query before the operator, with the group expressions, is the input of the
-                // first relation, the aggregate items or the first chart, and a copy of it is the
-                // input of each other chart, so the qualifiers of its tables stay valid. A copy
-                // sees the CTEs of the query, so it takes none.
-                query.pipe_operators.extend(chart.extend.clone());
-                let mut copy = query.clone();
-                copy.with = None;
-                let mut liftings = liftings.into_iter();
-                let first = match chart.groups_first() {
-                    true => vec![chart.aggregate()],
-                    false => liftings.next().expect("a chart"),
-                };
-                let first_name = chart.first(&aggregates, &charts).clone();
-                query.pipe_operators.extend(first);
-                query.pipe_operators.push(PipeOperator::As {
-                    alias: first_name.clone(),
-                });
-                for (lifting, name) in liftings.zip(chart.joined(&charts)) {
-                    let mut input = copy.clone();
-                    input.pipe_operators.extend(lifting);
-                    query.pipe_operators.push(PipeOperator::Join(Join {
-                        relation: syntax::aliased(build::derived(input), name),
-                        global: false,
-                        join_operator: JoinOperator::LeftOuter(JoinConstraint::On(
-                            chart.join_condition(&first_name, name),
-                        )),
-                    }));
-                }
-                query.pipe_operators.push(PipeOperator::Select {
-                    exprs: chart.projection(&aggregates, &charts),
-                });
-            }
-        }
-        query.pipe_operators.extend(rest);
-        ControlFlow::Break(())
-    }
 }

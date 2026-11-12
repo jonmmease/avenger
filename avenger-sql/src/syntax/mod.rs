@@ -35,7 +35,7 @@ use datafusion::{
 };
 
 pub(crate) use arguments::function_name;
-pub(crate) use chart::{aliased, lifts, read as read_charts, ChartAggregate};
+pub(crate) use chart::{lifts, read as read_charts, ChartAggregate};
 pub(crate) use marks::check as check_marks;
 
 use crate::registry::Registry;

@@ -1,1 +1,14 @@
-FROM sales |> WHERE NOT (region = 'west' AND t >= TIMESTAMP '2024-03-01' AND t < TIMESTAMP '2024-05-01') |> AGGREGATE sum(units) AS sum_units GROUP BY region |> CALL impute(region, [], sum_units, value => 0, extra_keys => ['south'], flag => imputed) |> AGGREGATE bar(x => region, y => scaled(sum_units, title => 'sum(units)'), orient => 'vertical') AS bar
+FROM sales |> WHERE NOT (region = 'west' AND t >= TIMESTAMP '2024-03-01' AND t < TIMESTAMP '2024-05-01') |> AGGREGATE sum(units) AS sum_units
+   GROUP BY region
+|> CALL impute(
+     region,
+     [],
+     sum_units,
+     value => 0,
+     extra_keys => ['south'],
+     flag => imputed)
+|> AGGREGATE
+     bar(
+       x => region,
+       y => scaled(sum_units, title => 'sum(units)'),
+       orient => 'vertical') AS bar

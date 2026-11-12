@@ -1,1 +1,7 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n GROUP BY species |> AGGREGATE symbol(x => species, y => scaled(n / 2, title => 'count(*) / 2'), size => scaled(n, title => 'count(*)')) AS symbol
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n
+   GROUP BY species
+|> AGGREGATE
+     symbol(
+       x => species,
+       y => scaled(n / 2, title => 'count(*) / 2'),
+       size => scaled(n, title => 'count(*)')) AS symbol

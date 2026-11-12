@@ -763,7 +763,7 @@ fn chart_call(mark: &MarkItem, groups: &[Expr], input: Query, span: Span) -> Tab
 }
 
 /// `table` with the alias `alias`.
-pub(crate) fn aliased(mut table: TableFactor, alias: &Ident) -> TableFactor {
+fn aliased(mut table: TableFactor, alias: &Ident) -> TableFactor {
     let name = Some(TableAlias {
         explicit: true,
         name: alias.clone(),

@@ -44,10 +44,9 @@ pub(crate) fn check(statement: &Statement) -> Result<()> {
     }
 }
 
-/// `statement` with each `SELECT *` that the token pass inserts written as the `FROM`-first query
-/// of the text, so that a printed statement starts its queries in parentheses with `FROM`, as the
-/// text does.
-pub(crate) fn as_written(statement: &mut Statement) {
+/// `node` with each `SELECT *` that the token pass inserts written as the `FROM`-first query of
+/// the text, so that printed SQL starts its queries in parentheses with `FROM`, as the text does.
+pub(crate) fn as_written<T: VisitMut>(node: &mut T) {
     struct Restore;
     impl VisitorMut for Restore {
         type Break = ();
@@ -61,7 +60,7 @@ pub(crate) fn as_written(statement: &mut Statement) {
             ControlFlow::Continue(())
         }
     }
-    let _ = VisitMut::visit(statement, &mut Restore);
+    let _ = VisitMut::visit(node, &mut Restore);
 }
 
 /// The check of each query, which skips the queries of the `VALUES` sources, by address.

@@ -1,1 +1,6 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n GROUP BY upper(species) AS x_expr |> AGGREGATE bar(x => scaled(x_expr, title => 'upper(species)'), y => scaled(n, title => 'count(*)')) AS bar
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n
+   GROUP BY upper(species) AS x_expr
+|> AGGREGATE
+     bar(
+       x => scaled(x_expr, title => 'upper(species)'),
+       y => scaled(n, title => 'count(*)')) AS bar

@@ -1,1 +1,41 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g GROUP BY island, species |> AGGREGATE bar(x => species, y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS means_bar GROUP BY island |> AS charts |> LEFT OUTER JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g GROUP BY island |> AGGREGATE rule(y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS means_rule GROUP BY island) AS charts_2 ON charts.island IS NOT DISTINCT FROM charts_2.island |> LEFT OUTER JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g GROUP BY island, species |> AGGREGATE bar(x => species, y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS side_bar GROUP BY island) AS charts_3 ON charts.island IS NOT DISTINCT FROM charts_3.island |> LEFT OUTER JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g GROUP BY island |> AGGREGATE rule(y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS side_rule GROUP BY island) AS charts_4 ON charts.island IS NOT DISTINCT FROM charts_4.island |> SELECT charts.island, layer(charts.means_bar, charts_2.means_rule) AS means, hconcat(charts_3.side_bar, charts_4.side_rule) AS side |> ORDER BY island
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g
+   GROUP BY island, species
+|> AGGREGATE
+     bar(
+       x => species,
+       y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS means_bar
+   GROUP BY island
+|> AS charts
+|> LEFT OUTER JOIN (
+     FROM penguins
+     |> WHERE body_mass_g IS NOT NULL
+     |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g
+        GROUP BY island
+     |> AGGREGATE
+          rule(y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS means_rule
+        GROUP BY island
+   ) AS charts_2 ON charts.island IS NOT DISTINCT FROM charts_2.island
+|> LEFT OUTER JOIN (
+     FROM penguins
+     |> WHERE body_mass_g IS NOT NULL
+     |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g
+        GROUP BY island, species
+     |> AGGREGATE
+          bar(
+            x => species,
+            y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS side_bar
+        GROUP BY island
+   ) AS charts_3 ON charts.island IS NOT DISTINCT FROM charts_3.island
+|> LEFT OUTER JOIN (
+     FROM penguins
+     |> WHERE body_mass_g IS NOT NULL
+     |> AGGREGATE avg(body_mass_g) AS avg_body_mass_g
+        GROUP BY island
+     |> AGGREGATE
+          rule(y => scaled(avg_body_mass_g, title => 'avg(body_mass_g)')) AS side_rule
+        GROUP BY island
+   ) AS charts_4 ON charts.island IS NOT DISTINCT FROM charts_4.island
+|> SELECT
+     charts.island,
+     layer(charts.means_bar, charts_2.means_rule) AS means,
+     hconcat(charts_3.side_bar, charts_4.side_rule) AS side |> ORDER BY island
