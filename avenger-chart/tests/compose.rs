@@ -14,7 +14,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{cartesian_layer, domain, node, plot::Coord, Table},
+    proto::{self, cartesian_layer, domain, node, plot::Coord, Table},
 };
 use support::{chart, ipc, points, symbols};
 
@@ -668,4 +668,51 @@ fn a_facet_grid_of_nested_partitions() {
             ("West".to_string(), vec!["web".to_string()]),
         ]
     );
+}
+
+/// A plot of the points that declares `tools`.
+fn plot_with_tools(tools: Vec<ToolBuilder>) -> PlotBuilder {
+    let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
+    Plot::cartesian([symbols]).tools(tools)
+}
+
+#[test]
+fn overlaid_navigations_join_when_they_are_equal() {
+    let navigate = || -> ToolBuilder { Navigate::builder().into() };
+    let navigate_x = || -> ToolBuilder { Navigate::builder().channels([Channel::X]).into() };
+    let chart = Chart::builder(Plot::overlay([
+        plot_with_tools(vec![navigate()]),
+        plot_with_tools(vec![navigate()]),
+    ]))
+    .build()
+    .unwrap();
+    let Some(node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot")
+    };
+    assert_eq!(plot.tools.len(), 1);
+    // Different navigations are a conflict at the second overlaid plot.
+    fails(
+        Chart::builder(Plot::overlay([
+            plot_with_tools(vec![navigate()]),
+            plot_with_tools(vec![navigate_x()]),
+        ]))
+        .build(),
+        "root.plot.overlay[1]",
+        "declares a navigation other than that of `overlay[0]`",
+    );
+    // A navigation of the plot itself wins.
+    let chart =
+        Chart::builder(Plot::overlay([plot_with_tools(vec![navigate_x()])]).tools([navigate()]))
+            .build()
+            .unwrap();
+    let Some(node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot")
+    };
+    assert!(matches!(
+        plot.tools.as_slice(),
+        [proto::Tool {
+            kind: Some(proto::tool::Kind::Navigate(proto::Navigate { channels, .. })),
+            ..
+        }] if channels.is_empty()
+    ));
 }
