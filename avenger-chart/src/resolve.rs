@@ -23,17 +23,30 @@ use crate::{
 
 type Result<T> = std::result::Result<T, ChartError>;
 
-/// The identity of a plot, a layer, a concat, a wrap, an axis, a legend, or a facet with an
-/// id: its id and its partition, the values that apply to every layer and empty cell below it. All
-/// of them share one namespace, and two with one identity are a conflict, so an identity names one
-/// part of a chart, and a part of a new chart with the same identity stands for the same part,
-/// whatever its place in the tree.
+/// The identity of a plot, a layer, or a concat, a wrap, an axis, a legend, or a facet with an
+/// id: its id, or the path of a plot or a layer without one, and its partition, the values that
+/// apply to every layer and empty cell below it. All of them share one namespace, and two with one
+/// identity are a conflict, so an identity names one part of a chart, and a part of a new chart
+/// with the same identity stands for the same part. An identity by an id holds whatever the place
+/// of its part in the tree, and an identity by a path holds while the tree keeps its structure.
 #[derive(Clone, Debug)]
 pub struct Identity {
-    /// The id.
-    pub id: String,
+    /// The id, or the path of a plot or a layer without one.
+    pub id: Id,
     /// The partition, by column.
     pub partition: BTreeMap<String, ArrayRef>,
+}
+
+/// What names a part in its identity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Id {
+    /// The id that the chart gives the part.
+    Given(String),
+    /// The path of a plot or a layer without an id, such as `root.concat.children[1].plot`, which
+    /// names it by its place in the tree. The cells of a facet take `children[*]` for their index,
+    /// because their partitions tell them apart, so a cell keeps its identity when the facet gains
+    /// or loses other cells.
+    Path(String),
 }
 
 /// Identities are equal when their ids and the types and values of their partitions are.
@@ -44,11 +57,39 @@ impl PartialEq for Identity {
 }
 
 impl Identity {
-    /// The name of the identity: its id, with its partition values after it in brackets when it
-    /// has any, such as `panel[era=1990s, genre=Drama]`.
+    /// The identity of the id `id` and the partition `partition`.
+    pub fn given(id: impl Into<String>, partition: BTreeMap<String, ArrayRef>) -> Self {
+        Self {
+            id: Id::Given(id.into()),
+            partition,
+        }
+    }
+
+    /// The id that the chart gives the part, or `None` for a part that its path names.
+    pub fn given_id(&self) -> Option<&str> {
+        match &self.id {
+            Id::Given(id) => Some(id),
+            Id::Path(_) => None,
+        }
+    }
+
+    /// The identity, when the chart gives its part an id, as a selection's clause names its owner.
+    pub fn named(&self) -> Option<&Self> {
+        self.given_id().map(|_| self)
+    }
+
+    /// The id or the path.
+    fn label(&self) -> &str {
+        match &self.id {
+            Id::Given(id) | Id::Path(id) => id,
+        }
+    }
+
+    /// The name of the identity: its id or its path, with its partition values after it in
+    /// brackets when it has any, such as `panel[era=1990s, genre=Drama]`.
     pub fn name(&self) -> String {
         if self.partition.is_empty() {
-            return self.id.clone();
+            return self.label().to_string();
         }
         let values: Vec<String> = (self.partition.iter())
             .map(|(column, value)| {
@@ -60,7 +101,7 @@ impl Identity {
                 format!("{column}={value}")
             })
             .collect();
-        format!("{}[{}]", self.id, values.join(", "))
+        format!("{}[{}]", self.label(), values.join(", "))
     }
 
     /// The name of the owner of a clause in a selection state, which a renderer and a query give
@@ -78,7 +119,12 @@ impl Identity {
 
     /// The key of the identity, equal exactly for equal identities.
     pub(crate) fn key(&self) -> Vec<u8> {
-        let mut key = self.id.clone().into_bytes();
+        // An id and a path differ in their first byte, so they never share a key.
+        let mut key = match &self.id {
+            Id::Given(_) => vec![1],
+            Id::Path(_) => vec![2],
+        };
+        key.extend_from_slice(self.label().as_bytes());
         for (column, value) in &self.partition {
             key.push(0);
             key.extend_from_slice(column.as_bytes());
@@ -106,8 +152,8 @@ pub struct PlotRef<'a> {
     /// The name of its identity, or its path when it has no id. The plots of a chart have
     /// different names.
     pub name: String,
-    /// Its identity, when it has an id.
-    pub identity: Option<Identity>,
+    /// Its identity: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// Its partition: the values that apply to every layer of the plot.
     pub partition: BTreeMap<String, ArrayRef>,
     /// The indices of its layers in the layers of the tree.
@@ -127,8 +173,8 @@ pub struct Layer<'a> {
     pub plot: usize,
     /// Its position among the layers of its plot, which draw in order.
     pub position: usize,
-    /// Its identity, when it has an id.
-    pub identity: Option<Identity>,
+    /// Its identity: its id, or its path when it has none, and its partition.
+    pub identity: Identity,
     /// Its partition: the values that its ancestors, its plot, and the layer declare.
     pub partition: BTreeMap<String, ArrayRef>,
 }
@@ -168,21 +214,23 @@ impl<'a> Tree<'a> {
                 partitions: HashMap::new(),
             },
         };
-        walk.node(chart.root(), "root".to_string(), &BTreeMap::new())?;
+        walk.node(
+            chart.root(),
+            "root".to_string(),
+            "root".to_string(),
+            &BTreeMap::new(),
+        )?;
         let tree = walk.tree;
         unique(tree.identities())?;
         Ok(tree)
     }
 
-    /// The identities of the plots, the layers, the concats, the wraps, and the facets with
+    /// The identities of the plots, the layers, and the concats, the wraps, and the facets with
     /// ids, with their paths.
     pub fn identities(&self) -> impl Iterator<Item = (&Identity, &str)> {
         (self.plots.iter())
-            .filter_map(|plot| Some((plot.identity.as_ref()?, plot.path.as_str())))
-            .chain(
-                (self.layers.iter())
-                    .filter_map(|layer| Some((layer.identity.as_ref()?, layer.path.as_str()))),
-            )
+            .map(|plot| (&plot.identity, plot.path.as_str()))
+            .chain((self.layers.iter()).map(|layer| (&layer.identity, layer.path.as_str())))
             .chain(
                 (self.nodes.iter().chain(&self.facets))
                     .map(|node| (&node.identity, node.path.as_str())),
@@ -194,7 +242,7 @@ impl<'a> Tree<'a> {
 fn unique<'a>(identities: impl IntoIterator<Item = (&'a Identity, &'a str)>) -> Result<()> {
     let mut seen: HashMap<Vec<u8>, &str> = HashMap::new();
     for (identity, path) in identities {
-        if identity.id.contains('\0') {
+        if identity.given_id().is_some_and(|id| id.contains('\0')) {
             return Err(ChartError::invalid(
                 path,
                 "an id holds no NUL character, which the owners of widgets' clauses begin with",
@@ -250,17 +298,19 @@ impl<'a> Walk<'a> {
         Ok(partition)
     }
 
-    /// Visits `node` at `path`, with the partition of its ancestors, and returns the partitions
-    /// of the layers and the empty cells below it.
+    /// Visits `node` at `path`, whose identities take the path `place`, with the partition of its
+    /// ancestors, and returns the partitions of the layers and the empty cells below it.
     fn node(
         &mut self,
         node: &'a proto::Node,
         path: String,
+        place: String,
         inherited: &BTreeMap<String, ArrayRef>,
     ) -> Result<Vec<BTreeMap<String, ArrayRef>>> {
         match node.node.as_ref().expect("a valid node has a kind") {
             Node::Plot(plot) => {
                 let path = format!("{path}.plot");
+                let place = format!("{place}.plot");
                 let own = self.add(inherited, &plot.partition, &path)?;
                 let kind = CoordKind::of(plot).expect("a valid plot has a coordinate system");
                 let index = self.tree.plots.len();
@@ -270,10 +320,13 @@ impl<'a> Walk<'a> {
                 for (position, layer) in LayerRef::of(plot).into_iter().enumerate() {
                     let layer_path = format!("{path}.{coord}.layers[{position}]");
                     let partition = self.add(&own, layer.partition(), &layer_path)?;
-                    let identity = (!layer.id().is_empty()).then(|| Identity {
-                        id: layer.id().to_string(),
+                    let identity = Identity {
+                        id: match layer.id() {
+                            "" => Id::Path(format!("{place}.{coord}.layers[{position}]")),
+                            id => Id::Given(id.to_string()),
+                        },
                         partition: partition.clone(),
-                    });
+                    };
                     leaves.push(partition.clone());
                     self.tree.layers.push(Layer {
                         path: layer_path,
@@ -290,14 +343,15 @@ impl<'a> Walk<'a> {
                 }
                 let partition = common(&leaves).unwrap_or(own);
                 self.tree.partitions.insert(path.clone(), partition.clone());
-                let identity = (!plot.id.is_empty()).then(|| Identity {
-                    id: plot.id.clone(),
+                let identity = Identity {
+                    id: match plot.id.as_str() {
+                        "" => Id::Path(place),
+                        id => Id::Given(id.to_string()),
+                    },
                     partition: partition.clone(),
-                });
+                };
                 self.tree.plots.push(PlotRef {
-                    name: identity
-                        .as_ref()
-                        .map_or_else(|| path.clone(), Identity::name),
+                    name: identity.name(),
                     path,
                     plot,
                     kind,
@@ -333,6 +387,7 @@ impl<'a> Walk<'a> {
                     _ => "wrap",
                 };
                 let path = format!("{path}.{kind}");
+                let place = format!("{place}.{kind}");
                 let own = self.add(inherited, partition, &path)?;
                 self.ancestors.push(Ancestor {
                     path: path.clone(),
@@ -340,7 +395,12 @@ impl<'a> Walk<'a> {
                 });
                 let mut leaves = Vec::new();
                 for (index, child) in children.iter().enumerate() {
-                    leaves.extend(self.node(child, format!("{path}.children[{index}]"), &own)?);
+                    let child_place = match facet {
+                        Some(_) => format!("{place}.children[*]"),
+                        None => format!("{place}.children[{index}]"),
+                    };
+                    let child_path = format!("{path}.children[{index}]");
+                    leaves.extend(self.node(child, child_path, child_place, &own)?);
                 }
                 self.ancestors.pop();
                 // A concat or a wrap without children holds its place as an empty cell does.
@@ -353,20 +413,14 @@ impl<'a> Walk<'a> {
                     if !facet.id.is_empty() {
                         self.tree.facets.push(NodeRef {
                             path: format!("{path}.facet"),
-                            identity: Identity {
-                                id: facet.id.clone(),
-                                partition: partition.clone(),
-                            },
+                            identity: Identity::given(facet.id.clone(), partition.clone()),
                         });
                     }
                 }
                 if !id.is_empty() {
                     self.tree.nodes.push(NodeRef {
                         path,
-                        identity: Identity {
-                            id: id.clone(),
-                            partition,
-                        },
+                        identity: Identity::given(id.clone(), partition),
                     });
                 }
                 Ok(leaves)
@@ -520,10 +574,7 @@ impl ScaleGroup {
         let partitions: Vec<BTreeMap<String, ArrayRef>> = (self.members.iter())
             .map(|member| tree.layers[member.layer].partition.clone())
             .collect();
-        Some(Identity {
-            id: id.to_string(),
-            partition: common(&partitions).unwrap_or_default(),
-        })
+        Some(Identity::given(id, common(&partitions).unwrap_or_default()))
     }
 
     /// The path of the axis or the legend of the first encoding whose spec gives it its id, such
@@ -861,7 +912,7 @@ pub(crate) fn resolve_tree<'a>(chart: &'a Chart, tree: Tree<'a>) -> Result<Resol
     let guides: Vec<(Identity, String)> = (scales.iter())
         .filter_map(|group| {
             let identity = group.axis_or_legend_identity(&tree)?;
-            let path = group.axis_or_legend_path(&tree, &identity.id);
+            let path = group.axis_or_legend_path(&tree, identity.given_id()?);
             Some((identity, path))
         })
         .collect();
@@ -1110,11 +1161,11 @@ fn anchor<'t>(tree: &'t Tree, layer: &'t Layer, key: &str) -> (&'t str, Option<O
     }
     let identity = (tree.plots.iter())
         .find(|plot| plot.path == path)
-        .and_then(|plot| plot.identity.as_ref())
+        .and_then(|plot| plot.identity.named())
         .or_else(|| {
             (tree.layers.iter())
                 .find(|layer| layer.path == path)
-                .and_then(|layer| layer.identity.as_ref())
+                .and_then(|layer| layer.identity.named())
         })
         .or_else(|| {
             (tree.nodes.iter())
@@ -1129,10 +1180,7 @@ fn anchor<'t>(tree: &'t Tree, layer: &'t Layer, key: &str) -> (&'t str, Option<O
 /// anchor without an id, which a valid chart does not have.
 pub(crate) fn widget_owner(tree: &Tree, layer: &Layer, key: &str) -> Option<Identity> {
     let (_, identity) = anchor(tree, layer, key);
-    Some(identity?.unwrap_or(Identity {
-        id: String::new(),
-        partition: BTreeMap::new(),
-    }))
+    Some(identity?.unwrap_or(Identity::given("", BTreeMap::new())))
 }
 
 impl proto::Widget {

@@ -168,9 +168,10 @@ pub(crate) struct Declared<'a> {
     pub(crate) plot_tools: bool,
 }
 
-/// Whether `clause` is the clause of `owner`: its id and its partition values.
+/// Whether `clause` is the clause of `owner`: its id and its partition values. A clause names its
+/// owner by id, and an owner without one writes no clause.
 pub(crate) fn wrote(owner: &Identity, clause: &Clause) -> bool {
-    clause.owner == owner.id
+    owner.given_id() == Some(clause.owner.as_str())
         && clause.partition.len() == owner.partition.len()
         && (owner.partition.iter())
             .all(|(column, value)| clause.partition.get(column) == Some(&Scalar(value.clone())))
@@ -269,8 +270,8 @@ impl ChartAppState {
         Ok(())
     }
 
-    /// The declarations of the last evaluation whose owners have identities, which their tools
-    /// key their state by.
+    /// The declarations of the last evaluation, whose tools key their state by the identities of
+    /// their owners.
     pub(crate) fn declaring(&self) -> impl Iterator<Item = Declared<'_>> {
         self.declarations.iter().filter_map(|declaration| {
             let plot = self.plots.get(declaration.plot)?;
@@ -279,11 +280,11 @@ impl ChartAppState {
                     let marks = (plot.layers.iter())
                         .flat_map(|layer| layer.marks.iter().cloned())
                         .collect();
-                    (plot.identity.as_ref()?, marks, &plot.coords)
+                    (&plot.identity, marks, &plot.coords)
                 }
                 Some(position) => {
                     let layer = plot.layers.get(position)?;
-                    (layer.identity.as_ref()?, layer.marks.clone(), &layer.coords)
+                    (&layer.identity, layer.marks.clone(), &layer.coords)
                 }
             };
             Some(Declared {
@@ -300,7 +301,7 @@ impl ChartAppState {
 
     /// The index and the plot of the last evaluation with `identity`.
     pub(crate) fn plot(&self, identity: &Identity) -> Option<(usize, &EvaluatedPlot)> {
-        (self.plots.iter().enumerate()).find(|(_, plot)| plot.identity.as_ref() == Some(identity))
+        (self.plots.iter().enumerate()).find(|(_, plot)| plot.identity == *identity)
     }
 
     /// The declaration of the last evaluation whose owner is `owner`.
@@ -336,7 +337,8 @@ impl ChartAppState {
             _ => state.clauses.retain(|clause| !wrote(owner, clause)),
         }
         if !conditions.is_empty() {
-            let mut clause = Clause::new(owner.id.clone());
+            let id = owner.given_id();
+            let mut clause = Clause::new(id.expect("the owner of a selection has an id"));
             clause.partition = (owner.partition.iter())
                 .map(|(column, value)| (column.clone(), Scalar(value.clone())))
                 .collect();

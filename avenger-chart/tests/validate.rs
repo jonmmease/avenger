@@ -627,13 +627,32 @@ fn tools_fit_their_plot() {
         kind: Some(tool::Kind::Navigate(proto::Navigate::default())),
         ..Default::default()
     };
+    // A navigation needs no id: the plot's path identifies it.
     let mut parts = base();
     plot_mut(&mut parts.0).tools = vec![navigate()];
-    invalid(parts.clone(), "root.plot", "has an id");
-    plot_mut(&mut parts.0).id = "scatter".to_string();
     read(parts.clone()).unwrap();
     plot_mut(&mut parts.0).tools = vec![navigate(), navigate()];
     invalid(parts, "root.plot.tools[1]", "at most one navigation");
+
+    // A selection's clauses name their owner by id, so a plot that declares one has an id.
+    let mut parts = base();
+    parts.0.selections = vec![Selection {
+        name: "brush".to_string(),
+        resolution: proto::SelectionResolution::Global as i32,
+        ..Default::default()
+    }];
+    plot_mut(&mut parts.0).tools = vec![proto::Tool {
+        kind: Some(tool::Kind::Select(proto::Select {
+            selection: "brush".to_string(),
+            ..Default::default()
+        })),
+        ..Default::default()
+    }];
+    invalid(
+        parts,
+        "root.plot",
+        "a plot that declares a selection has an id, which its clauses name",
+    );
 
     let mut parts = base();
     let plot = plot_mut(&mut parts.0);
