@@ -1,0 +1,8 @@
+[package]
+name = "avenger-sql-syntax"
+version = "0.1.0"
+edition = "2021"
+description = "The syntax of avenger-sql: a subset of GoogleSQL, read into a syntax tree with spans"
+
+[dependencies]
+rowan = { workspace = true }

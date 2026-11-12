@@ -1,0 +1,493 @@
+SCRIPT@0..548
+  QUERY@0..548
+    FROM_CLAUSE@0..323
+      FROM_KW@0..4 "FROM"
+      WHITESPACE@4..5 " "
+      JOIN@5..323
+        JOIN@5..248
+          JOIN@5..120
+            JOIN@5..58
+              JOIN@5..32
+                TABLE_SOURCE@5..6
+                  PATH@5..6
+                    NAME_REF@5..6
+                      WORD@5..6 "a"
+                WHITESPACE@6..7 " "
+                JOIN_OP@7..30
+                  NATURAL_KW@7..14 "NATURAL"
+                  WHITESPACE@14..15 " "
+                  LEFT_KW@15..19 "LEFT"
+                  WHITESPACE@19..20 " "
+                  OUTER_KW@20..25 "OUTER"
+                  WHITESPACE@25..26 " "
+                  JOIN_KW@26..30 "JOIN"
+                WHITESPACE@30..31 " "
+                TABLE_SOURCE@31..32
+                  PATH@31..32
+                    NAME_REF@31..32
+                      WORD@31..32 "b"
+              JOIN_OP@32..33
+                COMMA@32..33 ","
+              WHITESPACE@33..34 " "
+              TABLE_SOURCE@34..58
+                PATH@34..35
+                  NAME_REF@34..35
+                    WORD@34..35 "c"
+                WHITESPACE@35..36 " "
+                ALIAS@36..41
+                  AS_KW@36..38 "AS"
+                  WHITESPACE@38..39 " "
+                  NAME@39..41
+                    WORD@39..41 "c2"
+                WHITESPACE@41..42 " "
+                WITH_OFFSET@42..58
+                  WITH_KW@42..46 "WITH"
+                  WHITESPACE@46..47 " "
+                  OFFSET_KW@47..53 "OFFSET"
+                  WHITESPACE@53..54 " "
+                  ALIAS@54..58
+                    AS_KW@54..56 "AS"
+                    WHITESPACE@56..57 " "
+                    NAME@57..58
+                      WORD@57..58 "i"
+            WHITESPACE@58..61 "\n  "
+            JOIN_OP@61..65
+              JOIN_KW@61..65 "JOIN"
+            WHITESPACE@65..66 " "
+            SUBQUERY_SOURCE@66..107
+              LATERAL_KW@66..73 "LATERAL"
+              WHITESPACE@73..74 " "
+              PAREN_QUERY@74..102
+                L_PAREN@74..75 "("
+                QUERY@75..101
+                  FROM_CLAUSE@75..81
+                    FROM_KW@75..79 "FROM"
+                    WHITESPACE@79..80 " "
+                    TABLE_SOURCE@80..81
+                      PATH@80..81
+                        NAME_REF@80..81
+                          WORD@80..81 "d"
+                  WHITESPACE@81..82 " "
+                  PIPE_WHERE@82..101
+                    PIPE@82..84 "|>"
+                    WHITESPACE@84..85 " "
+                    WHERE_KW@85..90 "WHERE"
+                    WHITESPACE@90..91 " "
+                    BIN_EXPR@91..101
+                      PATH_EXPR@91..94
+                        PATH@91..94
+                          NAME_REF@91..92
+                            WORD@91..92 "d"
+                          DOT@92..93 "."
+                          NAME_REF@93..94
+                            WORD@93..94 "k"
+                      WHITESPACE@94..95 " "
+                      EQ@95..96 "="
+                      WHITESPACE@96..97 " "
+                      PATH_EXPR@97..101
+                        PATH@97..101
+                          NAME_REF@97..99
+                            WORD@97..99 "c2"
+                          DOT@99..100 "."
+                          NAME_REF@100..101
+                            WORD@100..101 "k"
+                R_PAREN@101..102 ")"
+              WHITESPACE@102..103 " "
+              ALIAS@103..107
+                AS_KW@103..105 "AS"
+                WHITESPACE@105..106 " "
+                NAME@106..107
+                  WORD@106..107 "e"
+            WHITESPACE@107..108 " "
+            ON_CONDITION@108..120
+              ON_KW@108..110 "ON"
+              WHITESPACE@110..111 " "
+              BIN_EXPR@111..120
+                PATH_EXPR@111..114
+                  PATH@111..114
+                    NAME_REF@111..112
+                      WORD@111..112 "e"
+                    DOT@112..113 "."
+                    NAME_REF@113..114
+                      WORD@113..114 "k"
+                WHITESPACE@114..115 " "
+                EQ@115..116 "="
+                WHITESPACE@116..117 " "
+                PATH_EXPR@117..120
+                  PATH@117..120
+                    NAME_REF@117..118
+                      WORD@117..118 "a"
+                    DOT@118..119 "."
+                    NAME_REF@119..120
+                      WORD@119..120 "k"
+          WHITESPACE@120..123 "\n  "
+          JOIN_OP@123..127
+            JOIN_KW@123..127 "JOIN"
+          WHITESPACE@127..128 " "
+          SAMPLE_SOURCE@128..238
+            TVF_SOURCE@128..155
+              PATH@128..129
+                NAME_REF@128..129
+                  WORD@128..129 "f"
+              ARG_LIST@129..155
+                L_PAREN@129..130 "("
+                TABLE_ARG@130..137
+                  TABLE_KW@130..135 "TABLE"
+                  WHITESPACE@135..136 " "
+                  PATH@136..137
+                    NAME_REF@136..137
+                      WORD@136..137 "a"
+                COMMA@137..138 ","
+                WHITESPACE@138..139 " "
+                NAMED_TABLE_ARG@139..151
+                  NAME_REF@139..140
+                    WORD@139..140 "n"
+                  WHITESPACE@140..141 " "
+                  FAT_ARROW@141..143 "=>"
+                  WHITESPACE@143..144 " "
+                  TABLE_KW@144..149 "TABLE"
+                  WHITESPACE@149..150 " "
+                  PATH@150..151
+                    NAME_REF@150..151
+                      WORD@150..151 "b"
+                COMMA@151..152 ","
+                WHITESPACE@152..153 " "
+                ARG@153..154
+                  LITERAL@153..154
+                    INTEGER@153..154 "3"
+                R_PAREN@154..155 ")"
+            WHITESPACE@155..160 "\n    "
+            SAMPLE_CLAUSE@160..238
+              TABLESAMPLE_KW@160..171 "TABLESAMPLE"
+              WHITESPACE@171..172 " "
+              NAME_REF@172..181
+                WORD@172..181 "RESERVOIR"
+              WHITESPACE@181..182 " "
+              L_PAREN@182..183 "("
+              SAMPLE_SIZE@183..205
+                LITERAL@183..185
+                  INTEGER@183..185 "10"
+                WHITESPACE@185..186 " "
+                ROWS_KW@186..190 "ROWS"
+                WHITESPACE@190..191 " "
+                PARTITION_BY@191..205
+                  PARTITION_KW@191..200 "PARTITION"
+                  WHITESPACE@200..201 " "
+                  BY_KW@201..203 "BY"
+                  WHITESPACE@203..204 " "
+                  PATH_EXPR@204..205
+                    PATH@204..205
+                      NAME_REF@204..205
+                        WORD@204..205 "k"
+              R_PAREN@205..206 ")"
+              WHITESPACE@206..207 " "
+              WEIGHT@207..223
+                WITH_KW@207..211 "WITH"
+                WHITESPACE@211..212 " "
+                WEIGHT_KW@212..218 "WEIGHT"
+                WHITESPACE@218..219 " "
+                ALIAS@219..223
+                  AS_KW@219..221 "AS"
+                  WHITESPACE@221..222 " "
+                  NAME@222..223
+                    WORD@222..223 "w"
+              WHITESPACE@223..224 " "
+              REPEATABLE@224..238
+                REPEATABLE_KW@224..234 "REPEATABLE"
+                WHITESPACE@234..235 " "
+                L_PAREN@235..236 "("
+                LITERAL@236..237
+                  INTEGER@236..237 "5"
+                R_PAREN@237..238 ")"
+          WHITESPACE@238..239 " "
+          USING_CONDITION@239..248
+            USING_KW@239..244 "USING"
+            WHITESPACE@244..245 " "
+            NAME_LIST@245..248
+              L_PAREN@245..246 "("
+              NAME_REF@246..247
+                WORD@246..247 "k"
+              R_PAREN@247..248 ")"
+        WHITESPACE@248..251 "\n  "
+        JOIN_OP@251..261
+          CROSS_KW@251..256 "CROSS"
+          WHITESPACE@256..257 " "
+          JOIN_KW@257..261 "JOIN"
+        WHITESPACE@261..262 " "
+        UNNEST_SOURCE@262..323
+          UNNEST_KW@262..268 "UNNEST"
+          L_PAREN@268..269 "("
+          ALIASED_EXPR@269..280
+            ARRAY_EXPR@269..275
+              L_BRACK@269..270 "["
+              LITERAL@270..271
+                INTEGER@270..271 "1"
+              COMMA@271..272 ","
+              WHITESPACE@272..273 " "
+              LITERAL@273..274
+                INTEGER@273..274 "2"
+              R_BRACK@274..275 "]"
+            WHITESPACE@275..276 " "
+            ALIAS@276..280
+              AS_KW@276..278 "AS"
+              WHITESPACE@278..279 " "
+              NAME@279..280
+                WORD@279..280 "x"
+          COMMA@280..281 ","
+          WHITESPACE@281..282 " "
+          ALIASED_EXPR@282..290
+            ARRAY_EXPR@282..285
+              L_BRACK@282..283 "["
+              LITERAL@283..284
+                INTEGER@283..284 "3"
+              R_BRACK@284..285 "]"
+            WHITESPACE@285..286 " "
+            ALIAS@286..290
+              AS_KW@286..288 "AS"
+              WHITESPACE@288..289 " "
+              NAME@289..290
+                WORD@289..290 "y"
+          COMMA@290..291 ","
+          WHITESPACE@291..292 " "
+          NAMED_ARG@292..305
+            NAME_REF@292..296
+              WORD@292..296 "mode"
+            WHITESPACE@296..297 " "
+            FAT_ARROW@297..299 "=>"
+            WHITESPACE@299..300 " "
+            LITERAL@300..305
+              STRING@300..305 "'PAD'"
+          R_PAREN@305..306 ")"
+          WHITESPACE@306..307 " "
+          ALIAS@307..311
+            AS_KW@307..309 "AS"
+            WHITESPACE@309..310 " "
+            NAME@310..311
+              WORD@310..311 "z"
+          WHITESPACE@311..312 " "
+          WITH_OFFSET@312..323
+            WITH_KW@312..316 "WITH"
+            WHITESPACE@316..317 " "
+            OFFSET_KW@317..323 "OFFSET"
+    WHITESPACE@323..324 "\n"
+    PIPE_AGGREGATE@324..433
+      PIPE@324..326 "|>"
+      WHITESPACE@326..327 " "
+      AGGREGATE_KW@327..336 "AGGREGATE"
+      WHITESPACE@336..337 " "
+      AGGREGATE_ITEM@337..345
+        CALL_EXPR@337..345
+          PATH@337..342
+            NAME_REF@337..342
+              WORD@337..342 "COUNT"
+          ARG_LIST@342..345
+            L_PAREN@342..343 "("
+            STAR_ARG@343..344
+              STAR@343..344 "*"
+            R_PAREN@344..345 ")"
+      WHITESPACE@345..346 " "
+      GROUP_BY@346..433
+        GROUP_KW@346..351 "GROUP"
+        WHITESPACE@351..352 " "
+        BY_KW@352..354 "BY"
+        WHITESPACE@354..355 " "
+        GROUPING_EMPTY@355..357
+          L_PAREN@355..356 "("
+          R_PAREN@356..357 ")"
+        COMMA@357..358 ","
+        WHITESPACE@358..359 " "
+        ROLLUP@359..371
+          ROLLUP_KW@359..365 "ROLLUP"
+          L_PAREN@365..366 "("
+          PATH_EXPR@366..367
+            PATH@366..367
+              NAME_REF@366..367
+                WORD@366..367 "a"
+          COMMA@367..368 ","
+          WHITESPACE@368..369 " "
+          PATH_EXPR@369..370
+            PATH@369..370
+              NAME_REF@369..370
+                WORD@369..370 "b"
+          R_PAREN@370..371 ")"
+        COMMA@371..372 ","
+        WHITESPACE@372..373 " "
+        CUBE@373..380
+          CUBE_KW@373..377 "CUBE"
+          L_PAREN@377..378 "("
+          PATH_EXPR@378..379
+            PATH@378..379
+              NAME_REF@378..379
+                WORD@378..379 "c"
+          R_PAREN@379..380 ")"
+        COMMA@380..381 ","
+        WHITESPACE@381..382 " "
+        GROUPING_SETS@382..418
+          GROUPING_KW@382..390 "GROUPING"
+          WHITESPACE@390..391 " "
+          SETS_KW@391..395 "SETS"
+          L_PAREN@395..396 "("
+          TUPLE_EXPR@396..402
+            L_PAREN@396..397 "("
+            PATH_EXPR@397..398
+              PATH@397..398
+                NAME_REF@397..398
+                  WORD@397..398 "a"
+            COMMA@398..399 ","
+            WHITESPACE@399..400 " "
+            PATH_EXPR@400..401
+              PATH@400..401
+                NAME_REF@400..401
+                  WORD@400..401 "b"
+            R_PAREN@401..402 ")"
+          COMMA@402..403 ","
+          WHITESPACE@403..404 " "
+          GROUPING_EMPTY@404..406
+            L_PAREN@404..405 "("
+            R_PAREN@405..406 ")"
+          COMMA@406..407 ","
+          WHITESPACE@407..408 " "
+          ROLLUP@408..417
+            ROLLUP_KW@408..414 "ROLLUP"
+            L_PAREN@414..415 "("
+            PATH_EXPR@415..416
+              PATH@415..416
+                NAME_REF@415..416
+                  WORD@415..416 "d"
+            R_PAREN@416..417 ")"
+          R_PAREN@417..418 ")"
+        COMMA@418..419 ","
+        WHITESPACE@419..420 " "
+        GROUP_ITEM@420..433
+          PATH_EXPR@420..421
+            PATH@420..421
+              NAME_REF@420..421
+                WORD@420..421 "x"
+          WHITESPACE@421..422 " "
+          ORDER_SUFFIX@422..433
+            NULLS_KW@422..427 "NULLS"
+            WHITESPACE@427..428 " "
+            FIRST_KW@428..433 "FIRST"
+    WHITESPACE@433..434 "\n"
+    PIPE_PIVOT@434..490
+      PIPE@434..436 "|>"
+      WHITESPACE@436..437 " "
+      PIVOT_CLAUSE@437..490
+        PIVOT_KW@437..442 "PIVOT"
+        WHITESPACE@442..443 " "
+        L_PAREN@443..444 "("
+        ALIASED_EXPR@444..459
+          CALL_EXPR@444..450
+            PATH@444..447
+              NAME_REF@444..447
+                WORD@444..447 "SUM"
+            ARG_LIST@447..450
+              L_PAREN@447..448 "("
+              ARG@448..449
+                PATH_EXPR@448..449
+                  PATH@448..449
+                    NAME_REF@448..449
+                      WORD@448..449 "v"
+              R_PAREN@449..450 ")"
+          WHITESPACE@450..451 " "
+          ALIAS@451..459
+            AS_KW@451..453 "AS"
+            WHITESPACE@453..454 " "
+            NAME@454..459
+              WORD@454..459 "total"
+        WHITESPACE@459..460 " "
+        FOR_KW@460..463 "FOR"
+        WHITESPACE@463..464 " "
+        PATH_EXPR@464..465
+          PATH@464..465
+            NAME_REF@464..465
+              WORD@464..465 "k"
+        WHITESPACE@465..466 " "
+        IN_KW@466..468 "IN"
+        WHITESPACE@468..469 " "
+        L_PAREN@469..470 "("
+        ALIASED_EXPR@470..478
+          LITERAL@470..473
+            STRING@470..473 "'a'"
+          WHITESPACE@473..474 " "
+          ALIAS@474..478
+            AS_KW@474..476 "AS"
+            WHITESPACE@476..477 " "
+            NAME@477..478
+              WORD@477..478 "a"
+        COMMA@478..479 ","
+        WHITESPACE@479..480 " "
+        ALIASED_EXPR@480..483
+          LITERAL@480..483
+            STRING@480..483 "'b'"
+        R_PAREN@483..484 ")"
+        R_PAREN@484..485 ")"
+        WHITESPACE@485..486 " "
+        ALIAS@486..490
+          AS_KW@486..488 "AS"
+          WHITESPACE@488..489 " "
+          NAME@489..490
+            WORD@489..490 "p"
+    WHITESPACE@490..491 "\n"
+    PIPE_UNPIVOT@491..548
+      PIPE@491..493 "|>"
+      WHITESPACE@493..494 " "
+      UNPIVOT_CLAUSE@494..548
+        UNPIVOT_KW@494..501 "UNPIVOT"
+        WHITESPACE@501..502 " "
+        L_PAREN@502..503 "("
+        NAME_LIST@503..511
+          L_PAREN@503..504 "("
+          PATH@504..506
+            NAME_REF@504..506
+              WORD@504..506 "v1"
+          COMMA@506..507 ","
+          WHITESPACE@507..508 " "
+          PATH@508..510
+            NAME_REF@508..510
+              WORD@508..510 "v2"
+          R_PAREN@510..511 ")"
+        WHITESPACE@511..512 " "
+        FOR_KW@512..515 "FOR"
+        WHITESPACE@515..516 " "
+        PATH@516..517
+          NAME_REF@516..517
+            WORD@516..517 "k"
+        WHITESPACE@517..518 " "
+        IN_KW@518..520 "IN"
+        WHITESPACE@520..521 " "
+        L_PAREN@521..522 "("
+        UNPIVOT_COLUMNS@522..536
+          NAME_LIST@522..528
+            L_PAREN@522..523 "("
+            PATH@523..524
+              NAME_REF@523..524
+                WORD@523..524 "a"
+            COMMA@524..525 ","
+            WHITESPACE@525..526 " "
+            PATH@526..527
+              NAME_REF@526..527
+                WORD@526..527 "b"
+            R_PAREN@527..528 ")"
+          WHITESPACE@528..529 " "
+          AS_KW@529..531 "AS"
+          WHITESPACE@531..532 " "
+          LITERAL@532..536
+            STRING@532..536 "'ab'"
+        COMMA@536..537 ","
+        WHITESPACE@537..538 " "
+        UNPIVOT_COLUMNS@538..541
+          PATH@538..539
+            NAME_REF@538..539
+              WORD@538..539 "c"
+          WHITESPACE@539..540 " "
+          LITERAL@540..541
+            INTEGER@540..541 "1"
+        R_PAREN@541..542 ")"
+        R_PAREN@542..543 ")"
+        WHITESPACE@543..544 " "
+        ALIAS@544..548
+          AS_KW@544..546 "AS"
+          WHITESPACE@546..547 " "
+          NAME@547..548
+            WORD@547..548 "u"
