@@ -10,7 +10,7 @@ avenger-format = { path = "../avenger-format" }
 avenger-common = { path = "../avenger-common" }
 avenger-coords = { path = "../avenger-coords" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow"] }
 avenger-geometry = { path = "../avenger-geometry" }
 arrow = { workspace = true }
 chrono = { workspace = true }
@@ -22,6 +22,7 @@ geo = { workspace = true }
 rstar = { workspace = true }
 
 [dev-dependencies]
+avenger-typst-label = { path = "../avenger-typst-label", features = ["arrow", "bundled-fonts"] }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
