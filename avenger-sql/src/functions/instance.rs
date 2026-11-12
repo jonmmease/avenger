@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use avenger_chart::{chart_field, functions::MarkTemplate, list_value};
+use super::rows::{self, Rows};
+use avenger_chart::{chart_field, functions::MarkTemplate};
 use datafusion::{
     arrow::{
-        array::{Array, ArrayRef, AsArray, RecordBatch, RecordBatchOptions},
-        compute::{concat, lexsort_to_indices, take_record_batch, SortColumn, SortOptions},
-        datatypes::{DataType, Field, FieldRef, Schema},
+        array::{ArrayRef, RecordBatch, RecordBatchOptions},
+        datatypes::{DataType, FieldRef, Schema},
     },
     common::{exec_datafusion_err, Result, ScalarValue},
     logical_expr::{
@@ -38,9 +38,7 @@ impl MarkInstance {
         Self {
             template,
             fields,
-            order: (order_by.iter())
-                .map(|sort| (sort.asc, sort.nulls_first))
-                .collect(),
+            order: rows::order(order_by),
             signature: Signature::user_defined(Volatility::Immutable),
         }
     }
@@ -68,19 +66,10 @@ impl AggregateUDFImpl for MarkInstance {
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> Result<Vec<FieldRef>> {
-        let keys = args.ordering_fields.iter().map(|field| field.data_type());
-        let types = (self.fields.iter().map(|field| field.data_type())).chain(keys);
-        Ok(types
-            .enumerate()
-            .map(|(index, data_type)| {
-                let item = Field::new_list_field(data_type.clone(), true);
-                Arc::new(Field::new(
-                    format!("{}[{index}]", args.name),
-                    DataType::List(Arc::new(item)),
-                    true,
-                ))
-            })
-            .collect())
+        let types: Vec<DataType> = (self.fields.iter())
+            .map(|field| field.data_type().clone())
+            .collect();
+        Ok(rows::state_fields(&args, &types))
     }
 
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
@@ -96,7 +85,7 @@ impl AggregateUDFImpl for MarkInstance {
         .collect::<Result<Vec<_>>>()?;
         Ok(Box::new(MarkAccumulator {
             instance: self.clone(),
-            columns: types.into_iter().map(|t| (t, Vec::new())).collect(),
+            rows: Rows::new(types),
         }))
     }
 
@@ -118,72 +107,31 @@ impl AggregateUDFImpl for MarkInstance {
 #[derive(Debug)]
 struct MarkAccumulator {
     instance: MarkInstance,
-    columns: Vec<(DataType, Vec<ArrayRef>)>,
-}
-
-impl MarkAccumulator {
-    /// Each column, concatenated.
-    fn concatenated(&self) -> Result<Vec<ArrayRef>> {
-        (self.columns.iter())
-            .map(|(data_type, arrays)| match arrays.as_slice() {
-                [] => Ok(datafusion::arrow::array::new_empty_array(data_type)),
-                [array] => Ok(array.clone()),
-                arrays => {
-                    let arrays: Vec<&dyn Array> =
-                        arrays.iter().map(|array| array.as_ref()).collect();
-                    Ok(concat(&arrays)?)
-                }
-            })
-            .collect()
-    }
+    rows: Rows,
 }
 
 impl Accumulator for MarkAccumulator {
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
-        for ((_, arrays), values) in self.columns.iter_mut().zip(values) {
-            arrays.push(values.clone());
-        }
+        self.rows.update(values);
         Ok(())
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
-        for ((_, arrays), state) in self.columns.iter_mut().zip(states) {
-            let lists = state.as_list::<i32>();
-            for row in 0..lists.len() {
-                if lists.is_valid(row) {
-                    arrays.push(lists.value(row));
-                }
-            }
-        }
+        self.rows.merge(states);
         Ok(())
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        (self.concatenated()?.into_iter())
-            .map(|column| ScalarValue::try_from_array(&list_value(column), 0))
-            .collect()
+        self.rows.state()
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
         let instance = &self.instance;
-        let mut columns = self.concatenated()?;
-        let keys = columns.split_off(instance.fields.len());
+        let columns = self.rows.sorted(instance.fields.len(), &instance.order)?;
         let rows = columns.first().map_or(0, |column| column.len());
         let schema = Arc::new(Schema::new(instance.fields.clone()));
         let options = RecordBatchOptions::new().with_row_count(Some(rows));
-        let mut table = RecordBatch::try_new_with_options(schema, columns, &options)?;
-        if !keys.is_empty() {
-            let sort: Vec<SortColumn> = (keys.into_iter().zip(&instance.order))
-                .map(|(values, (asc, nulls_first))| SortColumn {
-                    values,
-                    options: Some(SortOptions {
-                        descending: !asc,
-                        nulls_first: *nulls_first,
-                    }),
-                })
-                .collect();
-            table = take_record_batch(&table, &lexsort_to_indices(&sort, None)?)?;
-        }
+        let table = RecordBatch::try_new_with_options(schema, columns, &options)?;
         let name = instance.template.name();
         let chart = (instance.template.chart(table))
             .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
@@ -194,10 +142,6 @@ impl Accumulator for MarkAccumulator {
     }
 
     fn size(&self) -> usize {
-        let arrays = self.columns.iter().flat_map(|(_, arrays)| arrays);
-        std::mem::size_of_val(self)
-            + arrays
-                .map(|array| array.get_array_memory_size())
-                .sum::<usize>()
+        self.rows.size()
     }
 }
