@@ -107,11 +107,10 @@ async fn facet_wrap_takes_the_options_of_a_wrap() {
 #[tokio::test]
 async fn layer_overlays_the_charts_of_a_union_in_its_order() {
     let chart = chart(&format!(
-        "SELECT *, 2 AS k FROM ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => \
-         bill_depth_mm, fill => 'black') AS chart) \
-         UNION ALL BY NAME \
-         SELECT *, 1 AS k FROM ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => \
-         bill_depth_mm) AS chart) \
+        "{PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+         fill => 'black') AS chart |> EXTEND 2 AS k \
+         |> UNION ALL ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => \
+         bill_depth_mm) AS chart |> EXTEND 1 AS k) \
          |> AGGREGATE layer_agg(chart ORDER BY k) AS chart"
     ))
     .await;
@@ -220,9 +219,12 @@ fn three(groups: &str) -> String {
 /// The same charts as rows of a union, in the order of `names`, with the column `name`.
 fn rows(names: &[&str]) -> String {
     let branches: Vec<String> = (names.iter())
-        .map(|name| format!("(FROM ({}) |> SELECT {name} AS chart)", three("")))
+        .map(|name| format!("{} |> SELECT {name} AS chart", three("")))
         .collect();
-    branches.join(" UNION ALL ")
+    let (first, rest) = branches.split_first().expect("a name");
+    (rest.iter()).fold(first.clone(), |query, branch| {
+        format!("{query} |> UNION ALL ({branch})")
+    })
 }
 
 #[tokio::test]
@@ -233,11 +235,7 @@ async fn a_scalar_composition_composes_the_charts_of_a_row() {
         ("vconcat", "vconcat_agg"),
     ] {
         assert_eq!(
-            chart(&format!(
-                "FROM ({}) |> SELECT {scalar}(a, b) AS chart",
-                three("")
-            ))
-            .await,
+            chart(&format!("{} |> SELECT {scalar}(a, b) AS chart", three(""))).await,
             chart(&format!(
                 "{} |> AGGREGATE {aggregate}(chart) AS chart",
                 rows(&["a", "b"])
@@ -247,18 +245,10 @@ async fn a_scalar_composition_composes_the_charts_of_a_row() {
         );
     }
     // The children take the order of the arguments.
-    let ba = chart(&format!(
-        "FROM ({}) |> SELECT hconcat(b, a) AS chart",
-        three("")
-    ))
-    .await;
+    let ba = chart(&format!("{} |> SELECT hconcat(b, a) AS chart", three(""))).await;
     assert_ne!(
         ba,
-        chart(&format!(
-            "FROM ({}) |> SELECT hconcat(a, b) AS chart",
-            three("")
-        ))
-        .await
+        chart(&format!("{} |> SELECT hconcat(a, b) AS chart", three(""))).await
     );
     assert_eq!(
         ba,
@@ -270,9 +260,9 @@ async fn a_scalar_composition_composes_the_charts_of_a_row() {
     );
     // Nesting.
     assert_eq!(
-        chart(&format!("FROM ({}) |> SELECT vconcat(c, hconcat(a, b)) AS chart", three(""))).await,
+        chart(&format!("{} |> SELECT vconcat(c, hconcat(a, b)) AS chart", three(""))).await,
         chart(&format!(
-            "(FROM ({}) |> SELECT c AS chart) UNION ALL (FROM ({}) |> SELECT hconcat(a, b) AS chart) |> AGGREGATE vconcat_agg(chart) AS chart",
+            "{} |> SELECT c AS chart |> UNION ALL ({} |> SELECT hconcat(a, b) AS chart) |> AGGREGATE vconcat_agg(chart) AS chart",
             three(""),
             three("")
         ))
@@ -284,18 +274,14 @@ async fn a_scalar_composition_composes_the_charts_of_a_row() {
 async fn a_null_chart_is_no_child_of_a_scalar_composition() {
     assert_eq!(
         chart(&format!(
-            "FROM ({}) |> SELECT hconcat(a, NULL, b) AS chart",
+            "{} |> SELECT hconcat(a, NULL, b) AS chart",
             three("")
         ))
         .await,
-        chart(&format!(
-            "FROM ({}) |> SELECT hconcat(a, b) AS chart",
-            three("")
-        ))
-        .await
+        chart(&format!("{} |> SELECT hconcat(a, b) AS chart", three(""))).await
     );
     let empty = chart(&format!(
-        "FROM ({}) |> SELECT layer(NULL, NULL) AS chart",
+        "{} |> SELECT layer(NULL, NULL) AS chart",
         three("")
     ))
     .await;
@@ -305,7 +291,7 @@ async fn a_null_chart_is_no_child_of_a_scalar_composition() {
 #[tokio::test]
 async fn a_scalar_composition_takes_the_options_of_its_composition() {
     let gapped = chart(&format!(
-        "FROM ({}) |> SELECT hconcat(a, b, layout => concat_layout(gap => 24)) AS chart",
+        "{} |> SELECT hconcat(a, b, layout => concat_layout(gap => 24)) AS chart",
         three("")
     ))
     .await;
@@ -318,7 +304,7 @@ async fn a_scalar_composition_takes_the_options_of_its_composition() {
         .await
     );
     let error = error(&format!(
-        "FROM ({}) |> SELECT hconcat(a, b, layout => a) AS chart",
+        "{} |> SELECT hconcat(a, b, layout => a) AS chart",
         three("")
     ))
     .await;
@@ -348,21 +334,13 @@ async fn a_scalar_composition_of_mark_aggregates_composes_each_group() {
 
 #[tokio::test]
 async fn the_errors_of_a_scalar_composition() {
-    let message = error(&format!(
-        "FROM ({}) |> SELECT layer(a, 1) AS chart",
-        three("")
-    ))
-    .await;
+    let message = error(&format!("{} |> SELECT layer(a, 1) AS chart", three(""))).await;
     assert!(
         message.contains("layer() composes charts, and its argument 2 is a Int64, not a chart"),
         "{message}"
     );
     // A facet has no scalar form.
-    let message = error(&format!(
-        "FROM ({}) |> SELECT facet_col(a, b) AS chart",
-        three("")
-    ))
-    .await;
+    let message = error(&format!("{} |> SELECT facet_col(a, b) AS chart", three(""))).await;
     assert!(message.contains("facet_col"), "{message}");
 }
 
@@ -404,7 +382,7 @@ async fn marked(query: &str) -> Vec<(String, bool)> {
 async fn a_composition_reads_charts_that_lost_their_extension() {
     // `coalesce` and `CASE` return the charts in a `BinaryView` without the chart extension.
     let unmarked = format!(
-        "FROM ({}) |> SELECT coalesce(a, b) AS a, CASE WHEN b IS NOT NULL THEN b END AS b",
+        "{} |> SELECT coalesce(a, b) AS a, CASE WHEN b IS NOT NULL THEN b END AS b",
         three("")
     );
     assert_eq!(
@@ -412,12 +390,8 @@ async fn a_composition_reads_charts_that_lost_their_extension() {
         [("a".into(), false), ("b".into(), false)]
     );
     assert_eq!(
-        chart(&format!("FROM ({unmarked}) |> SELECT layer(a, b) AS chart")).await,
-        chart(&format!(
-            "FROM ({}) |> SELECT layer(a, b) AS chart",
-            three("")
-        ))
-        .await
+        chart(&format!("{unmarked} |> SELECT layer(a, b) AS chart")).await,
+        chart(&format!("{} |> SELECT layer(a, b) AS chart", three(""))).await
     );
     assert_eq!(
         chart(&format!(
@@ -435,14 +409,11 @@ async fn a_composition_reads_charts_that_lost_their_extension() {
     let bytes = "arrow_cast(X'FF', 'BinaryView')";
     for (query, expected) in [
         (
-            format!("FROM ({}) |> SELECT layer(a, {bytes}) AS chart", three("")),
+            format!("{} |> SELECT layer(a, {bytes}) AS chart", three("")),
             "layer(): argument 2:",
         ),
         (
-            format!(
-                "FROM ({}) |> AGGREGATE layer_agg({bytes}) AS chart",
-                three("")
-            ),
+            format!("{} |> AGGREGATE layer_agg({bytes}) AS chart", three("")),
             "layer_agg():",
         ),
     ] {
@@ -454,7 +425,7 @@ async fn a_composition_reads_charts_that_lost_their_extension() {
 #[tokio::test]
 async fn chart_marks_a_column_of_charts() {
     let query = format!(
-        "FROM ({}) |> SELECT coalesce(a, b) AS plain, chart(coalesce(a, b)) AS chart, chart(NULL) AS none",
+        "{} |> SELECT coalesce(a, b) AS plain, chart(coalesce(a, b)) AS chart, chart(NULL) AS none",
         three("")
     );
     assert_eq!(
@@ -467,15 +438,15 @@ async fn chart_marks_a_column_of_charts() {
     );
     assert_eq!(
         charts(&query).await,
-        charts(&format!("FROM ({}) |> SELECT a AS chart", three(""))).await
+        charts(&format!("{} |> SELECT a AS chart", three(""))).await
     );
     for (query, expected) in [
         (
-            "SELECT chart('a') AS chart",
+            "FROM (VALUES (1)) AS t(x) |> SELECT chart('a') AS chart",
             "chart() takes a BinaryView of charts, and its argument is a Utf8",
         ),
         (
-            "SELECT chart(arrow_cast(X'FF', 'BinaryView')) AS chart",
+            "FROM (VALUES (1)) AS t(x) |> SELECT chart(arrow_cast(X'FF', 'BinaryView')) AS chart",
             "chart():",
         ),
     ] {

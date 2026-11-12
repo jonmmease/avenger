@@ -44,13 +44,22 @@ async fn chart(query: &str) -> Chart {
     charts.remove(0).unwrap()
 }
 
-/// A branch: the symbols of the penguins with the constant fill `fill`, and the extra columns
-/// `columns`.
-fn branch(fill: &str, columns: &str) -> String {
+/// A branch: the symbols of the penguins with the constant fill `fill`, and the operators
+/// `operators` after them, such as `|> EXTEND 2 AS k`.
+fn branch(fill: &str, operators: &str) -> String {
     format!(
-        "SELECT *{columns} FROM (FROM penguins |> WHERE body_mass_g IS NOT NULL \
-         |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, fill => '{fill}') AS chart)"
+        "FROM penguins |> WHERE body_mass_g IS NOT NULL \
+         |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, fill => '{fill}') AS chart\
+         {operators}"
     )
+}
+
+/// The pipe set operation `operator`, such as `UNION ALL`, of `branches`, in their order.
+fn union(operator: &str, branches: &[String]) -> String {
+    let (first, rest) = branches.split_first().expect("a branch");
+    (rest.iter()).fold(first.clone(), |query, branch| {
+        format!("{query} |> {operator} ({branch})")
+    })
 }
 
 /// The constant fill of each layer of a layered chart, in draw order.
@@ -82,7 +91,10 @@ fn fills_of(chart: &Chart, node: &proto::Node) -> Vec<String> {
 
 #[tokio::test]
 async fn the_branches_of_a_union_all_order_the_layers() {
-    let union = [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL ");
+    let union = union(
+        "UNION ALL",
+        &[branch("red", ""), branch("green", ""), branch("blue", "")],
+    );
     for _ in 0..4 {
         let chart = chart(&format!("{union} |> AGGREGATE layer_agg(chart) AS chart")).await;
         assert_eq!(fills(&chart), ["red", "green", "blue"]);
@@ -124,15 +136,13 @@ async fn the_branches_of_a_union_all_order_the_layers() {
 async fn the_branches_of_a_union_by_name_order_the_layers() {
     // `UNION ALL BY NAME` writes a projection over the union before it, and the branches under it
     // still number among all the branches.
-    let union =
-        [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL BY NAME ");
-    let pipe = format!(
+    let union = format!(
         "{} |> UNION ALL BY NAME ({}) |> UNION ALL BY NAME ({})",
         branch("red", ""),
         branch("green", ""),
         branch("blue", "")
     );
-    for union in [union, pipe] {
+    {
         let query = format!("{union} |> AGGREGATE layer_agg(chart) AS chart");
         assert_eq!(fills(&chart(&query).await), ["red", "green", "blue"]);
         let plan = avenger_sql::sql(&session(), &query)
@@ -150,12 +160,14 @@ async fn the_branches_of_a_union_by_name_order_the_layers() {
 
 #[tokio::test]
 async fn an_order_by_comes_first_and_the_branch_breaks_its_ties() {
-    let union = [
-        branch("red", ", 2 AS k"),
-        branch("green", ", 1 AS k"),
-        branch("blue", ", 2 AS k"),
-    ]
-    .join(" UNION ALL ");
+    let union = union(
+        "UNION ALL",
+        &[
+            branch("red", " |> EXTEND 2 AS k"),
+            branch("green", " |> EXTEND 1 AS k"),
+            branch("blue", " |> EXTEND 2 AS k"),
+        ],
+    );
     let chart = chart(&format!(
         "{union} |> AGGREGATE layer_agg(chart ORDER BY k) AS chart"
     ))
@@ -195,20 +207,29 @@ async fn without_a_union_the_other_columns_order_the_children() {
 #[tokio::test]
 async fn a_union_without_all_has_no_branch_order() {
     // A distinct union orders its rows by its other columns only.
-    let union = [branch("red", ", 2 AS k"), branch("green", ", 1 AS k")].join(" UNION ");
+    let union = union(
+        "UNION DISTINCT",
+        &[
+            branch("red", " |> EXTEND 2 AS k"),
+            branch("green", " |> EXTEND 1 AS k"),
+        ],
+    );
     let chart = chart(&format!("{union} |> AGGREGATE layer_agg(chart) AS chart")).await;
     assert_eq!(fills(&chart), ["green", "red"]);
 }
 
 #[tokio::test]
-async fn a_standard_select_reads_the_composition_by_its_name() {
+async fn a_select_reads_the_composition_by_its_name() {
     // The keys of the rule change the name of the call, so the call keeps the name of its output
-    // for the projection of the SELECT.
-    let union = [branch("red", ""), branch("green", ""), branch("blue", "")].join(" UNION ALL ");
-    let aliased = chart(&format!("SELECT layer_agg(chart) AS chart FROM ({union})")).await;
+    // for the operators after it.
+    let union = union(
+        "UNION ALL",
+        &[branch("red", ""), branch("green", ""), branch("blue", "")],
+    );
+    let aliased = chart(&format!("{union} |> AGGREGATE layer_agg(chart) AS chart")).await;
     assert_eq!(fills(&aliased), ["red", "green", "blue"]);
     let renamed = chart(&format!(
-        "SELECT * FROM (SELECT layer_agg(chart) FROM ({union})) AS t(chart)"
+        "{union} |> AGGREGATE layer_agg(chart) |> SELECT \"layer_agg(chart)\" AS chart"
     ))
     .await;
     assert_eq!(fills(&renamed), ["red", "green", "blue"]);
@@ -216,12 +237,14 @@ async fn a_standard_select_reads_the_composition_by_its_name() {
 
 #[tokio::test]
 async fn a_composition_of_compositions_of_a_union_all_numbers_its_branches_once() {
-    let union = [
-        branch("red", ", 1 AS k"),
-        branch("green", ", 2 AS k"),
-        branch("blue", ", 1 AS k"),
-    ]
-    .join(" UNION ALL ");
+    let union = union(
+        "UNION ALL",
+        &[
+            branch("red", " |> EXTEND 1 AS k"),
+            branch("green", " |> EXTEND 2 AS k"),
+            branch("blue", " |> EXTEND 1 AS k"),
+        ],
+    );
     let chart = chart(&format!(
         "{union} |> AGGREGATE layer_agg(chart) AS chart GROUP BY k |> AGGREGATE hconcat_agg(chart) AS chart"
     ))

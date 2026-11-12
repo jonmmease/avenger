@@ -295,7 +295,7 @@ async fn the_output_of_chart_composes() {
     assert_eq!(concat.children.len(), 3);
     // A layer of the charts of a union draws them in the order of its branches.
     let query = format!(
-        "(SELECT * FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)))) UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g)))) |> AGGREGATE layer_agg(chart) AS chart"
+        "{PENGUINS} |> CHART bar(x => species, y => count(*)) |> UNION ALL ({PENGUINS} |> CHART rule(y => avg(body_mass_g))) |> AGGREGATE layer_agg(chart) AS chart"
     );
     let layered = charts(&query).await;
     let Some(proto::node::Node::Plot(plot)) = &layered[0].root().node else {
@@ -1116,7 +1116,7 @@ async fn aggregate_items_join_the_charts_of_their_groups() {
         .await
     );
     assert_eq!(
-        text_rows(&format!("FROM ({query}) |> SELECT island, penguins, mean_mass |> ORDER BY island")).await,
+        text_rows(&format!("{query} |> SELECT island, penguins, mean_mass |> ORDER BY island")).await,
         text_rows(&format!("{PENGUINS} |> AGGREGATE count(*) AS penguins, avg(body_mass_g) AS mean_mass GROUP BY island |> ORDER BY island")).await
     );
     // The mark call takes its place among the items.
@@ -1140,7 +1140,7 @@ async fn every_aggregate_of_aggregate_is_an_item() {
     let query = histograms(&format!(", {items}"), " GROUP BY island");
     assert_eq!(
         text_rows(&format!(
-            "FROM ({query}) |> SELECT * EXCLUDE (chart) |> ORDER BY island"
+            "{query} |> SELECT * EXCLUDE (chart) |> ORDER BY island"
         ))
         .await,
         text_rows(&format!(
@@ -1156,7 +1156,7 @@ async fn every_aggregate_of_aggregate_is_an_item() {
 async fn a_null_group_has_its_chart_and_its_items() {
     let query = histograms(", count(*) AS penguins", " GROUP BY sex");
     let rows = text_rows(&format!(
-        "FROM ({query}) |> SELECT sex, chart IS NOT NULL AS charted, penguins |> ORDER BY sex"
+        "{query} |> SELECT sex, chart IS NOT NULL AS charted, penguins |> ORDER BY sex"
     ))
     .await;
     assert!(
@@ -1183,9 +1183,10 @@ async fn a_null_group_has_its_chart_and_its_items() {
 
 #[tokio::test]
 async fn the_lifting_of_items_takes_free_names() {
-    let query = "WITH aggregates AS (FROM penguins |> WHERE body_mass_g IS NOT NULL), \
-        charts AS (FROM aggregates) \
-        FROM charts |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
+    // The columns `aggregates` and `charts` take the names of the relations of the join.
+    let query = "FROM penguins |> WHERE body_mass_g IS NOT NULL \
+        |> EXTEND 1 AS aggregates, 2 AS charts \
+        |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
     assert!(lifting.contains("|> AS aggregates_2"), "{lifting}");
     assert!(lifting.contains(") AS charts_2 ON"), "{lifting}");
@@ -1264,12 +1265,15 @@ async fn several_mark_calls_join_on_every_group() {
     let query = bills_and_counts("", "");
     assert_eq!(columns(&query).await, ["bills", "counts"]);
     assert_eq!(
-        text_rows(&format!("FROM ({query}) |> AGGREGATE count(*) AS n")).await[3],
+        text_rows(&format!("{query} |> AGGREGATE count(*) AS n")).await[3],
         "| 1 |"
     );
     // A NULL group has both of its charts.
     let query = bills_and_counts("", " GROUP BY sex");
-    let rows = text_rows(&format!("FROM ({query}) |> SELECT sex, bills IS NOT NULL AS b, counts IS NOT NULL AS c |> ORDER BY sex")).await;
+    let rows = text_rows(&format!(
+        "{query} |> SELECT sex, bills IS NOT NULL AS b, counts IS NOT NULL AS c |> ORDER BY sex"
+    ))
+    .await;
     assert!(
         rows.iter()
             .any(|row| row.starts_with("|        | true | true |")),
@@ -1307,8 +1311,8 @@ async fn a_filter_selects_the_rows_of_every_stage() {
 #[tokio::test]
 async fn a_filter_keeps_every_group() {
     let query = format!(
-        "FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') \
-         AS gentoo GROUP BY island) |> SELECT island, gentoo IS NOT NULL AS drawn |> ORDER BY island"
+        "{PENGUINS} |> CHART bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') \
+         AS gentoo GROUP BY island |> SELECT island, gentoo IS NOT NULL AS drawn |> ORDER BY island"
     );
     let frame = avenger_sql::sql(&session(), &query).await.unwrap();
     let batches = frame.collect().await.unwrap();
@@ -1348,7 +1352,7 @@ async fn the_names_of_the_items_are_unique() {
     )
     .await;
     fails(
-        "FROM penguins AS a JOIN penguins AS b USING (species) \
+        "FROM penguins AS a |> JOIN penguins AS b USING (species) \
          |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",
         "`island` names two columns of this CHART",
         "b.island",
