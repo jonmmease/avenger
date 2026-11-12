@@ -3,13 +3,17 @@
 //!
 //! - A word with the reserved prefix `__avenger_` is an error at the word.
 //! - A trailing comma becomes a space: a comma before `)`, `]`, `}`, `|>`, `;`, the end of the
-//!   text, or a clause keyword that starts its clause, `GROUP BY`, `ORDER BY`, or `FROM`, `WHERE`,
-//!   `HAVING`, or `LIMIT` before the start of its body. A comma before one of these words as a
-//!   column, as in `greatest(a, order)`, or as the name of an argument, as in `order => year`,
-//!   stays. So a call, a list, or the items of an operator can end in a comma. Each is a parser
+//!   text, or `GROUP BY` or `ORDER BY`, the clauses inside a pipe operator and a call. A comma
+//!   before one of these words as a column, as in `greatest(a, order)`, or as the name of an
+//!   argument, as in `order => year`, stays. So a call, a list, or the items of an operator can end in a comma. Each is a parser
 //!   error of sqlparser-rs 0.62, which takes a trailing comma only in a `SELECT` list. Removed by
 //!   sqlparser-rs parsing trailing commas in these lists, before `|>`, and not before the name of
 //!   an argument, which its `trailing_commas` option does not do.
+//! - A query in parentheses that starts with `FROM`, such as the subquery of `x IN (FROM t |>
+//!   SELECT k)`, starts with `SELECT * FROM`, because the parser reads a subquery of an expression
+//!   only when it starts with `SELECT` or `WITH`. The inserted tokens have an empty span, which
+//!   marks them for the grammar check ([`crate::grammar`]). Removed by sqlparser-rs reading a
+//!   subquery that starts with `FROM` in a dialect of FROM-first queries.
 //! - `|> CHART <items> [GROUP BY ...]` becomes `|> AGGREGATE __avenger_chart() AS __avenger_chart,
 //!   <items> [GROUP BY ...]`, the `AGGREGATE` of a marker and the items, which the syntax pass
 //!   consumes. `CHART` is an operator of avenger-sql, so no upstream change removes the item.
@@ -18,7 +22,7 @@ use datafusion::{
     common::Result,
     sql::sqlparser::{
         keywords::Keyword,
-        tokenizer::{Token, TokenWithSpan, Whitespace},
+        tokenizer::{Span, Token, TokenWithSpan, Whitespace},
     },
 };
 
@@ -42,16 +46,15 @@ pub(crate) fn rewrite(tokens: Vec<TokenWithSpan>) -> Result<Vec<TokenWithSpan>> 
             }
         }
     }
-    chart_markers(trailing_commas(tokens))
+    chart_markers(from_first_subqueries(trailing_commas(tokens)))
 }
 
 /// `tokens` with each trailing comma written as a space, which keeps the spans of the others. A
 /// comma is trailing before a closer, `)`, `]`, `}`, `|>`, `;`, or the end of the text, and before
-/// a clause keyword that starts its clause, unquoted: `GROUP BY` and `ORDER BY`, and `FROM`,
-/// `WHERE`, `HAVING`, and `LIMIT` before a token that can start the body of the clause. Each of
-/// these words can also be a column, as in `greatest(a, order)` or `ORDER BY x, limit + 1`, or
-/// the name of an argument, as in `order => year`, so a comma before such a word stays. A comma
-/// right after an opener or another comma stays, so `f(,)` is still an error.
+/// `GROUP BY` or `ORDER BY`, unquoted. In a pipe query, the other clauses start after `|>`. `group`
+/// and `order` can also be columns, as in `greatest(a, order)`, or the names of arguments, as in
+/// `order => year`, so a comma before such a word stays. A comma right after an opener or another
+/// comma stays, so `f(,)` is still an error.
 fn trailing_commas(mut tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
     for index in 0..tokens.len() {
         if tokens[index].token != Token::Comma {
@@ -76,9 +79,6 @@ fn trailing_commas(mut tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
                 Keyword::GROUP | Keyword::ORDER => {
                     matches!(following, Some(Token::Word(by)) if by.keyword == Keyword::BY)
                 }
-                Keyword::FROM | Keyword::WHERE | Keyword::HAVING | Keyword::LIMIT => {
-                    following.is_some_and(starts_body)
-                }
                 _ => false,
             },
             Some(_) => false,
@@ -90,17 +90,38 @@ fn trailing_commas(mut tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
     tokens
 }
 
-/// Whether `token` can start the body of a clause after its keyword: a word other than `AS`, a
-/// literal, or `(`. An operator, `=>`, `:=`, a closer, or `,` follows a column of the name.
-fn starts_body(token: &Token) -> bool {
-    match token {
-        Token::Word(word) => word.keyword != Keyword::AS,
-        Token::Number(..)
-        | Token::SingleQuotedString(_)
-        | Token::DoubleQuotedString(_)
-        | Token::LParen => true,
-        _ => false,
+/// `tokens` with `SELECT *` before the `FROM` of each `(` that `FROM` and a source follow, a word
+/// or `(`. A column named `from`, as in `greatest(from, a)`, has no source after it. The inserted
+/// tokens have an empty span.
+fn from_first_subqueries(tokens: Vec<TokenWithSpan>) -> Vec<TokenWithSpan> {
+    let mut out = Vec::with_capacity(tokens.len());
+    for (index, token) in tokens.iter().enumerate() {
+        out.push(token.clone());
+        if token.token != Token::LParen {
+            continue;
+        }
+        let from = next(&tokens, index + 1);
+        let from = matches!(
+            tokens.get(from).map(|t| &t.token),
+            Some(Token::Word(word)) if word.quote_style.is_none() && word.keyword == Keyword::FROM
+        ) && matches!(
+            tokens.get(next(&tokens, from + 1)).map(|t| &t.token),
+            Some(Token::Word(_) | Token::LParen)
+        );
+        if from {
+            let inserted = |token: Token| TokenWithSpan::new(token, Span::empty());
+            out.extend(
+                [
+                    Token::make_keyword("SELECT"),
+                    Token::Whitespace(Whitespace::Space),
+                    Token::Mul,
+                    Token::Whitespace(Whitespace::Space),
+                ]
+                .map(inserted),
+            );
+        }
     }
+    out
 }
 
 /// The last token before `index` that is not blank.

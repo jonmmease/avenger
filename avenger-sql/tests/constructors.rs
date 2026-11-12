@@ -9,10 +9,13 @@ use avenger_chart::{prelude::*, proto::Fragment};
 use datafusion::prelude::SessionContext;
 use prost::Message;
 
-/// The fragment of the one value of `SELECT <expression>`.
+/// One row, for a query without a table.
+const ONE_ROW: &str = "FROM (VALUES (1)) AS t(x)";
+
+/// The fragment of the one value of `<expression>`.
 async fn fragment(expression: &str) -> Fragment {
     let ctx = common::session();
-    let batches = avenger_sql::sql(&ctx, &format!("SELECT {expression} AS value"))
+    let batches = avenger_sql::sql(&ctx, &format!("{ONE_ROW} |> SELECT {expression} AS value"))
         .await
         .unwrap()
         .collect()
@@ -32,10 +35,10 @@ async fn builds(expression: &str, expected: Fragment) {
     );
 }
 
-/// The planning error of `SELECT <expression>`.
+/// The planning error of `<expression>`.
 async fn error(expression: &str) -> String {
     let ctx = common::session();
-    let planned = match avenger_sql::sql(&ctx, &format!("SELECT {expression}")).await {
+    let planned = match avenger_sql::sql(&ctx, &format!("{ONE_ROW} |> SELECT {expression}")).await {
         Ok(frame) => frame.into_optimized_plan().map(|_| ()),
         Err(error) => Err(error),
     };
@@ -233,7 +236,7 @@ fn plot(chart: &Chart) -> &avenger_chart::proto::Plot {
 #[tokio::test]
 async fn a_property_sets_its_field_of_the_mark() {
     let chart = chart(
-        "SELECT bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -250,7 +253,7 @@ async fn a_property_sets_its_field_of_the_mark() {
 #[tokio::test]
 async fn coord_sets_the_options_of_the_plot() {
     let chart = chart(
-        "SELECT polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Polar(polar)) = &plot(&chart).coord else {
@@ -262,7 +265,7 @@ async fn coord_sets_the_options_of_the_plot() {
 #[tokio::test]
 async fn a_geo_mark_takes_the_options_of_its_geo_plot() {
     let chart = chart(
-        "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(&chart).coord else {
@@ -284,7 +287,7 @@ async fn a_geo_mark_takes_the_options_of_its_geo_plot() {
 /// A geo chart of the penguins with the `coord` argument `coord`.
 async fn chart_of_geo(coord: &str) -> Chart {
     chart(&format!(
-        "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart FROM penguins"
+        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
     ))
     .await
 }
@@ -292,7 +295,7 @@ async fn chart_of_geo(coord: &str) -> Chart {
 #[tokio::test]
 async fn scaled_takes_the_options_of_its_encoding() {
     let chart = chart(
-        "SELECT symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -311,19 +314,19 @@ async fn scaled_takes_the_options_of_its_encoding() {
 async fn the_options_of_a_mark_are_plan_time_constants() {
     for (query, expected) in [
         (
-            "SELECT bar(x => species, y => body_mass_g, corner_radius => body_mass_g) FROM penguins",
+            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)",
             "bar() needs a plan-time constant for a property",
         ),
         (
-            "SELECT symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm) FROM penguins",
+            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm)",
             "needs a plan-time constant for an option of `x`",
         ),
         (
-            "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm) FROM penguins",
+            "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)",
             "geo_symbol() needs `coord`",
         ),
         (
-            "SELECT bar(x => species, y => body_mass_g, coord => geo(surface => 'planar')) FROM penguins",
+            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))",
             "`coord` takes `cartesian(...)`, not `geo(...)`",
         ),
     ] {

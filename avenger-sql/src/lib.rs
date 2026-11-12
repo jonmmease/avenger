@@ -10,15 +10,22 @@
 //! |> AGGREGATE bar(x => species, y => n) AS chart
 //! ```
 //!
+//! A query is a pipe query: `FROM` a source, a table, a table function, or rows of values with
+//! the names of their columns, such as `(VALUES (1, 2)) AS t(a, b)`, then pipe operators. Every
+//! nested query has the same form, and a query has no `WITH`, no `SELECT ... FROM` block, and no
+//! join or clause in the `FROM` of its body. Another form is an error at its text.
+//!
 //! [`sql`] plans a query in a session after two passes that DataFusion 55.2 needs to plan it, and
-//! [`expand`] returns the SQL after them. The token pass rewrites the tokens of the text before
-//! parsing, and the syntax pass rewrites the parsed statement:
+//! [`expand`] returns the SQL after them, which DataFusion plans and avenger-sql does not read.
+//! The token pass rewrites the tokens of the text before parsing, and the syntax pass rewrites the
+//! parsed statement:
 //!
 //! - A word that starts with `__avenger_`, a prefix of the names that the passes generate, is an
 //!   error at the word.
-//! - A trailing comma, before `)`, `]`, `}`, `|>`, `;`, the end of the text, or a clause keyword
-//!   that starts its clause, such as `GROUP BY`, is a space, so a call, a list, or the items of an
-//!   operator can end in a comma.
+//! - A trailing comma, before `)`, `]`, `}`, `|>`, `;`, the end of the text, `GROUP BY`, or
+//!   `ORDER BY`, is a space, so a call, a list, or the items of an operator can end in a comma.
+//! - A query in parentheses that starts with `FROM` starts with `SELECT * FROM`, because the
+//!   parser reads a subquery of an expression only when it starts with `SELECT` or `WITH`.
 //! - A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
 //! - A pipe `SELECT` or `EXTEND` that calls a window function or `unnest` becomes a `SELECT` over
 //!   a derived table of the operators before it, because DataFusion fails to run a window of a
@@ -53,6 +60,7 @@
 mod chart;
 mod error;
 mod functions;
+mod grammar;
 mod pipeline;
 mod registry;
 mod syntax;

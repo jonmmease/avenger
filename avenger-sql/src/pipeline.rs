@@ -18,10 +18,10 @@ use datafusion::{
     },
 };
 
-use crate::{syntax, tokens};
+use crate::{grammar, syntax, tokens};
 
 /// The SQL of the query `text` after the token pass and the syntax pass, for the functions of
-/// `state`, without planning it.
+/// `state`, without planning it: the SQL that DataFusion plans, which avenger-sql does not read.
 pub fn expand(state: &SessionState, text: &str) -> Result<String> {
     Ok(parse(state, text)?.to_string())
 }
@@ -44,7 +44,8 @@ fn parse(state: &SessionState, text: &str) -> Result<Statement> {
     Ok(statement)
 }
 
-/// The one statement of `text`, after the token pass.
+/// The one statement of `text`, after the token pass, which follows the grammar of avenger-sql
+/// ([`grammar`]).
 pub(crate) fn parse_tokens(text: &str) -> Result<Statement> {
     let dialect = GenericDialect {};
     let tokens = Tokenizer::new(&dialect, text)
@@ -55,10 +56,12 @@ pub(crate) fn parse_tokens(text: &str) -> Result<Statement> {
         .with_tokens_with_locations(tokens)
         .parse_statements()
         .map_err(sql_error)?;
-    match statements.len() {
-        1 => Ok(statements.remove(0)),
-        count => plan_err!("a query holds one statement, not {count}"),
-    }
+    let statement = match statements.len() {
+        1 => statements.remove(0),
+        count => return plan_err!("a query holds one statement, not {count}"),
+    };
+    grammar::check(&statement)?;
+    Ok(statement)
 }
 
 /// A parser error as DataFusion reports one.

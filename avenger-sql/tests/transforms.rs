@@ -54,11 +54,11 @@ fn the_transforms_take_no_name_of_avenger_chart() {
 
 #[tokio::test]
 async fn a_chart_reads_the_bins_of_a_transform() {
-    let query = "SELECT bar(x => b, y => n) AS chart FROM (
-  SELECT b, count(*) AS n FROM (
-    SELECT bin(body_mass_g) OVER () AS b FROM penguins WHERE body_mass_g IS NOT NULL
-  ) GROUP BY b
-)";
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> SELECT bin(body_mass_g) OVER () AS b
+|> AGGREGATE count(*) AS n GROUP BY b
+|> AGGREGATE bar(x => b, y => n) AS chart";
     let charts = common::charts(query).await;
     assert_eq!(charts.len(), 1);
     let chart = &charts[0];
@@ -83,9 +83,9 @@ async fn a_chart_reads_the_bins_of_a_transform() {
 #[tokio::test]
 async fn impute_fills_the_missing_keys() {
     // The penguins have 5 of the 9 pairs of a species and an island, and `impute` adds the rest.
-    let query = "SELECT * FROM impute(
-  (SELECT species, island, count(*) AS n FROM penguins GROUP BY species, island),
-  island, [species], n, value => 0)";
+    let query = "FROM penguins
+|> AGGREGATE count(*) AS n GROUP BY species, island
+|> CALL impute(island, [species], n, value => 0)";
     let ctx = common::session();
     let batches = avenger_sql::sql(&ctx, query)
         .await

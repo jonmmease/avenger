@@ -83,10 +83,10 @@ async fn a_mark_declares_a_navigation_of_its_plot_and_a_tooltip_of_its_layer() {
 #[tokio::test]
 async fn layer_merges_the_options_of_its_charts() {
     let chart = chart(&format!(
-        "(SELECT * FROM ({PENGUINS} |> CHART bar(x => species, y => avg(body_mass_g), \
-         title => 'Mass by species', tools => [navigate(), tooltip()]))) \
-         UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g), \
-         tools => [navigate()]))) \
+        "{PENGUINS} |> CHART bar(x => species, y => avg(body_mass_g), \
+         title => 'Mass by species', tools => [navigate(), tooltip()]) \
+         |> UNION ALL ({PENGUINS} |> CHART rule(y => avg(body_mass_g), \
+         tools => [navigate()])) \
          |> AGGREGATE layer_agg(chart) AS chart"
     ))
     .await;
