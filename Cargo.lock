@@ -1670,6 +1670,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-web"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-style",
+ "avenger-typst-label",
+ "pollster 0.3.0",
+ "serde_json",
+]
+
+[[package]]
 name = "chart-widgets"
 version = "0.1.0"
 dependencies = [
