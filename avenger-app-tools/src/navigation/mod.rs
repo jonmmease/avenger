@@ -445,9 +445,25 @@ where
                 if notches == 0.0 {
                     return Rebuild::none();
                 }
+                // A drag of the area pans to the wheel's position first, which the throttle of
+                // its moves may not have reached.
+                let dragging = own.drag.as_ref().is_some_and(|drag| drag.key == key);
+                if dragging {
+                    self.pan(app, own, wheel.position);
+                }
                 own.keep_first(&key, || self.view.view(app, &key));
                 if !self.view.zoom(app, &key, area, wheel.position, notches) {
                     return Rebuild::none();
+                }
+                // The drag continues from the zoomed view, so that its next move pans the zoomed
+                // view instead of the view of its press, as a pinch does.
+                if dragging {
+                    let view = self.view.view(app, &key);
+                    if let (Some(drag), Some(view)) = (&mut own.drag, view) {
+                        drag.start = view;
+                        drag.from = wheel.position;
+                        drag.at = wheel.position;
+                    }
                 }
                 if !own.zoomed.contains(&key) {
                     own.zoomed.push(key);
