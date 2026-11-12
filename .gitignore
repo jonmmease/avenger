@@ -8,6 +8,7 @@
 /avenger-format-number-icu/tests/output/
 .DS_Store
 examples/*/pkg/
+avenger-chart-web/pkg/
 examples/*/target/
 scratch/
 

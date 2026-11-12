@@ -28,6 +28,7 @@ members = [
     "avenger-chart",
     "avenger-chart-eval",
     "avenger-chart-app",
+    "avenger-chart-web",
     "avenger-sql",
     "avenger-style",
     "avenger-svg",

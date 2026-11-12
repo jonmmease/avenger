@@ -609,6 +609,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-web"
+version = "0.1.0"
+dependencies = [
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-format-datetime-d3",
+ "avenger-format-number-d3",
+ "avenger-style",
+ "avenger-typst-label",
+ "avenger-wgpu",
+ "console_error_panic_hook",
+ "js-sys",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "avenger-color"
 version = "0.1.0"
 dependencies = [
