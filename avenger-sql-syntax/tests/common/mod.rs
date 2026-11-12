@@ -119,7 +119,11 @@ pub fn shape(node: &SyntaxNode) -> String {
 /// different baseline fails, and the tree goes to `tests/output/`, from which a copy accepts
 /// it.
 pub fn assert_baseline(name: &str, root: &SyntaxNode) {
-    let dump = format!("{root:#?}");
+    assert_text_baseline(name, &format!("{root:#?}"));
+}
+
+/// Compares `dump` with the baseline `name`, as [`assert_baseline`] does.
+pub fn assert_text_baseline(name: &str, dump: &str) {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let baseline = manifest.join("tests/baselines").join(format!("{name}.txt"));
     let expected = std::fs::read_to_string(&baseline).unwrap_or_default();
@@ -127,9 +131,9 @@ pub fn assert_baseline(name: &str, root: &SyntaxNode) {
         let output = manifest.join("tests/output");
         std::fs::create_dir_all(&output).unwrap();
         let written = output.join(format!("{name}.txt"));
-        std::fs::write(&written, &dump).unwrap();
+        std::fs::write(&written, dump).unwrap();
         panic!(
-            "the tree of {name} differs from {}; the new tree is in {}",
+            "{name} differs from {}; the new text is in {}",
             baseline.display(),
             written.display()
         );
@@ -300,6 +304,12 @@ pub const QUERIES: &[&str] = &[
 /// Scripts that GoogleSQL rejects: the text, a part of the first diagnostic's message, and the
 /// text that it covers.
 pub const REJECTED: &[(&str, &str, &str)] = &[
+    (
+        "FROM t extra tokens",
+        "expected `|>`, `;` or the end of the script",
+        "tokens",
+    ),
+    ("FROM t |> WHERE a > > 1", "expected an expression", ">"),
     ("SELECT a FROM t", "expected `FROM`", "SELECT"),
     ("FROM t |> WHERE a < b < c", "comparisons don't chain", "<"),
     ("FROM t |> SELECT AS STRUCT a", "no value tables", "AS"),
@@ -315,34 +325,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "expected an expression",
         "select",
     ),
-    ("FROM t |> SELECT `` ", "can't be empty", "``"),
-    (
-        "FROM t |> CROSS JOIN u ON true",
-        "takes no condition",
-        "ON true",
-    ),
-    (
-        "FROM t extra tokens",
-        "expected `|>`, `;` or the end of the script",
-        "tokens",
-    ),
-    ("DECLARE x", "takes a type, a DEFAULT, or both", "DECLARE x"),
-    (
-        "FROM t; DECLARE x INT64",
-        "comes before the other statements",
-        "DECLARE x INT64",
-    ),
     ("IF x THEN FROM t; END IF", "have no IF statement", "IF"),
-    (
-        "CREATE TEMP FUNCTION f(t TABLE<a INT64>) AS (1)",
-        "belongs to a TABLE FUNCTION",
-        "TABLE<a INT64>",
-    ),
-    (
-        "CREATE TEMP FUNCTION f(x INT64 NOT AGGREGATE) AS (x)",
-        "belongs to a parameter of an AGGREGATE",
-        "NOT AGGREGATE",
-    ),
     (
         "CREATE TEMP FUNCTION f(x STRING) RETURNS STRING LANGUAGE js AS 'x'",
         "take no LANGUAGE",
@@ -357,11 +340,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "CREATE TEMP TABLE t (a INT64 DEFAULT 1)",
         "takes a name, a type and NOT NULL",
         "DEFAULT",
-    ),
-    (
-        "CREATE TABLE FUNCTION f() RETURNS TABLE<INT64> AS FROM t",
-        "each take a name and a type",
-        "<INT64>",
     ),
     (
         "CREATE VIEW v AS FROM t",
@@ -385,16 +363,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "expected `;` or the end of the script",
         ".",
     ),
-    (
-        "CREATE PUBLIC FUNCTION f() AS (1)",
-        "belong to the CREATE statements of a module",
-        "PUBLIC",
-    ),
-    (
-        "CREATE TEMP CONSTANT c = 1",
-        "a CONSTANT belongs to a module",
-        "CONSTANT",
-    ),
     ("FROM t |> DROP order", "expected a name", "order"),
     ("FROM t |> WHERE x = 'a\rb'", "has no closing quote", "'a"),
     ("FROM t |> WHERE x = 0x", "takes digits after 0x", "0x"),
@@ -409,8 +377,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "can't start with a digit",
         "1.5abc",
     ),
-    ("FROM t |> WHERE a > > 1", "expected an expression", ">"),
-    ("FROM my-proj.ds.tvf(1)", "has no dashes", "my-proj.ds.tvf"),
     (
         "FROM my-default.t",
         "expected `|>`, `;` or the end of the script",
@@ -447,11 +413,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         ")",
     ),
     ("FROM t |> WHERE f(a, *) = 1", "expected an expression", "*"),
-    (
-        "FROM t |> WHERE COUNT(*, a) = 1",
-        "is a call's only argument",
-        "*",
-    ),
     ("FROM t |> WHERE f(TABLE t) = 1", "expected `)`", "t"),
     (
         "FROM t |> WHERE (x).select = 1",
@@ -466,19 +427,9 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM (t)", "expected a JOIN", ")"),
     ("FROM (a, b)", "expected a JOIN", ","),
     (
-        "FROM a, b RIGHT JOIN c ON true",
-        "after a comma join needs parentheses",
-        "RIGHT JOIN",
-    ),
-    (
         "FROM t |> AGGREGATE COUNT(*) GROUP BY ROLLUP(x AS y)",
         "expected `)`",
         "AS",
-    ),
-    (
-        "FROM t |> FULL UNION ALL STRICT CORRESPONDING (FROM u)",
-        "STRICT can't go with the mode",
-        "STRICT",
     ),
     (
         "FROM t PIVOT (SUM(v) FOR k IN (1)) PIVOT (SUM(v) FOR k IN (1))",
@@ -514,11 +465,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> LOG", "has no pipe LOG", "LOG"),
     ("FROM f(*)", "takes no `*` argument", "*"),
     (
-        "IMPORT MODULE m; DECLARE x INT64",
-        "a DECLARE comes before",
-        "DECLARE x INT64",
-    ),
-    (
         "IMPORT MODULE 'm.sqlm'",
         "names its module by a path",
         "'m.sqlm'",
@@ -528,11 +474,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "CREATE TEMP TABLE t (a INT64) OPTIONS (a = 1,)",
         "expected a name",
         ")",
-    ),
-    (
-        "CREATE OR REPLACE TEMP FUNCTION IF NOT EXISTS f() AS (1)",
-        "don't go together",
-        "IF NOT EXISTS",
     ),
 ];
 
@@ -558,6 +499,115 @@ pub const REJECTED_MODULES: &[(&str, &str, &str)] = &[
         "one MODULE statement, its first",
         "MODULE",
     ),
+];
+
+/// Scripts that the validation pass rejects, with the message and the text of the first
+/// diagnostic: the checks that GoogleSQL makes after its parser.
+pub const VALIDATED: &[(&str, &str, &str)] = &[
+    ("FROM t |> SELECT `` ", "can't be empty", "``"),
+    (
+        "FROM t |> CROSS JOIN u ON true",
+        "takes no condition",
+        "ON true",
+    ),
+    ("DECLARE x", "takes a type, a DEFAULT, or both", "DECLARE x"),
+    (
+        "FROM t; DECLARE x INT64",
+        "comes before the other statements",
+        "DECLARE x INT64",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(t TABLE<a INT64>) AS (1)",
+        "belongs to a TABLE FUNCTION",
+        "TABLE<a INT64>",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x INT64 NOT AGGREGATE) AS (x)",
+        "belongs to a parameter of an AGGREGATE",
+        "NOT AGGREGATE",
+    ),
+    (
+        "CREATE TABLE FUNCTION f() RETURNS TABLE<INT64> AS FROM t",
+        "each take a name and a type",
+        "<INT64>",
+    ),
+    (
+        "CREATE PUBLIC FUNCTION f() AS (1)",
+        "belong to the CREATE statements of a module",
+        "PUBLIC",
+    ),
+    (
+        "CREATE TEMP CONSTANT c = 1",
+        "a CONSTANT belongs to a module",
+        "CONSTANT",
+    ),
+    ("FROM my-proj.ds.tvf(1)", "has no dashes", "my-proj.ds.tvf"),
+    (
+        "FROM t |> WHERE COUNT(*, a) = 1",
+        "is a call's only argument",
+        "*",
+    ),
+    (
+        "FROM a, b RIGHT JOIN c ON true",
+        "after a comma join needs parentheses",
+        "RIGHT JOIN",
+    ),
+    (
+        "FROM t |> FULL UNION ALL STRICT CORRESPONDING (FROM u)",
+        "STRICT can't go with the mode",
+        "STRICT",
+    ),
+    (
+        "IMPORT MODULE m; DECLARE x INT64",
+        "a DECLARE comes before",
+        "DECLARE x INT64",
+    ),
+    (
+        "CREATE OR REPLACE TEMP FUNCTION IF NOT EXISTS f() AS (1)",
+        "don't go together",
+        "IF NOT EXISTS",
+    ),
+    (
+        "FROM t |> WHERE x = 'a\\q'",
+        "`\\q` is not an escape",
+        "\\q",
+    ),
+    (
+        "FROM t |> WHERE x = '\\xff'",
+        "don't form UTF-8 text",
+        "'\\xff'",
+    ),
+    (
+        "FROM t |> WHERE x = b'\\u0041'",
+        "`\\u` is not an escape",
+        "\\u",
+    ),
+    (
+        "FROM t |> WHERE d = DATE b'2024-01-01'",
+        "takes a string, not bytes",
+        "b'2024-01-01'",
+    ),
+    ("FROM t |> WHERE x = 'a' b'b'", "don't concatenate", "b'b'"),
+    ("FROM LATERAL t", "LATERAL comes before a query", "LATERAL"),
+    (
+        "FROM UNNEST([1], depth => 2)",
+        "one named argument, `mode`",
+        "depth",
+    ),
+    (
+        "FROM t |> LEFT UNION ALL (FROM u)",
+        "goes with BY NAME or CORRESPONDING",
+        "LEFT",
+    ),
+    (
+        "CREATE TEMP TABLE t OPTIONS (a = 1)",
+        "takes columns, AS and a query, or both",
+        "OPTIONS (a = 1)",
+    ),
+];
+
+/// Modules that the validation pass rejects, as [`VALIDATED`].
+pub const VALIDATED_MODULES: &[(&str, &str, &str)] = &[
     (
         "MODULE m; CREATE FUNCTION f() AS (1)",
         "is PUBLIC or PRIVATE",

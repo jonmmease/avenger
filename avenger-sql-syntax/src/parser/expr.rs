@@ -123,10 +123,11 @@ impl Parser<'_> {
     pub(super) fn path(&mut self, role: NameRole) -> Option<(CompletedMarker, usize)> {
         if !self.at_ident() {
             self.record_name(role);
+            let marker = self.start();
             if !self.error_name(NAME_REF) {
+                marker.abandon(self);
                 return None;
             }
-            let marker = self.start();
             return Some((marker.complete(self, PATH), 1));
         }
         let marker = self.start();
@@ -451,7 +452,6 @@ impl Parser<'_> {
     /// Adjacent string literals, or adjacent bytes literals, as one literal. As in GoogleSQL,
     /// whitespace or a comment separates them.
     fn string_literal(&mut self) {
-        let kind = self.current();
         self.bump();
         while matches!(self.current(), STRING | BYTES) {
             if self.touches_previous() {
@@ -465,13 +465,6 @@ impl Parser<'_> {
                 .fix(
                     "Add a space between the literals",
                     vec![TextEdit::new(TextRange::empty(at), " ")],
-                );
-            } else if self.current() != kind {
-                let range = self.range();
-                self.error(
-                    DiagnosticCode::InvalidToken,
-                    range,
-                    "a string literal and a bytes literal don't concatenate",
                 );
             }
             self.bump();
@@ -540,19 +533,8 @@ impl Parser<'_> {
                 self.string_literal();
                 TYPED_LITERAL
             }
-            _ if TYPED_LITERALS.contains(&word.as_str()) && next == STRING => {
+            _ if TYPED_LITERALS.contains(&word.as_str()) && matches!(next, STRING | BYTES) => {
                 self.bump_keyword();
-                self.string_literal();
-                TYPED_LITERAL
-            }
-            _ if TYPED_LITERALS.contains(&word.as_str()) && next == BYTES => {
-                self.bump_keyword();
-                let range = self.range();
-                self.error(
-                    DiagnosticCode::Expected,
-                    range,
-                    "a typed literal takes a string, not bytes",
-                );
                 self.string_literal();
                 TYPED_LITERAL
             }
@@ -603,17 +585,10 @@ impl Parser<'_> {
             p.eat_keyword("DISTINCT");
             if p.current() == STAR {
                 let star = p.start();
-                let range = p.bump();
+                p.bump();
                 star.complete(p, STAR_ARG);
-                if p.current() == COMMA {
-                    p.error(
-                        DiagnosticCode::Expected,
-                        range,
-                        "`*` is a call's only argument, as in `COUNT(*)`",
-                    );
-                    while p.eat(COMMA) {
-                        p.argument();
-                    }
+                while p.eat(COMMA) {
+                    p.argument();
                 }
             } else if p.current() != R_PAREN {
                 p.comma_list(Self::argument);
