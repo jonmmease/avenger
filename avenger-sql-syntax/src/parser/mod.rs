@@ -241,15 +241,6 @@ impl<'a> Parser<'a> {
             .map(|token| token.kind)
     }
 
-    /// The range from the start of `start` to the end of the previous token.
-    pub(crate) fn since(&self, start: TextRange) -> TextRange {
-        let end = self.previous_range();
-        match end.end() < start.start() {
-            true => TextRange::empty(start.start()),
-            false => start.cover(end),
-        }
-    }
-
     /// The range of the tokens of a completed node.
     pub(crate) fn node_range(&self, node: CompletedMarker) -> TextRange {
         if node.start == node.end {
@@ -392,17 +383,6 @@ impl<'a> Parser<'a> {
             }
         }
         found
-    }
-
-    /// The range of the keyword `keyword`, which it consumes, when it is the current token.
-    pub(crate) fn keyword_range(&mut self, keyword: &str) -> Option<TextRange> {
-        self.at_keyword(keyword).then(|| self.bump_keyword())
-    }
-
-    /// The range of the keywords `keywords`, which it consumes, when they are the next tokens.
-    pub(crate) fn keywords_range(&mut self, keywords: &[&str]) -> Option<TextRange> {
-        let start = self.range();
-        self.eat_keywords(keywords).then(|| self.since(start))
     }
 
     /// Consumes `kind`, or reports that it is missing.

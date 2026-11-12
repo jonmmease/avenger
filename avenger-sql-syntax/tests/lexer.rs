@@ -1,7 +1,7 @@
 //! The lexer: every byte belongs to a token, and malformed tokens keep a kind.
 
 use avenger_sql_syntax::{
-    lexer::{tokenize, unescape},
+    lexer::tokenize,
     SyntaxKind::{self, *},
 };
 
@@ -22,17 +22,6 @@ fn operators_follow_googlesql() {
     );
     assert_eq!(kinds("1.x"), [FLOAT, WORD]);
     assert_eq!(kinds("t.2023 @p.123"), [WORD, DOT, WORD, PARAM, DOT, WORD]);
-}
-
-#[test]
-fn literals_hold_their_escapes() {
-    assert_eq!(
-        unescape(r"a\n\x41\u00e9\101", false, false).unwrap(),
-        "a\nAéA".as_bytes()
-    );
-    assert_eq!(unescape(r"\n", true, false).unwrap(), br"\n");
-    assert!(unescape(r"\q", false, false).is_err());
-    assert!(unescape(r"\u0041", false, true).is_err());
 }
 
 #[test]

@@ -1,27 +1,76 @@
 //! The syntax of avenger-sql: a subset of GoogleSQL's grammar, read into a lossless syntax
-//! tree.
+//! tree with typed nodes.
 //!
 //! A script is statements separated by `;`: pipe queries, `IMPORT MODULE`, `DECLARE` and `SET`
 //! of variables, `CREATE TEMP TABLE`, and `CREATE FUNCTION` of scalar, aggregate and table
 //! functions. A query is a `FROM` clause, or a query in parentheses, and pipe operators, and
 //! every nested query has the same form. [`parse_module`] reads a module, a `.sqlm` file of
 //! GoogleSQL, whose public functions, table functions and constants a script imports with
-//! `IMPORT MODULE`. Within the subset, the parser accepts what GoogleSQL accepts, rejects what
-//! it rejects, and its first error on invalid text is at GoogleSQL's.
+//! `IMPORT MODULE`. Within the subset, the crate accepts what GoogleSQL accepts, rejects what
+//! it rejects, and reports its first error where GoogleSQL does.
 //!
-//! [`parse`] never fails. Its tree, a `rowan` tree of [`SyntaxKind`]s, holds every byte of the
-//! text, comments and whitespace included, and every text gives a tree: the parser reports a
-//! [`Diagnostic`] for each error, skips what it cannot read into an `ERROR` node, and goes on.
-//! [`expected_at`] tells an editor what the grammar accepts at a cursor.
+//! # The tree
+//!
+//! [`parse`] never fails, and every text gives a tree. The tree is a `rowan` tree of
+//! [`SyntaxNode`]s, each of a [`SyntaxKind`], and holds every byte of the text, comments and
+//! whitespace included, with a range on every node. The grammar file `sql.ungram` describes
+//! the children of each kind of node, and a test checks that the parser builds those shapes.
+//!
+//! # Typed nodes
+//!
+//! [`ast`] has a typed node for each kind, generated from `sql.ungram`, with an accessor for
+//! each child, such as [`ast::PipeWhere::condition`], and an enum for each choice of nodes, such
+//! as [`ast::Expr`]. [`Parse::script`] gives the root of a script as an [`ast::Script`]. Since
+//! the tree of a text with errors can lack any part, an accessor returns an `Option` or an
+//! iterator. Accessors such as [`ast::Literal::string_value`] and [`ast::NameRef::text`] decode
+//! values.
+//!
+//! ```
+//! use avenger_sql_syntax::{ast, parse};
+//!
+//! let parse = parse("FROM orders |> WHERE total > 10 |> AGGREGATE SUM(total) GROUP BY region");
+//! assert!(parse.ok());
+//! let script = parse.script().unwrap();
+//! let Some(ast::Stmt::Query(query)) = script.stmts().next() else { unreachable!() };
+//! let Some(ast::PipeOperator::PipeWhere(filter)) = query.pipe_operators().next() else {
+//!     unreachable!()
+//! };
+//! assert_eq!(filter.condition().unwrap().to_string(), "total > 10");
+//! for operator in query.pipe_operators() {
+//!     println!("{operator}");
+//! }
+//! ```
+//!
+//! # Diagnostics
+//!
+//! Each error is a [`Diagnostic`], with a code, a range, a message, help, and the edits that
+//! fix it. The lexer reports malformed tokens. The parser reports the errors of the grammar and
+//! puts what it cannot read into `ERROR` nodes, so it can go on. A validation pass, which
+//! [`parse`] runs on every tree, reports the checks that GoogleSQL makes after its parser: the
+//! rules of modules, the order of `DECLARE`, the clauses that each kind of function takes, and
+//! the escapes of literals. [`Parse::diagnostics`] holds all of them in the order of their
+//! ranges.
+//!
+//! # Completion and highlighting
+//!
+//! [`expected_at`] tells an editor what the grammar accepts at a cursor: keywords, tokens,
+//! names in their roles, expressions, types, pipe operators, and statements. [`highlight`]
+//! classifies the tokens of a tree for syntax highlighting: keywords where the parser read them
+//! as keywords, literals, operators, and names in the same roles.
 
+pub mod ast;
 pub mod diagnostic;
+mod escape;
+mod highlight;
 pub mod lexer;
 mod parser;
 mod syntax_kind;
+mod validation;
 
 use rowan::{GreenNode, TextSize};
 
 pub use diagnostic::{Diagnostic, DiagnosticCode, Fix, TextEdit};
+pub use highlight::{highlight, Highlight, HighlightRange};
 pub use rowan::{TextRange, TextSize as Offset};
 pub use syntax_kind::{SqlLanguage, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken};
 
@@ -33,6 +82,14 @@ pub struct Parse {
 }
 
 impl Parse {
+    /// A parse of the tree `green`, with the diagnostics of the lexer and the parser, to which
+    /// it adds those of the validation pass.
+    fn new(green: GreenNode, mut diagnostics: Vec<Diagnostic>) -> Self {
+        diagnostics.extend(validation::validate(&SyntaxNode::new_root(green.clone())));
+        diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
+        Parse { green, diagnostics }
+    }
+
     /// The root of the tree: a [`SyntaxKind::SCRIPT`] or a [`SyntaxKind::MODULE`] node.
     pub fn syntax(&self) -> SyntaxNode {
         SyntaxNode::new_root(self.green.clone())
@@ -52,13 +109,13 @@ impl Parse {
 /// The tree of a script, the text of statements separated by `;`.
 pub fn parse(source: &str) -> Parse {
     let (green, diagnostics, _) = parser::parse(source, parser::Entry::Script, None);
-    Parse { green, diagnostics }
+    Parse::new(green, diagnostics)
 }
 
 /// The tree of a module, the text of a `.sqlm` file.
 pub fn parse_module(source: &str) -> Parse {
     let (green, diagnostics, _) = parser::parse(source, parser::Entry::Module, None);
-    Parse { green, diagnostics }
+    Parse::new(green, diagnostics)
 }
 
 /// What the grammar accepts at `offset` of a script's text: the forms that a completion can
