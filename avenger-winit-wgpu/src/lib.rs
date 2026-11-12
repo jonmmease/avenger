@@ -6,8 +6,9 @@ use avenger_app::app::{AvengerApp, Changes};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{WindowEvent as AvengerWindowEvent, WindowResizeEvent};
-use avenger_wgpu::canvas::{Canvas, CanvasConfig, WindowCanvas};
+use avenger_wgpu::canvas::{Canvas, CanvasConfig};
 use avenger_wgpu::error::AvengerWgpuError;
+use avenger_wgpu::window::WindowCanvas;
 
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};

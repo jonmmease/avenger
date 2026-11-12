@@ -1,8 +1,9 @@
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_vega_scenegraph::scene_graph::VegaSceneGraph;
-use avenger_wgpu::canvas::{Canvas, WindowCanvas};
+use avenger_wgpu::canvas::Canvas;
 use avenger_wgpu::error::AvengerWgpuError;
+use avenger_wgpu::window::WindowCanvas;
 use std::cell::RefCell;
 use std::rc::Rc;
 use winit::application::ApplicationHandler;

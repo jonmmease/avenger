@@ -7,6 +7,8 @@ pub(crate) mod readback;
 pub mod renderer;
 pub mod target;
 pub mod util;
+#[cfg(feature = "winit")]
+pub mod window;
 
 #[cfg(target_arch = "wasm32")]
 pub mod html_canvas;

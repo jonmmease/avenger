@@ -11,7 +11,7 @@ wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [dependencies]
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph", default-features = false }
-avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }
+avenger-wgpu = { path = "../../avenger-wgpu", default-features = false, features = ["winit"] }
 avenger-image = { path = "../../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
 avenger-common = { path = "../../avenger-common" }

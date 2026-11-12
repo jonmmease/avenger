@@ -49,6 +49,10 @@ pub enum AvengerWgpuError {
     TextError(#[from] avenger_typst_label::LabelError),
 
     #[cfg(target_arch = "wasm32")]
+    #[error("This browser does not support WebGPU")]
+    WebGpuUnavailable,
+
+    #[cfg(target_arch = "wasm32")]
     #[error("JavaScript error")]
     JsError(JsValue),
 
