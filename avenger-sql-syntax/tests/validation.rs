@@ -44,3 +44,23 @@ fn a_bare_star_is_no_item_of_an_extend() {
     rejects("FROM t |> EXTEND a, *", "takes no `*`", "*");
     accepts("FROM t |> EXTEND a, t.*");
 }
+
+#[test]
+fn an_unclosed_string_adds_no_errors_of_its_literal() {
+    // The open quote ends at the line end, and the lexer reads `b' AS s` as the start of an
+    // unclosed bytes literal. Each unclosed part has its lexer error, and the literal has no
+    // others.
+    let text = "FROM t |> SELECT 'a\nb' AS s";
+    let messages: Vec<String> = parse(text)
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| diagnostic.message.clone())
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "this quoted literal has no closing quote",
+            "this quoted literal has no closing quote"
+        ]
+    );
+}
