@@ -120,7 +120,7 @@ async fn lifted(name: &str, query: &str) -> Vec<Chart> {
 /// Checks that each chart column of `columns` of `query` holds the charts of its lifting, and that
 /// `lift` prints the lifting of the baseline `name`. It returns the charts of each column.
 async fn lifted_in(name: &str, query: &str, columns: &[&str]) -> Vec<Vec<Chart>> {
-    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap().text;
     assert!(!lifting.contains("__avenger_"), "no marker in {lifting}");
     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
     let output = format!("{dir}/output/liftings/{name}.sql");
@@ -536,8 +536,12 @@ async fn chart_groups_its_rows_and_names_its_chart() {
         "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) AS counts GROUP BY island"
     );
     assert_eq!(columns(&query).await, ["island", "counts"]);
-    let lifting = avenger_sql::lift(&session(), &query).await.unwrap();
-    assert!(lifting.ends_with("AS counts GROUP BY island"), "{lifting}");
+    let lifting = avenger_sql::lift(&session(), &query).await.unwrap().text;
+    let words: Vec<&str> = lifting.split_whitespace().collect();
+    assert!(
+        words.ends_with(&["AS", "counts", "GROUP", "BY", "island"]),
+        "{lifting}"
+    );
     // A group expression is a column of its alias, or of its text.
     let charts = lifted(
         "group-expression",
@@ -1048,7 +1052,7 @@ async fn order_is_the_path_order_of_a_line() {
 
 /// The lifting of `query`.
 async fn lifting(query: &str) -> String {
-    avenger_sql::lift(&session(), query).await.unwrap()
+    avenger_sql::lift(&session(), query).await.unwrap().text
 }
 
 #[tokio::test]
@@ -1228,7 +1232,7 @@ async fn the_lifting_of_items_takes_free_names() {
     let query = "FROM penguins |> WHERE body_mass_g IS NOT NULL \
         |> EXTEND 1 AS aggregates, 2 AS charts \
         |> AGGREGATE bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
-    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap().text;
     assert!(lifting.contains("|> AS aggregates_2"), "{lifting}");
     assert!(lifting.contains(") AS charts_2 ON"), "{lifting}");
     assert_eq!(charts(query).await, charts(&lifting).await);
@@ -1418,7 +1422,7 @@ async fn items_take_normalized_names_and_keep_qualifiers() {
     );
     let query = "FROM penguins AS p |> WHERE p.body_mass_g IS NOT NULL \
         |> AGGREGATE bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
-    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap().text;
     assert_eq!(charts(query).await, charts(&lifting).await, "{lifting}");
 }
 
@@ -1565,11 +1569,82 @@ async fn the_lifting_of_a_lifting_is_itself() {
         format!("{PENGUINS} |> AGGREGATE layer(bar(x => species, y => avg(body_mass_g)), rule(y => avg(body_mass_g))) GROUP BY island"),
         "FROM sales |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)".to_string(),
     ] {
-        let lifting = avenger_sql::lift(&session(), &query).await.unwrap();
+        let lifting = avenger_sql::lift(&session(), &query).await.unwrap().text;
         assert_eq!(
-            avenger_sql::lift(&session(), &lifting).await.unwrap(),
+            avenger_sql::lift(&session(), &lifting).await.unwrap().text,
             lifting,
             "{query}"
         );
     }
+}
+
+/// The text of `lifted` outside the ranges that `lift` wrote.
+fn kept(lifted: &avenger_sql::Lifted) -> String {
+    let mut kept = String::new();
+    let mut at = 0;
+    for range in &lifted.generated {
+        kept.push_str(&lifted.text[at..range.start]);
+        at = range.end;
+    }
+    kept.push_str(&lifted.text[at..]);
+    kept
+}
+
+#[tokio::test]
+async fn a_query_with_nothing_to_lift_comes_back_as_written() {
+    let query = "FROM penguins -- the penguins\n|> WHERE body_mass_g IS NOT NULL,\n   |> AGGREGATE count(*) AS n, symbol(x => bill_length_mm, y => bill_depth_mm) GROUP BY island";
+    let lifted = avenger_sql::lift(&session(), query).await.unwrap();
+    assert_eq!(lifted.text, query);
+    assert!(lifted.generated.is_empty());
+}
+
+#[tokio::test]
+async fn lift_keeps_the_text_before_and_after_a_lifted_operator() {
+    let before = "FROM penguins  -- the penguins\n|> WHERE body_mass_g IS NOT NULL,\n";
+    let operator = "|> AGGREGATE bar(x => species, y => count(*),) AS bars GROUP BY island";
+    let after = "\n|>   ORDER BY island";
+    let query = format!("{before}{operator}{after}");
+    let lifted = avenger_sql::lift(&session(), &query).await.unwrap();
+    assert!(lifted.text.starts_with(before), "{}", lifted.text);
+    assert!(lifted.text.ends_with(after), "{}", lifted.text);
+    // The stages are one range in place of the operator.
+    assert_eq!(
+        lifted.generated,
+        vec![before.len()..lifted.text.len() - after.len()]
+    );
+    assert_eq!(kept(&lifted), format!("{before}{after}"));
+    assert_eq!(charts(&query).await, charts(&lifted.text).await);
+}
+
+#[tokio::test]
+async fn the_ranges_of_lift_cover_the_stages_and_the_copies_of_the_input() {
+    // With an aggregate item, the target of the join holds a copy of the input, which `lift`
+    // wrote, and that copy ends in a comment of the text.
+    let before = "FROM penguins -- the penguins\n";
+    let query = format!(
+        "{before}|> AGGREGATE count(*) AS n, bar(x => species, y => count(*)) AS bars GROUP BY island"
+    );
+    let lifted = avenger_sql::lift(&session(), &query).await.unwrap();
+    assert_eq!(lifted.generated, vec![before.len()..lifted.text.len()]);
+    let stages = &lifted.text[before.len()..];
+    assert!(
+        stages.contains("LEFT OUTER JOIN (\n     FROM penguins -- the penguins\n"),
+        "{stages}"
+    );
+    assert_eq!(charts(&query).await, charts(&lifted.text).await);
+    // A lifted AGGREGATE in the target of a join of the text lifts in place.
+    let target =
+        "(FROM penguins |> AGGREGATE bar(x => species, y => count(*)) AS chart GROUP BY island)";
+    let query =
+        format!("FROM (VALUES ('Dream')) AS i(island) |> JOIN {target} AS c USING (island)");
+    let lifted = avenger_sql::lift(&session(), &query).await.unwrap();
+    assert_eq!(lifted.generated.len(), 1);
+    assert_eq!(
+        kept(&lifted),
+        "FROM (VALUES ('Dream')) AS i(island) |> JOIN (FROM penguins ) AS c USING (island)"
+    );
+    assert_eq!(charts(&query).await, charts(&lifted.text).await);
+    let again = avenger_sql::lift(&session(), &lifted.text).await.unwrap();
+    assert_eq!(again.text, lifted.text);
+    assert!(again.generated.is_empty());
 }

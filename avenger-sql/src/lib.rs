@@ -16,7 +16,8 @@
 //! join or clause in the `FROM` of its body. Another form is an error at its text.
 //!
 //! [`sql`] plans a query in a session after two passes that DataFusion 55.2 needs to plan it, and
-//! [`expand`] returns the SQL after them, which DataFusion plans and avenger-sql does not read.
+//! [`expand`] returns the SQL after them, which DataFusion plans and avenger-sql does not read, for
+//! debugging.
 //! The token pass rewrites the tokens of the text before parsing, and the syntax pass rewrites the
 //! parsed statement:
 //!
@@ -50,7 +51,9 @@
 //!   and the stacks and the window functions of its channels, then the mark aggregate over their
 //!   columns. The other items, flat mark calls among them, are the `AGGREGATE` of the aggregate
 //!   items, and the calls and that `AGGREGATE`, each over a copy of the input, join on the groups.
-//!   [`lift`] prints the lifting, which runs to the same charts.
+//!   [`lift`] returns the query with each lifting in place of its `AGGREGATE`, as avenger-sql that
+//!   a user could have typed, which runs to the same charts, with the ranges of the text that it
+//!   wrote ([`Lifted`]).
 //!
 //! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,
 //! and [`register`] has DataFusion record them, so an error of a column points to its text.
@@ -63,6 +66,7 @@ mod chart;
 mod error;
 mod functions;
 mod grammar;
+mod layout;
 mod pipeline;
 mod registry;
 mod syntax;
@@ -70,7 +74,7 @@ mod tokens;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
-pub use chart::lift;
+pub use chart::{lift, Lifted};
 pub use pipeline::{expand, sql};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` of avenger-chart, and

@@ -16,7 +16,7 @@ A query of avenger-sql is a pipe query: `FROM` a source, then pipe operators. A 
 
 ## Passes
 
-A query is DataFusion SQL after two passes, which DataFusion 55.2 needs to plan these queries, and `expand` returns the SQL after them, which DataFusion plans and avenger-sql does not read. The token pass rewrites the tokens of the text before parsing, and the syntax pass rewrites the parsed statement:
+A query is DataFusion SQL after two passes, which DataFusion 55.2 needs to plan these queries, and `expand` returns the SQL after them, which DataFusion plans and avenger-sql does not read, for debugging. `lift` returns the form of a query that a reader can follow ([Charts](#charts)). The token pass rewrites the tokens of the text before parsing, and the syntax pass rewrites the parsed statement:
 
 - A word that starts with `__avenger_` is an error at the word. The passes generate the names with this prefix, so a query cannot collide with them.
 - A trailing comma is a space, so the arguments of a call, a list, and the items of an operator can end in a comma, and a commented-out last argument leaves a valid call. A comma is trailing before `)`, `]`, `}`, `|>`, `;`, the end of the text, or `GROUP BY` or `ORDER BY`, the clauses inside a pipe operator and a call. `group` and `order` can also be columns, as in `greatest(a, order)`, or the names of arguments, as in `order => year` or `order := year`, and a comma before them then stays. A comma right after `(`, `[`, `{`, or another comma stays, so `f(,)` is still an error. sqlparser takes a trailing comma only in a `SELECT` list.
@@ -94,16 +94,24 @@ FROM penguins
 
 Each of these is SQL that DataFusion rejects in the arguments of an aggregate, so lifting changes the meaning of no query that DataFusion plans. A statistic of a mark call computes for each key of the mark within the group, so beside an item `count(*)`, which counts the rows of each island, the `count(*)` of `bar(x => species, y => count(*))` counts the rows of each species of the island.
 
-A mark call that lifts means its lifting, a query of stages that ends in the mark aggregate over column references, and `lift` prints it:
+A mark call that lifts means its lifting, a query of stages that ends in the mark aggregate over column references, and `lift` returns it:
 
 ```sql
 FROM penguins
-|> EXTEND bin(body_mass_g, maxbins => 20) OVER () AS body_mass_g_bin,
-          lump(species, n => 2) OVER () AS species_lump
-|> AGGREGATE count(*) AS n GROUP BY island, body_mass_g_bin, species_lump
-|> AGGREGATE bar(x => scaled(body_mass_g_bin, title => 'body_mass_g'), y => scaled(n, title => 'count(*)'),
-     color => scaled(species_lump, title => 'species')) AS chart GROUP BY island
+|> EXTEND
+     bin(body_mass_g, maxbins => 20) OVER () AS body_mass_g_bin,
+     lump(species, n => 2) OVER () AS species_lump
+|> AGGREGATE count(*) AS n
+   GROUP BY island, body_mass_g_bin, species_lump
+|> AGGREGATE
+     bar(
+       x => scaled(body_mass_g_bin, title => 'body_mass_g'),
+       y => scaled(n, title => 'count(*)'),
+       color => scaled(species_lump, title => 'species')) AS chart
+   GROUP BY island
 ```
+
+The lifting is avenger-sql that a user could have typed: it names no function of the passes, and it runs to the same charts. `lift` keeps the text of the query as written, its layout and its comments included, and replaces only each `AGGREGATE` whose mark calls lift with its stages, which it lays out with each operator on its own line, so a query with nothing to lift comes back unchanged, and `lift` of its own result returns the same text. With the text, `lift` returns the byte ranges that it wrote, the stages and each copy of the text of the query in a new place, such as the operators before the `AGGREGATE` in the target of a join, so an editor can show them apart from the text of the query.
 
 - **Stage 1** computes the discretizers, `bin`, `timeunit`, and `lump`, in one `EXTEND` for each depth of nesting, so `lump(timeunit(t, unit => 'month'), n => 3)` truncates in the first and lumps in the second.
 - **Stage 2** computes the aggregates of a call that aggregates in a channel or in its draw order, grouped by the group columns and the keys: the channel values without an aggregate, such as `species`, a discretizer, or a key expression, such as `upper(species)`, which takes the name `x_expr`. An expression over aggregates and keys, such as `count(*) / 2`, reads their columns.

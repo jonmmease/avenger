@@ -1,1 +1,7 @@
-FROM sales |> EXTEND timeunit(t, unit => 'month') OVER () AS t_unit |> AGGREGATE sum(units) AS sum_units GROUP BY t_unit |> AGGREGATE bar(x => scaled(t_unit, title => 't'), y => scaled(sum_units, title => 'sum(units)')) AS bar
+FROM sales |> EXTEND timeunit(t, unit => 'month') OVER () AS t_unit
+|> AGGREGATE sum(units) AS sum_units
+   GROUP BY t_unit
+|> AGGREGATE
+     bar(
+       x => scaled(t_unit, title => 't'),
+       y => scaled(sum_units, title => 'sum(units)')) AS bar

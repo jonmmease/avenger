@@ -1,1 +1,19 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills, count(*) AS penguins GROUP BY island |> AS aggregates |> LEFT OUTER JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n GROUP BY island, species |> AGGREGATE bar(x => species, y => scaled(n, title => 'count(*)')) AS counts GROUP BY island) AS charts ON aggregates.island IS NOT DISTINCT FROM charts.island |> SELECT aggregates.island, aggregates.bills, aggregates.penguins, charts.counts |> ORDER BY island
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE
+     symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills,
+     count(*) AS penguins
+   GROUP BY island
+|> AS aggregates
+|> LEFT OUTER JOIN (
+     FROM penguins
+     |> WHERE body_mass_g IS NOT NULL
+     |> AGGREGATE count(*) AS n
+        GROUP BY island, species
+     |> AGGREGATE
+          bar(x => species, y => scaled(n, title => 'count(*)')) AS counts
+        GROUP BY island
+   ) AS charts ON aggregates.island IS NOT DISTINCT FROM charts.island
+|> SELECT
+     aggregates.island,
+     aggregates.bills,
+     aggregates.penguins,
+     charts.counts |> ORDER BY island

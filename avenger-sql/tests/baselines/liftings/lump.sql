@@ -1,1 +1,9 @@
-FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND lump(species, n => 2, weight => sum(body_mass_g)) OVER () AS species_lump |> AGGREGATE count(*) AS n GROUP BY island, species_lump |> AGGREGATE bar(x => island, y => scaled(n, title => 'count(*)'), color => scaled(species_lump, title => 'species')) AS bar
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND
+     lump(species, n => 2, weight => sum(body_mass_g)) OVER () AS species_lump
+|> AGGREGATE count(*) AS n
+   GROUP BY island, species_lump
+|> AGGREGATE
+     bar(
+       x => island,
+       y => scaled(n, title => 'count(*)'),
+       color => scaled(species_lump, title => 'species')) AS bar
