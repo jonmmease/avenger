@@ -8,9 +8,11 @@
 //!   a derived table ([`windows`]).
 //! - A pipe `CALL` becomes the `FROM`-position call of its table function over the query before
 //!   it ([`call`]).
-//! - The `AGGREGATE` of a `|> CHART` becomes the `FROM`-position call of the mark planner
-//!   ([`chart`]). The pass does not lower the mark call, whose channels the mark planner reads as
-//!   written.
+//! - A pipe `AGGREGATE` whose items hold a mark call that lifts becomes the `FROM`-position call
+//!   of the mark planner for each such call ([`chart`]). The pass does not lower the mark call,
+//!   whose channels the mark planner reads as written. Before it, the check of the mark calls
+//!   ([`marks`]) rejects a mark call outside an item of a pipe `AGGREGATE` and names the items
+//!   that hold them. avenger-sql builds charts this way, so no upstream change removes the item.
 //! - A named option of `bin`, `timeunit`, `lump`, or `stack` becomes an option pair, and a call
 //!   with named arguments passes `NULL` for each omitted parameter before its last named argument
 //!   ([`arguments`]).
@@ -19,6 +21,7 @@ mod arguments;
 pub(crate) mod build;
 mod call;
 mod chart;
+mod marks;
 mod windows;
 
 use std::ops::ControlFlow;
@@ -32,12 +35,15 @@ use datafusion::{
 };
 
 pub(crate) use arguments::function_name;
-pub(crate) use chart::{aliased, is_marker as is_chart, read as read_chart, ChartOperator};
+pub(crate) use chart::{aliased, lifts, read as read_charts, ChartAggregate};
+pub(crate) use marks::check as check_marks;
 
 use crate::registry::Registry;
 
-/// Lowers `statement` for the functions of `registry`.
+/// Lowers `statement`, the statement of the user, for the functions of `registry`, after the check
+/// of its mark calls.
 pub(crate) fn lower(registry: &dyn Registry, statement: &mut Statement) -> Result<()> {
+    marks::check(registry, statement)?;
     visit(registry, statement)
 }
 
@@ -89,10 +95,15 @@ impl VisitorMut for Lower<'_> {
 
     fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<DataFusionError> {
         while let Some(index) = (query.pipe_operators.iter()).position(|operator| {
-            windows::windowed(operator) || chart::is_marker(operator) || call::is_call(operator)
+            windows::windowed(operator)
+                || chart::lifts(operator, self.registry)
+                || call::is_call(operator)
         }) {
             let operator = &query.pipe_operators[index];
-            let split = match (chart::is_marker(operator), call::is_call(operator)) {
+            let split = match (
+                chart::lifts(operator, self.registry),
+                call::is_call(operator),
+            ) {
                 (true, _) => chart::split(query, index, self.registry),
                 (false, true) => call::split(query, index),
                 (false, false) => {

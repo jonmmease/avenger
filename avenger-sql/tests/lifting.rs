@@ -1,4 +1,4 @@
-//! `|> CHART`: each chart call draws the chart of its printed lifting run as a query
+//! The charts of a pipe `AGGREGATE`: each mark call that lifts draws the chart of its printed lifting run as a query
 //! (`r[lift.test.bytes]`), and `lift` prints the lifting that `tests/baselines/liftings/` holds,
 //! which a change accepts by copying it from `tests/output/liftings/`. The validation rules have
 //! one valid and one invalid call each, with the error and its span.
@@ -50,9 +50,36 @@ fn session() -> SessionContext {
     ctx
 }
 
-/// The charts of `query`, in the order of its rows.
+/// The charts of the column of charts of `query` ([`chart_column`]), in the order of its rows.
 async fn charts(query: &str) -> Vec<Chart> {
-    charts_in(query, "chart").await
+    charts_in(query, &chart_column(query).await).await
+}
+
+/// The name of the column of charts of `query`, a column of the chart extension: `chart`, or the
+/// one column of charts.
+async fn chart_column(query: &str) -> String {
+    let frame = avenger_sql::sql(&session(), query)
+        .await
+        .unwrap_or_else(|error| panic!("{query}: {error}"));
+    let columns: Vec<String> = (frame.schema().fields().iter())
+        .filter(|field| {
+            field
+                .metadata()
+                .get("ARROW:extension:name")
+                .map(String::as_str)
+                == Some(avenger_chart::EXTENSION_NAME)
+        })
+        .map(|field| field.name().clone())
+        .collect();
+    if columns.iter().any(|column| column == "chart") {
+        return "chart".to_string();
+    }
+    assert_eq!(
+        columns.len(),
+        1,
+        "one column of charts in {query}: {columns:?}"
+    );
+    columns[0].clone()
 }
 
 /// The charts of the column `name` of `query`, in the order of its rows, a column of the chart
@@ -86,7 +113,8 @@ async fn charts_in(query: &str, name: &str) -> Vec<Chart> {
 /// Checks that `query` draws the charts of its lifting, and that `lift` prints the lifting of the
 /// baseline `name`. It returns the charts.
 async fn lifted(name: &str, query: &str) -> Vec<Chart> {
-    lifted_in(name, query, &["chart"]).await.remove(0)
+    let column = chart_column(query).await;
+    lifted_in(name, query, &[&column]).await.remove(0)
 }
 
 /// Checks that each chart column of `columns` of `query` holds the charts of its lifting, and that
@@ -154,13 +182,13 @@ const PENGUINS: &str = "FROM penguins |> WHERE body_mass_g IS NOT NULL";
 async fn a_bar_of_counts_by_a_key() {
     let charts = lifted(
         "counts",
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*))"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*))"),
     )
     .await;
     assert_eq!(table(&charts[0]).num_rows(), 3);
     let charts = lifted(
         "counts-by-island",
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY island"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) GROUP BY island"),
     )
     .await;
     assert_eq!(charts.len(), 3, "one chart for each island");
@@ -170,7 +198,9 @@ async fn a_bar_of_counts_by_a_key() {
 async fn a_histogram() {
     let charts = lifted(
         "histogram",
-        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*))"),
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g, maxbins => 20), y => count(*))"
+        ),
     )
     .await;
     let bins = table(&charts[0]);
@@ -187,7 +217,7 @@ async fn bins_in_each_panel() {
     lifted(
         "histogram-panel",
         &format!(
-            "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
+            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
         ),
     )
     .await;
@@ -198,7 +228,7 @@ async fn a_lump_color() {
     lifted(
         "lump",
         &format!(
-            "{PENGUINS} |> CHART bar(x => island, y => count(*), color => lump(species, n => 2, weight => sum(body_mass_g)))"
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => count(*), color => lump(species, n => 2, weight => sum(body_mass_g)))"
         ),
     )
     .await;
@@ -208,7 +238,7 @@ async fn a_lump_color() {
 async fn months_of_timestamps() {
     let charts = lifted(
         "months",
-        "FROM sales |> CHART bar(x => timeunit(t, unit => 'month'), y => sum(units))",
+        "FROM sales |> AGGREGATE bar(x => timeunit(t, unit => 'month'), y => sum(units))",
     )
     .await;
     assert_eq!(table(&charts[0]).num_rows(), 6, "January to June");
@@ -218,7 +248,7 @@ async fn months_of_timestamps() {
 async fn nested_discretizers() {
     lifted(
         "nested",
-        "FROM sales |> CHART bar(x => lump(timeunit(t, unit => 'month'), n => 3, weight => sum(units)), y => sum(units))",
+        "FROM sales |> AGGREGATE bar(x => lump(timeunit(t, unit => 'month'), n => 3, weight => sum(units)), y => sum(units))",
     )
     .await;
 }
@@ -227,7 +257,7 @@ async fn nested_discretizers() {
 async fn a_key_expression() {
     lifted(
         "key-expression",
-        &format!("{PENGUINS} |> CHART bar(x => upper(species), y => count(*))"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => upper(species), y => count(*))"),
     )
     .await;
 }
@@ -236,7 +266,9 @@ async fn a_key_expression() {
 async fn a_post_aggregate_expression_and_two_uses_of_one_aggregate() {
     lifted(
         "post-aggregate",
-        &format!("{PENGUINS} |> CHART symbol(x => species, y => count(*) / 2, size => count(*))"),
+        &format!(
+            "{PENGUINS} |> AGGREGATE symbol(x => species, y => count(*) / 2, size => count(*))"
+        ),
     )
     .await;
 }
@@ -245,13 +277,13 @@ async fn a_post_aggregate_expression_and_two_uses_of_one_aggregate() {
 async fn a_draw_order() {
     lifted(
         "order-aggregate",
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY count(*) DESC)"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*) ORDER BY count(*) DESC)"),
     )
     .await;
     lifted(
         "order-key",
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*), color => island ORDER BY island DESC)"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), color => island ORDER BY island DESC)"
         ),
     )
     .await;
@@ -262,7 +294,7 @@ async fn a_call_that_does_not_group() {
     let charts = lifted(
         "rows",
         &format!(
-            "{PENGUINS} |> CHART symbol(x => bill_length_mm * 2, y => bill_depth_mm, color => lump(species, n => 2))"
+            "{PENGUINS} |> AGGREGATE symbol(x => bill_length_mm * 2, y => bill_depth_mm, color => lump(species, n => 2))"
         ),
     )
     .await;
@@ -277,7 +309,7 @@ async fn a_call_that_does_not_group() {
 async fn a_name_that_an_input_column_has() {
     lifted(
         "collision",
-        &format!("{PENGUINS} |> EXTEND 1 AS n |> CHART bar(x => species, y => count(*))"),
+        &format!("{PENGUINS} |> EXTEND 1 AS n |> AGGREGATE bar(x => species, y => count(*))"),
     )
     .await;
 }
@@ -286,7 +318,7 @@ async fn a_name_that_an_input_column_has() {
 async fn the_output_of_chart_composes() {
     // The partition is the key of a facet.
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*)) GROUP BY island |> AGGREGATE facet_col(chart, island) AS chart"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => count(*)) AS chart GROUP BY island |> AGGREGATE facet_col(chart, island) AS chart"
     );
     let composed = charts(&query).await;
     let Some(proto::node::Node::Concat(concat)) = &composed[0].root().node else {
@@ -295,7 +327,7 @@ async fn the_output_of_chart_composes() {
     assert_eq!(concat.children.len(), 3);
     // A layer of the charts of a union draws them in the order of its branches.
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*)) |> UNION ALL ({PENGUINS} |> CHART rule(y => avg(body_mass_g))) |> AGGREGATE layer_agg(chart) AS chart"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) AS chart |> UNION ALL ({PENGUINS} |> AGGREGATE rule(y => avg(body_mass_g)) AS chart) |> AGGREGATE layer_agg(chart) AS chart"
     );
     let layered = charts(&query).await;
     let Some(proto::node::Node::Plot(plot)) = &layered[0].root().node else {
@@ -311,40 +343,33 @@ async fn the_output_of_chart_composes() {
 #[tokio::test]
 async fn the_mark_call_is_read_against_its_mark() {
     fails(
-        "FROM penguins |> CHART bars(x => species)",
-        "`bars` is not a mark function",
-        "bars",
-    )
-    .await;
-    fails(
-        "FROM penguins |> CHART bar(x => species, colour => island)",
+        "FROM penguins |> AGGREGATE bar(x => species, y => count(*), colour => island)",
         "bar() has no parameter `colour`",
         "colour",
     )
     .await;
     fails(
-        "FROM penguins |> CHART bar(x => species, x => island)",
+        "FROM penguins |> AGGREGATE bar(x => species, x => island, y => count(*))",
         "bar() takes `x` once",
         "x => island",
     )
     .await;
-    fails("FROM penguins |> CHART", "CHART takes a mark call", "CHART").await;
 }
 
 #[tokio::test]
 async fn v1_arguments_read_only_earlier_stages() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*))"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => count(*))"
     ))
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => bin(count(*)), y => count(*))");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => bin(count(*)), y => count(*))");
     fails(
         &query,
         "`count(*)` cannot be an argument of `bin`, because bin computes its bins before the aggregates",
         "count(*))",
     )
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => species, y => sum(count(*)))");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => species, y => sum(count(*)))");
     fails(
         &query,
         "`count(*)` cannot be an argument of `sum`",
@@ -356,10 +381,11 @@ async fn v1_arguments_read_only_earlier_stages() {
 #[tokio::test]
 async fn v3_post_aggregate_expressions_read_keys() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*) / bin(body_mass_g).end)"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => count(*) / bin(body_mass_g).end)"
     ))
     .await;
-    let query = format!("{PENGUINS} |> CHART symbol(x => species, y => count(*) / body_mass_g)");
+    let query =
+        format!("{PENGUINS} |> AGGREGATE symbol(x => species, y => count(*) / body_mass_g)");
     fails(
         &query,
         "`body_mass_g` is neither a key of this chart nor inside an aggregate",
@@ -371,10 +397,10 @@ async fn v3_post_aggregate_expressions_read_keys() {
 #[tokio::test]
 async fn v4_the_draw_order_adds_no_key() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY species)"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*) ORDER BY species)"
     ))
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY sex)");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*) ORDER BY sex)");
     fails(
         &query,
         "the draw order `sex` is not a key of this chart",
@@ -386,10 +412,10 @@ async fn v4_the_draw_order_adds_no_key() {
 #[tokio::test]
 async fn v5_scaled_and_direct_have_their_places() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*), opacity => direct(0.5))"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), opacity => direct(0.5))"
     ))
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => species, y => direct(count(*)) + 1)");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => species, y => direct(count(*)) + 1)");
     fails(
         &query,
         "scaled() and direct() are valid only as the complete value of a channel",
@@ -397,7 +423,7 @@ async fn v5_scaled_and_direct_have_their_places() {
     )
     .await;
     let query = format!(
-        "{PENGUINS} |> CHART text(x => bill_length_mm, y => bill_depth_mm, text => scaled(species))"
+        "{PENGUINS} |> AGGREGATE text(x => species, y => count(*), text => scaled(species))"
     );
     fails(
         &query,
@@ -410,24 +436,24 @@ async fn v5_scaled_and_direct_have_their_places() {
 #[tokio::test]
 async fn v6_windows_have_over_and_the_names_of_the_mark() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
     ))
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => species, y => rank())");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => species, y => rank())");
     fails(
         &query,
         "rank() is a window function, so it needs OVER",
         "rank",
     )
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER w, y => count(*))");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER w, y => count(*))");
     fails(&query, "no window `w` in this chart", "w, y").await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (panel PARTITION BY sex), y => count(*))"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER (panel PARTITION BY sex), y => count(*))"
     );
     fails(&query, "the window `panel` has its partition", "sex)").await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (ORDER BY sex), y => count(*))"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER (ORDER BY sex), y => count(*))"
     );
     fails(
         &query,
@@ -440,11 +466,11 @@ async fn v6_windows_have_over_and_the_names_of_the_mark() {
 #[tokio::test]
 async fn v8_options_are_constants() {
     charts(&format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*), orient => 'vertical')"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), orient => 'vertical')"
     ))
     .await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => flipper_length_mm), y => count(*))"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g, maxbins => flipper_length_mm), y => count(*))"
     );
     fails(
         &query,
@@ -452,7 +478,7 @@ async fn v8_options_are_constants() {
         "flipper_length_mm",
     )
     .await;
-    let query = format!("{PENGUINS} |> CHART bar(x => species, y => count(*), orient => $1)");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), orient => $1)");
     fails(
         &query,
         "option `orient` of bar() needs a plan-time constant; `$1` is a parameter",
@@ -460,14 +486,16 @@ async fn v8_options_are_constants() {
     )
     .await;
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) OVER (PARTITION BY island)"),
-        "the mark call of CHART takes no OVER clause, so `bar` has none",
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) OVER (PARTITION BY island)"
+        ),
+        "a mark call takes no OVER clause, so `bar` has none",
         "bar",
     )
     .await;
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY island DESC"),
-        "a group of CHART takes no ASC, DESC, or NULLS order",
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) GROUP BY island DESC"),
+        "a group of an AGGREGATE with charts takes no ASC, DESC, or NULLS order",
         "island DESC",
     )
     .await;
@@ -475,11 +503,12 @@ async fn v8_options_are_constants() {
 
 #[tokio::test]
 async fn v9_the_types_of_the_arguments_of_transforms() {
-    charts("FROM sales |> CHART bar(x => timeunit(t, unit => 'month'), y => sum(units))").await;
-    let query = format!("{PENGUINS} |> CHART bar(x => bin(species), y => count(*))");
+    charts("FROM sales |> AGGREGATE bar(x => timeunit(t, unit => 'month'), y => sum(units))").await;
+    let query = format!("{PENGUINS} |> AGGREGATE bar(x => bin(species), y => count(*))");
     fails(&query, "bin bins numbers, not Utf8", "species)").await;
-    let query =
-        format!("{PENGUINS} |> CHART bar(x => timeunit(species, unit => 'month'), y => count(*))");
+    let query = format!(
+        "{PENGUINS} |> AGGREGATE bar(x => timeunit(species, unit => 'month'), y => count(*))"
+    );
     fails(
         &query,
         "timeunit takes a DATE or a TIMESTAMP, not Utf8",
@@ -487,7 +516,8 @@ async fn v9_the_types_of_the_arguments_of_transforms() {
     )
     .await;
     // The struct of a discretizer is the argument of the discretizer of the next depth.
-    let query = "FROM sales |> CHART bar(x => bin(timeunit(t, unit => 'month')), y => sum(units))";
+    let query =
+        "FROM sales |> AGGREGATE bar(x => bin(timeunit(t, unit => 'month')), y => sum(units))";
     fails(query, "bin bins numbers, not Struct", "timeunit(t").await;
 }
 
@@ -502,8 +532,9 @@ async fn columns(query: &str) -> Vec<String> {
 #[tokio::test]
 async fn chart_groups_its_rows_and_names_its_chart() {
     // One row for each group, with the group columns and the chart, named by its alias.
-    let query =
-        format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) AS counts GROUP BY island");
+    let query = format!(
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) AS counts GROUP BY island"
+    );
     assert_eq!(columns(&query).await, ["island", "counts"]);
     let lifting = avenger_sql::lift(&session(), &query).await.unwrap();
     assert!(lifting.ends_with("AS counts GROUP BY island"), "{lifting}");
@@ -511,26 +542,30 @@ async fn chart_groups_its_rows_and_names_its_chart() {
     let charts = lifted(
         "group-expression",
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island) AS isle"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) GROUP BY upper(island) AS isle"
         ),
     )
     .await;
     assert_eq!(charts.len(), 3);
     let query =
-        format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island)");
-    assert_eq!(columns(&query).await, ["upper(island)", "chart"]);
-    // Each of several mark calls has a name (D4).
+        format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) GROUP BY upper(island)");
+    assert_eq!(columns(&query).await, ["upper(island)", "bar"]);
+    // A mark item without an alias takes the name of its mark, and two of one name are an error.
+    let query = format!(
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)), symbol(x => species, y => count(*)) GROUP BY island"
+    );
+    assert_eq!(columns(&query).await, ["island", "bar", "symbol"]);
     fails(
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*)), symbol(x => species, y => count(*)) AS dots GROUP BY island"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)), bar(x => sex, y => count(*)) GROUP BY island"
         ),
-        "this CHART draws several charts, so `bar` needs a name",
-        "bar",
+        "`bar` names two columns of this AGGREGATE",
+        "bar(x => sex",
     )
     .await;
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) DESC"),
-        "an item of CHART takes no ASC, DESC, or NULLS order",
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) DESC"),
+        "an item of an AGGREGATE with charts takes no ASC, DESC, or NULLS order",
         "bar",
     )
     .await;
@@ -540,7 +575,7 @@ async fn chart_groups_its_rows_and_names_its_chart() {
 async fn a_stacked_histogram() {
     lifted(
         "stack-histogram",
-        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => stack(count(*)), color => species)"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => stack(count(*)), color => species)"),
     )
     .await;
 }
@@ -549,7 +584,9 @@ async fn a_stacked_histogram() {
 async fn a_horizontal_stack() {
     lifted(
         "stack-horizontal",
-        &format!("{PENGUINS} |> CHART bar(x => stack(count(*)), y => species, color => island)"),
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => stack(count(*)), y => species, color => island)"
+        ),
     )
     .await;
 }
@@ -559,7 +596,7 @@ async fn a_stack_with_an_order_of_its_own() {
     lifted(
         "stack-order",
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacks ORDER BY count(*) DESC), color => island)"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)) OVER (stacks ORDER BY count(*) DESC), color => island)"
         ),
     )
     .await;
@@ -570,14 +607,14 @@ async fn the_offsets_of_a_stack() {
     lifted(
         "stack-normalize",
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*), offset => 'normalize'), color => island)"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*), offset => 'normalize'), color => island)"
         ),
     )
     .await;
     lifted(
         "stack-center",
         &format!(
-            "{PENGUINS} |> CHART area(x => bin(body_mass_g), y => stack(count(*), offset => 'center'), color => species)"
+            "{PENGUINS} |> AGGREGATE area(x => bin(body_mass_g), y => stack(count(*), offset => 'center'), color => species)"
         ),
     )
     .await;
@@ -587,7 +624,7 @@ async fn the_offsets_of_a_stack() {
 async fn a_stacked_lump_with_its_other_group_at_the_bottom() {
     let charts = lifted(
         "stack-lump",
-        &format!("{PENGUINS} |> CHART bar(x => island, y => stack(count(*)), color => lump(species, n => 1))"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => island, y => stack(count(*)), color => lump(species, n => 1))"),
     )
     .await;
     // On Dream, the Other group, the chinstraps, is the bottom segment.
@@ -616,7 +653,7 @@ async fn a_stacked_lump_with_its_other_group_at_the_bottom() {
 async fn a_stack_of_an_arc() {
     lifted(
         "stack-arc",
-        &format!("{PENGUINS} |> CHART polar_bar(theta => stack(count(*)), color => species)"),
+        &format!("{PENGUINS} |> AGGREGATE polar_bar(theta => stack(count(*)), color => species)"),
     )
     .await;
 }
@@ -626,14 +663,14 @@ async fn windows_of_aggregates_in_a_partitioned_call() {
     lifted(
         "window-panel",
         &format!(
-            "{PENGUINS} |> CHART symbol(x => species, y => count(*) / sum(count(*)) OVER panel) GROUP BY island"
+            "{PENGUINS} |> AGGREGATE symbol(x => species, y => count(*) / sum(count(*)) OVER panel) GROUP BY island"
         ),
     )
     .await;
     lifted(
         "window-all",
         &format!(
-            "{PENGUINS} |> CHART symbol(x => species, y => sum(count(*)) OVER ()) GROUP BY island"
+            "{PENGUINS} |> AGGREGATE symbol(x => species, y => sum(count(*)) OVER ()) GROUP BY island"
         ),
     )
     .await;
@@ -642,19 +679,19 @@ async fn windows_of_aggregates_in_a_partitioned_call() {
 #[tokio::test]
 async fn v6_the_stack_windows() {
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER stacks, y => stack(count(*)), color => species)"
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER stacks, y => stack(count(*)), color => species)"
     );
     fails(&query, "the window `stacks` holds the stacks", "stacks,").await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacked ORDER BY count(*)), color => island)"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)) OVER (stacked ORDER BY count(*)), color => island)"
     );
     fails(&query, "the window `stacked` has its order", "count(*)),").await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacks PARTITION BY island), color => island)"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)) OVER (stacks PARTITION BY island), color => island)"
     );
     fails(&query, "the window `stacks` has its partition", "island),").await;
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER piles, color => island)"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)) OVER piles, color => island)"
     );
     fails(
         &query,
@@ -667,7 +704,7 @@ async fn v6_the_stack_windows() {
 #[tokio::test]
 async fn v7_a_stack_has_an_order() {
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER stacks, color => island)"
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)) OVER stacks, color => island)"
     );
     fails(
         &query,
@@ -679,14 +716,14 @@ async fn v7_a_stack_has_an_order() {
 
 #[tokio::test]
 async fn v11_a_stack_has_a_key_and_a_measure() {
-    let query = format!("{PENGUINS} |> CHART bar(y => stack(count(*)), color => species)");
+    let query = format!("{PENGUINS} |> AGGREGATE bar(y => stack(count(*)), color => species)");
     fails(
         &query,
         "stack needs a key channel; this bar has no x",
         "stack(",
     )
     .await;
-    let query = format!("{PENGUINS} |> CHART rule(x => species, y => stack(count(*)))");
+    let query = format!("{PENGUINS} |> AGGREGATE rule(x => species, y => stack(count(*)))");
     fails(
         &query,
         "stack needs a key channel and a measure channel",
@@ -720,7 +757,7 @@ async fn the_chart_takes_the_orientation_of_its_stack() {
     // two continuous positions.
     let charts = charts(&format!(
         "{PENGUINS} |> EXTEND CAST(flipper_length_mm / 10 AS BIGINT) AS f \
-         |> CHART bar(x => stack(count(*)), y => f, color => species)"
+         |> AGGREGATE bar(x => stack(count(*)), y => f, color => species)"
     ))
     .await;
     let Some(proto::node::Node::Plot(plot)) = &charts[0].root().node else {
@@ -735,7 +772,7 @@ async fn the_chart_takes_the_orientation_of_its_stack() {
     assert_eq!(bar.orient, proto::Orient::Horizontal as i32);
     fails(
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)), color => island, orient => 'horizontal')"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => stack(count(*)), color => island, orient => 'horizontal')"
         ),
         "this bar measures `y`, so its orient is 'vertical', not 'horizontal'",
         "'horizontal'",
@@ -749,7 +786,7 @@ async fn a_stack_follows_the_order_of_a_category_fit() {
     // bottom.
     let order = |order: &str| {
         format!(
-            "{PENGUINS} |> CHART bar(x => island, y => stack(count(*)), \
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => stack(count(*)), \
              color => scaled(species, scale => category_fit(order => {order})))"
         )
     };
@@ -767,7 +804,7 @@ async fn the_options_of_the_plot_and_the_layer_pass_as_written() {
     lifted(
         "tools",
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*), title => 'Penguins', id => 'bars', tools => [navigate(), tooltip()])"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), title => 'Penguins', id => 'bars', tools => [navigate(), tooltip()])"
         ),
     )
     .await;
@@ -791,7 +828,7 @@ fn values(chart: &Chart, name: &str) -> Vec<String> {
 async fn impute_adds_the_keys_that_a_group_lacks() {
     let charts = lifted(
         "impute-bar",
-        &format!("{SPARSE} |> CHART bar(x => date_trunc('month', t), y => sum(units), color => region, impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE bar(x => date_trunc('month', t), y => sum(units), color => region, impute => 0)"),
     )
     .await;
     // 6 months of 3 regions, with the 2 months of the west region that impute adds.
@@ -808,7 +845,7 @@ async fn impute_adds_the_keys_that_a_group_lacks() {
 async fn impute_fills_the_units_of_a_stacked_area() {
     let charts = lifted(
         "impute-stacked-area",
-        &format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => 0)"),
     )
     .await;
     assert_eq!(table(&charts[0]).num_rows(), 18);
@@ -817,7 +854,7 @@ async fn impute_fills_the_units_of_a_stacked_area() {
 #[tokio::test]
 async fn impute_fills_the_empty_bins_of_a_histogram() {
     let query = |impute: &str| {
-        format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species{impute})")
+        format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species{impute})")
     };
     let without = charts(&query("")).await;
     let charts = lifted("impute-bins", &query(", impute => 0")).await;
@@ -830,7 +867,7 @@ async fn impute_fills_the_empty_bins_of_a_histogram() {
 async fn impute_fills_the_bins_of_each_panel() {
     let charts = lifted(
         "impute-bins-panel",
-        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => stack(count(*)), color => sex, impute => 0) GROUP BY island"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER panel, y => stack(count(*)), color => sex, impute => 0) GROUP BY island"),
     )
     .await;
     assert_eq!(charts.len(), 3);
@@ -840,14 +877,14 @@ async fn impute_fills_the_bins_of_each_panel() {
 async fn impute_takes_the_keys_of_an_explicit_domain() {
     let charts = lifted(
         "impute-domain",
-        &format!("{SPARSE} |> WHERE region <> 'north' |> CHART bar(x => scaled(region, scale => scale(domain => ['east', 'west', 'north'])), y => sum(units), impute => 0)"),
+        &format!("{SPARSE} |> WHERE region <> 'north' |> AGGREGATE bar(x => scaled(region, scale => scale(domain => ['east', 'west', 'north'])), y => sum(units), impute => 0)"),
     )
     .await;
     assert_eq!(values(&charts[0], "region").len(), 3, "north, with 0 units");
     // `keys` replaces the keys of the domain, and `extra_keys` adds to them.
     let charts = lifted(
         "impute-extra-keys",
-        &format!("{SPARSE} |> CHART bar(x => region, y => sum(units), impute => impute(value => 0, extra_keys => ['south']))"),
+        &format!("{SPARSE} |> AGGREGATE bar(x => region, y => sum(units), impute => impute(value => 0, extra_keys => ['south']))"),
     )
     .await;
     assert_eq!(values(&charts[0], "region").len(), 4);
@@ -857,13 +894,13 @@ async fn impute_takes_the_keys_of_an_explicit_domain() {
 async fn impute_computes_a_statistic_or_a_gap() {
     let charts = lifted(
         "impute-mean",
-        &format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'mean', frame => [-1, 1]))"),
+        &format!("{SPARSE} |> AGGREGATE line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'mean', frame => [-1, 1]))"),
     )
     .await;
     assert_eq!(table(&charts[0]).num_rows(), 18);
     let charts = lifted(
         "impute-gap",
-        &format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'gap'))"),
+        &format!("{SPARSE} |> AGGREGATE line(x => date_trunc('month', t), y => sum(units), color => region, impute => impute(method => 'gap'))"),
     )
     .await;
     let added = values(&charts[0], "sum_units");
@@ -878,7 +915,7 @@ async fn impute_computes_a_statistic_or_a_gap() {
 async fn a_key_of_the_imputed_key_computes_after_the_imputation() {
     let charts = lifted(
         "impute-dependent",
-        &format!("{SPARSE} |> CHART text(x => date_trunc('month', t), y => sum(units), color => region, text => to_char(date_trunc('month', t), '%b'), impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE text(x => date_trunc('month', t), y => sum(units), color => region, text => to_char(date_trunc('month', t), '%b'), impute => 0)"),
     )
     .await;
     let months = values(&charts[0], "text_expr");
@@ -890,7 +927,7 @@ async fn a_key_of_the_imputed_key_computes_after_the_imputation() {
 async fn impute_in_a_call_that_does_not_group() {
     let charts = lifted(
         "impute-rows",
-        &format!("{SPARSE} |> AGGREGATE sum(units) AS units GROUP BY date_trunc('month', t) AS month, region |> CHART line(x => month, y => units, color => region, impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE sum(units) AS units GROUP BY date_trunc('month', t) AS month, region |> AGGREGATE line(x => month, y => units, color => region, impute => 0)"),
     )
     .await;
     assert_eq!(table(&charts[0]).num_rows(), 18);
@@ -899,15 +936,15 @@ async fn impute_in_a_call_that_does_not_group() {
 #[tokio::test]
 async fn v10_the_impute_option() {
     let bar =
-        |impute: &str| format!("{SPARSE} |> CHART bar(x => region, y => sum(units), {impute})");
+        |impute: &str| format!("{SPARSE} |> AGGREGATE bar(x => region, y => sum(units), {impute})");
     fails(
-        &format!("{SPARSE} |> CHART polar_bar(theta => region, radius => sum(units), impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE polar_bar(theta => region, radius => sum(units), impute => 0)"),
         "`impute` is valid only on bar(), area(), line(), symbol(), and text(); found on polar_bar()",
         "impute =>",
     )
     .await;
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*), impute => island)"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), impute => island)"),
         "option `impute` of bar() needs a plan-time constant; `island` is a column",
         "island",
     )
@@ -961,46 +998,48 @@ async fn v10_the_impute_option() {
     )
     .await;
     fails(
-        &format!("{SPARSE} |> CHART bar(y => sum(units), impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE bar(y => sum(units), impute => 0)"),
         "`impute` needs a key channel; this bar has no x",
         "impute =>",
     )
     .await;
     fails(
-        &format!("{SPARSE} |> CHART bar(x => region, y => sum(units) / 2, impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE bar(x => region, y => sum(units) / 2, impute => 0)"),
         "`impute` fills the measure of bar(), which is one aggregate, such as sum(units), in a chart that aggregates; found `sum(units) / 2`",
         "sum(units) / 2",
     )
     .await;
     fails(
-        &format!("{SPARSE} |> CHART line(x => t, y => units * 2, impute => 0)"),
+        &format!("{SPARSE} |> AGGREGATE line(x => t, y => units * 2, impute => 0)"),
         "a column in a chart that does not aggregate; found `units * 2`",
         "units * 2",
     )
     .await;
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (PARTITION BY sex), y => count(*), impute => 0)"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER (PARTITION BY sex), y => count(*), impute => 0)"),
         "`impute` fills the bins of each `sex`, which is not a key of this chart",
         "sex)",
     )
     .await;
-    // The option is a parameter of the mark calls of CHART, not of the mark aggregates.
-    let error =
-        error("FROM sales |> AGGREGATE bar(x => region, y => units, impute => 0) AS chart").await;
-    assert!(error.to_string().contains("impute"), "{error}");
+    // The option lifts a mark call that does not aggregate, which imputes its rows.
+    assert!(
+        !charts("FROM sales |> AGGREGATE bar(x => region, y => units, impute => 0) AS chart")
+            .await
+            .is_empty()
+    );
 }
 
 #[tokio::test]
 async fn order_is_the_path_order_of_a_line() {
     let charts = lifted(
         "path-order",
-        &format!("{PENGUINS} |> CHART line(x => avg(bill_length_mm), y => avg(bill_depth_mm), order => body_mass_g)"),
+        &format!("{PENGUINS} |> AGGREGATE line(x => avg(bill_length_mm), y => avg(bill_depth_mm), order => body_mass_g)"),
     )
     .await;
     assert!(table(&charts[0]).num_rows() > 1);
     // `order` is a channel of the paths only.
     fails(
-        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*), order => island)"),
+        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => count(*), order => island)"),
         "bar() has no parameter `order`",
         "order =>",
     )
@@ -1015,7 +1054,7 @@ async fn lifting(query: &str) -> String {
 #[tokio::test]
 async fn a_stacked_path_imputes_zero_by_default() {
     let area = |impute: &str| {
-        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region{impute})")
+        format!("{SPARSE} |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region{impute})")
     };
     let charts = lifted("default-stacked-area", &area("")).await;
     assert_eq!(table(&charts[0]).num_rows(), 18);
@@ -1026,7 +1065,7 @@ async fn a_stacked_path_imputes_zero_by_default() {
         lifting(&area("")).await
     );
     // A stacked line imputes too, although the format draws no line of spans yet.
-    let line = lifting(&format!("{SPARSE} |> CHART line(x => date_trunc('month', t), y => stack(sum(units)), color => region)")).await;
+    let line = lifting(&format!("{SPARSE} |> AGGREGATE line(x => date_trunc('month', t), y => stack(sum(units)), color => region)")).await;
     assert!(
         line.contains("|> CALL impute(x_expr, [region], sum_units, value => 0, flag => imputed)"),
         "{line}"
@@ -1034,7 +1073,7 @@ async fn a_stacked_path_imputes_zero_by_default() {
     // A stacked histogram area fills its empty bins.
     let charts = lifted(
         "default-stacked-bins",
-        &format!("{PENGUINS} |> CHART area(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species)"),
+        &format!("{PENGUINS} |> AGGREGATE area(x => bin(body_mass_g, maxbins => 40), y => stack(count(*)), color => species)"),
     )
     .await;
     assert_eq!(
@@ -1048,16 +1087,16 @@ async fn a_stacked_path_imputes_zero_by_default() {
 async fn the_default_imputes_only_where_it_applies() {
     let unimputed = [
         // Turned off.
-        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => FALSE)"),
+        format!("{SPARSE} |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region, impute => FALSE)"),
         // A path that does not stack, and a stacked bar.
-        format!("{SPARSE} |> CHART area(x => timeunit(t, unit => 'month'), y => sum(units), color => region)"),
-        format!("{SPARSE} |> CHART bar(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)"),
+        format!("{SPARSE} |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => sum(units), color => region)"),
+        format!("{SPARSE} |> AGGREGATE bar(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)"),
         // One group, whose keys are the distinct keys of the input.
-        format!("{PENGUINS} |> CHART area(x => species, y => stack(count(*)))"),
+        format!("{PENGUINS} |> AGGREGATE area(x => species, y => stack(count(*)))"),
         // Where the written option would be an error: a measure of two aggregates, and the bins of
         // each sex, which is not a key.
-        format!("{PENGUINS} |> CHART area(x => species, y => stack(count(*) / 2), color => island)"),
-        format!("{PENGUINS} |> CHART area(x => bin(body_mass_g) OVER (PARTITION BY sex), y => stack(count(*)), color => species)"),
+        format!("{PENGUINS} |> AGGREGATE area(x => species, y => stack(count(*) / 2), color => island)"),
+        format!("{PENGUINS} |> AGGREGATE area(x => bin(body_mass_g) OVER (PARTITION BY sex), y => stack(count(*)), color => species)"),
     ];
     for query in unimputed {
         let lifting = lifting(&query).await;
@@ -1069,7 +1108,7 @@ async fn the_default_imputes_only_where_it_applies() {
     assert_eq!(charts(query).await.len(), 1);
     // FALSE on a mark that does not impute is the error of the option.
     fails(
-        &format!("{PENGUINS} |> CHART polar_bar(theta => species, radius => count(*), impute => FALSE)"),
+        &format!("{PENGUINS} |> AGGREGATE polar_bar(theta => species, radius => count(*), impute => FALSE)"),
         "`impute` is valid only on bar(), area(), line(), symbol(), and text(); found on polar_bar()",
         "impute =>",
     )
@@ -1092,7 +1131,9 @@ async fn text_rows(query: &str) -> Vec<String> {
 
 /// A histogram of the body masses of each island, with `items` after it.
 fn histograms(items: &str, groups: &str) -> String {
-    format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*)) AS chart{items}{groups}")
+    format!(
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => count(*)) AS chart{items}{groups}"
+    )
 }
 
 #[tokio::test]
@@ -1121,8 +1162,8 @@ async fn aggregate_items_join_the_charts_of_their_groups() {
     );
     // The mark call takes its place among the items.
     let query = histograms(", count(*) AS penguins", " GROUP BY island").replace(
-        "|> CHART bar(",
-        "|> CHART count(DISTINCT species) AS species, bar(",
+        "|> AGGREGATE bar(",
+        "|> AGGREGATE count(DISTINCT species) AS species, bar(",
     );
     assert_eq!(
         columns(&query).await,
@@ -1186,7 +1227,7 @@ async fn the_lifting_of_items_takes_free_names() {
     // The columns `aggregates` and `charts` take the names of the relations of the join.
     let query = "FROM penguins |> WHERE body_mass_g IS NOT NULL \
         |> EXTEND 1 AS aggregates, 2 AS charts \
-        |> CHART bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
+        |> AGGREGATE bar(x => species, y => count(*)), count(*) AS penguins GROUP BY island";
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
     assert!(lifting.contains("|> AS aggregates_2"), "{lifting}");
     assert!(lifting.contains(") AS charts_2 ON"), "{lifting}");
@@ -1198,29 +1239,22 @@ async fn the_errors_of_items() {
     // An item reads columns inside its aggregates or groups, and calls no window function.
     fails(
         &histograms(", species AS name", " GROUP BY island"),
-        "`species` is neither a group of this CHART nor inside an aggregate",
+        "`species` is neither a group of this AGGREGATE nor inside an aggregate",
         "species AS",
     )
     .await;
     fails(
         &histograms(", row_number() OVER () AS r", " GROUP BY island"),
-        "an item of CHART is an aggregate, not the window function `row_number`",
+        "an item of AGGREGATE is an aggregate, not the window function `row_number`",
         "row_number",
-    )
-    .await;
-    // CHART takes a mark call.
-    fails(
-        &format!("{PENGUINS} |> CHART count(*) AS n GROUP BY island"),
-        "`count` is not a mark function, and CHART takes a mark call",
-        "count",
     )
     .await;
 }
 
-/// The bills and the counts of the species of each island, as two mark items of one CHART, with
+/// The bills and the counts of the species of each island, as two mark items of one AGGREGATE, with
 /// `items` between them.
 fn bills_and_counts(items: &str, groups: &str) -> String {
-    format!("{PENGUINS} |> CHART symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills{items}, bar(x => species, y => count(*)) AS counts{groups}")
+    format!("{PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills{items}, bar(x => species, y => count(*)) AS counts{groups}")
 }
 
 #[tokio::test]
@@ -1231,9 +1265,9 @@ async fn several_mark_calls_draw_a_chart_each() {
     );
     let charts = lifted_in("several-marks", &query, &["bills", "counts"]).await;
     assert_eq!(columns(&query).await, ["island", "bills", "counts"]);
-    // The charts are those of two CHART calls with the same groups.
+    // The charts are those of two AGGREGATE operators with the same groups.
     let alone =
-        |mark: &str| format!("{PENGUINS} |> CHART {mark} GROUP BY island |> ORDER BY island");
+        |mark: &str| format!("{PENGUINS} |> AGGREGATE {mark} GROUP BY island |> ORDER BY island");
     assert_eq!(
         charts[0],
         self::charts(&alone(
@@ -1298,10 +1332,13 @@ async fn a_filter_selects_the_rows_of_every_stage() {
         ),
     ] {
         let filtered = charts(&format!(
-            "{PENGUINS} |> CHART {mark} FILTER (WHERE {condition})"
+            "{PENGUINS} |> AGGREGATE {mark} FILTER (WHERE {condition})"
         ))
         .await;
-        let selected = charts(&format!("{PENGUINS} |> WHERE {condition} |> CHART {mark}")).await;
+        let selected = charts(&format!(
+            "{PENGUINS} |> WHERE {condition} |> AGGREGATE {mark}"
+        ))
+        .await;
         assert_eq!(filtered, selected, "{mark} FILTER (WHERE {condition})");
     }
 }
@@ -1311,7 +1348,7 @@ async fn a_filter_selects_the_rows_of_every_stage() {
 #[tokio::test]
 async fn a_filter_keeps_every_group() {
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') \
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) FILTER (WHERE species = 'Gentoo') \
          AS gentoo GROUP BY island |> SELECT island, gentoo IS NOT NULL AS drawn |> ORDER BY island"
     );
     let frame = avenger_sql::sql(&session(), &query).await.unwrap();
@@ -1337,7 +1374,7 @@ async fn a_filter_keeps_every_group() {
 async fn the_names_of_the_items_are_unique() {
     fails(
         &bills_and_counts(", count(*) AS bills", " GROUP BY island"),
-        "`bills` names two columns of this CHART",
+        "`bills` names two columns of this AGGREGATE",
         "bills, bar",
     )
     .await;
@@ -1345,22 +1382,22 @@ async fn the_names_of_the_items_are_unique() {
     // columns have no qualifiers of the input.
     fails(
         &format!(
-            "{PENGUINS} |> CHART bar(x => species, y => count(*)) AS island GROUP BY penguins.island"
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) AS island GROUP BY penguins.island"
         ),
-        "`island` names two columns of this CHART",
+        "`island` names two columns of this AGGREGATE",
         "penguins.island",
     )
     .await;
     fails(
         "FROM penguins AS a |> JOIN penguins AS b USING (species) \
-         |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",
-        "`island` names two columns of this CHART",
+         |> AGGREGATE bar(x => species, y => count(*)), count(*) AS n GROUP BY a.island, b.island",
+        "`island` names two columns of this AGGREGATE",
         "b.island",
     )
     .await;
     fails(
         &histograms(", count(*) AS Island", " GROUP BY island"),
-        "`island` names two columns of this CHART",
+        "`island` names two columns of this AGGREGATE",
         "island",
     )
     .await;
@@ -1372,7 +1409,7 @@ async fn the_names_of_the_items_are_unique() {
 #[tokio::test]
 async fn items_take_normalized_names_and_keep_qualifiers() {
     let query = format!(
-        "{PENGUINS} |> CHART bar(x => species, y => count(*)) AS Counts, count(*) AS Penguins, \
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => count(*)) AS Counts, count(*) AS Penguins, \
          count(*) AS \"Total\" GROUP BY Island |> ORDER BY PENGUINS"
     );
     assert_eq!(
@@ -1380,32 +1417,34 @@ async fn items_take_normalized_names_and_keep_qualifiers() {
         ["island", "counts", "penguins", "Total"]
     );
     let query = "FROM penguins AS p |> WHERE p.body_mass_g IS NOT NULL \
-        |> CHART bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
+        |> AGGREGATE bar(x => p.species, y => count(*)), count(*) AS n GROUP BY p.island";
     let lifting = avenger_sql::lift(&session(), query).await.unwrap();
     assert_eq!(charts(query).await, charts(&lifting).await, "{lifting}");
 }
 
 /// The bars of the mean body mass of each species and a rule at the mean of all, as named mark
-/// calls of one CHART.
+/// calls of one AGGREGATE.
 const BARS: &str = "bar(x => species, y => avg(body_mass_g))";
 const MEAN: &str = "rule(y => avg(body_mass_g))";
 
 #[tokio::test]
 async fn an_expression_item_composes_its_mark_calls() {
     let query = format!(
-        "{PENGUINS} |> CHART layer({BARS}, {MEAN}) AS chart GROUP BY island |> ORDER BY island"
+        "{PENGUINS} |> AGGREGATE layer({BARS}, {MEAN}) AS chart GROUP BY island |> ORDER BY island"
     );
     let charts = lifted("expression-item", &query).await;
     assert_eq!(columns(&query).await, ["island", "chart"]);
     // The item is the composition of the columns of its mark calls.
     let columns_first = format!(
-        "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean GROUP BY island \
+        "{PENGUINS} |> AGGREGATE {BARS} AS bars, {MEAN} AS mean GROUP BY island \
          |> SELECT island, layer(bars, mean) AS chart |> ORDER BY island"
     );
     assert_eq!(charts, self::charts(&columns_first).await);
-    // The only item of charts takes the name `chart`, and an aggregate item takes its place.
-    let query = format!("{PENGUINS} |> CHART count(*) AS n, layer({BARS}, {MEAN}) GROUP BY island");
-    assert_eq!(columns(&query).await, ["island", "n", "chart"]);
+    // An item of charts without an alias takes the name of its function, and an aggregate item
+    // takes its place.
+    let query =
+        format!("{PENGUINS} |> AGGREGATE count(*) AS n, layer({BARS}, {MEAN}) GROUP BY island");
+    assert_eq!(columns(&query).await, ["island", "n", "layer"]);
     lifted(
         "expression-item-aggregate",
         &format!("{query} |> ORDER BY island"),
@@ -1416,23 +1455,23 @@ async fn an_expression_item_composes_its_mark_calls() {
 #[tokio::test]
 async fn expression_items_nest_and_take_options() {
     let query = format!(
-        "{PENGUINS} |> CHART hconcat(layer({BARS}, {MEAN}), symbol(x => bill_length_mm, y => bill_depth_mm), \
+        "{PENGUINS} |> AGGREGATE hconcat(layer({BARS}, {MEAN}), symbol(x => bill_length_mm, y => bill_depth_mm), \
          layout => concat_layout(gap => 24)) AS chart GROUP BY island |> ORDER BY island"
     );
     let charts = lifted("expression-item-nested", &query).await;
     // A call in an option stays in the expression, as without groups.
     let tools =
-        format!("{PENGUINS} |> CHART layer({BARS}, {MEAN}, tools => [navigate(), tooltip()])");
+        format!("{PENGUINS} |> AGGREGATE layer({BARS}, {MEAN}, tools => [navigate(), tooltip()])");
     assert_eq!(
         self::charts(&tools).await,
         self::charts(&format!(
-            "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean \
+            "{PENGUINS} |> AGGREGATE {BARS} AS bars, {MEAN} AS mean \
              |> SELECT layer(bars, mean, tools => [navigate(), tooltip()]) AS chart"
         ))
         .await
     );
     let columns_first = format!(
-        "{PENGUINS} |> CHART {BARS} AS bars, {MEAN} AS mean, \
+        "{PENGUINS} |> AGGREGATE {BARS} AS bars, {MEAN} AS mean, \
          symbol(x => bill_length_mm, y => bill_depth_mm) AS bills GROUP BY island \
          |> SELECT island, hconcat(layer(bars, mean), bills, layout => concat_layout(gap => 24)) AS chart \
          |> ORDER BY island"
@@ -1440,7 +1479,7 @@ async fn expression_items_nest_and_take_options() {
     assert_eq!(charts, self::charts(&columns_first).await);
     // Two items of charts, each with a name.
     let query = format!(
-        "{PENGUINS} |> CHART layer({BARS}, {MEAN}) AS means, hconcat({BARS}, {MEAN}) AS side \
+        "{PENGUINS} |> AGGREGATE layer({BARS}, {MEAN}) AS means, hconcat({BARS}, {MEAN}) AS side \
          GROUP BY island |> ORDER BY island"
     );
     let charts = lifted_in("expression-items", &query, &["means", "side"]).await;
@@ -1452,23 +1491,23 @@ async fn an_expression_item_reads_aggregates_outside_its_mark_calls() {
     // The islands of more than 100 penguins have bars, and the others have the bills.
     let bills = "symbol(x => bill_length_mm, y => bill_depth_mm)";
     let query = format!(
-        "{PENGUINS} |> CHART CASE WHEN count(*) > 100 THEN {BARS} ELSE {bills} END AS chart \
+        "{PENGUINS} |> AGGREGATE CASE WHEN count(*) > 100 THEN {BARS} ELSE {bills} END AS chart \
          GROUP BY island |> ORDER BY island"
     );
     let charts = lifted("expression-item-case", &query).await;
     let alone =
-        |mark: &str| format!("{PENGUINS} |> CHART {mark} GROUP BY island |> ORDER BY island");
+        |mark: &str| format!("{PENGUINS} |> AGGREGATE {mark} GROUP BY island |> ORDER BY island");
     let bars = self::charts(&alone(BARS)).await;
     let bills = self::charts(&alone(bills)).await;
     assert_eq!(charts, [bars[0].clone(), bars[1].clone(), bills[2].clone()]);
     // A composition reads the charts of a `CASE`, and an island without bars has the mean only.
     let query = format!(
-        "{PENGUINS} |> CHART layer(CASE WHEN count(*) > 100 THEN {BARS} END, {MEAN}) AS chart \
+        "{PENGUINS} |> AGGREGATE layer(CASE WHEN count(*) > 100 THEN {BARS} END, {MEAN}) AS chart \
          GROUP BY island |> ORDER BY island"
     );
     let charts = lifted("expression-item-case-layer", &query).await;
     let columns_first = format!(
-        "{PENGUINS} |> CHART count(*) AS n, {BARS} AS bars, {MEAN} AS mean GROUP BY island \
+        "{PENGUINS} |> AGGREGATE count(*) AS n, {BARS} AS bars, {MEAN} AS mean GROUP BY island \
          |> SELECT island, layer(CASE WHEN n > 100 THEN bars END, mean) AS chart |> ORDER BY island"
     );
     assert_eq!(charts, self::charts(&columns_first).await);
@@ -1477,32 +1516,60 @@ async fn an_expression_item_reads_aggregates_outside_its_mark_calls() {
 
 #[tokio::test]
 async fn the_errors_of_expression_items() {
-    // Each of two items of charts has a name.
+    // An item of charts without an alias takes the name of its function, and an item that is not a
+    // call needs one.
     fails(
-        &format!("{PENGUINS} |> CHART layer({BARS}, {MEAN}), {BARS} AS bars GROUP BY island"),
-        "this CHART draws several charts, so `bar` needs a name",
-        "bar",
+        &format!("{PENGUINS} |> AGGREGATE layer({BARS}, {MEAN}), hconcat({BARS}) AS layer GROUP BY island"),
+        "`layer` names two columns of this AGGREGATE",
+        "layer GROUP",
+    )
+    .await;
+    fails(
+        &format!(
+            "{PENGUINS} |> AGGREGATE CASE WHEN count(*) > 100 THEN {BARS} END GROUP BY island"
+        ),
+        "this item holds a mark call, so it needs a name",
+        "CASE",
     )
     .await;
     // A column outside a mark call is a group or inside an aggregate.
     fails(
-        &format!("{PENGUINS} |> CHART coalesce({BARS}, species) AS chart GROUP BY island"),
-        "`species` is neither a group of this CHART nor inside an aggregate",
+        &format!("{PENGUINS} |> AGGREGATE coalesce({BARS}, species) AS chart GROUP BY island"),
+        "`species` is neither a group of this AGGREGATE nor inside an aggregate",
         "species) AS",
     )
     .await;
     // An item composes the charts of its group, so no aggregate takes a mark call.
     fails(
-        &format!("{PENGUINS} |> CHART layer_agg({BARS}) AS chart GROUP BY island"),
-        "an item of CHART composes the charts of its group, so `layer_agg` takes no mark call",
-        "layer_agg",
+        &format!("{PENGUINS} |> AGGREGATE layer_agg({BARS}) AS chart GROUP BY island"),
+        "`layer_agg` reads the values of the rows, so it takes no mark call `bar`",
+        "bar(",
     )
     .await;
     // A mark call in an expression takes no OVER clause.
     fails(
-        &format!("{PENGUINS} |> CHART layer({BARS}, rule(y => avg(body_mass_g)) OVER ()) AS chart"),
-        "the mark call of CHART takes no OVER clause, so `rule` has none",
+        &format!(
+            "{PENGUINS} |> AGGREGATE layer({BARS}, rule(y => avg(body_mass_g)) OVER ()) AS chart"
+        ),
+        "a mark call takes no OVER clause, so `rule` has none",
         "rule",
     )
     .await;
+}
+
+#[tokio::test]
+async fn the_lifting_of_a_lifting_is_itself() {
+    for query in [
+        format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => stack(count(*)), color => species)"),
+        format!("{PENGUINS} |> AGGREGATE count(*) AS n, symbol(x => bill_length_mm, y => bill_depth_mm) AS bills, bar(x => species, y => count(*)) AS counts GROUP BY island"),
+        format!("{PENGUINS} |> AGGREGATE layer(bar(x => species, y => avg(body_mass_g)), rule(y => avg(body_mass_g))) GROUP BY island"),
+        "FROM sales |> AGGREGATE area(x => timeunit(t, unit => 'month'), y => stack(sum(units)), color => region)".to_string(),
+    ] {
+        let lifting = avenger_sql::lift(&session(), &query).await.unwrap();
+        assert_eq!(
+            avenger_sql::lift(&session(), &lifting).await.unwrap(),
+            lifting,
+            "{query}"
+        );
+    }
 }

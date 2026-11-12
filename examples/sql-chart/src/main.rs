@@ -1,15 +1,15 @@
 //! A chart that a SQL query builds: the number of movies of each genre, in a chart app.
 //!
 //! The example reads the movies of `movie-search` into a DataFusion session with the mark
-//! functions of avenger-sql, and runs one query, whose `|> CHART` call counts the movies of each
+//! functions of avenger-sql, and runs one query, whose `|> AGGREGATE` counts the movies of each
 //! genre in a bar chart, which pans and zooms and shows a tooltip of each bar:
 //!
 //! ```sql
 //! FROM movies
 //! |> WHERE genre IS NOT NULL
-//! |> CHART bar(
+//! |> AGGREGATE bar(
 //!      x => count(*), y => genre, tools => [navigate(channels => ['x']), tooltip()]
-//!      ORDER BY count(*) DESC)
+//!      ORDER BY count(*) DESC) AS chart
 //! ```
 //!
 //! The query returns one row, whose `chart` column holds the chart, which the chart app shows at
@@ -35,9 +35,9 @@ use datafusion::{datasource::MemTable, prelude::SessionContext};
 /// The query that builds the chart.
 const QUERY: &str = "FROM movies
 |> WHERE genre IS NOT NULL
-|> CHART bar(
+|> AGGREGATE bar(
      x => count(*), y => genre, tools => [navigate(channels => ['x']), tooltip()]
-     ORDER BY count(*) DESC)";
+     ORDER BY count(*) DESC) AS chart";
 
 /// The size of the window.
 const SIZE: [f32; 2] = [800.0, 600.0];

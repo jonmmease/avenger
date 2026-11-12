@@ -1,6 +1,7 @@
-//! `|> CHART`: the mark planner, a relation planner that plans the `FROM`-position call
-//! `__avenger_chart((<input>), <mark call>, partition_by => [...])` of the syntax pass as the
-//! lifting of its mark call over its input, and [`lift`], which prints the lifting.
+//! The charts of a pipe `AGGREGATE`: [`lifts`], which tells a mark call that lifts, the mark
+//! planner, a relation planner that plans the `FROM`-position call `__avenger_chart((<input>),
+//! <mark call>, partition_by => [...])` of the syntax pass as the lifting of its mark call over its
+//! input, and [`lift`], which prints the lifting.
 //!
 //! The mark planner plans the input one time, for the schema that naming and typing need, then
 //! generates the lifting ([`lifting`]) as pipe operators over the reserved table
@@ -29,9 +30,9 @@ use datafusion::{
         parser::Statement as DFStatement,
         sqlparser::{
             ast::{
-                Expr, FunctionArg, FunctionArgExpr, Ident, Join, JoinConstraint, JoinOperator,
-                ObjectName, PipeOperator, Query, Statement, TableFactor, Visit, VisitMut, Visitor,
-                VisitorMut,
+                Expr, FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArguments,
+                Ident, Join, JoinConstraint, JoinOperator, ObjectName, PipeOperator, Query,
+                Statement, TableFactor, Visit, VisitMut, Visitor, VisitorMut,
             },
             tokenizer::{Token, Tokenizer},
         },
@@ -39,26 +40,47 @@ use datafusion::{
 };
 
 use crate::{
-    pipeline,
+    grammar, pipeline,
     registry::Registry,
-    syntax::{self, build, ChartOperator},
+    syntax::{self, build, ChartAggregate},
 };
 
-/// The name of the marker of `|> CHART` and of the call of the mark planner.
+/// The name of the call of the mark planner.
 pub(crate) const MARKER: &str = "__avenger_chart";
 
 /// The reserved table of the lifting, which the mark planner replaces with the input of the call.
 const INPUT: &str = "__avenger_input";
 
 /// The parameter of the call of the mark planner that takes the partition columns, the groups of
-/// its `CHART`.
+/// its `AGGREGATE`.
 pub(crate) const PARTITION_BY: &str = "partition_by";
 
 /// The parameter of the call of the mark planner that takes the name of its chart column.
 pub(crate) const NAME: &str = "name";
 
-/// The name of the chart column of a `CHART` whose mark call has no alias.
-pub(crate) const CHART: &str = "chart";
+/// Whether the mark call `expr` lifts: it holds a statistic that the stages of its lifting compute,
+/// an aggregate, a window function, `stack`, or a discretizer, `bin`, `timeunit`, or `lump`, in an
+/// argument or in its draw order, or it takes the `impute` option. Each of these is SQL that
+/// DataFusion rejects in the arguments of an aggregate, so a mark call that does not lift is a
+/// call of its mark aggregate, and its lifting is itself.
+pub(crate) fn lifts(expr: &Expr, registry: &dyn Registry) -> bool {
+    let Expr::Function(function) = expr else {
+        return false;
+    };
+    let FunctionArguments::List(list) = &function.args else {
+        return false;
+    };
+    let impute = (list.args.iter()).any(|argument| {
+        matches!(argument, FunctionArg::Named { name, .. } if name.value.eq_ignore_ascii_case(call::IMPUTE))
+    });
+    let order = (list.clauses.iter()).flat_map(|clause| match clause {
+        FunctionArgumentClause::OrderBy(items) => items.iter().map(|item| &item.expr).collect(),
+        _ => Vec::new(),
+    });
+    impute
+        || (classify::arguments(function).chain(order))
+            .any(|value| classify::level(value, registry) > classify::Level::Row)
+}
 
 /// Registers the mark planner in `ctx`, one time.
 pub(crate) fn register(ctx: &SessionContext) -> Result<()> {
@@ -229,13 +251,17 @@ impl lifting::Env for LiftEnv<'_> {
     }
 }
 
-/// The statement `text` with each `|> CHART` call replaced by its lifting in pipe form, with the
-/// named windows of the mark resolved and the options as written, so that the text is valid
-/// avenger-sql and runs to the same chart. It plans the input of each call for its schema.
+/// The statement `text` with each pipe `AGGREGATE` whose mark calls lift replaced by their lifting
+/// in pipe form, with the named windows of the mark resolved and the options as written, so that
+/// the text is valid avenger-sql and runs to the same chart. It plans the input of each
+/// `AGGREGATE` for its schema.
 pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
     let state = ctx.state();
     let mut statement = pipeline::parse_tokens(text)?;
-    while let ControlFlow::Break(found) = Visit::visit(&statement, &mut FirstMarker) {
+    syntax::check_marks(&state, &mut statement)?;
+    while let ControlFlow::Break(found) =
+        Visit::visit(&statement, &mut FirstMarker { registry: &state })
+    {
         let (mut prefix, mut chart) = found?;
         chart.check_aggregates(&state)?;
         let mut taken = words(&statement.to_string());
@@ -283,50 +309,58 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<String> {
         let _ = VisitMut::visit(
             &mut statement,
             &mut SpliceMarker {
+                registry: &state,
                 splice: Some(splice),
             },
         );
     }
+    grammar::as_written(&mut statement);
     Ok(statement.to_string())
 }
 
-/// The index of the first `|> CHART` of `query`.
-fn marker(query: &Query) -> Option<usize> {
-    (query.pipe_operators.iter()).position(syntax::is_chart)
+/// The index of the first `AGGREGATE` of `query` whose mark calls lift.
+fn marker(query: &Query, registry: &dyn Registry) -> Option<usize> {
+    (query.pipe_operators.iter()).position(|operator| syntax::lifts(operator, registry))
 }
 
-/// Breaks at the first query with a `|> CHART`, with the prefix before it and the operator.
-struct FirstMarker;
+/// Breaks at the first query with an `AGGREGATE` whose mark calls lift, with the prefix before it
+/// and the operator.
+struct FirstMarker<'a> {
+    registry: &'a dyn Registry,
+}
 
-impl Visitor for FirstMarker {
-    type Break = Result<(Query, ChartOperator)>;
+impl Visitor for FirstMarker<'_> {
+    type Break = Result<(Query, ChartAggregate)>;
 
     fn pre_visit_query(&mut self, query: &Query) -> ControlFlow<Self::Break> {
-        let Some(index) = marker(query) else {
+        let Some(index) = marker(query, self.registry) else {
             return ControlFlow::Continue(());
         };
         let mut prefix = query.clone();
         let operator = (prefix.pipe_operators.drain(index..).next()).expect("the operator");
-        ControlFlow::Break(syntax::read_chart(&operator).map(|chart| (prefix, chart)))
+        ControlFlow::Break(
+            syntax::read_charts(&operator, self.registry).map(|chart| (prefix, chart)),
+        )
     }
 }
 
-/// The lifting of a `|> CHART`, in place of the operator.
+/// The lifting of an `AGGREGATE` whose mark calls lift, in place of the operator.
 enum Splice {
     /// The operators of the lifting, which compute the group expressions first.
     Operators(Vec<PipeOperator>),
     /// The join of the aggregate items and the liftings of the charts, each over a copy of the
     /// input, with the names of the aggregates and the charts.
     Join {
-        chart: Box<ChartOperator>,
+        chart: Box<ChartAggregate>,
         liftings: Vec<Vec<PipeOperator>>,
         aggregates: Ident,
         charts: Vec<Ident>,
     },
 }
 
-/// Replaces the first `|> CHART` with its lifting.
-struct SpliceMarker {
+/// Replaces the first `AGGREGATE` whose mark calls lift with its lifting.
+struct SpliceMarker<'a> {
+    registry: &'a dyn Registry,
     splice: Option<Splice>,
 }
 
@@ -355,11 +389,11 @@ fn fresh(base: &str, taken: &mut std::collections::HashSet<String>) -> String {
     name
 }
 
-impl VisitorMut for SpliceMarker {
+impl VisitorMut for SpliceMarker<'_> {
     type Break = ();
 
     fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<()> {
-        let Some(index) = marker(query) else {
+        let Some(index) = marker(query, self.registry) else {
             return ControlFlow::Continue(());
         };
         let rest = query.pipe_operators.split_off(index + 1);
