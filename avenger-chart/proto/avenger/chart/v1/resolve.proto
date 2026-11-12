@@ -17,12 +17,19 @@ message Resolve {
     // `y`, `theta`, and `radius`, and not `longitude`, `latitude`, `longitude2`, `latitude2`,
     // `geometry`, `text`, `image`, `path`, and `detail`.
     Channel channel = 1 [(avenger.chart.v1.required) = true];
-    // The key of a widget, as `Widget` describes, not empty. The copies of a key are shared by
-    // default on plots, concats, and wraps, with or without a facet.
-    string widget = 3 [(avenger.chart.v1.required) = true];
+    // The key of a widget, as `Widget` describes. The copies of a key are shared by default on
+    // plots, concats, and wraps, with or without a facet.
+    WidgetKey widget = 3;
   }
   // Whether the channel's scale, or the widget, is shared.
   Sharing sharing = 2 [(avenger.chart.v1.required) = true];
+}
+
+// The key of a widget in a resolve rule. It is a message, not a string, so that a string argument
+// of a resolve rule names a channel.
+message WidgetKey {
+  // The key, not empty.
+  string key = 1 [(avenger.chart.v1.required) = true];
 }
 
 enum Sharing {
