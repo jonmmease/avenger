@@ -1,0 +1,506 @@
+//! `|> CHART`: each chart call draws the chart of its printed lifting run as a query
+//! (`r[lift.test.bytes]`), and `lift` prints the lifting that `tests/baselines/liftings/` holds,
+//! which a change accepts by copying it from `tests/output/liftings/`. The validation rules have
+//! one valid and one invalid call each, with the error and its span.
+
+mod common;
+
+use std::sync::Arc;
+
+use arrow::{
+    array::{ArrayRef, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray},
+    datatypes::DataType,
+};
+use avenger_chart::{charts_from_arrow, proto, Chart, Decode};
+use datafusion::{
+    common::DataFusionError,
+    datasource::MemTable,
+    prelude::{SessionConfig, SessionContext},
+};
+
+/// 182 days of sales from 2024-01-01: `t`, a timestamp, `units`, and `region`.
+fn sales() -> RecordBatch {
+    let day: i64 = 86_400_000;
+    let start: i64 = 1_704_067_200_000; // 2024-01-01
+    let t =
+        TimestampMillisecondArray::from((0..182).map(|i| start + i * day).collect::<Vec<i64>>());
+    let units: Float64Array = (0..182).map(|i| ((i * 7) % 11) as f64).collect();
+    let region: StringArray = (0..182)
+        .map(|i| Some(["east", "west", "north"][i % 3]))
+        .collect();
+    RecordBatch::try_from_iter([
+        ("t", Arc::new(t) as ArrayRef),
+        ("units", Arc::new(units)),
+        ("region", Arc::new(region)),
+    ])
+    .unwrap()
+}
+
+/// A session of one partition, so a query and its lifting give their rows in one order, with the
+/// penguins and the sales.
+fn session() -> SessionContext {
+    let ctx = SessionContext::new_with_config(SessionConfig::new().with_target_partitions(1));
+    avenger_sql::register(&ctx).unwrap();
+    for (name, table) in [("penguins", common::penguins()), ("sales", sales())] {
+        let table = MemTable::try_new(table.schema(), vec![vec![table]]).unwrap();
+        ctx.register_table(name, Arc::new(table)).unwrap();
+    }
+    ctx
+}
+
+/// The charts of `query`, in the order of its rows.
+async fn charts(query: &str) -> Vec<Chart> {
+    let batches = avenger_sql::sql(&session(), query)
+        .await
+        .unwrap_or_else(|error| panic!("{query}: {error}"))
+        .collect()
+        .await
+        .unwrap_or_else(|error| panic!("{query}: {error}"));
+    let mut charts = Vec::new();
+    for batch in batches {
+        let column = batch.column_by_name("chart").expect("a chart column");
+        for chart in charts_from_arrow(column, Decode::Auto).unwrap() {
+            charts.push(chart.unwrap());
+        }
+    }
+    charts
+}
+
+/// Checks that `query` draws the charts of its lifting, and that `lift` prints the lifting of the
+/// baseline `name`. It returns the charts.
+async fn lifted(name: &str, query: &str) -> Vec<Chart> {
+    let lifting = avenger_sql::lift(&session(), query).await.unwrap();
+    assert!(!lifting.contains("__avenger_"), "no marker in {lifting}");
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests");
+    let output = format!("{dir}/output/liftings/{name}.sql");
+    std::fs::create_dir_all(format!("{dir}/output/liftings")).unwrap();
+    std::fs::write(&output, format!("{lifting}\n")).unwrap();
+    let baseline = std::fs::read_to_string(format!("{dir}/baselines/liftings/{name}.sql"))
+        .unwrap_or_else(|_| panic!("no baseline of {name}: accept {output}"));
+    assert_eq!(baseline.trim_end(), lifting, "the lifting of {name}");
+    let chart = charts(query).await;
+    assert!(!chart.is_empty(), "{query}");
+    assert_eq!(chart, charts(&lifting).await, "the charts of {name}");
+    chart
+}
+
+/// The error of planning `query`.
+async fn error(query: &str) -> DataFusionError {
+    match avenger_sql::sql(&session(), query).await {
+        Ok(_) => panic!("`{query}` plans"),
+        Err(error) => error,
+    }
+}
+
+/// Checks that `query` fails with a message that contains `message`, at the first `at` of
+/// `query`.
+async fn fails(query: &str, message: &str, at: &str) {
+    let error = error(query).await;
+    assert!(error.to_string().contains(message), "{query}: {error}");
+    let span = (error.diagnostic())
+        .and_then(|diagnostic| diagnostic.span)
+        .unwrap_or_else(|| panic!("{query}: no span: {error}"));
+    let column = query.find(at).expect("the text of the span") as u64 + 1;
+    assert_eq!(
+        (span.start.line, span.start.column),
+        (1, column),
+        "{query}: {error}"
+    );
+}
+
+/// The layer table of the first layer of the plot at the root of `chart`.
+fn table(chart: &Chart) -> RecordBatch {
+    let Some(proto::node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot")
+    };
+    let layer = avenger_chart::LayerRef::of(plot).remove(0);
+    chart.table(layer.table().unwrap()).clone()
+}
+
+const PENGUINS: &str = "FROM penguins |> WHERE body_mass_g IS NOT NULL";
+
+#[tokio::test]
+async fn a_bar_of_counts_by_a_key() {
+    let charts = lifted(
+        "counts",
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*))"),
+    )
+    .await;
+    assert_eq!(table(&charts[0]).num_rows(), 3);
+    let charts = lifted(
+        "counts-by-island",
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY island"),
+    )
+    .await;
+    assert_eq!(charts.len(), 3, "one chart for each island");
+}
+
+#[tokio::test]
+async fn a_histogram() {
+    let charts = lifted(
+        "histogram",
+        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => 20), y => count(*))"),
+    )
+    .await;
+    let bins = table(&charts[0]);
+    let field = bins
+        .schema()
+        .field_with_name("body_mass_g_bin")
+        .unwrap()
+        .clone();
+    assert!(matches!(field.data_type(), DataType::Struct(_)), "{field}");
+}
+
+#[tokio::test]
+async fn bins_in_each_panel() {
+    lifted(
+        "histogram-panel",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_lump_color() {
+    lifted(
+        "lump",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => island, y => count(*), color => lump(species, n => 2, weight => sum(body_mass_g)))"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn months_of_timestamps() {
+    let charts = lifted(
+        "months",
+        "FROM sales |> CHART bar(x => timeunit(t, unit => 'month'), y => sum(units))",
+    )
+    .await;
+    assert_eq!(table(&charts[0]).num_rows(), 6, "January to June");
+}
+
+#[tokio::test]
+async fn nested_discretizers() {
+    lifted(
+        "nested",
+        "FROM sales |> CHART bar(x => lump(timeunit(t, unit => 'month'), n => 3, weight => sum(units)), y => sum(units))",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_key_expression() {
+    lifted(
+        "key-expression",
+        &format!("{PENGUINS} |> CHART bar(x => upper(species), y => count(*))"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_post_aggregate_expression_and_two_uses_of_one_aggregate() {
+    lifted(
+        "post-aggregate",
+        &format!("{PENGUINS} |> CHART symbol(x => species, y => count(*) / 2, size => count(*))"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_draw_order() {
+    lifted(
+        "order-aggregate",
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY count(*) DESC)"),
+    )
+    .await;
+    lifted(
+        "order-key",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => count(*), color => island ORDER BY island DESC)"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_call_that_does_not_group() {
+    let charts = lifted(
+        "rows",
+        &format!(
+            "{PENGUINS} |> CHART symbol(x => bill_length_mm * 2, y => bill_depth_mm, color => lump(species, n => 2))"
+        ),
+    )
+    .await;
+    assert_eq!(
+        table(&charts[0]).num_rows(),
+        342,
+        "one symbol for each penguin"
+    );
+}
+
+#[tokio::test]
+async fn a_name_that_an_input_column_has() {
+    lifted(
+        "collision",
+        &format!("{PENGUINS} |> EXTEND 1 AS n |> CHART bar(x => species, y => count(*))"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_output_of_chart_composes() {
+    // The partition is the key of a facet.
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*)) GROUP BY island |> AGGREGATE facet_col(chart, island) AS chart"
+    );
+    let composed = charts(&query).await;
+    let Some(proto::node::Node::Concat(concat)) = &composed[0].root().node else {
+        panic!("a concat")
+    };
+    assert_eq!(concat.children.len(), 3);
+    // A layer of the charts of a union draws them in the order of its branches.
+    let query = format!(
+        "(SELECT * FROM ({PENGUINS} |> CHART bar(x => species, y => count(*)))) UNION ALL (SELECT * FROM ({PENGUINS} |> CHART rule(y => avg(body_mass_g)))) |> AGGREGATE layer(chart) AS chart"
+    );
+    let layered = charts(&query).await;
+    let Some(proto::node::Node::Plot(plot)) = &layered[0].root().node else {
+        panic!("a plot")
+    };
+    let marks: Vec<&str> = avenger_chart::LayerRef::of(plot)
+        .iter()
+        .map(|layer| layer.mark().unwrap().name())
+        .collect();
+    assert_eq!(marks, ["bar", "rule"]);
+}
+
+#[tokio::test]
+async fn the_mark_call_is_read_against_its_mark() {
+    fails(
+        "FROM penguins |> CHART bars(x => species)",
+        "`bars` is not a mark function",
+        "bars",
+    )
+    .await;
+    fails(
+        "FROM penguins |> CHART bar(x => species, colour => island)",
+        "bar() has no parameter `colour`",
+        "colour",
+    )
+    .await;
+    fails(
+        "FROM penguins |> CHART bar(x => species, x => island)",
+        "bar() takes `x` once",
+        "x => island",
+    )
+    .await;
+    fails("FROM penguins |> CHART", "CHART takes a mark call", "CHART").await;
+}
+
+#[tokio::test]
+async fn v1_arguments_read_only_earlier_stages() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*))"
+    ))
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => bin(count(*)), y => count(*))");
+    fails(
+        &query,
+        "`count(*)` cannot be an argument of `bin`, because bin computes its bins before the aggregates",
+        "count(*))",
+    )
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => species, y => sum(count(*)))");
+    fails(
+        &query,
+        "`count(*)` cannot be an argument of `sum`",
+        "count(*)))",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v3_post_aggregate_expressions_read_keys() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => count(*) / bin(body_mass_g).end)"
+    ))
+    .await;
+    let query = format!("{PENGUINS} |> CHART symbol(x => species, y => count(*) / body_mass_g)");
+    fails(
+        &query,
+        "`body_mass_g` is neither a key of this chart nor inside an aggregate",
+        "body_mass_g)",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v4_the_draw_order_adds_no_key() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY species)"
+    ))
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => species, y => count(*) ORDER BY sex)");
+    fails(
+        &query,
+        "the draw order `sex` is not a key of this chart",
+        "sex)",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v5_scaled_and_direct_have_their_places() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => species, y => count(*), opacity => direct(0.5))"
+    ))
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => species, y => direct(count(*)) + 1)");
+    fails(
+        &query,
+        "scaled() and direct() are valid only as the complete value of a channel",
+        "direct(",
+    )
+    .await;
+    let query = format!(
+        "{PENGUINS} |> CHART text(x => bill_length_mm, y => bill_depth_mm, text => scaled(species))"
+    );
+    fails(
+        &query,
+        "`text` has no scale, so its values are direct",
+        "scaled",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v6_windows_have_over_and_the_names_of_the_mark() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER panel, y => count(*)) GROUP BY island"
+    ))
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => species, y => rank())");
+    fails(
+        &query,
+        "rank() is a window function, so it needs OVER",
+        "rank",
+    )
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER w, y => count(*))");
+    fails(&query, "no window `w` in this chart", "w, y").await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (panel PARTITION BY sex), y => count(*))"
+    );
+    fails(&query, "the window `panel` has its partition", "sex)").await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER (ORDER BY sex), y => count(*))"
+    );
+    fails(
+        &query,
+        "bin takes OVER (), OVER panel, or a window of only a PARTITION BY list",
+        "sex)",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v8_options_are_constants() {
+    charts(&format!(
+        "{PENGUINS} |> CHART bar(x => species, y => count(*), orient => 'vertical')"
+    ))
+    .await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g, maxbins => flipper_length_mm), y => count(*))"
+    );
+    fails(
+        &query,
+        "option `maxbins` of bin() needs a plan-time constant; `flipper_length_mm` is a column",
+        "flipper_length_mm",
+    )
+    .await;
+    let query = format!("{PENGUINS} |> CHART bar(x => species, y => count(*), orient => $1)");
+    fails(
+        &query,
+        "option `orient` of bar() needs a plan-time constant; `$1` is a parameter",
+        "$1",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) OVER (PARTITION BY island)"),
+        "the mark call of CHART takes no OVER clause, so `bar` has none",
+        "bar",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY island DESC"),
+        "a group of CHART takes no ASC, DESC, or NULLS order",
+        "island DESC",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v9_the_types_of_the_arguments_of_transforms() {
+    charts("FROM sales |> CHART bar(x => timeunit(t, unit => 'month'), y => sum(units))").await;
+    let query = format!("{PENGUINS} |> CHART bar(x => bin(species), y => count(*))");
+    fails(&query, "bin bins numbers, not Utf8", "species)").await;
+    let query =
+        format!("{PENGUINS} |> CHART bar(x => timeunit(species, unit => 'month'), y => count(*))");
+    fails(
+        &query,
+        "timeunit takes a DATE or a TIMESTAMP, not Utf8",
+        "species,",
+    )
+    .await;
+    // The struct of a discretizer is the argument of the discretizer of the next depth.
+    let query = "FROM sales |> CHART bar(x => bin(timeunit(t, unit => 'month')), y => sum(units))";
+    fails(query, "bin bins numbers, not Struct", "timeunit(t").await;
+}
+
+/// The names of the columns of `query`.
+async fn columns(query: &str) -> Vec<String> {
+    let frame = avenger_sql::sql(&session(), query).await.unwrap();
+    (frame.schema().fields().iter())
+        .map(|field| field.name().clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn chart_groups_its_rows_and_names_its_chart() {
+    // One row for each group, with the group columns and the chart, named by its alias.
+    let query =
+        format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) AS counts GROUP BY island");
+    assert_eq!(columns(&query).await, ["island", "counts"]);
+    let lifting = avenger_sql::lift(&session(), &query).await.unwrap();
+    assert!(lifting.ends_with("AS counts GROUP BY island"), "{lifting}");
+    // A group expression is a column of its alias, or of its text.
+    let charts = lifted(
+        "group-expression",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island) AS isle"
+        ),
+    )
+    .await;
+    assert_eq!(charts.len(), 3);
+    let query =
+        format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) GROUP BY upper(island)");
+    assert_eq!(columns(&query).await, ["upper(island)", "chart"]);
+    // CHART takes one item.
+    fails(
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => count(*)), count(*) AS n GROUP BY island"
+        ),
+        "CHART takes one item, a mark call",
+        "count(*) AS n",
+    )
+    .await;
+    fails(
+        &format!("{PENGUINS} |> CHART bar(x => species, y => count(*)) DESC"),
+        "an item of CHART takes no ASC, DESC, or NULLS order",
+        "bar",
+    )
+    .await;
+}

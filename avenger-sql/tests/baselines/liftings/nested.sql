@@ -1,0 +1,1 @@
+FROM sales |> EXTEND timeunit(t, unit => 'month') OVER () AS t_unit |> EXTEND lump(t_unit, n => 3, weight => sum(units)) OVER () AS t_unit_lump |> AGGREGATE sum(units) AS sum_units GROUP BY t_unit_lump |> AGGREGATE bar(x => scaled(t_unit_lump, title => 't'), y => scaled(sum_units, title => 'sum(units)')) AS chart

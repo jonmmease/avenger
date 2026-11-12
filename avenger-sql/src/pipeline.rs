@@ -39,6 +39,13 @@ pub async fn sql(ctx: &SessionContext, text: &str) -> Result<DataFrame> {
 
 /// The one statement of `text`, after the token pass and the syntax pass.
 fn parse(state: &SessionState, text: &str) -> Result<Statement> {
+    let mut statement = parse_tokens(text)?;
+    syntax::lower(state, &mut statement)?;
+    Ok(statement)
+}
+
+/// The one statement of `text`, after the token pass.
+pub(crate) fn parse_tokens(text: &str) -> Result<Statement> {
     let dialect = GenericDialect {};
     let tokens = Tokenizer::new(&dialect, text)
         .tokenize_with_location()
@@ -48,12 +55,10 @@ fn parse(state: &SessionState, text: &str) -> Result<Statement> {
         .with_tokens_with_locations(tokens)
         .parse_statements()
         .map_err(sql_error)?;
-    let mut statement = match statements.len() {
-        1 => statements.remove(0),
-        count => return plan_err!("a query holds one statement, not {count}"),
-    };
-    syntax::lower(state, &mut statement)?;
-    Ok(statement)
+    match statements.len() {
+        1 => Ok(statements.remove(0)),
+        count => plan_err!("a query holds one statement, not {count}"),
+    }
 }
 
 /// A parser error as DataFusion reports one.
