@@ -1,0 +1,1 @@
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE count(*) AS n GROUP BY island, species |> EXTEND sum(n) OVER () AS sum_n_window |> AGGREGATE symbol(x => species, y => scaled(sum_n_window, title => 'sum(count(*)) OVER ()')) AS chart GROUP BY island

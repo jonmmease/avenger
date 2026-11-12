@@ -10,6 +10,8 @@
 mod call;
 mod classify;
 mod lifting;
+mod roles;
+mod stage4;
 
 use std::{ops::ControlFlow, sync::Arc};
 

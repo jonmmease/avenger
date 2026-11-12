@@ -31,7 +31,8 @@
 //!   the `FROM`-position call `__avenger_chart((<input>), <mark call>, partition_by => [...],
 //!   name => <name>)`, with a chart for each group, which the mark planner
 //!   plans as the lifting of the call: stages that compute the discretizers, `bin`, `timeunit`,
-//!   and `lump`, and the aggregates of its channels, then the mark aggregate over their columns.
+//!   and `lump`, the aggregates, and the stacks and the window functions of its channels, then the
+//!   mark aggregate over their columns.
 //!   [`lift`] prints the lifting, which runs to the same chart.
 //!
 //! The parser reads the tokens of the token pass, so the syntax tree keeps the spans of the text,

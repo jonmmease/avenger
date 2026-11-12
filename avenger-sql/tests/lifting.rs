@@ -8,7 +8,7 @@ mod common;
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray},
+    array::{Array, ArrayRef, Float64Array, RecordBatch, StringArray, TimestampMillisecondArray},
     datatypes::DataType,
 };
 use avenger_chart::{charts_from_arrow, proto, Chart, Decode};
@@ -503,4 +503,230 @@ async fn chart_groups_its_rows_and_names_its_chart() {
         "bar",
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_stacked_histogram() {
+    lifted(
+        "stack-histogram",
+        &format!("{PENGUINS} |> CHART bar(x => bin(body_mass_g), y => stack(count(*)), color => species)"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_horizontal_stack() {
+    lifted(
+        "stack-horizontal",
+        &format!("{PENGUINS} |> CHART bar(x => stack(count(*)), y => species, color => island)"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_stack_with_an_order_of_its_own() {
+    lifted(
+        "stack-order",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacks ORDER BY count(*) DESC), color => island)"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_offsets_of_a_stack() {
+    lifted(
+        "stack-normalize",
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*), offset => 'normalize'), color => island)"
+        ),
+    )
+    .await;
+    lifted(
+        "stack-center",
+        &format!(
+            "{PENGUINS} |> CHART area(x => bin(body_mass_g), y => stack(count(*), offset => 'center'), color => species)"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_stacked_lump_with_its_other_group_at_the_bottom() {
+    let charts = lifted(
+        "stack-lump",
+        &format!("{PENGUINS} |> CHART bar(x => island, y => stack(count(*)), color => lump(species, n => 1))"),
+    )
+    .await;
+    // On Dream, the Other group, the chinstraps, is the bottom segment.
+    let table = table(&charts[0]);
+    let column = |name: &str| table.column_by_name(name).unwrap().clone();
+    let (islands, lumps, stacks) = (column("island"), column("species_lump"), column("n_stack"));
+    let islands = islands.as_any().downcast_ref::<StringArray>().unwrap();
+    let lumps = lumps
+        .as_any()
+        .downcast_ref::<arrow::array::StructArray>()
+        .unwrap();
+    let others = lumps.column_by_name("other").unwrap();
+    let stacks = stacks
+        .as_any()
+        .downcast_ref::<arrow::array::StructArray>()
+        .unwrap();
+    let starts = stacks.column_by_name("start").unwrap();
+    let starts = starts.as_any().downcast_ref::<Float64Array>().unwrap();
+    let other_start = (0..table.num_rows())
+        .find(|row| islands.value(*row) == "Dream" && others.is_valid(*row))
+        .map(|row| starts.value(row));
+    assert_eq!(other_start, Some(0.0), "the Other group starts the stack");
+}
+
+#[tokio::test]
+async fn a_stack_of_an_arc() {
+    lifted(
+        "stack-arc",
+        &format!("{PENGUINS} |> CHART polar_bar(theta => stack(count(*)), color => species)"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn windows_of_aggregates_in_a_partitioned_call() {
+    lifted(
+        "window-panel",
+        &format!(
+            "{PENGUINS} |> CHART symbol(x => species, y => count(*) / sum(count(*)) OVER panel) GROUP BY island"
+        ),
+    )
+    .await;
+    lifted(
+        "window-all",
+        &format!(
+            "{PENGUINS} |> CHART symbol(x => species, y => sum(count(*)) OVER ()) GROUP BY island"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v6_the_stack_windows() {
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => bin(body_mass_g) OVER stacks, y => stack(count(*)), color => species)"
+    );
+    fails(&query, "the window `stacks` holds the stacks", "stacks,").await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacked ORDER BY count(*)), color => island)"
+    );
+    fails(&query, "the window `stacked` has its order", "count(*)),").await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER (stacks PARTITION BY island), color => island)"
+    );
+    fails(&query, "the window `stacks` has its partition", "island),").await;
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER piles, color => island)"
+    );
+    fails(
+        &query,
+        "no window `piles` in this chart; the windows are panel, stacks, and stacked",
+        "piles",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v7_a_stack_has_an_order() {
+    let query = format!(
+        "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)) OVER stacks, color => island)"
+    );
+    fails(
+        &query,
+        "a stack needs an order: stack(n) OVER (stacks ORDER BY ...)",
+        "stack(",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn v11_a_stack_has_a_key_and_a_measure() {
+    let query = format!("{PENGUINS} |> CHART bar(y => stack(count(*)), color => species)");
+    fails(
+        &query,
+        "stack needs a key channel; this bar has no x",
+        "stack(",
+    )
+    .await;
+    let query = format!("{PENGUINS} |> CHART rule(x => species, y => stack(count(*)))");
+    fails(
+        &query,
+        "stack needs a key channel and a measure channel",
+        "stack(",
+    )
+    .await;
+}
+
+/// The start of the stack segment of `species` on `island` in the layer table of `chart`.
+fn segment_start(chart: &Chart, island: &str, species: &str) -> f64 {
+    let table = table(chart);
+    let column = |name: &str| table.column_by_name(name).unwrap().clone();
+    let (islands, kinds, stacks) = (column("island"), column("species"), column("n_stack"));
+    let islands = islands.as_any().downcast_ref::<StringArray>().unwrap();
+    let kinds = kinds.as_any().downcast_ref::<StringArray>().unwrap();
+    let stacks = stacks
+        .as_any()
+        .downcast_ref::<arrow::array::StructArray>()
+        .unwrap();
+    let starts = stacks.column_by_name("start").unwrap();
+    let starts = starts.as_any().downcast_ref::<Float64Array>().unwrap();
+    let row = (0..table.num_rows())
+        .find(|row| islands.value(*row) == island && kinds.value(*row) == species)
+        .expect("a segment");
+    starts.value(row)
+}
+
+#[tokio::test]
+async fn the_chart_takes_the_orientation_of_its_stack() {
+    // The stack decides that `y` is the key, although the chart alone would draw vertical bars of
+    // two continuous positions.
+    let charts = charts(&format!(
+        "{PENGUINS} |> EXTEND CAST(flipper_length_mm / 10 AS BIGINT) AS f \
+         |> CHART bar(x => stack(count(*)), y => f, color => species)"
+    ))
+    .await;
+    let Some(proto::node::Node::Plot(plot)) = &charts[0].root().node else {
+        panic!("a plot")
+    };
+    let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot")
+    };
+    let Some(proto::cartesian_layer::Mark::Bar(bar)) = &cartesian.layers[0].mark else {
+        panic!("a bar")
+    };
+    assert_eq!(bar.orient, proto::Orient::Horizontal as i32);
+    fails(
+        &format!(
+            "{PENGUINS} |> CHART bar(x => species, y => stack(count(*)), color => island, orient => 'horizontal')"
+        ),
+        "this bar measures `y`, so its orient is 'vertical', not 'horizontal'",
+        "'horizontal'",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_stack_follows_the_order_of_a_category_fit() {
+    // A vertical stack puts the first category of the legend at the top, so the last is at the
+    // bottom.
+    let order = |order: &str| {
+        format!(
+            "{PENGUINS} |> CHART bar(x => island, y => stack(count(*)), \
+             color => scaled(species, scale => category_fit(order => {order})))"
+        )
+    };
+    let descending = charts(&order("'descending'")).await;
+    assert_eq!(segment_start(&descending[0], "Dream", "Adelie"), 0.0);
+    // The categories that the list leaves out follow it in ascending order.
+    let preferred = charts(&order("['Gentoo']")).await;
+    assert_eq!(segment_start(&preferred[0], "Dream", "Chinstrap"), 0.0);
+    let ascending = charts(&order("'ascending'")).await;
+    assert_eq!(segment_start(&ascending[0], "Dream", "Chinstrap"), 0.0);
 }
