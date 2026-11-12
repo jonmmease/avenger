@@ -27,8 +27,9 @@ use crate::{
 /// The deepest nesting of expressions and queries that the parser reads.
 const MAX_DEPTH: u32 = 256;
 
-/// Whether `word` is a reserved keyword, which is a name only in backticks.
-pub(crate) fn is_reserved(word: &str) -> bool {
+/// Whether `word` is a reserved keyword of GoogleSQL, without regard to case. A reserved keyword
+/// is a name only in backticks.
+pub fn is_reserved(word: &str) -> bool {
     SyntaxKind::keyword(word).is_some_and(SyntaxKind::is_reserved)
 }
 
