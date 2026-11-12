@@ -7,7 +7,7 @@ edition = "2021"
 avenger-typst-label = { path = "../avenger-typst-label" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-eventstream = { path = "../avenger-eventstream", default-features = false }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-image = { path = "../avenger-image", default-features = false }
 async-trait = { workspace = true }
