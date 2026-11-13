@@ -1,0 +1,15 @@
+[package]
+name = "avenger-streaming"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Streaming queries over the events of a chart, which avenger-sql splits"
+readme = "README.md"
+
+[dependencies]
+avenger-sql = { path = "../avenger-sql" }
+datafusion = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+avenger-sql-syntax = { path = "../avenger-sql-syntax" }

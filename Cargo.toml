@@ -45,6 +45,7 @@ members = [
     "avenger-datafusion-aggregate-state",
     "avenger-datafusion-shared",
     "avenger-datafusion-transforms",
+    "avenger-streaming",
     "avenger-winit-wgpu",
     "examples/wgpu-scales",
     "examples/wgpu-winit",
