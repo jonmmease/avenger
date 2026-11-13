@@ -1,15 +1,23 @@
 //! The string functions, and the regular expressions, which follow RE2's syntax as GoogleSQL's
 //! do.
 
+use std::sync::{Arc, LazyLock};
+
 use datafusion::{
-    arrow::datatypes::DataType,
-    common::ScalarValue,
+    arrow::{
+        array::{Array, ArrayRef, AsArray, StringArray},
+        datatypes::DataType,
+    },
+    common::{Result, ScalarValue},
     functions::expr_fn as f,
     functions_nested::expr_fn as nested,
-    logical_expr::{binary_expr, when, Expr, Operator},
+    logical_expr::{
+        binary_expr, when, ColumnarValue, Expr, Operator, ScalarFunctionArgs, ScalarUDF,
+        ScalarUDFImpl, Signature, Volatility,
+    },
 };
 
-use super::{cast, lit_i64, lit_str, null_when, Call, CallError, Function};
+use super::{cast, error::guard, lit_i64, lit_str, null_when, Call, CallError, Function};
 
 pub(super) fn functions() -> Vec<Function> {
     vec![
@@ -152,7 +160,166 @@ pub(super) fn functions() -> Vec<Function> {
             })
             .example("REGEXP_REPLACE('a1b2', r'[0-9]', '#')", "'a#b#'")
             .example("REGEXP_REPLACE('abc', r'(b)', r'<\\1>')", "'a<b>c'"),
+        Function::scalar("REPEAT", "Returns a string repeated a number of times.")
+            .param("original_value", "The string.")
+            .param("repetitions", "The number of times, which is not negative.")
+            .form("(original_value: STRING, repetitions: INT64) -> STRING", |call| {
+                let (value, count) = (call.arg(0), call.arg(1));
+                let message = "Second argument (repeat count) for REPEAT cannot be negative";
+                let invalid = count.clone().lt(lit_i64(0));
+                Ok(guard(call, invalid, f::repeat(value, count), message, Vec::new()))
+            })
+            .safe()
+            .example("REPEAT('ab', 3)", "'ababab'")
+            .example("REPEAT('ab', 0)", "''"),
+        pad("LPAD", "Pads a string at its start to a length, or cuts it to the length.", f::lpad)
+            .example("LPAD('abc', 6)", "'   abc'")
+            .example("LPAD('abc', 6, 'xy')", "'xyxabc'")
+            .example("LPAD('abc', 2)", "'ab'"),
+        pad("RPAD", "Pads a string at its end to a length, or cuts it to the length.", f::rpad)
+            .example("RPAD('abc', 6, 'xy')", "'abcxyx'")
+            .example("RPAD('abc', 1)", "'a'"),
+        Function::scalar("REVERSE", "Returns the characters of a string in reverse order.")
+            .param("value", "The string.")
+            .form("(value: STRING) -> STRING", |call| Ok(f::reverse(call.arg(0))))
+            .safe()
+            .example("REVERSE('abcé')", "'écba'"),
+        part("LEFT", "Returns the first characters of a string.", f::left)
+            .example("LEFT('abcdef', 3)", "'abc'")
+            .example("LEFT('abc', 10)", "'abc'"),
+        part("RIGHT", "Returns the last characters of a string.", f::right)
+            .example("RIGHT('abcdef', 2)", "'ef'"),
+        Function::scalar("INITCAP", "Returns a string with the first character of each word in upper case and the others in lower case.")
+            .description("A word starts at the start of the string and after each delimiter. The delimiters stay as they are, and a character that isn't a letter, such as a digit, starts a word too.")
+            .param("value", "The string.")
+            .param("delimiters", "The characters that separate the words, each on its own. When omitted, they are whitespace and ``!\"#$%&()*+,-./:;<>?@[\\]^_{|}~``.")
+            .form("(value: STRING[, delimiters: STRING]) -> STRING", |call| {
+                let mut args = vec![call.arg(0)];
+                args.extend(call.value(1).cloned());
+                Ok(INITCAP.call(args))
+            })
+            .safe()
+            .example("INITCAP('hello wORLD')", "'Hello World'")
+            .example("INITCAP(\"o'neil-smith 1st\")", "'O\\'neil-Smith 1st'")
+            .example("INITCAP('a.b_c d', '.')", "'A.B_c d'"),
     ]
+}
+
+/// `LPAD` or `RPAD`, whose pattern, a space when omitted, repeats to the length.
+fn pad(name: &str, summary: &str, function: fn(Vec<Expr>) -> Expr) -> Function {
+    Function::scalar(name, summary)
+        .param("original_value", "The string.")
+        .param("return_length", "The length of the result, in characters, which is not negative. A shorter length cuts the string.")
+        .param("pattern", "The string that pads, which is not empty. When omitted, a space.")
+        .form("(original_value: STRING, return_length: INT64[, pattern: STRING]) -> STRING", move |call| {
+            let length = call.arg(1);
+            let mut args = vec![call.arg(0), length.clone()];
+            args.extend(call.value(2).cloned());
+            let mut value = function(args);
+            if let Some(pattern) = call.value(2) {
+                let empty = pattern.clone().eq(lit_str(""));
+                let message = "Third argument (pad pattern) for LPAD/RPAD cannot be empty";
+                value = guard(call, empty, value, message, Vec::new());
+            }
+            let message = "Second argument (output size) for LPAD/RPAD cannot be negative";
+            Ok(guard(call, length.lt(lit_i64(0)), value, message, Vec::new()))
+        })
+        .safe()
+}
+
+/// `LEFT` or `RIGHT`, of a length that is not negative.
+fn part(name: &'static str, summary: &str, function: fn(Expr, Expr) -> Expr) -> Function {
+    Function::scalar(name, summary)
+        .param("value", "The string.")
+        .param("length", "The number of characters, which is not negative. A length beyond the string's gives the whole string.")
+        .form("(value: STRING, length: INT64) -> STRING", move |call| {
+            let length = call.arg(1);
+            let message = format!("Second argument in {name}() cannot be negative");
+            let value = function(call.arg(0), length.clone());
+            Ok(guard(call, length.lt(lit_i64(0)), value, &message, Vec::new()))
+        })
+        .safe()
+}
+
+/// GoogleSQL's delimiters of the words of `INITCAP`, when a call gives none.
+const DELIMITERS: &str = " \t\n\u{b}\u{c}\r!\"#$%&()*+,-./:;<>?@[\\]^_{|}~\u{85}\u{a0}";
+
+/// `value` with the first character of each word in upper case and the others in lower case,
+/// where a word starts at the start and after each of `delimiters`.
+fn initcap(value: &str, delimiters: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut start = true;
+    for c in value.chars() {
+        if delimiters.contains(c) {
+            out.push(c);
+            start = true;
+            continue;
+        }
+        match start {
+            true => out.extend(c.to_uppercase()),
+            false => out.extend(c.to_lowercase()),
+        }
+        start = false;
+    }
+    out
+}
+
+static INITCAP: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
+    Arc::new(ScalarUDF::new_from_impl(Initcap {
+        signature: Signature::variadic_any(Volatility::Immutable),
+    }))
+});
+
+/// GoogleSQL's `INITCAP`, whose words differ from DataFusion's `initcap`, which also capitalizes
+/// after `'` and takes no delimiters.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct Initcap {
+    signature: Signature,
+}
+
+impl ScalarUDFImpl for Initcap {
+    fn name(&self) -> &str {
+        "$initcap"
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
+        Ok(DataType::Utf8)
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        let rows = args.number_rows;
+        let scalar = args
+            .args
+            .iter()
+            .all(|arg| matches!(arg, ColumnarValue::Scalar(_)));
+        let strings = |arg: &ColumnarValue| -> Result<ArrayRef> {
+            datafusion::arrow::compute::cast(&arg.clone().into_array(rows)?, &DataType::Utf8)
+                .map_err(Into::into)
+        };
+        let values = strings(&args.args[0])?;
+        let values = values.as_string::<i32>();
+        let delimiters = args.args.get(1).map(strings).transpose()?;
+        let delimiters = delimiters.as_ref().map(|d| d.as_string::<i32>());
+        let out: StringArray = (0..values.len())
+            .map(|row| {
+                let delimiters = match delimiters {
+                    Some(d) if d.is_null(if d.len() == 1 { 0 } else { row }) => return None,
+                    Some(d) => d.value(if d.len() == 1 { 0 } else { row }),
+                    None => DELIMITERS,
+                };
+                (!values.is_null(row)).then(|| initcap(values.value(row), delimiters))
+            })
+            .collect();
+        let out: ArrayRef = Arc::new(out);
+        match scalar {
+            true => Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?)),
+            false => Ok(ColumnarValue::Array(out)),
+        }
+    }
 }
 
 /// `SUBSTR(value, position [, length])`, whose position counts from 1, from the end when it is
@@ -172,11 +339,12 @@ fn substr(name: &str, summary: &str) -> Function {
             let Some(length) = call.value(2).cloned() else {
                 return Ok(f::substr(value, start));
             };
-            let result = f::substring(value, start, length.clone());
-            Ok(match call.safe {
-                true => null_when(length.lt(lit_i64(0)), result),
-                false => result,
-            })
+            // DataFusion's substring fails on a negative length, so it reads `NULL` there.
+            let negative = length.clone().lt(lit_i64(0));
+            let result = f::substring(value, start, null_when(negative, length.clone()));
+            // GoogleSQL names SUBSTRING `SUBSTR` in its message.
+            let message = "Third argument in SUBSTR() cannot be negative";
+            Ok(guard(call, length.lt(lit_i64(0)), result, message, Vec::new()))
         })
         .safe()
 }
