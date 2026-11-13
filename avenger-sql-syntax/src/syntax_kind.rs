@@ -243,6 +243,7 @@ node_kinds! { syntax_kinds! {
         TYPE_KW = "TYPE",
         UNKNOWN_KW = "UNKNOWN",
         UNPIVOT_KW = "UNPIVOT",
+        VALUE_KW = "VALUE",
         WEIGHT_KW = "WEIGHT",
         ZONE_KW = "ZONE",
     ],

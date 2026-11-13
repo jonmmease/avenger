@@ -165,6 +165,48 @@ FROM events |> SELECT id, tags[SAFE_OFFSET(1)] AS second, tags[SAFE_ORDINAL(1)] 
 FROM sales |> SELECT REPEAT(product, units - 4) AS r
 ## error-substr
 FROM sales |> SELECT SUBSTR(product, 1, units - 4) AS s
+## window-in-where
+FROM sales |> WHERE ROW_NUMBER() OVER (PARTITION BY region ORDER BY units DESC, product) = 1 |> SELECT region, product, units
+## distinct-window
+FROM sales |> EXTEND COUNT(DISTINCT product) OVER (PARTITION BY region) AS kinds |> SELECT DISTINCT region, kinds
+## error-distinct-window-order
+FROM sales |> EXTEND COUNT(DISTINCT product) OVER (ORDER BY month) AS k
+## unnest-strict
+FROM events |> CROSS JOIN UNNEST(tags AS a, tags AS b, mode => 'STRICT') |> SELECT id, a, b
+## error-unnest-strict
+FROM UNNEST([1, 2] AS a, [3] AS b, mode => 'STRICT')
+## like-any-unnest
+FROM sales |> WHERE product LIKE ANY UNNEST(['a%', 'p%r']) |> SELECT region, product
+## not-like-all-unnest
+FROM events |> SELECT id, kind NOT LIKE ALL UNNEST(['c%', '%w']) AS other, kind LIKE ALL UNNEST(tags) AS all_tags
+## array-path-offset
+FROM events, events.tags AS tag WITH OFFSET AS o |> SELECT id, tag, o
+## left-join-array-path
+FROM events LEFT JOIN events.tags AS tag |> SELECT id, tag
+## left-join-unnest-on
+FROM events LEFT JOIN UNNEST(events.tags) AS tag ON tag != 'a' |> SELECT id, tag
+## having-max-rollup
+FROM sales |> AGGREGATE ANY_VALUE(product HAVING MAX units) AS best, SUM(units HAVING MIN price) AS cheap, GROUPING(region) AS g GROUP BY ROLLUP(region)
+## call-temp-table-function
+CREATE TEMP TABLE FUNCTION top_n(src ANY TABLE, k INT64) AS (FROM src |> ORDER BY units DESC |> LIMIT k); FROM sales |> CALL top_n(2) |> SELECT product, units
+## dot-star-expression
+FROM sales |> SELECT STRUCT(region AS r, units AS u, price AS p).* EXCEPT (p) REPLACE (u * 2 AS u)
+## dot-star-aggregate
+FROM sales |> AGGREGATE ARRAY_AGG(STRUCT(product AS p, units AS u) ORDER BY units DESC LIMIT 1)[OFFSET(0)].*, COUNT(*) AS n GROUP BY region
+## error-dot-star-not-aggregate
+FROM UNNEST([STRUCT(1 AS a, 2 AS b)]) AS s |> AGGREGATE s.*
+## select-as-struct
+FROM sales |> SELECT AS STRUCT region, units |> WHERE units > 4 |> SELECT *
+## select-as-struct-value
+FROM sales |> WHERE units > 5 |> SELECT AS STRUCT region, units + 1
+## array-of-structs
+FROM UNNEST([1]) |> SELECT ARRAY(FROM sales |> WHERE region = 'west' |> SELECT AS STRUCT product, units |> ORDER BY units) AS arr
+## select-as-value
+FROM sales |> SELECT AS VALUE units |> SELECT *
+## error-select-as-value
+FROM sales |> SELECT AS VALUE units, price
+## star-anonymous
+FROM (FROM sales |> SELECT units + 1, region) |> SELECT *
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column

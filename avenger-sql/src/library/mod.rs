@@ -26,11 +26,13 @@
 mod aggregate;
 mod array;
 mod avenger;
+mod bytes;
 mod conditional;
 mod datetime;
-mod error;
+pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
+mod like;
 mod math;
 pub(crate) mod operator;
 pub(crate) mod random;

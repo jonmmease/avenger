@@ -880,6 +880,27 @@ impl Pass<'_> {
             );
             return failed;
         };
+        let arguments: Vec<ast::Argument> = source
+            .arg_list()
+            .iter()
+            .flat_map(|list| list.arguments())
+            .collect();
+        self.call_table_function(function, &path, None, arguments, source.alias(), range)
+    }
+
+    /// The rows of a call of the table function `function`, named by `path`, with `arguments`,
+    /// and in a pipe `CALL`, with `input`, the pipe input, as its first argument, which binds its
+    /// first parameter, a table.
+    pub(super) fn call_table_function(
+        &mut self,
+        function: TempFunction,
+        path: &ast::Path,
+        input: Option<Rows>,
+        arguments: Vec<ast::Argument>,
+        alias: Option<ast::Alias>,
+        range: TextRange,
+    ) -> Rows {
+        let failed = Rows::failed(Vec::new(), Vec::new());
         self.use_name(
             path.syntax().text_range(),
             Definition::Function {
@@ -892,7 +913,24 @@ impl Pass<'_> {
             Table(Rows),
         }
         let mut args: Vec<(Option<String>, Value, TextRange)> = Vec::new();
-        for argument in source.arg_list().iter().flat_map(|list| list.arguments()) {
+        // The pipe input binds the first table parameter, in its place among the positional
+        // arguments.
+        let input = match input {
+            Some(input) => {
+                let Some(index) =
+                    (function.params.iter()).position(|p| matches!(p.ty, ParamTy::Table))
+                else {
+                    self.error(
+                        path.syntax().text_range(),
+                        "Table-valued function cannot be called with pipe CALL syntax because its signature does not include a table-typed argument",
+                    );
+                    return failed;
+                };
+                Some((index, input))
+            }
+            None => None,
+        };
+        for argument in arguments {
             let at = argument.syntax().text_range();
             let (name, value) = match &argument {
                 ast::Argument::Arg(arg) => (None, arg.expr().map(Ok)),
@@ -928,6 +966,10 @@ impl Pass<'_> {
                 None => return failed,
             };
             args.push((name, value, at));
+        }
+        if let Some((index, input)) = input {
+            let positional = args.iter().take_while(|(name, ..)| name.is_none()).count();
+            args.insert(index.min(positional), (None, Value::Table(input), range));
         }
         // Bind by index, since `Value` doesn't clone cheaply.
         let indexed: Vec<(Option<String>, usize, TextRange)> = (args.iter().enumerate())
@@ -987,8 +1029,8 @@ impl Pass<'_> {
             pass.temp_tables.truncate(saved_tables);
             rows
         });
-        let alias = alias_name(source.alias())
-            .or_else(|| Some((function.name.clone(), path.syntax().text_range())));
+        let alias =
+            alias_name(alias).or_else(|| Some((function.name.clone(), path.syntax().text_range())));
         self.close(rows, alias, false, range)
     }
 
