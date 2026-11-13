@@ -1,6 +1,6 @@
 # avenger-sql-syntax
 
-The syntax of avenger-sql: a subset of GoogleSQL's grammar, read into a lossless syntax tree with typed nodes. The crate reads scripts of pipe queries, `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE` and `CREATE FUNCTION`, and `.sqlm` modules of public functions, table functions and constants. Within the subset, it accepts what GoogleSQL accepts, rejects what GoogleSQL rejects, and reports its first error where GoogleSQL does.
+The syntax of avenger-sql: a subset of GoogleSQL's grammar, read into a lossless syntax tree with typed nodes. The crate reads scripts of pipe queries, `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE` and `CREATE FUNCTION`, and `.sqlm` modules of public functions, table functions and constants. Within the subset, it accepts what GoogleSQL accepts, rejects what GoogleSQL rejects, and reports its first error where GoogleSQL does. Outside the subset, it reports each construct of GoogleSQL's that avenger doesn't plan, such as a `CREATE VIEW`, a hint or a standard `SELECT` query, as unsupported, with its name, instead of a syntax error, and skips it to a boundary, such as the end of its clause or statement.
 
 ```rust
 use avenger_sql_syntax::{ast, parse};
@@ -46,7 +46,7 @@ The tests check the corpora in `tests/common` against GoogleSQL's grammar and pa
 
 ## Conformance with GoogleSQL
 
-The ignored test `tests/conformance.rs` compares the parser with GoogleSQL's `execute_query` 2026.11.1: it parses each input of a corpus with `execute_query --mode=parse --sql_mode=script --enabled_language_features=MAXIMUM` and with `parse`, and compares whether each accepts the input and where each finds its first error. The corpus is the inputs of this crate's tests and the inputs of GoogleSQL's parser tests that fall in the subset, including the pipe operators of a standard query with the query before its first `|>` written as `FROM t`. A difference that `tests/conformance/known.txt` lists, such as a form outside the subset, is explained, and any other fails the test. The report is in `tests/output/conformance.md`.
+The ignored test `tests/conformance.rs` compares the parser with GoogleSQL's `execute_query` 2026.11.1: it parses each input of a corpus with `execute_query --mode=parse --sql_mode=script --enabled_language_features=MAXIMUM` and with `parse`, and compares whether each accepts the input and where each finds its first error. The corpus is the inputs of this crate's tests and every input of GoogleSQL's parser tests apart from the tests of SQL graph syntax, including the pipe operators of a standard query with the query before its first `|>` written as `FROM t`. An input that avenger reports as unsupported agrees where GoogleSQL accepts it. A difference that `tests/conformance/known.txt` lists, such as a check that GoogleSQL makes as it analyzes, is explained, and any other fails the test, as does an entry that explains no difference. The report is in `tests/output/conformance.md`.
 
 The check needs the binary at `scratch/tools/googlesql/execute_query_macos` and the corpus, which `tests/conformance/extract.py` writes to `scratch/tools/googlesql/parser-corpus.txt` from a checkout of GoogleSQL at the binary's tag, so the repository holds no text of GoogleSQL's tests. Without them, the test skips with a message. From the repository's root:
 

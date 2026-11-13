@@ -292,9 +292,11 @@ impl<'a> Parser<'a> {
     /// Whether the token `n` ahead starts a query: a pipe query's `FROM`, or GoogleSQL's standard
     /// `SELECT` or `WITH`, which the query reports.
     pub(crate) fn query_at(&self, n: usize) -> bool {
-        ["FROM", "SELECT", "WITH"]
+        // `WITH(` is GoogleSQL's WITH expression, not a query.
+        ["FROM", "SELECT"]
             .iter()
             .any(|word| self.keyword_at(n, word))
+            || (self.keyword_at(n, "WITH") && self.nth(n + 1) != L_PAREN)
     }
 
     pub(crate) fn at_keyword(&self, keyword: &str) -> bool {
