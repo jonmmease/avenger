@@ -62,6 +62,10 @@ pub(super) fn operators() -> Vec<Function> {
         quantified_like("$like_all", false, Expr::and),
         quantified_like("$not_like_any", true, Expr::or),
         quantified_like("$not_like_all", true, Expr::and),
+        like_unnest("$like_any_unnest", false, false),
+        like_unnest("$like_all_unnest", true, false),
+        like_unnest("$not_like_any_unnest", false, true),
+        like_unnest("$not_like_all_unnest", true, true),
         Function::scalar("$between", "x BETWEEN low AND high")
             .form("(x: T, low: T, high: T) -> BOOL where T: ANY", |call| {
                 Ok(call.arg(0).between(call.arg(1), call.arg(2)))
@@ -106,16 +110,18 @@ pub(super) fn operators() -> Vec<Function> {
                 ))
             },
         ),
-        bitwise("$bitwise_and", Operator::BitwiseAnd),
-        bitwise("$bitwise_or", Operator::BitwiseOr),
-        bitwise("$bitwise_xor", Operator::BitwiseXor),
-        shift("$bitwise_left_shift", Operator::BitwiseShiftLeft),
-        shift("$bitwise_right_shift", Operator::BitwiseShiftRight),
+        bitwise("$bitwise_and", Operator::BitwiseAnd, "&"),
+        bitwise("$bitwise_or", Operator::BitwiseOr, "|"),
+        bitwise("$bitwise_xor", Operator::BitwiseXor, "^"),
+        shift("$bitwise_left_shift", Operator::BitwiseShiftLeft, "<<"),
+        shift("$bitwise_right_shift", Operator::BitwiseShiftRight, ">>"),
         Function::scalar("$bitwise_not", "~x")
             .form("(x: INT64) -> INT64", |call| {
                 Ok(binary_expr(call.arg(0), Operator::BitwiseXor, lit_i64(-1)))
             })
-            .form("(x: BYTES) -> BYTES", |_| Err::<Expr, _>(no_bytes("~"))),
+            .form("(x: BYTES) -> BYTES", |call| {
+                Ok(super::bytes::bytes_bitwise("~", call.arg(0), None))
+            }),
     ]
 }
 
@@ -133,7 +139,15 @@ pub(crate) fn rejects_null(name: &str) -> Option<&'static str> {
         "$greater" => ">",
         "$greater_or_equal" => ">=",
         "$not" => "NOT",
-        "$like" | "$like_any" | "$like_all" | "$not_like_any" | "$not_like_all" => "LIKE",
+        "$like"
+        | "$like_any"
+        | "$like_all"
+        | "$not_like_any"
+        | "$not_like_all"
+        | "$like_any_unnest"
+        | "$like_all_unnest"
+        | "$not_like_any_unnest"
+        | "$not_like_all_unnest" => "LIKE",
         "$bitwise_and" => "&",
         "$bitwise_or" => "|",
         "$bitwise_xor" => "^",
@@ -285,27 +299,62 @@ fn quantified_like(name: &str, not: bool, join: fn(Expr, Expr) -> Expr) -> Funct
     )
 }
 
+/// `x [NOT] LIKE {ANY | ALL} UNNEST(patterns)`.
+fn like_unnest(name: &str, all: bool, not: bool) -> Function {
+    Function::scalar(name, "x [NOT] LIKE {ANY | ALL} UNNEST(patterns)").form(
+        "(x: STRING, patterns: ARRAY<STRING>) -> BOOL",
+        move |call| Ok(super::like::like_unnest(call.arg(0), call.arg(1), all, not)),
+    )
+}
+
 /// A bitwise operator, which GoogleSQL applies to two values of one type, without coercion.
-fn bitwise(name: &str, op: Operator) -> Function {
+fn bitwise(name: &str, op: Operator, symbol: &'static str) -> Function {
     Function::scalar(name, "x op y")
         .form("(x: INT64, y: INT64) -> INT64", move |call| {
             Ok(binary_expr(call.arg(0), op, call.arg(1)))
         })
-        .form("(x: BYTES, y: BYTES) -> BYTES", |_| {
-            Err::<Expr, _>(no_bytes("a bitwise operator"))
+        .form("(x: BYTES, y: BYTES) -> BYTES", move |call| {
+            Ok(super::bytes::bytes_bitwise(
+                symbol,
+                call.arg(0),
+                Some(call.arg(1)),
+            ))
         })
 }
 
-/// A shift, which is 0 when it shifts by 64 bits or more, as in GoogleSQL.
-fn shift(name: &str, op: Operator) -> Function {
-    Function::scalar(name, "x op y").form("(x: INT64, y: INT64) -> INT64", move |call| {
-        let (x, y) = (call.arg(0), call.arg(1));
-        Ok(when(y.clone().gt_eq(lit_i64(64)), lit_i64(0)).otherwise(binary_expr(x, op, y))?)
-    })
-}
-
-fn no_bytes(op: &str) -> CallError {
-    CallError::call(format!("avenger-sql doesn't apply {op} to BYTES yet"))
+/// A shift, which is 0 when it shifts by 64 bits or more and fails on a negative offset, as in
+/// GoogleSQL. `>>` is a logical shift, which fills the high bits with zeros, as GoogleSQL's is.
+fn shift(name: &str, op: Operator, symbol: &'static str) -> Function {
+    Function::scalar(name, "x op y")
+        .form("(x: INT64, y: INT64) -> INT64", move |call| {
+            let (x, y) = (call.arg(0), call.arg(1));
+            let value = match op {
+                Operator::BitwiseShiftRight => {
+                    // An arithmetic shift with the bits that it copies from the sign cleared.
+                    let mask = binary_expr(lit_i64(i64::MAX), op, y.clone() - lit_i64(1));
+                    when(y.clone().eq(lit_i64(0)), x.clone()).otherwise(binary_expr(
+                        binary_expr(x, op, y.clone()),
+                        Operator::BitwiseAnd,
+                        mask,
+                    ))?
+                }
+                _ => binary_expr(x, op, y.clone()),
+            };
+            let value = when(y.clone().gt_eq(lit_i64(64)), lit_i64(0)).otherwise(value)?;
+            Ok(super::error::error_when(
+                y.lt(lit_i64(0)),
+                value,
+                "Bitwise shift by negative offset.",
+                Vec::new(),
+            ))
+        })
+        .form("(x: BYTES, y: INT64) -> BYTES", move |call| {
+            Ok(super::bytes::bytes_bitwise(
+                symbol,
+                call.arg(0),
+                Some(call.arg(1)),
+            ))
+        })
 }
 
 /// `date` plus `days`, an `INT64`, through the days since the epoch that a `DATE` holds.

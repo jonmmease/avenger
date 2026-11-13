@@ -118,8 +118,12 @@ impl Pass<'_> {
             ast::PipeOperator::PipeWhere(op) => self.pipe_where(rows, op),
             ast::PipeOperator::PipeSelect(op) => {
                 let rows = self.select(rows, op.select_entries(), op.window_clause(), false, range);
-                match op.distinct_kw() {
+                let rows = match op.distinct_kw() {
                     Some(_) => self.distinct(rows, range),
+                    None => rows,
+                };
+                match op.select_as() {
+                    Some(select_as) => self.value_table(rows, &select_as, range),
                     None => rows,
                 }
             }
@@ -170,6 +174,92 @@ impl Pass<'_> {
             },
             ast::PipeOperator::PipeCall(op) => self.pipe_call(rows, op, range),
         }
+    }
+
+    /// The rows of `rows` as a value table, by `AS STRUCT`, whose value is the struct of the
+    /// columns, or `AS VALUE`, whose value is its one column. The fields of a struct value
+    /// resolve as names, as those of an `UNNEST` of structs do.
+    fn value_table(&mut self, rows: Rows, select_as: &ast::SelectAs, range: TextRange) -> Rows {
+        let at = select_as.syntax().text_range();
+        if rows.plan.is_none() {
+            return rows;
+        }
+        let columns = rows.columns.clone();
+        let (value, fields) = match select_as.struct_kw() {
+            Some(_) => {
+                let args = (columns.iter().enumerate())
+                    .flat_map(|(index, col)| {
+                        let name = match col.name.is_empty() {
+                            true => format!("_field_{}", index + 1),
+                            false => col.name.clone(),
+                        };
+                        [
+                            Expr::Literal(ScalarValue::Utf8(Some(name)), None),
+                            Expr::Column(col.column.clone()),
+                        ]
+                    })
+                    .collect();
+                let value = datafusion::functions::core::expr_fn::named_struct(args);
+                (value, columns.clone())
+            }
+            None => {
+                let [column] = columns.as_slice() else {
+                    self.error(at, "SELECT AS VALUE query must have exactly one column");
+                    return rows.fail();
+                };
+                (Expr::Column(column.column.clone()), Vec::new())
+            }
+        };
+        let mut items = vec![Item::Compute {
+            name: String::new(),
+            expr: value,
+            definition: Some(at),
+        }];
+        items.extend(fields.iter().cloned().map(Item::Carry));
+        let mut table = self.projected(rows, items, false, true, range);
+        if table.plan.is_none() {
+            return table;
+        }
+        let mut values = table.columns.split_off(1);
+        // A value of a struct type that `AS VALUE` gives has its fields as names too.
+        if fields.is_empty() {
+            (table, values) = self.with_value_fields(table, range);
+        }
+        let value = table.columns[0].clone();
+        table.vars = vec![RangeVar {
+            name: String::new(),
+            definition: Some(at),
+            columns: values,
+            value: Some(value.column),
+        }];
+        table
+    }
+
+    /// `rows`, whose first column is a value, with a hidden column for each field of the value
+    /// when it is a struct, and those columns.
+    fn with_value_fields(&mut self, rows: Rows, range: TextRange) -> (Rows, Vec<Col>) {
+        let value = rows.columns[0].clone();
+        let fields = match rows
+            .schema()
+            .map(|schema| Expr::Column(value.column.clone()).get_type(schema))
+        {
+            Some(Ok(datafusion::arrow::datatypes::DataType::Struct(fields))) => fields,
+            _ => return (rows, Vec::new()),
+        };
+        let mut items: Vec<Item> = vec![Item::Carry(value.clone())];
+        for field in fields.iter() {
+            items.push(Item::Compute {
+                name: field.name().clone(),
+                expr: datafusion::functions::core::expr_fn::get_field(
+                    Expr::Column(value.column.clone()),
+                    field.name().as_str(),
+                ),
+                definition: value.definition,
+            });
+        }
+        let mut projected = self.projected(rows, items, false, true, range);
+        let fields = projected.columns.split_off(1);
+        (projected, fields)
     }
 
     /// The rows of a projection, or after DataFusion's error, the columns of `items` without a
@@ -309,7 +399,7 @@ impl Pass<'_> {
         if let Some(offset) = source.with_offset() {
             self.error(
                 offset.syntax().text_range(),
-                "avenger-sql doesn't plan WITH OFFSET yet",
+                "WITH OFFSET can only be used with array scans",
             );
         }
         let (name, definition) = alias_name(source.alias())
@@ -733,26 +823,17 @@ impl Pass<'_> {
             return rows.fail();
         };
         let at = condition.syntax().text_range();
+        // A condition can call window functions, which compute over the rows before the filter.
         let predicate = {
-            let scope = Scope::of(&rows, "pipe WHERE clause");
+            let scope = Scope::of(&rows, "pipe WHERE clause").windows();
             self.expr(&condition, scope)
                 .and_then(|expr| self.boolean(expr, at, "WHERE clause", scope))
         };
-        let (Some(predicate), Some(plan)) = (predicate, rows.plan.clone()) else {
+        let (Some(predicate), true) = (predicate, rows.plan.is_some()) else {
             return rows.fail();
         };
-        let plan = LogicalPlanBuilder::from(plan)
-            .filter(predicate)
-            .and_then(|b| b.build());
         let fallback = rows.clone().fail();
-        self.built(
-            plan.map(|plan| Rows {
-                plan: Some(plan),
-                ..rows
-            }),
-            at,
-            fallback,
-        )
+        self.built(rows::filter(rows, predicate), at, fallback)
     }
 
     /// The rows of a pipe `SELECT`, or of a pipe `EXTEND` when `extend`, which adds its items to
@@ -852,16 +933,19 @@ impl Pass<'_> {
     /// `EXCEPT` and with the expressions of its `REPLACE`.
     fn wildcard(&mut self, wildcard: &ast::Wildcard, scope: Scope) -> Option<Vec<Item>> {
         let range = wildcard.syntax().text_range();
-        let item_name = |item: &Item| match item {
-            Item::Carry(col) => col.name.clone(),
-            Item::Compute { name, .. } => name.clone(),
-        };
-        let mut items: Vec<Item> = match wildcard.path() {
-            // The value of a value table gives its fields, as GoogleSQL's `*` does.
-            None => (scope.columns.iter())
+        let items: Vec<Item> = match (wildcard.expr(), wildcard.path()) {
+            // `expression.*` of a struct.
+            (Some(expr), _) => {
+                let base = self.expr(&expr, scope)?;
+                self.struct_items(base, expr.syntax().text_range(), range, scope)?
+            }
+            // The value of a value table gives its fields, as GoogleSQL's `*` does, and a value
+            // that isn't a struct gives itself.
+            (None, None) => (scope.columns.iter())
                 .flat_map(|col| {
-                    let value =
-                        (scope.vars.iter()).find(|var| var.value.as_ref() == Some(&col.column));
+                    let value = (scope.vars.iter()).find(|var| {
+                        var.value.as_ref() == Some(&col.column) && !var.columns.is_empty()
+                    });
                     match value {
                         Some(var) => var.columns.clone(),
                         None => vec![col.clone()],
@@ -869,7 +953,7 @@ impl Pass<'_> {
                 })
                 .map(Item::Carry)
                 .collect(),
-            Some(path) => {
+            (None, Some(path)) => {
                 let names = path.names()?;
                 let refs: Vec<ast::NameRef> = path.name_refs().collect();
                 let var = match names.as_slice() {
@@ -893,32 +977,59 @@ impl Pass<'_> {
                     // A struct's fields, each a column.
                     None => {
                         let base = self.path(&path, scope)?;
-                        let ty = self.type_of(&base, scope)?;
-                        let datafusion::arrow::datatypes::DataType::Struct(fields) = &ty else {
-                            self.error(
-                                path.syntax().text_range(),
-                                format!(
-                                    "Dot-star is not supported for type {}",
-                                    crate::types::googlesql_name(&ty)
-                                ),
-                            );
-                            return None;
-                        };
-                        (fields.iter())
-                            .map(|field| Item::Compute {
-                                name: field.name().clone(),
-                                expr: datafusion::functions::core::expr_fn::get_field(
-                                    base.clone(),
-                                    field.name().as_str(),
-                                ),
-                                definition: Some(range),
-                            })
-                            .collect()
+                        self.struct_items(base, path.syntax().text_range(), range, scope)?
                     }
                 }
             }
         };
-        items.retain(|item| !item_name(item).is_empty());
+        self.except_replace(items, wildcard, scope)
+    }
+
+    /// The items of the fields of the struct `base`, at `at`, each a column named after its
+    /// field.
+    fn struct_items(
+        &mut self,
+        base: Expr,
+        at: TextRange,
+        range: TextRange,
+        scope: Scope,
+    ) -> Option<Vec<Item>> {
+        let ty = self.type_of(&base, scope)?;
+        let datafusion::arrow::datatypes::DataType::Struct(fields) = &ty else {
+            self.error(
+                at,
+                format!(
+                    "Dot-star is not supported for type {}",
+                    crate::types::googlesql_name(&ty)
+                ),
+            );
+            return None;
+        };
+        let items = (fields.iter())
+            .map(|field| Item::Compute {
+                name: field.name().clone(),
+                expr: datafusion::functions::core::expr_fn::get_field(
+                    base.clone(),
+                    field.name().as_str(),
+                ),
+                definition: Some(range),
+            })
+            .collect();
+        Some(items)
+    }
+
+    /// `items` of a wildcard without the columns of its `EXCEPT`, and with the expressions of its
+    /// `REPLACE`, which `scope` plans.
+    fn except_replace(
+        &mut self,
+        mut items: Vec<Item>,
+        wildcard: &ast::Wildcard,
+        scope: Scope,
+    ) -> Option<Vec<Item>> {
+        let item_name = |item: &Item| match item {
+            Item::Carry(col) => col.name.clone(),
+            Item::Compute { name, .. } => name.clone(),
+        };
         let mut ok = true;
         if let Some(except) = wildcard.except_list() {
             for name_ref in except.name_list().iter().flat_map(|list| list.name_refs()) {
@@ -970,7 +1081,6 @@ impl Pass<'_> {
                 }
             }
         }
-        let _ = range;
         ok.then_some(items)
     }
 
@@ -1295,6 +1405,62 @@ impl Pass<'_> {
         groups.len() - 1
     }
 
+    /// The rows of `rows` expanded for the grouping sets of `item_sets`, of the group expressions
+    /// `groups`: a copy of each row for each grouping set, with the number of the set and each
+    /// group expression, `NULL` outside the set.
+    fn expand_grouping_sets(
+        &mut self,
+        rows: Rows,
+        groups: &[Expr],
+        item_sets: &[Vec<Vec<usize>>],
+    ) -> Result<(Rows, Option<Expanded>)> {
+        let sets = cross_sets(item_sets);
+        let Some(plan) = rows.plan.clone() else {
+            return Ok((rows, None));
+        };
+        let number = |n: usize| Expr::Literal(ScalarValue::Int64(Some(n as i64)), None);
+        let qualifier = self.qualifiers.fresh("$set");
+        let numbers =
+            LogicalPlanBuilder::values((0..sets.len()).map(|n| vec![number(n)]).collect())?
+                .project(vec![Expr::Column(Column::from_name("column1"))
+                    .alias_qualified(Some(qualifier.clone()), "$set")])?
+                .build()?;
+        let crossed = LogicalPlanBuilder::from(plan)
+            .cross_join(numbers)?
+            .build()?;
+        let set = Expr::Column(Column::new(Some(qualifier.clone()), "$set"));
+        let mut exprs: Vec<Expr> = (crossed.schema().columns().into_iter())
+            .map(Expr::Column)
+            .collect();
+        let mut keys = vec![set.clone()];
+        for (index, group) in groups.iter().enumerate() {
+            let within: Vec<Expr> = (sets.iter().enumerate())
+                .filter(|(_, members)| members.contains(&index))
+                .map(|(n, _)| number(n))
+                .collect();
+            let name = format!("$group{}", index + 1);
+            let masked = match within.is_empty() {
+                true => datafusion::logical_expr::cast(
+                    Expr::Literal(ScalarValue::Null, None),
+                    group.get_type(crossed.schema())?,
+                ),
+                false => datafusion::logical_expr::when(
+                    set.clone().in_list(within, false),
+                    group.clone(),
+                )
+                .end()?,
+            };
+            exprs.push(masked.alias_qualified(Some(qualifier.clone()), &name));
+            keys.push(Expr::Column(Column::new(Some(qualifier.clone()), name)));
+        }
+        let plan = LogicalPlanBuilder::from(crossed).project(exprs)?.build()?;
+        let rows = Rows {
+            plan: Some(plan),
+            ..rows
+        };
+        Ok((rows, Some(Expanded { keys, sets })))
+    }
+
     /// The rows of a pipe `AGGREGATE`: one row for each group of the group items, with the group
     /// columns, then the items, each an expression over aggregate functions and the group items.
     /// A suffix `ASC` or `DESC`, or `GROUP AND ORDER BY`, orders the rows by its item: the group
@@ -1396,10 +1562,62 @@ impl Pass<'_> {
             }
         }
         let group_keys: Vec<Expr> = groups.iter().filter_map(|g| g.expr.clone()).collect();
+        // `HAVING MAX` and `HAVING MIN` take the extreme of each grouping set over its own keys,
+        // so the rows of grouping sets expand to a copy for each set.
+        let having = (op.aggregate_items()).any(|item| {
+            (item.syntax().descendants()).any(|node| ast::HavingClause::can_cast(node.kind()))
+        });
+        let (rows, expanded) = match grouping && having && group_keys.len() == groups.len() {
+            true => match self.expand_grouping_sets(rows.clone(), &group_keys, &item_sets) {
+                Ok(expansion) => expansion,
+                Err(error) => {
+                    self.datafusion_error(range, error);
+                    return rows.fail();
+                }
+            },
+            false => (rows, None),
+        };
         let mut items = Vec::new();
         for item in op.aggregate_items() {
             let item_range = item.syntax().text_range();
             let expr = item.expr();
+            // `expression.*` of an aggregate's struct: an item for each field.
+            if let Some(wildcard) = item.wildcard() {
+                let keys = match &expanded {
+                    Some(expanded) => Some(expanded.keys.as_slice()),
+                    None => (!grouping).then_some(group_keys.as_slice()),
+                };
+                let scope = Scope::of(&rows, "pipe AGGREGATE")
+                    .aggregates()
+                    .grouped(keys);
+                let fields = expr
+                    .as_ref()
+                    .and_then(|expr| self.expr(expr, scope))
+                    .and_then(|base| self.struct_items(base, item_range, item_range, scope))
+                    .and_then(|fields| self.except_replace(fields, &wildcard, scope));
+                let Some(fields) = fields else {
+                    ok = false;
+                    continue;
+                };
+                for field in fields {
+                    let Item::Compute {
+                        name,
+                        expr,
+                        definition,
+                    } = field
+                    else {
+                        continue;
+                    };
+                    items.push(Output {
+                        expr: Some(expr),
+                        name,
+                        definition,
+                        order: None,
+                        range: item_range,
+                    });
+                }
+                continue;
+            }
             let alias = alias_name(item.alias());
             let name = match &alias {
                 Some((name, _)) => name.clone(),
@@ -1408,7 +1626,10 @@ impl Pass<'_> {
             let definition = alias
                 .map(|(_, range)| range)
                 .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
-            let keys = (!grouping).then_some(group_keys.as_slice());
+            let keys = match &expanded {
+                Some(expanded) => Some(expanded.keys.as_slice()),
+                None => (!grouping).then_some(group_keys.as_slice()),
+            };
             let scope = Scope::of(&rows, "pipe AGGREGATE")
                 .aggregates()
                 .grouped(keys);
@@ -1429,9 +1650,11 @@ impl Pass<'_> {
             })
             .collect();
         let failed = || Rows::failed(names.clone(), Vec::new());
+        // Once for each item: the fields of an item's `.*` share its text.
+        let mut reported = HashSet::new();
         for item in &items {
             if let Some(expr) = &item.expr {
-                if find_aggregate_exprs([expr]).is_empty() {
+                if find_aggregate_exprs([expr]).is_empty() && reported.insert(item.range) {
                     self.error(
                         item.range,
                         "Pipe AGGREGATE cannot include non-aggregate expressions",
@@ -1472,6 +1695,18 @@ impl Pass<'_> {
                 }
             },
         };
+        if let Some(expanded) = &expanded {
+            for item in &mut items {
+                let expr = item.expr.take().expect("an item");
+                match expanded_grouping(expr, &group_keys, expanded) {
+                    Ok(expr) => item.expr = Some(expr),
+                    Err(error) => {
+                        self.datafusion_error(item.range, error);
+                        return failed();
+                    }
+                }
+            }
+        }
         let item_exprs: Vec<Expr> = items
             .iter()
             .map(|item| item.expr.clone().expect("an item"))
@@ -1486,25 +1721,11 @@ impl Pass<'_> {
         }
         // A grouping item other than an expression groups by the sets of the cross product of the
         // items' sets, and the aggregate adds a column of the grouping id after the group columns.
-        let group_exprs = match grouping {
-            false => distinct.clone(),
-            true => {
-                let mut sets: Vec<Vec<usize>> = vec![Vec::new()];
-                for item in &item_sets {
-                    sets = (sets.iter())
-                        .flat_map(|set| {
-                            item.iter().map(move |more| {
-                                let mut set = set.clone();
-                                for index in more {
-                                    if !set.contains(index) {
-                                        set.push(*index);
-                                    }
-                                }
-                                set
-                            })
-                        })
-                        .collect();
-                }
+        let group_exprs = match (&expanded, grouping) {
+            (Some(expanded), _) => expanded.keys.clone(),
+            (None, false) => distinct.clone(),
+            (None, true) => {
+                let sets = cross_sets(&item_sets);
                 let sets = (sets.into_iter())
                     .map(|set| {
                         let mut exprs: Vec<Expr> = Vec::new();
@@ -1542,12 +1763,16 @@ impl Pass<'_> {
             }
         };
         let mut projection = Vec::new();
-        for group in &groups {
+        for (number, group) in groups.iter().enumerate() {
             let expr = group.expr.as_ref().expect("a group");
-            let index = group_exprs
-                .iter()
-                .position(|e| e == expr)
-                .expect("a group expression");
+            // An expanded aggregate groups by the number of the set, then each group expression.
+            let index = match &expanded {
+                Some(_) => number + 1,
+                None => group_exprs
+                    .iter()
+                    .position(|e| e == expr)
+                    .expect("a group expression"),
+            };
             let column = output[index].clone();
             projection.push(match expr {
                 Expr::Column(c) if c.name == group.name => Item::Carry(Col {
@@ -1562,11 +1787,17 @@ impl Pass<'_> {
                 },
             });
         }
-        let grouped: Vec<(Expr, Column)> = group_exprs
-            .iter()
-            .cloned()
-            .zip(output.iter().cloned())
-            .collect();
+        let grouped: Vec<(Expr, Column)> = match &expanded {
+            Some(expanded) => (expanded.keys[..1].iter().chain(&group_keys))
+                .cloned()
+                .zip(output.iter().cloned())
+                .collect(),
+            None => group_exprs
+                .iter()
+                .cloned()
+                .zip(output.iter().cloned())
+                .collect(),
+        };
         for item in &items {
             let expr = item.expr.clone().expect("an item");
             let rebased = rows::rebase(expr, &aggregates).and_then(|expr| regroup(expr, &grouped));
@@ -1620,6 +1851,73 @@ struct Output {
     definition: Option<TextRange>,
     order: Option<(bool, bool)>,
     range: TextRange,
+}
+
+/// The grouping sets of the cross product of the sets of each grouping item, as indices of the
+/// group expressions.
+fn cross_sets(item_sets: &[Vec<Vec<usize>>]) -> Vec<Vec<usize>> {
+    let mut sets: Vec<Vec<usize>> = vec![Vec::new()];
+    for item in item_sets {
+        sets = (sets.iter())
+            .flat_map(|set| {
+                item.iter().map(move |more| {
+                    let mut set = set.clone();
+                    for index in more {
+                        if !set.contains(index) {
+                            set.push(*index);
+                        }
+                    }
+                    set
+                })
+            })
+            .collect();
+    }
+    sets
+}
+
+/// The rows of grouping sets, expanded for `HAVING MAX` and `HAVING MIN`, whose extremes each
+/// grouping set takes over its own keys: a copy of each row for each grouping set, with the
+/// number of the set and each group expression, `NULL` outside the set.
+struct Expanded {
+    /// The number of the set, then each group expression of the copy.
+    keys: Vec<Expr>,
+    sets: Vec<Vec<usize>>,
+}
+
+/// `GROUPING(x)` of `expr` as a test of the number of the grouping set, in an expanded aggregate:
+/// 1 where the set leaves `x` out.
+fn expanded_grouping(expr: Expr, groups: &[Expr], expanded: &Expanded) -> Result<Expr> {
+    use datafusion::common::tree_node::{Transformed, TreeNode};
+    expr.transform_down(|e| {
+        let Expr::AggregateFunction(function) = &e else {
+            return Ok(Transformed::no(e));
+        };
+        if function.func.name() != "grouping" {
+            return Ok(Transformed::no(e));
+        }
+        let Some(index) = groups
+            .iter()
+            .position(|g| Some(g) == function.params.args.first())
+        else {
+            return Ok(Transformed::no(e));
+        };
+        let without: Vec<Expr> = (expanded.sets.iter().enumerate())
+            .filter(|(_, set)| !set.contains(&index))
+            .map(|(number, _)| Expr::Literal(ScalarValue::Int64(Some(number as i64)), None))
+            .collect();
+        let one = Expr::Literal(ScalarValue::Int32(Some(1)), None);
+        let zero = Expr::Literal(ScalarValue::Int32(Some(0)), None);
+        let test = match without.is_empty() {
+            true => zero,
+            false => datafusion::logical_expr::when(
+                expanded.keys[0].clone().in_list(without, false),
+                one,
+            )
+            .otherwise(zero)?,
+        };
+        Ok(Transformed::yes(test))
+    })
+    .map(|t| t.data)
 }
 
 /// The sets of `ROLLUP (a, b, ...)`: each prefix of its expressions, from all of them to none.

@@ -17,8 +17,13 @@ use datafusion::{
     arrow::datatypes::DataType,
     common::{Column, ScalarValue, UnnestOptions},
     functions::core::expr_fn as core,
+    functions_aggregate::bool_and_or::bool_or_udaf,
     functions_nested::expr_fn as nested,
-    logical_expr::{when, Expr, LogicalPlan, LogicalPlanBuilder, Subquery},
+    functions_window::row_number::row_number_udwf,
+    logical_expr::{
+        expr::WindowFunction, when, Expr, LogicalPlan, LogicalPlanBuilder, Subquery, WindowFrame,
+        WindowFunctionDefinition,
+    },
 };
 use std::sync::Arc;
 
@@ -31,6 +36,32 @@ use crate::library::Ty;
 
 /// A name, and the range of its text.
 type Named = (String, TextRange);
+
+/// What a join unnests: an `UNNEST`, or the path of an array of a row before it, as in
+/// `FROM t, t.xs`.
+#[derive(Clone, Copy)]
+pub(super) enum Unnesting<'a> {
+    Unnest(&'a ast::UnnestSource),
+    Path(&'a ast::TableSource),
+}
+
+/// The arrays of an unnest, planned: each array, with its alias and the range of its text, the
+/// alias and the range of `WITH OFFSET`, and the mode of several arrays.
+pub(super) struct Arrays {
+    pub arrays: Vec<(Option<Expr>, Option<Named>, TextRange)>,
+    pub offset: Option<Named>,
+    pub truncate: bool,
+    pub strict: bool,
+}
+
+/// Whether `table`, a source after `left`, is the path of an array of a row of `left`: a path of
+/// two or more names whose first is a range variable of `left`.
+fn array_path(left: &Rows, table: &ast::TableSource) -> bool {
+    let Some(names) = table.path().and_then(|path| path.names()) else {
+        return false;
+    };
+    names.len() > 1 && (left.vars.iter()).any(|var| var.name.eq_ignore_ascii_case(&names[0]))
+}
 
 fn int(value: i64) -> Expr {
     Expr::Literal(ScalarValue::Int64(Some(value)), None)
@@ -57,7 +88,10 @@ impl Pass<'_> {
     ) -> Rows {
         match right {
             Some(ast::Source::UnnestSource(unnest)) => {
-                self.join_unnest(left, &unnest, op, condition, range)
+                self.join_unnest(left, Unnesting::Unnest(&unnest), op, condition, range)
+            }
+            Some(ast::Source::TableSource(table)) if array_path(&left, &table) => {
+                self.join_unnest(left, Unnesting::Path(&table), op, condition, range)
             }
             Some(ast::Source::SubquerySource(subquery)) if subquery.lateral_kw().is_some() => {
                 let right = self.lateral(&left, &subquery);
@@ -71,11 +105,13 @@ impl Pass<'_> {
         }
     }
 
-    /// A join of `left` and an `UNNEST` of each of its rows.
+    /// A join of `left` and an unnest of each of its rows. A `LEFT JOIN` keeps each row of
+    /// `left`: with a `NULL` element where its array is empty or `NULL`, and with an `ON`
+    /// condition, where no element meets it.
     fn join_unnest(
         &mut self,
         left: Rows,
-        unnest: &ast::UnnestSource,
+        unnesting: Unnesting,
         op: Option<ast::JoinOp>,
         condition: Option<ast::JoinCondition>,
         range: TextRange,
@@ -92,31 +128,153 @@ impl Pass<'_> {
             Some(op) => op.left_kw().is_some(),
             None => false,
         };
-        match &condition {
-            Some(_) if outer => {
-                self.error(
-                    range,
-                    "avenger-sql doesn't plan a condition of LEFT JOIN UNNEST yet",
-                );
-                return left.fail();
-            }
+        let on = match condition {
             Some(ast::JoinCondition::UsingCondition(_)) => {
                 self.error(range, "A JOIN of an UNNEST takes no USING");
                 return left.fail();
             }
-            _ => {}
-        }
-        let rows = self.unnest_onto(left, unnest, outer, range);
-        let Some(ast::JoinCondition::OnCondition(on)) = condition else {
-            return rows;
+            Some(ast::JoinCondition::OnCondition(on)) => match on.expr() {
+                Some(expr) => Some(expr),
+                None => return left.fail(),
+            },
+            None => None,
         };
-        let Some(expr) = on.expr() else {
+        let Some(on) = on else {
+            return self.unnesting_onto(left, unnesting, outer, range);
+        };
+        if !outer {
+            let rows = self.unnesting_onto(left, unnesting, false, range);
+            return self.on_filter(rows, &on);
+        }
+        // Each row of `left` takes a number, and keeps its first unnested row, with `NULL`
+        // elements, when none of its elements meets the condition.
+        let Some(plan) = left.plan.clone() else {
+            return left.fail();
+        };
+        let row_id = self.qualifiers.fresh("$row");
+        let number = Expr::from(WindowFunction::new(
+            WindowFunctionDefinition::WindowUDF(row_number_udwf()),
+            Vec::new(),
+        ));
+        let mut exprs: Vec<Expr> = plan
+            .schema()
+            .columns()
+            .into_iter()
+            .map(Expr::Column)
+            .collect();
+        let numbered = LogicalPlanBuilder::window_plan(plan, vec![number]).and_then(|plan| {
+            let id = plan
+                .schema()
+                .columns()
+                .last()
+                .cloned()
+                .expect("the window's column");
+            exprs.push(Expr::Column(id).alias_qualified(Some(row_id.clone()), "$row"));
+            LogicalPlanBuilder::from(plan).project(exprs)?.build()
+        });
+        let numbered = match numbered {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return left.fail();
+            }
+        };
+        let before = numbered.schema().columns();
+        let row_column = Column::new(Some(row_id), "$row");
+        let row = Expr::Column(row_column.clone());
+        // The number is a column through the unnest, which carries the visible columns, and is
+        // hidden again after it.
+        let visible = left.columns.len();
+        let mut columns = left.columns.clone();
+        columns.push(Col {
+            name: "$row".to_string(),
+            column: row_column.clone(),
+            definition: None,
+        });
+        let numbered = Rows {
+            plan: Some(numbered),
+            columns,
+            ..left
+        };
+        let mut rows = self.unnesting_onto(numbered, unnesting, true, range);
+        if rows.columns.len() > visible {
+            rows.columns.remove(visible);
+        }
+        let at = on.syntax().text_range();
+        let matched = {
+            let scope = Scope::of(&rows, "JOIN ON clause");
+            self.expr(&on, scope)
+                .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
+        };
+        let (Some(matched), Some(plan)) = (matched, rows.plan.clone()) else {
             return rows.fail();
         };
-        let at = expr.syntax().text_range();
+        let matched = core::coalesce(vec![
+            matched,
+            Expr::Literal(ScalarValue::Boolean(Some(false)), None),
+        ]);
+        let over_row = |function: WindowFunctionDefinition, args: Vec<Expr>| {
+            let mut window = WindowFunction::new(function, args);
+            window.params.partition_by = vec![row.clone()];
+            window.params.window_frame = WindowFrame::new(None);
+            Expr::from(window)
+        };
+        let any = over_row(
+            WindowFunctionDefinition::AggregateUDF(bool_or_udaf()),
+            vec![matched.clone()],
+        );
+        let first = over_row(
+            WindowFunctionDefinition::WindowUDF(row_number_udwf()),
+            Vec::new(),
+        )
+        .eq(int(1));
+        let keep = matched.clone().or((!any).and(first));
+        let fallback = rows.clone().fail();
+        let kept = match super::rows::filter(
+            Rows {
+                plan: Some(plan),
+                ..rows.clone()
+            },
+            keep,
+        ) {
+            Ok(kept) => kept,
+            Err(error) => {
+                self.datafusion_error(at, error);
+                return fallback;
+            }
+        };
+        // The columns of the unnest are `NULL` in a row that no element of matched.
+        let plan = kept.plan.clone().expect("a plan");
+        let exprs: Vec<Expr> = (plan.schema().columns().into_iter())
+            .map(|column| match before.contains(&column) {
+                true => Expr::Column(column),
+                false => when(matched.clone(), Expr::Column(column.clone()))
+                    .end()
+                    .expect("a CASE")
+                    .alias_qualified(column.relation.clone(), column.name.clone()),
+            })
+            .collect();
+        match LogicalPlanBuilder::from(plan)
+            .project(exprs)
+            .and_then(|b| b.build())
+        {
+            Ok(plan) => Rows {
+                plan: Some(plan),
+                ..kept
+            },
+            Err(error) => {
+                self.datafusion_error(at, error);
+                fallback
+            }
+        }
+    }
+
+    /// The rows of `rows` that the condition `on` keeps, as the `ON` of an inner join.
+    fn on_filter(&mut self, rows: Rows, on: &ast::Expr) -> Rows {
+        let at = on.syntax().text_range();
         let predicate = {
             let scope = Scope::of(&rows, "JOIN ON clause");
-            self.expr(&expr, scope)
+            self.expr(on, scope)
                 .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
         };
         let (Some(predicate), Some(plan)) = (predicate, rows.plan.clone()) else {
@@ -134,6 +292,54 @@ impl Pass<'_> {
             at,
             fallback,
         )
+    }
+
+    /// The rows of `base` with the unnest of `unnesting`.
+    fn unnesting_onto(
+        &mut self,
+        base: Rows,
+        unnesting: Unnesting,
+        outer: bool,
+        range: TextRange,
+    ) -> Rows {
+        match unnesting {
+            Unnesting::Unnest(unnest) => self.unnest_onto(base, unnest, outer, range),
+            Unnesting::Path(table) => self.unnest_path(base, table, outer, range),
+        }
+    }
+
+    /// The rows of `base` with a row for each element of the array that the path of `table`
+    /// reads from a row of `base`, as GoogleSQL takes `FROM t, t.xs`, with its alias and its
+    /// `WITH OFFSET`.
+    fn unnest_path(
+        &mut self,
+        base: Rows,
+        table: &ast::TableSource,
+        outer: bool,
+        range: TextRange,
+    ) -> Rows {
+        let Some(path) = table.path() else {
+            return base.fail();
+        };
+        let at = path.syntax().text_range();
+        let array = self.path(&path, Scope::of(&base, "FROM clause"));
+        let name = (table.alias().and_then(|alias| alias.name()))
+            .and_then(|name| Some((name.text()?, name.syntax().text_range())))
+            .or_else(|| Some((path.names()?.last()?.clone(), at)));
+        let offset = table.with_offset().map(|offset| {
+            let name = offset.alias().and_then(|a| a.name()).and_then(|n| n.text());
+            (
+                name.unwrap_or_else(|| "offset".into()),
+                offset.syntax().text_range(),
+            )
+        });
+        let spec = Arrays {
+            arrays: vec![(array, name, at)],
+            offset,
+            truncate: false,
+            strict: false,
+        };
+        self.unnest_arrays(base, spec, outer, range)
     }
 
     /// The rows of `base` with a row for each element of the arrays of `unnest`, which read the
@@ -180,6 +386,8 @@ impl Pass<'_> {
             );
             return base.fail();
         }
+        // `STRICT` unnests as `PAD` does, and fails where the arrays differ in length.
+        let mut strict = false;
         let truncate = match unnest.named_arg() {
             None => false,
             Some(arg) => {
@@ -195,11 +403,8 @@ impl Pass<'_> {
                     ("mode", Some(mode)) if mode == "PAD" => false,
                     ("mode", Some(mode)) if mode == "TRUNCATE" => true,
                     ("mode", Some(mode)) if mode == "STRICT" => {
-                        self.error(
-                            arg.syntax().text_range(),
-                            "avenger-sql doesn't unnest arrays with mode => 'STRICT' yet",
-                        );
-                        return base.fail();
+                        strict = true;
+                        false
                     }
                     _ => {
                         self.error(
@@ -211,6 +416,34 @@ impl Pass<'_> {
                 }
             }
         };
+        self.unnest_arrays(
+            base,
+            Arrays {
+                arrays,
+                offset,
+                truncate,
+                strict,
+            },
+            outer,
+            range,
+        )
+    }
+
+    /// The rows of `base` with a row for each element of `spec`'s arrays, planned over `base`.
+    /// When `outer` holds, a row whose array is empty or `NULL` stays, with a `NULL` element.
+    pub(super) fn unnest_arrays(
+        &mut self,
+        base: Rows,
+        spec: Arrays,
+        outer: bool,
+        range: TextRange,
+    ) -> Rows {
+        let Arrays {
+            arrays,
+            offset,
+            truncate,
+            strict,
+        } = spec;
         let elements: Vec<Option<Ty>> = (arrays.iter())
             .map(|(expr, _, at)| {
                 let expr = expr.as_ref()?;
@@ -276,6 +509,19 @@ impl Pass<'_> {
                 .expect("a CASE");
             }
             lengths.push(nested::cardinality(array.clone()));
+            if strict && index > 0 {
+                // A `NULL` array has no elements.
+                let length = |e: Expr| {
+                    core::coalesce(vec![e, Expr::Literal(ScalarValue::UInt64(Some(0)), None)])
+                };
+                let differ = length(lengths[0].clone()).not_eq(length(lengths[index].clone()));
+                array = crate::library::error::error_when(
+                    differ,
+                    array,
+                    "Unnested arrays under STRICT mode must have equal lengths",
+                    Vec::new(),
+                );
+            }
             items.push(Item::Compute {
                 name: format!("{unique}_array{}", index + 1),
                 expr: array,

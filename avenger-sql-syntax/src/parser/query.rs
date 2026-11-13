@@ -446,18 +446,26 @@ impl Parser<'_> {
         let kind = match word {
             "SELECT" => {
                 self.bump_keyword();
-                if self.at_keyword("AS") {
-                    let range = self.range();
-                    self.error(
-                        DiagnosticCode::Unsupported,
-                        range,
-                        "avenger-sql has no value tables, so no SELECT AS STRUCT or AS VALUE",
-                    );
-                    self.skip_until(|p| p.at_sync());
-                    return Some(PIPE_SELECT);
-                }
                 if !self.eat_keyword("DISTINCT") {
                     self.eat_keyword("ALL");
+                }
+                if self.at_keyword("AS") {
+                    if self.keyword_at(1, "STRUCT") || self.keyword_at(1, "VALUE") {
+                        let marker = self.start();
+                        self.bump_keyword();
+                        self.bump_keyword();
+                        marker.complete(self, SELECT_AS);
+                    } else {
+                        // `AS <type>` names a protocol buffer type.
+                        let range = self.range().cover(self.nth_range(1));
+                        self.error(
+                            DiagnosticCode::Unsupported,
+                            range,
+                            "avenger-sql has no protocol buffer types, so no SELECT AS a type",
+                        );
+                        self.skip_until(|p| p.at_sync());
+                        return Some(PIPE_SELECT);
+                    }
                 }
                 self.select_list();
                 self.window_clause();
@@ -654,7 +662,14 @@ impl Parser<'_> {
     fn select_item(&mut self) {
         let marker = self.start();
         if self.current() != STAR && self.qualified_star_ahead().is_none() {
-            self.expr();
+            self.item_expr();
+            // `expression.*` of a struct.
+            if self.current() == DOT && self.nth(1) == STAR {
+                self.bump();
+                self.wildcard_rest();
+                marker.complete(self, WILDCARD);
+                return;
+            }
             self.alias(NameRole::Alias);
             marker.complete(self, SELECT_ITEM);
             return;
@@ -663,6 +678,19 @@ impl Parser<'_> {
             self.path(NameRole::Table);
             self.expect(DOT, "`.`");
         }
+        self.wildcard_rest();
+        marker.complete(self, WILDCARD);
+    }
+
+    /// The expression of a select or aggregate item, which can end before `.*`.
+    fn item_expr(&mut self) {
+        let saved = self.dot_star_at.replace(self.position);
+        self.expr();
+        self.dot_star_at = saved;
+    }
+
+    /// The `*` of a wildcard and its `EXCEPT` and `REPLACE`.
+    fn wildcard_rest(&mut self) {
         self.expect(STAR, "`*`");
         if self.at_keyword("EXCEPT") {
             let except = self.start();
@@ -685,7 +713,6 @@ impl Parser<'_> {
             );
             replace.complete(self, REPLACE_LIST);
         }
-        marker.complete(self, WILDCARD);
     }
 
     /// The number of names before `.*` when the current tokens are `name(.name)*.*`.
@@ -734,7 +761,16 @@ impl Parser<'_> {
             self.comma_list_until(
                 |p| {
                     let marker = p.start();
-                    p.expr();
+                    p.item_expr();
+                    // `expression.*` of an aggregate's struct, which takes no alias or order.
+                    if p.current() == DOT && p.nth(1) == STAR {
+                        let wildcard = p.start();
+                        p.bump();
+                        p.wildcard_rest();
+                        wildcard.complete(p, WILDCARD);
+                        marker.complete(p, AGGREGATE_ITEM);
+                        return;
+                    }
                     p.alias(NameRole::Alias);
                     p.order_suffix(false);
                     marker.complete(p, AGGREGATE_ITEM);

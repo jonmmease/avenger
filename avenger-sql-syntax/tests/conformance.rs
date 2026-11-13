@@ -220,6 +220,7 @@ fn conformance() {
     let mut same = 0;
     let mut explained: Vec<(&str, Difference)> = Vec::new();
     let mut unexplained: Vec<Difference> = Vec::new();
+    let mut used = vec![false; known.len()];
     for (input, theirs) in inputs.iter().zip(verdicts) {
         let ours = ours(&input.text);
         if ours == theirs {
@@ -232,11 +233,19 @@ fn conformance() {
             ours,
             theirs,
         };
-        match known.iter().find(|known| known.matches(&input.label)) {
-            Some(known) => explained.push((&known.reason, difference)),
+        match known.iter().position(|known| known.matches(&input.label)) {
+            Some(index) => {
+                used[index] = true;
+                explained.push((&known[index].reason, difference));
+            }
             None => unexplained.push(difference),
         }
     }
+    // The entries of `known.txt` that explain no difference, which a change made obsolete.
+    let stale: Vec<&Known> = (known.iter().zip(&used))
+        .filter(|(_, used)| !**used)
+        .map(|(known, _)| known)
+        .collect();
 
     let mut report = String::from("# Conformance with GoogleSQL's parser\n\n");
     let _ = writeln!(
@@ -259,6 +268,13 @@ fn conformance() {
             input(&mut report, difference);
         }
     }
+    if !stale.is_empty() {
+        report.push_str("## Known entries without a difference\n\n");
+        for known in &stale {
+            let _ = writeln!(report, "- `{}`: {}", known.pattern, known.reason);
+        }
+        report.push('\n');
+    }
     report.push_str("## Explained differences\n\n");
     let mut reasons: Vec<&str> = explained.iter().map(|(reason, _)| *reason).collect();
     reasons.sort();
@@ -279,8 +295,9 @@ fn conformance() {
     std::fs::create_dir_all(&output).unwrap();
     std::fs::write(output.join("conformance.md"), &report).unwrap();
     assert!(
-        unexplained.is_empty(),
-        "{} unexplained differences; the report is in tests/output/conformance.md",
-        unexplained.len()
+        unexplained.is_empty() && stale.is_empty(),
+        "{} unexplained differences and {} known entries without one; the report is in tests/output/conformance.md",
+        unexplained.len(),
+        stale.len()
     );
 }
