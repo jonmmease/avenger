@@ -1,176 +1,268 @@
-//! Streaming queries over the built-in `events` table: a query that [`avenger_sql::streaming`]
-//! splits runs each frame's events through its stages once, applies the rows that they keep to its
-//! front, and runs the rest of the query as a batch plan over the front's output, only on frames
-//! where that output changed. After every frame, the result equals the batch plan of the whole
-//! query over every event so far.
+//! Queries over the events of a chart, which run frame by frame.
 //!
+//! An [`EventLog`] holds a chart's events in the order of arrival, numbered in the column `seq`,
+//! and is the table `events` of avenger-sql's catalog. [`EventQueries`] holds the queries over the
+//! log: each frame's events go to the log and to every query, and each query's result equals its
+//! batch plan over every event so far.
+//!
+//! A query that [`avenger_sql::streaming::split`] splits runs incrementally: each frame's events
+//! pass through its stages once, the rows that they keep update its front, and the rest of the
+//! query runs as a batch plan over the front's output, only on frames where that output changed.
 //! The fronts take rows that only grow, so neither needs a retraction:
 //!
 //! - an `AGGREGATE` keeps DataFusion's accumulators of each group, which only add rows;
 //! - an `ORDER BY ... LIMIT` keeps the first rows of its order, at most its skip and its fetch.
+//!
+//! Another query runs as its batch plan over the log on each frame with events.
 
 mod front;
+mod log;
+mod query;
 
-use std::sync::Arc;
+use std::collections::{BTreeSet, HashMap};
 
-use avenger_sql::streaming::Split;
+use avenger_sql::streaming::split;
 use datafusion::{
-    arrow::{array::RecordBatch, datatypes::SchemaRef},
+    arrow::array::RecordBatch,
     common::{
-        ParamValues, Result,
-        tree_node::{Transformed, TreeNode, TreeNodeRecursion},
+        ParamValues, Result, ScalarValue, plan_err,
+        tree_node::{TreeNode, TreeNodeRecursion},
     },
-    datasource::{MemTable, provider_as_source},
-    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
+    logical_expr::{Expr, LogicalPlan},
     prelude::SessionContext,
 };
 
-use front::FrontState;
+pub use avenger_sql::streaming::Rejection;
+pub use log::{EventLog, SEQ};
 
-/// A query over `events` that runs incrementally, frame by frame.
-pub struct StreamingQuery {
+use query::StreamingQuery;
+
+/// The name of a query of [`EventQueries`], such as the variable or the chart that it feeds.
+pub type QueryId = String;
+
+/// How a query of [`EventQueries`] runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mode {
+    /// Incrementally: its cost of a frame doesn't grow with the log.
+    Streaming,
+    /// As its batch plan over the whole log on each frame with events, for the reason that the
+    /// rejection gives.
+    Batch(Rejection),
+}
+
+/// The queries over the events of one log, which run frame by frame.
+pub struct EventQueries {
     ctx: SessionContext,
-    split: Split,
-    /// The table of the events of a frame, which the stages read.
-    frame: Arc<MemTable>,
-    events_schema: SchemaRef,
-    /// The stages and the downstream, bound to the parameters and optimized.
-    stages: LogicalPlan,
-    downstream: LogicalPlan,
-    front: FrontState,
-    params: Option<ParamValues>,
-    /// Every event so far, which a change of a parameter of the stages or the front replays.
-    events: Vec<RecordBatch>,
+    log: EventLog,
+    /// The queries, in the order of their registration.
+    queries: Vec<Entry>,
+    /// The values of the parameters, by their names without `$`.
+    params: HashMap<String, ScalarValue>,
+}
+
+struct Entry {
+    id: QueryId,
+    mode: Mode,
+    /// The names of the parameters that the query reads.
+    reads: BTreeSet<String>,
+    run: Run,
+}
+
+enum Run {
+    Streaming(Box<StreamingQuery>),
+    Batch(Box<BatchQuery>),
+}
+
+/// A query that runs as its batch plan.
+struct BatchQuery {
+    plan: LogicalPlan,
+    /// The plan bound to the parameters and optimized.
+    bound: LogicalPlan,
     result: Vec<RecordBatch>,
 }
 
-impl StreamingQuery {
-    /// The streaming query of `split` with the values of its parameters, whose result is the
-    /// result over no events.
-    pub async fn new(
-        ctx: SessionContext,
-        split: Split,
-        params: Option<ParamValues>,
-    ) -> Result<StreamingQuery> {
-        let events_schema = Arc::new(split.scan.projected_schema.as_arrow().clone());
-        let frame = Arc::new(MemTable::try_new(events_schema.clone(), vec![vec![]])?);
-        let mut query = StreamingQuery {
+impl EventQueries {
+    /// The queries over `log`, which run in `ctx`, a session with avenger-sql's functions
+    /// (`avenger_sql::register`).
+    pub fn new(ctx: SessionContext, log: EventLog) -> EventQueries {
+        EventQueries {
             ctx,
-            split,
-            frame,
-            events_schema,
-            stages: LogicalPlan::default(),
-            downstream: LogicalPlan::default(),
-            front: FrontState::Empty,
-            params,
-            events: Vec::new(),
-            result: Vec::new(),
-        };
-        query.prepare(true)?;
-        query.run_downstream().await?;
-        Ok(query)
-    }
-
-    /// The result after the frames so far.
-    pub fn result(&self) -> &[RecordBatch] {
-        &self.result
-    }
-
-    /// Applies the events of a frame, in the order of `seq`, after the events before it, and
-    /// returns whether the result changed.
-    pub async fn push(&mut self, events: RecordBatch) -> Result<bool> {
-        if events.num_rows() == 0 {
-            return Ok(false);
+            log,
+            queries: Vec::new(),
+            params: HashMap::new(),
         }
-        self.events.push(events.clone());
-        self.apply(events).await
     }
 
-    /// Binds the query's parameters, as of a script's variables. A parameter that the stages or
-    /// the front read rebuilds the front from every event so far; one that only the downstream
-    /// reads runs the downstream again.
-    pub async fn set_params(&mut self, params: ParamValues) -> Result<()> {
-        self.params = Some(params);
-        let rebuild = reads_params(&self.split.stages) || self.split.front.reads_params();
-        self.prepare(rebuild)?;
-        if rebuild {
-            for events in self.events.clone() {
-                self.apply_front(events).await?;
+    /// The log of the queries' events.
+    pub fn log(&self) -> &EventLog {
+        &self.log
+    }
+
+    /// Adds the query `plan` under `id`, a plan of avenger-sql whose catalog's `events` is the
+    /// log's table. The query runs incrementally when it splits, and otherwise as its batch plan,
+    /// and its result is current over the log's events when this returns. The parameters that it
+    /// reads need values first, from [`EventQueries::set_params`].
+    pub async fn register(&mut self, id: impl Into<QueryId>, plan: LogicalPlan) -> Result<Mode> {
+        let id = id.into();
+        if self.queries.iter().any(|entry| entry.id == id) {
+            return plan_err!("a query is registered as `{id}`");
+        }
+        let reads = param_names(&plan);
+        if let Some(missing) = reads.iter().find(|name| !self.params.contains_key(*name)) {
+            return plan_err!(
+                "the query `{id}` reads the parameter `{missing}`, which has no value"
+            );
+        }
+        let params = self.param_values(&reads);
+        let (mode, run) = match split(&plan, &self.log.table()) {
+            Ok(split) => {
+                let query =
+                    StreamingQuery::new(self.ctx.clone(), self.log.clone(), split, params).await?;
+                (Mode::Streaming, Run::Streaming(Box::new(query)))
             }
-        }
-        self.run_downstream().await
-    }
-
-    /// The plans of the parameters, and with `front`, a new front.
-    fn prepare(&mut self, front: bool) -> Result<()> {
-        let bind = |plan: &LogicalPlan, params: &Option<ParamValues>| match params {
-            Some(params) => plan.clone().with_param_values(params.clone()),
-            None => Ok(plan.clone()),
+            Err(rejection) => {
+                let bound = self.bind(&plan, &params)?;
+                let result = execute(&self.ctx, &bound).await?;
+                let run = Run::Batch(Box::new(BatchQuery {
+                    plan,
+                    bound,
+                    result,
+                }));
+                (Mode::Batch(rejection), run)
+            }
         };
-        let scan = LogicalPlanBuilder::scan(
-            self.split.scan.table_name.clone(),
-            provider_as_source(self.frame.clone()),
-            None,
-        )?
-        .build()?;
-        let original = LogicalPlan::TableScan(self.split.scan.clone());
-        let stages = (self.split.stages.clone())
-            .transform_down(|p| match p == original {
-                true => Ok(Transformed::new(
-                    scan.clone(),
-                    true,
-                    TreeNodeRecursion::Jump,
-                )),
-                false => Ok(Transformed::no(p)),
-            })?
-            .data;
-        let state = self.ctx.state();
-        let stages = bind(&stages, &self.params)?;
-        if front {
-            self.front = FrontState::new(
-                &self.split.front,
-                stages.schema(),
-                &self.params,
-                state.execution_props(),
-            )?;
-        }
-        self.stages = state.optimize(&stages)?;
-        self.downstream = state.optimize(&bind(&self.split.downstream, &self.params)?)?;
-        Ok(())
+        self.queries.push(Entry {
+            id,
+            mode: mode.clone(),
+            reads,
+            run,
+        });
+        Ok(mode)
     }
 
-    async fn apply(&mut self, events: RecordBatch) -> Result<bool> {
-        if !self.apply_front(events).await? {
-            return Ok(false);
-        }
-        self.run_downstream().await?;
-        Ok(true)
+    /// Removes the query `id`, and returns whether it was registered.
+    pub fn remove(&mut self, id: &str) -> bool {
+        let before = self.queries.len();
+        self.queries.retain(|entry| entry.id != id);
+        self.queries.len() != before
     }
 
-    /// Runs `events` through the stages and the front, and returns whether the front's output
-    /// changed.
-    async fn apply_front(&mut self, events: RecordBatch) -> Result<bool> {
-        let events = RecordBatch::try_new(self.events_schema.clone(), events.columns().to_vec())?;
-        *self.frame.batches[0].write().await = vec![events];
-        let rows: Vec<RecordBatch> = (execute(&self.ctx, &self.stages).await?.into_iter())
-            .filter(|batch| batch.num_rows() > 0)
-            .collect();
-        let mut changed = false;
-        for batch in rows {
-            changed |= self.front.apply(&batch)?;
+    /// How the query `id` runs.
+    pub fn mode(&self, id: &str) -> Option<&Mode> {
+        self.entry(id).map(|entry| &entry.mode)
+    }
+
+    /// The current result of the query `id`: its batch plan's rows over every event so far.
+    pub fn result(&self, id: &str) -> Option<&[RecordBatch]> {
+        self.entry(id).map(|entry| match &entry.run {
+            Run::Streaming(query) => query.result(),
+            Run::Batch(query) => query.result.as_slice(),
+        })
+    }
+
+    /// Appends a frame's events to the log, with the columns of [`EventLog::input_schema`], and
+    /// applies them to every query. Returns the queries whose result changed, in the order of
+    /// their registration.
+    pub async fn push(&mut self, events: RecordBatch) -> Result<Vec<QueryId>> {
+        if events.num_rows() == 0 {
+            return Ok(Vec::new());
+        }
+        self.log.append(events).await?;
+        let mut changed = Vec::new();
+        for entry in &mut self.queries {
+            let differs = match &mut entry.run {
+                Run::Streaming(query) => query.catch_up().await?,
+                Run::Batch(query) => {
+                    let rows = execute(&self.ctx, &query.bound).await?;
+                    let differs = rows != query.result;
+                    query.result = rows;
+                    differs
+                }
+            };
+            if differs {
+                changed.push(entry.id.clone());
+            }
         }
         Ok(changed)
     }
 
-    async fn run_downstream(&mut self) -> Result<()> {
-        self.split.slot.set(self.front.output()?);
-        self.result = execute(&self.ctx, &self.downstream).await?;
-        Ok(())
+    /// Sets the values of parameters, by their names without `$`, over the values so far. Each
+    /// query that reads a parameter whose value changed rebuilds its front from the log, or runs
+    /// the rest of its plan again. Returns the queries whose result changed.
+    pub async fn set_params(
+        &mut self,
+        values: impl IntoIterator<Item = (String, ScalarValue)>,
+    ) -> Result<Vec<QueryId>> {
+        let mut changed_names = BTreeSet::new();
+        for (name, value) in values {
+            let name = name.trim_start_matches('$').to_string();
+            if self.params.get(&name) != Some(&value) {
+                self.params.insert(name.clone(), value);
+                changed_names.insert(name);
+            }
+        }
+        let mut changed = Vec::new();
+        for index in 0..self.queries.len() {
+            if self.queries[index].reads.is_disjoint(&changed_names) {
+                continue;
+            }
+            let params = self.param_values(&self.queries[index].reads);
+            let bound = match &self.queries[index].run {
+                Run::Batch(query) => Some(self.bind(&query.plan, &params)?),
+                Run::Streaming(_) => None,
+            };
+            let entry = &mut self.queries[index];
+            let differs = match (&mut entry.run, bound) {
+                (Run::Streaming(query), _) => match params {
+                    Some(params) => query.set_params(params).await?,
+                    None => false,
+                },
+                (Run::Batch(query), Some(rebound)) => {
+                    query.bound = rebound;
+                    let rows = execute(&self.ctx, &query.bound).await?;
+                    let differs = rows != query.result;
+                    query.result = rows;
+                    differs
+                }
+                (Run::Batch(_), None) => unreachable!("a batch query's plan is bound"),
+            };
+            if differs {
+                changed.push(entry.id.clone());
+            }
+        }
+        Ok(changed)
+    }
+
+    fn entry(&self, id: &str) -> Option<&Entry> {
+        self.queries.iter().find(|entry| entry.id == id)
+    }
+
+    /// The values of the parameters `names`, or `None` without parameters.
+    fn param_values(&self, names: &BTreeSet<String>) -> Option<ParamValues> {
+        if names.is_empty() {
+            return None;
+        }
+        let values = (names.iter())
+            .filter_map(|name| {
+                let value = self.params.get(name)?;
+                Some((name.clone(), value.clone().into()))
+            })
+            .collect();
+        Some(ParamValues::Map(values))
+    }
+
+    /// `plan` bound to `params` and optimized.
+    fn bind(&self, plan: &LogicalPlan, params: &Option<ParamValues>) -> Result<LogicalPlan> {
+        let plan = match params {
+            Some(params) => plan.clone().with_param_values(params.clone())?,
+            None => plan.clone(),
+        };
+        self.ctx.state().optimize(&plan)
     }
 }
 
 /// Runs the physical plan of the optimized `plan`.
-async fn execute(ctx: &SessionContext, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
+pub(crate) async fn execute(ctx: &SessionContext, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
     let state = ctx.state();
     let physical = state
         .query_planner()
@@ -179,36 +271,20 @@ async fn execute(ctx: &SessionContext, plan: &LogicalPlan) -> Result<Vec<RecordB
     datafusion::physical_plan::collect(physical, state.task_ctx()).await
 }
 
-/// Whether `plan` reads a parameter.
-fn reads_params(plan: &LogicalPlan) -> bool {
-    let mut found = false;
-    let _ = plan.apply(|node| {
+/// The names of the parameters that `plan` reads, in its subqueries too, without `$`.
+pub(crate) fn param_names(plan: &LogicalPlan) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    let _ = plan.apply_with_subqueries(|node| {
         let _ = node.apply_expressions(|expr| {
-            found |= expr_reads_params(expr);
+            let _ = expr.apply(|e| {
+                if let Expr::Placeholder(placeholder) = e {
+                    names.insert(placeholder.id.trim_start_matches('$').to_string());
+                }
+                Ok(TreeNodeRecursion::Continue)
+            });
             Ok(TreeNodeRecursion::Continue)
         });
         Ok(TreeNodeRecursion::Continue)
     });
-    found
-}
-
-fn expr_reads_params(expr: &Expr) -> bool {
-    expr.exists(|e| Ok(matches!(e, Expr::Placeholder(_))))
-        .unwrap_or(false)
-}
-
-trait ReadsParams {
-    fn reads_params(&self) -> bool;
-}
-
-impl ReadsParams for avenger_sql::streaming::Front {
-    fn reads_params(&self) -> bool {
-        use avenger_sql::streaming::Front;
-        match self {
-            Front::Aggregate { groups, aggregates } => {
-                groups.iter().chain(aggregates).any(expr_reads_params)
-            }
-            Front::Limit { order, .. } => order.iter().any(|key| expr_reads_params(&key.expr)),
-        }
-    }
+    names
 }

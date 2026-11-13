@@ -10,24 +10,23 @@ use avenger_sql::{
     catalog::MemoryCatalog,
     library::Library,
 };
+use avenger_streaming::EventLog;
 use datafusion::{
     arrow::{
         array::{
-            ArrayRef, BooleanArray, Float64Array, Int64Array, RecordBatch, StringArray,
+            ArrayRef, BooleanArray, Float64Array, RecordBatch, StringArray,
             TimestampMicrosecondArray,
         },
         datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit},
         util::pretty::pretty_format_batches,
     },
-    datasource::MemTable,
     logical_expr::LogicalPlan,
     prelude::{SessionConfig, SessionContext},
 };
 
-/// The schema of `events`: pointer events, as a chart records them.
+/// The columns of a pointer event, as a chart records it, without `seq`, which the log assigns.
 pub fn events_schema() -> SchemaRef {
     Arc::new(Schema::new(vec![
-        Field::new("seq", DataType::Int64, false),
         Field::new(
             "ts",
             DataType::Timestamp(TimeUnit::Microsecond, Some("UTC".into())),
@@ -220,18 +219,12 @@ pub fn session(count: usize, seed: u64, odd: bool) -> Vec<Vec<Event>> {
     frames
 }
 
-/// The frames as batches of `events`, numbered in order from 1.
+/// The frames as batches of events, which the log numbers.
 pub fn batches(frames: &[Vec<Event>]) -> Vec<RecordBatch> {
-    let mut seq = 1i64;
     frames
         .iter()
         .map(|events| {
-            let first = seq;
-            seq += events.len() as i64;
             let columns: Vec<ArrayRef> = vec![
-                Arc::new(Int64Array::from_iter_values(
-                    (0..events.len() as i64).map(|i| first + i),
-                )),
                 Arc::new(
                     TimestampMicrosecondArray::from_iter_values(events.iter().map(|e| e.ts))
                         .with_timezone("UTC"),
@@ -258,16 +251,22 @@ pub fn context() -> SessionContext {
     ctx
 }
 
-/// A table of `events`, which the runtime or the batch plan fills.
-pub fn events_table() -> Arc<MemTable> {
-    Arc::new(MemTable::try_new(events_schema(), vec![vec![]]).unwrap())
+/// A new log of pointer events.
+pub fn log() -> EventLog {
+    EventLog::new(events_schema()).unwrap()
 }
 
-/// The plan of `query` over `table` as `events`.
-pub fn plan(query: &str, table: Arc<MemTable>) -> LogicalPlan {
-    let catalog = MemoryCatalog::new().with_table(&["events"], table);
-    let parse = avenger_sql_syntax_parse(query);
-    let analysis = analyze(&parse, &catalog, &Library::new(), &Options::default());
+/// The plan of `query` over `log` as `events`.
+pub fn plan(query: &str, log: &EventLog) -> LogicalPlan {
+    let catalog = MemoryCatalog::new().with_table(&["events"], log.table());
+    let parse = avenger_sql_syntax::parse(query);
+    assert!(parse.ok(), "{query}: {:?}", parse.diagnostics());
+    let analysis = analyze(
+        &parse.syntax(),
+        &catalog,
+        &Library::new(),
+        &Options::default(),
+    );
     assert!(
         analysis.diagnostics.is_empty(),
         "{query}: {:?}",
@@ -276,10 +275,24 @@ pub fn plan(query: &str, table: Arc<MemTable>) -> LogicalPlan {
     analysis.plan.expect("a plan")
 }
 
-fn avenger_sql_syntax_parse(query: &str) -> avenger_sql_syntax::SyntaxNode {
-    let parse = avenger_sql_syntax::parse(query);
-    assert!(parse.ok(), "{query}: {:?}", parse.diagnostics());
-    parse.syntax()
+/// The batch plan's rows of `plan` over the log's events so far, with `params`.
+pub async fn batch_rows(
+    ctx: &SessionContext,
+    plan: &LogicalPlan,
+    params: Option<datafusion::common::ParamValues>,
+) -> Vec<String> {
+    let plan = match params {
+        Some(params) => plan.clone().with_param_values(params).unwrap(),
+        None => plan.clone(),
+    };
+    rows(
+        &ctx.execute_logical_plan(plan)
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap(),
+    )
 }
 
 /// The rows of `batches` as sorted lines, which compare results without their order.
@@ -297,12 +310,4 @@ pub fn rows(batches: &[RecordBatch]) -> Vec<String> {
     lines.sort();
     lines.insert(0, header);
     lines
-}
-
-/// The split of `query` for a streaming runtime.
-pub fn split_of(query: &str) -> avenger_sql::streaming::Split {
-    let table = events_table();
-    let plan = plan(query, table.clone());
-    let events: Arc<dyn datafusion::catalog::TableProvider> = table;
-    avenger_sql::streaming::split(&plan, &events).unwrap_or_else(|e| panic!("{query}: {e}"))
 }
