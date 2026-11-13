@@ -36,6 +36,7 @@ pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
 mod like;
+pub(crate) mod match_recognize;
 mod math;
 pub(crate) mod operator;
 pub(crate) mod random;
@@ -1034,6 +1035,7 @@ impl Library {
             .chain(array::functions())
             .chain(conditional::functions())
             .chain(datetime::functions())
+            .chain(match_recognize::functions())
             .chain(math::functions())
             .chain(string::functions())
             .chain(avenger::functions())
