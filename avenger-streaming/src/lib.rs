@@ -17,6 +17,7 @@
 
 mod front;
 mod log;
+mod matching;
 mod query;
 
 use std::collections::{BTreeSet, HashMap};

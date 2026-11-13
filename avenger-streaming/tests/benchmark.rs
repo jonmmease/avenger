@@ -34,6 +34,26 @@ const QUERIES: &[(&str, &str)] = &[
         "FROM events |> WHERE type = 'pointermove' |> ORDER BY seq DESC |> LIMIT 1 |> SELECT x, y",
     ),
     (
+        "drag brush",
+        "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 0 |> ORDER BY last_seq DESC |> LIMIT 1 |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
+    ),
+    (
+        "brush with double-click clear",
+        "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup', 'dblclick') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, COUNT(clr.seq) > 0 AS cleared, MAX(seq) AS last_seq PATTERN (dn mv* up? | clr) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup', clr AS type = 'dblclick' AND inside) |> WHERE moves > 0 OR cleared |> ORDER BY last_seq DESC |> LIMIT 1 |> WHERE NOT cleared |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
+    ),
+    (
+        "total drag time",
+        "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.ts) AS t0, LAST(mv.ts) AS t1 PATTERN (dn mv+) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove') |> AGGREGATE SUM(TIMESTAMP_DIFF(t1, t0, MILLISECOND)) AS total_drag_ms, COUNT(*) AS drags",
+    ),
+    (
+        "pauses (NEXT)",
+        "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(p.seq) AS pause_seq PATTERN (p) DEFINE p AS TIMESTAMP_DIFF(NEXT(ts), ts, MILLISECOND) > 400) |> AGGREGATE COUNT(*) AS pauses, MAX(pause_seq) AS last_pause",
+    ),
+    (
+        "flicks (PREV)",
+        "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS moves PATTERN (f{3,}) DEFINE f AS ABS(x - PREV(x)) > 4 AND ABS(x - PREV(x, 2)) > 6) |> AGGREGATE COUNT(*) AS flicks, MAX(moves) AS longest",
+    ),
+    (
         "three rightmost moves",
         "FROM events |> WHERE type = 'pointermove' |> ORDER BY x DESC, seq DESC |> LIMIT 3 |> SELECT seq, x",
     ),

@@ -123,6 +123,7 @@ impl StreamingQuery {
         let stages = bind(&stages, &self.params)?;
         if front {
             self.front = FrontState::new(
+                &self.ctx,
                 &self.split.front,
                 stages.schema(),
                 &self.params,
@@ -161,7 +162,7 @@ impl StreamingQuery {
                 *self.frame.batches[0].write().await = vec![events];
                 for kept in execute(&self.ctx, &self.stages).await? {
                     if kept.num_rows() > 0 {
-                        changed |= self.front.apply(&kept)?;
+                        changed |= self.front.apply(&kept).await?;
                     }
                 }
             }
@@ -199,5 +200,10 @@ fn front_reads_params(front: &Front) -> bool {
             groups.iter().chain(aggregates).any(expr_reads_params)
         }
         Front::Limit { order, .. } => order.iter().any(|key| expr_reads_params(&key.expr)),
+        Front::MatchRecognize(front) => {
+            reads_params(&front.conditions)
+                || reads_params(&front.measures)
+                || front.partition.iter().any(expr_reads_params)
+        }
     }
 }
