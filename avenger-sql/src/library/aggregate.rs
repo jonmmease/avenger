@@ -81,6 +81,7 @@ pub(super) fn functions() -> Vec<Function> {
             .distinct()
             .null_treatment()
             .order_by()
+            .limit()
             .note("A `NULL` value is an element of the array, where GoogleSQL fails unless the call ignores `NULL`s.")
             .example(&format!("{NUMBERS} |> AGGREGATE ARRAY_AGG(x IGNORE NULLS ORDER BY x DESC) AS values"), "values\n[3, 2, 2, 1]"),
         unary("LOGICAL_AND", "Returns whether every value that is not `NULL` is `TRUE`.", "(value: BOOL) -> BOOL", bool_and_udaf)
@@ -97,6 +98,7 @@ pub(super) fn functions() -> Vec<Function> {
             })
             .distinct()
             .order_by()
+            .limit()
             .example("FROM UNNEST(['b', 'a', 'c']) AS s |> AGGREGATE STRING_AGG(s, '-' ORDER BY s) AS joined", "joined\n'a-b-c'"),
     ]
 }

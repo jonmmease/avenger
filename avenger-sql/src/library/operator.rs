@@ -58,8 +58,10 @@ pub(super) fn operators() -> Vec<Function> {
             .form("(x: BYTES, pattern: BYTES) -> BOOL", |call| {
                 Ok(cast(call.arg(0), DataType::Utf8).like(cast(call.arg(1), DataType::Utf8)))
             }),
-        quantified_like("$like_any", Expr::or),
-        quantified_like("$like_all", Expr::and),
+        quantified_like("$like_any", false, Expr::or),
+        quantified_like("$like_all", false, Expr::and),
+        quantified_like("$not_like_any", true, Expr::or),
+        quantified_like("$not_like_all", true, Expr::and),
         Function::scalar("$between", "x BETWEEN low AND high")
             .form("(x: T, low: T, high: T) -> BOOL where T: ANY", |call| {
                 Ok(call.arg(0).between(call.arg(1), call.arg(2)))
@@ -131,7 +133,7 @@ pub(crate) fn rejects_null(name: &str) -> Option<&'static str> {
         "$greater" => ">",
         "$greater_or_equal" => ">=",
         "$not" => "NOT",
-        "$like" | "$like_any" | "$like_all" => "LIKE",
+        "$like" | "$like_any" | "$like_all" | "$not_like_any" | "$not_like_all" => "LIKE",
         "$bitwise_and" => "&",
         "$bitwise_or" => "|",
         "$bitwise_xor" => "^",
@@ -262,17 +264,21 @@ fn comparison(name: &str, op: Operator) -> Function {
     })
 }
 
-/// `x LIKE ANY (patterns)` or `x LIKE ALL (patterns)`, which join the matches of the patterns
-/// with `join`.
-fn quantified_like(name: &str, join: fn(Expr, Expr) -> Expr) -> Function {
-    Function::scalar(name, "x LIKE {ANY | ALL} (patterns)").form(
+/// `x [NOT] LIKE ANY (patterns)` or `x [NOT] LIKE ALL (patterns)`, which join the matches of the
+/// patterns, or their misses when `not`, with `join`: `NOT LIKE ANY` holds when some pattern
+/// misses, and `NOT LIKE ALL` when every pattern misses, as in GoogleSQL.
+fn quantified_like(name: &str, not: bool, join: fn(Expr, Expr) -> Expr) -> Function {
+    Function::scalar(name, "x [NOT] LIKE {ANY | ALL} (patterns)").form(
         "(x: STRING, patterns: STRING...) -> BOOL",
         move |call| {
             let x = call.arg(0);
             Ok(call
                 .rest()
                 .into_iter()
-                .map(|pattern| x.clone().like(pattern))
+                .map(|pattern| match not {
+                    true => x.clone().not_like(pattern),
+                    false => x.clone().like(pattern),
+                })
                 .reduce(join)
                 .unwrap_or_else(null))
         },

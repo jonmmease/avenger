@@ -14,7 +14,7 @@ Returns the number of rows, or of the rows whose value is not `NULL`.
 
 + `value`: The value whose rows to count.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -39,7 +39,7 @@ Returns the number of rows whose condition is `TRUE`.
 
 + `condition`: The condition of each row. `FALSE` and `NULL` don't count.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -66,7 +66,7 @@ Returns `NULL` when the group has no value that isn't `NULL`.
 
 + `value`: The value of each row.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -94,7 +94,7 @@ The mean of `INT64` values is a `FLOAT64`. Returns `NULL` when the group has no 
 
 + `value`: The value of each row.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -119,7 +119,7 @@ Returns the least of the values that are not `NULL`.
 
 + `value`: The value of each row.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -144,7 +144,7 @@ Returns the greatest of the values that are not `NULL`.
 
 + `value`: The value of each row.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -169,7 +169,7 @@ Returns a value of the group, which can be any of them.
 
 + `value`: The value of each row.
 
-**Clauses**: `OVER`
+**Clauses**: `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -198,7 +198,7 @@ Returns an array of the values of the group.
 
 + `value`: The value of each row.
 
-**Clauses**: `DISTINCT`, `IGNORE NULLS` and `RESPECT NULLS`, `ORDER BY`, `OVER`
+**Clauses**: `DISTINCT`, `IGNORE NULLS` and `RESPECT NULLS`, `ORDER BY`, `HAVING MAX` and `HAVING MIN`, `LIMIT`, `OVER`
 
 **Examples**
 
@@ -223,7 +223,7 @@ Returns whether every value that is not `NULL` is `TRUE`.
 
 + `value`: The value of each row.
 
-**Clauses**: `OVER`
+**Clauses**: `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -248,7 +248,7 @@ Returns whether any value is `TRUE`.
 
 + `value`: The value of each row.
 
-**Clauses**: `OVER`
+**Clauses**: `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 
@@ -276,7 +276,7 @@ Joins the strings of the group into one, with a delimiter between them.
 + `value`: The string of each row. A `NULL` value is left out.
 + `delimiter`: The string between two values, a constant. When omitted, `','`.
 
-**Clauses**: `DISTINCT`, `ORDER BY`, `OVER`
+**Clauses**: `DISTINCT`, `ORDER BY`, `HAVING MAX` and `HAVING MIN`, `LIMIT`, `OVER`
 
 **Examples**
 

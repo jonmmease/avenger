@@ -96,6 +96,12 @@ fn clauses(function: &Function) -> Vec<&'static str> {
     if clauses.order_by {
         out.push("`ORDER BY`");
     }
+    if clauses.having {
+        out.push("`HAVING MAX` and `HAVING MIN`");
+    }
+    if clauses.limit {
+        out.push("`LIMIT`");
+    }
     if clauses.over == Over::Optional {
         out.push("`OVER`");
     }
