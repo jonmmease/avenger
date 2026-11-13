@@ -110,7 +110,11 @@ impl std::fmt::Display for Outcome {
 fn message(line: &str) -> String {
     let line = line.trim();
     let line = line.strip_prefix("ERROR: ").unwrap_or(line);
-    let line = line.strip_prefix("INVALID_ARGUMENT: ").unwrap_or(line);
+    // A status, such as `INVALID_ARGUMENT:` or `OUT_OF_RANGE:`.
+    let line = match line.split_once(": ") {
+        Some((status, rest)) if status.chars().all(|c| c.is_ascii_uppercase() || c == '_') => rest,
+        _ => line,
+    };
     let line = line.split(" [type.googleapis").next().unwrap_or(line);
     let line = match line.rfind(" [at ") {
         Some(at) if line.ends_with(']') => &line[..at],
@@ -186,6 +190,9 @@ async fn ours(ctx: &SessionContext, text: &str) -> Outcome {
             },
             _ => error.strip_backtrace(),
         };
+        // An error of a function at run time, which DataFusion writes after its kind.
+        let message =
+            (message.strip_prefix("Execution error: ")).map_or(message.clone(), String::from);
         Outcome::Error(message)
     };
     let frame = match avenger_sql::sql(ctx, text).await {

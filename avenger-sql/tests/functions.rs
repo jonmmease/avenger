@@ -239,6 +239,21 @@ fn ours(name: &str, form: &Form) -> Vec<Vec<String>> {
 
 /// The forms of GoogleSQL that the library doesn't map, by function, and why.
 const OMITTED: &[(&str, &str, &str)] = &[
+    ("REPEAT", "BYTES", "DataFusion's repeat takes strings only"),
+    ("LPAD", "BYTES", "DataFusion's lpad takes strings only"),
+    ("RPAD", "BYTES", "DataFusion's rpad takes strings only"),
+    (
+        "REVERSE",
+        "BYTES",
+        "DataFusion's reverse takes strings only",
+    ),
+    ("LEFT", "BYTES", "DataFusion's left takes strings only"),
+    ("RIGHT", "BYTES", "DataFusion's right takes strings only"),
+    (
+        "ARRAY_TO_STRING",
+        "BYTES",
+        "DataFusion's array_to_string takes strings only",
+    ),
     ("SUM", "INTERVAL", "DataFusion's sum doesn't add intervals"),
     (
         "AVG",
