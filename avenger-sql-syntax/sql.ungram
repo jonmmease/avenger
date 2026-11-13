@@ -34,7 +34,7 @@
 // - A query that starts with `SELECT`, and the standard `WITH` clause.
 // - Value tables (`SELECT AS STRUCT`), `FOR SYSTEM_TIME AS OF`, `FROM 'string'`, hints, and the
 //   join hints `HASH` and `LOOKUP`.
-// - The pipe operators `MATCH_RECOGNIZE`, `WINDOW`, `ASSERT`, `LOG`, `IF`, `FORK`, `TEE`,
+// - The pipe operators `WINDOW`, `ASSERT`, `LOG`, `IF`, `FORK`, `TEE`,
 //   `DESCRIBE`, `STATIC_DESCRIBE`, `FINISH`, `EXPORT DATA`, `CREATE TABLE`, `INSERT` and
 //   `ALIGN`, recursive set operations and `WITH RECURSIVE`, the pipe `CALL`'s `PARTITION BY`
 //   and `ORDER BY`, and `LIMIT ALL`.
@@ -253,6 +253,7 @@ Source =
 | PivotSource
 | UnpivotSource
 | SampleSource
+| MatchRecognizeSource
 
 // `LATERAL` comes before a query in parentheses or a table function call: a check of the
 // validation pass.
@@ -316,6 +317,83 @@ UnpivotSource =
 SampleSource =
   Source SampleClause
 
+/// A source and its `MATCH_RECOGNIZE`.
+MatchRecognizeSource =
+  Source MatchRecognizeClause
+
+// As in GoogleSQL's grammar, the clauses come in this order, and only `PARTITION BY`,
+// `AFTER MATCH SKIP` and `OPTIONS` are optional. No list of the clause takes a trailing comma.
+/// `MATCH_RECOGNIZE ([PARTITION BY ...] ORDER BY ... MEASURES ... [AFTER MATCH SKIP ...]
+/// PATTERN (...) DEFINE ... [OPTIONS (...)]) [[AS] alias]`
+MatchRecognizeClause =
+  'match_recognize' '(' PartitionBy? OrderBy Measures AfterMatchSkip? RowPattern Define
+  Options? ')' Alias?
+
+/// `MEASURES expression AS alias, ...`
+Measures =
+  'measures' Measure (',' Measure)*
+
+/// A measure and its alias, whose `AS` is required.
+Measure =
+  Expr 'as' Name
+
+/// `AFTER MATCH SKIP {PAST LAST ROW | TO NEXT ROW}`
+AfterMatchSkip =
+  'after' 'match' 'skip' ('past' 'last' 'row' | 'to' 'next' 'row')
+
+/// `PATTERN (pattern)`
+RowPattern =
+  'pattern' '(' PatternAlternation ')'
+
+/// Alternatives of a pattern, separated by `|`, where `||` is `| () |`. An alternative can be
+/// empty.
+PatternAlternation =
+  PatternSequence (('|' | '||') PatternSequence)*
+
+/// A concatenation of pattern terms, which can be empty.
+PatternSequence =
+  PatternTerm*
+
+/// A term of a pattern.
+PatternTerm =
+  PatternVariable
+| PatternGroup
+| PatternAnchor
+
+/// A pattern variable, which `DEFINE` defines, and its quantifier.
+PatternVariable =
+  NameRef Quantifier?
+
+/// `(pattern)` and its quantifier.
+PatternGroup =
+  '(' PatternAlternation ')' Quantifier?
+
+// As in GoogleSQL, an anchor takes a quantifier only in parentheses.
+/// `^`, the start of a partition, or `$`, its end.
+PatternAnchor =
+  '^' | '$'
+
+// As in GoogleSQL, `{n}` is never reluctant.
+/// `?`, `*`, `+`, `{n}`, `{n,}`, `{n,m}`, `{,m}` or `{,}`, reluctant with a trailing `?`.
+Quantifier =
+  ('?' | '*' | '+' | '{' QuantifierMin? (',' QuantifierMax?)? '}') '?'?
+
+/// The least number of repetitions: an `INT64` literal or a query parameter.
+QuantifierMin =
+  Expr
+
+/// The most number of repetitions: an `INT64` literal or a query parameter.
+QuantifierMax =
+  Expr
+
+/// `DEFINE variable AS condition, ...`
+Define =
+  'define' PatternDefinition (',' PatternDefinition)*
+
+/// A pattern variable and the condition of its rows.
+PatternDefinition =
+  Name 'as' Expr
+
 /// `TABLESAMPLE method (size {ROWS | PERCENT} [PARTITION BY ...]) [REPEATABLE (seed)]
 /// [WITH WEIGHT [[AS] alias] [REPEATABLE (seed)]]`
 SampleClause =
@@ -378,6 +456,7 @@ PipeOperator =
 | PipeWith
 | PipePivot
 | PipeUnpivot
+| PipeMatchRecognize
 
 /// `|> SELECT [DISTINCT | ALL] items [WINDOW ...]`
 PipeSelect =
@@ -454,6 +533,10 @@ PipeWith =
 /// `|> PIVOT (...)`
 PipePivot =
   '|>' PivotClause
+
+/// `|> MATCH_RECOGNIZE (...) [[AS] alias]`
+PipeMatchRecognize =
+  '|>' MatchRecognizeClause
 
 /// `|> UNPIVOT (...)`
 PipeUnpivot =

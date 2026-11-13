@@ -175,6 +175,11 @@ impl Pass<'_> {
                 Some(clause) => self.sample(rows, &clause, range),
                 None => rows.fail(),
             },
+            // Phase 4 of the MATCH_RECOGNIZE plan plans the clause.
+            ast::PipeOperator::PipeMatchRecognize(_) => {
+                self.error(range, "avenger-sql doesn't plan MATCH_RECOGNIZE yet");
+                rows.fail()
+            }
             ast::PipeOperator::PipePivot(op) => match op.pivot_clause() {
                 Some(clause) => self.pivot(rows, &clause, range),
                 None => rows.fail(),
@@ -341,6 +346,13 @@ impl Pass<'_> {
                     join.join_condition(),
                     range,
                 )
+            }
+            ast::Source::MatchRecognizeSource(source) => {
+                if let Some(source) = source.source() {
+                    self.source(&source);
+                }
+                self.error(range, "avenger-sql doesn't plan MATCH_RECOGNIZE yet");
+                Rows::failed(Vec::new(), Vec::new())
             }
             ast::Source::PivotSource(source) => {
                 let rows = self.source_of(source.source());

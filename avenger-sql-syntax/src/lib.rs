@@ -170,6 +170,8 @@ pub enum NameRole {
     Field,
     /// A named window.
     Window,
+    /// A pattern variable of `MATCH_RECOGNIZE`, which `DEFINE` defines.
+    PatternVariable,
     /// A query that a pipe `WITH` names.
     Query,
     /// A parameter of a function, or the name of a named argument.
