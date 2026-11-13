@@ -11,7 +11,7 @@
 //! `(() | a){0,3}` match no rows, as in GoogleSQL.
 
 /// An anchor of a pattern, which matches no rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Anchor {
     /// `^`, the start of the partition.
     Start,
@@ -20,7 +20,7 @@ pub enum Anchor {
 }
 
 /// A pattern of `MATCH_RECOGNIZE`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Pattern {
     /// `()`, which matches no rows.
     Empty,
