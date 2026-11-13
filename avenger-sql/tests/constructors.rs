@@ -6,13 +6,12 @@ mod common;
 
 use arrow::array::AsArray;
 use avenger_chart::{prelude::*, proto::Fragment};
-use datafusion::prelude::SessionContext;
 use prost::Message;
 
-/// The fragment of the one value of `SELECT <expression>`.
+/// The fragment of the one value of `FROM one |> SELECT <expression>`.
 async fn fragment(expression: &str) -> Fragment {
     let ctx = common::session();
-    let batches = avenger_sql::sql(&ctx, &format!("SELECT {expression} AS value"))
+    let batches = avenger_sql::sql(&ctx, &format!("FROM one |> SELECT {expression} AS value"))
         .await
         .unwrap()
         .collect()
@@ -32,10 +31,10 @@ async fn builds(expression: &str, expected: Fragment) {
     );
 }
 
-/// The planning error of `SELECT <expression>`.
+/// The planning error of `FROM one |> SELECT <expression>`.
 async fn error(expression: &str) -> String {
     let ctx = common::session();
-    let planned = match avenger_sql::sql(&ctx, &format!("SELECT {expression}")).await {
+    let planned = match avenger_sql::sql(&ctx, &format!("FROM one |> SELECT {expression}")).await {
         Ok(frame) => frame.into_optimized_plan().map(|_| ()),
         Err(error) => Err(error),
     };
@@ -133,12 +132,12 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     // A string member before a `ValueRef` member, which takes the rest.
     builds(
-        "scale_range(range => 'viridis')",
+        "scale_range(range_ => 'viridis')",
         Range::palette("viridis").to_fragment().unwrap(),
     )
     .await;
     builds(
-        "scale_range(range => ['#e45756', '#4c78a8'])",
+        "scale_range(range_ => ['#e45756', '#4c78a8'])",
         Range::values(["#e45756", "#4c78a8"]).to_fragment().unwrap(),
     )
     .await;
@@ -156,7 +155,7 @@ async fn conversions_reach_a_message_through_a_chain() {
     )
     .await;
     builds(
-        "scale(range => 'viridis')",
+        "scale(range_ => 'viridis')",
         Scale::builder()
             .range(Range::palette("viridis"))
             .to_fragment()
@@ -185,7 +184,7 @@ async fn errors_of_a_constant_call_fail_at_planning() {
     for (expression, expected) in [
         (
             "axis(side => 'up')",
-            "axis(): `side` takes bottom, top, left, right, not 'up'",
+            "`side` takes one of 'bottom', 'top', 'left', 'right'",
         ),
         ("scale(type => 'cubic')", "`type` takes one of linear"),
         ("scale(type => axis())", "`type` takes"),
@@ -203,12 +202,12 @@ async fn errors_of_a_constant_call_fail_at_planning() {
             "scale(type => 5)",
             "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), `band_scale(...)`",
         ),
-        ("title()", "`text` is required"),
+        ("title()", "title needs its argument `text`"),
         (
             "axis(show_grid => 'yes')",
-            "`show_grid` takes a Boolean, not a string",
+            "no form of axis takes (STRING)",
         ),
-        ("cartesian(1, 2)", "cartesian() takes 1 arguments at most"),
+        ("cartesian(1, 2)", "cartesian takes 1 positional argument"),
     ] {
         let message = error(expression).await;
         assert!(message.contains(expected), "{expression}: {message}");
@@ -233,7 +232,7 @@ fn plot(chart: &Chart) -> &avenger_chart::proto::Plot {
 #[tokio::test]
 async fn a_property_sets_its_field_of_the_mark() {
     let chart = chart(
-        "SELECT bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -250,7 +249,7 @@ async fn a_property_sets_its_field_of_the_mark() {
 #[tokio::test]
 async fn coord_sets_the_options_of_the_plot() {
     let chart = chart(
-        "SELECT polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Polar(polar)) = &plot(&chart).coord else {
@@ -262,7 +261,7 @@ async fn coord_sets_the_options_of_the_plot() {
 #[tokio::test]
 async fn a_geo_mark_takes_the_options_of_its_geo_plot() {
     let chart = chart(
-        "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(&chart).coord else {
@@ -284,7 +283,7 @@ async fn a_geo_mark_takes_the_options_of_its_geo_plot() {
 /// A geo chart of the penguins with the `coord` argument `coord`.
 async fn chart_of_geo(coord: &str) -> Chart {
     chart(&format!(
-        "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart FROM penguins"
+        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
     ))
     .await
 }
@@ -292,7 +291,7 @@ async fn chart_of_geo(coord: &str) -> Chart {
 #[tokio::test]
 async fn scaled_takes_the_options_of_its_encoding() {
     let chart = chart(
-        "SELECT symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart FROM penguins",
+        "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -311,19 +310,19 @@ async fn scaled_takes_the_options_of_its_encoding() {
 async fn the_options_of_a_mark_are_plan_time_constants() {
     for (query, expected) in [
         (
-            "SELECT bar(x => species, y => body_mass_g, corner_radius => body_mass_g) FROM penguins",
+            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)",
             "bar() needs a plan-time constant for a property",
         ),
         (
-            "SELECT symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm) FROM penguins",
+            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm)",
             "needs a plan-time constant for an option of `x`",
         ),
         (
-            "SELECT geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm) FROM penguins",
+            "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)",
             "geo_symbol() needs `coord`",
         ),
         (
-            "SELECT bar(x => species, y => body_mass_g, coord => geo(surface => 'planar')) FROM penguins",
+            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))",
             "`coord` takes `cartesian(...)`, not `geo(...)`",
         ),
     ] {
@@ -337,19 +336,10 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
     }
 }
 
-/// A session with the functions of avenger-sql, which plans SQL without the rewrites of
-/// [`avenger_sql::sql`].
-fn plain_session() -> SessionContext {
-    let ctx = SessionContext::new();
-    avenger_sql::register(&ctx).unwrap();
-    ctx
-}
-
 #[tokio::test]
 async fn a_constant_call_folds_to_a_literal() {
-    let ctx = plain_session();
-    let plan = ctx
-        .sql("SELECT axis(title => 'Mass') AS a")
+    let ctx = common::session();
+    let plan = avenger_sql::sql(&ctx, "FROM one |> SELECT axis(title => 'Mass') AS a")
         .await
         .unwrap()
         .into_optimized_plan()
@@ -358,34 +348,24 @@ async fn a_constant_call_folds_to_a_literal() {
     assert!(!display.contains("axis("), "the call folds: {display}");
 }
 
-#[tokio::test]
-async fn every_constructor_is_callable_and_none_shadows_a_function() {
-    let builtins = SessionContext::new().state();
+#[test]
+fn every_constructor_is_a_function_of_the_library_that_a_call_can_name() {
+    let library = avenger_sql::library::Library::new();
     for name in avenger_chart::functions::constructors()
         .iter()
         .map(|c| c.name)
     {
-        assert!(
-            !builtins.scalar_functions().contains_key(name)
-                && !builtins.aggregate_functions().contains_key(name)
-                && !builtins.window_functions().contains_key(name),
-            "`{name}` is the name of a DataFusion function"
-        );
-        // A call parses and reaches the constructor, so a keyword does not take its name.
-        match plain_session().sql(&format!("SELECT {name}()")).await {
-            Ok(_) => {}
-            Err(error) => {
-                let message = error.to_string();
-                assert!(message.contains(&format!("{name}():")), "{name}: {message}");
-            }
-        }
+        assert!(library.get(name).is_some(), "`{name}` is in the library");
+        // A keyword does not take the name of a constructor.
+        let text = format!("FROM one |> SELECT {name}()");
+        assert!(avenger_sql_syntax::parse(&text).ok(), "{text}");
     }
 }
 
 #[tokio::test]
 async fn a_column_of_fragments_has_the_extension_of_fragments() {
-    let batches = plain_session()
-        .sql("SELECT axis() AS a")
+    let ctx = common::session();
+    let batches = avenger_sql::sql(&ctx, "FROM one |> SELECT axis() AS a")
         .await
         .unwrap()
         .collect()

@@ -243,10 +243,7 @@ pub(crate) fn project(
             exprs.push(Expr::Column(column));
         }
     }
-    let plan = match windows.is_empty() {
-        true => plan,
-        false => LogicalPlanBuilder::window_plan(plan, windows.clone())?,
-    };
+    let plan = windowed(plan, windows.clone())?;
     let exprs = (exprs.into_iter())
         .map(|expr| rebase(expr, &windows))
         .collect::<Result<Vec<_>>>()?;
@@ -257,6 +254,19 @@ pub(crate) fn project(
         vars,
         order: keys,
     })
+}
+
+/// `plan` with the columns of `windows`: a column for each lump, and a window node of the other
+/// windows.
+fn windowed(plan: LogicalPlan, windows: Vec<Expr>) -> Result<LogicalPlan> {
+    if windows.is_empty() {
+        return Ok(plan);
+    }
+    let (plan, windows) = avenger_datafusion_transforms::lump::plan_windows(plan, windows)?;
+    match windows.is_empty() {
+        true => Ok(plan),
+        false => LogicalPlanBuilder::window_plan(plan, windows),
+    }
 }
 
 /// `expr` with each of `bases`, the aggregates of an aggregate node or the windows of a window
@@ -285,10 +295,7 @@ pub(crate) fn order_by(
         return Ok(Rows::failed(rows.columns, rows.vars));
     };
     let windows = find_window_exprs(keys.iter().map(|key| &key.expr));
-    let plan = match windows.is_empty() {
-        true => plan,
-        false => LogicalPlanBuilder::window_plan(plan, windows.clone())?,
-    };
+    let plan = windowed(plan, windows.clone())?;
     let input: Vec<Column> = match windows.is_empty() {
         true => plan.schema().columns(),
         // The window node adds its columns, which the projection below drops.

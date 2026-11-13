@@ -1,23 +1,15 @@
-//! Table functions over an input relation, such as `impute`:
+//! Table functions over an input relation, such as `impute`: a [`TableTransform`] of the rows
+//! of each partition of its input, which [`TableFunctionNode`] holds in a logical plan and
+//! [`TableFunctionExec`] runs. The exec reads the input of its task into memory, then transforms
+//! each partition, the rows of one value of the `partition_by` columns, with the transform's
+//! [`PartitionTransform`]; the input is hash partitioned on those columns, so partitions run in
+//! parallel. Without them, the input is one partition.
 //!
-//! ```sql
-//! SELECT * FROM name(input, positional, ..., named => value, ..., partition_by => [p, ...])
-//! ```
-//!
-//! The input is a subquery, the name of a CTE of the statement, or the name of a table. The
-//! positional arguments follow it, then the named arguments. Every function takes
-//! `partition_by`, columns whose values the function transforms separately: the input is hash
-//! partitioned on them, so partitions run in parallel. Without it, the input is one partition.
-//!
-//! A [`TableFunction`] declares its arguments and plans a call into a [`TableTransform`].
-//! [`TableFunctionPlanner`], a relation planner, finds the calls, plans their inputs, splits
-//! their arguments, binds `partition_by`, and reports errors at the arguments' places.
-//! [`TableFunctionNode`] holds a transform in a logical plan, and [`TableFunctionExec`] runs
-//! it: it reads the input of its task into memory, then transforms each partition with the
-//! transform's [`PartitionTransform`].
-//!
-//! DataFusion's own table functions take constants and return a table, so they cannot read a
-//! relation or bind arguments to its columns.
+//! A table function plans its call from its input's plan and its arguments, as
+//! [`crate::impute::plan`] does, and reports an error of an argument as an [`ArgError`] at the
+//! argument, which the caller places at its text. DataFusion's own table functions take
+//! constants and return a table, so they cannot read a relation or bind arguments to its
+//! columns.
 
 use std::any::Any;
 use std::cmp::Ordering;
@@ -31,22 +23,16 @@ use datafusion::arrow::array::{ArrayRef, RecordBatch, RecordBatchOptions, UInt32
 use datafusion::arrow::compute::{concat_batches, take_record_batch};
 use datafusion::arrow::datatypes::{DataType, Schema, SchemaRef};
 use datafusion::arrow::row::{RowConverter, SortField};
-use datafusion::catalog::{CatalogProviderList, Session};
+use datafusion::catalog::Session;
 use datafusion::common::tree_node::TreeNodeRecursion;
-use datafusion::common::{
-    Column, DFSchema, DFSchemaRef, DataFusionError, Diagnostic, Result, ScalarValue, Span,
-};
-use datafusion::datasource::provider_as_source;
+use datafusion::common::{Column, DFSchema, DFSchemaRef, DataFusionError, Result, ScalarValue};
 use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::memory_pool::MemoryConsumer;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::execution_props::ExecutionProps;
 use datafusion::logical_expr::physical_planning_context::PhysicalPlanningContext;
-use datafusion::logical_expr::planner::{
-    PlannedRelation, RelationPlanner, RelationPlannerContext, RelationPlanning,
-};
 use datafusion::logical_expr::{
-    ColumnarValue, Expr, Extension, LogicalPlan, LogicalPlanBuilder, UserDefinedLogicalNode,
+    ColumnarValue, Expr, LogicalPlan, LogicalPlanBuilder, UserDefinedLogicalNode,
     UserDefinedLogicalNodeCore,
 };
 use datafusion::physical_expr::expressions::Column as PhysicalColumn;
@@ -58,26 +44,53 @@ use datafusion::physical_plan::{
     InputDistributionRequirements, Partitioning, PlanProperties, ReplaceChildrenOptions,
 };
 use datafusion::physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner};
-use datafusion::sql::sqlparser::ast::{
-    Expr as SqlExpr, FunctionArg, FunctionArgExpr, Ident, ObjectName, Spanned, TableFactor,
-};
-use datafusion::sql::sqlparser::tokenizer::Span as SqlSpan;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 
 // ---------------------------------------------------------------------------------------
 // Arguments
 // ---------------------------------------------------------------------------------------
 
-/// An error at the place of an argument.
-pub fn err_at(span: SqlSpan, message: impl Into<String>) -> DataFusionError {
-    let message = message.into();
-    DataFusionError::Diagnostic(
-        Box::new(Diagnostic::new_error(
-            message.clone(),
-            Span::try_from_sqlparser_span(span),
-        )),
-        Box::new(DataFusionError::Plan(message)),
-    )
+/// Where an error of a call of a table function is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArgAt {
+    /// The call, or the function's name.
+    Call,
+    /// The positional argument at this index, after the input.
+    Positional(usize),
+    /// The element at this index of the list of the positional argument at the first index.
+    Element(usize, usize),
+    /// The named argument at this index, in the order of the call.
+    Named(usize),
+    /// The element at this index of the list of the named argument at the first index.
+    NamedElement(usize, usize),
+}
+
+/// An error of a call of a table function, at one of its arguments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArgError {
+    pub at: ArgAt,
+    pub message: String,
+}
+
+impl ArgError {
+    pub fn new(at: ArgAt, message: impl Into<String>) -> Self {
+        Self {
+            at,
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for ArgError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl From<DataFusionError> for ArgError {
+    fn from(error: DataFusionError) -> Self {
+        ArgError::new(ArgAt::Call, error.strip_backtrace())
+    }
 }
 
 /// The value of a constant expression, after type coercion (`1 + 0.5`).
@@ -119,147 +132,9 @@ pub fn cast_exact(v: &ScalarValue, to: &DataType) -> Option<ScalarValue> {
     Some(cast)
 }
 
-/// A call of a table function: its planned input, its arguments, and the binding of the
-/// arguments, whose errors point at the arguments.
-pub struct Call<'a> {
-    pub ctx: &'a mut dyn RelationPlannerContext,
-    /// The name of the function.
-    pub name: &'static str,
-    /// The place of the function's name.
-    pub span: SqlSpan,
-    pub input: LogicalPlan,
-    /// The positional arguments after the input, as many as the function declares.
-    pub positional: Vec<SqlExpr>,
-    /// The named arguments other than `partition_by`, in order, by their names in lowercase.
-    /// Each is one of the function's names and occurs once.
-    pub named: Vec<(String, SqlExpr)>,
-    /// The columns of `partition_by`.
-    pub partition_by: Vec<Column>,
-}
-
-impl Call<'_> {
-    pub fn schema(&self) -> DFSchemaRef {
-        self.input.schema().clone()
-    }
-
-    /// A column of the input.
-    pub fn column(&mut self, what: &str, e: SqlExpr) -> Result<Column> {
-        column(self.ctx, self.name, what, e, self.input.schema())
-    }
-
-    /// The columns of a list, or one column without brackets, with their places.
-    pub fn columns(&mut self, what: &str, e: SqlExpr) -> Result<Vec<(Column, SqlSpan)>> {
-        let exprs = match e {
-            SqlExpr::Array(a) => a.elem,
-            e => vec![e],
-        };
-        exprs
-            .into_iter()
-            .map(|e| {
-                let span = e.span();
-                Ok((self.column(what, e)?, span))
-            })
-            .collect()
-    }
-
-    /// The value of a constant argument.
-    pub fn constant(&mut self, what: &str, e: SqlExpr) -> Result<ScalarValue> {
-        let span = e.span();
-        let not_constant = |e: DataFusionError| {
-            err_at(
-                span,
-                format!("{what} must be a constant: {}", e.strip_backtrace()),
-            )
-        };
-        let expr = self
-            .ctx
-            .sql_to_expr(e, &DFSchema::empty())
-            .map_err(not_constant)?;
-        constant(&expr).map_err(not_constant)
-    }
-
-    /// The constants of a list, each cast exactly to `data_type`, without repeats. `what`
-    /// names the list, such as "`keys`", and `of` the type, such as "the key".
-    pub fn constant_list(
-        &mut self,
-        what: &str,
-        e: SqlExpr,
-        data_type: &DataType,
-        of: &str,
-    ) -> Result<Vec<ScalarValue>> {
-        let span = e.span();
-        let SqlExpr::Array(array) = e else {
-            return Err(err_at(
-                span,
-                format!("{what} must be a list of constants, such as [1, 2]"),
-            ));
-        };
-        let mut out: Vec<ScalarValue> = Vec::new();
-        for elem in array.elem {
-            let span = elem.span();
-            let v = self.constant(&format!("a value of {what}"), elem)?;
-            if v.is_null() {
-                return Err(err_at(span, format!("a value of {what} cannot be NULL")));
-            }
-            let v = cast_exact(&v, data_type).ok_or_else(|| {
-                let shown = if v.try_as_str().is_some() {
-                    format!("'{v}'")
-                } else {
-                    v.to_string()
-                };
-                err_at(
-                    span,
-                    format!("the value {shown} of {what} does not coerce to the type of {of}, {data_type}"),
-                )
-            })?;
-            if !out.contains(&v) {
-                out.push(v);
-            }
-        }
-        Ok(out)
-    }
-}
-
-fn column(
-    ctx: &mut dyn RelationPlannerContext,
-    function: &str,
-    what: &str,
-    e: SqlExpr,
-    schema: &DFSchema,
-) -> Result<Column> {
-    let span = e.span();
-    match ctx.sql_to_expr(e, schema) {
-        Ok(Expr::Column(c)) => Ok(c),
-        Ok(other) => Err(err_at(
-            span,
-            format!("the {what} of {function} must be a column of its input, not {other}"),
-        )),
-        Err(e) => Err(err_at(
-            span,
-            format!(
-                "the {what} of {function} must be a column of its input: {}",
-                e.strip_backtrace().lines().next().unwrap_or("")
-            ),
-        )),
-    }
-}
-
 // ---------------------------------------------------------------------------------------
 // Functions and transforms
 // ---------------------------------------------------------------------------------------
-
-/// A table function: its arguments, and the transform of a call.
-pub trait TableFunction: fmt::Debug + Send + Sync {
-    /// The name of the function in SQL.
-    fn name(&self) -> &'static str;
-    /// The positional arguments after the input, by what they are, such as "the key".
-    fn positional(&self) -> &'static [&'static str];
-    /// The names of the named arguments other than `partition_by`.
-    fn named(&self) -> &'static [&'static str];
-    /// The transform of a call. The columns of `partition_by` are not columns of the
-    /// transform.
-    fn plan(&self, call: Call<'_>) -> Result<Arc<dyn TableTransform>>;
-}
 
 /// The equality and the hash of a transform, for the equality of logical plans.
 pub trait DynTransform {
@@ -306,276 +181,6 @@ pub trait PartitionTransform: fmt::Debug + Send + Sync {
         partitions: &[usize],
         schema: SchemaRef,
     ) -> Result<RecordBatch>;
-}
-
-// ---------------------------------------------------------------------------------------
-// The relation planner
-// ---------------------------------------------------------------------------------------
-
-/// Plans the calls of table functions in FROM clauses.
-#[derive(Debug)]
-pub struct TableFunctionPlanner {
-    functions: Vec<Arc<dyn TableFunction>>,
-    /// The session's catalogs, for inputs that name a table.
-    catalogs: Arc<dyn CatalogProviderList>,
-}
-
-impl TableFunctionPlanner {
-    pub fn new(
-        functions: Vec<Arc<dyn TableFunction>>,
-        catalogs: Arc<dyn CatalogProviderList>,
-    ) -> Self {
-        Self {
-            functions,
-            catalogs,
-        }
-    }
-
-    /// The input: a subquery, a CTE of the statement, or a table.
-    fn input(
-        &self,
-        ctx: &mut dyn RelationPlannerContext,
-        function: &str,
-        e: SqlExpr,
-    ) -> Result<LogicalPlan> {
-        let span = e.span();
-        let name = match e {
-            SqlExpr::Subquery(query) => {
-                return ctx.plan(TableFactor::Derived {
-                    lateral: false,
-                    subquery: query,
-                    alias: None,
-                    sample: None,
-                });
-            }
-            SqlExpr::Identifier(id) => ObjectName::from(vec![id]),
-            SqlExpr::CompoundIdentifier(ids) => ObjectName::from(ids),
-            _ => {
-                return Err(err_at(
-                    span,
-                    format!("the input of {function} must be a table name or a subquery"),
-                ));
-            }
-        };
-        // As `FROM name`: a CTE of the statement, or a table that the statement reads.
-        let table = TableFactor::Table {
-            name: name.clone(),
-            alias: None,
-            args: None,
-            with_hints: vec![],
-            version: None,
-            with_ordinality: false,
-            partitions: vec![],
-            json_path: None,
-            sample: None,
-            index_hints: vec![],
-        };
-        if let Ok(plan) = ctx.plan(table) {
-            return Ok(plan);
-        }
-        // DataFusion looks up the tables of a statement before it plans the statement, and
-        // the input of a table function is not one of them, so the planner looks the table
-        // up in the session's catalogs. The lookup is asynchronous and planning is not, so
-        // the planner takes the table only if the catalog has it at hand.
-        let reference = ctx.object_name_to_table_reference(name)?;
-        let options = &ctx.context_provider().options().catalog;
-        let full = reference
-            .clone()
-            .resolve(&options.default_catalog, &options.default_schema);
-        let lookup = self
-            .catalogs
-            .catalog(&full.catalog)
-            .and_then(|c| c.schema(&full.schema))
-            .map(|s| s.table(&full.table).now_or_never());
-        match lookup {
-            Some(Some(Ok(Some(table)))) => {
-                LogicalPlanBuilder::scan(reference, provider_as_source(table), None)?.build()
-            }
-            Some(Some(Err(e))) => Err(e),
-            Some(None) => Err(err_at(
-                span,
-                format!(
-                    "the catalog of the table {reference} looks it up asynchronously, which the planning of {function} cannot wait for; write (SELECT * FROM {reference})"
-                ),
-            )),
-            None | Some(Some(Ok(None))) => {
-                Err(err_at(span, format!("table '{reference}' not found")))
-            }
-        }
-    }
-
-    fn plan_call(
-        &self,
-        function: &dyn TableFunction,
-        ctx: &mut dyn RelationPlannerContext,
-        args: Vec<FunctionArg>,
-        span: SqlSpan,
-    ) -> Result<TableFunctionNode> {
-        let name = function.name();
-        let mut positional: Vec<SqlExpr> = Vec::new();
-        let mut named: Vec<(Ident, SqlExpr)> = Vec::new();
-        for arg in args {
-            match arg {
-                FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => {
-                    if let Some((n, _)) = named.last() {
-                        return Err(err_at(
-                            e.span(),
-                            format!(
-                                "a positional argument of {name} follows the named argument `{}`",
-                                n.value
-                            ),
-                        ));
-                    }
-                    positional.push(e);
-                }
-                FunctionArg::Named {
-                    name: arg_name,
-                    arg: FunctionArgExpr::Expr(e),
-                    ..
-                } => {
-                    let names: Vec<&str> = function
-                        .named()
-                        .iter()
-                        .copied()
-                        .chain(["partition_by"])
-                        .collect();
-                    if !names.iter().any(|n| arg_name.value.eq_ignore_ascii_case(n)) {
-                        return Err(err_at(
-                            arg_name.span,
-                            format!(
-                                "unknown argument `{}` of {name}: the named arguments are {}",
-                                arg_name.value,
-                                names.join(", ")
-                            ),
-                        ));
-                    }
-                    if named
-                        .iter()
-                        .any(|(n, _)| n.value.eq_ignore_ascii_case(&arg_name.value))
-                    {
-                        return Err(err_at(
-                            arg_name.span,
-                            format!("the argument `{}` of {name} is given twice", arg_name.value),
-                        ));
-                    }
-                    named.push((arg_name, e));
-                }
-                other => {
-                    return Err(err_at(
-                        other.span(),
-                        format!("{name} takes expressions as arguments"),
-                    ));
-                }
-            }
-        }
-        let wanted: Vec<&str> = std::iter::once("the input")
-            .chain(function.positional().iter().copied())
-            .collect();
-        if positional.len() != wanted.len() {
-            let at = positional.get(wanted.len()).map_or(span, |e| e.span());
-            let (last, rest) = wanted.split_last().expect("the input");
-            let listed = if rest.is_empty() {
-                last.to_string()
-            } else {
-                format!("{}, and {last}", rest.join(", "))
-            };
-            return Err(err_at(
-                at,
-                format!(
-                    "{name} takes {} positional arguments, {listed}; found {}",
-                    wanted.len(),
-                    positional.len()
-                ),
-            ));
-        }
-        let mut positional = positional.into_iter();
-        let input = self.input(ctx, name, positional.next().expect("the input"))?;
-
-        let mut partition_by: Vec<(Column, SqlSpan)> = Vec::new();
-        let mut rest = Vec::new();
-        for (arg_name, e) in named {
-            let arg_name = arg_name.value.to_ascii_lowercase();
-            if arg_name != "partition_by" {
-                rest.push((arg_name, e));
-                continue;
-            }
-            let exprs = match e {
-                SqlExpr::Array(a) => a.elem,
-                e => vec![e],
-            };
-            for e in exprs {
-                let at = e.span();
-                let c = column(ctx, name, "partition column", e, input.schema())?;
-                if partition_by.iter().any(|(p, _)| *p == c) {
-                    return Err(err_at(
-                        at,
-                        format!("the partition column {c} of {name} is given twice"),
-                    ));
-                }
-                partition_by.push((c, at));
-            }
-        }
-        let columns: Vec<Column> = partition_by.iter().map(|(c, _)| c.clone()).collect();
-        let transform = function.plan(Call {
-            ctx,
-            name,
-            span,
-            input: input.clone(),
-            positional: positional.collect(),
-            named: rest,
-            partition_by: columns.clone(),
-        })?;
-        let read = transform.columns();
-        if let Some((c, at)) = partition_by.iter().find(|(c, _)| read.contains(c)) {
-            return Err(err_at(
-                *at,
-                format!("the partition column {c} of {name} is also a column of another argument"),
-            ));
-        }
-        TableFunctionNode::try_new(input, columns, transform)
-    }
-}
-
-impl RelationPlanner for TableFunctionPlanner {
-    fn plan_relation(
-        &self,
-        relation: TableFactor,
-        ctx: &mut dyn RelationPlannerContext,
-    ) -> Result<RelationPlanning> {
-        let TableFactor::Table {
-            name,
-            args: Some(_),
-            ..
-        } = &relation
-        else {
-            return Ok(RelationPlanning::Original(Box::new(relation)));
-        };
-        let called = name.to_string();
-        let Some(function) = self
-            .functions
-            .iter()
-            .find(|f| called.eq_ignore_ascii_case(f.name()))
-            .cloned()
-        else {
-            return Ok(RelationPlanning::Original(Box::new(relation)));
-        };
-        let TableFactor::Table {
-            name,
-            args: Some(args),
-            alias,
-            ..
-        } = relation
-        else {
-            unreachable!()
-        };
-        let node = self.plan_call(function.as_ref(), ctx, args.args, name.span())?;
-        let plan = LogicalPlan::Extension(Extension {
-            node: Arc::new(node),
-        });
-        Ok(RelationPlanning::Planned(Box::new(PlannedRelation::new(
-            plan, alias,
-        ))))
-    }
 }
 
 // ---------------------------------------------------------------------------------------

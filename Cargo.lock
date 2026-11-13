@@ -675,7 +675,6 @@ name = "avenger-datafusion-transforms"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "avenger-datafusion-aggregate-state",
  "chrono",
  "datafusion",
  "futures",
@@ -1642,12 +1641,12 @@ dependencies = [
  "avenger-chart-eval",
  "avenger-color",
  "avenger-common",
- "avenger-datafusion-transforms",
  "avenger-eventstream",
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-scenegraph",
  "avenger-selection",
+ "avenger-sql",
  "avenger-style",
  "avenger-typst-label",
  "avenger-winit-wgpu",

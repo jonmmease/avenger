@@ -2,7 +2,7 @@
 name = "avenger-sql"
 version = "0.1.0"
 edition = "2021"
-description = "DataFusion SQL that builds avenger charts"
+description = "GoogleSQL pipe queries that build avenger charts, planned onto DataFusion"
 readme = "README.md"
 
 [dependencies]
@@ -10,7 +10,6 @@ avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true, features = [
-    "sql",
     "nested_expressions",
     "datetime_expressions",
     "math_expressions",
@@ -23,6 +22,8 @@ regex = { workspace = true }
 
 [dev-dependencies]
 arrow = { workspace = true }
+# The tests of the planner compare its rows with reference queries in DataFusion's SQL.
+datafusion = { workspace = true, features = ["sql"] }
 avenger-chart-eval = { path = "../avenger-chart-eval", features = ["geo"] }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }

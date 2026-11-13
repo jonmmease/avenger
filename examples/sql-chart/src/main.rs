@@ -1,8 +1,8 @@
 //! A chart that a SQL query builds: the number of movies of each genre, in a chart app.
 //!
-//! The example reads the movies of `movie-search` into a DataFusion session with the mark
-//! functions of avenger-sql, and runs one query, which counts the movies of each genre, then
-//! builds a bar chart of the counts with the `bar` mark function:
+//! The example reads the movies of `movie-search` into a DataFusion session and runs one query of
+//! avenger-sql, which counts the movies of each genre, then builds a bar chart of the counts with
+//! the `bar` mark function:
 //!
 //! ```sql
 //! FROM movies

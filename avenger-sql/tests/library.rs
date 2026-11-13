@@ -334,66 +334,6 @@ fn the_library_names_functions_without_regard_to_case() {
     assert!(library.get("OFFSET").is_none());
 }
 
-/// The rows of `query`, run by DataFusion's SQL planner as avenger-sql does today, and of
-/// `expr` as the library plans it, over the same table.
-async fn same_rows(
-    query: &str,
-    frame: impl FnOnce(datafusion::dataframe::DataFrame) -> datafusion::dataframe::DataFrame,
-) {
-    let ctx = SessionContext::new();
-    avenger_sql::register(&ctx).unwrap();
-    let t = table(
-        &[Some(3), Some(1), Some(4), Some(1), Some(5)],
-        &["a", "b", "a", "c", "b"],
-    );
-    ctx.register_batch("t", t).unwrap();
-    let expected = avenger_sql::sql(&ctx, query)
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    let found = frame(ctx.table("t").await.unwrap())
-        .collect()
-        .await
-        .unwrap();
-    let show = |batches: &[datafusion::arrow::array::RecordBatch]| {
-        datafusion::arrow::util::pretty::pretty_format_batches(batches)
-            .unwrap()
-            .to_string()
-    };
-    assert_eq!(show(&found), show(&expected), "{query}");
-}
-
-#[tokio::test]
-async fn a_mark_builds_the_chart_of_its_sql_call() {
-    let library = Library::new();
-    let bar = expr(&library, "bar(x => s, y => x)");
-    same_rows("SELECT bar(x => s, y => x) AS chart FROM t", |frame| {
-        frame.aggregate(vec![], vec![bar.alias("chart")]).unwrap()
-    })
-    .await;
-}
-
-#[tokio::test]
-async fn bin_takes_its_options_as_named_arguments() {
-    let library = Library::new();
-    let bin = expr(&library, "bin(x, maxbins => 2)");
-    same_rows(
-        "SELECT x, bin(x, 'maxbins', 2) OVER () AS b FROM t ORDER BY x",
-        |frame| {
-            frame
-                .window(vec![bin.alias("b")])
-                .unwrap()
-                .select_columns(&["x", "b"])
-                .unwrap()
-                .sort(vec![datafusion::prelude::col("x").sort(true, false)])
-                .unwrap()
-        },
-    )
-    .await;
-}
-
 #[test]
 fn a_call_can_name_each_parameter() {
     // A parameter whose name is a reserved word, such as `default`, takes no named argument.

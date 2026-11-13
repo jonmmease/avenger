@@ -18,6 +18,7 @@ mod reshape;
 mod rows;
 mod script;
 mod set;
+mod transforms;
 
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 use datafusion::{common::DataFusionError, logical_expr::LogicalPlan};
@@ -88,47 +89,62 @@ pub enum StatementPlan {
 }
 
 impl Analysis {
-    /// The rows of the script: each plan of its statements runs in `ctx` in order, each variable
-    /// binds its value into the plans after it, and the result is the rows of the last query.
+    /// The rows of the last query of the script, as a DataFrame of `ctx`: each variable before
+    /// it evaluates in `ctx` in order and binds its value into the plans after it. The queries
+    /// before the last don't run. A script without a query is an error.
+    pub async fn dataframe(
+        &self,
+        ctx: &datafusion::prelude::SessionContext,
+    ) -> datafusion::common::Result<datafusion::dataframe::DataFrame> {
+        use datafusion::{
+            common::{plan_err, ParamValues},
+            scalar::ScalarValue,
+        };
+        let Some(last) = (self.statements.iter())
+            .rposition(|statement| matches!(statement.plan, StatementPlan::Query(_)))
+        else {
+            return plan_err!("The script has no query");
+        };
+        let mut values: std::collections::HashMap<String, ScalarValue> = Default::default();
+        let bound = |plan: &LogicalPlan,
+                     values: &std::collections::HashMap<String, ScalarValue>| {
+            let map: std::collections::HashMap<String, _> = (values.iter())
+                .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
+                .collect();
+            plan.clone().with_param_values(ParamValues::Map(map))
+        };
+        for statement in &self.statements[..last] {
+            if let StatementPlan::Variable { id, plan, .. } = &statement.plan {
+                let batches = ctx
+                    .execute_logical_plan(bound(plan, &values)?)
+                    .await?
+                    .collect()
+                    .await?;
+                let value = match batches.iter().find(|batch| batch.num_rows() > 0) {
+                    Some(batch) => ScalarValue::try_from_array(batch.column(0), 0)?,
+                    None => ScalarValue::try_from(plan.schema().field(0).data_type())?,
+                };
+                values.insert(id.clone(), value);
+            }
+        }
+        let StatementPlan::Query(plan) = &self.statements[last].plan else {
+            unreachable!("the last query");
+        };
+        ctx.execute_logical_plan(bound(plan, &values)?).await
+    }
+
+    /// The rows of the last query of the script, as [`Analysis::dataframe`] plans them, or no
+    /// rows for a script without a query.
     pub async fn run(
         &self,
         ctx: &datafusion::prelude::SessionContext,
     ) -> datafusion::common::Result<Vec<datafusion::arrow::array::RecordBatch>> {
-        use datafusion::{common::ParamValues, scalar::ScalarValue};
-        let mut values: std::collections::HashMap<String, ScalarValue> = Default::default();
-        let mut last = Vec::new();
-        for statement in &self.statements {
-            let map: std::collections::HashMap<String, _> = (values.iter())
-                .map(|(id, value)| (id.trim_start_matches('$').to_string(), value.clone().into()))
-                .collect();
-            let bound = |plan: &LogicalPlan| {
-                plan.clone()
-                    .with_param_values(ParamValues::Map(map.clone()))
-            };
-            match &statement.plan {
-                StatementPlan::Query(plan) => {
-                    last = ctx
-                        .execute_logical_plan(bound(plan)?)
-                        .await?
-                        .collect()
-                        .await?;
-                }
-                StatementPlan::Variable { id, plan, .. } => {
-                    let batches = ctx
-                        .execute_logical_plan(bound(plan)?)
-                        .await?
-                        .collect()
-                        .await?;
-                    let value = match batches.iter().find(|batch| batch.num_rows() > 0) {
-                        Some(batch) => ScalarValue::try_from_array(batch.column(0), 0)?,
-                        None => ScalarValue::try_from(plan.schema().field(0).data_type())?,
-                    };
-                    values.insert(id.clone(), value);
-                }
-                StatementPlan::Definition => {}
-            }
+        let has_query = (self.statements.iter())
+            .any(|statement| matches!(statement.plan, StatementPlan::Query(_)));
+        match has_query {
+            true => self.dataframe(ctx).await?.collect().await,
+            false => Ok(Vec::new()),
         }
-        Ok(last)
     }
 }
 
@@ -160,6 +176,7 @@ pub fn analyze(
         params: Vec::new(),
         module_context: Vec::new(),
         call_depth: 0,
+        categories: None,
     };
     let mut plan = None;
     let mut statements = Vec::new();
@@ -231,6 +248,9 @@ pub(crate) struct Pass<'a> {
     module_context: Vec<String>,
     /// The depth of the calls of temporary functions that the pass inlines.
     call_depth: usize,
+    /// While the pass plans the `keep` of a `lump`, whose windows run over the categories, the
+    /// order of its window `ranked`.
+    categories: Option<Vec<datafusion::logical_expr::SortExpr>>,
 }
 
 /// A name of a pipe `WITH`, and the rows of its query.

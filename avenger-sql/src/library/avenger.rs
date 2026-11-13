@@ -1,12 +1,14 @@
-//! avenger's own functions: the marks, constructors, `scaled`, and `direct` of avenger-chart, and
-//! the window transforms `bin`, `stack`, and `timeunit`.
+//! avenger's own functions: the marks, constructors, `scaled`, and `direct` of avenger-chart, the
+//! window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table function `impute`.
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! constructor returns the fragment of its message. The transforms take their options as named
 //! arguments, as in `bin(x, maxbins => 30)`, which their window functions take as pairs of a name
 //! and a value. The docs of the marks and the constructors are avenger-chart's, and the options of
-//! the transforms are the transforms crate's.
+//! the transforms are the transforms crate's. The pass plans the calls of `lump` and `impute`
+//! itself, since their arguments read other scopes than a row: the library holds their docs and
+//! forms.
 //!
 //! A parameter whose name is a reserved word of GoogleSQL takes the name with a trailing
 //! underscore, as `range` of `scale` is `range_`, so a call can name it: GoogleSQL takes no
@@ -106,6 +108,8 @@ pub(super) fn functions() -> Vec<Function> {
     functions.push(bin());
     functions.push(stack());
     functions.push(timeunit());
+    functions.push(lump());
+    functions.push(impute());
     functions
 }
 
@@ -363,6 +367,166 @@ fn timeunit() -> Function {
          end, 'month' AS unit)\nDATE '2024-02-03' | STRUCT(DATE '2024-02-01' AS start, DATE \
          '2024-03-01' AS end, 'month' AS unit)\nDATE '2024-02-28' | STRUCT(DATE '2024-02-01' AS \
          start, DATE '2024-03-01' AS end, 'month' AS unit)",
+    )
+}
+
+/// The mapping of a function that the pass plans itself.
+fn planned_by_the_pass(_: &super::Call) -> Result<Planned, super::CallError> {
+    Err(super::CallError::call(
+        "the pass plans this function itself",
+    ))
+}
+
+fn lump() -> Function {
+    Function::window(
+        "lump",
+        "Keeps the heaviest categories of each partition, or the categories that a condition \
+         keeps, and lumps the rest into an Other group.",
+        Need::Forbidden,
+        false,
+    )
+    .description(
+        "`lump` decides each category of each partition of its `OVER` clause, which takes no \
+         `ORDER BY` or frame, and returns the lump of each row's category: \
+         `STRUCT<value, other, weight, category_count>`. For a kept category, `value` is the \
+         category, `other` is `NULL`, `weight` is its weight, and `category_count` is 1. For the \
+         Other group, `value` is `NULL`, `other` is the label, `weight` is the weight of all \
+         the rows of the lumped categories, and `category_count` is their number, for a label \
+         such as \"Other (12)\". A call takes exactly one of `n` and `keep`. The plan groups the \
+         rows by the partition and the category and joins the decisions back to the rows, so \
+         it reads its input more than once.",
+    )
+    .param("category", "The category of each row.")
+    .param(
+        "weight",
+        "The weight of each category, an aggregate of the category's rows, such as \
+         `SUM(tons)`. When omitted, the weight is `COUNT(*)`. It orders the window `ranked` of \
+         `keep`: the categories from the heaviest, and by category on a tie.",
+    )
+    .param(
+        "n",
+        "The number of categories to keep in each partition, the first of the window `ranked`.",
+    )
+    .param(
+        "keep",
+        "The condition that keeps a category, evaluated once for each category. Like a \
+         `HAVING` clause it compares aggregates of the category's rows, as `SUM(tons) > 1000`, \
+         and like `QUALIFY` it can use windows over the categories of the partition, as \
+         `COUNT(*) >= 0.05 * SUM(COUNT(*)) OVER ()` or `ROW_NUMBER() OVER ranked <= 5`. A \
+         window in `keep` takes no `PARTITION BY`, and the NULL category isn't among the \
+         categories of its windows. A `NULL` condition lumps the category.",
+    )
+    .param(
+        "other",
+        "The label of the Other group. When omitted, the label is `'Other'`.",
+    )
+    .param(
+        "null_category",
+        "What happens to the `NULL` category, which `n` and `keep` don't decide: `'keep'` \
+         keeps it as a category of its own, `'other'` lumps it into the Other group, and \
+         `'drop'` gives its rows a `NULL` lump. When omitted, it is `'keep'`.",
+    )
+    .form(
+        "(category: ANY[, weight => ANY][, n => CONST INT64][, keep => BOOL][, other => CONST \
+         STRING][, null_category => ONEOF('keep', 'other', 'drop')]) -> STRUCT<value ANY, other \
+         STRING, weight FLOAT64, category_count INT64>",
+        planned_by_the_pass,
+    )
+    .example(
+        "FROM UNNEST(['a', 'a', 'a', 'b', 'b', 'c']) AS port |> EXTEND lump(port, n => 1) OVER \
+         () AS l |> SELECT DISTINCT port, l.value AS value, l.other AS other, l.category_count \
+         AS categories",
+        "port | value | other | categories\n'a' | 'a' | NULL | 1\n'b' | NULL | 'Other' | \
+         2\n'c' | NULL | 'Other' | 2",
+    )
+    .example(
+        "FROM UNNEST([STRUCT('a' AS port, 5.0 AS tons), STRUCT('b', 1.0), STRUCT('c', 4.0)]) \
+         |> EXTEND lump(port, weight => SUM(tons), keep => SUM(tons) >= 0.25 * SUM(SUM(tons)) \
+         OVER ()) OVER () AS l |> SELECT port, l.value AS value, l.weight AS weight",
+        "port | value | weight\n'a' | 'a' | 5.0\n'b' | NULL | 1.0\n'c' | 'c' | 4.0",
+    )
+}
+
+/// The arguments of `impute` after its input, which a pipe `CALL` passes.
+const IMPUTE_ARGS: &str = "key: ANY, group_columns: ARRAY<ANY>, column: ANY[, value => ANY][, \
+     method => ONEOF('avg', 'median', 'min', 'max')][, frame => ARRAY<INT64>][, keys => \
+     ARRAY<ANY>][, extra_keys => ARRAY<ANY>][, fill_gaps => ANY][, flag => CONST STRING][, \
+     partition_by => ARRAY<ANY>]";
+
+fn impute() -> Function {
+    Function::table(
+        "impute",
+        "Adds the rows that each group lacks, one for each key that the group has no row of, \
+         with an imputed value.",
+    )
+    .description(
+        "A pipe `CALL impute(...)` imputes the rows of its input, and `FROM impute(TABLE t, \
+         ...)` the rows of a table. For each group, the distinct combination of the group \
+         columns, and each key, `impute` adds a row when the group has no row of the key. The \
+         keys are `keys`, or the distinct keys of the input that aren't `NULL`, and \
+         `extra_keys`. An added row holds the key, the group columns, the partition columns, \
+         and the imputed value, and `NULL` in its other columns; the rows of the input stay as \
+         they are. The added rows follow the rows of their partition, by group in the order of \
+         the groups' first rows, then by key. `impute` reads its input once, into memory.",
+    )
+    .param("input", "In `FROM`, the table to impute, as `TABLE name`.")
+    .param("key", "The column of the keys, such as a month.")
+    .param(
+        "group_columns",
+        "The group columns, as an array of columns, such as `[region]`, or `[]` for one group.",
+    )
+    .param("column", "The column of the values to impute.")
+    .param(
+        "value",
+        "The value of the added rows. The column takes the common type of its values and \
+         `value`. A call takes exactly one of `value` and `method`.",
+    )
+    .param(
+        "method",
+        "The aggregate of the group's values that gives the value of an added row: `'avg'`, \
+         `'median'`, `'min'` or `'max'`. The column takes the type of the aggregate.",
+    )
+    .param(
+        "frame",
+        "The rows of the group around an added row, in key order, whose values `method` \
+         aggregates, as `[-2, 2]`: the bounds before and after the row, `NULL` for an \
+         unbounded side. When omitted, `method` aggregates the whole group.",
+    )
+    .param(
+        "keys",
+        "The keys, in place of the keys of the input, as an array of constants.",
+    )
+    .param(
+        "extra_keys",
+        "Keys to add to the keys of the input, as an array of constants.",
+    )
+    .param(
+        "fill_gaps",
+        "Adds the gaps of the sequence of the keys to the keys: the bins, time units, dates or \
+         numbers between the keys that no row has. `TRUE` fills the gaps of a key from `bin` \
+         or `timeunit`; a unit, such as `'month'`, those of a `DATE` or `TIMESTAMP` key; and a \
+         struct with any of `start`, `end` and `step` a sequence of its own, whose missing \
+         fields come from the keys. A number key needs a `step`. The range is half-open, from \
+         `start` up to `end`.",
+    )
+    .param(
+        "flag",
+        "The name of a `BOOL` column to add, `TRUE` in the added rows, such as `'imputed'`.",
+    )
+    .param(
+        "partition_by",
+        "The columns whose values `impute` imputes apart, as an array of columns: each \
+         partition has its own keys, groups and gaps.",
+    )
+    .form(&format!("({IMPUTE_ARGS}) -> TABLE"), planned_by_the_pass)
+    .form(
+        &format!("(input: TABLE, {IMPUTE_ARGS}) -> TABLE"),
+        planned_by_the_pass,
+    )
+    .example(
+        "FROM UNNEST([STRUCT('a' AS g, 1 AS k, 10 AS v), STRUCT('a', 2, 20), STRUCT('b', 1, \
+         5)]) |> SELECT * |> CALL impute(k, [g], v, value => 0)",
+        "g | k | v\n'a' | 1 | 10\n'a' | 2 | 20\n'b' | 1 | 5\n'b' | 2 | 0",
     )
 }
 
