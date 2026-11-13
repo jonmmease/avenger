@@ -12,7 +12,7 @@ Returns the number of rows, or of the rows whose value is not `NULL`.
 
 + `value`: The value whose rows to count.
 
-**Clauses**: `DISTINCT`, `OVER`
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
 
 **Examples**
 

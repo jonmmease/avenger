@@ -22,9 +22,10 @@ use std::collections::HashSet;
 
 use avenger_sql_syntax::TextRange;
 use datafusion::{
+    arrow::datatypes::DataType,
     common::{
         tree_node::{Transformed, TreeNode},
-        Column, DFSchema, Result, TableReference,
+        Column, DFSchema, ExprSchema, Result, TableReference,
     },
     logical_expr::{utils::find_window_exprs, Expr, LogicalPlan, LogicalPlanBuilder, SortExpr},
 };
@@ -117,9 +118,22 @@ impl Rows {
         self.plan.as_ref().map(|plan| plan.schema().as_ref())
     }
 
+    /// The type of the column `col`, when the rows have a plan.
+    pub(crate) fn ty(&self, col: &Col) -> Option<DataType> {
+        let schema = self.schema()?;
+        let field = schema.field_from_column(&col.column).ok()?;
+        Some(field.data_type().clone())
+    }
+
     /// The rows without an order, for an operator that doesn't keep one.
     pub(crate) fn unordered(mut self) -> Self {
         self.order.clear();
+        self
+    }
+
+    /// The rows without range variables, for an operator that ends them.
+    pub(crate) fn without_vars(mut self) -> Self {
+        self.vars.clear();
         self
     }
 }
