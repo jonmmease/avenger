@@ -17,6 +17,7 @@
 pub mod bin;
 pub mod impute;
 pub mod lump;
+pub mod match_recognize;
 pub mod stack;
 pub mod table_function;
 pub mod timeunit;
