@@ -251,3 +251,33 @@ FROM sales |> SELECT region |> UNION ALL (FROM sales |> SELECT units)
 FROM sales |> AGGREGATE units GROUP BY region
 ## error-function-signature
 FROM sales |> SELECT SUBSTR(region)
+## match-recognize-partitions
+FROM sales |> MATCH_RECOGNIZE(PARTITION BY region ORDER BY month, product MEASURES MATCH_NUMBER() AS m, COUNT(*) AS n, ARRAY_AGG(product) AS products, FIRST(month) AS first_month PATTERN (a b*) DEFINE a AS TRUE, b AS price >= PREV(price)) |> ORDER BY region, m
+## match-recognize-variables
+FROM events |> MATCH_RECOGNIZE(ORDER BY ts MEASURES ARRAY_AGG(id) AS ids, ARRAY_AGG(CLASSIFIER()) AS kinds, MAX(b.score) AS buy_score, COUNT(c.id) AS clicks PATTERN (c+ v* b) DEFINE c AS kind = 'click', v AS kind = 'view', b AS kind = 'buy')
+## match-recognize-source
+FROM events MATCH_RECOGNIZE(ORDER BY id MEASURES MIN(id) AS first_id, LAST(score) AS last_score PATTERN (x y+) DEFINE x AS kind = 'click', y AS kind != 'click') AS mr |> SELECT mr.first_id, mr.last_score |> ORDER BY first_id
+## match-recognize-skip-to-next-row
+FROM sales |> MATCH_RECOGNIZE(ORDER BY region, product, month MEASURES ARRAY_AGG(units) AS units, MATCH_NUMBER() AS m AFTER MATCH SKIP TO NEXT ROW PATTERN (x{2}) DEFINE x AS units IS NOT NULL) |> ORDER BY m
+## match-recognize-longest
+FROM events |> MATCH_RECOGNIZE(ORDER BY id MEASURES ARRAY_AGG(id) AS ids PATTERN (x | x y y) DEFINE x AS TRUE, y AS kind != 'click' OPTIONS (use_longest_match = TRUE)) |> ORDER BY ids[OFFSET(0)]
+## match-recognize-empty-matches
+FROM events |> MATCH_RECOGNIZE(ORDER BY id MEASURES MATCH_NUMBER() AS m, COUNT(*) AS n, ARRAY_AGG(id) AS ids PATTERN (x*) DEFINE x AS score > 1) |> ORDER BY m
+## match-recognize-prev-next
+FROM events |> MATCH_RECOGNIZE(ORDER BY id MEASURES MIN(id) AS id, ANY_VALUE(score) AS score PATTERN (peak) DEFINE peak AS score > PREV(score) AND score > NEXT(score, 1)) |> ORDER BY id
+## match-recognize-whole-partition
+FROM penguins |> MATCH_RECOGNIZE(PARTITION BY species ORDER BY body_mass_g MEASURES COUNT(*) AS n, MIN(body_mass_g) AS lightest, MAX(x.body_mass_g) AS heaviest PATTERN (x+) DEFINE x AS TRUE) |> ORDER BY species
+## match-recognize-anchors
+FROM sales |> MATCH_RECOGNIZE(PARTITION BY product ORDER BY month, region MEASURES ARRAY_AGG(region) AS regions PATTERN (^ x+ $) DEFINE x AS units > 1) |> ORDER BY product
+## error-match-recognize-undefined-variable
+FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES COUNT(*) AS n PATTERN (a b) DEFINE a AS TRUE)
+## error-match-recognize-define-type
+FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS units)
+## error-match-recognize-unaggregated
+FROM sales |> MATCH_RECOGNIZE(PARTITION BY region ORDER BY month MEASURES units AS u PATTERN (a) DEFINE a AS TRUE)
+## error-match-recognize-two-ranges
+FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES MAX(a.units - b.units) AS d PATTERN (a b) DEFINE a AS TRUE, b AS TRUE)
+## error-match-recognize-prev-outside
+FROM sales |> SELECT PREV(units) AS p
+## error-match-recognize-option
+FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE OPTIONS (use_longest_match = 1))
