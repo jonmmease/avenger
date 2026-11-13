@@ -8,6 +8,7 @@ readme = "README.md"
 
 [dependencies]
 datafusion = { workspace = true, features = ["nested_expressions"] }
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
