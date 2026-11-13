@@ -51,7 +51,10 @@ pub fn small() -> (RecordBatch, RecordBatch) {
 
 /// A batch of the columns `columns`, each a name and its values.
 fn batch(columns: Vec<(&str, arrow::array::ArrayRef)>) -> RecordBatch {
-    RecordBatch::try_from_iter(columns).unwrap()
+    RecordBatch::try_from_iter_with_nullable(
+        (columns.into_iter()).map(|(name, array)| (name, array, true)),
+    )
+    .unwrap()
 }
 
 fn ints(values: &[Option<i64>]) -> arrow::array::ArrayRef {
@@ -64,7 +67,7 @@ fn strings(values: &[&str]) -> arrow::array::ArrayRef {
 
 /// The catalog of the tests: `penguins`, `one` and `t`, and the tables of the queries that GoogleSQL
 /// recorded over the same rows, in `data/googlesql_pipe_*.txt`: `u`, of `(x, s)`; `sales`, of
-/// `(sp, isl, m)`; and `wide`, of `(k, a, b, c, d)`.
+/// `(sp, isl, m)`; `wide`, of `(k, a, b, c, d)`; and `arrays`, of `(k, xs)`.
 pub fn catalog() -> MemoryCatalog {
     let (one, t) = small();
     let u = batch(vec![
@@ -83,8 +86,24 @@ pub fn catalog() -> MemoryCatalog {
         ("c", ints(&[Some(3), None])),
         ("d", ints(&[Some(4), None])),
     ]);
+    let arrays = batch(vec![
+        ("k", ints(&[Some(1), Some(2), Some(3)])),
+        (
+            "xs",
+            Arc::new(arrow::array::ListArray::from_iter_primitive::<
+                arrow::datatypes::Int64Type,
+                _,
+                _,
+            >(vec![
+                Some(vec![Some(1), Some(2)]),
+                Some(vec![]),
+                None,
+            ])),
+        ),
+    ]);
     MemoryCatalog::new()
         .with_table(&["penguins"], table(penguins()))
+        .with_table(&["arrays"], table(arrays))
         .with_table(&["one"], table(one))
         .with_table(&["t"], table(t))
         .with_table(&["u"], table(u))

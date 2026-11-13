@@ -115,6 +115,58 @@ async fn examples_return_their_results_and_googlesqls() {
     assert!(checked > 100, "{checked} examples");
 }
 
+#[tokio::test]
+async fn aggregate_and_window_examples_return_their_rows() {
+    // An example of an aggregate or a window function is the query it is, whose rows the docs
+    // write as lines of values separated by ` | `, after a line of the column names.
+    let library = Library::new();
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for function in library.functions() {
+        if function.kind == FunctionKind::Scalar {
+            continue;
+        }
+        for example in &function.examples {
+            if !example.query.starts_with("FROM UNNEST") {
+                continue;
+            }
+            let batches = match pass::run(&example.query).await {
+                Ok(batches) => batches,
+                Err(errors) => {
+                    failures.push(format!("{}: {errors:?}", example.query));
+                    continue;
+                }
+            };
+            let mut lines = example.result.lines();
+            let header = lines.next().unwrap_or_default();
+            let mut want: Vec<String> = lines.map(String::from).collect();
+            want.sort();
+            let schema = batches[0].schema();
+            let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
+            let mut found = Vec::new();
+            for batch in &batches {
+                for row in 0..batch.num_rows() {
+                    let cells: Vec<String> = (batch.columns().iter())
+                        .map(|column| pass::values::literal(column, row))
+                        .collect();
+                    found.push(cells.join(" | "));
+                }
+            }
+            found.sort();
+            if names.join(" | ") != header || found != want {
+                failures.push(format!(
+                    "{}: the docs say {header} {want:?}, the pass {} {found:?}",
+                    example.query,
+                    names.join(" | ")
+                ));
+            }
+            checked += 1;
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    assert!(checked > 20, "{checked} examples");
+}
+
 /// The concrete argument lists of a form of GoogleSQL's listing, as `[STRING, INT64]`, with an
 /// optional argument present and absent, a repeated argument as `X...`, and `DOUBLE` as
 /// `FLOAT64`, or none for a form of a type or an argument that avenger-sql doesn't have.
