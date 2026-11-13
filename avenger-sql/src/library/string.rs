@@ -13,10 +13,10 @@ use super::{cast, lit_i64, lit_str, null_when, Call, CallError, Function};
 
 pub(super) fn functions() -> Vec<Function> {
     vec![
-        Function::scalar("CONCAT", "Joins strings into one.")
+        Function::scalar("CONCAT", "Joins strings, or bytes, into one.")
             .description("Returns `NULL` when any value is `NULL`.")
-            .param("values", "The strings, in order.")
-            .form("(values: STRING...) -> STRING", |call| {
+            .param("values", "The strings, or the bytes, in order.")
+            .form("(values: T...) -> T where T: STRING | BYTES", |call| {
                 // `||` returns NULL for a NULL value, as GoogleSQL's CONCAT does, where
                 // DataFusion's `concat` skips it.
                 let mut values = call.rest().into_iter();
