@@ -99,6 +99,16 @@ async fn the_keep_of_lump_reads_aggregates_and_windows_of_the_categories() {
 }
 
 #[tokio::test]
+async fn a_lump_filters_the_rows_in_a_pipe_where() {
+    // A pipe WHERE computes its windows over the rows before it, as GoogleSQL's does.
+    let found = lines(
+        "FROM penguins |> WHERE lump(island, n => 1) OVER ().value IS NOT NULL |> AGGREGATE COUNT(*) AS n",
+    )
+    .await;
+    assert_eq!(found, ["168", "n"]);
+}
+
+#[tokio::test]
 async fn lumps_beside_other_windows_have_columns_of_their_own() {
     let found = lines(
         "FROM penguins
@@ -200,10 +210,6 @@ fn the_errors_of_lump_are_at_their_text() {
         if found != want {
             failures.push(format!("{call}:\n  found {found:?}\n  want  {want:?}"));
         }
-    }
-    let found = errors("FROM penguins |> WHERE lump(island, n => 1) OVER () IS NULL");
-    if found[0].0 != "Analytic function lump not allowed in pipe WHERE clause" {
-        failures.push(format!("WHERE: {found:?}"));
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
