@@ -52,7 +52,7 @@ use datafusion::{
 };
 
 pub use array::Subscript;
-pub(crate) use cast_format::cast_format;
+pub(crate) use cast_format::{cast_format, cast_to_string};
 pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};

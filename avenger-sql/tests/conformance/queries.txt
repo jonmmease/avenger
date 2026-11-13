@@ -221,6 +221,8 @@ FROM sales |> SELECT DISTINCT product, SAFE_CAST(product AS DATE FORMAT 'YYYY-MM
 FROM sales |> SELECT product, CAST(units AS STRING FORMAT 'S0999') AS u, CAST(price AS STRING FORMAT '$9,999.99') AS p, CAST(price * 1000 AS STRING FORMAT 'FM9.99EEEE') AS e, CAST(units AS STRING FORMAT 'XX') AS hex
 ## error-cast-format-number
 FROM sales |> SELECT CAST(units AS STRING FORMAT '9X') AS u
+## cast-to-string
+FROM events |> SELECT id, CAST(score AS STRING) AS s, CAST(score / 3 AS STRING) AS third, CAST(CAST(score AS NUMERIC) AS STRING) AS n, CAST(DATETIME(ts, 'UTC') AS STRING) AS dt, CONCAT('#', CAST(id * 1.5 AS STRING)) AS label
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column
