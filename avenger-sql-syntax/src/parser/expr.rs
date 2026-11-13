@@ -536,6 +536,18 @@ impl Parser<'_> {
                 }
                 INTERVAL_EXPR
             }
+            "WITH" if next == L_PAREN => {
+                // GoogleSQL's WITH expression, `WITH(a AS 1, a + 1)`.
+                let range = self.range();
+                self.error(
+                    DiagnosticCode::Unsupported,
+                    range,
+                    "avenger-sql has no WITH expressions",
+                );
+                self.bump_keyword();
+                self.skip_balanced();
+                ERROR
+            }
             "EXISTS" => {
                 self.bump_keyword();
                 self.parenthesized_query();
