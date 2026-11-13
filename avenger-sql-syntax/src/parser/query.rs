@@ -325,6 +325,7 @@ impl Parser<'_> {
         let first = self.start();
         let quoted = self.current() == QUOTED_IDENT;
         self.bump();
+        let mut reserved = false;
         if !quoted {
             while self.current() == MINUS && self.touches_previous() && self.adjacent(0) {
                 let next_kind = self.nth(1);
@@ -341,6 +342,7 @@ impl Parser<'_> {
                     _ => false,
                 };
                 if !ok {
+                    reserved = next_kind == WORD;
                     break;
                 }
                 self.bump();
@@ -359,8 +361,47 @@ impl Parser<'_> {
             }
         }
         first.complete(self, NAME_REF);
+        // As GoogleSQL does, a reserved word after a dash is an error at the word.
+        if reserved {
+            let word = self.nth_text(1);
+            let range = self.nth_range(1);
+            self.error(
+                DiagnosticCode::ReservedName,
+                range,
+                format!("`{word}` is reserved, so it can't follow a dash in a table name"),
+            )
+            .help("quote the table name in backticks");
+            let error = self.start();
+            self.bump();
+            self.bump();
+            error.complete(self, ERROR);
+        }
         self.path_rest(path, 1);
         true
+    }
+
+    /// A column of a pipe `SET`, `DROP` or `RENAME`, which names it alone. As GoogleSQL does, a
+    /// path is an error at its start, and its fields go in an `ERROR` node.
+    fn column_name(&mut self, operator: &str) {
+        let start = self.range();
+        self.name_ref(NameRole::Column);
+        if self.current() != DOT {
+            return;
+        }
+        let error = self.start();
+        while self.current() == DOT {
+            self.bump();
+            if matches!(self.current(), WORD | QUOTED_IDENT) {
+                self.bump();
+            }
+        }
+        error.complete(self, ERROR);
+        let range = start.cover(self.previous_range());
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            format!("a pipe {operator} names a column alone, not a path"),
+        );
     }
 
     /// The alias of a source. Without `AS`, `PIVOT` and `UNPIVOT` start operators, not aliases.
@@ -452,7 +493,7 @@ impl Parser<'_> {
                 self.comma_list_until(
                     |p| {
                         let marker = p.start();
-                        p.name_ref(NameRole::Column);
+                        p.column_name("SET");
                         p.expect(EQ, "`=`");
                         p.expr();
                         marker.complete(p, ASSIGNMENT);
@@ -463,7 +504,7 @@ impl Parser<'_> {
             }
             "DROP" => {
                 self.bump_keyword();
-                self.comma_list_until(|p| p.name_ref(NameRole::Column), Self::at_operator_end);
+                self.comma_list_until(|p| p.column_name("DROP"), Self::at_operator_end);
                 PIPE_DROP
             }
             "RENAME" => {
@@ -471,7 +512,7 @@ impl Parser<'_> {
                 self.comma_list_until(
                     |p| {
                         let marker = p.start();
-                        p.name_ref(NameRole::Column);
+                        p.column_name("RENAME");
                         p.eat_keyword("AS");
                         p.name(NameRole::Alias);
                         marker.complete(p, RENAME_ITEM);
@@ -795,6 +836,19 @@ impl Parser<'_> {
                 "GoogleSQL writes `{operator} ALL` or `{operator} DISTINCT`"
             ));
         }
+        // As GoogleSQL does, `STRICT BY NAME` is an error at `STRICT`.
+        if self.at_keyword("STRICT") && self.keyword_at(1, "BY") && self.keyword_at(2, "NAME") {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Expected,
+                range,
+                "STRICT takes CORRESPONDING, not BY NAME",
+            )
+            .help("write `STRICT CORRESPONDING` or `BY NAME`");
+            let error = self.start();
+            self.bump_keyword();
+            error.complete(self, ERROR);
+        }
         if self.at_keyword("BY") && self.keyword_at(1, "NAME") {
             let marker = self.start();
             self.eat_keywords(&["BY", "NAME"]);
@@ -909,8 +963,9 @@ impl Parser<'_> {
     fn unpivot(&mut self) {
         let marker = self.start();
         self.bump_keyword();
-        if !self.eat_keywords(&["INCLUDE", "NULLS"]) {
-            self.eat_keywords(&["EXCLUDE", "NULLS"]);
+        if self.at_keyword("INCLUDE") || self.at_keyword("EXCLUDE") {
+            self.bump_keyword();
+            self.expect_keyword("NULLS");
         }
         self.parens(|p| {
             p.path_or_paths();
@@ -921,14 +976,13 @@ impl Parser<'_> {
                 |p| {
                     let item = p.start();
                     p.path_or_paths();
-                    let as_range = p.range();
                     let has_as = p.eat_keyword("AS");
                     match p.current() {
                         STRING | INTEGER => {
                             p.primary();
                         }
                         _ if has_as => {
-                            let range = as_range.cover(p.range());
+                            let range = p.range();
                             p.error(
                                 DiagnosticCode::Expected,
                                 range,

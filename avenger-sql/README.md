@@ -62,3 +62,11 @@ FROM impute(TABLE monthly, month, [region], units, method => 'avg', frame => [-1
 Its arguments name the columns of its input: the key, an array of the group columns, and the column to impute, then named arguments such as `fill_gaps` and `partition_by`. The reference of the library documents each argument of each transform.
 
 The example `sql-chart` shows the chart of a query in a chart app, and `chart-lump` the lumped genres of movies.
+
+## Conformance with GoogleSQL
+
+Two kinds of tests compare avenger-sql with GoogleSQL's `execute_query` 2026.11.1. `tests/googlesql_queries.rs` runs pipe queries whose results `execute_query` recorded in `tests/data/googlesql_pipe_*.txt`, and runs in every test run. The ignored test `tests/conformance.rs` runs each query of `tests/conformance/queries.txt` through `sql` and through `execute_query --mode=execute` over the CSV tables of `tests/conformance`, which both read as `STRING` columns and `tables.sql` types, and compares the names of the columns and the rows, or the errors. A difference that `tests/conformance/known.txt` lists, such as a function that the library doesn't map yet, is explained, and any other fails the test. The report is in `tests/output/conformance.md`. The test needs the binary at `scratch/tools/googlesql/execute_query_macos`, and without it skips with a message:
+
+```bash
+CARGO_TARGET_DIR=target cargo test --release -p avenger-sql --test conformance -- --ignored
+```

@@ -155,7 +155,7 @@ impl Pass<'_> {
 
     /// What resolution knows of `expr`: its type, and whether it is a literal.
     fn observed(&self, expr: &Expr, scope: Scope) -> Option<(Ty, bool)> {
-        let ty = Ty::of_arrow(&self.type_of(expr, scope)?)?;
+        let ty = library::observed_type(expr, &self.type_of(expr, scope)?)?;
         Some((ty, matches!(expr, Expr::Literal(..))))
     }
 
@@ -1311,6 +1311,12 @@ impl Pass<'_> {
             );
             return None;
         }
+        // GoogleSQL rounds a float or a decimal to an integer half away from zero, where Arrow's
+        // cast truncates.
+        let value = match (from.is_floating() || from.is_decimal(), target.is_integer()) {
+            (true, true) => datafusion::functions::math::expr_fn::round(vec![value]),
+            _ => value,
+        };
         Some(match cast_expr.safe_cast_kw() {
             Some(_) => Expr::TryCast(TryCast::new(Box::new(value), target)),
             None => cast(value, target),
@@ -1389,7 +1395,8 @@ impl Pass<'_> {
                     .collect::<Option<_>>()?;
                 (elements, ty)
             }
-            None if elements.is_empty() => (elements, Ty::Int64),
+            // `[]` coerces to an array of any type.
+            None if elements.is_empty() => return Some(library::empty_array()),
             None => self.common(elements, range, "The elements of an array", scope)?,
         };
         if matches!(ty, Ty::Array(_)) {
@@ -2184,6 +2191,8 @@ pub(crate) fn inferred_name(expr: &ast::Expr) -> String {
             .name_ref()
             .and_then(|name| name.text())
             .unwrap_or_default(),
+        // As in GoogleSQL, `(x)` is named after `x`.
+        ast::Expr::ParenExpr(paren) => paren.expr().map(|e| inferred_name(&e)).unwrap_or_default(),
         _ => String::new(),
     }
 }

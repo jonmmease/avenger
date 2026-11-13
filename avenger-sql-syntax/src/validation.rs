@@ -157,9 +157,10 @@ impl Validator {
     fn declare(&mut self, node: &SyntaxNode) {
         let declare = cast::<ast::DeclareStmt>(node);
         if declare.ty().is_none() && declare.default_kw().is_none() {
+            // At the end of the names, where GoogleSQL expects the type.
             self.error(
                 DiagnosticCode::InvalidStatement,
-                declare.range(),
+                TextRange::empty(declare.range().end()),
                 "a DECLARE takes a type, a DEFAULT, or both",
             );
         }

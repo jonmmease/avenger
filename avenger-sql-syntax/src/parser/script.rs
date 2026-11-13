@@ -218,7 +218,25 @@ impl Parser<'_> {
             );
             self.bump();
         } else {
+            let start = self.range();
             self.name_ref(NameRole::Variable);
+            // Several names take parentheses. As GoogleSQL does, the error is at the names, once
+            // the `=` after them shows an assignment.
+            if self.current() == COMMA {
+                let error = self.start();
+                while self.eat(COMMA) {
+                    self.name_ref(NameRole::Variable);
+                }
+                error.complete(self, ERROR);
+                if self.current() == EQ {
+                    let range = start.cover(self.previous_range());
+                    self.error(
+                        DiagnosticCode::InvalidStatement,
+                        range,
+                        "a SET of several variables takes them in parentheses, as in `SET (a, b) = (1, 2)`",
+                    );
+                }
+            }
         }
         self.expect(EQ, "`=`");
         self.expr();
@@ -239,10 +257,9 @@ impl Parser<'_> {
         }
         let object = if self.eat_keywords(&["AGGREGATE", "FUNCTION"]) {
             Some(Object::Function(FunctionKind::Aggregate))
-        } else if self.at_keyword("TABLE")
-            && self.keyword_at(1, "FUNCTION")
-            && (self.keyword_at(2, "IF") || self.ident_at(2))
-        {
+        } else if self.at_keyword("TABLE") && self.keyword_at(1, "FUNCTION") {
+            // As in GoogleSQL, `TABLE FUNCTION` is a table function, and a table named `function`
+            // takes backticks.
             self.eat_keywords(&["TABLE", "FUNCTION"]);
             Some(Object::Function(FunctionKind::Table))
         } else if self.eat_keyword("FUNCTION") {
