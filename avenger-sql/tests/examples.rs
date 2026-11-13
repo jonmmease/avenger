@@ -1,7 +1,8 @@
 //! The documented examples of the library's functions through the pass, against the results that
-//! the docs record: a scalar example as `FROM one |> SELECT <example> AS v`, and an example of an
-//! aggregate or a window function as the query it is, whose rows the docs write as lines of
-//! values separated by ` | `, after a line of the column names.
+//! the docs record: a scalar example as `FROM one |> SELECT <example> AS v`, and an example that
+//! is a query, of an aggregate, a window function, or a function of `MATCH_RECOGNIZE`, as the
+//! query it is, whose rows the docs write as lines of values separated by ` | `, after a line of
+//! the column names.
 
 mod eval;
 mod pass;
@@ -46,15 +47,13 @@ async fn scalar_examples_return_their_results_through_the_pass() {
 }
 
 #[tokio::test]
-async fn aggregate_and_window_examples_return_their_rows_through_the_pass() {
+async fn query_examples_return_their_rows_through_the_pass() {
     let library = Library::new();
     let mut failures = Vec::new();
     let mut checked = 0;
     for function in library.functions() {
-        if function.kind == FunctionKind::Scalar {
-            continue;
-        }
         for example in &function.examples {
+            // A scalar function's example is a query for the functions of `MATCH_RECOGNIZE`.
             if !example.query.starts_with("FROM UNNEST") {
                 continue;
             }

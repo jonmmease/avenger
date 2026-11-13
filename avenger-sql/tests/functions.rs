@@ -76,6 +76,11 @@ async fn examples_return_their_results_and_googlesqls() {
             continue;
         }
         for example in &function.examples {
+            // The examples of `MATCH_RECOGNIZE`'s functions are queries, which the tests of the
+            // examples through the pass run.
+            if example.query.contains("|>") {
+                continue;
+            }
             let planned = match plan(&library, &parse(&example.query)) {
                 Ok(planned) => planned,
                 Err(error) => {
