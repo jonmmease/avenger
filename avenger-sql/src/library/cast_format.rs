@@ -1269,6 +1269,15 @@ impl ScalarUDFImpl for CastFormat {
                 Arc::new(builder.finish())
             }
             Op::NumberToString => {
+                // Integers of every width as INT64s, and floats as FLOAT64s, but UINT64s.
+                let value = match value.data_type() {
+                    DataType::UInt64 | DataType::Int64 | DataType::Float64 | DataType::Float32 => {
+                        value
+                    }
+                    ty if ty.is_integer() => arrow_cast(&value, &DataType::Int64)?,
+                    ty if ty.is_floating() => arrow_cast(&value, &DataType::Float64)?,
+                    _ => value,
+                };
                 let model = super::number_format::NumberFormat::parse(&format);
                 let mut builder = StringBuilder::new();
                 for row in 0..value.len() {

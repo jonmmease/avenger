@@ -106,3 +106,52 @@ async fn parsing_takes_the_missing_parts_from_today() {
         assert_eq!(ours(expr).await, expected, "{expr}");
     }
 }
+
+/// The number format models against GoogleSQL: each case of `data/googlesql_number_format.tsv`,
+/// a type, a value, a format, and GoogleSQL's text or error, which `execute_query` recorded, of
+/// `CAST(CAST(value AS type) AS STRING FORMAT format)`. avenger-sql has no `UINT64` or `FLOAT32`
+/// type, and its `BIGNUMERIC`, a `Decimal256(76, 38)`, holds 38 digits before the point where
+/// GoogleSQL's extremes have 39, so those cases are left out.
+#[tokio::test]
+async fn numbers_format_as_googlesqls() {
+    let data = include_str!("data/googlesql_number_format.tsv");
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for line in data.lines().skip(1) {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let [ty, value, format, expected] = fields[..] else {
+            panic!("a line of four fields: {line}");
+        };
+        let integer_digits = (value.trim_matches('\'').trim_start_matches('-'))
+            .split('.')
+            .next()
+            .map_or(0, str::len);
+        if matches!(ty, "UINT64" | "FLOAT32") || (ty == "BIGNUMERIC" && integer_digits > 38) {
+            continue;
+        }
+        let format = format.replace('\\', "\\\\").replace('\'', "\\'");
+        let expr = format!("CAST(CAST({value} AS {ty}) AS STRING FORMAT '{format}')");
+        let found = ours(&expr).await;
+        let expected = match (
+            expected.strip_prefix("ok:"),
+            expected.strip_prefix("error:"),
+        ) {
+            (Some(text), _) => format!("[{text}]"),
+            (_, Some(message)) => format!("!{message}"),
+            _ => panic!("ok: or error: {expected}"),
+        };
+        if found != expected {
+            failures.push(format!(
+                "{expr}\n  GoogleSQL {expected}\n  avenger   {found}"
+            ));
+        }
+        checked += 1;
+    }
+    assert!(checked > 1000, "{checked} cases");
+    assert!(
+        failures.is_empty(),
+        "{} of {checked} cases differ:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
