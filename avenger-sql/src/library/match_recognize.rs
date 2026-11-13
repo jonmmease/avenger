@@ -6,7 +6,7 @@
 //! and `NEXT` with `LAG` and `LEAD` over the clause's partition and order, and the functions of a
 //! match with the columns that the clause's node computes. A marker never runs.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use datafusion::{
     arrow::datatypes::DataType,
@@ -113,20 +113,13 @@ fn scalar_of(ty: &DataType) -> ScalarValue {
     ScalarValue::try_from(ty).unwrap_or(ScalarValue::Null)
 }
 
-/// The marker of the name `name`, whose type is the type of its first argument.
+/// The marker of the name `name`, whose type is the type of its first argument. The pass finds a
+/// marker by its name.
 fn marker_udf(name: &str) -> Arc<ScalarUDF> {
-    static MARKERS: LazyLock<std::sync::Mutex<Vec<Arc<ScalarUDF>>>> =
-        LazyLock::new(Default::default);
-    let mut markers = MARKERS.lock().expect("the markers");
-    if let Some(udf) = markers.iter().find(|udf| udf.name() == name) {
-        return udf.clone();
-    }
-    let udf = Arc::new(ScalarUDF::new_from_impl(Marker {
+    Arc::new(ScalarUDF::new_from_impl(Marker {
         name: name.to_string(),
         signature: Signature::variadic_any(Volatility::Immutable),
-    }));
-    markers.push(udf.clone());
-    udf
+    }))
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
