@@ -432,7 +432,14 @@ impl<'a> Parser<'a> {
         if !opened {
             return;
         }
-        if !self.at(R_PAREN) && !self.at_eof() {
+        if self.at_eof() {
+            // At the end, the `)` is missing, unless an error at the end reports it already.
+            let here = self.range().start();
+            let reported = (self.diagnostics.last()).is_some_and(|d| d.range.start() == here);
+            if !reported {
+                self.error_expected("`)`");
+            }
+        } else if !self.at(R_PAREN) {
             self.error_expected("`)`");
             self.skip_until(|p| matches!(p.current(), R_PAREN | SEMICOLON | PIPE));
         }

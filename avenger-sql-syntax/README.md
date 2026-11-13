@@ -43,3 +43,17 @@ Each error is a `Diagnostic`, with a `DiagnosticCode`, a range, a message, help,
 ## Tests
 
 The tests check the corpora in `tests/common` against GoogleSQL's grammar and parser tests, and compare four trees with the baselines in `tests/baselines`. A test that finds a different tree writes it to `tests/output/`, and copying it to `tests/baselines/` accepts it.
+
+## Conformance with GoogleSQL
+
+The ignored test `tests/conformance.rs` compares the parser with GoogleSQL's `execute_query` 2026.11.1: it parses each input of a corpus with `execute_query --mode=parse --sql_mode=script --enabled_language_features=MAXIMUM` and with `parse`, and compares whether each accepts the input and where each finds its first error. The corpus is the inputs of this crate's tests and the inputs of GoogleSQL's parser tests that fall in the subset, including the pipe operators of a standard query with the query before its first `|>` written as `FROM t`. A difference that `tests/conformance/known.txt` lists, such as a form outside the subset, is explained, and any other fails the test. The report is in `tests/output/conformance.md`.
+
+The check needs the binary at `scratch/tools/googlesql/execute_query_macos` and the corpus, which `tests/conformance/extract.py` writes to `scratch/tools/googlesql/parser-corpus.txt` from a checkout of GoogleSQL at the binary's tag, so the repository holds no text of GoogleSQL's tests. Without them, the test skips with a message. From the repository's root:
+
+```bash
+python3 avenger-sql-syntax/tests/conformance/extract.py
+```
+
+```bash
+CARGO_TARGET_DIR=target cargo test --release -p avenger-sql-syntax --test conformance -- --ignored
+```
