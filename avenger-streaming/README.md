@@ -4,7 +4,13 @@ Queries over the events of a chart, which run frame by frame. Each query's resul
 
 An `EventLog` holds a chart's events in the order of arrival. It numbers them in the column `seq` from 1, so the order of the events is a column that queries read and that has no ties, and it is the table `events` of avenger-sql's catalog. The log merges the small batches that frames append into larger ones, since a plan reads many small batches slowly.
 
-`EventQueries` holds the queries over one log. A query that `avenger_sql::streaming::split` splits runs incrementally: each frame's events pass through its stateless stages once, the rows that they keep update its front, and the rest of the query runs as a batch plan over the front's output, only on frames where that output changed. The fronts are an `AGGREGATE`, grouped or ungrouped, which keeps DataFusion's accumulators of each group, and an `ORDER BY ... LIMIT` whose last key is `seq`, which keeps the first rows of its order. Neither needs a retraction, since events only grow. Another query runs as its batch plan over the log on each frame with events, and `register` returns the reason.
+`EventQueries` holds the queries over one log. A query that `avenger_sql::streaming::split` splits runs incrementally: each frame's events pass through its stateless stages once, the rows that they keep update its front, and the rest of the query runs as a batch plan over the front's output, only on frames where that output changed. The fronts are:
+
+- An `AGGREGATE`, grouped or ungrouped, which keeps DataFusion's accumulators of each group.
+- An `ORDER BY ... LIMIT` whose last key is `seq`, which keeps the first rows of its order.
+- A `MATCH_RECOGNIZE` ordered by `seq`, which keeps each partition's rows after its settled frontier, the first row whose match more rows can still change. Each frame, it evaluates the conditions of that tail, matches it again, and computes the measures of its matches: a match before the new frontier is final, and its measures stay, while the measures of the open matches change with each frame.
+
+None needs a retraction, since events only grow and a final match never changes. Another query runs as its batch plan over the log on each frame with events, and `register` returns the reason.
 
 ```rust
 let log = EventLog::new(pointer_event_schema)?;

@@ -25,11 +25,13 @@ pub(crate) enum FrontState {
     Empty,
     Aggregate(Box<AggregateState>),
     Limit(LimitState),
+    Match(Box<crate::matching::MatchState>),
 }
 
 impl FrontState {
     /// The state of `front` over the rows of the schema `input`, the stages' output.
     pub(crate) fn new(
+        ctx: &datafusion::prelude::SessionContext,
         front: &Front,
         input: &DFSchemaRef,
         params: &Option<ParamValues>,
@@ -84,6 +86,9 @@ impl FrontState {
                 }
                 Ok(FrontState::Aggregate(Box::new(state)))
             }
+            Front::MatchRecognize(front) => Ok(FrontState::Match(Box::new(
+                crate::matching::MatchState::new(ctx, front, input, params, props)?,
+            ))),
             Front::Limit { order, skip, fetch } => {
                 let order: Vec<datafusion::logical_expr::SortExpr> = (order.iter())
                     .map(|key| {
@@ -106,11 +111,12 @@ impl FrontState {
     }
 
     /// Applies `rows` of the stages, and returns whether the output changed.
-    pub(crate) fn apply(&mut self, rows: &RecordBatch) -> Result<bool> {
+    pub(crate) async fn apply(&mut self, rows: &RecordBatch) -> Result<bool> {
         match self {
             FrontState::Empty => Ok(false),
             FrontState::Aggregate(state) => state.apply(rows),
             FrontState::Limit(state) => state.apply(rows),
+            FrontState::Match(state) => state.apply(rows).await,
         }
     }
 
@@ -120,6 +126,7 @@ impl FrontState {
             FrontState::Empty => Ok(Vec::new()),
             FrontState::Aggregate(state) => state.output(),
             FrontState::Limit(state) => state.output(),
+            FrontState::Match(state) => state.output(),
         }
     }
 }
@@ -301,7 +308,7 @@ impl LimitState {
 }
 
 /// `expr` with each parameter as its value.
-fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<Expr> {
+pub(crate) fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<Expr> {
     use datafusion::common::tree_node::{Transformed, TreeNode};
     let Some(params) = params else {
         return Ok(expr.clone());

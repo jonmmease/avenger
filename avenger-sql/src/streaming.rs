@@ -58,6 +58,29 @@ pub enum Front {
         skip: usize,
         fetch: usize,
     },
+    /// A `MATCH_RECOGNIZE` ordered by `seq`: its output is a row of measures for each match.
+    MatchRecognize(Box<MatchFront>),
+}
+
+/// The pieces of a front of `MATCH_RECOGNIZE`, which a runtime runs on the rows that each needs.
+#[derive(Debug, Clone)]
+pub struct MatchFront {
+    /// The rows' positions and conditions: the window projection under the clause's node, over
+    /// the stages' rows that `staged` holds.
+    pub conditions: LogicalPlan,
+    pub staged: Slot,
+    /// The measures: the plan over the node's rows that `node_rows` holds, one for each row of
+    /// each match and one for each empty match.
+    pub measures: LogicalPlan,
+    pub node_rows: Slot,
+    pub call: avenger_datafusion_transforms::match_recognize::MatchRecognizeCall,
+    /// The partition expressions, over the stages' rows.
+    pub partition: Vec<Expr>,
+    /// The column `seq` of the stages' rows, the clause's order.
+    pub seq: Column,
+    /// The most rows that a condition reads before its row, by `PREV`, and after it, by `NEXT`.
+    pub back: usize,
+    pub ahead: usize,
 }
 
 /// Why a query doesn't split, and runs as a batch plan.
@@ -151,25 +174,30 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
     if top == 0 {
         return reject("the query has no front over events, so its result grows with every event");
     }
-    // A table function over the stages, such as MATCH_RECOGNIZE, which plans windows under its
-    // node: the first one above the stages, below any aggregate or limit.
+    let stages = &path[top];
+    if let Some(front) = match_recognize(&path, top)? {
+        let measures = front.1;
+        return Ok(finish(
+            plan,
+            stages,
+            scan,
+            Front::MatchRecognize(Box::new(front.0)),
+            &path[measures],
+        ));
+    }
+    // Another table function over the stages, below any aggregate or limit.
     let reduced = (0..top)
         .rev()
         .find(|&i| matches!(path[i], LogicalPlan::Aggregate(_) | LogicalPlan::Limit(_)));
     let lowest = reduced.map_or(0, |i| i + 1);
     for node in path[lowest..top].iter().rev() {
         if let LogicalPlan::Extension(extension) = node {
-            let name = format!("{}", node.display());
-            return match name.starts_with("MatchRecognize") {
-                true => reject("MATCH_RECOGNIZE over events isn't a streaming front yet"),
-                false => reject(format!(
-                    "the table function {} over events isn't a streaming front",
-                    extension.node.name()
-                )),
-            };
+            return reject(format!(
+                "the table function {} over events isn't a streaming front",
+                extension.node.name()
+            ));
         }
     }
-    let stages = &path[top];
     let node = &path[top - 1];
     let (front, replaced) = match node {
         LogicalPlan::Aggregate(aggregate) => {
@@ -212,26 +240,141 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
             ))
         }
     };
+    Ok(finish(plan, stages, scan, front, replaced))
+}
+
+/// The split of `plan` whose front's output is the node `replaced`.
+fn finish(
+    plan: &LogicalPlan,
+    stages: &LogicalPlan,
+    scan: &TableScan,
+    front: Front,
+    replaced: &LogicalPlan,
+) -> Split {
     let slot = Slot::new("front", replaced.schema());
-    let downstream = plan
-        .clone()
-        .transform_down(|p| match &p == replaced {
-            true => Ok(Transformed::new(
-                slot.plan.clone(),
-                true,
-                TreeNodeRecursion::Jump,
-            )),
-            false => Ok(Transformed::no(p)),
-        })
-        .expect("the downstream")
-        .data;
-    Ok(Split {
+    let downstream = replace(plan, replaced, &slot.plan);
+    Split {
         stages: stages.clone(),
         scan: scan.clone(),
         front,
         downstream,
         slot,
-    })
+    }
+}
+
+/// `plan` with the node `target` replaced by `with`.
+fn replace(plan: &LogicalPlan, target: &LogicalPlan, with: &LogicalPlan) -> LogicalPlan {
+    plan.clone()
+        .transform_down(|p| match &p == target {
+            true => Ok(Transformed::new(
+                with.clone(),
+                true,
+                TreeNodeRecursion::Jump,
+            )),
+            false => Ok(Transformed::no(p)),
+        })
+        .expect("a replacement")
+        .data
+}
+
+/// The front of a `MATCH_RECOGNIZE` right over the stages at `path[top]`, and the index of its
+/// measures in `path`, or `None` for another front. The pass plans the clause as windows of the
+/// positions and of `PREV` and `NEXT`, a projection of the conditions, the clause's node, a
+/// projection of the columns of each variable, an aggregate, and a projection of the measures.
+fn match_recognize(
+    path: &[LogicalPlan],
+    top: usize,
+) -> Result<Option<(MatchFront, usize)>, Rejection> {
+    let mut at = top;
+    let mut windows = Vec::new();
+    while at > 0 {
+        let LogicalPlan::Window(window) = &path[at - 1] else {
+            break;
+        };
+        windows.extend(window.window_expr.iter().cloned());
+        at -= 1;
+    }
+    if windows.is_empty() || at < 2 {
+        return Ok(None);
+    }
+    let conditions = &path[at - 1];
+    let node = &path[at - 2];
+    let LogicalPlan::Projection(_) = conditions else {
+        return Ok(None);
+    };
+    let LogicalPlan::Extension(extension) = node else {
+        return Ok(None);
+    };
+    let Some(call) = (extension.node.as_any())
+        .downcast_ref::<avenger_datafusion_transforms::table_function::TableFunctionNode>()
+        .and_then(avenger_datafusion_transforms::match_recognize::call_of)
+    else {
+        return Ok(None);
+    };
+    // The measures: the aggregate over the copies, under windows of HAVING MAX, and its
+    // projection.
+    let mut up = at - 2;
+    let unexpected =
+        || reject("MATCH_RECOGNIZE over events with a plan that the runtime doesn't read");
+    if up == 0 || !matches!(path[up - 1], LogicalPlan::Projection(_)) {
+        return unexpected();
+    }
+    up -= 1;
+    while up > 0 && matches!(path[up - 1], LogicalPlan::Window(_)) {
+        up -= 1;
+    }
+    if up < 2
+        || !matches!(path[up - 1], LogicalPlan::Aggregate(_))
+        || !matches!(path[up - 2], LogicalPlan::Projection(_))
+    {
+        return unexpected();
+    }
+    let measures = up - 2;
+    // The order of the positions, and the reach of PREV and NEXT.
+    let stages = &path[top];
+    let (mut partition, mut seq, mut back, mut ahead) = (Vec::new(), None, 0, 0);
+    for expr in &windows {
+        let Expr::WindowFunction(function) = expr else {
+            continue;
+        };
+        let offset = match function.params.args.get(1) {
+            None => 1,
+            Some(Expr::Literal(ScalarValue::Int64(Some(k)), _)) if *k >= 0 => *k as usize,
+            Some(_) => return reject("a PREV or NEXT over events whose offset isn't a literal"),
+        };
+        match function.fun.name() {
+            "row_number" => {
+                partition = function.params.partition_by.clone();
+                seq = match function.params.order_by.as_slice() {
+                    [key] => match &key.expr {
+                        Expr::Column(column) if is_seq(&key.expr, stages) => Some(column.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+            }
+            "lag" => back = back.max(offset),
+            "lead" => ahead = ahead.max(offset),
+            _ => {}
+        }
+    }
+    let Some(seq) = seq else {
+        return reject("a MATCH_RECOGNIZE over events whose ORDER BY isn't seq alone, so ties have no order of their own");
+    };
+    let staged = Slot::new("staged", stages.schema());
+    let node_rows = Slot::new("node_rows", node.schema());
+    let front = MatchFront {
+        conditions: replace(conditions, stages, &staged.plan),
+        staged,
+        measures: replace(&path[measures], node, &node_rows.plan),
+        node_rows,
+        call,
+        partition,
+        seq,
+        back,
+        ahead,
+    };
+    Ok(Some((front, measures)))
 }
 
 /// Whether `node` is a scan of the table `events`, under any name.

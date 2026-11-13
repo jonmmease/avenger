@@ -93,7 +93,7 @@ The example `sql-chart` shows the chart of a query in a chart app, and `chart-lu
 
 ## Streaming queries over events
 
-`streaming::split` splits the plan of a query over a table of events, such as the pointer events of a chart, for a streaming runtime: the stateless stages that read the events, a front that reduces their rows, and the rest of the query over the front's output. The fronts are an `AGGREGATE`, grouped or ungrouped, and an `ORDER BY ... LIMIT` whose last key is `seq`. A query of another shape is a rejection that names the operator, and runs as a batch plan. avenger-streaming runs the split frame by frame, with the batch plan's result after every frame.
+`streaming::split` splits the plan of a query over a table of events, such as the pointer events of a chart, for a streaming runtime: the stateless stages that read the events, a front that reduces their rows, and the rest of the query over the front's output. The fronts are an `AGGREGATE`, grouped or ungrouped, an `ORDER BY ... LIMIT` whose last key is `seq`, and a `MATCH_RECOGNIZE` ordered by `seq`, whose split holds the plans of its conditions and its measures. A query of another shape is a rejection that names the operator, and runs as a batch plan. avenger-streaming runs the split frame by frame, with the batch plan's result after every frame.
 
 ## Conformance with GoogleSQL
 

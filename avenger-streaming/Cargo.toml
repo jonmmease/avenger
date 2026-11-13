@@ -8,6 +8,7 @@ readme = "README.md"
 
 [dependencies]
 avenger-sql = { path = "../avenger-sql" }
+avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 datafusion = { workspace = true }
 
 [dev-dependencies]

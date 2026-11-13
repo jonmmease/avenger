@@ -61,7 +61,7 @@ fn split_of(query: &str) -> Result<Split, String> {
 }
 
 #[test]
-fn the_fronts_of_aggregates_and_limits_split() {
+fn the_fronts_split() {
     let cases = [
         ("FROM events |> AGGREGATE COUNT(*) AS n", "aggregate of 0 groups and 1 aggregates"),
         (
@@ -84,6 +84,11 @@ fn the_fronts_of_aggregates_and_limits_split() {
         (
             "FROM events AS e |> WHERE e.type = 'click' |> AGGREGATE COUNT(*) AS n",
             "aggregate of 0 groups and 1 aggregates",
+        ),
+        // MATCH_RECOGNIZE, with the reach of PREV and NEXT.
+        (
+            "FROM events |> WHERE type = 'move' |> MATCH_RECOGNIZE(PARTITION BY target ORDER BY seq MEASURES COUNT(*) AS n PATTERN (a b+) DEFINE a AS TRUE, b AS x > PREV(x, 2) AND x < NEXT(x)) |> AGGREGATE MAX(n) AS longest",
+            "match of 2 variables in 1 partitions, 2 rows back and 1 ahead",
         ),
         // A table function downstream of the front.
         (
@@ -111,6 +116,13 @@ fn the_fronts_of_aggregates_and_limits_split() {
                 Front::Limit { order, skip, fetch } => {
                     format!("limit of {fetch} after {skip}, by {} keys", order.len())
                 }
+                Front::MatchRecognize(front) => format!(
+                    "match of {} variables in {} partitions, {} rows back and {} ahead",
+                    front.call.variables.len(),
+                    front.partition.len(),
+                    front.back,
+                    front.ahead
+                ),
             },
             Err(message) => message,
         };
@@ -167,8 +179,8 @@ fn the_other_shapes_are_rejected() {
             "a stage over events reads a subquery, whose value a stream reads at another time than the batch plan does",
         ),
         (
-            "FROM events |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)",
-            "MATCH_RECOGNIZE over events isn't a streaming front yet",
+            "FROM events |> MATCH_RECOGNIZE(ORDER BY ts MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)",
+            "a MATCH_RECOGNIZE over events whose ORDER BY isn't seq alone, so ties have no order of their own",
         ),
     ];
     for (query, want) in cases {

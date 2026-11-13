@@ -1099,6 +1099,7 @@ dependencies = [
 name = "avenger-streaming"
 version = "0.1.0"
 dependencies = [
+ "avenger-datafusion-transforms",
  "avenger-sql",
  "avenger-sql-syntax",
  "datafusion",
