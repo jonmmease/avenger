@@ -180,6 +180,8 @@ fn the_model_resolves_each_name_to_its_definition() {
                 Definition::Function { name } => format!("function {name}"),
                 Definition::Field { name, .. } => format!("field {name}"),
                 Definition::Query { name, .. } => format!("query {name}"),
+                Definition::Variable { name, .. } => format!("variable {name}"),
+                Definition::Module { names } => format!("module {}", names.join(".")),
             };
             (at(text, name.range), definition)
         })
