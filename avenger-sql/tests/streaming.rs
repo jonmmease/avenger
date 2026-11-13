@@ -130,6 +130,31 @@ fn the_fronts_split() {
 fn the_other_shapes_are_rejected() {
     let cases = [
         ("FROM targets |> AGGREGATE COUNT(*) AS n", "the query doesn't read events"),
+        // The review's cases: a descending order, subqueries, and the clock.
+        (
+            "FROM events |> MATCH_RECOGNIZE(ORDER BY seq DESC MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)",
+            "a MATCH_RECOGNIZE over events whose ORDER BY isn't seq ascending, the order in which events arrive",
+        ),
+        (
+            "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS n |> SELECT n, (FROM events |> AGGREGATE COUNT(*) AS c) AS total",
+            "the query reads events 2 times",
+        ),
+        (
+            "FROM events |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS x > (FROM targets |> AGGREGATE COUNT(*) AS c))",
+            "a subquery in the front over events, which the runtime doesn't evaluate",
+        ),
+        (
+            "FROM events |> AGGREGATE COUNTIF(target IN (FROM targets |> SELECT target)) AS known",
+            "a subquery in the front over events, which the runtime doesn't evaluate",
+        ),
+        (
+            "FROM events |> AGGREGATE COUNTIF(ts <= CURRENT_TIMESTAMP()) AS past",
+            "the query reads the function now, whose value changes as time passes",
+        ),
+        (
+            "FROM events |> AGGREGATE MAX(ts) AS last |> SELECT TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), last, SECOND) AS idle",
+            "the query reads the function now, whose value changes as time passes",
+        ),
         (
             "FROM events |> JOIN events AS other USING (seq) |> AGGREGATE COUNT(*) AS n",
             "the query reads events 2 times",
@@ -171,24 +196,12 @@ fn the_other_shapes_are_rejected() {
             "a stage over events reads the function now, whose value a stream reads at another time than the batch plan does",
         ),
         (
-            "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY ts > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE) AS recent",
-            "the front over events reads the function now, whose value a stream reads at another time than the batch plan does",
-        ),
-        (
-            "FROM events |> AGGREGATE COUNTIF(ts > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE)) AS n",
-            "the front over events reads the function now, whose value a stream reads at another time than the batch plan does",
-        ),
-        (
-            "FROM events |> AGGREGATE MAX(ts) AS last |> WHERE last > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE)",
-            "the query reads the function now after its front, which a stream runs again only when the front's output changes",
-        ),
-        (
             "FROM events |> WHERE target IN (FROM targets |> SELECT target) |> AGGREGATE COUNT(*) AS n",
             "a stage over events reads a subquery, whose value a stream reads at another time than the batch plan does",
         ),
         (
             "FROM events |> MATCH_RECOGNIZE(ORDER BY ts MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)",
-            "a MATCH_RECOGNIZE over events whose ORDER BY isn't seq alone, so ties have no order of their own",
+            "a MATCH_RECOGNIZE over events whose ORDER BY isn't seq ascending, the order in which events arrive",
         ),
     ];
     for (query, want) in cases {

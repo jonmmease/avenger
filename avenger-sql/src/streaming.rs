@@ -180,8 +180,9 @@ impl Slot {
 /// it doesn't split.
 pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Split, Rejection> {
     // The path from the plan's root to its one scan of `events`.
+    // Subqueries too, as a downstream can read events again through one.
     let mut scans = 0;
-    plan.apply(|node| {
+    plan.apply_with_subqueries(|node| {
         if reads(node, events) {
             scans += 1;
         }
@@ -205,16 +206,23 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
     if top == 0 {
         return reject("the query has no front over events, so its result grows with every event");
     }
+    // A function whose value changes as time passes, anywhere: a stream would read it at other
+    // times than the batch plan does, and an optimized plan holds its value as a constant.
+    if let Some(name) = time_function(plan) {
+        return reject(format!(
+            "the query reads the function {name}, whose value changes as time passes"
+        ));
+    }
     let stages = &path[top];
     if let Some(front) = match_recognize(&path, top)? {
         let measures = front.1;
-        return finish(
+        return Ok(finish(
             plan,
             stages,
             scan,
             Front::MatchRecognize(Box::new(front.0)),
             &path[measures],
-        );
+        ));
     }
     // Another table function over the stages, below any aggregate or limit.
     let reduced = (0..top)
@@ -230,6 +238,9 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
         }
     }
     let node = &path[top - 1];
+    if has_subquery(node) {
+        return reject("a subquery in the front over events, which the runtime doesn't evaluate");
+    }
     let (front, replaced) = match node {
         LogicalPlan::Aggregate(aggregate) => {
             if (aggregate.group_expr.iter()).any(|e| matches!(e, Expr::GroupingSet(_))) {
@@ -284,61 +295,31 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
             ))
         }
     };
-    finish(plan, stages, scan, front, replaced)
+    Ok(finish(plan, stages, scan, front, replaced))
 }
 
-/// The split of `plan` whose front's output is the node `replaced`, or why it doesn't split: a
-/// front or a downstream that reads a value that changes on its own.
+/// The split of `plan` whose front's output is the node `replaced`.
 fn finish(
     plan: &LogicalPlan,
     stages: &LogicalPlan,
     scan: &TableScan,
     front: Front,
     replaced: &LogicalPlan,
-) -> Result<Split, Rejection> {
-    let front_exprs: Vec<&Expr> = match &front {
-        Front::Aggregate { groups, aggregates } => groups.iter().chain(aggregates).collect(),
-        Front::Limit { order, .. } => order.iter().map(|key| &key.expr).collect(),
-        Front::MatchRecognize(front) => front.partition.iter().collect(),
-    };
-    if let Some(what) = front_exprs.into_iter().find_map(|e| unstable(e, true)) {
-        return reject(format!(
-            "the front over events reads {what}, whose value a stream reads at another time than the batch plan does"
-        ));
-    }
+) -> Split {
     let slot = Slot::new("front", replaced.schema());
     let downstream = replace(plan, replaced, &slot.plan);
-    // The downstream runs again only when the front's output changes, so it reads no value that
-    // changes on its own.
-    let mut changing = None;
-    downstream
-        .apply_with_subqueries(|node| {
-            node.apply_expressions(|e| {
-                changing = unstable(e, false);
-                Ok(match changing {
-                    Some(_) => TreeNodeRecursion::Stop,
-                    None => TreeNodeRecursion::Continue,
-                })
-            })
-        })
-        .expect("a walk of the downstream");
-    if let Some(what) = changing {
-        return reject(format!(
-            "the query reads {what} after its front, which a stream runs again only when the front's output changes"
-        ));
-    }
     let latest = match front {
         Front::MatchRecognize(_) => latest(&downstream, &slot),
         _ => None,
     };
-    Ok(Split {
+    Split {
         stages: stages.clone(),
         scan: scan.clone(),
         front,
         downstream,
         slot,
         latest,
-    })
+    }
 }
 
 /// The downstream as the latest rows of the front's output, when it starts with row-wise stages
@@ -457,6 +438,9 @@ fn match_recognize(
         return unexpected();
     }
     let measures = up - 2;
+    if path[measures..top].iter().any(has_subquery) {
+        return reject("a subquery in the front over events, which the runtime doesn't evaluate");
+    }
     // The order of the positions, and the reach of PREV and NEXT.
     let stages = &path[top];
     let (mut partition, mut seq, mut back, mut ahead) = (Vec::new(), None, 0, 0);
@@ -473,7 +457,7 @@ fn match_recognize(
             "row_number" => {
                 partition = function.params.partition_by.clone();
                 seq = match function.params.order_by.as_slice() {
-                    [key] => match &key.expr {
+                    [key] if key.asc => match &key.expr {
                         Expr::Column(column) if is_seq(&key.expr, stages) => Some(column.clone()),
                         _ => None,
                     },
@@ -486,7 +470,7 @@ fn match_recognize(
         }
     }
     let Some(seq) = seq else {
-        return reject("a MATCH_RECOGNIZE over events whose ORDER BY isn't seq alone, so ties have no order of their own");
+        return reject("a MATCH_RECOGNIZE over events whose ORDER BY isn't seq ascending, the order in which events arrive");
     };
     let staged = Slot::new("staged", stages.schema());
     let node_rows = Slot::new("node_rows", node.schema());
@@ -539,37 +523,70 @@ fn stateless(node: &LogicalPlan) -> Result<bool, Rejection> {
         LogicalPlan::SubqueryAlias(_) => Vec::new(),
         _ => return Ok(false),
     };
-    if let Some(what) = exprs.into_iter().find_map(|e| unstable(e, true)) {
-        return reject(format!(
-            "a stage over events reads {what}, whose value a stream reads at another time than the batch plan does"
-        ));
+    for expr in exprs {
+        let mut found = None;
+        expr.apply(|e| {
+            match e {
+                Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_) => {
+                    found = Some("a subquery".to_string());
+                }
+                Expr::ScalarFunction(call)
+                    if call.func.signature().volatility != Volatility::Immutable =>
+                {
+                    found = Some(format!("the function {}", call.func.name()));
+                }
+                _ => {}
+            }
+            Ok(match found {
+                Some(_) => TreeNodeRecursion::Stop,
+                None => TreeNodeRecursion::Continue,
+            })
+        })
+        .expect("a walk of an expression");
+        if let Some(what) = found {
+            return reject(format!(
+                "a stage over events reads {what}, whose value a stream reads at another time than the batch plan does"
+            ));
+        }
     }
     Ok(true)
 }
 
-/// What `expr` reads whose value a stream reads at another time than the batch plan does: a
-/// function whose value can change between calls, such as the clock, and with `subqueries`, a
-/// subquery.
-fn unstable(expr: &Expr, subqueries: bool) -> Option<String> {
+/// Whether `node`'s own expressions hold a subquery.
+fn has_subquery(node: &LogicalPlan) -> bool {
+    let mut found = false;
+    let _ = node.apply_expressions(|expr| {
+        found |= expr
+            .exists(|e| {
+                Ok(matches!(
+                    e,
+                    Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_)
+                ))
+            })
+            .unwrap_or(false);
+        Ok(TreeNodeRecursion::Continue)
+    });
+    found
+}
+
+/// The name of a function that `plan` reads, in its subqueries too, whose value changes between
+/// calls, such as `now`.
+fn time_function(plan: &LogicalPlan) -> Option<String> {
     let mut found = None;
-    expr.apply(|e| {
-        match e {
-            Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_) if subqueries => {
-                found = Some("a subquery".to_string());
-            }
-            Expr::ScalarFunction(call)
-                if call.func.signature().volatility != Volatility::Immutable =>
-            {
-                found = Some(format!("the function {}", call.func.name()));
-            }
-            _ => {}
-        }
-        Ok(match found {
-            Some(_) => TreeNodeRecursion::Stop,
-            None => TreeNodeRecursion::Continue,
-        })
-    })
-    .expect("a walk of an expression");
+    let _ = plan.apply_with_subqueries(|node| {
+        let _ = node.apply_expressions(|expr| {
+            let _ = expr.apply(|e| {
+                if let Expr::ScalarFunction(call) = e {
+                    if call.func.signature().volatility != Volatility::Immutable {
+                        found.get_or_insert_with(|| call.func.name().to_string());
+                    }
+                }
+                Ok(TreeNodeRecursion::Continue)
+            });
+            Ok(TreeNodeRecursion::Continue)
+        });
+        Ok(TreeNodeRecursion::Continue)
+    });
     found
 }
 

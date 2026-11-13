@@ -77,7 +77,8 @@ enum Run {
 /// A query that runs as its batch plan.
 struct BatchQuery {
     plan: LogicalPlan,
-    /// The plan bound to the parameters and optimized.
+    /// The plan bound to the parameters, which each run optimizes, so a function of the clock
+    /// reads the time of the run.
     bound: LogicalPlan,
     result: Vec<RecordBatch>,
 }
@@ -123,7 +124,7 @@ impl EventQueries {
             }
             Err(rejection) => {
                 let bound = self.bind(&plan, &params)?;
-                let result = execute(&self.ctx, &bound).await?;
+                let result = run_batch(&self.ctx, &bound).await?;
                 let run = Run::Batch(Box::new(BatchQuery {
                     plan,
                     bound,
@@ -174,7 +175,7 @@ impl EventQueries {
             let differs = match &mut entry.run {
                 Run::Streaming(query) => query.catch_up().await?,
                 Run::Batch(query) => {
-                    let rows = execute(&self.ctx, &query.bound).await?;
+                    let rows = run_batch(&self.ctx, &query.bound).await?;
                     let differs = rows != query.result;
                     query.result = rows;
                     differs
@@ -220,7 +221,7 @@ impl EventQueries {
                 },
                 (Run::Batch(query), Some(rebound)) => {
                     query.bound = rebound;
-                    let rows = execute(&self.ctx, &query.bound).await?;
+                    let rows = run_batch(&self.ctx, &query.bound).await?;
                     let differs = rows != query.result;
                     query.result = rows;
                     differs
@@ -252,14 +253,21 @@ impl EventQueries {
         Some(ParamValues::Map(values))
     }
 
-    /// `plan` bound to `params` and optimized.
+    /// `plan` bound to `params`.
     fn bind(&self, plan: &LogicalPlan, params: &Option<ParamValues>) -> Result<LogicalPlan> {
-        let plan = match params {
-            Some(params) => plan.clone().with_param_values(params.clone())?,
-            None => plan.clone(),
-        };
-        self.ctx.state().optimize(&plan)
+        match params {
+            Some(params) => plan.clone().with_param_values(params.clone()),
+            None => Ok(plan.clone()),
+        }
     }
+}
+
+/// Optimizes and runs `plan`, a batch plan.
+async fn run_batch(ctx: &SessionContext, plan: &LogicalPlan) -> Result<Vec<RecordBatch>> {
+    ctx.execute_logical_plan(plan.clone())
+        .await?
+        .collect()
+        .await
 }
 
 /// Runs the physical plan of the optimized `plan`.

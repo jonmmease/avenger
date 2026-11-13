@@ -208,3 +208,56 @@ async fn a_query_needs_a_name_of_its_own_and_its_parameters() {
     let same = [("min_x".to_string(), ScalarValue::Float64(Some(400.0)))];
     assert!(queries.set_params(same).await.unwrap().is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_batch_query_reads_the_clock_when_it_runs() {
+    let ctx = context();
+    let log = log();
+    let mut queries = EventQueries::new(ctx.clone(), log.clone());
+    let query =
+        "FROM events |> AGGREGATE MAX(ts) AS last |> SELECT CURRENT_TIMESTAMP() AS now, last";
+    let mode = queries.register("idle", plan(query, &log)).await.unwrap();
+    assert!(matches!(mode, Mode::Batch(_)), "{mode:?}");
+    let now = |queries: &EventQueries| {
+        let rows = queries.result("idle").unwrap();
+        let column = datafusion::arrow::compute::cast(rows[0].column(0), &DataType::Int64).unwrap();
+        column.as_primitive::<Int64Type>().value(0)
+    };
+    let frames = frames(50, 6);
+    queries.push(frames[0].clone()).await.unwrap();
+    let first = now(&queries);
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    queries.push(frames[1].clone()).await.unwrap();
+    assert!(now(&queries) > first, "the clock moved");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_event_that_a_query_fails_on_fails_it_on_each_frame() {
+    let ctx = context();
+    let log = log();
+    let mut queries = EventQueries::new(ctx.clone(), log.clone());
+    // A click divides by zero, as its batch plan does over every event from then on.
+    let query = "FROM events |> SELECT IF(type = 'click', DIV(1, 0 * CAST(inside AS INT64)), 1) AS one |> AGGREGATE SUM(one) AS total";
+    assert_eq!(
+        queries.register("q", plan(query, &log)).await.unwrap(),
+        Mode::Streaming
+    );
+    let event = |kind: &str| {
+        let frame = &frames(10, 4)[0];
+        let mut columns = frame.slice(0, 1).columns().to_vec();
+        columns[1] = Arc::new(StringArray::from(vec![kind]));
+        RecordBatch::try_new(events_schema(), columns).unwrap()
+    };
+    queries.push(event("pointermove")).await.unwrap();
+    let before = rows(queries.result("q").unwrap());
+    assert!(queries.push(event("click")).await.is_err());
+    assert!(
+        queries.push(event("pointermove")).await.is_err(),
+        "the click stays in the log"
+    );
+    assert_eq!(
+        rows(queries.result("q").unwrap()),
+        before,
+        "the last result stays"
+    );
+}

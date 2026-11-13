@@ -182,6 +182,7 @@ impl AggregateState {
             Some(converter) => {
                 let values: Vec<ArrayRef> = (self.groups.iter())
                     .map(|g| g.evaluate(rows).and_then(|v| v.into_array(n)))
+                    .map(|v| v.and_then(signless_zeros))
                     .collect::<Result<_>>()?;
                 let converted = converter.convert_columns(&values)?;
                 let mut groups = Vec::with_capacity(n);
@@ -282,7 +283,7 @@ impl LimitState {
         let keys: Vec<SortColumn> = (self.order.iter())
             .map(|key| {
                 Ok(SortColumn {
-                    values: key.expr.evaluate(&candidates)?.into_array(n)?,
+                    values: signless_zeros(key.expr.evaluate(&candidates)?.into_array(n)?)?,
                     options: Some(key.options),
                 })
             })
@@ -322,4 +323,20 @@ pub(crate) fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<E
             _ => Ok(Transformed::no(e)),
         })
         .map(|t| t.data)
+}
+
+/// `values` with each zero of a float as `0.0`. The row format and `lexsort` tell `-0.0` from
+/// `0.0`, where DataFusion's grouping and sorting take them as one value.
+pub(crate) fn signless_zeros(values: ArrayRef) -> Result<ArrayRef> {
+    use datafusion::arrow::{
+        compute::kernels::numeric::add,
+        datatypes::DataType::{Float32, Float64},
+    };
+    let zero = match values.data_type() {
+        Float32 => ScalarValue::Float32(Some(0.0)),
+        Float64 => ScalarValue::Float64(Some(0.0)),
+        _ => return Ok(values),
+    };
+    // `-0.0 + 0.0` is `0.0`, and `NaN + 0.0` stays `NaN`.
+    Ok(add(&values, &zero.to_scalar()?)?)
 }
