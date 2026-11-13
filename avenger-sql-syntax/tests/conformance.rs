@@ -17,17 +17,20 @@ mod common;
 
 use std::{fmt::Write as _, path::PathBuf, process::Command};
 
+use avenger_sql_syntax::DiagnosticCode;
+
 /// The root of the repository.
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 
-/// What a parser says of an input: it accepts it, or it rejects it with its first error at a line
-/// and a column, from 1.
+/// What a parser says of an input: it accepts it, it rejects it with its first error at a line
+/// and a column, from 1, or, for avenger, it reports a construct outside its subset there first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Verdict {
     Accepts,
     Rejects { line: usize, column: usize },
+    Unsupported { line: usize, column: usize },
 }
 
 impl std::fmt::Display for Verdict {
@@ -35,6 +38,9 @@ impl std::fmt::Display for Verdict {
         match self {
             Verdict::Accepts => f.write_str("accepts"),
             Verdict::Rejects { line, column } => write!(f, "rejects at {line}:{column}"),
+            Verdict::Unsupported { line, column } => {
+                write!(f, "reports an unsupported construct at {line}:{column}")
+            }
         }
     }
 }
@@ -105,7 +111,12 @@ fn ours(text: &str) -> Verdict {
         None => Verdict::Accepts,
         Some(diagnostic) => {
             let (line, column) = position(text, usize::from(diagnostic.range.start()));
-            Verdict::Rejects { line, column }
+            match diagnostic.code {
+                DiagnosticCode::Unsupported | DiagnosticCode::NotPipeSyntax => {
+                    Verdict::Unsupported { line, column }
+                }
+                _ => Verdict::Rejects { line, column },
+            }
         }
     }
 }
@@ -218,14 +229,29 @@ fn conformance() {
 
     let known = known();
     let mut same = 0;
+    let mut unsupported = 0;
+    let mut rejected_unsupported = 0;
     let mut explained: Vec<(&str, Difference)> = Vec::new();
     let mut unexplained: Vec<Difference> = Vec::new();
     let mut used = vec![false; known.len()];
     for (input, theirs) in inputs.iter().zip(verdicts) {
         let ours = ours(&input.text);
-        if ours == theirs {
-            same += 1;
-            continue;
+        // A construct outside the subset agrees with GoogleSQL's acceptance, and where GoogleSQL
+        // rejects the input, avenger reports an error too, so neither is a difference.
+        match (&ours, &theirs) {
+            (Verdict::Unsupported { .. }, Verdict::Accepts) => {
+                unsupported += 1;
+                continue;
+            }
+            (Verdict::Unsupported { .. }, Verdict::Rejects { .. }) => {
+                rejected_unsupported += 1;
+                continue;
+            }
+            _ if ours == theirs => {
+                same += 1;
+                continue;
+            }
+            _ => {}
         }
         let difference = Difference {
             label: input.label.clone(),
@@ -250,7 +276,7 @@ fn conformance() {
     let mut report = String::from("# Conformance with GoogleSQL's parser\n\n");
     let _ = writeln!(
         report,
-        "{} inputs: {same} with the same verdict, {} explained differences, {} unexplained.\n",
+        "{} inputs: {same} with the same verdict, {unsupported} that GoogleSQL accepts and avenger reports as unsupported, {rejected_unsupported} that GoogleSQL rejects and avenger reports as unsupported, {} explained differences, {} unexplained.\n",
         inputs.len(),
         explained.len(),
         unexplained.len()

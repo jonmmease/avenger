@@ -209,9 +209,10 @@ impl Validator {
                 );
             }
         }
+        // GoogleSQL takes them in a script, and avenger reads them in a module.
         if let (false, true, Some(token)) = (self.in_module, public, &scope_token) {
             self.error(
-                DiagnosticCode::InvalidStatement,
+                DiagnosticCode::Unsupported,
                 token.text_range(),
                 "PUBLIC and PRIVATE belong to the CREATE statements of a module",
             );
@@ -227,7 +228,7 @@ impl Validator {
                 }
                 (CREATE_CONSTANT_STMT, false) => {
                     self.error(
-                        DiagnosticCode::InvalidStatement,
+                        DiagnosticCode::Unsupported,
                         range,
                         "a CONSTANT belongs to a module",
                     )
@@ -267,10 +268,11 @@ impl Validator {
             Some(options) => options.range(),
             None => TextRange::empty(next_token_start(statement.syntax())),
         };
+        // GoogleSQL declares a table without either.
         self.error(
-            DiagnosticCode::InvalidStatement,
+            DiagnosticCode::Unsupported,
             range,
-            "a CREATE TABLE takes columns, AS and a query, or both",
+            "avenger-sql's CREATE TABLE takes columns, AS and a query, or both",
         );
     }
 

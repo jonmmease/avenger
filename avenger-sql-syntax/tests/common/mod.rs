@@ -301,6 +301,14 @@ pub const QUERIES: &[&str] = &[
     "FROM t |> SELECT f(x).*, (s).* EXCEPT (a) |> AGGREGATE ANY_VALUE(s).* REPLACE (1 AS b), COUNT(*) AS n",
     "CREATE TEMP TABLE my-proj.ds.t AS FROM u",
     "DECLARE k DEFAULT 2; IMPORT MODULE charts.scales AS s; IMPORT MODULE geo OPTIONS (a = 1); IMPORT MODULE module.`all`; FROM t |> EXTEND s.scaled(v, k) AS w; IMPORT MODULE late",
+    // Near misses of the triggers of GoogleSQL's syntax outside the subset, which parse.
+    "FROM t |> SELECT IF(a, 1, 2) AS v, a * b AS p, CASE WHEN a THEN 1 END AS c",
+    "FROM t AS `lookup` |> WHERE `lookup`.x > 1 |> LIMIT 10 OFFSET 2",
+    "FROM t |> PIVOT (SUM(x) FOR k IN ('a', 'b'))",
+    "FROM t |> EXTEND begin + 1 AS x, `table` AS y",
+    "FROM t |> WHERE x IN (FROM u |> SELECT x) AND EXISTS (FROM u)",
+    "DECLARE x INT64 DEFAULT 1; SET x = 2; CREATE TEMP TABLE u AS (FROM t)",
+    "FROM t |> CALL f(TABLE u, 1) AS r",
 ];
 
 /// Scripts that GoogleSQL rejects: the text, a part of the first diagnostic's message, and the
@@ -349,7 +357,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ),
     (
         "CREATE VIEW v AS FROM t",
-        "expected `TABLE`, `FUNCTION`",
+        "avenger-sql's scripts create no VIEW",
         "VIEW",
     ),
     (
@@ -531,6 +539,111 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> EXTEND 1 + s.*", "expected a name", "*"),
     ("FROM t |> EXTEND SUM(s.*) OVER ()", "expected a name", "*"),
     ("FROM t |> AGGREGATE GROUP BY s.*", "expected a name", "*"),
+    // GoogleSQL's syntax outside the subset, which avenger-sql reports as unsupported.
+    (
+        "ALTER TABLE t ADD COLUMN x INT64",
+        "scripts have no ALTER statement",
+        "ALTER",
+    ),
+    (
+        "BEGIN FROM t; FROM u; END; FROM v",
+        "scripts have no BEGIN statement",
+        "BEGIN",
+    ),
+    (
+        "L1: LOOP LEAVE L1; END LOOP L1",
+        "scripts have no LOOP statement",
+        "L1",
+    ),
+    (
+        "INSERT INTO t VALUES (1)",
+        "scripts have no INSERT statement",
+        "INSERT",
+    ),
+    ("CREATE TEMP TABLE u LIKE t", "tables take no LIKE", "LIKE"),
+    ("TABLE t", "a query of a table is `FROM t`", "TABLE"),
+    ("|> WHERE true", "no subpipelines on their own", "|>"),
+    ("FROM t @{hint=1} |> WHERE true", "no hints", "@{hint=1}"),
+    ("@1 BEGIN END", "no hints", "@1"),
+    ("FROM t |> LIMIT ALL", "LIMIT takes a count", "ALL"),
+    (
+        "FROM t HASH JOIN u USING (k)",
+        "take no HASH or LOOKUP",
+        "HASH",
+    ),
+    (
+        "FROM t |> LEFT LOOKUP JOIN u USING (k)",
+        "take no HASH or LOOKUP",
+        "LOOKUP",
+    ),
+    (
+        "FROM 'a.csv'",
+        "names tables with names, not strings",
+        "'a.csv'",
+    ),
+    ("FROM t FOR UPDATE", "without locking them", "FOR UPDATE"),
+    (
+        "FROM t |> CALL f(MODEL m)",
+        "take no MODEL argument",
+        "MODEL",
+    ),
+    (
+        "FROM t |> CALL f() PARTITION BY a",
+        "take no PARTITION BY",
+        "PARTITION",
+    ),
+    ("FROM t |> SELECT **s", "no `**` unpack", "**"),
+    ("FROM t |> DROP **s", "no `**` unpack", "**"),
+    (
+        "FROM (t1 JOIN t2 JOIN t3 USING (x) USING (y))",
+        "joins take one condition each",
+        "USING",
+    ),
+    (
+        "SET TRANSACTION READ ONLY",
+        "no transactions",
+        "TRANSACTION",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(INT64) AS (1)",
+        "a parameter of avenger-sql has a name",
+        "INT64",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x INT64) RETURNS INT64",
+        "functions have bodies",
+        "INT64",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x FUNCTION<INT64 -> INT64>) AS (1)",
+        "no function types",
+        "FUNCTION",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x a.b) AS (1)",
+        "no protocol buffer or enum types",
+        "a",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x INT64) DETERMINISTIC AS (1)",
+        "take no attributes",
+        "DETERMINISTIC",
+    ),
+    (
+        "CREATE TEMP FUNCTION f(x INT64 AS T) AS (1)",
+        "no type aliases",
+        "AS",
+    ),
+    (
+        "CREATE TEMP TABLE u OPTIONS (a += 1) AS FROM t",
+        "set each option with `=`",
+        "+",
+    ),
+    (
+        "CREATE TEMP TABLE u OPTIONS (a = 1)",
+        "takes columns, AS and a query",
+        "OPTIONS (a = 1)",
+    ),
 ];
 
 /// Modules that GoogleSQL rejects, as [`REJECTED`].

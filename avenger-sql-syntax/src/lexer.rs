@@ -122,6 +122,8 @@ impl Lexer<'_> {
                 {
                     self.number()
                 }
+                b'@' if self.peek(1) == Some(b'{') => self.hint(),
+                b'@' if self.peek(1).is_some_and(|b| b.is_ascii_digit()) => self.number_hint(),
                 b'@' => self.param(),
                 _ if is_ident_start(byte) => self.word(),
                 _ => self.punctuation(byte),
@@ -377,8 +379,50 @@ impl Lexer<'_> {
                 start,
                 self.position,
                 "avenger-sql has no system variables, `@@name`",
-            );
+            )
+            .code = DiagnosticCode::Unsupported;
         }
+    }
+
+    /// A hint of a statement, `@` and a number, as in `@1 BEGIN ... END`, which avenger-sql reads
+    /// as trivia and reports.
+    fn number_hint(&mut self) {
+        let start = self.position;
+        self.position += 1;
+        while self.peek(0).is_some_and(|b| b.is_ascii_digit()) {
+            self.position += 1;
+        }
+        self.push(HINT, start);
+        self.error(start, self.position, "avenger-sql has no hints, `@{...}`")
+            .code = DiagnosticCode::Unsupported;
+    }
+
+    /// A hint, `@{...}` through its matching `}`, which avenger-sql reads as trivia and reports,
+    /// since its planner chooses its own plans.
+    fn hint(&mut self) {
+        let start = self.position;
+        self.position += 1;
+        let mut depth = 0;
+        while let Some(byte) = self.peek(0) {
+            self.position += 1;
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        // A hint can hold any bytes, so it ends at a character's boundary.
+        while !self.source.is_char_boundary(self.position) {
+            self.position += 1;
+        }
+        self.push(HINT, start);
+        self.error(start, self.position, "avenger-sql has no hints, `@{...}`")
+            .code = DiagnosticCode::Unsupported;
     }
 
     fn punctuation(&mut self, byte: u8) {
@@ -411,6 +455,9 @@ impl Lexer<'_> {
             (b'^', _) => (CARET, 1),
             (b'~', _) => (TILDE, 1),
             (b'?', _) => (POSITIONAL, 1),
+            (b':', _) => (COLON, 1),
+            (b'{', _) => (L_BRACE, 1),
+            (b'}', _) => (R_BRACE, 1),
             _ => {
                 let character = self.source[start..].chars().next().unwrap_or_default();
                 self.position += character.len_utf8().max(1);

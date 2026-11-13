@@ -289,6 +289,14 @@ impl<'a> Parser<'a> {
         self.nth(n) == WORD && self.nth_text(n).eq_ignore_ascii_case(keyword)
     }
 
+    /// Whether the token `n` ahead starts a query: a pipe query's `FROM`, or GoogleSQL's standard
+    /// `SELECT` or `WITH`, which the query reports.
+    pub(crate) fn query_at(&self, n: usize) -> bool {
+        ["FROM", "SELECT", "WITH"]
+            .iter()
+            .any(|word| self.keyword_at(n, word))
+    }
+
     pub(crate) fn at_keyword(&self, keyword: &str) -> bool {
         if let Some(kind) = SyntaxKind::keyword(keyword) {
             self.record(Expected::Keyword(kind));
@@ -503,11 +511,12 @@ impl<'a> Parser<'a> {
     }
 
     /// Skips one token, or a `(` or `[` and its tokens through the matching one.
-    fn skip_balanced(&mut self) {
+    pub(crate) fn skip_balanced(&mut self) {
         let open = self.current();
         let close = match open {
             L_PAREN => R_PAREN,
             L_BRACK => R_BRACK,
+            L_BRACE => R_BRACE,
             _ => {
                 self.bump();
                 return;
