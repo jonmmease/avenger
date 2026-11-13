@@ -11,8 +11,10 @@ use datafusion::{
         bool_and_or::{bool_and_udaf, bool_or_udaf},
         count::count_udaf,
         min_max::{max_udaf, min_udaf},
+        stddev::{stddev_pop_udaf, stddev_udaf},
         string_agg::string_agg_udaf,
         sum::sum_udaf,
+        variance::{var_pop_udaf, var_samp_udaf},
     },
     functions_window::{
         cume_dist::cume_dist_udwf,
@@ -29,6 +31,9 @@ use super::{lit_str, CallError, Function, Need, Planned};
 
 /// The example table of the aggregates, `x` of `[1, 2, 2, 3, NULL]`.
 const NUMBERS: &str = "FROM UNNEST([1, 2, 2, 3, NULL]) AS x";
+
+/// The rows of the examples of the spreads of values.
+const SPREAD: &str = "FROM UNNEST([1, 3, 5, NULL]) AS x";
 
 pub(super) fn functions() -> Vec<Function> {
     vec![
@@ -74,6 +79,18 @@ pub(super) fn functions() -> Vec<Function> {
         unary("MAX", "Returns the greatest of the values that are not `NULL`.", "(value: T) -> T where T: ANY", max_udaf)
             .distinct()
             .example(&format!("{NUMBERS} |> AGGREGATE MAX(x) AS greatest"), "greatest\n3"),
+        spread("STDDEV_SAMP", "Returns the sample standard deviation of the values that are not `NULL`.", stddev_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE STDDEV_SAMP(x) AS deviation"), "deviation\n2.0"),
+        spread("STDDEV", "Returns the sample standard deviation of the values that are not `NULL`, as `STDDEV_SAMP` does.", stddev_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE STDDEV(x) AS deviation"), "deviation\n2.0"),
+        spread("STDDEV_POP", "Returns the population standard deviation of the values that are not `NULL`.", stddev_pop_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE STDDEV_POP(x) AS deviation"), "deviation\n1.632993161855452"),
+        spread("VAR_SAMP", "Returns the sample variance of the values that are not `NULL`.", var_samp_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE VAR_SAMP(x) AS variance"), "variance\n4.0"),
+        spread("VARIANCE", "Returns the sample variance of the values that are not `NULL`, as `VAR_SAMP` does.", var_samp_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE VARIANCE(x) AS variance"), "variance\n4.0"),
+        spread("VAR_POP", "Returns the population variance of the values that are not `NULL`.", var_pop_udaf)
+            .example(&format!("{SPREAD} |> AGGREGATE VAR_POP(x) AS variance"), "variance\n2.6666666666666665"),
         unary("ANY_VALUE", "Returns a value of the group, which can be any of them.", "(value: T) -> T where T: ANY", any_value_udaf)
             .example("FROM UNNEST([7, 7]) AS x |> AGGREGATE ANY_VALUE(x) AS one", "one\n7"),
         unary("ARRAY_AGG", "Returns an array of the values of the group.", "(value: T) -> ARRAY<T> where T: ANY", array_agg_udaf)
@@ -207,6 +224,24 @@ fn window(func: Arc<WindowUDF>, args: Vec<Expr>) -> Planned {
 }
 
 /// An aggregate of one value, of the form `declaration`.
+/// An aggregate of the spread of the values of a group, a `FLOAT64` of numbers of any type, which
+/// takes `DISTINCT` and `OVER`.
+fn spread(name: &str, summary: &str, udaf: fn() -> Arc<AggregateUDF>) -> Function {
+    Function::aggregate(name, summary)
+        .param("value", "The value of each row.")
+        .form(
+            "(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC",
+            move |call| {
+                Ok(aggregate(
+                    udaf(),
+                    vec![super::cast(call.arg(0), datafusion::arrow::datatypes::DataType::Float64)],
+                ))
+            },
+        )
+        .description("The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.")
+        .distinct()
+}
+
 fn unary(
     name: &str,
     summary: &str,

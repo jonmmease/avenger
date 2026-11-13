@@ -179,6 +179,38 @@ pub(super) fn functions() -> Vec<Function> {
         pad("RPAD", "Pads a string at its end to a length, or cuts it to the length.", f::rpad)
             .example("RPAD('abc', 6, 'xy')", "'abcxyx'")
             .example("RPAD('abc', 1)", "'a'"),
+        Function::scalar("TO_HEX", "Returns the hexadecimal digits of bytes, in lower case.")
+            .param("bytes", "The bytes.")
+            .form("(bytes: BYTES) -> STRING", |call| {
+                Ok(super::cast_format::encoded(call.arg(0), "HEX", call.safe))
+            })
+            .safe()
+            .example("TO_HEX(b'\\x00\\x01\\xef\\xff')", "'0001efff'"),
+        Function::scalar("FROM_HEX", "Returns the bytes of hexadecimal digits.")
+            .description("The digits are in either case. An odd number of digits starts with a `0`. A character that isn't a digit is an error.")
+            .param("value", "The hexadecimal digits.")
+            .form("(value: STRING) -> BYTES", |call| {
+                Ok(super::cast_format::decoded(call.arg(0), "HEX", call.safe))
+            })
+            .safe()
+            .example("FROM_HEX('0001EFff')", "b'\\x00\\x01\\xef\\xff'")
+            .example("FROM_HEX('abc')", "b'\\x0a\\xbc'"),
+        Function::scalar("TO_BASE64", "Returns the base64 text of bytes, as RFC 4648 defines it.")
+            .param("bytes", "The bytes.")
+            .form("(bytes: BYTES) -> STRING", |call| {
+                Ok(super::cast_format::encoded(call.arg(0), "BASE64", call.safe))
+            })
+            .safe()
+            .example("TO_BASE64(b'\\xde\\xad\\xbe\\xef')", "'3q2+7w=='"),
+        Function::scalar("FROM_BASE64", "Returns the bytes of base64 text, as RFC 4648 defines it.")
+            .description("The text can leave out its padding, and whitespace in it is ignored. A character outside the base64 alphabet is an error.")
+            .param("value", "The base64 text.")
+            .form("(value: STRING) -> BYTES", |call| {
+                Ok(super::cast_format::decoded(call.arg(0), "BASE64", call.safe))
+            })
+            .safe()
+            .example("FROM_BASE64('3q2+7w==')", "b'\\xde\\xad\\xbe\\xef'")
+            .example("FROM_BASE64('3q2+ 7w')", "b'\\xde\\xad\\xbe\\xef'"),
         Function::scalar("REVERSE", "Returns the characters of a string in reverse order.")
             .param("value", "The string.")
             .form("(value: STRING) -> STRING", |call| Ok(f::reverse(call.arg(0))))

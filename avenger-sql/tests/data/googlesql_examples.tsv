@@ -132,3 +132,9 @@ ARRAY_TO_STRING(['a', NULL, 'c'], ',', 'N')	"a,N,c"
 LAST_DAY(DATE '2024-02-10')	19782
 LAST_DAY(DATE '2024-02-10', QUARTER)	19813
 LAST_DAY(DATE '2024-02-14', WEEK(MONDAY))	19771
+TO_HEX(b'\x00\x01\xef\xff')	"0001efff"
+FROM_HEX('0001EFff')	"AAHv/w=="
+FROM_HEX('abc')	"Crw="
+TO_BASE64(b'\xde\xad\xbe\xef')	"3q2+7w=="
+FROM_BASE64('3q2+7w==')	"3q2+7w=="
+FROM_BASE64('3q2+ 7w')	"3q2+7w=="
