@@ -1096,6 +1096,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-streaming"
+version = "0.1.0"
+dependencies = [
+ "avenger-sql",
+ "avenger-sql-syntax",
+ "datafusion",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-style"
 version = "0.1.0"
 dependencies = [
