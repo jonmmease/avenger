@@ -8,6 +8,6 @@ pub mod matcher;
 mod node;
 pub mod pattern;
 
-pub use matcher::{Match, Skip, matches};
-pub use node::{MatchRecognizeCall, plan};
+pub use matcher::{Match, Skip, Tail, matches, tail_matches};
+pub use node::{MatchRecognizeCall, call_of, plan};
 pub use pattern::{Anchor, MAX_INSTRUCTIONS, Pattern, Program};

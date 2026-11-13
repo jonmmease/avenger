@@ -54,6 +54,39 @@ pub fn matches(
     skip: Skip,
     longest: bool,
 ) -> Vec<Match> {
+    let tail = Tail {
+        start: 0,
+        partition_start: true,
+        firm: usize::MAX,
+    };
+    tail_matches(program, rows, meets, skip, longest, tail).0
+}
+
+/// The rows of the end of a partition that a streaming matcher matches again as rows arrive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tail {
+    /// The first row where a match can start: the rows before it are context, which `PREV`
+    /// reads.
+    pub start: usize,
+    /// Whether row 0 is the partition's first row, where `^` holds.
+    pub partition_start: bool,
+    /// The number of rows whose conditions are final. The conditions of the rows after them read
+    /// `NEXT` past the last row, so they can change.
+    pub firm: usize,
+}
+
+/// The matches of the rows of `tail` as [`matches`] finds them, and the settled frontier: the
+/// first row whose attempt read a row that isn't firm, or the anchor `$`, so more rows can change
+/// its match. The matches that start before the frontier are final, and the rest are the matches
+/// of the rows so far.
+pub fn tail_matches(
+    program: &Program,
+    rows: usize,
+    meets: impl Fn(usize, usize) -> bool,
+    skip: Skip,
+    longest: bool,
+    tail: Tail,
+) -> (Vec<Match>, usize) {
     let mut vm = Vm {
         program,
         rows,
@@ -61,11 +94,19 @@ pub fn matches(
         longest,
         paths: Vec::new(),
         seen: vec![false; program.insts.len()],
+        tail,
+        unsettled: false,
     };
     let mut out = Vec::new();
-    let mut start = 0;
+    let mut frontier = None;
+    let mut start = tail.start;
     while start < rows {
-        match vm.attempt(start) {
+        vm.unsettled = false;
+        let found = vm.attempt(start);
+        if vm.unsettled && frontier.is_none() {
+            frontier = Some(start);
+        }
+        match found {
             Some(variables) => {
                 let length = variables.len();
                 out.push(Match {
@@ -81,7 +122,7 @@ pub fn matches(
             None => start += 1,
         }
     }
-    out
+    (out, frontier.unwrap_or(start.max(tail.start)))
 }
 
 struct Vm<'a> {
@@ -93,6 +134,9 @@ struct Vm<'a> {
     paths: Vec<(Option<u32>, usize)>,
     /// The instructions that a step's threads reached.
     seen: Vec<bool>,
+    tail: Tail,
+    /// Whether the attempt read a row that isn't firm, or `$`.
+    unsettled: bool,
 }
 
 impl Vm<'_> {
@@ -127,6 +171,9 @@ impl Vm<'_> {
                         let Inst::Label(variable) = self.program.insts[thread.pc] else {
                             unreachable!("a thread waits at a label");
                         };
+                        if position >= self.tail.firm {
+                            self.unsettled = true;
+                        }
                         if position < self.rows && (self.meets)(position, variable) {
                             self.paths.push((thread.path, variable));
                             let path = Some(self.paths.len() as u32 - 1);
@@ -181,8 +228,13 @@ impl Vm<'_> {
                 }
                 Inst::Anchor(anchor) => {
                     let holds = match anchor {
-                        Anchor::Start => position == 0,
-                        Anchor::End => position == self.rows,
+                        Anchor::Start => position == 0 && self.tail.partition_start,
+                        Anchor::End => {
+                            if position >= self.tail.firm {
+                                self.unsettled = true;
+                            }
+                            position == self.rows
+                        }
                     };
                     if holds {
                         stack.push(goto(thread.pc + 1));
