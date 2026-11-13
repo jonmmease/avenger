@@ -12,11 +12,37 @@ FROM penguins
 
 ## The language
 
-A query is GoogleSQL's pipe syntax, the subset that avenger-sql-syntax parses. It starts with `FROM`, and its pipe operators are `WHERE`, `SELECT`, `EXTEND`, `SET`, `DROP`, `RENAME`, `AS`, `AGGREGATE` with `GROUP BY`, `GROUPING SETS`, `ROLLUP` and `CUBE`, `ORDER BY`, `LIMIT`, `DISTINCT`, the joins, the set operations, `PIVOT`, `UNPIVOT`, `TABLESAMPLE`, `WITH`, and `CALL`. Expressions include subqueries, `UNNEST`, named windows, and the `WINDOW` clause. A standard `SELECT ... FROM` query isn't in the subset, and its error offers a rewrite to pipe syntax for a simple query. GoogleSQL's other syntax outside the subset, such as DDL and DML statements, gets an error that names it as unsupported.
+A query is GoogleSQL's pipe syntax, the subset that avenger-sql-syntax parses. It starts with `FROM`, and its pipe operators are `WHERE`, `SELECT`, `EXTEND`, `SET`, `DROP`, `RENAME`, `AS`, `AGGREGATE` with `GROUP BY`, `GROUPING SETS`, `ROLLUP` and `CUBE`, `ORDER BY`, `LIMIT`, `DISTINCT`, the joins, the set operations, `PIVOT`, `UNPIVOT`, `TABLESAMPLE`, `MATCH_RECOGNIZE`, `WITH`, and `CALL`. Expressions include subqueries, `UNNEST`, named windows, and the `WINDOW` clause. A standard `SELECT ... FROM` query isn't in the subset, and its error offers a rewrite to pipe syntax for a simple query. GoogleSQL's other syntax outside the subset, such as DDL and DML statements, gets an error that names it as unsupported.
 
 A script is statements separated by `;`. `DECLARE` and `SET` give script variables, `CREATE TEMP TABLE` and `CREATE TEMP FUNCTION` define names for the statements after them, and `IMPORT MODULE` imports the public functions and constants of a module that the catalog holds. `sql` returns the rows of the last query, after the variables before it.
 
 The functions are those of the `library`: GoogleSQL's functions, avenger-chart's marks and constructors, and the transforms of avenger-datafusion-transforms. Each function declares its forms, with GoogleSQL's types and coercion, and documents itself and its parameters. `library::reference` renders the reference of every function, which notes where a function differs from GoogleSQL. A parameter whose name is a reserved word of GoogleSQL takes the name with a trailing underscore, as `range_` of `scale` does.
+
+## Row pattern recognition
+
+`MATCH_RECOGNIZE` finds the runs of rows that match a pattern, as a pipe operator or after a source in `FROM`, with the syntax of [GoogleSQL's `MATCH_RECOGNIZE`](https://github.com/google/googlesql/blob/2026.11.1/docs/pipe-syntax.md#match_recognize_pipe_operator). A pattern variable's condition reads the row, and `PREV` and `NEXT` read its neighbors in the partition. A measure reads aggregates of the match's rows, such as `COUNT(*)`, or of one variable's rows, such as `MIN(dn.price)`:
+
+```sql
+FROM prices
+|> MATCH_RECOGNIZE(
+     PARTITION BY symbol
+     ORDER BY day
+     MEASURES FIRST(day) AS start_day, MIN(dn.price) AS low, LAST(up.price) AS high
+     PATTERN (st dn+ up+)
+     DEFINE
+       st AS TRUE,
+       dn AS price < PREV(price),
+       up AS price > PREV(price))
+```
+
+The output has one row for each match: the partition columns, then the measures. The clause supports GoogleSQL's subset of SQL:2016. `ALL ROWS PER MATCH`, `ONE ROW PER MATCH`, `RUNNING` and `FINAL`, `SUBSET`, `PERMUTE`, exclusion, and `AFTER MATCH SKIP TO` a variable are errors. avenger-sql behaves as follows where the syntax leaves a choice:
+
+- `MATCH_ROW_NUMBER()` is the row's position in its partition, from 1, so the rows of a second match can be 4, 5 and 6.
+- `FIRST` and `LAST` leave out `NULL` values: `FIRST(v)` is the first value of the match's rows that is not `NULL`.
+- Rows with equal `ORDER BY` keys have no order of their own. avenger-sql orders them once, and `PREV`, `NEXT` and the matcher read that one order, so a query gives a consistent result. Another engine can order the ties another way.
+- A quantifier bound and the option `use_longest_match` are literals, not query parameters, because avenger-sql compiles the pattern when it plans the query.
+- A pattern compiles to at most 100,000 instructions, which bounded quantifiers such as `a{50000}` reach. The matcher's cost for each row is at most the size of the pattern's program, so no pattern takes exponential time.
+- The clause holds the input's rows in memory, in one task for each group of partitions.
 
 ## Errors
 
