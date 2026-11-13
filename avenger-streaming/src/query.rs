@@ -168,9 +168,9 @@ impl StreamingQuery {
         if batches.is_empty() {
             return Ok(false);
         }
-        self.applied += batches.iter().map(|b| b.num_rows()).sum::<usize>();
         // The stages map each row on its own and the fronts read rows in order, so a catch-up
-        // over many batches runs them in chunks.
+        // over many batches runs them in chunks. The cursor passes a chunk once it applied, so
+        // an event that fails fails again on the next frame, as the batch plan does.
         let mut changed = false;
         let mut chunk: Vec<RecordBatch> = Vec::new();
         let mut rows = 0;
@@ -185,12 +185,14 @@ impl StreamingQuery {
                 let events = concat_batches(&self.events_schema, &chunk)?;
                 chunk.clear();
                 rows = 0;
+                let count = events.num_rows();
                 *self.frame.batches[0].write().await = vec![events];
                 for kept in execute(&self.ctx, &self.stages).await? {
                     if kept.num_rows() > 0 {
                         changed |= self.front.apply(&kept).await?;
                     }
                 }
+                self.applied += count;
             }
         }
         Ok(changed)
@@ -198,7 +200,8 @@ impl StreamingQuery {
 
     /// Runs the downstream, and returns whether the result changed.
     async fn rerun_downstream(&mut self) -> Result<bool> {
-        let before = std::mem::take(&mut self.result);
+        // A downstream that fails keeps the last result.
+        let before = self.result.clone();
         self.run_downstream().await?;
         Ok(self.result != before)
     }

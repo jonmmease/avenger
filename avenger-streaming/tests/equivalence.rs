@@ -25,6 +25,9 @@ const QUERIES: &[&str] = &[
     "FROM events |> WHERE x IS NOT NULL |> AGGREGATE COUNT(*) AS n, ARRAY_AGG(seq ORDER BY seq DESC LIMIT 2) AS last_two GROUP BY MOD(seq, 7) AS bucket",
     // Hot targets: a grouped front, then a filter and an ungrouped aggregate downstream.
     "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS n GROUP BY target |> WHERE n >= 3 |> AGGREGATE COUNT(*) AS hot_targets",
+    // A float group and a float order, whose zeros of either sign are one value in batch.
+    "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY x |> AGGREGATE COUNT(*) AS group_count, SUM(n) AS total",
+    "FROM events |> ORDER BY x, seq |> LIMIT 40 |> SELECT seq, x",
     // A table function downstream of a grouped front.
     "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, inside |> CALL impute(type, [inside], n, value => 0)",
     // The last click, and the last pointer position.

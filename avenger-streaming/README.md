@@ -30,6 +30,8 @@ for id in queries.push(frame_events).await? {
 
 `set_params` sets parameter values by name. A query that reads a changed parameter in its stages or its front rebuilds the front from the log, and one that reads it only after the front runs the rest of its plan again. A query needs a value for each parameter that it reads before it registers. A query registered after events catches up on the log.
 
+A query that reads the clock, such as `CURRENT_TIMESTAMP()`, runs as its batch plan, which reads the time when it runs. It runs on frames with events only, so its result doesn't follow the clock between them.
+
 A known difference: DataFusion's grouped `MIN` and `MAX` over `NaN` differ from its ungrouped ones, and the streaming front keeps the ungrouped accumulators, so a grouped `MIN` or `MAX` over `NaN` differs from the batch plan.
 
 ## Tests

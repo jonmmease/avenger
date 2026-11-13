@@ -177,8 +177,9 @@ impl Slot {
 /// it doesn't split.
 pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Split, Rejection> {
     // The path from the plan's root to its one scan of `events`.
+    // Subqueries too, as a downstream can read events again through one.
     let mut scans = 0;
-    plan.apply(|node| {
+    plan.apply_with_subqueries(|node| {
         if reads(node, events) {
             scans += 1;
         }
@@ -201,6 +202,13 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
     }
     if top == 0 {
         return reject("the query has no front over events, so its result grows with every event");
+    }
+    // A function whose value changes as time passes, anywhere: a stream would read it at other
+    // times than the batch plan does, and an optimized plan holds its value as a constant.
+    if let Some(name) = time_function(plan) {
+        return reject(format!(
+            "the query reads the function {name}, whose value changes as time passes"
+        ));
     }
     let stages = &path[top];
     if let Some(front) = match_recognize(&path, top)? {
@@ -227,6 +235,9 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
         }
     }
     let node = &path[top - 1];
+    if has_subquery(node) {
+        return reject("a subquery in the front over events, which the runtime doesn't evaluate");
+    }
     let (front, replaced) = match node {
         LogicalPlan::Aggregate(aggregate) => {
             if (aggregate.group_expr.iter()).any(|e| matches!(e, Expr::GroupingSet(_))) {
@@ -411,6 +422,9 @@ fn match_recognize(
         return unexpected();
     }
     let measures = up - 2;
+    if path[measures..top].iter().any(has_subquery) {
+        return reject("a subquery in the front over events, which the runtime doesn't evaluate");
+    }
     // The order of the positions, and the reach of PREV and NEXT.
     let stages = &path[top];
     let (mut partition, mut seq, mut back, mut ahead) = (Vec::new(), None, 0, 0);
@@ -427,7 +441,7 @@ fn match_recognize(
             "row_number" => {
                 partition = function.params.partition_by.clone();
                 seq = match function.params.order_by.as_slice() {
-                    [key] => match &key.expr {
+                    [key] if key.asc => match &key.expr {
                         Expr::Column(column) if is_seq(&key.expr, stages) => Some(column.clone()),
                         _ => None,
                     },
@@ -440,7 +454,7 @@ fn match_recognize(
         }
     }
     let Some(seq) = seq else {
-        return reject("a MATCH_RECOGNIZE over events whose ORDER BY isn't seq alone, so ties have no order of their own");
+        return reject("a MATCH_RECOGNIZE over events whose ORDER BY isn't seq ascending, the order in which events arrive");
     };
     let staged = Slot::new("staged", stages.schema());
     let node_rows = Slot::new("node_rows", node.schema());
@@ -520,6 +534,44 @@ fn stateless(node: &LogicalPlan) -> Result<bool, Rejection> {
         }
     }
     Ok(true)
+}
+
+/// Whether `node`'s own expressions hold a subquery.
+fn has_subquery(node: &LogicalPlan) -> bool {
+    let mut found = false;
+    let _ = node.apply_expressions(|expr| {
+        found |= expr
+            .exists(|e| {
+                Ok(matches!(
+                    e,
+                    Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_)
+                ))
+            })
+            .unwrap_or(false);
+        Ok(TreeNodeRecursion::Continue)
+    });
+    found
+}
+
+/// The name of a function that `plan` reads, in its subqueries too, whose value changes between
+/// calls, such as `now`.
+fn time_function(plan: &LogicalPlan) -> Option<String> {
+    let mut found = None;
+    let _ = plan.apply_with_subqueries(|node| {
+        let _ = node.apply_expressions(|expr| {
+            let _ = expr.apply(|e| {
+                if let Expr::ScalarFunction(call) = e {
+                    if call.func.signature().volatility != Volatility::Immutable {
+                        found.get_or_insert_with(|| call.func.name().to_string());
+                    }
+                }
+                Ok(TreeNodeRecursion::Continue)
+            });
+            Ok(TreeNodeRecursion::Continue)
+        });
+        Ok(TreeNodeRecursion::Continue)
+    });
+    found
 }
 
 /// The skip and the fetch of `limit`, which are literals.
