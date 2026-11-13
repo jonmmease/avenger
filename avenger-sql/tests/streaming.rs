@@ -191,3 +191,26 @@ fn the_other_shapes_are_rejected() {
         assert_eq!(found, want, "{query}");
     }
 }
+
+#[test]
+fn a_downstream_of_the_latest_matches_keeps_the_first_final_rows() {
+    let brush = "FROM events |> WHERE type IN ('down', 'move', 'up') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'down', mv AS type = 'move', up AS type = 'up')";
+    let cases = [
+        // Row-wise stages, then the latest match, then more of the query.
+        (
+            format!("{brush} |> WHERE moves > 0 |> ORDER BY last_seq DESC |> LIMIT 1 |> SELECT LEAST(x0, x1) AS lo"),
+            Some(0),
+        ),
+        (format!("{brush} |> ORDER BY last_seq DESC |> LIMIT 2 OFFSET 1"), Some(1)),
+        // An aggregate of every match, and a front whose output changes its rows.
+        (format!("{brush} |> AGGREGATE COUNT(*) AS drags"), None),
+        (
+            "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type |> ORDER BY n DESC |> LIMIT 1".to_string(),
+            None,
+        ),
+    ];
+    for (query, skip) in cases {
+        let split = split_of(&query).unwrap();
+        assert_eq!(split.latest.map(|latest| latest.skip), skip, "{query}");
+    }
+}

@@ -10,7 +10,7 @@ An `EventLog` holds a chart's events in the order of arrival. It numbers them in
 - An `ORDER BY ... LIMIT` whose last key is `seq`, which keeps the first rows of its order.
 - A `MATCH_RECOGNIZE` ordered by `seq`, which keeps each partition's rows after its settled frontier, the first row whose match more rows can still change. Each frame, it evaluates the conditions of that tail, matches it again, and computes the measures of its matches: a match before the new frontier is final, and its measures stay, while the measures of the open matches change with each frame.
 
-None needs a retraction, since events only grow and a final match never changes. Another query runs as its batch plan over the log on each frame with events, and `register` returns the reason.
+None needs a retraction, since events only grow and a final match never changes. When the rest of a query of `MATCH_RECOGNIZE` starts with row-wise stages and an `ORDER BY ... LIMIT`, as a query of the latest drag does, the query keeps the first final rows of that order, and each frame reads only those rows and the open matches' rows, so the cost of a frame doesn't grow with the number of matches. Another query runs as its batch plan over the log on each frame with events, and `register` returns the reason.
 
 ```rust
 let log = EventLog::new(pointer_event_schema)?;

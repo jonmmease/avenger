@@ -40,6 +40,26 @@ pub struct Split {
     /// The rest of the query, which reads the front's output through `slot`.
     pub downstream: LogicalPlan,
     pub slot: Slot,
+    /// The downstream as the latest rows of the front's output, for a front whose output keeps
+    /// its final rows, such as `MATCH_RECOGNIZE`.
+    pub latest: Option<Latest>,
+}
+
+/// A downstream that starts with row-wise stages and an `ORDER BY ... LIMIT` over the front's
+/// output. Over an output of final rows, which only accumulate, and open rows, the limit's rows
+/// are the limit's rows of the first `skip + fetch` final rows in its order and the open rows, so
+/// a runtime keeps those final rows instead of reading every final row on each frame.
+#[derive(Debug, Clone)]
+pub struct Latest {
+    /// The downstream's stages, which read the front's output through the split's slot.
+    pub stages: LogicalPlan,
+    /// The first `skip + fetch` rows of the stages' rows that `candidates` holds, in the order.
+    pub top: LogicalPlan,
+    pub candidates: Slot,
+    pub skip: usize,
+    /// The rest of the downstream, over the limit's rows that `limited` holds.
+    pub rest: LogicalPlan,
+    pub limited: Slot,
 }
 
 /// The front of a streaming query, over the rows of the stages.
@@ -133,6 +153,14 @@ impl Slot {
             schema: arrow,
             plan,
         }
+    }
+
+    /// Replaces the rows with none.
+    pub fn set_empty(&self) {
+        let mut batches = self.table.batches[0]
+            .try_write()
+            .expect("no plan reads a slot while the runtime fills it");
+        *batches = Vec::new();
     }
 
     /// Replaces the rows with `columns`, a batch of the replaced output's columns in order.
@@ -253,13 +281,66 @@ fn finish(
 ) -> Split {
     let slot = Slot::new("front", replaced.schema());
     let downstream = replace(plan, replaced, &slot.plan);
+    let latest = match front {
+        Front::MatchRecognize(_) => latest(&downstream, &slot),
+        _ => None,
+    };
     Split {
         stages: stages.clone(),
         scan: scan.clone(),
         front,
         downstream,
         slot,
+        latest,
     }
+}
+
+/// The downstream as the latest rows of the front's output, when it starts with row-wise stages
+/// over `slot` and an `ORDER BY ... LIMIT` of literals.
+fn latest(downstream: &LogicalPlan, slot: &Slot) -> Option<Latest> {
+    let path = path_to(downstream, &slot.plan)?;
+    let mut at = path.len() - 1;
+    while at > 0 && stateless(&path[at - 1]).unwrap_or(false) {
+        at -= 1;
+    }
+    let (LogicalPlan::Sort(sort), Some(LogicalPlan::Limit(limit))) = (
+        path.get(at.checked_sub(1)?)?,
+        at.checked_sub(2).map(|i| &path[i]),
+    ) else {
+        return None;
+    };
+    let (skip, fetch) = limits(limit).ok()?;
+    let stages = path[at].clone();
+    let candidates = Slot::new("candidates", stages.schema());
+    let top = LogicalPlanBuilder::from(candidates.plan.clone())
+        .sort(sort.expr.clone())
+        .and_then(|b| b.limit(0, Some(skip + fetch)))
+        .and_then(|b| b.build())
+        .ok()?;
+    let limit_node = &path[at - 2];
+    let limited = Slot::new("limited", limit_node.schema());
+    Some(Latest {
+        rest: replace(downstream, limit_node, &limited.plan),
+        stages,
+        top,
+        candidates,
+        skip,
+        limited,
+    })
+}
+
+/// The nodes from `plan` down to the node `target`, or `None` without one.
+fn path_to(plan: &LogicalPlan, target: &LogicalPlan) -> Option<Vec<LogicalPlan>> {
+    if plan == target {
+        return Some(vec![plan.clone()]);
+    }
+    for input in plan.inputs() {
+        if let Some(mut path) = path_to(input, target) {
+            path.insert(0, plan.clone());
+            return Some(path);
+        }
+    }
+    None
 }
 
 /// `plan` with the node `target` replaced by `with`.

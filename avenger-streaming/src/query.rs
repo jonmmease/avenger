@@ -35,7 +35,18 @@ pub(crate) struct StreamingQuery {
     params: Option<ParamValues>,
     /// The number of the log's events that the front holds.
     applied: usize,
+    /// The downstream as the latest rows of the front's output, and the rows that it keeps.
+    latest: Option<LatestState>,
     result: Vec<RecordBatch>,
+}
+
+/// The pieces of [`avenger_sql::streaming::Latest`], bound to the parameters and optimized, and
+/// the first rows of the stages' rows of the front's final rows, in the downstream's order.
+struct LatestState {
+    stages: LogicalPlan,
+    top: LogicalPlan,
+    rest: LogicalPlan,
+    kept: Vec<RecordBatch>,
 }
 
 impl StreamingQuery {
@@ -60,6 +71,7 @@ impl StreamingQuery {
             front: FrontState::Empty,
             params,
             applied: 0,
+            latest: None,
             result: Vec::new(),
         };
         query.prepare(true)?;
@@ -132,6 +144,20 @@ impl StreamingQuery {
         }
         self.stages = state.optimize(&stages)?;
         self.downstream = state.optimize(&bind(&self.split.downstream, &self.params)?)?;
+        // The kept rows follow the front's final rows and the downstream's parameters, so they
+        // start again from every final row.
+        self.latest = match &self.split.latest {
+            Some(latest) => Some(LatestState {
+                stages: state.optimize(&bind(&latest.stages, &self.params)?)?,
+                top: state.optimize(&bind(&latest.top, &self.params)?)?,
+                rest: state.optimize(&bind(&latest.rest, &self.params)?)?,
+                kept: Vec::new(),
+            }),
+            None => None,
+        };
+        if let FrontState::Match(front) = &mut self.front {
+            front.give_finals_again();
+        }
         Ok(())
     }
 
@@ -178,10 +204,77 @@ impl StreamingQuery {
     }
 
     async fn run_downstream(&mut self) -> Result<()> {
+        if let (Some(latest), FrontState::Match(front), Some(pieces)) =
+            (&mut self.latest, &mut self.front, &self.split.latest)
+        {
+            // The final rows since the last frame join the kept rows, and the open rows join a
+            // copy of them, whose first rows the rest of the downstream reads.
+            let finals = front.take_new_finals();
+            if !finals.is_empty() {
+                let mut candidates = latest.kept.clone();
+                candidates
+                    .extend(staged(&self.ctx, &self.split.slot, &latest.stages, &finals).await?);
+                latest.kept = top(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
+            }
+            let mut candidates = latest.kept.clone();
+            let open = front.open_rows();
+            candidates.extend(staged(&self.ctx, &self.split.slot, &latest.stages, &open).await?);
+            let first = top(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
+            let rows = concat(&first)?.map(|rows| {
+                let skip = pieces.skip.min(rows.num_rows());
+                rows.slice(skip, rows.num_rows() - skip)
+            });
+            match rows {
+                Some(rows) => pieces.limited.set(rows.columns().to_vec()),
+                None => pieces.limited.set_empty(),
+            }
+            self.result = execute(&self.ctx, &latest.rest).await?;
+            return Ok(());
+        }
         self.split.slot.set(self.front.output()?);
         self.result = execute(&self.ctx, &self.downstream).await?;
         Ok(())
     }
+}
+
+/// The rows of `batches` as one batch, or `None` without rows.
+fn concat(batches: &[RecordBatch]) -> Result<Option<RecordBatch>> {
+    let batches: Vec<&RecordBatch> = batches.iter().filter(|b| b.num_rows() > 0).collect();
+    match batches.first() {
+        None => Ok(None),
+        Some(first) => Ok(Some(concat_batches(
+            &first.schema(),
+            batches.iter().copied(),
+        )?)),
+    }
+}
+
+/// The rows of `stages` over `rows` of the front's output, which `slot` holds.
+async fn staged(
+    ctx: &SessionContext,
+    slot: &avenger_sql::streaming::Slot,
+    stages: &LogicalPlan,
+    rows: &[RecordBatch],
+) -> Result<Vec<RecordBatch>> {
+    let Some(rows) = concat(rows)? else {
+        return Ok(Vec::new());
+    };
+    slot.set(rows.columns().to_vec());
+    execute(ctx, stages).await
+}
+
+/// The first rows of `rows` in the order of `top`, which reads them through `slot`.
+async fn top(
+    ctx: &SessionContext,
+    slot: &avenger_sql::streaming::Slot,
+    top: &LogicalPlan,
+    rows: &[RecordBatch],
+) -> Result<Vec<RecordBatch>> {
+    let Some(rows) = concat(rows)? else {
+        return Ok(Vec::new());
+    };
+    slot.set(rows.columns().to_vec());
+    execute(ctx, top).await
 }
 
 /// Whether `plan` reads a parameter.

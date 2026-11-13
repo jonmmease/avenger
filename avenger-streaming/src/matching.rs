@@ -63,8 +63,10 @@ pub(crate) struct MatchState {
     converter: Option<RowConverter>,
     index: HashMap<OwnedRow, usize>,
     partitions: Vec<Partition>,
-    /// The measures of the final matches, and the measures' schema.
+    /// The measures of the final matches, the number of them that `take_new_finals` gave, and
+    /// the measures' schema.
     finals: Vec<RecordBatch>,
+    given: usize,
     output_schema: SchemaRef,
 }
 
@@ -139,6 +141,7 @@ impl MatchState {
             index: HashMap::new(),
             partitions: Vec::new(),
             finals: Vec::new(),
+            given: 0,
             output_schema: Arc::new(front.measures.schema().as_arrow().clone()),
             call: call.clone(),
             conditions,
@@ -326,6 +329,25 @@ impl MatchState {
         columns.push(Arc::new(StringArray::from(classes)));
         self.node_rows.set(columns);
         execute(&self.ctx, &self.measures).await
+    }
+
+    /// The measures of the final matches since the last call.
+    pub(crate) fn take_new_finals(&mut self) -> Vec<RecordBatch> {
+        let new = self.finals[self.given..].to_vec();
+        self.given = self.finals.len();
+        new
+    }
+
+    /// Gives every final match's measures at the next `take_new_finals`.
+    pub(crate) fn give_finals_again(&mut self) {
+        self.given = 0;
+    }
+
+    /// The measures of the open matches of every partition.
+    pub(crate) fn open_rows(&self) -> Vec<RecordBatch> {
+        (self.partitions.iter())
+            .flat_map(|p| p.open.iter().cloned())
+            .collect()
     }
 
     /// The measures of every match: the final ones, then each partition's open ones.

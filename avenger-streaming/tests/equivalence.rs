@@ -34,6 +34,8 @@ const QUERIES: &[&str] = &[
     "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 0 |> ORDER BY last_seq DESC |> LIMIT 1 |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
     // A brush that a double click clears.
     "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup', 'dblclick') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, COUNT(clr.seq) > 0 AS cleared, MAX(seq) AS last_seq PATTERN (dn mv* up? | clr) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup', clr AS type = 'dblclick' AND inside) |> WHERE moves > 0 OR cleared |> ORDER BY last_seq DESC |> LIMIT 1 |> WHERE NOT cleared |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
+    // The second and third latest drags, through the latest rows of the match table.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 2 |> ORDER BY last_seq DESC |> LIMIT 2 OFFSET 1 |> SELECT x0, moves",
     // The total time of the drags, the one in progress too.
     "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.ts) AS t0, LAST(mv.ts) AS t1 PATTERN (dn mv+) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove') |> AGGREGATE SUM(TIMESTAMP_DIFF(t1, t0, MILLISECOND)) AS total_drag_ms, COUNT(*) AS drags",
     // Hot targets through MATCH_RECOGNIZE.
@@ -121,6 +123,12 @@ async fn a_changed_parameter_rebuilds_the_front_or_runs_the_downstream_again() {
             "FROM events |> WHERE x > @min_x |> AGGREGATE COUNT(*) AS n, MAX(x) AS hi",
             value("min_x", ScalarValue::Float64(Some(380.0))),
             value("min_x", ScalarValue::Float64(Some(420.0))),
+        ),
+        // The stages after MATCH_RECOGNIZE read the parameter, before the latest match.
+        (
+            "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves >= @least |> ORDER BY last_seq DESC |> LIMIT 1",
+            value("least", ScalarValue::Int64(Some(10))),
+            value("least", ScalarValue::Int64(Some(90))),
         ),
         // Only the downstream reads the parameter.
         (
