@@ -10,7 +10,9 @@
 //! cargo test --release -p avenger-datafusion-transforms --test match_recognize -- --ignored
 //! ```
 
-use avenger_datafusion_transforms::match_recognize::{Anchor, Pattern, Program, Skip, matches};
+use avenger_datafusion_transforms::match_recognize::{
+    Anchor, Pattern, Program, Skip, Tail, matches, tail_matches,
+};
 
 // --- A parser of the tests' patterns ---
 
@@ -518,4 +520,134 @@ fn record_the_corpus() {
     let output = root.join("tests/output");
     std::fs::create_dir_all(&output).unwrap();
     std::fs::write(output.join("googlesql_match_recognize.txt"), text).unwrap();
+}
+
+/// The matches of a streaming matcher at each prefix of `case`'s rows: the final matches before
+/// each frontier, kept, and the tail's matches from the frontier, found again for each new row.
+fn streamed(program: &Program, case: &Case, prefix: usize) -> Vec<(usize, Vec<usize>)> {
+    let mut kept: Vec<(usize, Vec<usize>)> = Vec::new();
+    let mut frontier = 0;
+    let mut current = Vec::new();
+    for rows in 1..=prefix {
+        let meets = |row: usize, variable: usize| case.rows[row][variable];
+        let tail = Tail {
+            start: frontier,
+            partition_start: true,
+            firm: rows,
+        };
+        let (found, settled) = tail_matches(program, rows, meets, case.skip, case.longest, tail);
+        current = kept.clone();
+        for m in found {
+            let entry = (m.start, m.variables);
+            if m.start < settled {
+                kept.push(entry.clone());
+            }
+            current.push(entry);
+        }
+        current.sort();
+        current.dedup();
+        frontier = settled;
+    }
+    current
+}
+
+#[test]
+fn a_streaming_matcher_finds_the_matches_of_each_prefix() {
+    let mut failures = Vec::new();
+    for case in corpus() {
+        let p = pattern(&case.full_pattern(), "abc");
+        let program = Program::compile(&p).unwrap();
+        for prefix in 1..=case.rows.len() {
+            let meets = |row: usize, variable: usize| case.rows[row][variable];
+            let mut batch: Vec<(usize, Vec<usize>)> =
+                matches(&program, prefix, meets, case.skip, case.longest)
+                    .into_iter()
+                    .map(|m| (m.start, m.variables))
+                    .collect();
+            batch.sort();
+            let streaming = streamed(&program, &case, prefix);
+            if streaming != batch {
+                failures.push(format!(
+                    "{} over {} {} longest={} prefix={prefix}\n  streaming {streaming:?}\n  batch     {batch:?}",
+                    case.pattern,
+                    case.rows_text(),
+                    case.skip_text(),
+                    case.longest
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}
+
+#[test]
+fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
+    // As a condition reads `NEXT`, the last row of a prefix has conditions that change when the
+    // next row arrives: here, the inverse of its final conditions.
+    let view = |case: &Case, prefix: usize, row: usize, variable: usize| match row + 1 == prefix {
+        true => !case.rows[row][variable],
+        false => case.rows[row][variable],
+    };
+    let mut failures = Vec::new();
+    for case in corpus() {
+        let p = pattern(&case.full_pattern(), "abc");
+        let program = Program::compile(&p).unwrap();
+        let mut kept: Vec<(usize, Vec<usize>)> = Vec::new();
+        let mut frontier = 0;
+        for prefix in 1..=case.rows.len() {
+            let meets = |row: usize, variable: usize| view(&case, prefix, row, variable);
+            let mut batch: Vec<(usize, Vec<usize>)> =
+                matches(&program, prefix, meets, case.skip, case.longest)
+                    .into_iter()
+                    .map(|m| (m.start, m.variables))
+                    .collect();
+            batch.sort();
+            let tail = Tail {
+                start: frontier,
+                partition_start: true,
+                firm: prefix - 1,
+            };
+            let (found, settled) =
+                tail_matches(&program, prefix, meets, case.skip, case.longest, tail);
+            let mut streaming = kept.clone();
+            for m in found {
+                if m.start < settled {
+                    kept.push((m.start, m.variables.clone()));
+                }
+                streaming.push((m.start, m.variables));
+            }
+            streaming.sort();
+            frontier = settled;
+            if streaming != batch {
+                failures.push(format!(
+                    "{} over {} {} longest={} prefix={prefix}\n  streaming {streaming:?}\n  batch     {batch:?}",
+                    case.pattern,
+                    case.rows_text(),
+                    case.skip_text(),
+                    case.longest
+                ));
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} failures\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 }
