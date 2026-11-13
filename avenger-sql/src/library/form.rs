@@ -383,6 +383,9 @@ pub fn coercion(from: &Ty, literal: bool, to: &Ty) -> Option<u32> {
         (Ty::Int64, Ty::Float64) => 1,
         (Ty::Int64, Ty::Numeric) => 2,
         (Ty::Int64, Ty::BigNumeric) => 3,
+        // A float literal coerces to a decimal beside one, as `NUMERIC '1.5' + 1.5` is a
+        // `NUMERIC`.
+        (Ty::Float64, Ty::Numeric | Ty::BigNumeric) if literal => 1,
         (Ty::Numeric, Ty::BigNumeric) => 1,
         (Ty::Numeric, Ty::Float64) => 2,
         (Ty::BigNumeric, Ty::Float64) => 1,
@@ -395,6 +398,31 @@ pub fn coercion(from: &Ty, literal: bool, to: &Ty) -> Option<u32> {
         _ => return None,
     };
     Some(cost)
+}
+
+/// The common supertype of values of the types `observed`, each with whether it is a literal, by
+/// the rule of a type variable of any type: the type of one of the values to which the others
+/// coerce at the least cost, the first of them on a tie. Values that are all `NULL` take `INT64`.
+pub fn supertype(observed: &[(Ty, bool)]) -> Option<Ty> {
+    let mut candidates: Vec<&Ty> = Vec::new();
+    for (ty, _) in observed {
+        if *ty != Ty::Null && !candidates.contains(&ty) {
+            candidates.push(ty);
+        }
+    }
+    if candidates.is_empty() {
+        return Some(Ty::Int64);
+    }
+    candidates
+        .into_iter()
+        .filter_map(|candidate| {
+            let total = observed.iter().try_fold(0, |total, (ty, literal)| {
+                Some(total + coercion(ty, *literal, candidate)?)
+            })?;
+            Some((total, candidate.clone()))
+        })
+        .min_by_key(|(total, _)| *total)
+        .map(|(_, ty)| ty)
 }
 
 /// The resolution of a call to a form: its cost, the type of each variable, and the type to
@@ -429,32 +457,28 @@ impl Signature {
         let mut vars = BTreeMap::new();
         for (var, set) in &self.vars {
             let observed = by_var.remove(var).unwrap_or_default();
-            let candidates: Vec<Ty> = match set.is_empty() {
-                true => {
-                    let mut seen: Vec<Ty> = observed
-                        .iter()
-                        .map(|(ty, _)| ty.clone())
-                        .filter(|ty| *ty != Ty::Null)
-                        .collect();
-                    seen.dedup();
-                    if seen.is_empty() {
-                        seen.push(Ty::Int64);
+            // As in GoogleSQL, a variable takes the supertype of its arguments, when its set holds
+            // it, or the type of its set to which the supertype coerces at the least cost.
+            let ty = match (observed.is_empty(), set.first()) {
+                (true, Some(first)) => first.clone(),
+                (true, None) => Ty::Int64,
+                (false, _) => {
+                    let supertype = supertype(&observed)?;
+                    match set.is_empty() || set.contains(&supertype) {
+                        true => supertype,
+                        false => set
+                            .iter()
+                            .filter_map(|ty| Some((coercion(&supertype, false, ty)?, ty)))
+                            .min_by_key(|(cost, _)| *cost)?
+                            .1
+                            .clone(),
                     }
-                    seen
                 }
-                false => set.clone(),
             };
-            let best = candidates
-                .iter()
-                .filter_map(|candidate| {
-                    let total = observed.iter().try_fold(0, |total, (ty, literal)| {
-                        Some(total + coercion(ty, *literal, candidate)?)
-                    })?;
-                    Some((total, candidate.clone()))
-                })
-                .min_by_key(|(total, _)| *total)?;
-            cost += best.0;
-            vars.insert(var.clone(), best.1);
+            cost += observed.iter().try_fold(0, |total, (observed, literal)| {
+                Some(total + coercion(observed, *literal, &ty)?)
+            })?;
+            vars.insert(var.clone(), ty);
         }
         Some(Resolution { cost, vars })
     }

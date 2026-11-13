@@ -265,11 +265,6 @@ const OMITTED: &[(&str, &str, &str)] = &[
         "FLOAT64",
         "DataFusion's range generates integers",
     ),
-    (
-        "CONCAT",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
     ("LENGTH", "BYTES", "DataFusion's octet_length takes strings"),
     (
         "LOWER",
