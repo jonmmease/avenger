@@ -207,6 +207,16 @@ FROM sales |> SELECT AS VALUE units |> SELECT *
 FROM sales |> SELECT AS VALUE units, price
 ## star-anonymous
 FROM (FROM sales |> SELECT units + 1, region) |> SELECT *
+## cast-format-dates
+FROM sales |> SELECT DISTINCT month, CAST(month AS STRING FORMAT 'Mon DD, YYYY (Dy)') AS label, CAST(CAST(month AS STRING FORMAT 'YYYYMMDD') AS DATE FORMAT 'YYYYMMDD') AS back
+## cast-format-timestamps
+FROM events |> SELECT id, CAST(ts AS STRING FORMAT 'YYYY-MM-DD HH12:MI P.M. TZH:TZM' AT TIME ZONE 'Asia/Kolkata') AS text, UNIX_SECONDS(CAST(CAST(ts AS STRING FORMAT 'YYYY-MM-DD HH24:MI:SS' AT TIME ZONE 'UTC') AS TIMESTAMP FORMAT 'YYYY-MM-DD HH24:MI:SS' AT TIME ZONE 'UTC')) AS back
+## cast-format-bytes
+FROM sales |> SELECT DISTINCT product, CAST(CAST(product AS BYTES FORMAT 'UTF-8') AS STRING FORMAT 'BASE64') AS b64, CAST(CAST(product AS BYTES FORMAT 'ASCII') AS STRING FORMAT 'HEX') AS hex
+## error-cast-format-parse
+FROM sales |> SELECT CAST(product AS DATE FORMAT 'YYYY-MM-DD') AS d
+## cast-format-safe
+FROM sales |> SELECT DISTINCT product, SAFE_CAST(product AS DATE FORMAT 'YYYY-MM-DD') AS d
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column
