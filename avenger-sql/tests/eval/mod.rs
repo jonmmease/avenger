@@ -446,6 +446,11 @@ pub fn literal(array: &ArrayRef, index: usize) -> String {
                 .collect();
             format!("STRUCT({})", items.join(", "))
         }
+        DataType::Dictionary(_, value) => {
+            let values =
+                datafusion::arrow::compute::cast(&array.slice(index, 1), value).expect("values");
+            literal(&values, 0)
+        }
         other => panic!("the tests write no literal of {other}"),
     }
 }

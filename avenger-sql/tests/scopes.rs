@@ -94,6 +94,24 @@ const RULES: &[(&str, &str, Outcome)] = &[
         "FROM one_row AS t |> SET x = 2 |> SELECT t.x, x",
         Outcome::Row("| x | x |", "| 1 | 2 |"),
     ),
+    // A pipe WITH name is visible to the queries nested in the operators after it.
+    (
+        "FROM (SELECT 1 AS x) |> WITH w AS (SELECT 2 AS y) |> WHERE x < (FROM w |> AGGREGATE MAX(y))",
+        "FROM one_row |> WITH w AS (FROM one_row |> SELECT 2 AS y) |> WHERE x < (FROM w |> AGGREGATE MAX(y)) |> SELECT x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    // The query of a pipe WITH doesn't see the operator's input.
+    (
+        "FROM (SELECT 1 AS x) AS r |> WITH w AS (SELECT r.x AS y) |> CROSS JOIN w",
+        "FROM one_row AS r |> WITH w AS (FROM one_row |> SELECT r.x AS y) |> CROSS JOIN w",
+        Outcome::Error("Unrecognized name: r"),
+    ),
+    // A subquery reads the columns of the queries that enclose it.
+    (
+        "FROM (SELECT 1 AS x) AS t |> WHERE EXISTS (FROM (SELECT 1 AS k) |> WHERE k = t.x)",
+        "FROM one_row AS t |> WHERE EXISTS (FROM one AS o |> WHERE o.one = t.x) |> SELECT x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
     // AGGREGATE ends the range variables.
     (
         "FROM (SELECT 1 AS x, 'a' AS s) AS t |> AGGREGATE COUNT(*) AS n GROUP BY s |> SELECT t.s",
@@ -161,6 +179,7 @@ fn the_model_resolves_each_name_to_its_definition() {
                 Definition::Table { names } => format!("table {}", names.join(".")),
                 Definition::Function { name } => format!("function {name}"),
                 Definition::Field { name, .. } => format!("field {name}"),
+                Definition::Query { name, .. } => format!("query {name}"),
             };
             (at(text, name.range), definition)
         })

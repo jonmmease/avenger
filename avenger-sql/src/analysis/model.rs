@@ -76,6 +76,11 @@ pub enum Definition {
     Table {
         names: Vec<String>,
     },
+    /// A name of a pipe `WITH`, and the range of its definition.
+    Query {
+        name: String,
+        definition: Option<TextRange>,
+    },
     /// A function of the library.
     Function {
         name: String,
