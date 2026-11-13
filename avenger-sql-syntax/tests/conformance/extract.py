@@ -104,6 +104,38 @@ def from_query(text):
     return None
 
 
+def from_clause(text):
+    """`text`, a standard `SELECT ... FROM sources` query without other clauses at its top level,
+    as the pipe query `FROM sources`, or None. It checks the table operators of GoogleSQL's
+    `FROM` clause, such as `MATCH_RECOGNIZE`, whose tests are standard queries."""
+    depth, quote, at = 0, None, None
+    for i, c in enumerate(text):
+        if quote:
+            quote = None if c == quote else quote
+        elif c in "'\"`":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and re.match(r"\bfrom\b", text[i:], re.IGNORECASE) and (
+            i == 0 or not (text[i - 1].isalnum() or text[i - 1] == "_")
+        ):
+            at = i
+            break
+    if at is None:
+        return None
+    rest = text[at:]
+    # The words outside every parenthesis.
+    words, removed = rest, 1
+    while removed:
+        words, removed = re.subn(r"\([^()]*\)", "", words)
+    if re.search(r"\b(where|group|order|limit|having|qualify|union|except|intersect|window)\b",
+                 words, re.IGNORECASE):
+        return None
+    return rest
+
+
 def main():
     checkout()
     count = 0
@@ -131,6 +163,11 @@ def main():
                         if piped is not None:
                             out.write(f"## {label}:from\n{piped}\n")
                             count += 1
+                        elif "match_recognize" in name:
+                            rest = from_clause(first)
+                            if rest is not None:
+                                out.write(f"## {label}:fromclause\n{rest}\n")
+                                count += 1
     print(f"{count} inputs in {CORPUS}")
 
 

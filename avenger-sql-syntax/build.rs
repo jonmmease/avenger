@@ -607,6 +607,9 @@ fn punctuation(text: &str) -> Option<&'static str> {
         "<<" => "SHL",
         "=>" => "FAT_ARROW",
         "?" => "POSITIONAL",
+        "$" => "DOLLAR",
+        "{" => "L_BRACE",
+        "}" => "R_BRACE",
         _ => return None,
     };
     Some(kind)
