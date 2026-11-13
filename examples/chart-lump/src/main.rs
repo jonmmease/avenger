@@ -1,12 +1,11 @@
-//! The top genres of movies, lumped by the `lump` transform of avenger-datafusion-transforms in
-//! DataFusion, and shown by a chart app.
+//! The top genres of movies, lumped by `lump` in a query of avenger-sql, and shown by a chart app.
 //!
-//! The example reads the movies of `movie-search` into DataFusion and lumps their genres to the 5
+//! The example reads the movies of `movie-search` into a DataFusion session and lumps their genres to the 5
 //! with the most movies, with the rest in the Other group, and the movies without a genre in the
-//! NULL category of their own, which `'nulls'` keeps by default:
+//! NULL category of their own, which `null_category` keeps by default:
 //!
 //! ```sql
-//! SELECT *, lump(genre, 'n', 5) OVER () AS lumped FROM movies
+//! FROM movies |> EXTEND lump(genre, n => 5) OVER () AS lumped
 //! ```
 //!
 //! The bars on the left count the movies of each lumped genre, with the kept genres by their
@@ -65,8 +64,8 @@ fn movies() -> RecordBatch {
     concat_batches(&schema, &batches).unwrap()
 }
 
-/// The tables of the chart, from the movies through DataFusion: each movie with its lumped genre,
-/// and the number of movies of each lumped genre.
+/// The tables of the chart, from the movies through avenger-sql: each movie with its lumped
+/// genre, and the number of movies of each lumped genre.
 struct Tables {
     movies: RecordBatch,
     genres: RecordBatch,
@@ -74,22 +73,24 @@ struct Tables {
 
 async fn tables(movies: RecordBatch) -> datafusion::error::Result<Tables> {
     let ctx = SessionContext::new();
-    avenger_datafusion_transforms::register(&ctx)?;
+    avenger_sql::register(&ctx)?;
     ctx.register_batch("movies", movies)?;
-    let lumped = format!("SELECT *, lump(genre, 'n', {KEPT}) OVER () AS lumped FROM movies");
-    ctx.register_table("lumped", ctx.sql(&lumped).await?.into_view())?;
-    let collect = |sql: &'static str| {
+    let lumped = format!("FROM movies |> EXTEND lump(genre, n => {KEPT}) OVER () AS lumped");
+    let collect = |text: String| {
         let ctx = ctx.clone();
         async move {
-            let frame = ctx.sql(sql).await?;
+            let frame = avenger_sql::sql(&ctx, &text).await?;
             let schema = Arc::new(frame.schema().as_arrow().clone());
             let batches = frame.collect().await?;
             Ok::<_, datafusion::error::DataFusionError>(concat_batches(&schema, &batches)?)
         }
     };
     Ok(Tables {
-        movies: collect("SELECT * FROM lumped").await?,
-        genres: collect("SELECT lumped, count(*) AS movies FROM lumped GROUP BY lumped").await?,
+        movies: collect(lumped.clone()).await?,
+        genres: collect(format!(
+            "{lumped} |> AGGREGATE COUNT(*) AS movies GROUP BY lumped"
+        ))
+        .await?,
     })
 }
 

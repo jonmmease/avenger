@@ -23,7 +23,6 @@ use datafusion::logical_expr::{
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::expressions::Literal;
-use datafusion::sql::sqlparser::ast::{Expr as SqlExpr, WindowSpec, WindowType};
 
 // ---------------------------------------------------------------------------------------
 // Structs and options
@@ -497,89 +496,5 @@ impl OptimizerRule for StructGroupSplit {
         Ok(Transformed::yes(
             LogicalPlanBuilder::from(new_agg).project(exprs)?.build()?,
         ))
-    }
-}
-
-// ---------------------------------------------------------------------------------------
-// The windows of a scope
-// ---------------------------------------------------------------------------------------
-
-/// The windows of SQL that runs within a scope, such as the categories of one window
-/// partition of `lump`. Every window runs within the scope's partition, and a window can
-/// build on a named window of the scope, as SQL's named windows do: `OVER name` is the named
-/// window, and `OVER (name <frame>)` adds a frame to it.
-pub(crate) struct WindowScope<'a> {
-    /// What the SQL is, for errors, such as "the 'keep' of lump".
-    pub what: &'a str,
-    /// The partition that every window gets.
-    pub partition: Vec<SqlExpr>,
-    /// The named windows: an order each, without a partition or a frame.
-    pub named: Vec<(&'a str, WindowSpec)>,
-}
-
-impl WindowScope<'_> {
-    /// The window of `over` within the scope. A `PARTITION BY`, an unknown name, an
-    /// `ORDER BY` added to a named window, and a frame without an order are errors: the rows
-    /// of a scope have no order of their own.
-    pub fn resolve(&self, over: &WindowType) -> std::result::Result<WindowType, String> {
-        let (name, written) = match over {
-            WindowType::NamedWindow(name) => (Some(name), None),
-            WindowType::WindowSpec(spec) => (spec.window_name.as_ref(), Some(spec)),
-        };
-        let names = || {
-            self.named
-                .iter()
-                .map(|(n, _)| format!("`{n}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        if written.is_some_and(|w| !w.partition_by.is_empty()) {
-            return Err(format!(
-                "a window in {} already runs within its partition; remove its PARTITION BY",
-                self.what
-            ));
-        }
-        let base = match name {
-            None => None,
-            Some(name) => Some(
-                self.named
-                    .iter()
-                    .find(|(n, _)| name.value.eq_ignore_ascii_case(n))
-                    .map(|(_, w)| w)
-                    .ok_or_else(|| {
-                        format!(
-                            "unknown window `{name}` in {}; its windows are {}",
-                            self.what,
-                            names()
-                        )
-                    })?,
-            ),
-        };
-        let written_order = written.map_or(&[][..], |w| &w.order_by[..]);
-        let order_by = match base {
-            Some(_) if !written_order.is_empty() => {
-                return Err(format!(
-                    "the window `{}` in {} has an ORDER BY already; add only a frame to it, or write a window of its own",
-                    name.expect("a base has a name"),
-                    self.what
-                ));
-            }
-            Some(base) => base.order_by.clone(),
-            None => written_order.to_vec(),
-        };
-        let window_frame = written.and_then(|w| w.window_frame.clone());
-        if window_frame.is_some() && order_by.is_empty() {
-            return Err(format!(
-                "a window frame in {} needs an order, from an ORDER BY or a window such as {}",
-                self.what,
-                names()
-            ));
-        }
-        Ok(WindowType::WindowSpec(WindowSpec {
-            window_name: None,
-            partition_by: self.partition.clone(),
-            order_by,
-            window_frame,
-        }))
     }
 }

@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod calls;
+
 use std::sync::Arc;
 
 use datafusion::arrow::array::{ArrayRef, RecordBatch};
@@ -58,7 +60,7 @@ pub fn register(ctx: &SessionContext, name: &str, columns: Vec<(&str, ArrayRef)>
 
 /// The error of planning and running a query, or None.
 pub async fn error(ctx: &SessionContext, sql: &str) -> Option<String> {
-    match ctx.sql(sql).await {
+    match calls::sql(ctx, sql).await {
         Ok(df) => df.collect().await.err().map(|e| e.to_string()),
         Err(e) => Some(e.to_string()),
     }

@@ -20,7 +20,8 @@ use datafusion::{arrow::util::pretty::pretty_format_batches, datasource::MemTabl
 mod common;
 pub mod values;
 
-pub use common::{penguins, session};
+#[allow(unused_imports)]
+pub use common::{charts, penguins, session};
 
 /// A table of `batch`.
 fn table(batch: RecordBatch) -> Arc<MemTable> {

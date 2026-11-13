@@ -1,178 +1,91 @@
-//! The query pipeline: parsing, the rewrites, and planning.
+//! The pipeline of a script: [`sql`] parses it, loads the tables that it names from a session,
+//! analyzes it, and plans its last query.
 
-use std::ops::ControlFlow;
+use std::{fmt, sync::OnceLock};
 
 use datafusion::{
-    common::{plan_err, DataFusionError, Result},
+    common::{DataFusionError, Result},
     dataframe::DataFrame,
-    execution::SessionState,
     prelude::SessionContext,
-    sql::{
-        parser::Statement as DFStatement,
-        sqlparser::{
-            ast::{
-                Expr, Function, FunctionArg, FunctionArgExpr, FunctionArgOperator,
-                FunctionArguments, Ident, ObjectNamePart, Query, SelectFlavor, SelectItem, SetExpr,
-                Spanned, Statement, Value, VisitMut, VisitorMut, WildcardAdditionalOptions,
-            },
-            dialect::GenericDialect,
-            parser::{Parser, ParserError},
-        },
-    },
 };
 
-/// The SQL of the query `text` after the rewrites, for the functions of `state`, without planning
-/// it.
-pub fn expand(state: &SessionState, text: &str) -> Result<String> {
-    Ok(parse(state, text)?.to_string())
+use crate::{
+    analysis::{analyze, Diagnostic, Options},
+    catalog::{references, SessionCatalog},
+    library::Library,
+};
+
+/// The library of every script, which holds no state of a session.
+fn library() -> &'static Library {
+    static LIBRARY: OnceLock<Library> = OnceLock::new();
+    LIBRARY.get_or_init(Library::new)
 }
 
-/// Plans the query `text` in `ctx`, after the rewrites. `text` holds one statement.
-pub async fn sql(ctx: &SessionContext, text: &str) -> Result<DataFrame> {
-    let state = ctx.state();
-    let statement = parse(&state, text)?;
-    let plan = state
-        .statement_to_plan(DFStatement::Statement(Box::new(statement)))
-        .await?;
-    ctx.execute_logical_plan(plan).await
+/// The errors of a script: the errors of its parse, or else of its analysis, each at a range of
+/// the text.
+#[derive(Clone, Debug)]
+pub struct ScriptError {
+    pub diagnostics: Vec<Diagnostic>,
+    /// The text of the script, for the lines and columns of the messages.
+    text: String,
 }
 
-/// The one statement of `text`, rewritten.
-fn parse(state: &SessionState, text: &str) -> Result<Statement> {
-    let mut statements = Parser::new(&GenericDialect {})
-        .try_with_sql(text)
-        .and_then(|mut parser| parser.parse_statements())
-        .map_err(sql_error)?;
-    let mut statement = match statements.len() {
-        1 => statements.remove(0),
-        count => return plan_err!("a query holds one statement, not {count}"),
-    };
-    let parameters = |name: &str| parameter_names(state, name);
-    match VisitMut::visit(&mut statement, &mut Rewrite { parameters }) {
-        ControlFlow::Break(error) => Err(error),
-        ControlFlow::Continue(()) => Ok(statement),
+impl ScriptError {
+    fn new(text: &str, diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            diagnostics,
+            text: text.to_string(),
+        }
+    }
+
+    /// The line and the column, from 1, of the byte offset `offset` of the text.
+    fn position(&self, offset: usize) -> (usize, usize) {
+        let before = &self.text[..offset.min(self.text.len())];
+        let line = before.matches('\n').count() + 1;
+        let column = before.len() - before.rfind('\n').map_or(0, |i| i + 1) + 1;
+        (line, column)
     }
 }
 
-/// A parser error as DataFusion reports one.
-fn sql_error(error: ParserError) -> DataFusionError {
-    DataFusionError::SQL(Box::new(error), None)
-}
-
-/// The parameter names of the function `name` of `state`, a scalar, an aggregate, or a window
-/// function, when its signature declares them.
-fn parameter_names(state: &SessionState, name: &str) -> Option<Vec<String>> {
-    let signature = if let Some(function) = state.scalar_functions().get(name) {
-        function.signature()
-    } else if let Some(function) = state.aggregate_functions().get(name) {
-        function.signature()
-    } else {
-        state.window_functions().get(name)?.signature()
-    };
-    signature.parameter_names.clone()
-}
-
-/// The rewrites of each query and each function call of a statement.
-struct Rewrite<F> {
-    parameters: F,
-}
-
-impl<F: Fn(&str) -> Option<Vec<String>>> VisitorMut for Rewrite<F> {
-    type Break = DataFusionError;
-
-    fn pre_visit_query(&mut self, query: &mut Query) -> ControlFlow<DataFusionError> {
-        if let SetExpr::Select(select) = query.body.as_mut() {
-            if select.flavor == SelectFlavor::FromFirstNoSelect {
-                select.projection =
-                    vec![SelectItem::Wildcard(WildcardAdditionalOptions::default())];
-                select.flavor = SelectFlavor::Standard;
+impl fmt::Display for ScriptError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (index, diagnostic) in self.diagnostics.iter().enumerate() {
+            if index > 0 {
+                writeln!(f)?;
             }
+            let (line, column) = self.position(usize::from(diagnostic.range.start()));
+            write!(f, "{} [at {line}:{column}]", diagnostic.message)?;
         }
-        ControlFlow::Continue(())
-    }
-
-    fn pre_visit_expr(&mut self, expr: &mut Expr) -> ControlFlow<DataFusionError> {
-        if let Expr::Function(function) = expr {
-            fill_omitted(function, &self.parameters);
-        }
-        ControlFlow::Continue(())
+        Ok(())
     }
 }
 
-/// The name of an argument of a call, when it is named.
-fn argument_name(argument: &FunctionArg) -> Option<&Ident> {
-    match argument {
-        FunctionArg::Named { name, .. } => Some(name),
-        FunctionArg::ExprNamed {
-            name: Expr::Identifier(name),
-            ..
-        } => Some(name),
-        _ => None,
+impl std::error::Error for ScriptError {}
+
+/// The rows of the last query of the script `text`, as a DataFrame of `ctx`: the tables that the
+/// script names come from `ctx`, and each variable before the query evaluates first and binds
+/// its value. A script with an error returns a [`ScriptError`] of every diagnostic, as
+/// [`DataFusionError::External`].
+pub async fn sql(ctx: &SessionContext, text: &str) -> Result<DataFrame> {
+    let parse = avenger_sql_syntax::parse(text);
+    if !parse.ok() {
+        let diagnostics = (parse.diagnostics().iter())
+            .map(|diagnostic| Diagnostic {
+                range: diagnostic.range,
+                message: diagnostic.message.clone(),
+            })
+            .collect();
+        return Err(script_error(text, diagnostics));
     }
+    let root = parse.syntax();
+    let catalog = SessionCatalog::load(ctx, &references(&root)).await?;
+    let analysis = analyze(&root, &catalog, library(), &Options::default());
+    if !analysis.diagnostics.is_empty() {
+        return Err(script_error(text, analysis.diagnostics));
+    }
+    analysis.dataframe(ctx).await
 }
 
-/// Whether the argument name `name` names the parameter `parameter`, as DataFusion matches them.
-fn names(name: &Ident, parameter: &str) -> bool {
-    match name.quote_style {
-        Some(_) => name.value == parameter,
-        None => name.value.eq_ignore_ascii_case(parameter),
-    }
-}
-
-/// Adds `parameter => NULL` to `function` for each parameter before its last named argument that
-/// it neither names nor takes by position, so DataFusion binds the call. A call of a function
-/// without parameter names, or with a name that no parameter has, stays as it is, for DataFusion's
-/// error.
-fn fill_omitted(function: &mut Function, parameters: &dyn Fn(&str) -> Option<Vec<String>>) {
-    let FunctionArguments::List(list) = &mut function.args else {
-        return;
-    };
-    if !list
-        .args
-        .iter()
-        .any(|argument| argument_name(argument).is_some())
-    {
-        return;
-    }
-    let name = match function.name.0.as_slice() {
-        [ObjectNamePart::Identifier(ident)] => match ident.quote_style {
-            Some(_) => ident.value.clone(),
-            None => ident.value.to_lowercase(),
-        },
-        _ => return,
-    };
-    let Some(parameters) = parameters(&name) else {
-        return;
-    };
-    let positional = (list.args.iter())
-        .take_while(|argument| argument_name(argument).is_none())
-        .count();
-    let mut given = vec![false; parameters.len()];
-    given
-        .iter_mut()
-        .take(positional)
-        .for_each(|given| *given = true);
-    for name in list.args.iter().filter_map(argument_name) {
-        match parameters
-            .iter()
-            .position(|parameter| names(name, parameter))
-        {
-            Some(index) => given[index] = true,
-            None => return,
-        }
-    }
-    let Some(last) = given.iter().rposition(|given| *given) else {
-        return;
-    };
-    let span = function.name.span();
-    for (parameter, _) in (parameters.iter().zip(&given))
-        .take(last)
-        .filter(|(_, given)| !**given)
-    {
-        list.args.push(FunctionArg::Named {
-            name: Ident::with_span(span, parameter.clone()),
-            arg: FunctionArgExpr::Expr(Expr::Value(Value::Null.with_span(span))),
-            operator: FunctionArgOperator::RightArrow,
-        });
-    }
+fn script_error(text: &str, diagnostics: Vec<Diagnostic>) -> DataFusionError {
+    DataFusionError::External(Box::new(ScriptError::new(text, diagnostics)))
 }

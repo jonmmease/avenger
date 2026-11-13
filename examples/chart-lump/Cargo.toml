@@ -7,15 +7,15 @@ publish = false
 [dependencies]
 avenger-chart = { path = "../../avenger-chart" }
 avenger-chart-app = { path = "../../avenger-chart-app" }
-avenger-datafusion-transforms = { path = "../../avenger-datafusion-transforms" }
 avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-sql = { path = "../../avenger-sql" }
 avenger-style = { path = "../../avenger-style" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
 
 arrow = { workspace = true }
-datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
+datafusion = { workspace = true }
 pollster = "0.3"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 

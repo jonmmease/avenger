@@ -1,33 +1,64 @@
 # avenger-sql
 
-DataFusion SQL that builds avenger charts. The mark functions of avenger-chart are aggregate functions in avenger-sql, so a query builds a chart of its rows, or one chart for each group with `GROUP BY`, in a `BinaryView` column whose field has the extension name `avenger.chart`:
+GoogleSQL pipe queries that build avenger charts, planned onto DataFusion. The mark functions of avenger-chart are aggregate functions, so a query builds a chart of its rows, or one chart for each group with `GROUP BY`, in a `BinaryView` column whose field has the extension name `avenger.chart`:
 
 ```sql
 FROM penguins
-|> AGGREGATE count(*) AS n GROUP BY species
+|> AGGREGATE COUNT(*) AS n GROUP BY species
 |> AGGREGATE bar(x => species, y => n) AS chart
 ```
 
-`register` adds the mark functions and the constructors of avenger-chart and the transforms of avenger-datafusion-transforms, such as `bin`, `stack`, `timeunit`, `lump`, and `impute`, to a session, `sql` plans a query in a session, and `expand` returns the SQL that `sql` plans. A query is DataFusion SQL after two rewrites, which DataFusion 55.2 needs to plan these queries:
+`sql(ctx, text)` plans a script over the tables of a DataFusion session and returns the rows of its last query as a DataFrame. avenger-sql-syntax parses the script, and avenger-sql resolves its names and types by GoogleSQL's rules and plans each statement as a DataFusion logical plan. DataFusion's SQL planner takes no part, and the build of avenger-sql holds no sqlparser. `register(ctx)` adds what the plans of the transforms need to run: the query planner of `impute`, and the optimizer rules of the window transforms.
 
-- A query that starts with `FROM` selects `*`, because DataFusion plans no columns for it.
-- A call with named arguments passes `NULL` for each parameter before its last named argument that it omits, because DataFusion binds named arguments only as a prefix of the parameters. An omitted parameter of an avenger function and `NULL` mean the same thing, so `symbol(x => a, y => b, fill => c)` becomes `symbol(x => a, y => b, fill => c, color => NULL)`. A call of a function without parameter names, or with a name that no parameter has, stays as it is, and DataFusion reports its error.
+## The language
+
+A query is GoogleSQL's pipe syntax, the subset that avenger-sql-syntax parses. It starts with `FROM`, and its pipe operators are `WHERE`, `SELECT`, `EXTEND`, `SET`, `DROP`, `RENAME`, `AS`, `AGGREGATE` with `GROUP BY`, `GROUPING SETS`, `ROLLUP` and `CUBE`, `ORDER BY`, `LIMIT`, `DISTINCT`, the joins, the set operations, `PIVOT`, `UNPIVOT`, `TABLESAMPLE`, `WITH`, and `CALL`. Expressions include subqueries, `UNNEST`, named windows, and the `WINDOW` clause. A standard `SELECT ... FROM` query isn't in the subset.
+
+A script is statements separated by `;`. `DECLARE` and `SET` give script variables, `CREATE TEMP TABLE` and `CREATE TEMP FUNCTION` define names for the statements after them, and `IMPORT MODULE` imports the public functions and constants of a module that the catalog holds. `sql` returns the rows of the last query, after the variables before it.
+
+The functions are those of the `library`: GoogleSQL's functions, avenger-chart's marks and constructors, and the transforms of avenger-datafusion-transforms. Each function declares its forms, with GoogleSQL's types and coercion, and documents itself and its parameters. `library::reference` renders the reference of every function, which notes where a function differs from GoogleSQL. A parameter whose name is a reserved word of GoogleSQL takes the name with a trailing underscore, as `range_` of `scale` does.
+
+## Errors
+
+A script with errors returns `ScriptError` as `DataFusionError::External`: the syntax errors of the parse, or else every error of the analysis, each a `Diagnostic` with the range of its text. Its message gives each error with its line and column. `analysis::analyze` returns the same diagnostics with the semantic model of a script, its names and the forms of its calls, for an editor.
 
 ## Mark functions
 
-avenger-sql binds the functions of avenger-chart's `functions` feature: the README of avenger-chart describes their names, their parameters, and the kinds of their arguments. In SQL:
+The library binds the functions of avenger-chart's `functions` feature: the README of avenger-chart describes their names, their parameters, and the kinds of their arguments. In a query:
 
 - A channel argument is an expression of each row, such as `body_mass * 2`. Its column is named after the expression, without the qualifiers of its columns, and keeps the type and the field metadata of the expression. Channels with equal expressions share one column.
-- `NULL` leaves the channel unset, so an omitted parameter and `NULL` mean the same thing. In `scaled` or `direct`, a `NULL` is a value, which needs a type, such as `direct(CAST(NULL AS VARCHAR))`.
-- The `ORDER BY` of a call is the draw order of its rows, `FILTER` selects them, and `GROUP BY` gives one chart for each group.
+- `NULL` leaves the channel unset, so an omitted parameter and `NULL` mean the same thing. In `scaled` or `direct`, a `NULL` is a value of GoogleSQL's type of `NULL`, `INT64`, or of a cast, such as `direct(CAST(NULL AS STRING))`.
+- The `ORDER BY` of a call is the draw order of its rows, a `WHERE` before the `AGGREGATE` selects them, and `GROUP BY` gives one chart for each group.
 - A property, `coord`, and an option of `scaled` are constants, such as the folded call of a constructor.
 
-DataFusion's expression simplifier binds each call to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument cannot aggregate, because DataFusion rejects an aggregate inside an aggregate.
+Each call binds at planning to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument reads each row, so the aggregates of a chart come from an `AGGREGATE` before the mark, as `COUNT(*)` does above.
 
-A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. It is immutable, so a call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors.
+A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. A call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors. The constructors set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot.
 
-The constructors of avenger-chart set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot. Array literals, such as `scale(domain => [0, 100])`, need DataFusion's `nested_expressions` feature, which avenger-sql enables.
+## Transforms
 
-A channel argument of a mark function is an expression of each row, so the aggregates of a chart come from an `AGGREGATE` before the mark function, as `count(*)` does above. A window function, such as a bin of avenger-datafusion-transforms, goes in a standard `SELECT`, because DataFusion 55.2 fails to execute a window function in pipe `EXTEND`.
+`bin`, `stack`, and `timeunit` are window functions, whose options are named arguments, as `bin(body_mass_g, maxbins => 30) OVER ()`.
 
-The example `sql-chart` shows the chart of a query in a chart app.
+`lump` keeps the heaviest categories of each partition of its `OVER` clause, or the categories that a condition keeps, and lumps the rest into an Other group:
+
+```sql
+FROM catches
+|> EXTEND lump(port, weight => SUM(tons), keep => ROW_NUMBER() OVER ranked <= 3)
+     OVER (PARTITION BY region) AS l
+```
+
+Its arguments read three scopes. The category reads each row. `weight`, `COUNT(*)` by default, is an aggregate of the rows of each category. `keep` is evaluated once for each category: like a `HAVING` clause it compares aggregates of the category's rows, and like `QUALIFY` it can use windows over the categories of the partition, which take no `PARTITION BY`. The named window `ranked` orders the categories by weight, the heaviest first. `n => 3` keeps the first 3 categories of `ranked`, in place of `keep`. `other` labels the Other group, and `null_category` keeps the `NULL` category as its own, lumps it into the Other group, or drops its rows from every lump. The result is `STRUCT<value, other, weight, category_count>`.
+
+`impute` is a table function that adds the rows that each group lacks. A pipe `CALL` imputes the rows before it, and `FROM` the rows of a table or a query:
+
+```sql
+FROM sales
+|> AGGREGATE SUM(units) AS units GROUP BY month, region
+|> CALL impute(month, [region], units, value => 0, flag => 'imputed')
+
+FROM impute(TABLE monthly, month, [region], units, method => 'avg', frame => [-1, 1])
+```
+
+Its arguments name the columns of its input: the key, an array of the group columns, and the column to impute, then named arguments such as `fill_gaps` and `partition_by`. The reference of the library documents each argument of each transform.
+
+The example `sql-chart` shows the chart of a query in a chart app, and `chart-lump` the lumped genres of movies.

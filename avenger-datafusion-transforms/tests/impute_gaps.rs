@@ -13,7 +13,7 @@ use datafusion::prelude::SessionContext;
 /// The rows of a query as strings, sorted.
 async fn rows(ctx: &SessionContext, sql: &str) -> Result<Vec<Vec<String>>> {
     let mut out = Vec::new();
-    for b in ctx.sql(sql).await?.collect().await? {
+    for b in common::calls::sql(ctx, sql).await?.collect().await? {
         for i in 0..b.num_rows() {
             out.push(
                 b.columns()
@@ -50,7 +50,8 @@ async fn error(ctx: &SessionContext, sql: &str) -> String {
 
 async fn context() -> Result<SessionContext> {
     let ctx = session(true);
-    ctx.sql(
+    common::calls::sql(
+        &ctx,
         "CREATE TABLE sales (t TIMESTAMP, d DATE, series VARCHAR, units DOUBLE) AS VALUES
          (TIMESTAMP '2024-01-05 10:00:00', DATE '2024-01-01', 'A', 5.0),
          (TIMESTAMP '2024-02-10 10:00:00', DATE '2024-02-01', 'A', 10.0),
@@ -61,7 +62,8 @@ async fn context() -> Result<SessionContext> {
     .await?
     .collect()
     .await?;
-    ctx.sql(
+    common::calls::sql(
+        &ctx,
         "CREATE TABLE obs (g BIGINT, x DOUBLE) AS VALUES
          (1, 0.0), (1, 10.0), (1, 100.0),
          (2, 0.0), (2, 0.5), (2, 3.0),
@@ -203,10 +205,13 @@ async fn date_keys() -> Result<()> {
 #[tokio::test]
 async fn bins() -> Result<()> {
     let ctx = session(true);
-    ctx.sql("CREATE TABLE v (x DOUBLE) AS VALUES (5.0), (25.0), (26.0), (55.0)")
-        .await?
-        .collect()
-        .await?;
+    common::calls::sql(
+        &ctx,
+        "CREATE TABLE v (x DOUBLE) AS VALUES (5.0), (25.0), (26.0), (55.0)",
+    )
+    .await?
+    .collect()
+    .await?;
     let hist = "(SELECT b, count(*) AS n FROM (SELECT bin(x, 'extent', [0, 100], 'maxbins', 10) OVER () AS b FROM v) GROUP BY b)";
     let starts = |fill: &str| {
         format!(
@@ -243,7 +248,7 @@ async fn bins() -> Result<()> {
 #[tokio::test]
 async fn partitions() -> Result<()> {
     let ctx = context().await?;
-    ctx.sql("SET datafusion.execution.target_partitions = 4")
+    common::calls::sql(&ctx, "SET datafusion.execution.target_partitions = 4")
         .await?
         .collect()
         .await?;
@@ -297,7 +302,7 @@ async fn partitions() -> Result<()> {
 #[tokio::test]
 async fn calendars() -> Result<()> {
     let ctx = session(true);
-    ctx.sql(
+    common::calls::sql(&ctx,
         "CREATE TABLE ts AS SELECT arrow_cast(column1, 'Timestamp(Millisecond, Some(\"America/New_York\"))') AS t FROM (VALUES
          (TIMESTAMP '2024-11-03 04:30:00'), (TIMESTAMP '2024-11-04 04:30:00'))",
     )
@@ -311,7 +316,7 @@ async fn calendars() -> Result<()> {
     // 00:00 to 23:00 local, with 01:00 two times.
     assert_eq!(hours.len(), 25);
 
-    ctx.sql(
+    common::calls::sql(&ctx,
         "CREATE TABLE days (t TIMESTAMP) AS VALUES (TIMESTAMP '2024-03-05'), (TIMESTAMP '2024-03-26'),
          (TIMESTAMP '2024-10-15'), (TIMESTAMP '2025-06-01')",
     )
@@ -352,7 +357,7 @@ async fn calendars() -> Result<()> {
 #[tokio::test]
 async fn intervals_and_numbers() -> Result<()> {
     let ctx = session(true);
-    ctx.sql("CREATE TABLE e (t TIMESTAMP, year BIGINT) AS VALUES (TIMESTAMP '2024-01-01 05:00:00', 2001), (TIMESTAMP '2024-01-04 07:00:00', 2004)")
+    common::calls::sql(&ctx, "CREATE TABLE e (t TIMESTAMP, year BIGINT) AS VALUES (TIMESTAMP '2024-01-01 05:00:00', 2001), (TIMESTAMP '2024-01-04 07:00:00', 2004)")
         .await?
         .collect()
         .await?;
@@ -379,7 +384,7 @@ async fn intervals_and_numbers() -> Result<()> {
 #[tokio::test]
 async fn errors() -> Result<()> {
     let ctx = context().await?;
-    ctx.sql("CREATE TABLE mid (d DATE, n BIGINT) AS VALUES (DATE '2024-03-15', 1), (DATE '2024-05-01', 2)").await?.collect().await?;
+    common::calls::sql(&ctx, "CREATE TABLE mid (d DATE, n BIGINT) AS VALUES (DATE '2024-03-15', 1), (DATE '2024-05-01', 2)").await?.collect().await?;
     let monthly = "(SELECT timeunit(t, 'unit', 'month') OVER () AS u, units FROM sales)";
     for (sql, message) in [
         (
@@ -445,7 +450,7 @@ async fn errors() -> Result<()> {
         assert!(e.contains(message), "{sql}: {e}");
     }
     // The limit of positions.
-    ctx.sql("CREATE TABLE far (t TIMESTAMP, n BIGINT) AS VALUES (TIMESTAMP '2020-01-01', 1), (TIMESTAMP '2024-01-01', 1)").await?.collect().await?;
+    common::calls::sql(&ctx, "CREATE TABLE far (t TIMESTAMP, n BIGINT) AS VALUES (TIMESTAMP '2020-01-01', 1), (TIMESTAMP '2024-01-01', 1)").await?.collect().await?;
     let e = error(
         &ctx,
         "SELECT * FROM impute((SELECT * FROM far), t, [], n, value => 0, fill_gaps => 'second')",
