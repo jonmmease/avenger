@@ -13,6 +13,7 @@ mod lump;
 mod marks;
 mod nulls;
 mod overlays;
+mod paths;
 mod polar;
 mod selections;
 mod state;

@@ -76,9 +76,9 @@ message Encoding {
   Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // conditional value whose predicate selects it, and the value of the encoding when none does.
-  // The position channels of every coordinate system and `detail` have no conditional values. The
-  // reach of a row covers every value that the encoding and its conditional values can give it,
-  // so a change of a selection does not fit the domains again.
+  // The position channels of every coordinate system, `detail`, and `ordering` have no conditional
+  // values. The reach of a row covers every value that the encoding and its conditional values can
+  // give it, so a change of a selection does not fit the domains again.
   repeated ConditionalValue conditional = 7;
   // The column that a selection through this channel records, when the encoded column derives from
   // another, such as the bounds of the bins of a histogram. With a paired channel, `x` with `x2`,
