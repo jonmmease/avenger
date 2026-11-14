@@ -354,8 +354,10 @@ impl Pass<'_> {
             true => inner.order.clone(),
             false => Vec::new(),
         };
-        for key in &order {
-            for column in key.expr.column_refs() {
+        // The columns of the order's keys, each once, as two keys can read one column.
+        let mut keys = HashSet::new();
+        for column in order.iter().flat_map(|key| key.expr.column_refs()) {
+            if keys.insert(column) {
                 exprs.push(Expr::Column(column.clone()));
             }
         }

@@ -98,6 +98,8 @@ async fn the_operators_that_keep_the_order_keep_it() {
         "FROM big |> ORDER BY y DESC |> WHERE i >= 0",
         "FROM big |> ORDER BY MOD(i * 7919, 200000) DESC |> SELECT y",
         "FROM big |> ORDER BY 2 DESC",
+        // Two keys of one column, which a query in parentheses carries once.
+        "(FROM big |> ORDER BY y DESC, y) |> SELECT y",
     ] {
         let y = column(query, "y").await;
         assert_eq!(y.len(), 200_000, "{query}");
