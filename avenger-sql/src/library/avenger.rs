@@ -32,7 +32,7 @@ use datafusion::{
 
 use super::{
     form::{Accept, Arity, FormArg, Signature, Ty},
-    lit_str, Function, Need, Planned,
+    lit_str, Family, Function, Need, Planned,
 };
 use crate::functions::{
     constructor::ConstructorFunction, declaration::MarkDeclaration, kind::KindFunction,
@@ -48,7 +48,8 @@ pub(super) fn functions() -> Vec<Function> {
         let udaf = Arc::new(AggregateUDF::new_from_impl(MarkDeclaration::new(mark)));
         let mut function = Function::aggregate(mark.name, summary(mark.doc))
             .description(mark.doc)
-            .order_by();
+            .order_by()
+            .family(Family::Mark);
         function.clauses.over = super::Over::Forbidden;
         function.clauses.having = false;
         let mut args = Vec::new();
@@ -88,7 +89,9 @@ pub(super) fn functions() -> Vec<Function> {
             "" => format!("A fragment of the message `{}`.", constructor.message),
             doc => doc.to_string(),
         };
-        let mut function = Function::scalar(constructor.name, summary(&doc)).description(&doc);
+        let mut function = Function::scalar(constructor.name, summary(&doc))
+            .description(&doc)
+            .family(Family::Constructor);
         let mut args = Vec::new();
         for param in constructor.params {
             function = function.param(&sql_name(param.name), param.doc);
@@ -103,13 +106,12 @@ pub(super) fn functions() -> Vec<Function> {
             Ok(call_udf(&udf, positional(call.values())))
         }));
     }
-    functions.push(scaled());
-    functions.push(direct());
-    functions.push(bin());
-    functions.push(stack());
-    functions.push(timeunit());
-    functions.push(lump());
-    functions.push(impute());
+    for constructor in [scaled(), direct()] {
+        functions.push(constructor.family(Family::Constructor));
+    }
+    for transform in [bin(), stack(), timeunit(), lump(), impute()] {
+        functions.push(transform.family(Family::Transform));
+    }
     functions
 }
 

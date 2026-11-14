@@ -30,7 +30,7 @@ use datafusion::{
 };
 
 use super::{
-    model::{CallForm, Column, Definition},
+    model::{CallForm, Column, Definition, EnumValue},
     rows::{Col, RangeVar, Rows},
     Pass,
 };
@@ -1665,6 +1665,7 @@ impl Pass<'_> {
             name_range,
             Definition::Function {
                 name: function.name.clone(),
+                role: function.role(),
             },
         );
         if function.name == "lump" {
@@ -1765,6 +1766,8 @@ impl Pass<'_> {
         // The arguments, each by the kind of its parameter.
         let mut args = Vec::new();
         let mut ranges = Vec::new();
+        // The range of each argument of `args` that is a string literal.
+        let mut strings = Vec::new();
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1788,7 +1791,10 @@ impl Pass<'_> {
             let function = self.library.get(&name).expect("the function");
             if function.takes_date_part(position, named.as_deref()) {
                 match date_part(&value) {
-                    Some(part) => args.push((named, Arg::DatePart(part))),
+                    Some(part) => {
+                        args.push((named, Arg::DatePart(part)));
+                        strings.push(None);
+                    }
                     None => {
                         self.error(
                             value.syntax().text_range(),
@@ -1803,7 +1809,10 @@ impl Pass<'_> {
                 continue;
             }
             match self.expr(&value, arg_scope) {
-                Some(expr) => args.push((named, Arg::Value(expr))),
+                Some(expr) => {
+                    args.push((named, Arg::Value(expr)));
+                    strings.push(string_literal(&value));
+                }
                 None => ok = false,
             }
         }
@@ -1835,6 +1844,14 @@ impl Pass<'_> {
             range,
             form: resolved.render(&fname),
         });
+        for (at, param) in &resolved.enums {
+            if let Some(range) = strings[*at] {
+                self.model.enum_values.push(EnumValue {
+                    range,
+                    param: param.clone(),
+                });
+            }
+        }
         let typed = |expr: Expr, result: Option<DataType>| match result {
             Some(ty) => cast(expr, ty),
             None => expr,
@@ -2514,6 +2531,16 @@ fn castable(from: &Ty, to: &Ty) -> bool {
             a.len() == b.len() && a.iter().zip(b).all(|((_, a), (_, b))| castable(a, b))
         }
         _ => false,
+    }
+}
+
+/// The range of `expr` when it is a string literal, as `'normalize'` or `'a' 'b'`.
+pub(super) fn string_literal(expr: &ast::Expr) -> Option<TextRange> {
+    match expr {
+        ast::Expr::Literal(literal) if literal.kind() == Some(ast::LiteralKind::String) => {
+            Some(literal.syntax().text_range())
+        }
+        _ => None,
     }
 }
 

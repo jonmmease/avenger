@@ -5,16 +5,24 @@
 //! column named `name` is a name in `|> SELECT name` and `NAME` is a keyword in `BY NAME`. A
 //! name's class is its role, which the node around it gives: the path of a `FROM` item is a
 //! table, the path of a call is a function, and the first name of a path in an expression is a
-//! column or a variable, which only scope tells apart.
+//! column. Only scope tells a column from a variable or a range variable, and a scalar function
+//! from an aggregate, so a semantic model refines these roles, as avenger-sql's does, and gives
+//! [`Highlight::EnumValue`] and [`NameRole::RangeVariable`], which the syntax never gives.
 //!
 //! The classes map onto the semantic tokens of the Language Server Protocol: `Keyword` to
-//! `keyword`, `Comment` to `comment`, `String` to `string`, `Number` to `number`, `Operator` to
-//! `operator`, and the roles of names to `class` (tables), `function`, `type`, `parameter`,
-//! `variable`, `property` (fields) and `namespace` (modules).
+//! `keyword`, `Comment` to `comment`, `String` to `string`, `EnumValue` to `enumMember`, `Number`
+//! to `number`, `Operator` to `operator`, and the roles of names to `class` (tables), `function`
+//! (every role of a function), `type`, `parameter`, `variable` (variables and range variables),
+//! `property` (fields) and `namespace` (modules).
 
 use rowan::TextRange;
 
-use crate::{ast::AstNode, NameRole, SyntaxKind::*, SyntaxNode, SyntaxToken};
+use crate::{
+    ast::{self, AstNode, FunctionKind},
+    FunctionRole, NameRole,
+    SyntaxKind::*,
+    SyntaxNode, SyntaxToken,
+};
 
 /// The class of a range of text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -23,6 +31,9 @@ pub enum Highlight {
     Comment,
     /// A string or a bytes literal.
     String,
+    /// A string literal that a parameter takes as one value of a set, as `'normalize'` in
+    /// `stack(n, offset => 'normalize')`. Only a semantic model gives this class.
+    EnumValue,
     /// An integer or a float literal.
     Number,
     /// A query parameter: `@name` or `?`.
@@ -164,11 +175,20 @@ fn path_role(name: &SyntaxNode, path: &SyntaxNode) -> (NameRole, bool) {
     };
     let role = match holder.kind() {
         TABLE_SOURCE | TABLE_ARG | NAMED_TABLE_ARG | WILDCARD => NameRole::Table,
-        TVF_SOURCE | CALL_EXPR | PIPE_CALL => NameRole::Function,
+        TVF_SOURCE | PIPE_CALL => NameRole::Function(FunctionRole::Table),
+        CALL_EXPR => NameRole::Function(FunctionRole::Unresolved),
         IMPORT_STMT | MODULE_STMT => NameRole::Module,
         PATH_LIST | UNPIVOT_CLAUSE => NameRole::Column,
         CREATE_TABLE_STMT => return (NameRole::Table, true),
-        CREATE_FUNCTION_STMT => return (NameRole::Function, true),
+        CREATE_FUNCTION_STMT => {
+            let kind = ast::CreateFunctionStmt::cast(holder).map(|stmt| stmt.function_kind());
+            let role = match kind {
+                Some(FunctionKind::Aggregate) => FunctionRole::Aggregate,
+                Some(FunctionKind::Table) => FunctionRole::Table,
+                _ => FunctionRole::Scalar,
+            };
+            return (NameRole::Function(role), true);
+        }
         CREATE_CONSTANT_STMT => return (NameRole::Variable, true),
         PATH_EXPR if !first => NameRole::Field,
         PATH_EXPR if is_date_part(&holder) => NameRole::DatePart,

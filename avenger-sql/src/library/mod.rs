@@ -59,6 +59,8 @@ pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
 pub use reference::reference;
 
+use avenger_sql_syntax::FunctionRole;
+
 use crate::types::TypeOptions;
 use form::{Observed, Resolution};
 
@@ -73,6 +75,32 @@ pub enum FunctionKind {
     Window,
     /// The rows of a table, of a pipe `CALL` or of `FROM`.
     Table,
+}
+
+/// Where a function comes from: GoogleSQL, or avenger's marks, constructors and transforms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Family {
+    GoogleSql,
+    /// A mark of avenger-chart, an aggregate that builds a chart of the rows of its group.
+    Mark,
+    /// A constructor of avenger-chart, or `scaled` or `direct`, which returns a fragment of a
+    /// chart's message.
+    Constructor,
+    /// A transform of avenger-datafusion-transforms: `bin`, `stack`, `timeunit`, `lump`, or
+    /// `impute`.
+    Transform,
+}
+
+impl FunctionKind {
+    /// The role of a function of this kind, for highlighting.
+    pub fn role(self) -> FunctionRole {
+        match self {
+            FunctionKind::Scalar => FunctionRole::Scalar,
+            FunctionKind::Aggregate => FunctionRole::Aggregate,
+            FunctionKind::Window => FunctionRole::Window,
+            FunctionKind::Table => FunctionRole::Table,
+        }
+    }
 }
 
 /// A parameter of a function, which the forms of the function take by its name.
@@ -342,6 +370,7 @@ impl fmt::Debug for Form {
 pub struct Function {
     pub name: String,
     pub kind: FunctionKind,
+    pub family: Family,
     /// One line, for completion lists.
     pub summary: String,
     /// What the function computes beyond what its parameters say: its result, its `NULL`s, and
@@ -362,6 +391,7 @@ impl Function {
         Self {
             name: name.to_string(),
             kind,
+            family: Family::GoogleSql,
             summary: summary.to_string(),
             description: String::new(),
             notes: Vec::new(),
@@ -401,6 +431,22 @@ impl Function {
     /// A table function, which a pipe `CALL` and `FROM` call.
     pub(crate) fn table(name: &str, summary: &str) -> Self {
         Self::new(name, FunctionKind::Table, summary, Clauses::NONE)
+    }
+
+    pub(crate) fn family(mut self, family: Family) -> Self {
+        self.family = family;
+        self
+    }
+
+    /// What a call of the function computes, for highlighting: its family, or for a function of
+    /// GoogleSQL, its kind.
+    pub fn role(&self) -> FunctionRole {
+        match self.family {
+            Family::Mark => FunctionRole::Mark,
+            Family::Constructor => FunctionRole::Constructor,
+            Family::Transform => FunctionRole::Transform,
+            Family::GoogleSql => self.kind.role(),
+        }
     }
 
     pub(crate) fn description(mut self, description: &str) -> Self {
@@ -499,6 +545,16 @@ impl Function {
         self.params
             .iter()
             .find(|param| param.name.eq_ignore_ascii_case(name))
+    }
+
+    /// Whether the parameter `name` takes one value of a set in some form, as `null_category` of
+    /// `lump` does.
+    pub fn takes_one_of(&self, name: &str) -> bool {
+        (self.forms.iter())
+            .flat_map(|form| &form.signature.args)
+            .any(|arg| {
+                arg.param.eq_ignore_ascii_case(name) && matches!(arg.accept, Accept::OneOf(_))
+            })
     }
 
     /// Whether the argument at `position`, or the one named `name`, takes a date part in some
@@ -605,6 +661,12 @@ impl Function {
                 })
                 .collect(),
             result: form.signature.result_type(&resolution),
+            enums: (binding.iter().enumerate())
+                .filter_map(|(at, slot)| {
+                    let arg = &form.signature.args[slot.expect("a bound argument")];
+                    matches!(arg.accept, Accept::OneOf(_)).then(|| (at, arg.param.clone()))
+                })
+                .collect(),
         };
         let call = self.call(form, args, &binding, resolution, star, safe, context)?;
         let planned = (form.mapping)(&call)?;
@@ -964,6 +1026,9 @@ pub struct Resolved {
     pub form: usize,
     pub args: Vec<String>,
     pub result: Ty,
+    /// The arguments that take one value of a set, as `offset => 'normalize'` of `stack`: their
+    /// positions in the call and the names of their parameters.
+    pub enums: Vec<(usize, String)>,
 }
 
 impl Resolved {

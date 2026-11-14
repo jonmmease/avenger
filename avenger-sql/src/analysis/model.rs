@@ -1,7 +1,7 @@
 //! The semantic model of a script: what each operator reads and writes, and what each name refers
-//! to, which an editor reads for completion, hover and go-to-definition.
+//! to, which an editor reads for completion, hover, go-to-definition and highlighting.
 
-use avenger_sql_syntax::{Offset as TextSize, TextRange};
+use avenger_sql_syntax::{FunctionRole, Offset as TextSize, TextRange};
 use datafusion::arrow::datatypes::DataType;
 
 /// The semantic model of a script.
@@ -14,6 +14,18 @@ pub struct Model {
     pub names: Vec<NameUse>,
     /// The form of each call and operator that resolved, such as `$add(DATE, INT64) -> DATE`.
     pub calls: Vec<CallForm>,
+    /// Each string literal that a parameter takes as one value of a set.
+    pub enum_values: Vec<EnumValue>,
+}
+
+/// A string literal that a parameter takes as one value of a set, as `'normalize'` in
+/// `stack(n, offset => 'normalize')`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnumValue {
+    /// The range of the literal.
+    pub range: TextRange,
+    /// The name of the parameter, as the library names it.
+    pub param: String,
 }
 
 /// The scope of an operator: the columns of its input, which its expressions read, the range
@@ -91,9 +103,11 @@ pub enum Definition {
     Module {
         names: Vec<String>,
     },
-    /// A function of the library.
+    /// A function of the library, or a temporary function or a function of a module, and what
+    /// a call of it computes.
     Function {
         name: String,
+        role: FunctionRole,
     },
 }
 
