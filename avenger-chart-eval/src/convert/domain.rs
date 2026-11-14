@@ -376,11 +376,11 @@ fn category_options(
     chart: &Chart,
     fit: &proto::CategoryFit,
 ) -> (CategoryOptions, Option<SpecOrder>) {
-    let spec_order = match &fit.order {
-        Some(category_fit::Order::Sort(sort)) => Some(SpecOrder::Sort(
+    let spec_order = match &fit.ordering {
+        Some(category_fit::Ordering::Sort(sort)) => Some(SpecOrder::Sort(
             CategorySort::try_from(*sort).unwrap_or_default(),
         )),
-        Some(category_fit::Order::Preferred(preferred)) => {
+        Some(category_fit::Ordering::Preferred(preferred)) => {
             Some(SpecOrder::Preferred(chart.list_elements(preferred)))
         }
         None => None,

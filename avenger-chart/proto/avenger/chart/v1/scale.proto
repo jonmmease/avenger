@@ -477,7 +477,7 @@ message CategoryFit {
   // When unset, the categories of the data, ascending, or for a column of lumps, the kept
   // categories by descending weight. The Other group of a column of lumps comes after the other
   // categories in every order, and the NULL category is last.
-  oneof order {
+  oneof ordering {
     // The categories of the data, ascending or descending. Nested paths sort level by level, so
     // each level sorts within its parent.
     CategorySort sort = 1 [(avenger.chart.v1.required) = true];

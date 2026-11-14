@@ -649,9 +649,9 @@ impl Checker<'_> {
                 if kind.is_none_or(|kind| kind == FitKind::Categories) =>
             {
                 let path = format!("{path}.categories");
-                match categories.order.as_ref() {
-                    Some(category_fit::Order::Sort(_)) => Ok(()),
-                    Some(category_fit::Order::Preferred(value)) => {
+                match categories.ordering.as_ref() {
+                    Some(category_fit::Ordering::Sort(_)) => Ok(()),
+                    Some(category_fit::Ordering::Preferred(value)) => {
                         if matches!(scale_type, scale::Type::NestedBand(_)) {
                             return Err(fail(
                                 &path,
@@ -893,31 +893,33 @@ impl Checker<'_> {
         let path = format!("{path}.ticks");
         non_negative(ticks.length.map(f64::from), &format!("{path}.length"))?;
         use scale::Type;
-        match (scale_type, &ticks.at) {
-            (Type::NestedBand(_), Some(at)) => {
+        match (scale_type, &ticks.placement) {
+            (Type::NestedBand(_), Some(placement)) => {
                 return Err(fail(
-                    format!("{path}.{}", at_name(at)),
+                    format!("{path}.{}", placement_name(placement)),
                     "the axis of a nested band scale ticks at the bands of its leaf, so its ticks \
                      stand nowhere else",
                 ))
             }
             (
                 Type::Band(_) | Type::Point(_),
-                Some(at @ (ticks::At::Count(_) | ticks::At::Interval(_))),
+                Some(placement @ (ticks::Placement::Count(_) | ticks::Placement::Interval(_))),
             ) => {
                 return Err(fail(
-                    format!("{path}.{}", at_name(at)),
+                    format!("{path}.{}", placement_name(placement)),
                     "only a list of ticks is valid on the axis of a band or a point scale",
                 ))
             }
             _ => {}
         }
-        match &ticks.at {
-            Some(ticks::At::Count(count)) => positive(Some(*count), &format!("{path}.count")),
-            Some(ticks::At::Values(values)) => {
+        match &ticks.placement {
+            Some(ticks::Placement::Count(count)) => {
+                positive(Some(*count), &format!("{path}.count"))
+            }
+            Some(ticks::Placement::Values(values)) => {
                 self.domain_values(values, domain_type, &format!("{path}.values"))
             }
-            Some(ticks::At::Interval(interval)) => {
+            Some(ticks::Placement::Interval(interval)) => {
                 tick_interval(interval, &format!("{path}.interval"))
             }
             None => Ok(()),
@@ -1092,9 +1094,9 @@ fn summary_kind(fields: &Fields) -> Option<FitKind> {
 }
 
 fn tick_interval(interval: &proto::TickInterval, path: &str) -> Result<()> {
-    use proto::tick_interval::Interval;
-    match interval.interval.as_ref() {
-        Some(Interval::Numeric(numeric)) => {
+    use proto::tick_interval::Spacing;
+    match interval.spacing.as_ref() {
+        Some(Spacing::Numeric(numeric)) => {
             if !numeric.start.is_finite() {
                 return Err(fail(
                     format!("{path}.numeric.start"),
@@ -1103,7 +1105,7 @@ fn tick_interval(interval: &proto::TickInterval, path: &str) -> Result<()> {
             }
             positive(Some(numeric.step), &format!("{path}.numeric.step"))
         }
-        Some(Interval::Calendar(calendar)) => match calendar.count {
+        Some(Spacing::Calendar(calendar)) => match calendar.count {
             count if count <= 0 => Err(fail(
                 format!("{path}.calendar.count"),
                 "a calendar count is more than 0",
@@ -1567,11 +1569,11 @@ fn spans(
     Ok(())
 }
 
-/// The name of the member of `Ticks.at` that `at` holds.
-fn at_name(at: &ticks::At) -> &'static str {
-    match at {
-        ticks::At::Count(_) => "count",
-        ticks::At::Interval(_) => "interval",
-        ticks::At::Values(_) => "values",
+/// The name of the member of `Ticks.placement` that `placement` holds.
+fn placement_name(placement: &ticks::Placement) -> &'static str {
+    match placement {
+        ticks::Placement::Count(_) => "count",
+        ticks::Placement::Interval(_) => "interval",
+        ticks::Placement::Values(_) => "values",
     }
 }

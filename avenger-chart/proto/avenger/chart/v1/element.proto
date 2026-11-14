@@ -83,7 +83,7 @@ message Ticks {
   // Where the ticks stand. When unset, at the ticks of the scale, with a count that the axis fits
   // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
   // of a nested band scale, which ticks at the bands of its leaf, none is.
-  oneof at {
+  oneof placement {
     // About how many ticks of the scale to draw.
     double count = 1;
     // Ticks at a start and fixed steps, in place of the ticks of the scale.
@@ -110,7 +110,7 @@ message Grid {
 
 // Ticks at a start and each whole multiple of a step before and after it.
 message TickInterval {
-  oneof interval {
+  oneof spacing {
     option (avenger.chart.v1.required_oneof) = true;
     NumericTicks numeric = 1;
     CalendarTicks calendar = 2;

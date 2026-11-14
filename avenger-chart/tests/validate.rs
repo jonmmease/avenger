@@ -926,19 +926,19 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
 
 #[test]
 fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
-    let ticks = |at| proto::Axis {
+    let ticks = |placement| proto::Axis {
         ticks: Some(proto::Ticks {
-            at: Some(at),
+            placement: Some(placement),
             ..Default::default()
         }),
         ..Default::default()
     };
     invalid(
-        nested(ticks(proto::ticks::At::Count(3.0))),
+        nested(ticks(proto::ticks::Placement::Count(3.0))),
         &format!("{X}.scale.axis.ticks.count"),
         "ticks at the bands of its leaf",
     );
-    let band = |at| {
+    let band = |placement| {
         let mut parts = base();
         parts.1 = vec![table(&[
             ("a", vec![1.0, 2.0, 3.0]),
@@ -946,15 +946,15 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
         ])];
         let x = x_scale(&mut parts.0);
         x.r#type = Some(scale::Type::Band(proto::BandScale::default()));
-        x.axis = Some(ticks(at));
+        x.axis = Some(ticks(placement));
         parts
     };
     invalid(
-        band(proto::ticks::At::Count(3.0)),
+        band(proto::ticks::Placement::Count(3.0)),
         &format!("{X}.scale.axis.ticks.count"),
         "only a list of ticks is valid",
     );
-    let mut listed = band(proto::ticks::At::Values(ValueRef { index: 0 }));
+    let mut listed = band(proto::ticks::Placement::Values(ValueRef { index: 0 }));
     listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
     read(listed).unwrap();
 }

@@ -383,16 +383,16 @@ fn axis_spec(group: &ScaleGroup) -> proto::Axis {
 
 /// The ticks of a `Ticks` in place of the scale's: a list of values or an interval.
 fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
-    match ticks?.at.as_ref()? {
-        ticks::At::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
-        ticks::At::Interval(interval) => match interval.interval.as_ref()? {
-            tick_interval::Interval::Numeric(numeric) => {
+    match ticks?.placement.as_ref()? {
+        ticks::Placement::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
+        ticks::Placement::Interval(interval) => match interval.spacing.as_ref()? {
+            tick_interval::Spacing::Numeric(numeric) => {
                 Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
                     start: numeric.start,
                     step: numeric.step,
                 }))
             }
-            tick_interval::Interval::Calendar(calendar) => {
+            tick_interval::Spacing::Calendar(calendar) => {
                 let count = calendar.count;
                 let civil = i32::try_from(count).unwrap_or(i32::MAX);
                 let (months, days, nanos) = match calendar.unit() {
@@ -409,7 +409,7 @@ fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
                 }))
             }
         },
-        ticks::At::Count(_) => None,
+        ticks::Placement::Count(_) => None,
     }
 }
 
