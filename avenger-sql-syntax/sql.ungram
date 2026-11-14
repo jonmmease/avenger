@@ -1,4 +1,5 @@
-// The syntax tree of avenger-sql: a subset of GoogleSQL's grammar.
+// The syntax tree of avenger-sql: a subset of GoogleSQL's grammar, which takes a trailing comma in
+// every comma-separated list.
 //
 // This file describes the shape of the tree that the parser builds: the children of each node,
 // in order. It doesn't parse anything. `build.rs` reads it and generates the node kinds of
@@ -85,6 +86,7 @@ ImportStmt =
 
 // As in GoogleSQL, every `DECLARE` of a script comes before its other statements, and a
 // `DECLARE` takes a type, a `DEFAULT`, or both: checks of the validation pass.
+// The names take no trailing comma, since a type can follow them.
 /// `DECLARE names [type] [DEFAULT value]`
 DeclareStmt =
   'declare' (Name (',' Name)*) Type? ('default' Expr)?
@@ -123,7 +125,7 @@ ColumnDef =
 
 /// `OPTIONS (name = value, ...)`
 Options =
-  'options' '(' (OptionEntry (',' OptionEntry)*)? ')'
+  'options' '(' (OptionEntry (',' OptionEntry)* ','?)? ')'
 
 /// `name = value`. As in GoogleSQL, an option's name can also be `HASH`, `PROTO` or `PARTITION`.
 OptionEntry =
@@ -131,7 +133,7 @@ OptionEntry =
 
 /// `(parameter, ...)`
 ParamList =
-  '(' (Parameter (',' Parameter)*)? ')'
+  '(' (Parameter (',' Parameter)* ','?)? ')'
 
 // A table parameter belongs to a table function, and `NOT AGGREGATE` to a parameter of an
 // aggregate function: checks of the validation pass.
@@ -156,7 +158,7 @@ AnyTable =
 // The columns of a table each take a name: a check of the validation pass.
 /// `TABLE<name type, ...>`
 TableType =
-  'table' '<' (StructField (',' StructField)*)? '>'
+  'table' '<' (StructField (',' StructField)* ','?)? '>'
 
 /// `RETURNS type`, or `RETURNS TABLE<...>` of a table function.
 ReturnsClause =
@@ -189,11 +191,11 @@ Alias =
 
 /// `(name, ...)`
 NameList =
-  '(' (NameRef (',' NameRef)*)? ')'
+  '(' (NameRef (',' NameRef)* ','?)? ')'
 
 /// A path, or paths in parentheses, of an `UNPIVOT`.
 PathList =
-  '('? Path (',' Path)* ')'?
+  '('? Path (',' Path)* ','? ')'?
 
 // --- Types ---
 
@@ -209,7 +211,7 @@ NamedType =
 
 /// `(parameter, ...)` of a type: literals or `MAX`.
 TypeParams =
-  '(' ((Literal | 'max') (',' (Literal | 'max'))*)? ')'
+  '(' ((Literal | 'max') (',' (Literal | 'max'))* ','?)? ')'
 
 /// `ARRAY<type>`
 ArrayType =
@@ -217,7 +219,7 @@ ArrayType =
 
 /// `STRUCT<[name] type, ...>`
 StructType =
-  'struct' '<' (StructField (',' StructField)*)? '>'
+  'struct' '<' (StructField (',' StructField)* ','?)? '>'
 
 /// `[name] type`
 StructField =
@@ -239,7 +241,7 @@ ParenQuery =
 
 /// `FROM source`
 FromClause =
-  'from' Source
+  'from' Source ','?
 
 // Commas and joins associate to the left, as in GoogleSQL, so `a, b JOIN c` joins `c` to the
 // cross join of `a` and `b`.
@@ -267,7 +269,7 @@ SubquerySource =
 
 /// `UNNEST(arrays [, mode => value]) [[AS] alias] [WITH OFFSET [[AS] alias]]`
 UnnestSource =
-  'unnest' '(' (AliasedExpr (',' AliasedExpr)*)? (',' NamedArg)? ')' Alias? WithOffset?
+  'unnest' '(' (AliasedExpr (',' AliasedExpr)*)? (',' NamedArg)? ','? ')' Alias? WithOffset?
 
 // A table function's name has no dashes: a check of the validation pass.
 /// A table function call: `[LATERAL] path(arguments) [[AS] alias]`
@@ -322,7 +324,7 @@ MatchRecognizeSource =
   Source MatchRecognizeClause
 
 // As in GoogleSQL's grammar, the clauses come in this order, and only `PARTITION BY`,
-// `AFTER MATCH SKIP` and `OPTIONS` are optional. No list of the clause takes a trailing comma.
+// `AFTER MATCH SKIP` and `OPTIONS` are optional.
 /// `MATCH_RECOGNIZE ([PARTITION BY ...] ORDER BY ... MEASURES ... [AFTER MATCH SKIP ...]
 /// PATTERN (...) DEFINE ... [OPTIONS (...)]) [[AS] alias]`
 MatchRecognizeClause =
@@ -331,7 +333,7 @@ MatchRecognizeClause =
 
 /// `MEASURES expression AS alias, ...`
 Measures =
-  'measures' Measure (',' Measure)*
+  'measures' Measure (',' Measure)* ','?
 
 /// A measure and its alias, whose `AS` is required.
 Measure =
@@ -388,7 +390,7 @@ QuantifierMax =
 
 /// `DEFINE variable AS condition, ...`
 Define =
-  'define' PatternDefinition (',' PatternDefinition)*
+  'define' PatternDefinition (',' PatternDefinition)* ','?
 
 /// A pattern variable and the condition of its rows.
 PatternDefinition =
@@ -612,15 +614,15 @@ GroupingEmpty =
 
 /// `ROLLUP (expressions)`
 Rollup =
-  'rollup' '(' Expr (',' Expr)* ')'
+  'rollup' '(' Expr (',' Expr)* ','? ')'
 
 /// `CUBE (expressions)`
 Cube =
-  'cube' '(' Expr (',' Expr)* ')'
+  'cube' '(' Expr (',' Expr)* ','? ')'
 
 /// `GROUPING SETS (sets)`
 GroupingSets =
-  'grouping' 'sets' '(' GroupingSet (',' GroupingSet)* ')'
+  'grouping' 'sets' '(' GroupingSet (',' GroupingSet)* ','? ')'
 
 GroupingSet =
   GroupingEmpty
@@ -767,7 +769,7 @@ InSet =
 
 /// `(values)`
 InList =
-  '(' (Expr (',' Expr)*)? ')'
+  '(' (Expr (',' Expr)* ','?)? ')'
 
 /// `(query)`
 InQuery =
@@ -815,15 +817,15 @@ ExtractExpr =
 
 /// `[ARRAY[<type>]] [elements]`
 ArrayExpr =
-  ('array' ('<' Type '>')?)? '[' (Expr (',' Expr)*)? ']'
+  ('array' ('<' Type '>')?)? '[' (Expr (',' Expr)* ','?)? ']'
 
 /// `STRUCT[<fields>](values)`
 StructExpr =
-  'struct' ('<' (StructField (',' StructField)*)? '>')? '(' (AliasedExpr (',' AliasedExpr)*)? ')'
+  'struct' ('<' (StructField (',' StructField)* ','?)? '>')? '(' (AliasedExpr (',' AliasedExpr)* ','?)? ')'
 
 /// `(a, b, ...)`, a tuple of two values or more.
 TupleExpr =
-  '(' Expr (',' Expr)* ')'
+  '(' Expr (',' Expr)* ','? ')'
 
 /// `(expression)`
 ParenExpr =
@@ -838,7 +840,7 @@ CallExpr =
 /// `([DISTINCT] arguments [{IGNORE | RESPECT} NULLS] [HAVING {MAX | MIN} x] [ORDER BY ...]
 /// [LIMIT n])` of a call, or the arguments of a table function call.
 ArgList =
-  '(' 'distinct'? StarArg? (Argument (',' Argument)*)? NullTreatment? HavingClause? OrderBy?
+  '(' 'distinct'? StarArg? (Argument (',' Argument)* ','?)? NullTreatment? HavingClause? OrderBy?
   CallLimit? ')'
 
 Argument =
@@ -889,7 +891,7 @@ WindowSpec =
 
 /// `PARTITION BY expressions`
 PartitionBy =
-  'partition' 'by' Expr (',' Expr)*
+  'partition' 'by' Expr (',' Expr)* ','?
 
 /// `{ROWS | RANGE} bound`, or `{ROWS | RANGE} BETWEEN bound AND bound`
 Frame =

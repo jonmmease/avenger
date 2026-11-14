@@ -17,6 +17,7 @@ fn the_trees_of_the_corpora_follow_the_grammar() {
         .map(|text| text.to_string())
         .collect();
     scripts.extend(QUERIES.iter().map(|text| text.to_string()));
+    scripts.extend(TRAILING_COMMAS.iter().map(|text| text.to_string()));
     scripts.extend(
         EXPRESSIONS
             .iter()

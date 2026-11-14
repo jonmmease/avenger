@@ -6,8 +6,8 @@ pipe_recursive_union.test:5:*	an outer mode of a set operation takes BY NAME or 
 
 # Expressions and clauses outside the subset.
 pipe_set_operation.test:12:*	an outer mode of a set operation takes BY NAME or CORRESPONDING, which avenger checks as it parses and GoogleSQL as it analyzes
-crate:REJECTED:34	a reserved word after `.` names a field only after a name, not after an expression in parentheses
-crate:REJECTED:39	avenger reports a second PIVOT of a source at the keyword, which GoogleSQL reads as an alias before failing at its `(`
+crate:REJECTED:32	a reserved word after `.` names a field only after a name, not after an expression in parentheses
+crate:REJECTED:37	avenger reports a second PIVOT of a source at the keyword, which GoogleSQL reads as an alias before failing at its `(`
 
 # Standard queries, which the subset leaves out for pipe queries.
 pipe_from_query.test:16	standard set operations aren't in the subset; they are pipe operators
@@ -19,11 +19,19 @@ create_function.test:29	avenger reports a NOT AGGREGATE outside an aggregate fun
 modules.test:57	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:58	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:59	IMPORT MODULE names a module by a path, without INTO, in the subset
-crate:REJECTED:48	IMPORT MODULE names a module by a path, without INTO, in the subset
-crate:REJECTED:49	IMPORT MODULE names a module by a path, without INTO, in the subset
+crate:REJECTED:45	IMPORT MODULE names a module by a path, without INTO, in the subset
+crate:REJECTED:46	IMPORT MODULE names a module by a path, without INTO, in the subset
 set.test:29:*	avenger reports a query parameter without a name at its `@`, and GoogleSQL at the token after it
 
 # Choices of the subset.
+crate:TRAILING_COMMAS:*	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+match_recognize.test:13:4:fromclause	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+match_recognize.test:14:2:fromclause	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+pipe_pivot.test:7	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+pipe_pivot.test:10	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+pipe_unpivot.test:15	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+set.test:18	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
+crate:REJECTED:105	avenger reports a trailing comma in a value in parentheses at the comma, and GoogleSQL at the `)` after it
 crate:QUERIES:27	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, which the subset leaves out
 crate:QUERIES:33	avenger accepts a script without statements
 create_sql_function.test:23	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes

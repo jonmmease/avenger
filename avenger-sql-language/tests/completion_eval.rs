@@ -81,6 +81,10 @@ fn oracle(env: &Env, prefix: &str, insert: &str, item: Item) -> Option<String> {
             if insert == "OVER" {
                 return over(env, prefix);
             }
+            // A keyword that starts a clause of a call is valid where the clause is.
+            if let Some((_, clause)) = CALL_CLAUSES.iter().find(|(keyword, _)| *keyword == insert) {
+                return judge_clause(env, prefix, insert, clause);
+            }
             // A keyword that starts an expression is valid where some expression that it starts
             // is, as `NOT TRUE`, and not merely where the parser takes the keyword.
             if starts_expression(env, prefix, insert) {
@@ -267,6 +271,15 @@ fn judge(env: &Env, prefix: &str, insert: &str, after: &str, whole: bool) -> Opt
         .map(|d| format!("semantic: {}", d.message))
 }
 
+/// The keywords that start a clause of a call, after its arguments and a trailing comma, and a
+/// clause of each.
+const CALL_CLAUSES: &[(&str, &str)] = &[
+    ("IGNORE", " NULLS"),
+    ("RESPECT", " NULLS"),
+    ("HAVING", " MAX 1"),
+    ("LIMIT", " 1"),
+];
+
 /// The texts after a keyword that complete an expression that it starts, of each keyword, and
 /// over an aggregate for `|> AGGREGATE`.
 const EXPRESSIONS: &[&str] = &[
@@ -285,6 +298,23 @@ const EXPRESSIONS: &[&str] = &[
     "(ANY_VALUE(1))",
     "[ANY_VALUE(1)]",
 ];
+
+/// The reason that the clause `keyword` and `rest` cannot follow `prefix`, or `None`: an error of
+/// [`judge`], or an error of the call around it that names the keyword, as a function that takes
+/// no `LIMIT` does.
+fn judge_clause(env: &Env, prefix: &str, keyword: &str, rest: &str) -> Option<String> {
+    if let Some(reason) = judge(env, prefix, keyword, rest, true) {
+        return Some(reason);
+    }
+    let text = format!("{prefix}{keyword}{rest})");
+    let at = prefix.len();
+    (env.document(&text).analysis().diagnostics.iter())
+        .find(|d| {
+            let (start, end) = (usize::from(d.range.start()), usize::from(d.range.end()));
+            start <= at && end > at && d.message.contains(keyword)
+        })
+        .map(|d| format!("semantic: {}", d.message))
+}
 
 /// Whether `keyword` after `prefix` starts an expression: the parser expects one after it.
 fn starts_expression(env: &Env, prefix: &str, keyword: &str) -> bool {

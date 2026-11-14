@@ -322,6 +322,40 @@ pub const QUERIES: &[&str] = &[
     "FROM t |> SELECT `match_recognize`, measures, pattern, `define` AS skip, past, after",
 ];
 
+/// Texts with a trailing comma in each kind of list, which avenger-sql takes and GoogleSQL takes
+/// only in the lists of the pipe operators and the columns of `CREATE TABLE`.
+pub const TRAILING_COMMAS: &[&str] = &[
+    "FROM t |> WHERE f(a, b,) = 1 AND COUNT(*,) > 0",
+    "FROM t |> WHERE ARRAY_AGG(x ORDER BY a,) IS NULL",
+    "FROM t |> WHERE ARRAY_AGG(x, ORDER BY a, LIMIT 1) IS NULL",
+    "FROM t |> WHERE x IN (1, 2,)",
+    "FROM t |> SELECT [1, 2,] AS a, ARRAY<INT64>[3,] AS b",
+    "FROM t |> SELECT STRUCT(1 AS a, 2 AS b,) AS s, (1, 2,) AS p",
+    "FROM t |> SELECT CAST(x AS STRUCT<a INT64, b ARRAY<STRUCT<c STRING,>>,>) AS s",
+    "FROM t |> SELECT CAST(x AS NUMERIC(10, 2,)) AS n",
+    "FROM t |> EXTEND SUM(x) OVER (PARTITION BY a, ORDER BY b, ROWS UNBOUNDED PRECEDING) AS s",
+    "FROM t |> EXTEND SUM(x) OVER (PARTITION BY a, b,) AS s",
+    "FROM t |> SELECT * EXCEPT (a, b,) REPLACE (c AS d,)",
+    "FROM a JOIN b USING (k, l,)",
+    "FROM t |> UNION ALL CORRESPONDING BY (a, b,) (FROM u)",
+    "FROM a, b,",
+    "FROM a, b, |> WHERE true",
+    "FROM UNNEST([1], [2],) AS x",
+    "FROM f(TABLE t, 1,)",
+    "FROM t |> AGGREGATE COUNT(*) GROUP BY ROLLUP(a, b,), CUBE(c,), GROUPING SETS ((a, b,), (c),)",
+    "FROM t |> PIVOT (SUM(a) AS s, FOR k IN (1, 2,))",
+    "FROM t |> UNPIVOT ((v, w,) FOR k IN ((a, b,), (c, d),))",
+    "FROM t |> TABLESAMPLE RESERVOIR (10 ROWS PARTITION BY a, b,)",
+    "FROM t |> MATCH_RECOGNIZE (PARTITION BY a, ORDER BY x, MEASURES COUNT(*) AS n, PATTERN (a) DEFINE a AS TRUE,)",
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n, AFTER MATCH SKIP PAST LAST ROW PATTERN (a) DEFINE a AS TRUE)",
+    // A sort key named `measures`, and a measure that calls `pattern`, aren't the clauses.
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x, measures MEASURES pattern(x) AS p, COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)",
+    "SET (a, b,) = (1, 2)",
+    "CREATE TEMP FUNCTION f(a INT64, b INT64,) AS (a)",
+    "CREATE TEMP TABLE FUNCTION f(t TABLE<a INT64, b STRING,>) AS (FROM t)",
+    "CREATE TEMP TABLE t (a INT64,) OPTIONS (a = 1,)",
+];
+
 /// Scripts that GoogleSQL rejects: the text, a part of the first diagnostic's message, and the
 /// text that it covers.
 pub const REJECTED: &[(&str, &str, &str)] = &[
@@ -423,16 +457,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "expected a literal or `MAX`",
         "x",
     ),
-    (
-        "FROM t |> WHERE ARRAY_AGG(x ORDER BY a,) IS NULL",
-        "expected an expression",
-        ")",
-    ),
-    (
-        "FROM t |> WHERE SUM(x) OVER (PARTITION BY a,) > 0",
-        "expected an expression",
-        ")",
-    ),
     ("FROM t |> WHERE f(a, *) = 1", "expected an expression", "*"),
     ("FROM t |> WHERE f(TABLE t) = 1", "expected `)`", "t"),
     (
@@ -474,11 +498,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ),
     ("FROM t |> EXTEND *", "takes no `*`", "*"),
     (
-        "FROM t |> SELECT * REPLACE (a AS b,)",
-        "expected an expression",
-        ")",
-    ),
-    (
         "FROM t |> GROUP BY x",
         "GROUP BY goes in a pipe AGGREGATE",
         "GROUP",
@@ -491,11 +510,6 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "'m.sqlm'",
     ),
     ("IMPORT MODULE m INTO n", "with AS, not INTO", "INTO"),
-    (
-        "CREATE TEMP TABLE t (a INT64) OPTIONS (a = 1,)",
-        "expected a name",
-        ")",
-    ),
     // A `(` that the text ends inside.
     (
         "FROM (FROM t",
@@ -664,11 +678,9 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `|>`", "MATCH_RECOGNIZE"),
     ("FROM t MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) PIVOT (SUM(x) FOR y IN (1))", "expected `|>`", "("),
     ("FROM t |> MATCH_RECOGNIZE (MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `ORDER`", "MEASURES"),
-    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x, MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `MEASURES`", "COUNT"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) n PATTERN (a) DEFINE a AS TRUE)", "expected `AS`", "n"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n ONE ROW PER MATCH PATTERN (a) DEFINE a AS TRUE)", "expected `PATTERN`", "ONE"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n AFTER MATCH SKIP TO FIRST a PATTERN (a) DEFINE a AS TRUE)", "expected `NEXT`", "FIRST"),
-    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE,)", "expected a name", ")"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN ({- a -}) DEFINE a AS TRUE)", "expected `)`", "{"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (^*) DEFINE a AS TRUE)", "expected `)`", "*"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a{2}?) DEFINE a AS TRUE)", "expected `)`", "?"),
@@ -677,6 +689,8 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (select) DEFINE a AS TRUE)", "expected `)`", "select"),
     ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) SUBSET u = (a) DEFINE a AS TRUE)", "expected `DEFINE`", "SUBSET"),
     ("FROM t |> SELECT 1 AS match_recognize", "expected a name", "match_recognize"),
+    // avenger-sql's own error: a value in parentheses takes no trailing comma.
+    ("FROM t |> SELECT (x,) AS a", "takes no trailing comma", ","),
 ];
 
 /// Modules that GoogleSQL rejects, as [`REJECTED`].
