@@ -835,24 +835,15 @@ impl Pass<'_> {
             );
             return None;
         }
-        // The body's names and errors belong to its definition: the model keeps them from its
-        // `CREATE`, and an error of an inlined body goes to the call.
-        let (names, errors) = (self.model.names.len(), self.diagnostics.len());
         self.call_depth += 1;
-        let body = self.body(&function, values, scope);
+        let prefix = format!("In {}: ", function.name);
+        let body = self.inlined(&prefix, range, |pass| pass.body(&function, values, scope));
         self.call_depth -= 1;
-        self.model.names.truncate(names);
-        let calls = self.model.calls.len();
-        for diagnostic in &mut self.diagnostics[errors..] {
-            diagnostic.message = format!("In {}: {}", function.name, diagnostic.message);
-            diagnostic.range = range;
-        }
         let body = body?;
         let result = self
             .type_of(&body, scope)
             .map(|ty| types::googlesql_name(&ty))
             .unwrap_or_default();
-        self.model.calls.truncate(calls);
         self.model.calls.push(CallForm {
             range,
             form: format!("{}({}) -> {result}", function.name, types.join(", ")),
@@ -982,18 +973,8 @@ impl Pass<'_> {
             .clone()
             .map(|m| self.module_context.push(m))
             .is_some();
-        let (names_len, operators, errors) = (
-            self.model.names.len(),
-            self.model.operators.len(),
-            self.diagnostics.len(),
-        );
-        let rows = self.query(&query);
-        self.model.names.truncate(names_len);
-        self.model.operators.truncate(operators);
-        for diagnostic in &mut self.diagnostics[errors..] {
-            diagnostic.message = format!("In {}: {}", function.name, diagnostic.message);
-            diagnostic.range = range;
-        }
+        let prefix = format!("In {}: ", function.name);
+        let rows = self.inlined(&prefix, range, |pass| pass.query(&query));
         if pushed {
             self.module_context.pop();
         }
@@ -1061,18 +1042,20 @@ impl Pass<'_> {
             path: key.clone(),
             import: at,
         };
-        let (names_len, operators, calls, errors) = (
-            self.model.names.len(),
-            self.model.operators.len(),
-            self.model.calls.len(),
-            self.diagnostics.len(),
-        );
+        let prefix = format!("In module {}: ", names.join("."));
+        self.inlined(&prefix, at, |pass| pass.module_body(&module, &context));
+        self.use_name(path_range, Definition::Module { names });
+    }
+
+    /// The statements of the module `module` of the import `context`.
+    fn module_body(&mut self, module: &ast::Module, context: &InModule) {
+        let key = &context.path;
         self.module_context.push(key.clone());
         for stmt in module.stmts() {
             match stmt {
-                ast::Stmt::ImportStmt(inner) => self.import(&inner, Some(&context)),
+                ast::Stmt::ImportStmt(inner) => self.import(&inner, Some(context)),
                 ast::Stmt::CreateFunctionStmt(create) => {
-                    self.create_function(&create, Some(&context))
+                    self.create_function(&create, Some(context))
                 }
                 ast::Stmt::CreateConstantStmt(constant) => {
                     let (Some(name), Some(expr)) = (
@@ -1098,16 +1081,31 @@ impl Pass<'_> {
             }
         }
         self.module_context.pop();
-        self.model.names.truncate(names_len);
+    }
+
+    /// The result of `plan`, which plans the code of a definition at its call or its import. The
+    /// model keeps the names, the operators and the call forms of the code from the definition,
+    /// and each error of the code goes to `range`, after `prefix`, as `In f: `.
+    fn inlined<R>(
+        &mut self,
+        prefix: &str,
+        range: TextRange,
+        plan: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let (names, operators, calls, errors) = (
+            self.model.names.len(),
+            self.model.operators.len(),
+            self.model.calls.len(),
+            self.diagnostics.len(),
+        );
+        let result = plan(self);
+        self.model.names.truncate(names);
         self.model.operators.truncate(operators);
         self.model.calls.truncate(calls);
-        let module_name = names.join(".");
         for diagnostic in &mut self.diagnostics[errors..] {
-            if !diagnostic.message.starts_with("In module ") {
-                diagnostic.message = format!("In module {module_name}: {}", diagnostic.message);
-            }
-            diagnostic.range = at;
+            diagnostic.message = format!("{prefix}{}", diagnostic.message);
+            diagnostic.range = range;
         }
-        self.use_name(path_range, Definition::Module { names });
+        result
     }
 }

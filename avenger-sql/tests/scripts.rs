@@ -91,6 +91,24 @@ async fn temporary_functions_inline_their_bodies() {
     );
 }
 
+#[test]
+fn the_model_keeps_a_body_from_its_create() {
+    // The body's forms are those of its `CREATE`, and each call is one form of its own.
+    let text = "CREATE TEMP FUNCTION f(x INT64) AS (x + 1); FROM t |> SELECT f(x) AS y, f(2) AS z";
+    let analysis = pass::analysis_in(&catalog(), text);
+    let forms: Vec<&str> = (analysis.model.calls.iter())
+        .map(|call| call.form.as_str())
+        .collect();
+    assert_eq!(
+        forms,
+        [
+            "$add(INT64, INT64) -> INT64",
+            "f(INT64) -> INT64",
+            "f(INT64) -> INT64"
+        ]
+    );
+}
+
 #[tokio::test]
 async fn modules_give_their_public_functions_and_constants() {
     let text = table("IMPORT MODULE util; FROM t |> SELECT util.double(x) + util.double_inc(x) + util.ten AS v |> ORDER BY v").await;
