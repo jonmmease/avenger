@@ -80,45 +80,12 @@ fn every_cursor_has_expectations_without_a_panic() {
 
 #[test]
 fn garbage_round_trips() {
-    let pieces = [
-        "FROM",
-        "|>",
-        "(",
-        ")",
-        "SELECT",
-        ",",
-        "'",
-        "`",
-        "WHERE",
-        "a",
-        "1",
-        ".",
-        "*",
-        "JOIN",
-        ";",
-        "AS",
-        "NOT",
-        "<",
-        ">",
-        "[",
-        "]",
-        "CREATE",
-        "TABLE",
-        "/*",
-        "--",
-        "\n",
-        "@",
-        "=>",
-        "UNION",
-        "ALL",
-        "AGGREGATE",
-        "GROUP",
-        "BY",
-        "\"",
-        "\\",
-        "é",
-        "\u{0}",
-    ];
+    // The pieces, separated by single spaces, the line end among them.
+    let pieces: Vec<&str> = "FROM |> ( ) SELECT , ' ` WHERE a 1 . * JOIN ; AS NOT < > [ ] CREATE \
+        TABLE /* -- \n @ => UNION ALL AGGREGATE GROUP BY \" \\ é \u{0}"
+        .split(' ')
+        .collect();
+    assert_eq!(pieces.len(), 37);
     let mut state: u64 = 0x2545_F491_4F6C_DD1D;
     for _ in 0..3000 {
         let mut text = String::new();

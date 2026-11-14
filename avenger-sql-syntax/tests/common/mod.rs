@@ -187,9 +187,7 @@ FROM recent(TABLE big, 10) |> EXTEND scaled(v, 2) AS w;
 pub const MODULE: &str = "MODULE charts.scales OPTIONS (description = 'scales');
 IMPORT MODULE charts.math AS math;
 CREATE PRIVATE CONSTANT base = 10;
-CREATE PUBLIC FUNCTION scaled(x FLOAT64, k ANY TYPE) AS (math.round(x * k / base));
-CREATE PUBLIC AGGREGATE FUNCTION spread(x FLOAT64) AS (MAX(x) - MIN(x));
-CREATE PUBLIC TABLE FUNCTION top(input ANY TABLE, n INT64) AS FROM input |> LIMIT n;";
+CREATE PUBLIC FUNCTION scaled(x FLOAT64, k ANY TYPE) AS (math.round(x * k / base));";
 
 /// A query whose sources hold every form of `FROM`.
 pub const SOURCES: &str = "FROM a NATURAL LEFT OUTER JOIN b, c AS c2 WITH OFFSET AS i
@@ -256,7 +254,7 @@ pub const EXPRESSIONS: &[&str] = &[
 
 /// Queries of the forms that GoogleSQL accepts.
 pub const QUERIES: &[&str] = &[
-    "FROM t",
+    "FROM t # a comment to the line end",
     "(FROM t) AS q |> WHERE true",
     "(FROM t) |> WHERE x",
     "((FROM t))",

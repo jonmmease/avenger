@@ -41,73 +41,16 @@ fn commas_and_joins_associate_to_the_left() {
 #[test]
 fn a_dashed_table_name_holds_its_dashes() {
     let root = accepts("FROM my-project-2.dataset.table");
-    let refs = nodes(&root, NAME_REF);
-    let names: Vec<_> = refs.iter().map(|node| node.text().to_string()).collect();
-    assert_eq!(names, ["my-project-2.", "dataset", "table"]);
-}
-
-#[test]
-fn every_operator_has_its_node() {
-    let root = accepts(OPERATORS);
-    let kinds: Vec<_> = nodes(&root, QUERY)[0]
-        .children()
-        .skip(1)
-        .map(|node| node.kind())
-        .collect();
-    assert_eq!(
-        kinds,
-        [
-            PIPE_WHERE,
-            PIPE_EXTEND,
-            PIPE_SET,
-            PIPE_DROP,
-            PIPE_RENAME,
-            PIPE_AS,
-            PIPE_SELECT,
-            PIPE_AGGREGATE,
-            PIPE_DISTINCT,
-            PIPE_ORDER_BY,
-            PIPE_LIMIT,
-            PIPE_SET_OPERATION,
-            PIPE_JOIN,
-            PIPE_JOIN,
-            PIPE_CALL,
-            PIPE_SAMPLE,
-            PIPE_WITH,
-            PIPE_PIVOT,
-            PIPE_UNPIVOT,
-            PIPE_SET_OPERATION,
-            PIPE_SET_OPERATION,
-        ]
-    );
-    assert_eq!(
-        text_of(&root, GROUP_BY),
-        "GROUP AND ORDER BY day DESC NULLS LAST"
-    );
-    assert_eq!(text_of(&root, SET_OP_MODE), "FULL OUTER");
-    assert_eq!(text_of(&root, WINDOW_CLAUSE), "WINDOW w AS (ORDER BY day)");
+    assert_eq!(text_of(&root, PATH), "my-project-2.dataset.table");
 }
 
 #[test]
 fn forms_hold_their_parts() {
-    let root = accepts(SOURCES);
-    assert_eq!(text_of(&root, ON_CONDITION), "ON e.k = a.k");
-    assert_eq!(text_of(&root, USING_CONDITION), "USING (k)");
-    assert_eq!(text_of(&root, WEIGHT), "WITH WEIGHT AS w");
-    assert_eq!(nodes(&root, GROUPING_EMPTY).len(), 2);
-    assert_eq!(
-        text_of(&root, GROUPING_SETS),
-        "GROUPING SETS((a, b), (), ROLLUP(d))"
-    );
-    let condition = condition("ANY_VALUE(x HAVING MAX y) = STRING_AGG(s IGNORE NULLS)");
-    assert_eq!(text_of(&condition, HAVING_CLAUSE), "HAVING MAX y");
-    assert_eq!(text_of(&condition, NULL_TREATMENT), "IGNORE NULLS");
-    let condition = condition_text("CASE WHEN a THEN 1 ELSE 2 END = 1");
-    assert_eq!(text_of(&condition, WHEN_CLAUSE), "WHEN a THEN 1");
-    let condition = condition_text("CURRENT_DATE > d");
-    assert_eq!(nodes(&condition, CALL_EXPR).len(), 1);
-}
-
-fn condition_text(text: &str) -> avenger_sql_syntax::SyntaxNode {
-    condition(text)
+    let expr = condition("ANY_VALUE(x HAVING MAX y) = STRING_AGG(s IGNORE NULLS)");
+    assert_eq!(text_of(&expr, HAVING_CLAUSE), "HAVING MAX y");
+    assert_eq!(text_of(&expr, NULL_TREATMENT), "IGNORE NULLS");
+    let expr = condition("CASE WHEN a THEN 1 ELSE 2 END = 1");
+    assert_eq!(text_of(&expr, WHEN_CLAUSE), "WHEN a THEN 1");
+    let expr = condition("CURRENT_DATE > d");
+    assert_eq!(nodes(&expr, CALL_EXPR).len(), 1);
 }

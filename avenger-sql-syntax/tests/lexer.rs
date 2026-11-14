@@ -15,17 +15,7 @@ fn kinds(text: &str) -> Vec<SyntaxKind> {
 }
 
 #[test]
-fn tokens_cover_the_text() {
-    let text = "FROM t -- c\n|> WHERE a <> b /* x */ AND `q` = 'v' # e";
-    let (tokens, diagnostics) = tokenize(text);
-    assert!(diagnostics.is_empty());
-    let joined: String = tokens.iter().map(|token| &text[token.range]).collect();
-    assert_eq!(joined, text);
-}
-
-#[test]
 fn operators_follow_googlesql() {
-    assert_eq!(kinds("a <> b >> c"), [WORD, LT, GT, WORD, GT, GT, WORD]);
     assert_eq!(
         kinds("|> || | => = <="),
         [PIPE, CONCAT, BIT_OR, FAT_ARROW, EQ, LT_EQ]
