@@ -1,0 +1,11 @@
+[package]
+name = "avenger-sql-language"
+version = "0.1.0"
+edition = "2021"
+description = "Editor features of avenger-sql scripts: completion, hover, navigation, rename, signature help, diagnostics, and the outline"
+readme = "README.md"
+
+[dependencies]
+avenger-sql = { path = "../avenger-sql" }
+avenger-sql-syntax = { path = "../avenger-sql-syntax" }
+datafusion = { workspace = true }

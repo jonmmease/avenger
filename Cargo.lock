@@ -1088,6 +1088,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-sql-language"
+version = "0.1.0"
+dependencies = [
+ "avenger-sql",
+ "avenger-sql-syntax",
+ "datafusion",
+]
+
+[[package]]
 name = "avenger-sql-syntax"
 version = "0.1.0"
 dependencies = [
