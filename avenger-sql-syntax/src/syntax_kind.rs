@@ -8,6 +8,7 @@
 macro_rules! syntax_kinds {
     (
         tokens: [$($(#[$token_meta:meta])* $token:ident),* $(,)?],
+        reserved: [$($reserved:ident = $reserved_text:literal),* $(,)?],
         keywords: [$($keyword:ident = $text:literal),* $(,)?],
         nodes: [$($(#[$node_meta:meta])* $node:ident),* $(,)?] $(,)?
     ) => {
@@ -17,17 +18,22 @@ macro_rules! syntax_kinds {
         #[repr(u16)]
         pub enum SyntaxKind {
             $($(#[$token_meta])* $token,)*
+            $($reserved,)*
             $($keyword,)*
             $($(#[$node_meta])* $node,)*
             #[doc(hidden)]
             __LAST,
         }
 
-        /// The keywords and their kinds, in the order of [`SyntaxKind`].
-        const KEYWORDS: &[(&str, SyntaxKind)] = &[$(($text, SyntaxKind::$keyword)),*];
+        /// The keywords and their kinds, the reserved ones first, in the order of [`SyntaxKind`].
+        const KEYWORDS: &[(&str, SyntaxKind)] = &[
+            $(($reserved_text, SyntaxKind::$reserved),)*
+            $(($text, SyntaxKind::$keyword),)*
+        ];
 
-        const FIRST_KEYWORD: u16 = { let kinds = [$(SyntaxKind::$keyword),*]; kinds[0] as u16 };
-        const LAST_KEYWORD: u16 = { let kinds = [$(SyntaxKind::$keyword),*]; kinds[kinds.len() - 1] as u16 };
+        const FIRST_KEYWORD: u16 = KEYWORDS[0].1 as u16;
+        const LAST_RESERVED: u16 = { let kinds = [$(SyntaxKind::$reserved),*]; kinds[kinds.len() - 1] as u16 };
+        const LAST_KEYWORD: u16 = KEYWORDS[KEYWORDS.len() - 1].1 as u16;
     };
 }
 
@@ -85,8 +91,9 @@ syntax_kinds! {
         /// The end of the text, which the parser sees and the tree does not hold.
         EOF,
     ],
-    keywords: [
-        AGGREGATE_KW = "AGGREGATE",
+    // The reserved keywords of GoogleSQL, as in its `keywords.cc`, which are names only in
+    // backticks.
+    reserved: [
         ALL_KW = "ALL",
         AND_KW = "AND",
         ANY_KW = "ANY",
@@ -96,29 +103,19 @@ syntax_kinds! {
         ASSERT_ROWS_MODIFIED_KW = "ASSERT_ROWS_MODIFIED",
         AT_KW = "AT",
         BETWEEN_KW = "BETWEEN",
-        BIGDECIMAL_KW = "BIGDECIMAL",
-        BIGNUMERIC_KW = "BIGNUMERIC",
         BY_KW = "BY",
-        CALL_KW = "CALL",
         CASE_KW = "CASE",
         CAST_KW = "CAST",
         COLLATE_KW = "COLLATE",
-        CONSTANT_KW = "CONSTANT",
         CONTAINS_KW = "CONTAINS",
-        CORRESPONDING_KW = "CORRESPONDING",
         CREATE_KW = "CREATE",
         CROSS_KW = "CROSS",
         CUBE_KW = "CUBE",
         CURRENT_KW = "CURRENT",
-        DATE_KW = "DATE",
-        DATETIME_KW = "DATETIME",
-        DECIMAL_KW = "DECIMAL",
-        DECLARE_KW = "DECLARE",
         DEFAULT_KW = "DEFAULT",
         DEFINE_KW = "DEFINE",
         DESC_KW = "DESC",
         DISTINCT_KW = "DISTINCT",
-        DROP_KW = "DROP",
         ELSE_KW = "ELSE",
         END_KW = "END",
         ENUM_KW = "ENUM",
@@ -126,17 +123,13 @@ syntax_kinds! {
         EXCEPT_KW = "EXCEPT",
         EXCLUDE_KW = "EXCLUDE",
         EXISTS_KW = "EXISTS",
-        EXTEND_KW = "EXTEND",
         EXTRACT_KW = "EXTRACT",
         FALSE_KW = "FALSE",
         FETCH_KW = "FETCH",
-        FIRST_KW = "FIRST",
         FOLLOWING_KW = "FOLLOWING",
         FOR_KW = "FOR",
-        FORMAT_KW = "FORMAT",
         FROM_KW = "FROM",
         FULL_KW = "FULL",
-        FUNCTION_KW = "FUNCTION",
         GROUP_KW = "GROUP",
         GROUPING_KW = "GROUPING",
         GROUPS_KW = "GROUPS",
@@ -144,93 +137,110 @@ syntax_kinds! {
         HAVING_KW = "HAVING",
         IF_KW = "IF",
         IGNORE_KW = "IGNORE",
-        IMPORT_KW = "IMPORT",
         IN_KW = "IN",
-        INCLUDE_KW = "INCLUDE",
         INNER_KW = "INNER",
         INTERSECT_KW = "INTERSECT",
         INTERVAL_KW = "INTERVAL",
         INTO_KW = "INTO",
         IS_KW = "IS",
         JOIN_KW = "JOIN",
-        JSON_KW = "JSON",
-        LANGUAGE_KW = "LANGUAGE",
-        LAST_KW = "LAST",
         LATERAL_KW = "LATERAL",
         LEFT_KW = "LEFT",
         LIKE_KW = "LIKE",
         LIMIT_KW = "LIMIT",
         LOOKUP_KW = "LOOKUP",
-        MAX_KW = "MAX",
         MERGE_KW = "MERGE",
-        MIN_KW = "MIN",
-        MODULE_KW = "MODULE",
-        NAME_KW = "NAME",
         NATURAL_KW = "NATURAL",
         NEW_KW = "NEW",
         NO_KW = "NO",
         NOT_KW = "NOT",
         NULL_KW = "NULL",
         NULLS_KW = "NULLS",
-        NUMERIC_KW = "NUMERIC",
         OF_KW = "OF",
-        OFFSET_KW = "OFFSET",
         ON_KW = "ON",
-        OPTIONS_KW = "OPTIONS",
         OR_KW = "OR",
         ORDER_KW = "ORDER",
         OUTER_KW = "OUTER",
         OVER_KW = "OVER",
         PARTITION_KW = "PARTITION",
-        PERCENT_KW = "PERCENT",
-        PIVOT_KW = "PIVOT",
         PRECEDING_KW = "PRECEDING",
-        PRIVATE_KW = "PRIVATE",
         PROTO_KW = "PROTO",
-        PUBLIC_KW = "PUBLIC",
         QUALIFY_KW = "QUALIFY",
         RANGE_KW = "RANGE",
         RECURSIVE_KW = "RECURSIVE",
-        RENAME_KW = "RENAME",
-        REPEATABLE_KW = "REPEATABLE",
-        REPLACE_KW = "REPLACE",
         RESPECT_KW = "RESPECT",
-        RETURNS_KW = "RETURNS",
         RIGHT_KW = "RIGHT",
         ROLLUP_KW = "ROLLUP",
-        ROW_KW = "ROW",
         ROWS_KW = "ROWS",
-        SAFE_CAST_KW = "SAFE_CAST",
         SELECT_KW = "SELECT",
         SET_KW = "SET",
-        SETS_KW = "SETS",
         SOME_KW = "SOME",
-        STRICT_KW = "STRICT",
         STRUCT_KW = "STRUCT",
-        SYSTEM_TIME_KW = "SYSTEM_TIME",
-        TABLE_KW = "TABLE",
         TABLESAMPLE_KW = "TABLESAMPLE",
-        TEMP_KW = "TEMP",
-        TEMPORARY_KW = "TEMPORARY",
         THEN_KW = "THEN",
-        TIME_KW = "TIME",
-        TIMESTAMP_KW = "TIMESTAMP",
         TO_KW = "TO",
         TREAT_KW = "TREAT",
         TRUE_KW = "TRUE",
-        TYPE_KW = "TYPE",
         UNBOUNDED_KW = "UNBOUNDED",
         UNION_KW = "UNION",
-        UNKNOWN_KW = "UNKNOWN",
         UNNEST_KW = "UNNEST",
-        UNPIVOT_KW = "UNPIVOT",
         USING_KW = "USING",
-        WEIGHT_KW = "WEIGHT",
         WHEN_KW = "WHEN",
         WHERE_KW = "WHERE",
         WINDOW_KW = "WINDOW",
         WITH_KW = "WITH",
         WITHIN_KW = "WITHIN",
+    ],
+    keywords: [
+        AGGREGATE_KW = "AGGREGATE",
+        BIGDECIMAL_KW = "BIGDECIMAL",
+        BIGNUMERIC_KW = "BIGNUMERIC",
+        CALL_KW = "CALL",
+        CONSTANT_KW = "CONSTANT",
+        CORRESPONDING_KW = "CORRESPONDING",
+        DATE_KW = "DATE",
+        DATETIME_KW = "DATETIME",
+        DECIMAL_KW = "DECIMAL",
+        DECLARE_KW = "DECLARE",
+        DROP_KW = "DROP",
+        EXTEND_KW = "EXTEND",
+        FIRST_KW = "FIRST",
+        FORMAT_KW = "FORMAT",
+        FUNCTION_KW = "FUNCTION",
+        IMPORT_KW = "IMPORT",
+        INCLUDE_KW = "INCLUDE",
+        JSON_KW = "JSON",
+        LANGUAGE_KW = "LANGUAGE",
+        LAST_KW = "LAST",
+        MAX_KW = "MAX",
+        MIN_KW = "MIN",
+        MODULE_KW = "MODULE",
+        NAME_KW = "NAME",
+        NUMERIC_KW = "NUMERIC",
+        OFFSET_KW = "OFFSET",
+        OPTIONS_KW = "OPTIONS",
+        PERCENT_KW = "PERCENT",
+        PIVOT_KW = "PIVOT",
+        PRIVATE_KW = "PRIVATE",
+        PUBLIC_KW = "PUBLIC",
+        RENAME_KW = "RENAME",
+        REPEATABLE_KW = "REPEATABLE",
+        REPLACE_KW = "REPLACE",
+        RETURNS_KW = "RETURNS",
+        ROW_KW = "ROW",
+        SAFE_CAST_KW = "SAFE_CAST",
+        SETS_KW = "SETS",
+        STRICT_KW = "STRICT",
+        SYSTEM_TIME_KW = "SYSTEM_TIME",
+        TABLE_KW = "TABLE",
+        TEMP_KW = "TEMP",
+        TEMPORARY_KW = "TEMPORARY",
+        TIME_KW = "TIME",
+        TIMESTAMP_KW = "TIMESTAMP",
+        TYPE_KW = "TYPE",
+        UNKNOWN_KW = "UNKNOWN",
+        UNPIVOT_KW = "UNPIVOT",
+        WEIGHT_KW = "WEIGHT",
         ZONE_KW = "ZONE",
     ],
     nodes: [
@@ -404,6 +414,11 @@ impl SyntaxKind {
 
     pub fn is_keyword(self) -> bool {
         (FIRST_KEYWORD..=LAST_KEYWORD).contains(&(self as u16))
+    }
+
+    /// A reserved keyword of GoogleSQL, which is a name only in backticks.
+    pub fn is_reserved(self) -> bool {
+        (FIRST_KEYWORD..=LAST_RESERVED).contains(&(self as u16))
     }
 
     /// Whitespace and comments, which the parser skips.

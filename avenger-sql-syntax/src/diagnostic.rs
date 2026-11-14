@@ -38,6 +38,15 @@ pub struct TextEdit {
     pub replacement: String,
 }
 
+impl TextEdit {
+    pub fn new(range: TextRange, replacement: impl Into<String>) -> Self {
+        Self {
+            range,
+            replacement: replacement.into(),
+        }
+    }
+}
+
 /// A fix of a diagnostic: a description and its edits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fix {
@@ -65,22 +74,19 @@ impl Diagnostic {
         }
     }
 
-    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+    /// Sets the help of the diagnostic.
+    pub fn help(&mut self, help: impl Into<String>) -> &mut Self {
         self.help = Some(help.into());
         self
     }
 
-    pub fn with_fix(mut self, label: impl Into<String>, edits: Vec<TextEdit>) -> Self {
+    /// Adds a fix: its label and its edits.
+    pub fn fix(&mut self, label: impl Into<String>, edits: Vec<TextEdit>) -> &mut Self {
         self.fixes.push(Fix {
             label: label.into(),
             edits,
         });
         self
-    }
-
-    /// The text of `source` that the diagnostic covers.
-    pub fn text<'a>(&self, source: &'a str) -> &'a str {
-        &source[self.range]
     }
 }
 
@@ -95,11 +101,3 @@ impl fmt::Display for Diagnostic {
 }
 
 impl std::error::Error for Diagnostic {}
-
-/// The 1-based line and column of `offset` in `source`. The column counts characters.
-pub fn line_column(source: &str, offset: usize) -> (usize, usize) {
-    let before = &source[..offset];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    (line, before[line_start..].chars().count() + 1)
-}

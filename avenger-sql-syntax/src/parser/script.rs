@@ -122,9 +122,8 @@ impl Parser<'_> {
                 range,
                 "a module holds IMPORT MODULE and CREATE PUBLIC or PRIVATE statements",
             )
-            .help = Some(
-                "functions, table functions and constants go in a module, and queries in a script"
-                    .to_string(),
+            .help(
+                "functions, table functions and constants go in a module, and queries in a script",
             );
             self.skip_until(|p| p.current() == SEMICOLON);
             return None;
@@ -148,10 +147,7 @@ impl Parser<'_> {
                 range,
                 format!("avenger-sql's scripts have no {word} statement"),
             )
-            .help = Some(
-                "a script holds queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE and CREATE FUNCTION"
-                    .to_string(),
-            );
+            .help("a script holds queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE and CREATE FUNCTION");
             self.skip_until(|p| p.current() == SEMICOLON);
             return None;
         }
@@ -207,12 +203,7 @@ impl Parser<'_> {
     fn declare(&mut self) -> super::CompletedMarker {
         let marker = self.start();
         self.bump_keyword();
-        self.comma_list(
-            |p| {
-                p.name(NameRole::Variable);
-            },
-            |_| false,
-        );
+        self.comma_list(|p| p.name(NameRole::Variable));
         let at_end = matches!(self.current(), SEMICOLON | EOF);
         let typed = !self.at_keyword("DEFAULT") && !at_end;
         if typed {
@@ -288,10 +279,7 @@ impl Parser<'_> {
                 range,
                 "a CREATE in a module is PUBLIC or PRIVATE",
             )
-            .help = Some(
-                "PUBLIC objects are visible to the scripts and modules that import the module"
-                    .to_string(),
-            );
+            .help("PUBLIC objects are visible to the scripts and modules that import the module");
         }
         if !self.in_module && public {
             self.error(
@@ -422,11 +410,9 @@ impl Parser<'_> {
         if self.current() == L_PAREN {
             columns = true;
             let list = self.start();
-            let opened = self.open_paren();
-            if opened {
-                self.comma_list(Self::column_definition, |p| p.current() == R_PAREN);
-            }
-            self.close_paren(opened);
+            self.parens(|p| {
+                p.comma_list_until(Self::column_definition, |p| p.current() == R_PAREN);
+            });
             list.complete(self, COLUMN_LIST);
         }
         for clause in [
@@ -490,41 +476,33 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened && self.current() != R_PAREN {
-            self.comma_list(
-                |p| {
-                    let entry = p.start();
-                    // As in GoogleSQL, an option's name can also be HASH, PROTO or PARTITION.
-                    let hint_word = ["HASH", "PROTO", "PARTITION"]
-                        .iter()
-                        .any(|word| p.keyword_at(0, word));
-                    if hint_word {
-                        let name = p.start();
-                        p.bump();
-                        name.complete(p, NAME);
-                    } else {
-                        p.name(NameRole::Option);
-                    }
-                    p.expect(EQ, "`=`");
-                    p.expr();
-                    entry.complete(p, OPTION_ENTRY);
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(
+            |p| {
+                let entry = p.start();
+                // As in GoogleSQL, an option's name can also be HASH, PROTO or PARTITION.
+                let hint_word = ["HASH", "PROTO", "PARTITION"]
+                    .iter()
+                    .any(|word| p.keyword_at(0, word));
+                if hint_word {
+                    let name = p.start();
+                    p.bump();
+                    name.complete(p, NAME);
+                } else {
+                    p.name(NameRole::Option);
+                }
+                p.expect(EQ, "`=`");
+                p.expr();
+                entry.complete(p, OPTION_ENTRY);
+            },
+            true,
+        );
         marker.complete(self, OPTIONS);
     }
 
     /// The rest of `CREATE [AGGREGATE | TABLE] FUNCTION`, after its name.
     fn create_function(&mut self, kind: FunctionKind) {
         let list = self.start();
-        let opened = self.open_paren();
-        if opened && self.current() != R_PAREN {
-            self.comma_list(|p| p.parameter(kind), |_| false);
-        }
-        self.close_paren(opened);
+        self.paren_list(|p| p.parameter(kind), true);
         list.complete(self, PARAM_LIST);
         match kind {
             FunctionKind::Table => {
@@ -567,11 +545,9 @@ impl Parser<'_> {
                 self.options();
                 let body = self.start();
                 self.expect_keyword("AS");
-                let opened = self.open_paren();
-                if opened {
-                    self.expr();
-                }
-                self.close_paren(opened);
+                self.parens(|p| {
+                    p.expr();
+                });
                 body.complete(self, FUNCTION_BODY);
                 if !before {
                     self.options();

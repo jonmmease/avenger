@@ -1,9 +1,11 @@
 //! Names, expressions, types, calls and windows. Expressions use precedence climbing over the
 //! operator precedence of GoogleSQL's grammar.
 
+use rowan::TextRange;
+
 use super::{CompletedMarker, Marker, Parser};
 use crate::{
-    diagnostic::{DiagnosticCode, Fix, TextEdit},
+    diagnostic::{DiagnosticCode, TextEdit},
     parser::is_reserved,
     Expected, NameRole,
     SyntaxKind::{self, *},
@@ -67,16 +69,13 @@ impl Parser<'_> {
             return false;
         }
         diagnostic.code = DiagnosticCode::ReservedName;
-        diagnostic.help = Some(format!(
+        diagnostic.help(format!(
             "`{word}` is reserved; write it in backticks to use it as a name"
         ));
-        diagnostic.fixes.push(Fix {
-            label: "Quote the name in backticks".to_string(),
-            edits: vec![TextEdit {
-                range,
-                replacement: format!("`{word}`"),
-            }],
-        });
+        diagnostic.fix(
+            "Quote the name in backticks",
+            vec![TextEdit::new(range, format!("`{word}`"))],
+        );
         if ends {
             let marker = self.start();
             self.bump();
@@ -87,25 +86,23 @@ impl Parser<'_> {
 
     /// A name that the node defines, such as an alias.
     pub(super) fn name(&mut self, role: NameRole) -> bool {
-        self.record_name(role);
-        if !self.at_ident() {
-            return self.error_name(NAME);
-        }
-        let marker = self.start();
-        self.bump();
-        marker.complete(self, NAME);
-        true
+        self.name_node(NAME, role)
     }
 
     /// A name that refers to a definition, such as a column.
     pub(super) fn name_ref(&mut self, role: NameRole) -> bool {
+        self.name_node(NAME_REF, role)
+    }
+
+    /// A `NAME` or a `NAME_REF` in `role`.
+    fn name_node(&mut self, kind: SyntaxKind, role: NameRole) -> bool {
         self.record_name(role);
         if !self.at_ident() {
-            return self.error_name(NAME_REF);
+            return self.error_name(kind);
         }
         let marker = self.start();
         self.bump();
-        marker.complete(self, NAME_REF);
+        marker.complete(self, kind);
         true
     }
 
@@ -154,16 +151,7 @@ impl Parser<'_> {
     /// `(name, ...)` of names in `role`.
     pub(super) fn name_list(&mut self, role: NameRole) {
         let marker = self.start();
-        let opened = self.open_paren();
-        if opened {
-            self.comma_list(
-                |p| {
-                    p.name_ref(role);
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(|p| p.name_ref(role), false);
         marker.complete(self, NAME_LIST);
     }
 
@@ -217,7 +205,7 @@ impl Parser<'_> {
                         range,
                         "comparisons don't chain",
                     )
-                    .help = Some("use parentheses or AND, as in `a < b AND b < c`".to_string());
+                    .help("use parentheses or AND, as in `a < b AND b < c`");
                 }
                 compared = true;
                 left = self.comparison(left);
@@ -225,14 +213,7 @@ impl Parser<'_> {
             }
             let marker = left.precede(self);
             let shift = self.current() == GT;
-            match self.current() {
-                WORD => {
-                    self.bump_keyword();
-                }
-                _ => {
-                    self.bump();
-                }
-            }
+            self.bump_keyword();
             if shift {
                 self.bump();
             }
@@ -350,16 +331,7 @@ impl Parser<'_> {
             marker.complete(self, IN_QUERY);
             return;
         }
-        let opened = self.open_paren();
-        if opened {
-            self.comma_list(
-                |p| {
-                    p.expr();
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(Self::expr, false);
         marker.complete(self, IN_LIST);
     }
 
@@ -383,37 +355,24 @@ impl Parser<'_> {
                         range,
                         "this NOT needs parentheses",
                     )
-                    .help = Some("write the NOT in parentheses, as in `a = (NOT b)`".to_string());
+                    .help("write the NOT in parentheses, as in `a = (NOT b)`");
                     Some(self.diagnostics.len() - 1)
                 }
                 false => None,
             };
             let marker = self.start();
-            match self.current() {
-                WORD => {
-                    self.bump_keyword();
-                }
-                _ => {
-                    self.bump();
-                }
-            }
+            self.bump_keyword();
             self.expr_at(operand_level);
             let node = marker.complete(self, PREFIX_EXPR);
             if let Some(index) = diagnostic {
                 let range = self.node_range(node);
-                self.diagnostics[index].fixes.push(Fix {
-                    label: "Put the NOT in parentheses".to_string(),
-                    edits: vec![
-                        TextEdit {
-                            range: rowan::TextRange::empty(range.start()),
-                            replacement: "(".to_string(),
-                        },
-                        TextEdit {
-                            range: rowan::TextRange::empty(range.end()),
-                            replacement: ")".to_string(),
-                        },
+                self.diagnostics[index].fix(
+                    "Put the NOT in parentheses",
+                    vec![
+                        TextEdit::new(TextRange::empty(range.start()), "("),
+                        TextEdit::new(TextRange::empty(range.end()), ")"),
                     ],
-                });
+                );
             }
             return Some(node);
         }
@@ -503,14 +462,10 @@ impl Parser<'_> {
                     range,
                     "concatenated string literals need whitespace or a comment between them",
                 )
-                .fixes
-                .push(Fix {
-                    label: "Add a space between the literals".to_string(),
-                    edits: vec![TextEdit {
-                        range: rowan::TextRange::empty(at),
-                        replacement: " ".to_string(),
-                    }],
-                });
+                .fix(
+                    "Add a space between the literals",
+                    vec![TextEdit::new(TextRange::empty(at), " ")],
+                );
             } else if self.current() != kind {
                 let range = self.range();
                 self.error(
@@ -582,12 +537,12 @@ impl Parser<'_> {
                 self.bump();
                 self.ty();
                 self.expect(GT, "`>`");
-                self.typed_value();
+                self.string_literal();
                 TYPED_LITERAL
             }
             _ if TYPED_LITERALS.contains(&word.as_str()) && next == STRING => {
                 self.bump_keyword();
-                self.typed_value();
+                self.string_literal();
                 TYPED_LITERAL
             }
             _ if TYPED_LITERALS.contains(&word.as_str()) && next == BYTES => {
@@ -625,11 +580,6 @@ impl Parser<'_> {
         Some(marker.complete(self, kind))
     }
 
-    /// The string of a typed literal.
-    fn typed_value(&mut self) {
-        self.string_literal();
-    }
-
     /// A path, or a call when `(` follows it.
     fn name_or_call(&mut self) -> Option<CompletedMarker> {
         let bare = self.current() == WORD
@@ -649,68 +599,59 @@ impl Parser<'_> {
     /// The arguments and clauses of a call, from `(`, and its `OVER`.
     fn call_arguments(&mut self) {
         let list = self.start();
-        let opened = self.open_paren();
-        if opened {
-            self.eat_keyword("DISTINCT");
-            if self.current() == STAR {
-                let star = self.start();
-                let range = self.bump();
-                star.complete(self, STAR_ARG);
-                if self.current() == COMMA {
-                    self.error(
+        self.parens(|p| {
+            p.eat_keyword("DISTINCT");
+            if p.current() == STAR {
+                let star = p.start();
+                let range = p.bump();
+                star.complete(p, STAR_ARG);
+                if p.current() == COMMA {
+                    p.error(
                         DiagnosticCode::Expected,
                         range,
                         "`*` is a call's only argument, as in `COUNT(*)`",
                     );
-                    while self.eat(COMMA) {
-                        self.argument();
+                    while p.eat(COMMA) {
+                        p.argument();
                     }
                 }
-            } else if self.current() != R_PAREN {
-                self.comma_list(Self::argument, |_| false);
+            } else if p.current() != R_PAREN {
+                p.comma_list(Self::argument);
             }
-            if self.at_keyword("IGNORE") || self.at_keyword("RESPECT") {
-                let treatment = self.start();
-                self.bump_keyword();
-                self.expect_keyword("NULLS");
-                treatment.complete(self, NULL_TREATMENT);
+            if p.at_keyword("IGNORE") || p.at_keyword("RESPECT") {
+                let treatment = p.start();
+                p.bump_keyword();
+                p.expect_keyword("NULLS");
+                treatment.complete(p, NULL_TREATMENT);
             }
-            if self.at_keyword("HAVING") {
-                let having = self.start();
-                self.bump_keyword();
-                match self.at_keyword("MAX") || self.at_keyword("MIN") {
-                    true => {
-                        self.bump_keyword();
-                    }
-                    false => {
-                        self.error_expected("`MAX` or `MIN`");
-                    }
-                }
-                self.expr();
-                having.complete(self, HAVING_CLAUSE);
+            if p.at_keyword("HAVING") {
+                let having = p.start();
+                p.bump_keyword();
+                p.expect_keyword_of(&["MAX", "MIN"]);
+                p.expr();
+                having.complete(p, HAVING_CLAUSE);
             }
-            if self.at_keyword("GROUP") || self.at_keyword("WHERE") {
-                let range = self.range();
-                self.error(
+            if p.at_keyword("GROUP") || p.at_keyword("WHERE") {
+                let range = p.range();
+                p.error(
                     DiagnosticCode::Unsupported,
                     range,
                     "avenger-sql doesn't support WHERE or GROUP BY in an aggregate call",
                 );
-                self.skip_until(|p| {
+                p.skip_until(|p| {
                     p.current() == R_PAREN || p.at_keyword("ORDER") || p.at_keyword("LIMIT")
                 });
             }
-            if self.at_keyword("ORDER") {
-                self.order_by(|_| false);
+            if p.at_keyword("ORDER") {
+                p.order_by(|_| false);
             }
-            if self.at_keyword("LIMIT") {
-                let limit = self.start();
-                self.bump_keyword();
-                self.expr();
-                limit.complete(self, CALL_LIMIT);
+            if p.at_keyword("LIMIT") {
+                let limit = p.start();
+                p.bump_keyword();
+                p.expr();
+                limit.complete(p, CALL_LIMIT);
             }
-        }
-        self.close_paren(opened);
+        });
         list.complete(self, ARG_LIST);
         if self.at_keyword("OVER") {
             let over = self.start();
@@ -775,11 +716,7 @@ impl Parser<'_> {
     /// The arguments of a table function call, in parentheses.
     pub(super) fn table_arguments(&mut self) {
         let marker = self.start();
-        let opened = self.open_paren();
-        if opened && self.current() != R_PAREN {
-            self.comma_list(Self::table_argument, |_| false);
-        }
-        self.close_paren(opened);
+        self.paren_list(Self::table_argument, true);
         marker.complete(self, ARG_LIST);
     }
 
@@ -817,12 +754,7 @@ impl Parser<'_> {
             return;
         }
         if self.current() != R_BRACK {
-            self.comma_list(
-                |p| {
-                    p.expr();
-                },
-                |_| false,
-            );
+            self.comma_list(Self::expr);
         }
         self.expect(R_BRACK, "`]`");
     }
@@ -833,24 +765,20 @@ impl Parser<'_> {
         if self.eat(LT) {
             self.struct_fields();
         }
-        let opened = self.open_paren();
-        if opened && self.current() != R_PAREN {
-            self.comma_list(
-                |p| {
-                    let marker = p.start();
-                    p.expr();
-                    if p.at_keyword("AS") {
-                        let alias = p.start();
-                        p.bump_keyword();
-                        p.name(NameRole::Field);
-                        alias.complete(p, ALIAS);
-                    }
-                    marker.complete(p, ALIASED_EXPR);
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(
+            |p| {
+                let marker = p.start();
+                p.expr();
+                if p.at_keyword("AS") {
+                    let alias = p.start();
+                    p.bump_keyword();
+                    p.name(NameRole::Field);
+                    alias.complete(p, ALIAS);
+                }
+                marker.complete(p, ALIASED_EXPR);
+            },
+            true,
+        );
     }
 
     fn case(&mut self) {
@@ -883,20 +811,18 @@ impl Parser<'_> {
     /// `CAST(expr AS type [FORMAT format [AT TIME ZONE zone]])`, or `SAFE_CAST`.
     fn cast(&mut self) {
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened {
-            self.expr();
-            self.expect_keyword("AS");
-            self.ty();
-            if self.at_keyword("FORMAT") {
-                let format = self.start();
-                self.bump_keyword();
-                self.expr();
-                self.time_zone();
-                format.complete(self, FORMAT_CLAUSE);
+        self.parens(|p| {
+            p.expr();
+            p.expect_keyword("AS");
+            p.ty();
+            if p.at_keyword("FORMAT") {
+                let format = p.start();
+                p.bump_keyword();
+                p.expr();
+                p.time_zone();
+                format.complete(p, FORMAT_CLAUSE);
             }
-        }
-        self.close_paren(opened);
+        });
     }
 
     /// `[AT TIME ZONE zone]`
@@ -915,15 +841,13 @@ impl Parser<'_> {
     /// `EXTRACT(part FROM expr [AT TIME ZONE zone])`
     fn extract(&mut self) {
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened {
-            self.record_name(NameRole::DatePart);
-            self.name_or_call();
-            self.expect_keyword("FROM");
-            self.expr();
-            self.time_zone();
-        }
-        self.close_paren(opened);
+        self.parens(|p| {
+            p.record_name(NameRole::DatePart);
+            p.name_or_call();
+            p.expect_keyword("FROM");
+            p.expr();
+            p.time_zone();
+        });
     }
 
     /// `ORDER BY` keys, up to a token that `ends` accepts after a trailing comma.
@@ -931,13 +855,11 @@ impl Parser<'_> {
         let marker = self.start();
         self.bump_keyword();
         self.expect_keyword("BY");
-        self.comma_list(
+        self.comma_list_until(
             |p| {
                 let key = p.start();
                 p.expr();
-                if p.at_keyword("ASC") || p.at_keyword("DESC") {
-                    p.bump_keyword();
-                }
+                p.eat_keyword_of(&["ASC", "DESC"]);
                 p.nulls();
                 key.complete(p, ORDER_KEY);
             },
@@ -951,14 +873,7 @@ impl Parser<'_> {
         if !self.eat_keyword("NULLS") {
             return;
         }
-        match self.at_keyword("FIRST") || self.at_keyword("LAST") {
-            true => {
-                self.bump_keyword();
-            }
-            false => {
-                self.error_expected("`FIRST` or `LAST`");
-            }
-        }
+        self.expect_keyword_of(&["FIRST", "LAST"]);
     }
 
     /// The window of `OVER` or of `WINDOW name AS`.
@@ -968,31 +883,24 @@ impl Parser<'_> {
             return;
         }
         let marker = self.start();
-        let opened = self.open_paren();
-        if opened {
-            if self.at_ident() {
-                self.name_ref(NameRole::Window);
+        self.parens(|p| {
+            if p.at_ident() {
+                p.name_ref(NameRole::Window);
             }
-            if self.at_keyword("PARTITION") {
-                let partition = self.start();
-                self.bump_keyword();
-                self.expect_keyword("BY");
-                self.comma_list(
-                    |p| {
-                        p.expr();
-                    },
-                    |_| false,
-                );
-                partition.complete(self, PARTITION_BY);
+            if p.at_keyword("PARTITION") {
+                let partition = p.start();
+                p.bump_keyword();
+                p.expect_keyword("BY");
+                p.comma_list(Self::expr);
+                partition.complete(p, PARTITION_BY);
             }
-            if self.at_keyword("ORDER") {
-                self.order_by(|_| false);
+            if p.at_keyword("ORDER") {
+                p.order_by(|_| false);
             }
-            if self.at_keyword("ROWS") || self.at_keyword("RANGE") {
-                self.frame();
+            if p.at_keyword("ROWS") || p.at_keyword("RANGE") {
+                p.frame();
             }
-        }
-        self.close_paren(opened);
+        });
         marker.complete(self, WINDOW_SPEC);
     }
 
@@ -1012,24 +920,10 @@ impl Parser<'_> {
     fn frame_bound(&mut self) {
         let marker = self.start();
         if self.eat_keyword("UNBOUNDED") {
-            match self.at_keyword("PRECEDING") || self.at_keyword("FOLLOWING") {
-                true => {
-                    self.bump_keyword();
-                }
-                false => {
-                    self.error_expected("`PRECEDING` or `FOLLOWING`");
-                }
-            }
+            self.expect_keyword_of(&["PRECEDING", "FOLLOWING"]);
         } else if !self.eat_keywords(&["CURRENT", "ROW"]) {
             self.expr();
-            match self.at_keyword("PRECEDING") || self.at_keyword("FOLLOWING") {
-                true => {
-                    self.bump_keyword();
-                }
-                false => {
-                    self.error_expected("`PRECEDING` or `FOLLOWING`");
-                }
-            }
+            self.expect_keyword_of(&["PRECEDING", "FOLLOWING"]);
         }
         marker.complete(self, FRAME_BOUND);
     }
@@ -1061,11 +955,7 @@ impl Parser<'_> {
             self.name_ref(NameRole::Type);
             if self.current() == L_PAREN {
                 let params = self.start();
-                let opened = self.open_paren();
-                if opened {
-                    self.comma_list(Self::type_parameter, |_| false);
-                }
-                self.close_paren(opened);
+                self.paren_list(Self::type_parameter, false);
                 params.complete(self, TYPE_PARAMS);
             }
             NAMED_TYPE
@@ -1117,10 +1007,5 @@ impl Parser<'_> {
     /// Whether the current `<` and a `>` after it are adjacent, which makes `<>`.
     fn adjacent_lt_gt(&self) -> bool {
         self.current() == LT && self.nth(1) == GT && self.adjacent(0)
-    }
-
-    /// The column of a `PIVOT`'s `FOR`, which binds tighter than its `IN`.
-    pub(super) fn pivot_column(&mut self) {
-        self.expr_at(BIT_OR_LEVEL);
     }
 }

@@ -1,6 +1,6 @@
 //! Queries, the items of `FROM`, and the pipe operators.
 
-use super::{CompletedMarker, Parser};
+use super::{expr::BIT_OR_LEVEL, CompletedMarker, Parser};
 use crate::{
     diagnostic::DiagnosticCode,
     Expected, NameRole,
@@ -55,13 +55,10 @@ impl Parser<'_> {
             let diagnostic = self.error_expected("`FROM`");
             if select {
                 diagnostic.code = DiagnosticCode::NotPipeSyntax;
-                diagnostic.help = Some(format!("avenger-sql reads pipe queries: {FROM_FIRST}"));
+                diagnostic.help(format!("avenger-sql reads pipe queries: {FROM_FIRST}"));
             } else if with {
                 diagnostic.code = DiagnosticCode::NotPipeSyntax;
-                diagnostic.help = Some(
-                    "a pipe WITH names queries, as in `FROM t |> WITH u AS (FROM v) |> JOIN u USING (k)`"
-                        .to_string(),
-                );
+                diagnostic.help("a pipe WITH names queries, as in `FROM t |> WITH u AS (FROM v) |> JOIN u USING (k)`");
             }
             self.skip_until(|p| p.at_sync());
         }
@@ -75,11 +72,9 @@ impl Parser<'_> {
     /// `(query)`
     pub(super) fn parenthesized_query(&mut self) -> CompletedMarker {
         let marker = self.start();
-        let opened = self.open_paren();
-        if opened {
-            self.query();
-        }
-        self.close_paren(opened);
+        self.parens(|p| {
+            p.query();
+        });
         marker.complete(self, PAREN_QUERY)
     }
 
@@ -114,10 +109,7 @@ impl Parser<'_> {
                     range,
                     "a RIGHT or FULL JOIN after a comma join needs parentheses",
                 )
-                .help = Some(
-                    "put the comma join in parentheses, as in `FROM (a, b) RIGHT JOIN c ON ...`"
-                        .to_string(),
-                );
+                .help("put the comma join in parentheses, as in `FROM (a, b) RIGHT JOIN c ON ...`");
             }
             self.source();
             self.join_condition(kind == Some(CROSS_KW));
@@ -181,7 +173,7 @@ impl Parser<'_> {
                 range,
                 "a CROSS JOIN takes no condition",
             )
-            .help = Some("an INNER JOIN takes ON or USING".to_string());
+            .help("an INNER JOIN takes ON or USING");
         }
     }
 
@@ -203,45 +195,29 @@ impl Parser<'_> {
         let marker = self.start();
         let lateral = self.keyword_range("LATERAL");
         let kind = if self.current() == L_PAREN {
-            if self.keyword_at(1, "FROM") {
-                self.parenthesized_query();
-                self.table_alias();
-                SUBQUERY_SOURCE
-            } else {
-                match self.attempt(|p| {
-                    p.parenthesized_query();
-                }) {
-                    Ok(()) => {
-                        self.table_alias();
-                        SUBQUERY_SOURCE
-                    }
-                    Err(query_error) if lateral.is_none() => {
-                        let checkpoint = self.checkpoint();
-                        self.parenthesized_join();
-                        let join_error = self
-                            .diagnostics
-                            .get(checkpoint.diagnostics)
-                            .map(|error| error.range.start());
-                        match join_error {
-                            Some(join_error) if join_error < query_error => {
-                                self.rewind(&checkpoint);
-                                self.parenthesized_query();
-                                self.table_alias();
-                                SUBQUERY_SOURCE
-                            }
-                            _ => {
-                                let node = marker.complete(self, PAREN_JOIN);
-                                return Some(node);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        self.parenthesized_query();
-                        self.table_alias();
-                        SUBQUERY_SOURCE
-                    }
+            // A query, or a join when the join reads further than the query before its first
+            // error.
+            let query = match self.keyword_at(1, "FROM") {
+                true => Err(None),
+                false => self
+                    .attempt(|p| {
+                        p.parenthesized_query();
+                    })
+                    .map_err(Some),
+            };
+            match query {
+                Err(Some(at))
+                    if lateral.is_none() && self.attempt_past(at, Self::parenthesized_join) =>
+                {
+                    return Some(marker.complete(self, PAREN_JOIN));
                 }
+                Err(_) => {
+                    self.parenthesized_query();
+                }
+                Ok(()) => {}
             }
+            self.table_alias();
+            SUBQUERY_SOURCE
         } else if lateral.is_none() && self.at_keyword("UNNEST") {
             self.bump_keyword();
             self.unnest_arguments();
@@ -263,7 +239,7 @@ impl Parser<'_> {
                         range,
                         "a table function's name has no dashes",
                     )
-                    .help = Some("quote the name in backticks".to_string());
+                    .help("quote the name in backticks");
                 }
                 self.table_arguments();
                 self.table_alias();
@@ -307,57 +283,50 @@ impl Parser<'_> {
 
     /// `(join)`, a join in parentheses, which holds a join and no commas.
     fn parenthesized_join(&mut self) {
-        let opened = self.open_paren();
-        if opened {
-            if let Some(mut item) = self.source() {
+        self.parens(|p| {
+            if let Some(mut item) = p.source() {
                 let mut joined = false;
-                while self.at_join() {
-                    let marker = item.precede(self);
-                    let kind = self.join_op();
-                    self.source();
-                    self.join_condition(kind == Some(CROSS_KW));
-                    item = marker.complete(self, JOIN);
+                while p.at_join() {
+                    let marker = item.precede(p);
+                    let kind = p.join_op();
+                    p.source();
+                    p.join_condition(kind == Some(CROSS_KW));
+                    item = marker.complete(p, JOIN);
                     joined = true;
                 }
                 if !joined {
-                    self.error_expected("a JOIN").help = Some(
-                        "parentheses in FROM hold a join or a query, as in `(a JOIN b USING (k))`"
-                            .to_string(),
+                    p.error_expected("a JOIN").help(
+                        "parentheses in FROM hold a join or a query, as in `(a JOIN b USING (k))`",
                     );
                 }
             }
-        }
-        self.close_paren(opened);
+        });
     }
 
     /// `(array [[AS] alias], ... [, mode => value])` of `UNNEST`.
     fn unnest_arguments(&mut self) {
-        let opened = self.open_paren();
-        if opened {
-            loop {
-                if self.at_ident() && self.nth(1) == FAT_ARROW {
-                    let marker = self.start();
-                    if !self.nth_text(0).eq_ignore_ascii_case("mode") {
-                        let range = self.range();
-                        self.error(
-                            DiagnosticCode::Expected,
-                            range,
-                            "UNNEST takes one named argument, `mode`",
-                        );
-                    }
-                    self.name_ref(NameRole::Parameter);
-                    self.bump();
-                    self.expr();
-                    marker.complete(self, NAMED_ARG);
-                    break;
+        self.parens(|p| loop {
+            if p.at_ident() && p.nth(1) == FAT_ARROW {
+                let marker = p.start();
+                if !p.nth_text(0).eq_ignore_ascii_case("mode") {
+                    let range = p.range();
+                    p.error(
+                        DiagnosticCode::Expected,
+                        range,
+                        "UNNEST takes one named argument, `mode`",
+                    );
                 }
-                self.aliased_expr();
-                if !self.eat(COMMA) {
-                    break;
-                }
+                p.name_ref(NameRole::Parameter);
+                p.bump();
+                p.expr();
+                marker.complete(p, NAMED_ARG);
+                break;
             }
-        }
-        self.close_paren(opened);
+            p.aliased_expr();
+            if !p.eat(COMMA) {
+                break;
+            }
+        });
     }
 
     /// `[WITH OFFSET [[AS] alias]]`
@@ -520,7 +489,7 @@ impl Parser<'_> {
             }
             "SET" => {
                 self.bump_keyword();
-                self.comma_list(
+                self.comma_list_until(
                     |p| {
                         let marker = p.start();
                         p.name_ref(NameRole::Column);
@@ -534,17 +503,12 @@ impl Parser<'_> {
             }
             "DROP" => {
                 self.bump_keyword();
-                self.comma_list(
-                    |p| {
-                        p.name_ref(NameRole::Column);
-                    },
-                    Self::at_operator_end,
-                );
+                self.comma_list_until(|p| p.name_ref(NameRole::Column), Self::at_operator_end);
                 PIPE_DROP
             }
             "RENAME" => {
                 self.bump_keyword();
-                self.comma_list(
+                self.comma_list_until(
                     |p| {
                         let marker = p.start();
                         p.name_ref(NameRole::Column);
@@ -635,7 +599,7 @@ impl Parser<'_> {
                     self.skip_until(|p| p.at_sync());
                     return Some(PIPE_WITH);
                 }
-                self.comma_list(
+                self.comma_list_until(
                     |p| {
                         let marker = p.start();
                         p.name(NameRole::Query);
@@ -662,7 +626,7 @@ impl Parser<'_> {
                     range,
                     "GROUP BY goes in a pipe AGGREGATE",
                 )
-                .help = Some("write `|> AGGREGATE COUNT(*) GROUP BY k`".to_string());
+                .help("write `|> AGGREGATE COUNT(*) GROUP BY k`");
                 self.skip_until(|p| p.at_sync());
                 return None;
             }
@@ -687,7 +651,7 @@ impl Parser<'_> {
 
     /// The items of a pipe `SELECT` or `EXTEND`.
     fn select_list(&mut self) {
-        self.comma_list(Self::select_item, |p| {
+        self.comma_list_until(Self::select_item, |p| {
             p.at_operator_end() || p.at_keyword("WINDOW")
         });
     }
@@ -714,20 +678,16 @@ impl Parser<'_> {
         if self.at_keyword("REPLACE") && self.nth(1) == L_PAREN {
             let replace = self.start();
             self.bump_keyword();
-            let opened = self.open_paren();
-            if opened {
-                self.comma_list(
-                    |p| {
-                        let item = p.start();
-                        p.expr();
-                        p.expect_keyword("AS");
-                        p.name(NameRole::Alias);
-                        item.complete(p, REPLACE_ITEM);
-                    },
-                    |_| false,
-                );
-            }
-            self.close_paren(opened);
+            self.paren_list(
+                |p| {
+                    let item = p.start();
+                    p.expr();
+                    p.expect_keyword("AS");
+                    p.name(NameRole::Alias);
+                    item.complete(p, REPLACE_ITEM);
+                },
+                false,
+            );
             replace.complete(self, REPLACE_LIST);
         }
         marker.complete(self, WILDCARD);
@@ -758,7 +718,7 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.bump_keyword();
-        self.comma_list(
+        self.comma_list_until(
             |p| {
                 let window = p.start();
                 p.name(NameRole::Window);
@@ -776,7 +736,7 @@ impl Parser<'_> {
         self.bump_keyword();
         let at_group = |p: &Self| p.at_keyword("GROUP") || p.at_operator_end();
         if !at_group(self) {
-            self.comma_list(
+            self.comma_list_until(
                 |p| {
                     let marker = p.start();
                     p.expr();
@@ -795,7 +755,7 @@ impl Parser<'_> {
                 self.bump_keyword();
             }
             self.expect_keyword("BY");
-            self.comma_list(Self::grouping_item, Self::at_operator_end);
+            self.comma_list_until(Self::grouping_item, Self::at_operator_end);
             marker.complete(self, GROUP_BY);
         }
     }
@@ -809,18 +769,14 @@ impl Parser<'_> {
         if self.at_keyword("GROUPING") && self.keyword_at(1, "SETS") {
             let marker = self.start();
             self.eat_keywords(&["GROUPING", "SETS"]);
-            let opened = self.open_paren();
-            if opened {
-                self.comma_list(
-                    |p| {
-                        if !p.grouping_base() {
-                            p.expr();
-                        }
-                    },
-                    |_| false,
-                );
-            }
-            self.close_paren(opened);
+            self.paren_list(
+                |p| {
+                    if !p.grouping_base() {
+                        p.expr();
+                    }
+                },
+                false,
+            );
             marker.complete(self, GROUPING_SETS);
             return;
         }
@@ -846,16 +802,7 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened {
-            self.comma_list(
-                |p| {
-                    p.expr();
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(Self::expr, false);
         marker.complete(self, if rollup { ROLLUP } else { CUBE });
         true
     }
@@ -883,10 +830,8 @@ impl Parser<'_> {
         } else {
             self.bump_keyword();
         }
-        if self.at_keyword("ALL") || self.at_keyword("DISTINCT") {
-            self.bump_keyword();
-        } else {
-            self.error_expected("`ALL` or `DISTINCT`").help = Some(format!(
+        if !self.eat_keyword_of(&["ALL", "DISTINCT"]) {
+            self.error_expected("`ALL` or `DISTINCT`").help(format!(
                 "GoogleSQL writes `{operator} ALL` or `{operator} DISTINCT`"
             ));
         }
@@ -921,12 +866,7 @@ impl Parser<'_> {
                 "the mode of a set operation goes with BY NAME or CORRESPONDING",
             );
         }
-        self.comma_list(
-            |p| {
-                p.parenthesized_query();
-            },
-            Self::at_operator_end,
-        );
+        self.comma_list_until(Self::parenthesized_query, Self::at_operator_end);
     }
 
     /// `TABLESAMPLE method (size {ROWS | PERCENT} [PARTITION BY exprs]) [REPEATABLE (seed)]
@@ -935,33 +875,19 @@ impl Parser<'_> {
         let marker = self.start();
         self.bump_keyword();
         self.name_ref(NameRole::Other);
-        let opened = self.open_paren();
-        if opened {
-            let size = self.start();
-            self.sample_number(true);
-            match self.at_keyword("ROWS") || self.at_keyword("PERCENT") {
-                true => {
-                    self.bump_keyword();
-                }
-                false => {
-                    self.error_expected("`ROWS` or `PERCENT`");
-                }
+        self.parens(|p| {
+            let size = p.start();
+            p.sample_number(true);
+            p.expect_keyword_of(&["ROWS", "PERCENT"]);
+            if p.at_keyword("PARTITION") {
+                let partition = p.start();
+                p.bump_keyword();
+                p.expect_keyword("BY");
+                p.comma_list(Self::expr);
+                partition.complete(p, PARTITION_BY);
             }
-            if self.at_keyword("PARTITION") {
-                let partition = self.start();
-                self.bump_keyword();
-                self.expect_keyword("BY");
-                self.comma_list(
-                    |p| {
-                        p.expr();
-                    },
-                    |_| false,
-                );
-                partition.complete(self, PARTITION_BY);
-            }
-            size.complete(self, SAMPLE_SIZE);
-        }
-        self.close_paren(opened);
+            size.complete(p, SAMPLE_SIZE);
+        });
         let repeatable = self.repeatable();
         if !repeatable && self.at_keyword("WITH") && self.keyword_at(1, "WEIGHT") {
             let weight = self.start();
@@ -982,11 +908,9 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened {
-            self.sample_number(false);
-        }
-        self.close_paren(opened);
+        self.parens(|p| {
+            p.sample_number(false);
+        });
         marker.complete(self, REPEATABLE);
         true
     }
@@ -1014,19 +938,14 @@ impl Parser<'_> {
     fn pivot(&mut self) {
         let marker = self.start();
         self.bump_keyword();
-        let opened = self.open_paren();
-        if opened {
-            self.comma_list(Self::aliased_expr, |_| false);
-            self.expect_keyword("FOR");
-            self.pivot_column();
-            self.expect_keyword("IN");
-            let values = self.open_paren();
-            if values {
-                self.comma_list(Self::aliased_expr, |_| false);
-            }
-            self.close_paren(values);
-        }
-        self.close_paren(opened);
+        self.parens(|p| {
+            p.comma_list(Self::aliased_expr);
+            p.expect_keyword("FOR");
+            // The column binds tighter than the `IN` after it.
+            p.expr_at(BIT_OR_LEVEL);
+            p.expect_keyword("IN");
+            p.paren_list(Self::aliased_expr, false);
+        });
         self.table_alias();
         marker.complete(self, PIVOT_CLAUSE);
     }
@@ -1046,45 +965,39 @@ impl Parser<'_> {
         if !self.eat_keywords(&["INCLUDE", "NULLS"]) {
             self.eat_keywords(&["EXCLUDE", "NULLS"]);
         }
-        let opened = self.open_paren();
-        if opened {
-            self.path_or_paths();
-            self.expect_keyword("FOR");
-            self.path(NameRole::Column);
-            self.expect_keyword("IN");
-            let columns = self.open_paren();
-            if columns {
-                self.comma_list(
-                    |p| {
-                        let item = p.start();
-                        p.path_or_paths();
-                        let as_range = p.range();
-                        let has_as = p.eat_keyword("AS");
-                        match p.current() {
-                            STRING | INTEGER => {
-                                p.primary();
-                            }
-                            _ if has_as => {
-                                let range = as_range.cover(p.range());
-                                p.error(
-                                    DiagnosticCode::Expected,
-                                    range,
-                                    "an UNPIVOT label is a string or an integer",
-                                );
-                                if !p.at_sync() && !matches!(p.current(), COMMA | R_PAREN) {
-                                    p.bump();
-                                }
-                            }
-                            _ => {}
+        self.parens(|p| {
+            p.path_or_paths();
+            p.expect_keyword("FOR");
+            p.path(NameRole::Column);
+            p.expect_keyword("IN");
+            p.paren_list(
+                |p| {
+                    let item = p.start();
+                    p.path_or_paths();
+                    let as_range = p.range();
+                    let has_as = p.eat_keyword("AS");
+                    match p.current() {
+                        STRING | INTEGER => {
+                            p.primary();
                         }
-                        item.complete(p, UNPIVOT_COLUMNS);
-                    },
-                    |_| false,
-                );
-            }
-            self.close_paren(columns);
-        }
-        self.close_paren(opened);
+                        _ if has_as => {
+                            let range = as_range.cover(p.range());
+                            p.error(
+                                DiagnosticCode::Expected,
+                                range,
+                                "an UNPIVOT label is a string or an integer",
+                            );
+                            if !p.at_sync() && !matches!(p.current(), COMMA | R_PAREN) {
+                                p.bump();
+                            }
+                        }
+                        _ => {}
+                    }
+                    item.complete(p, UNPIVOT_COLUMNS);
+                },
+                false,
+            );
+        });
         self.table_alias();
         marker.complete(self, UNPIVOT_CLAUSE);
     }
@@ -1096,16 +1009,7 @@ impl Parser<'_> {
             return;
         }
         let marker = self.start();
-        let opened = self.open_paren();
-        if opened {
-            self.comma_list(
-                |p| {
-                    p.path(NameRole::Column);
-                },
-                |_| false,
-            );
-        }
-        self.close_paren(opened);
+        self.paren_list(|p| p.path(NameRole::Column), false);
         marker.complete(self, NAME_LIST);
     }
 }

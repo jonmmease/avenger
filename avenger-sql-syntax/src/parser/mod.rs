@@ -27,111 +27,9 @@ use crate::{
 /// The deepest nesting of expressions and queries that the parser reads.
 const MAX_DEPTH: u32 = 256;
 
-/// The reserved keywords of GoogleSQL, as in its `keywords.cc`. A reserved keyword is a name
-/// only in backticks.
-const RESERVED: &[&str] = &[
-    "ALL",
-    "AND",
-    "ANY",
-    "ARRAY",
-    "AS",
-    "ASC",
-    "ASSERT_ROWS_MODIFIED",
-    "AT",
-    "BETWEEN",
-    "BY",
-    "CASE",
-    "CAST",
-    "COLLATE",
-    "CONTAINS",
-    "CREATE",
-    "CROSS",
-    "CUBE",
-    "CURRENT",
-    "DEFAULT",
-    "DEFINE",
-    "DESC",
-    "DISTINCT",
-    "ELSE",
-    "END",
-    "ENUM",
-    "ESCAPE",
-    "EXCEPT",
-    "EXCLUDE",
-    "EXISTS",
-    "EXTRACT",
-    "FALSE",
-    "FETCH",
-    "FOLLOWING",
-    "FOR",
-    "FROM",
-    "FULL",
-    "GROUP",
-    "GROUPING",
-    "GROUPS",
-    "HASH",
-    "HAVING",
-    "IF",
-    "IGNORE",
-    "IN",
-    "INNER",
-    "INTERSECT",
-    "INTERVAL",
-    "INTO",
-    "IS",
-    "JOIN",
-    "LATERAL",
-    "LEFT",
-    "LIKE",
-    "LIMIT",
-    "LOOKUP",
-    "MERGE",
-    "NATURAL",
-    "NEW",
-    "NO",
-    "NOT",
-    "NULL",
-    "NULLS",
-    "OF",
-    "ON",
-    "OR",
-    "ORDER",
-    "OUTER",
-    "OVER",
-    "PARTITION",
-    "PRECEDING",
-    "PROTO",
-    "QUALIFY",
-    "RANGE",
-    "RECURSIVE",
-    "RESPECT",
-    "RIGHT",
-    "ROLLUP",
-    "ROWS",
-    "SELECT",
-    "SET",
-    "SOME",
-    "STRUCT",
-    "TABLESAMPLE",
-    "THEN",
-    "TO",
-    "TREAT",
-    "TRUE",
-    "UNBOUNDED",
-    "UNION",
-    "UNNEST",
-    "USING",
-    "WHEN",
-    "WHERE",
-    "WINDOW",
-    "WITH",
-    "WITHIN",
-];
-
+/// Whether `word` is a reserved keyword, which is a name only in backticks.
 pub(crate) fn is_reserved(word: &str) -> bool {
-    RESERVED
-        .iter()
-        .any(|keyword| keyword.eq_ignore_ascii_case(word))
+    SyntaxKind::keyword(word).is_some_and(SyntaxKind::is_reserved)
 }
 
 /// What the parser reads: a script or a module.
@@ -446,9 +344,13 @@ impl<'a> Parser<'a> {
         self.bump_with(self.current())
     }
 
-    /// Consumes the current word as a keyword, with the keyword's kind.
+    /// Consumes the current word as a keyword, with the keyword's kind, or another token as it
+    /// is.
     pub(crate) fn bump_keyword(&mut self) -> TextRange {
-        let kind = SyntaxKind::keyword(self.nth_text(0)).unwrap_or(WORD);
+        let kind = match self.current() {
+            WORD => SyntaxKind::keyword(self.nth_text(0)).unwrap_or(WORD),
+            kind => kind,
+        };
         self.bump_with(kind)
     }
 
@@ -462,6 +364,15 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn eat_keyword(&mut self, keyword: &str) -> bool {
         let found = self.at_keyword(keyword);
+        if found {
+            self.bump_keyword();
+        }
+        found
+    }
+
+    /// Whether the current token is one of `keywords`, which it consumes when it is.
+    pub(crate) fn eat_keyword_of(&mut self, keywords: &[&str]) -> bool {
+        let found = keywords.iter().any(|keyword| self.at_keyword(keyword));
         if found {
             self.bump_keyword();
         }
@@ -509,6 +420,19 @@ impl<'a> Parser<'a> {
             return true;
         }
         self.error_expected(&format!("`{keyword}`"));
+        false
+    }
+
+    /// Consumes one of `keywords`, or reports that none is there.
+    pub(crate) fn expect_keyword_of(&mut self, keywords: &[&str]) -> bool {
+        if self.eat_keyword_of(keywords) {
+            return true;
+        }
+        let names: Vec<String> = keywords
+            .iter()
+            .map(|keyword| format!("`{keyword}`"))
+            .collect();
+        self.error_expected(&names.join(" or "));
         false
     }
 
@@ -685,6 +609,18 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Runs `parse`, and keeps what it read unless it reports an error before `limit`.
+    pub(crate) fn attempt_past(&mut self, limit: TextSize, parse: impl FnOnce(&mut Self)) -> bool {
+        let checkpoint = self.checkpoint();
+        parse(self);
+        let early = (self.diagnostics.get(checkpoint.diagnostics))
+            .is_some_and(|error| error.range.start() < limit);
+        if early {
+            self.rewind(&checkpoint);
+        }
+        !early
+    }
+
     // --- Completion ---
 
     /// Records `expected` when the parser is at the cursor.
@@ -708,11 +644,16 @@ impl<'a> Parser<'a> {
 
     // --- Lists ---
 
+    /// Items that `item` reads, separated by commas.
+    pub(crate) fn comma_list<T>(&mut self, item: impl FnMut(&mut Self) -> T) {
+        self.comma_list_until(item, |_| false);
+    }
+
     /// Items that `item` reads, separated by commas, with a trailing comma before a token that
     /// `ends` accepts.
-    pub(crate) fn comma_list(
+    pub(crate) fn comma_list_until<T>(
         &mut self,
-        mut item: impl FnMut(&mut Self),
+        mut item: impl FnMut(&mut Self) -> T,
         ends: impl Fn(&Self) -> bool,
     ) {
         item(self);
@@ -722,6 +663,24 @@ impl<'a> Parser<'a> {
             }
             item(self);
         }
+    }
+
+    /// `(`, what `inside` reads when the `(` is there, and `)`.
+    pub(crate) fn parens(&mut self, inside: impl FnOnce(&mut Self)) {
+        let opened = self.open_paren();
+        if opened {
+            inside(self);
+        }
+        self.close_paren(opened);
+    }
+
+    /// `(item, ...)`, which is empty only when `empty` holds.
+    pub(crate) fn paren_list<T>(&mut self, item: impl FnMut(&mut Self) -> T, empty: bool) {
+        self.parens(|p| {
+            if !(empty && p.current() == R_PAREN) {
+                p.comma_list(item);
+            }
+        });
     }
 
     /// Whether the current token ends a pipe operator: `|>`, `)`, `;` or the end.

@@ -266,9 +266,7 @@ impl Lexer<'_> {
                 format!("this quoted {what} has no closing quote"),
             );
             if at_line_end {
-                *diagnostic = diagnostic
-                    .clone()
-                    .with_help("triple quotes, ''' or \"\"\", hold line ends");
+                diagnostic.help("triple quotes, ''' or \"\"\", hold line ends");
             }
             return;
         }
@@ -353,16 +351,11 @@ impl Lexer<'_> {
         self.push(WORD, start);
         let text = self.source[start..self.position].to_string();
         let end = self.position;
-        let diagnostic = self.error(start, end, "a name can't start with a digit");
-        *diagnostic = diagnostic
-            .clone()
-            .with_help("quote the name in backticks")
-            .with_fix(
+        self.error(start, end, "a name can't start with a digit")
+            .help("quote the name in backticks")
+            .fix(
                 "Quote the name in backticks",
-                vec![TextEdit {
-                    range: range(start, end),
-                    replacement: format!("`{text}`"),
-                }],
+                vec![TextEdit::new(range(start, end), format!("`{text}`"))],
             );
     }
 
