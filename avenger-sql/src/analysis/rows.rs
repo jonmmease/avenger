@@ -73,6 +73,14 @@ pub(crate) enum Item {
 }
 
 impl Item {
+    /// The name of the item's column.
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Item::Carry(col) => &col.name,
+            Item::Compute { name, .. } => name,
+        }
+    }
+
     /// The column of the item, of a name without a plan for a computed one, as the rows after an
     /// error hold it.
     pub(crate) fn col(&self) -> Col {

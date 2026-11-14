@@ -12,10 +12,11 @@
 use avenger_sql_syntax::{ast, ast::AstNode, TextRange};
 use datafusion::{
     common::{Column, ScalarValue},
-    logical_expr::{Cast, Expr, LogicalPlan, LogicalPlanBuilder},
+    logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder},
 };
 
 use super::{
+    expr::Scope,
     rows::{Col, Item, Rows},
     Pass,
 };
@@ -169,27 +170,14 @@ impl Pass<'_> {
             let Some(plan) = rows.plan.clone() else {
                 return failed();
             };
+            let scope = Scope::of(rows, "set operation");
             let exprs: Vec<Expr> = (columns.iter().zip(&types).enumerate())
                 .map(|(position, (index, ty))| {
-                    let arrow = ty.arrow(self.type_options);
                     let value = match index {
-                        Some(index) => {
-                            let col = &rows.columns[*index];
-                            let expr = Expr::Column(col.column.clone());
-                            match rows.ty(col) {
-                                Some(current)
-                                    if crate::library::exact(&current, ty, self.type_options) =>
-                                {
-                                    expr
-                                }
-                                _ => Expr::Cast(Cast::new(Box::new(expr), arrow)),
-                            }
-                        }
-                        None => Expr::Cast(Cast::new(
-                            Box::new(Expr::Literal(ScalarValue::Null, None)),
-                            arrow,
-                        )),
+                        Some(index) => Expr::Column(rows.columns[*index].column.clone()),
+                        None => Expr::Literal(ScalarValue::Null, None),
                     };
+                    let value = self.coerce_to(value, ty, scope).expect("a typed column");
                     value.alias(format!("$set{}", position + 1))
                 })
                 .collect();
@@ -379,7 +367,8 @@ impl Pass<'_> {
                         .filter(|(name, _)| inputs.iter().all(|(input, _, _)| has(input, name)))
                         .collect(),
                     Names::Left => of(rows),
-                    Names::Full | Names::Position => {
+                    Names::Position => unreachable!("a set operation by position has its layout"),
+                    Names::Full => {
                         let mut all: Vec<(String, Option<TextRange>)> = Vec::new();
                         for (input, _, _) in inputs {
                             for (name, definition) in of(input) {

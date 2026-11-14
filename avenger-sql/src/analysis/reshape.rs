@@ -76,6 +76,11 @@ fn value_name(value: &ScalarValue) -> String {
     }
 }
 
+/// The name of the alias of `aliased`, when it has one.
+fn alias_text(aliased: &ast::AliasedExpr) -> Option<String> {
+    aliased.alias()?.name()?.text()
+}
+
 /// The range variable of the alias of a `PIVOT` or an `UNPIVOT`, over its output.
 fn alias_var(alias: Option<ast::Alias>, columns: &[Col]) -> Vec<RangeVar> {
     let Some(name) = alias.and_then(|alias| alias.name()) else {
@@ -103,36 +108,27 @@ impl Pass<'_> {
         let aggregates: Vec<(Option<Expr>, Option<String>, TextRange)> = clause
             .aliased_exprs()
             .map(|aliased| {
-                let at = aliased.syntax().text_range();
-                let alias = aliased
-                    .alias()
-                    .and_then(|a| a.name())
-                    .and_then(|n| n.text());
                 let scope = Scope::of(&rows, "PIVOT").aggregates();
-                (aliased.expr().and_then(|e| self.expr(&e, scope)), alias, at)
+                let expr = aliased.expr().and_then(|e| self.expr(&e, scope));
+                (expr, alias_text(&aliased), aliased.syntax().text_range())
             })
             .collect();
         let for_expr = clause
             .column()
             .and_then(|e| self.expr(&e, Scope::of(&rows, "PIVOT")));
-        let values: Vec<(Option<Expr>, Option<String>, TextRange)> =
-            (clause.pivot_values().into_iter())
-                .flat_map(|values| values.aliased_exprs().collect::<Vec<_>>())
-                .map(|aliased| {
-                    let at = aliased.syntax().text_range();
-                    let alias = aliased
-                        .alias()
-                        .and_then(|a| a.name())
-                        .and_then(|n| n.text());
-                    (
-                        aliased
-                            .expr()
-                            .and_then(|e| self.expr(&e, Scope::of(&rows, "PIVOT"))),
-                        alias,
-                        at,
-                    )
-                })
-                .collect();
+        let values: Vec<(Option<Expr>, String, TextRange)> = (clause.pivot_values().into_iter())
+            .flat_map(|values| values.aliased_exprs().collect::<Vec<_>>())
+            .map(|aliased| {
+                let scope = Scope::of(&rows, "PIVOT");
+                let expr = aliased.expr().and_then(|e| self.expr(&e, scope));
+                // The name of the value's columns: its alias, or the text of a literal.
+                let name = alias_text(&aliased).unwrap_or_else(|| match &expr {
+                    Some(Expr::Literal(value, _)) => value_name(value),
+                    _ => String::new(),
+                });
+                (expr, name, aliased.syntax().text_range())
+            })
+            .collect();
         let mut ok = true;
         if aggregates.len() > 1 && aggregates.iter().any(|(_, alias, _)| alias.is_none()) {
             self.error(
@@ -153,11 +149,7 @@ impl Pass<'_> {
         }
         // The output columns, for the model after an error.
         let names: Vec<String> = (values.iter())
-            .flat_map(|(value, alias, _)| {
-                let name = alias.clone().unwrap_or_else(|| match value {
-                    Some(Expr::Literal(value, _)) => value_name(value),
-                    _ => String::new(),
-                });
+            .flat_map(|(_, name, _)| {
                 aggregates.iter().map(move |(_, agg, _)| match agg {
                     Some(agg) => format!("{agg}_{name}"),
                     None => name.clone(),
@@ -212,13 +204,9 @@ impl Pass<'_> {
             .collect();
         // Each aggregate over the rows of each value.
         let mut outputs = Vec::new();
-        for ((value, value_alias, _), typed) in values.iter().zip(&typed_values) {
+        for ((_, name, _), typed) in values.iter().zip(&typed_values) {
             let condition =
                 binary_expr(for_expr.clone(), Operator::IsNotDistinctFrom, typed.clone());
-            let name = value_alias.clone().unwrap_or_else(|| match value {
-                Some(Expr::Literal(value, _)) => value_name(value),
-                _ => String::new(),
-            });
             for (expr, alias, _) in &aggregates {
                 let filtered = filtered(expr.clone().expect("an aggregate"), &condition);
                 let name = match alias {
@@ -548,15 +536,7 @@ impl Pass<'_> {
             let expr = expr?;
             let at = expr.syntax().text_range();
             let empty = datafusion::common::DFSchema::empty();
-            let scope = Scope {
-                columns: &[],
-                vars: &[],
-                schema: Some(&empty),
-                clause: "TABLESAMPLE",
-                aggregates: false,
-                windows: false,
-                groups: Some(&[]),
-            };
+            let scope = Scope::constant(&empty, "TABLESAMPLE");
             match pass.expr(&expr, scope)? {
                 Expr::Literal(ScalarValue::Int64(Some(n)), _) if n >= 0 => Some(n as f64),
                 Expr::Literal(ScalarValue::Float64(Some(n)), _) if n >= 0.0 => Some(n),

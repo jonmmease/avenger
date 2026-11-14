@@ -93,10 +93,7 @@ impl Pass<'_> {
     pub(super) fn query(&mut self, query: &ast::Query) -> Rows {
         let mut rows = match (query.from_clause(), query.paren_query()) {
             (Some(from), _) => {
-                let rows = match from.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let rows = self.source_of(from.source());
                 self.record_operator(from.syntax().text_range(), None, &rows);
                 rows
             }
@@ -155,10 +152,7 @@ impl Pass<'_> {
             ast::PipeOperator::PipeOrderBy(op) => self.order_by(rows, op, range),
             ast::PipeOperator::PipeLimit(op) => self.limit(rows, op, range),
             ast::PipeOperator::PipeJoin(op) => {
-                let right = match op.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let right = self.source_of(op.source());
                 self.join(rows, right, op.join_op(), op.join_condition(), range)
             }
             ast::PipeOperator::PipeSetOperation(op) => self.set_operation(rows, op, range),
@@ -218,6 +212,14 @@ impl Pass<'_> {
 
     // --- Sources ---
 
+    /// The rows of `source`, which the tree lacks after a syntax error.
+    fn source_of(&mut self, source: Option<ast::Source>) -> Rows {
+        match source {
+            Some(source) => self.source(&source),
+            None => Rows::failed(Vec::new(), Vec::new()),
+        }
+    }
+
     fn source(&mut self, source: &ast::Source) -> Rows {
         let range = source.syntax().text_range();
         match source {
@@ -231,46 +233,28 @@ impl Pass<'_> {
                     None => Rows::failed(Vec::new(), Vec::new()),
                 }
             }
-            ast::Source::ParenJoin(paren) => match paren.source() {
-                Some(source) => self.source(&source),
-                None => Rows::failed(Vec::new(), Vec::new()),
-            },
+            ast::Source::ParenJoin(paren) => self.source_of(paren.source()),
             ast::Source::Join(join) => {
-                let left = match join.lhs() {
-                    Some(lhs) => self.source(&lhs),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
-                let right = match join.rhs() {
-                    Some(rhs) => self.source(&rhs),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let left = self.source_of(join.lhs());
+                let right = self.source_of(join.rhs());
                 self.join(left, right, join.join_op(), join.join_condition(), range)
             }
             ast::Source::PivotSource(source) => {
-                let rows = match source.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let rows = self.source_of(source.source());
                 match source.pivot_clause() {
                     Some(clause) => self.pivot(rows, &clause, range),
                     None => rows.fail(),
                 }
             }
             ast::Source::UnpivotSource(source) => {
-                let rows = match source.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let rows = self.source_of(source.source());
                 match source.unpivot_clause() {
                     Some(clause) => self.unpivot(rows, &clause, range),
                     None => rows.fail(),
                 }
             }
             ast::Source::SampleSource(source) => {
-                let rows = match source.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
+                let rows = self.source_of(source.source());
                 match source.sample_clause() {
                     Some(clause) => self.sample(rows, &clause, range),
                     None => rows.fail(),
@@ -775,10 +759,6 @@ impl Pass<'_> {
     /// `EXCEPT` and with the expressions of its `REPLACE`.
     fn wildcard(&mut self, wildcard: &ast::Wildcard, scope: Scope) -> Option<Vec<Item>> {
         let range = wildcard.syntax().text_range();
-        let item_name = |item: &Item| match item {
-            Item::Carry(col) => col.name.clone(),
-            Item::Compute { name, .. } => name.clone(),
-        };
         let mut items: Vec<Item> = match wildcard.path() {
             None => scope.columns.iter().cloned().map(Item::Carry).collect(),
             Some(path) => {
@@ -830,13 +810,13 @@ impl Pass<'_> {
                 }
             }
         };
-        items.retain(|item| !item_name(item).is_empty());
+        items.retain(|item| !item.name().is_empty());
         let mut ok = true;
         if let Some(except) = wildcard.except_list() {
             for name_ref in except.name_list().iter().flat_map(|list| list.name_refs()) {
                 let name = name_ref.text()?;
                 let before = items.len();
-                items.retain(|item| !item_name(item).eq_ignore_ascii_case(&name));
+                items.retain(|item| !item.name().eq_ignore_ascii_case(&name));
                 if items.len() == before {
                     self.error(
                         name_ref.syntax().text_range(),
@@ -855,16 +835,11 @@ impl Pass<'_> {
                 };
                 let name = name_node.text()?;
                 let planned = item.expr().and_then(|expr| self.expr(&expr, scope));
-                let position = items.iter().position(|item| match item {
-                    Item::Carry(col) => col.name.eq_ignore_ascii_case(&name),
-                    Item::Compute { name: n, .. } => n.eq_ignore_ascii_case(&name),
-                });
+                let position =
+                    (items.iter()).position(|item| item.name().eq_ignore_ascii_case(&name));
                 match (position, planned) {
                     (Some(position), Some(expr)) => {
-                        let original = match &items[position] {
-                            Item::Carry(col) => col.name.clone(),
-                            Item::Compute { name, .. } => name.clone(),
-                        };
+                        let original = items[position].name().to_string();
                         items[position] = Item::Compute {
                             name: original,
                             expr,
@@ -1132,15 +1107,7 @@ impl Pass<'_> {
     pub(super) fn constant(&mut self, expr: &ast::Expr) -> Option<Expr> {
         let at = expr.syntax().text_range();
         let empty = DFSchema::empty();
-        let scope = Scope {
-            columns: &[],
-            vars: &[],
-            schema: Some(&empty),
-            clause: "LIMIT",
-            aggregates: false,
-            windows: false,
-            groups: Some(&[]),
-        };
+        let scope = Scope::constant(&empty, "LIMIT");
         let planned = self.expr(expr, scope)?;
         match &planned {
             Expr::Literal(ScalarValue::Int64(Some(value)), _) if *value >= 0 => Some(planned),
@@ -1375,17 +1342,14 @@ impl Pass<'_> {
             .map(|item| item.expr.clone().expect("an item"))
             .collect();
         let aggregates = find_aggregate_exprs(&item_exprs);
-        let mut distinct: Vec<Expr> = Vec::new();
-        for group in &groups {
-            let expr = group.expr.clone().expect("a group");
-            if !distinct.contains(&expr) {
-                distinct.push(expr);
-            }
-        }
+        // The group expressions, each once, as `group_output` adds them.
+        let keys: Vec<Expr> = (groups.iter())
+            .map(|group| group.expr.clone().expect("a group"))
+            .collect();
         // A grouping item other than an expression groups by the sets of the cross product of the
         // items' sets, and the aggregate adds a column of the grouping id after the group columns.
         let group_exprs = match grouping {
-            false => distinct.clone(),
+            false => keys,
             true => {
                 let mut sets: Vec<Vec<usize>> = vec![Vec::new()];
                 for item in &item_sets {
@@ -1404,16 +1368,7 @@ impl Pass<'_> {
                         .collect();
                 }
                 let sets = (sets.into_iter())
-                    .map(|set| {
-                        let mut exprs: Vec<Expr> = Vec::new();
-                        for index in set {
-                            let expr = groups[index].expr.clone().expect("a group");
-                            if !exprs.contains(&expr) {
-                                exprs.push(expr);
-                            }
-                        }
-                        exprs
-                    })
+                    .map(|set| set.into_iter().map(|index| keys[index].clone()).collect())
                     .collect();
                 vec![Expr::GroupingSet(GroupingSet::GroupingSets(sets))]
             }
