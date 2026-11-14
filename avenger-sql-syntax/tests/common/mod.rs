@@ -593,6 +593,11 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "PARTITION",
     ),
     ("FROM t |> SELECT **s", "no `**` unpack", "**"),
+    (
+        "FROM t |> SELECT WITH(a AS 1, a + 1) AS v",
+        "no WITH expressions",
+        "WITH",
+    ),
     ("FROM t |> DROP **s", "no `**` unpack", "**"),
     (
         "FROM (t1 JOIN t2 JOIN t3 USING (x) USING (y))",
