@@ -1,7 +1,7 @@
 //! What a tooltip says about its instance: the values of its row, formatted as an axis formats its
 //! ticks.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use arrow_array::{Array, ArrayRef};
 use avenger_common::types::TextSyntaxMode;
@@ -122,12 +122,24 @@ impl Text {
     }
 }
 
-/// The fields that a tooltip of `datum` shows: `fields`, or else every column of its rows.
-pub(crate) fn fields_of(fields: Option<&[TooltipField]>, datum: &Datum) -> Vec<TooltipField> {
+/// The fields that a tooltip of `datum`, a row of the mark `mark`, shows: `fields`, or else every
+/// column of its rows, titled by `titles` or by its name.
+pub(crate) fn fields_of(
+    fields: Option<&[TooltipField]>,
+    titles: &HashMap<(String, String), String>,
+    mark: &str,
+    datum: &Datum,
+) -> Vec<TooltipField> {
     match fields {
         Some(fields) => fields.to_vec(),
         None => (datum.rows.schema().fields().iter())
-            .map(|field| TooltipField::new(field.name()))
+            .map(|field| {
+                let column = TooltipField::new(field.name());
+                match titles.get(&(mark.to_string(), field.name().clone())) {
+                    Some(title) => column.with_title(title.as_str()),
+                    None => column,
+                }
+            })
             .collect(),
     }
 }

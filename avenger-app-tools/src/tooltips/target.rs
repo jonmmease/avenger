@@ -1,5 +1,7 @@
 //! What a tooltip describes: the instance that a target finds at the pointer.
 
+use std::collections::HashMap;
+
 use avenger_geometry::query::{Metric, Nearest, Query, QueryShape, Relation};
 use avenger_geometry::rtree::{GeometryInstance, SceneGraphRTree};
 use avenger_scenegraph::marks::mark::MarkInstance;
@@ -35,6 +37,9 @@ pub struct InstanceTarget {
     pub(crate) anchor: TooltipAnchor,
     pub(crate) title: Option<TooltipField>,
     pub(crate) fields: Option<Vec<TooltipField>>,
+    /// The titles of the columns of a tooltip without fields, by the name of the mark and the
+    /// column.
+    pub(crate) titles: HashMap<(String, String), String>,
     pub(crate) values: Option<FieldValues>,
     pub(crate) swatch: bool,
 }
@@ -60,6 +65,7 @@ impl InstanceTarget {
             anchor: TooltipAnchor::default(),
             title: None,
             fields: None,
+            titles: HashMap::new(),
             values: None,
             swatch: true,
         }
@@ -107,6 +113,19 @@ impl InstanceTarget {
         fields: impl IntoIterator<Item = impl Into<TooltipField>>,
     ) -> Self {
         self.fields = Some(fields.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// The target, whose tooltip without fields titles a column of a mark by `titles`, each the
+    /// name of a mark, the name of its column, and the title, such as the title that the column's
+    /// axis shows. A column without a title is titled by its name.
+    pub fn with_titles(
+        mut self,
+        titles: impl IntoIterator<Item = (String, String, String)>,
+    ) -> Self {
+        self.titles = (titles.into_iter())
+            .map(|(mark, column, title)| ((mark, column), title))
+            .collect();
         self
     }
 

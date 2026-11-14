@@ -16,7 +16,9 @@ above all.
   of longitude and latitude on a geo plot. A layer's selection writes its own clauses and selects the
   instances of its own marks. A box with a `cell` selects whole cells and reports its focus to the
   host.
-- A `Tooltip` of a plot or a layer describes the instances of its marks.
+- A `Tooltip` of a plot or a layer describes the instances of its marks. A tooltip without fields
+  titles each column with the title of the first encoding of its layer that reads it and sets one,
+  as its axis or its legend shows it, and the others by their names.
 - A widget of a layer draws at the rectangle that the evaluation gave it, and each change of its
   value writes its clause to its selection, or with a mode widget, turns the chart's modes on and
   off. A
