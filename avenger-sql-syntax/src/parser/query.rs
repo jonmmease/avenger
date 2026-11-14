@@ -263,6 +263,11 @@ impl Parser<'_> {
         marker.complete(self, PAREN_QUERY)
     }
 
+    /// Whether the token `n` places ahead ends a query: `|>`, `)`, `;` or the end.
+    fn nth_ends_query(&self, n: usize) -> bool {
+        matches!(self.nth(n), PIPE | R_PAREN | SEMICOLON | EOF)
+    }
+
     /// The sources of `FROM` and their joins. Commas and joins associate to the left, as in
     /// GoogleSQL, so `a, b JOIN c` joins `c` to the cross join of `a` and `b`.
     fn sources(&mut self) {
@@ -270,6 +275,16 @@ impl Parser<'_> {
             return;
         };
         loop {
+            if self.current() == COMMA && self.nth_ends_query(1) {
+                self.bump();
+                // A source can also start here: at the cursor, record what a source takes.
+                if self.at_cursor() {
+                    let checkpoint = self.checkpoint();
+                    self.source();
+                    self.rewind(&checkpoint);
+                }
+                return;
+            }
             if self.current() == COMMA {
                 let marker = item.precede(self);
                 let op = self.start();
@@ -547,7 +562,7 @@ impl Parser<'_> {
                 break;
             }
             p.aliased_expr();
-            if !p.eat(COMMA) {
+            if !p.eat(COMMA) || p.at_list_close() {
                 break;
             }
         });
@@ -562,6 +577,44 @@ impl Parser<'_> {
         self.eat_keywords(&["WITH", "OFFSET"]);
         self.alias(NameRole::Alias);
         marker.complete(self, WITH_OFFSET);
+    }
+
+    /// Whether `MEASURES` starts the clause after a trailing comma of `MATCH_RECOGNIZE`'s `ORDER BY`,
+    /// and isn't a key named `measures`, which the clause would follow.
+    fn at_measures(&self) -> bool {
+        let continues_key = matches!(self.nth(1), COMMA | DOT | L_BRACK | L_PAREN)
+            || ["ASC", "DESC", "NULLS", "MEASURES"]
+                .iter()
+                .any(|keyword| self.keyword_at(1, keyword));
+        self.keyword_at(0, "MEASURES") && !continues_key
+    }
+
+    /// Whether `AFTER MATCH`, or `PATTERN (...)` and `DEFINE`, start the clause after a trailing
+    /// comma of `MEASURES`, and aren't a measure that reads a column or calls a function of the
+    /// name.
+    fn at_pattern_clause(&self) -> bool {
+        if self.keyword_at(0, "AFTER") && self.keyword_at(1, "MATCH") {
+            return true;
+        }
+        if !self.keyword_at(0, "PATTERN") || self.nth(1) != L_PAREN {
+            return false;
+        }
+        let mut depth = 0;
+        let mut n = 1;
+        loop {
+            match self.nth(n) {
+                L_PAREN => depth += 1,
+                R_PAREN => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return self.keyword_at(n + 1, "DEFINE");
+                    }
+                }
+                EOF => return false,
+                _ => {}
+            }
+            n += 1;
+        }
     }
 
     /// `item` and the `PIVOT` or `UNPIVOT` after it, when it has one.
@@ -695,24 +748,27 @@ impl Parser<'_> {
                 let partition = p.start();
                 p.bump_keyword();
                 p.expect_keyword("BY");
-                p.comma_list(Self::expr);
+                p.comma_list_until(Self::expr, |p| p.keyword_at(0, "ORDER"));
                 partition.complete(p, PARTITION_BY);
             }
             match p.at_keyword("ORDER") {
-                true => p.order_by(|_| false),
+                true => p.order_by(Self::at_measures),
                 false => {
                     p.error_expected("`ORDER`");
                 }
             }
             let measures = p.start();
             if p.expect_keyword("MEASURES") {
-                p.comma_list(|p| {
-                    let measure = p.start();
-                    p.expr();
-                    p.expect_keyword("AS");
-                    p.name(NameRole::Alias);
-                    measure.complete(p, MEASURE);
-                });
+                p.comma_list_until(
+                    |p| {
+                        let measure = p.start();
+                        p.expr();
+                        p.expect_keyword("AS");
+                        p.name(NameRole::Alias);
+                        measure.complete(p, MEASURE);
+                    },
+                    Self::at_pattern_clause,
+                );
             }
             measures.complete(p, MEASURES);
             if p.at_keyword("AFTER") {
@@ -1477,7 +1533,7 @@ impl Parser<'_> {
         let marker = self.start();
         self.bump_keyword();
         self.parens(|p| {
-            p.comma_list(Self::aliased_expr);
+            p.comma_list_until(Self::aliased_expr, |p| p.keyword_at(0, "FOR"));
             p.expect_keyword("FOR");
             // The column binds tighter than the `IN` after it.
             p.expr_at(BIT_OR_LEVEL);

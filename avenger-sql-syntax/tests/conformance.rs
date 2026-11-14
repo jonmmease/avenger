@@ -90,6 +90,9 @@ fn crate_inputs() -> Vec<Input> {
             &format!("FROM t |> WHERE {text}"),
         ));
     }
+    for (i, text) in common::TRAILING_COMMAS.iter().enumerate() {
+        inputs.push(input(format!("crate:TRAILING_COMMAS:{i}"), text));
+    }
     for (i, (text, _, _)) in common::REJECTED.iter().enumerate() {
         inputs.push(input(format!("crate:REJECTED:{i}"), text));
     }

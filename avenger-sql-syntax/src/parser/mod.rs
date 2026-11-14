@@ -701,13 +701,13 @@ impl<'a> Parser<'a> {
 
     // --- Lists ---
 
-    /// Items that `item` reads, separated by commas.
+    /// Items that `item` reads, separated by commas, with a trailing comma before `)`, `]` or `>`.
     pub(crate) fn comma_list<T>(&mut self, item: impl FnMut(&mut Self) -> T) {
         self.comma_list_until(item, |_| false);
     }
 
     /// Items that `item` reads, separated by commas, with a trailing comma before a token that
-    /// `ends` accepts.
+    /// `ends` accepts, or before `)`, `]` or `>`.
     pub(crate) fn comma_list_until<T>(
         &mut self,
         mut item: impl FnMut(&mut Self) -> T,
@@ -715,7 +715,7 @@ impl<'a> Parser<'a> {
     ) {
         item(self);
         while self.eat(COMMA) {
-            if ends(self) {
+            if ends(self) || self.at_list_close() {
                 // A list that takes a comma after its last item ends here, but an item can also
                 // start here: at the cursor, record what an item takes.
                 if self.at_cursor() {
@@ -745,6 +745,12 @@ impl<'a> Parser<'a> {
                 p.comma_list(item);
             }
         });
+    }
+
+    /// Whether the current token closes a list, so that a comma before it is a trailing comma:
+    /// `)`, `]`, or the `>` of `STRUCT<...>` or `TABLE<...>`.
+    pub(crate) fn at_list_close(&self) -> bool {
+        matches!(self.current(), R_PAREN | R_BRACK | GT)
     }
 
     /// Whether the current token ends a pipe operator: `|>`, `)`, `;` or the end.

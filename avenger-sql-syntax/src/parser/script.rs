@@ -800,7 +800,7 @@ impl Parser<'_> {
             }
             self.ty();
             field.complete(self, STRUCT_FIELD);
-            if !self.eat(COMMA) {
+            if !self.eat(COMMA) || self.at_list_close() {
                 break;
             }
         }

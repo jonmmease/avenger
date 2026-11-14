@@ -1367,3 +1367,44 @@ fn a_pivot_expression_is_an_aggregate_call_without_a_wrapper() {
         "PIVOT expression must be an aggregate function call"
     );
 }
+
+#[tokio::test]
+async fn trailing_commas_plan_as_their_lists_without_them() {
+    let cases = [
+        (
+            "FROM t |> WHERE x IN (1, 2, 3,) |> SELECT x, CONCAT(s, 'a',) AS c, [x, 1,] AS a, STRUCT(x AS p, 1 AS q,) AS st, (x, 2,) AS tu, CAST(NULL AS STRUCT<a INT64, b STRING,>) AS n |> ORDER BY x",
+            "FROM t |> WHERE x IN (1, 2, 3) |> SELECT x, CONCAT(s, 'a') AS c, [x, 1] AS a, STRUCT(x AS p, 1 AS q) AS st, (x, 2) AS tu, CAST(NULL AS STRUCT<a INT64, b STRING>) AS n |> ORDER BY x",
+        ),
+        (
+            "FROM sales |> AGGREGATE SUM(m) AS m, ARRAY_AGG(m ORDER BY m DESC,) AS ms, GROUP BY ROLLUP(sp, isl,), |> ORDER BY sp, isl",
+            "FROM sales |> AGGREGATE SUM(m) AS m, ARRAY_AGG(m ORDER BY m DESC) AS ms GROUP BY ROLLUP(sp, isl) |> ORDER BY sp, isl",
+        ),
+        (
+            "FROM sales |> EXTEND SUM(m) OVER (PARTITION BY sp, ORDER BY isl, ROWS UNBOUNDED PRECEDING) AS run |> ORDER BY sp, isl",
+            "FROM sales |> EXTEND SUM(m) OVER (PARTITION BY sp ORDER BY isl ROWS UNBOUNDED PRECEDING) AS run |> ORDER BY sp, isl",
+        ),
+        (
+            "CREATE TEMP FUNCTION f(a INT64, b INT64,) AS (a + b); FROM t |> SELECT f(x, 1,) AS y |> ORDER BY y",
+            "CREATE TEMP FUNCTION f(a INT64, b INT64) AS (a + b); FROM t |> SELECT f(x, 1) AS y |> ORDER BY y",
+        ),
+        (
+            "FROM t, u, |> AGGREGATE COUNT(*) AS n",
+            "FROM t, u |> AGGREGATE COUNT(*) AS n",
+        ),
+        (
+            "FROM wide |> UNPIVOT (v FOR col IN (a, b,)) |> ORDER BY k, col",
+            "FROM wide |> UNPIVOT (v FOR col IN (a, b)) |> ORDER BY k, col",
+        ),
+        (
+            "FROM UNNEST([3, 1, 2,],) AS z |> ORDER BY z",
+            "FROM UNNEST([3, 1, 2]) AS z |> ORDER BY z",
+        ),
+    ];
+    for (with_commas, without) in cases {
+        assert_eq!(
+            json(with_commas).await,
+            json(without).await,
+            "{with_commas}"
+        );
+    }
+}

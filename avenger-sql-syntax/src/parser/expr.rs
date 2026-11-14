@@ -716,11 +716,16 @@ impl Parser<'_> {
                 let star = p.start();
                 p.bump();
                 star.complete(p, STAR_ARG);
-                while p.eat(COMMA) {
+                while p.eat(COMMA) && !p.at_list_close() {
                     p.argument();
                 }
             } else if p.current() != R_PAREN {
-                p.comma_list(Self::argument);
+                // A trailing comma can come before the clauses of an aggregate call.
+                p.comma_list_until(Self::argument, |p| {
+                    ["IGNORE", "RESPECT", "HAVING", "ORDER", "LIMIT"]
+                        .iter()
+                        .any(|keyword| p.keyword_at(0, keyword))
+                });
             }
             if p.at_keyword("IGNORE") || p.at_keyword("RESPECT") {
                 let treatment = p.start();
@@ -747,7 +752,7 @@ impl Parser<'_> {
                 });
             }
             if p.at_keyword("ORDER") {
-                p.order_by(|_| false);
+                p.order_by(|p| p.keyword_at(0, "LIMIT"));
             }
             if p.at_keyword("LIMIT") {
                 let limit = p.start();
@@ -879,7 +884,25 @@ impl Parser<'_> {
         let opened = self.open_paren();
         self.expr();
         let mut tuple = false;
-        while self.eat(COMMA) {
+        while self.current() == COMMA {
+            if self.nth(1) == R_PAREN && !tuple {
+                // GoogleSQL has no tuple of one value.
+                let error = self.start();
+                let comma = self.bump();
+                error.complete(self, ERROR);
+                self.error(
+                    DiagnosticCode::Expected,
+                    comma,
+                    "a value in parentheses takes no trailing comma",
+                )
+                .help("a tuple has two values or more, as in `(a, b)`")
+                .fix("Remove the comma", vec![TextEdit::new(comma, "")]);
+                break;
+            }
+            self.bump();
+            if self.current() == R_PAREN {
+                break;
+            }
             tuple = true;
             self.expr();
         }
@@ -1029,11 +1052,15 @@ impl Parser<'_> {
                 let partition = p.start();
                 p.bump_keyword();
                 p.expect_keyword("BY");
-                p.comma_list(Self::expr);
+                p.comma_list_until(Self::expr, |p| {
+                    ["ORDER", "ROWS", "RANGE"]
+                        .iter()
+                        .any(|keyword| p.keyword_at(0, keyword))
+                });
                 partition.complete(p, PARTITION_BY);
             }
             if p.at_keyword("ORDER") {
-                p.order_by(|_| false);
+                p.order_by(|p| p.keyword_at(0, "ROWS") || p.keyword_at(0, "RANGE"));
             }
             if p.at_keyword("ROWS") || p.at_keyword("RANGE") {
                 p.frame();
@@ -1173,7 +1200,7 @@ impl Parser<'_> {
             }
             self.ty();
             marker.complete(self, STRUCT_FIELD);
-            if !self.eat(COMMA) {
+            if !self.eat(COMMA) || self.at_list_close() {
                 break;
             }
         }
