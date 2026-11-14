@@ -453,3 +453,51 @@ async fn a_sample_keeps_about_its_percent_and_repeats_with_a_seed() {
     let sample = "FROM t |> ORDER BY x |> TABLESAMPLE BERNOULLI (50 PERCENT) REPEATABLE (3) |> AGGREGATE STRING_AGG(s, ',' ORDER BY s) AS kept";
     assert_eq!(table_text(sample).await, table_text(sample).await);
 }
+
+#[tokio::test]
+async fn a_correlated_subquery_reads_the_outer_row() {
+    assert_eq!(
+        rows("FROM penguins AS p |> WHERE body_mass_g > (FROM penguins AS q |> WHERE q.species = p.species |> AGGREGATE AVG(body_mass_g) AS m) |> AGGREGATE COUNT(*) AS n GROUP BY species").await,
+        standard_rows("SELECT species, count(*) AS n FROM penguins AS p WHERE body_mass_g > (SELECT avg(body_mass_g) FROM penguins AS q WHERE q.species = p.species) GROUP BY species").await,
+    );
+    assert_eq!(
+        rows("FROM penguins AS p |> WHERE EXISTS (FROM penguins AS q |> WHERE q.island = p.island |> WHERE q.species = 'Gentoo') |> AGGREGATE COUNT(*) AS n").await,
+        standard_rows("SELECT count(*) AS n FROM penguins AS p WHERE EXISTS (SELECT 1 FROM penguins AS q WHERE q.island = p.island AND q.species = 'Gentoo')").await,
+    );
+}
+
+#[tokio::test]
+async fn a_name_of_with_is_in_scope_after_it() {
+    assert_eq!(
+        rows("FROM penguins |> WITH heavy AS (FROM penguins |> WHERE body_mass_g > 5000) |> WHERE species IN (FROM heavy |> SELECT species) |> AGGREGATE COUNT(*) AS n").await,
+        standard_rows("SELECT count(*) AS n FROM penguins WHERE species IN (SELECT species FROM penguins WHERE body_mass_g > 5000)").await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> WITH counts AS (FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species), |> JOIN counts USING (species) |> AGGREGATE MAX(n) AS most").await,
+        ["+------+", "+------+", "+------+", "| 152  |", "| most |"],
+    );
+    assert_eq!(
+        errors("FROM penguins |> JOIN later USING (species) |> WITH later AS (FROM penguins)")[0],
+        ("Table not found: later".to_string(), "later".to_string()),
+    );
+}
+
+#[tokio::test]
+async fn a_limit_in_a_join_target_takes_the_first_rows_in_its_order() {
+    assert_eq!(
+        rows("FROM one |> CROSS JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> ORDER BY body_mass_g DESC |> LIMIT 2 |> SELECT body_mass_g)").await,
+        ["+-----+-------------+", "+-----+-------------+", "+-----+-------------+", "| 1   | 6050.0      |", "| 1   | 6300.0      |", "| one | body_mass_g |"],
+    );
+}
+
+#[tokio::test]
+async fn unnest_gives_a_row_for_each_element() {
+    assert_eq!(
+        rows("FROM penguins |> LIMIT 2 |> CROSS JOIN UNNEST(['a', 'b', 'c']) AS letter WITH OFFSET |> AGGREGATE COUNT(*) AS n, SUM(offset) AS offsets").await,
+        ["+---+---------+", "+---+---------+", "+---+---------+", "| 6 | 6       |", "| n | offsets |"],
+    );
+    assert_eq!(
+        rows("FROM penguins |> AGGREGATE ARRAY_AGG(DISTINCT island) AS islands |> CROSS JOIN UNNEST(islands) AS island |> AGGREGATE COUNT(*) AS n").await,
+        ["+---+", "+---+", "+---+", "| 3 |", "| n |"],
+    );
+}

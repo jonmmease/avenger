@@ -391,6 +391,19 @@ pub fn coercion(from: &Ty, literal: bool, to: &Ty) -> Option<u32> {
         (Ty::BigNumeric, Ty::Float64) => 1,
         (Ty::Date, Ty::Datetime) => 1,
         (Ty::String, Ty::Date | Ty::Datetime | Ty::Time | Ty::Timestamp) if literal => 1,
+        // A struct coerces field by field, by place; an anonymous field, `_field_1` and so on,
+        // takes the name of the other struct's field.
+        (Ty::Struct(a), Ty::Struct(b)) if a.len() == b.len() => {
+            let mut total = 0;
+            for ((an, at), (bn, bt)) in a.iter().zip(b) {
+                let anonymous = |name: &str| name.starts_with("_field_");
+                if !an.eq_ignore_ascii_case(bn) && !anonymous(an) && !anonymous(bn) {
+                    return None;
+                }
+                total += coercion(at, literal, bt)?;
+            }
+            total
+        }
         (Ty::Array(a), Ty::Array(b)) if **a == Ty::Null => {
             let _ = b;
             1

@@ -359,10 +359,10 @@ fn timeunit() -> Function {
     .example(
         "FROM UNNEST([DATE '2024-01-15', DATE '2024-02-03', DATE '2024-02-28']) AS day |> \
          EXTEND timeunit(day, unit => 'month') OVER () AS u |> ORDER BY day",
-        "day | u\n2024-01-15 | STRUCT(DATE '2024-01-01' AS start, DATE '2024-02-01' AS end, \
-         'month' AS unit)\n2024-02-03 | STRUCT(DATE '2024-02-01' AS start, DATE '2024-03-01' AS \
-         end, 'month' AS unit)\n2024-02-28 | STRUCT(DATE '2024-02-01' AS start, DATE \
-         '2024-03-01' AS end, 'month' AS unit)",
+        "day | u\nDATE '2024-01-15' | STRUCT(DATE '2024-01-01' AS start, DATE '2024-02-01' AS \
+         end, 'month' AS unit)\nDATE '2024-02-03' | STRUCT(DATE '2024-02-01' AS start, DATE \
+         '2024-03-01' AS end, 'month' AS unit)\nDATE '2024-02-28' | STRUCT(DATE '2024-02-01' AS \
+         start, DATE '2024-03-01' AS end, 'month' AS unit)",
     )
 }
 

@@ -12,13 +12,40 @@ use arrow::{
 use avenger_sql::types;
 
 /// The files of the recorded queries.
-const DATA: &[(&str, &str)] = &[(
-    "googlesql_pipe_5a.txt",
-    include_str!("data/googlesql_pipe_5a.txt"),
-)];
+const DATA: &[(&str, &str)] = &[
+    (
+        "googlesql_pipe_5a.txt",
+        include_str!("data/googlesql_pipe_5a.txt"),
+    ),
+    (
+        "googlesql_pipe_5b.txt",
+        include_str!("data/googlesql_pipe_5b.txt"),
+    ),
+];
 
 /// The cases where the pass differs from GoogleSQL, and why.
-const DIFFERENCES: &[(&str, &str)] = &[];
+const DIFFERENCES: &[(&str, &str)] = &[
+    (
+        "FROM t |> SELECT x, ARRAY(FROM u |> WHERE u.x >= t.x |> SELECT x |> ORDER BY x DESC) AS xs",
+        "DataFusion 55 decorrelates only correlations of equality",
+    ),
+    (
+        "FROM t, LATERAL (FROM u |> WHERE u.x <= t.x |> AGGREGATE COUNT(*) AS n) |> SELECT x, n",
+        "DataFusion 55 decorrelates only correlations of equality",
+    ),
+    (
+        "FROM t |> JOIN LATERAL (FROM u |> WHERE u.x < t.x |> SELECT x AS y) ON TRUE |> SELECT x, y",
+        "DataFusion 55 decorrelates only correlations of equality",
+    ),
+    (
+        "FROM t AS a |> WHERE EXISTS (FROM u |> WHERE EXISTS (FROM t AS c |> WHERE c.x = u.x AND c.x = a.x))",
+        "DataFusion 55 doesn't decorrelate a reference to a query two levels out",
+    ),
+    (
+        "FROM arrays |> SELECT k, (FROM UNNEST(xs) AS x |> AGGREGATE SUM(x)) AS total",
+        "DataFusion 55 doesn't decorrelate an outer reference outside a filter, as in UNNEST",
+    ),
+];
 
 /// The text of the value at `index` of `array`, as the table mode of `execute_query` prints it.
 fn cell(array: &ArrayRef, index: usize) -> String {
@@ -100,7 +127,8 @@ async fn pipe_queries_return_googlesqls_rows() {
             let result = pass::run(query).await;
             if columns == "ERROR" {
                 match result {
-                    Err(errors) if errors[0] == expected => {}
+                    // GoogleSQL can add a hint after the message.
+                    Err(errors) if expected.starts_with(&errors[0]) => {}
                     Err(errors) => failures.push(format!(
                         "{file}: {query}: wants the error {expected:?}, has {:?}",
                         errors[0]
@@ -131,7 +159,14 @@ async fn pipe_queries_return_googlesqls_rows() {
             let want: Vec<String> = (serde_free::strings(columns).into_iter())
                 .map(|column| column.replace("DOUBLE", "FLOAT64"))
                 .collect();
-            if found != want {
+            // GoogleSQL names the column of a value table, such as `$value`, internally.
+            let same = found.len() == want.len()
+                && (found.iter().zip(&want)).all(|(found, want)| {
+                    found == want
+                        || (want.starts_with("`$")
+                            && found.split(' ').nth(1) == want.split(' ').nth(1))
+                });
+            if !same {
                 failures.push(format!(
                     "{file}: {query}: the columns {found:?}, not {want:?}"
                 ));

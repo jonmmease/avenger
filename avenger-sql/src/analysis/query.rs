@@ -79,6 +79,14 @@ fn unknown() -> Expr {
 impl Pass<'_> {
     /// The rows of `query`, before its result's sort.
     pub(super) fn query(&mut self, query: &ast::Query) -> Rows {
+        // The names of the pipe `WITH`s of the query are in scope until its end.
+        let with_names = self.with_names.len();
+        let rows = self.query_rows(query);
+        self.with_names.truncate(with_names);
+        rows
+    }
+
+    fn query_rows(&mut self, query: &ast::Query) -> Rows {
         let mut rows = match (query.from_clause(), query.paren_query()) {
             (Some(from), _) => {
                 let rows = match from.source() {
@@ -134,6 +142,7 @@ impl Pass<'_> {
                         name,
                         definition: Some(definition),
                         columns,
+                        value: None,
                     }],
                     ..rows
                 }
@@ -143,12 +152,9 @@ impl Pass<'_> {
             ast::PipeOperator::PipeOrderBy(op) => self.order_by(rows, op, range),
             ast::PipeOperator::PipeLimit(op) => self.limit(rows, op, range),
             ast::PipeOperator::PipeJoin(op) => {
-                let right = match op.source() {
-                    Some(source) => self.source(&source),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
-                self.join(rows, right, op.join_op(), op.join_condition(), range)
+                self.join_source(rows, op.source(), op.join_op(), op.join_condition(), range)
             }
+            ast::PipeOperator::PipeWith(op) => self.pipe_with(rows, op),
             ast::PipeOperator::PipeSetOperation(op) => self.set_operation(rows, op, range),
             ast::PipeOperator::PipeSample(op) => match op.sample_clause() {
                 Some(clause) => self.sample(rows, &clause, range),
@@ -162,7 +168,7 @@ impl Pass<'_> {
                 Some(clause) => self.unpivot(rows, &clause, range),
                 None => rows.fail(),
             },
-            ast::PipeOperator::PipeCall(_) | ast::PipeOperator::PipeWith(_) => {
+            ast::PipeOperator::PipeCall(_) => {
                 self.error(range, "avenger-sql doesn't plan this pipe operator yet");
                 rows.fail()
             }
@@ -217,13 +223,16 @@ impl Pass<'_> {
 
     // --- Sources ---
 
-    fn source(&mut self, source: &ast::Source) -> Rows {
+    pub(super) fn source(&mut self, source: &ast::Source) -> Rows {
         let range = source.syntax().text_range();
         match source {
             ast::Source::TableSource(table) => self.table(table),
             ast::Source::SubquerySource(subquery) => {
                 if subquery.lateral_kw().is_some() {
-                    self.error(range, "avenger-sql doesn't plan LATERAL yet");
+                    self.error(
+                        range,
+                        "LATERAL can only be used on the right side of a join",
+                    );
                 }
                 match subquery.paren_query() {
                     Some(paren) => self.subquery(&paren, subquery.alias(), false),
@@ -239,11 +248,13 @@ impl Pass<'_> {
                     Some(lhs) => self.source(&lhs),
                     None => Rows::failed(Vec::new(), Vec::new()),
                 };
-                let right = match join.rhs() {
-                    Some(rhs) => self.source(&rhs),
-                    None => Rows::failed(Vec::new(), Vec::new()),
-                };
-                self.join(left, right, join.join_op(), join.join_condition(), range)
+                self.join_source(
+                    left,
+                    join.rhs(),
+                    join.join_op(),
+                    join.join_condition(),
+                    range,
+                )
             }
             ast::Source::PivotSource(source) => {
                 let rows = match source.source() {
@@ -275,7 +286,11 @@ impl Pass<'_> {
                     None => rows.fail(),
                 }
             }
-            ast::Source::UnnestSource(_) | ast::Source::TvfSource(_) => {
+            ast::Source::UnnestSource(unnest) => {
+                let one = self.one_row();
+                self.unnest_onto(one, unnest, false, range)
+            }
+            ast::Source::TvfSource(_) => {
                 self.error(range, "avenger-sql doesn't plan this source yet");
                 Rows::failed(Vec::new(), Vec::new())
             }
@@ -305,6 +320,21 @@ impl Pass<'_> {
         }
         let (name, definition) = alias_name(source.alias())
             .unwrap_or_else(|| (names.last().cloned().unwrap_or_default(), path_range));
+        if let [single] = names.as_slice() {
+            let found = (self.with_names.iter().rev())
+                .find(|with| with.name.eq_ignore_ascii_case(single))
+                .cloned();
+            if let Some(with) = found {
+                self.use_name(
+                    path_range,
+                    Definition::Query {
+                        name: with.name.clone(),
+                        definition: Some(with.definition),
+                    },
+                );
+                return self.close(with.rows, Some((name, definition)), false, path_range);
+            }
+        }
         let Some(table) = self.catalog.table(&names) else {
             self.error(path_range, format!("Table not found: {}", names.join(".")));
             return Rows::failed(Vec::new(), Vec::new());
@@ -340,6 +370,7 @@ impl Pass<'_> {
             name,
             definition: Some(definition),
             columns: columns.clone(),
+            value: None,
         }];
         Rows::new(plan, columns, vars)
     }
@@ -356,7 +387,23 @@ impl Pass<'_> {
             Some(query) => self.query(&query),
             None => Rows::failed(Vec::new(), Vec::new()),
         };
-        let alias = alias_name(alias);
+        self.close(
+            inner,
+            alias_name(alias),
+            ordered,
+            paren.syntax().text_range(),
+        )
+    }
+
+    /// The rows of a query, `inner`, as a source: its visible columns under a qualifier of their
+    /// own, with the range variable of `alias`. The rows keep their order when `ordered` holds.
+    pub(super) fn close(
+        &mut self,
+        inner: Rows,
+        alias: Option<(String, TextRange)>,
+        ordered: bool,
+        range: TextRange,
+    ) -> Rows {
         let base = alias.as_ref().map_or("_", |(name, _)| name.as_str());
         let qualifier = self.qualifiers.fresh(base);
         let mut names = HashSet::new();
@@ -382,6 +429,7 @@ impl Pass<'_> {
                 name: name.clone(),
                 definition: Some(*definition),
                 columns: columns.clone(),
+                value: None,
             }],
             None => Vec::new(),
         };
@@ -397,7 +445,6 @@ impl Pass<'_> {
         let Some(plan) = inner.plan else {
             return Rows::failed(columns, vars);
         };
-        let range = paren.syntax().text_range();
         let plan = LogicalPlanBuilder::from(plan)
             .project(exprs)
             .and_then(|b| b.build());
@@ -414,7 +461,7 @@ impl Pass<'_> {
     }
 
     /// The join of `left` and `right` by the operator `op` on `condition`.
-    fn join(
+    pub(super) fn join(
         &mut self,
         left: Rows,
         right: Rows,

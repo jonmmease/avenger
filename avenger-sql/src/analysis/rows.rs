@@ -47,6 +47,11 @@ pub(crate) struct RangeVar {
     pub name: String,
     pub definition: Option<TextRange>,
     pub columns: Vec<Col>,
+    /// The value of a value table, such as the struct of an `UNNEST` of structs: the range
+    /// variable alone is the value, and its columns are the value's fields, which a name reads
+    /// without the range variable. A range variable without a name holds the fields of a value
+    /// table without an alias.
+    pub value: Option<Column>,
 }
 
 /// The rows of a query so far.
@@ -228,6 +233,7 @@ pub(crate) fn project(
     let keys = if keep_order { rows.order } else { Vec::new() };
     let hidden = (vars.iter().flat_map(|var| var.columns.iter()))
         .map(|col| col.column.clone())
+        .chain(vars.iter().filter_map(|var| var.value.clone()))
         .chain(
             keys.iter()
                 .flat_map(|key| key.expr.column_refs().into_iter().cloned()),

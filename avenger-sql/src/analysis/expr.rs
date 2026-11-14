@@ -21,8 +21,10 @@ use datafusion::{
     functions::core::expr_fn as core,
     functions_nested::expr_fn::make_array,
     logical_expr::{
-        expr::{AggregateFunction, Case, NullTreatment, Placeholder, WindowFunction},
-        Cast, Expr, ExprSchemable, SortExpr, TryCast, WindowFrame, WindowFrameBound,
+        expr::{
+            AggregateFunction, Case, Exists, InSubquery, NullTreatment, Placeholder, WindowFunction,
+        },
+        Cast, Expr, ExprSchemable, SortExpr, Subquery, TryCast, WindowFrame, WindowFrameBound,
         WindowFrameUnits, WindowFunctionDefinition,
     },
 };
@@ -181,10 +183,24 @@ impl Pass<'_> {
     /// `expr` cast to `ty`, when its type is another.
     pub(crate) fn coerce_to(&self, expr: Expr, ty: &Ty, scope: Scope) -> Option<Expr> {
         let current = self.type_of(&expr, scope)?;
-        match library::exact(&current, ty, self.type_options) {
-            true => Some(expr),
-            false => Some(cast(expr, ty.arrow(self.type_options))),
+        if library::exact(&current, ty, self.type_options) {
+            return Some(expr);
         }
+        // A struct takes the names of the struct type field by field, as an anonymous field of
+        // `STRUCT(2, 'q')` takes the name of its place.
+        if let (DataType::Struct(fields), Ty::Struct(want)) = (&current, ty) {
+            if fields.len() == want.len() {
+                let args = (fields.iter().zip(want))
+                    .flat_map(|(field, (name, ty))| {
+                        let value = core::get_field(expr.clone(), field.name().as_str());
+                        let value = cast(value, ty.arrow(self.type_options));
+                        [string_lit(name), value]
+                    })
+                    .collect();
+                return Some(core::named_struct(args));
+            }
+        }
+        Some(cast(expr, ty.arrow(self.type_options)))
     }
 
     /// `values` cast to their common type, or `None` with an error at `range` when they have
@@ -310,11 +326,26 @@ impl Pass<'_> {
             }
             ast::Expr::ParenExpr(paren) => self.child(paren.expr(), scope),
             ast::Expr::CallExpr(call) => self.call(call, scope),
-            ast::Expr::SubqueryExpr(_)
-            | ast::Expr::ExistsExpr(_)
-            | ast::Expr::ArraySubqueryExpr(_) => {
-                self.error(range, "avenger-sql doesn't plan subqueries yet");
-                None
+            ast::Expr::SubqueryExpr(subquery) => {
+                let rows = self.subquery_rows(subquery.paren_query()?, scope)?;
+                if rows.columns.len() != 1 {
+                    self.error(
+                        range,
+                        "Scalar subquery cannot have more than one column unless using SELECT AS STRUCT to build STRUCT values",
+                    );
+                    return None;
+                }
+                let subquery = self.subquery_of(rows, range, false)?;
+                Some(Expr::ScalarSubquery(subquery))
+            }
+            ast::Expr::ExistsExpr(exists) => {
+                let rows = self.subquery_rows(exists.paren_query()?, scope)?;
+                let subquery = self.subquery_of(rows, range, true)?;
+                Some(Expr::Exists(Exists::new(subquery, false)))
+            }
+            ast::Expr::ArraySubqueryExpr(array) => {
+                let rows = self.subquery_rows(array.paren_query()?, scope)?;
+                self.array_subquery(rows, range)
             }
         }
     }
@@ -591,6 +622,117 @@ impl Pass<'_> {
         Some(Expr::Placeholder(Placeholder::new_with_field(id, None)))
     }
 
+    /// The rows of the query in parentheses `paren`, a subquery of an expression in `scope`, which
+    /// reads the columns of `scope` as outer references.
+    fn subquery_rows(&mut self, paren: ast::ParenQuery, scope: Scope) -> Option<Rows> {
+        let query = paren.query()?;
+        self.outers.push(Outer::of(scope));
+        let rows = self.query(&query);
+        self.outers.pop();
+        Some(rows)
+    }
+
+    /// The subquery of the rows `rows`, with its visible columns, and its outer references.
+    fn subquery_of(&mut self, rows: Rows, range: TextRange, exists: bool) -> Option<Subquery> {
+        let plan = rows.plan.clone()?;
+        let built = match rows.columns.as_slice() {
+            // EXISTS reads whether the query has rows, through a projection of a constant, as
+            // DataFusion's decorrelation expects.
+            columns if exists || columns.len() != 1 => {
+                datafusion::logical_expr::LogicalPlanBuilder::from(plan)
+                    .project(vec![
+                        Expr::Literal(ScalarValue::Int64(Some(1)), None).alias("$exists")
+                    ])
+                    .and_then(|b| b.build())
+            }
+            [col] => {
+                let column = Expr::Column(col.column.clone());
+                let builder = datafusion::logical_expr::LogicalPlanBuilder::from(plan);
+                // DataFusion decorrelates a scalar subquery of one aggregate, so a correlated
+                // query of one value gives any of its values, where GoogleSQL fails for more
+                // than one.
+                let correlated = !builder.clone().build().ok()?.all_out_ref_exprs().is_empty();
+                match correlated {
+                    true => builder
+                        .aggregate(
+                            Vec::<Expr>::new(),
+                            vec![Expr::AggregateFunction(AggregateFunction::new_udf(
+                                datafusion::functions_aggregate::first_last::first_value_udaf(),
+                                vec![column],
+                                false,
+                                None,
+                                Vec::new(),
+                                None,
+                            ))
+                            .alias(col.column.name.clone())],
+                        )
+                        .and_then(|b| b.build()),
+                    false => builder.project(vec![column]).and_then(|b| b.build()),
+                }
+            }
+            _ => unreachable!(),
+        };
+        let plan = match built {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return None;
+            }
+        };
+        Some(Subquery {
+            outer_ref_columns: plan.all_out_ref_exprs(),
+            subquery: Arc::new(plan),
+            spans: Default::default(),
+        })
+    }
+
+    /// `ARRAY(query)`: the array of the values of the query's one column, in its order, and an
+    /// empty array for no rows.
+    fn array_subquery(&mut self, rows: Rows, range: TextRange) -> Option<Expr> {
+        if rows.columns.len() != 1 {
+            self.error(
+                range,
+                "ARRAY subquery cannot have more than one column unless using SELECT AS STRUCT to build STRUCT values",
+            );
+            return None;
+        }
+        let element = rows.ty(&rows.columns[0]).and_then(|ty| Ty::of_arrow(&ty))?;
+        if matches!(element, Ty::Array(_)) {
+            self.error(range, "Cannot use array subquery with column of type ARRAY because nested arrays are not supported");
+            return None;
+        }
+        let plan = rows.plan.clone()?;
+        let values = Expr::AggregateFunction(AggregateFunction::new_udf(
+            datafusion::functions_aggregate::array_agg::array_agg_udaf(),
+            vec![Expr::Column(rows.columns[0].column.clone())],
+            false,
+            None,
+            rows.order.clone(),
+            None,
+        ));
+        let list = Ty::Array(Box::new(element)).arrow(self.type_options);
+        let plan = datafusion::logical_expr::LogicalPlanBuilder::from(plan)
+            .aggregate(Vec::<Expr>::new(), vec![values.alias("$array")])
+            .and_then(|b| b.build());
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return None;
+            }
+        };
+        let subquery = Subquery {
+            outer_ref_columns: plan.all_out_ref_exprs(),
+            subquery: Arc::new(plan),
+            spans: Default::default(),
+        };
+        let empty = cast(make_array(Vec::new()), list.clone());
+        Some(cast(
+            core::coalesce(vec![Expr::ScalarSubquery(subquery), empty]),
+            list,
+        ))
+    }
+
     /// The model's record of the column `col` in `scope`.
     fn col_info(&self, col: &Col, scope: Scope) -> Column {
         Column {
@@ -607,14 +749,56 @@ impl Pass<'_> {
         }
     }
 
-    /// The plan of a path: a range variable and its column, a column, and the fields of a struct.
+    /// The plan of a path: a range variable and its column, a column, a field of a value table,
+    /// and the fields of a struct. A name that the scope lacks resolves in the scopes of the
+    /// queries that enclose it, innermost first, as a correlated reference.
     pub(crate) fn path(&mut self, path: &ast::Path, scope: Scope) -> Option<Expr> {
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names: Vec<String> = refs.iter().map(|name| name.text()).collect::<Option<_>>()?;
-        let first = names.first()?;
+        let first = names.first()?.clone();
+        let outers = self.outers.clone();
+        let levels = std::iter::once(scope).chain(outers.iter().rev().map(|outer| Scope {
+            columns: &outer.columns,
+            vars: &outer.vars,
+            schema: outer.schema.as_ref(),
+            ..scope
+        }));
+        let mut found = None;
+        for (depth, level) in levels.enumerate() {
+            match self.lookup(&names, &refs, level) {
+                Lookup::Found(expr, rest) => {
+                    let expr = match depth {
+                        0 => expr,
+                        _ => outer_reference(expr, level.schema)?,
+                    };
+                    found = Some((expr, rest));
+                    break;
+                }
+                Lookup::Missing => continue,
+                Lookup::Failed => return None,
+            }
+        }
+        let Some((mut expr, rest)) = found else {
+            self.error(
+                refs[0].syntax().text_range(),
+                format!("Unrecognized name: {first}"),
+            );
+            return None;
+        };
+        for (name, name_ref) in names.iter().zip(&refs).skip(rest) {
+            expr = self.field(expr, name, name_ref.syntax().text_range(), scope)?;
+        }
+        scope.schema?;
+        Some(expr)
+    }
+
+    /// The lookup of the first names of a path in one scope: a range variable and its column, a
+    /// column, or a field of a value table.
+    fn lookup(&mut self, names: &[String], refs: &[ast::NameRef], scope: Scope) -> Lookup {
+        let first = &names[0];
         let range = |index: usize| refs[index].syntax().text_range();
-        let (expr, rest) = if let Some(var) =
-            (scope.vars.iter()).find(|var| var.name.eq_ignore_ascii_case(first))
+        if let Some(var) = (scope.vars.iter())
+            .find(|var| !var.name.is_empty() && var.name.eq_ignore_ascii_case(first))
         {
             self.use_name(
                 range(0),
@@ -623,67 +807,64 @@ impl Pass<'_> {
                     definition: var.definition,
                 },
             );
-            match names.get(1) {
-                None => {
-                    // The row of the range variable, as a struct of its columns.
-                    let args = (var.columns.iter())
-                        .flat_map(|col| {
-                            [
-                                self.string_literal(&col.name),
-                                Expr::Column(col.column.clone()),
-                            ]
-                        })
-                        .collect();
-                    (Some(core::named_struct(args)), 1)
+            let Some(name) = names.get(1) else {
+                // The value of a value table, or the row of the range variable as a struct of
+                // its columns.
+                if let Some(value) = &var.value {
+                    return Lookup::Found(Expr::Column(value.clone()), 1);
                 }
-                Some(name) => {
-                    let found: Vec<&Col> = (var.columns.iter())
-                        .filter(|col| col.name.eq_ignore_ascii_case(name))
-                        .collect();
-                    match found.as_slice() {
-                        [col] => {
-                            let info = self.col_info(col, scope);
-                            self.use_name(range(1), Definition::Column(info));
-                            (Some(Expr::Column(col.column.clone())), 2)
-                        }
-                        [] => {
-                            let message = format!("Name {name} not found inside {}", var.name);
-                            self.error(range(1), message);
-                            return None;
-                        }
-                        _ => {
-                            self.error(range(1), format!("Column name {name} is ambiguous"));
-                            return None;
-                        }
-                    }
-                }
-            }
-        } else {
-            let found: Vec<&Col> = (scope.columns.iter())
-                .filter(|col| !col.name.is_empty() && col.name.eq_ignore_ascii_case(first))
+                let args = (var.columns.iter())
+                    .flat_map(|col| {
+                        [
+                            self.string_literal(&col.name),
+                            Expr::Column(col.column.clone()),
+                        ]
+                    })
+                    .collect();
+                return Lookup::Found(core::named_struct(args), 1);
+            };
+            let found: Vec<&Col> = (var.columns.iter())
+                .filter(|col| col.name.eq_ignore_ascii_case(name))
                 .collect();
-            match found.as_slice() {
+            return match found.as_slice() {
                 [col] => {
                     let info = self.col_info(col, scope);
-                    self.use_name(range(0), Definition::Column(info));
-                    (Some(Expr::Column(col.column.clone())), 1)
+                    self.use_name(range(1), Definition::Column(info));
+                    Lookup::Found(Expr::Column(col.column.clone()), 2)
                 }
                 [] => {
-                    self.error(range(0), format!("Unrecognized name: {first}"));
-                    return None;
+                    let message = format!("Name {name} not found inside {}", var.name);
+                    self.error(range(1), message);
+                    Lookup::Failed
                 }
                 _ => {
-                    self.error(range(0), format!("Column name {first} is ambiguous"));
-                    return None;
+                    self.error(range(1), format!("Column name {name} is ambiguous"));
+                    Lookup::Failed
                 }
-            }
-        };
-        let mut expr = expr?;
-        for (name, name_ref) in names.iter().zip(&refs).skip(rest) {
-            expr = self.field(expr, name, name_ref.syntax().text_range(), scope)?;
+            };
         }
-        scope.schema?;
-        Some(expr)
+        let named = |col: &&Col| !col.name.is_empty() && col.name.eq_ignore_ascii_case(first);
+        let mut found: Vec<&Col> = scope.columns.iter().filter(named).collect();
+        if found.is_empty() {
+            // A field of a value table, which a name reads without its range variable.
+            found = (scope.vars.iter())
+                .filter(|var| var.value.is_some())
+                .flat_map(|var| var.columns.iter())
+                .filter(named)
+                .collect();
+        }
+        match found.as_slice() {
+            [col] => {
+                let info = self.col_info(col, scope);
+                self.use_name(range(0), Definition::Column(info));
+                Lookup::Found(Expr::Column(col.column.clone()), 1)
+            }
+            [] => Lookup::Missing,
+            _ => {
+                self.error(range(0), format!("Column name {first} is ambiguous"));
+                Lookup::Failed
+            }
+        }
     }
 
     /// The field `name` of the struct `base`, without regard to case.
@@ -955,9 +1136,43 @@ impl Pass<'_> {
                 operands.extend(array?);
                 self.operator("$in_array", operands, range, scope)?
             }
-            ast::InSet::InQuery(_) => {
-                self.error(range, "avenger-sql doesn't plan subqueries yet");
-                return None;
+            ast::InSet::InQuery(query) => {
+                let rows = self.subquery_rows(query.paren_query()?, scope);
+                let (value, value_range) = value?.pop()?;
+                let rows = rows?;
+                if rows.columns.len() != 1 {
+                    self.error(
+                        range,
+                        "Subquery of type IN must have only one output column",
+                    );
+                    return None;
+                }
+                // The value and the column of the query take their common type.
+                let column_ty = rows.ty(&rows.columns[0]).and_then(|ty| Ty::of_arrow(&ty));
+                let value_ty = self.observed(&value, scope);
+                let (Some(column_ty), Some(value_ty)) = (column_ty, value_ty) else {
+                    return None;
+                };
+                let Some(ty) = supertype(&[value_ty.clone(), (column_ty.clone(), false)]) else {
+                    self.error(
+                        value_range,
+                        format!(
+                            "Cannot execute IN subquery with uncomparable types {} and {column_ty}",
+                            value_ty.0
+                        ),
+                    );
+                    return None;
+                };
+                let value = self.coerce_to(value, &ty, scope)?;
+                let mut subquery = self.subquery_of(rows, range, false)?;
+                if column_ty != ty {
+                    subquery = cast_subquery(subquery, ty.arrow(self.type_options))?;
+                }
+                return Some(Expr::InSubquery(InSubquery::new(
+                    Box::new(value),
+                    subquery,
+                    in_expr.not_kw().is_some(),
+                )));
             }
         };
         self.negated(value, in_expr.not_kw().is_some(), range, scope)
@@ -1815,6 +2030,66 @@ fn limited(name: &str, aggregate: AggregateFunction, n: Expr) -> Expr {
         None,
     ));
     array_to_string(array_slice(values, one, n, None), delimiter)
+}
+
+/// `subquery` with its one column cast to `ty`.
+fn cast_subquery(subquery: Subquery, ty: DataType) -> Option<Subquery> {
+    let plan = subquery.subquery.as_ref().clone();
+    let column = plan.schema().columns().into_iter().next()?;
+    let name = column.name.clone();
+    let plan = datafusion::logical_expr::LogicalPlanBuilder::from(plan)
+        .project(vec![cast(Expr::Column(column), ty).alias(name)])
+        .and_then(|b| b.build())
+        .ok()?;
+    Some(Subquery {
+        outer_ref_columns: plan.all_out_ref_exprs(),
+        subquery: Arc::new(plan),
+        spans: subquery.spans,
+    })
+}
+
+/// The outcome of a lookup of a name in one scope.
+enum Lookup {
+    /// The expression of the names, and the number of names that it reads.
+    Found(Expr, usize),
+    /// The scope has no such name.
+    Missing,
+    /// An error, which the lookup reported.
+    Failed,
+}
+
+/// The columns of an enclosing query in the scope of a nested one.
+#[derive(Clone, Debug)]
+pub(crate) struct Outer {
+    pub columns: Vec<Col>,
+    pub vars: Vec<RangeVar>,
+    pub schema: Option<DFSchema>,
+}
+
+impl Outer {
+    pub(crate) fn of(scope: Scope) -> Self {
+        Self {
+            columns: scope.columns.to_vec(),
+            vars: scope.vars.to_vec(),
+            schema: scope.schema.cloned(),
+        }
+    }
+}
+
+/// `expr`, of the columns of an enclosing query of the schema `schema`, as the outer references of
+/// a nested query.
+fn outer_reference(expr: Expr, schema: Option<&DFSchema>) -> Option<Expr> {
+    use datafusion::common::tree_node::{Transformed, TreeNode};
+    let schema = schema?;
+    expr.transform_up(|e| match e {
+        Expr::Column(column) => {
+            let field = schema.field_from_column(&column)?.clone();
+            Ok(Transformed::yes(Expr::OuterReferenceColumn(field, column)))
+        }
+        other => Ok(Transformed::no(other)),
+    })
+    .ok()
+    .map(|t| t.data)
 }
 
 /// The `OVER` clause of a window call.

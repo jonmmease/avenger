@@ -87,6 +87,7 @@ fn alias_var(alias: Option<ast::Alias>, columns: &[Col]) -> Vec<RangeVar> {
         name: text,
         definition: Some(name.syntax().text_range()),
         columns: columns.to_vec(),
+        value: None,
     }]
 }
 
