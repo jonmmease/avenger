@@ -1267,3 +1267,67 @@ fn a_pattern_over_the_cap_and_a_parameter_bound_are_errors() {
         );
     }
 }
+
+#[tokio::test]
+async fn repeated_names_repeated_partitions_and_sql_aggregates() {
+    // The rows of `execute_query` for an input with two columns of one name, a repeated
+    // partition column, an aggregate function of SQL in a measure, and an input column with the
+    // name of a column of the node.
+    let data = "FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 6), STRUCT(4, 9)]) |> SELECT *";
+    let cases = [
+        (
+            format!("{data} |> AS l |> JOIN ({data}) AS r ON l.id = r.id |> MATCH_RECOGNIZE(ORDER BY l.id MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)"),
+            r#"[{"n":4}]"#,
+        ),
+        (
+            format!("{data} |> MATCH_RECOGNIZE(PARTITION BY id, id ORDER BY price MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) |> ORDER BY 1"),
+            r#"[{"id":1,"id":1,"n":1},{"id":2,"id":2,"n":1},{"id":3,"id":3,"n":1},{"id":4,"id":4,"n":1}]"#,
+        ),
+        (
+            format!("CREATE TEMP AGGREGATE FUNCTION ag(x INT64) AS (MAX(x)); {data} |> MATCH_RECOGNIZE(ORDER BY id MEASURES ag(b.price) AS m, ag(price) AS n PATTERN (a b) DEFINE a AS TRUE, b AS TRUE) |> ORDER BY m"),
+            r#"[{"m":8,"n":10},{"m":9,"n":9}]"#,
+        ),
+        (
+            format!("{data} |> SELECT id, price AS `$match_number` |> MATCH_RECOGNIZE(ORDER BY id MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)"),
+            r#"[{"n":4}]"#,
+        ),
+    ];
+    for (query, rows) in cases {
+        assert_eq!(json(&query).await, rows, "{query}");
+    }
+}
+
+#[test]
+fn errors_of_names_function_bodies_and_correlation() {
+    // GoogleSQL's messages, from `execute_query`, but for the body of a function, whose error
+    // avenger-sql writes after the function's name, and for a correlated clause, which
+    // avenger-sql doesn't plan.
+    let data = "FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 6), STRUCT(4, 9)]) |> SELECT *";
+    let cases = [
+        (
+            format!("{data} |> AS l |> JOIN ({data}) AS r ON l.id = r.id |> MATCH_RECOGNIZE(ORDER BY l.id MEASURES MAX(a.price) AS top PATTERN (a+) DEFINE a AS TRUE)"),
+            "Name price is ambiguous inside a",
+        ),
+        (
+            format!("{data} |> MATCH_RECOGNIZE(ORDER BY id MEASURES MAX(b.price.x) AS m PATTERN (a b) DEFINE a AS TRUE, b AS TRUE)"),
+            "Cannot access field x on a value with type INT64",
+        ),
+        (
+            format!("{data} |> MATCH_RECOGNIZE(ORDER BY id MEASURES COUNT(*) AS m PATTERN (a) DEFINE a AS a > 8)"),
+            "Cannot access columns through pattern variables.",
+        ),
+        (
+            format!("CREATE TEMP FUNCTION f(x ANY TYPE) AS (x > PREV(x)); {data} |> MATCH_RECOGNIZE(ORDER BY id MEASURES COUNT(*) AS m PATTERN (a) DEFINE a AS f(price))"),
+            "In f: function PREV must be directly inside a MATCH_RECOGNIZE's DEFINE clause, without any enclosing subquery",
+        ),
+        (
+            format!("{data} |> AS t |> WHERE EXISTS (FROM UNNEST([1, 2, 3]) AS x |> SELECT x |> MATCH_RECOGNIZE(ORDER BY x MEASURES COUNT(*) AS c PATTERN (a) DEFINE a AS x = t.id))"),
+            "avenger-sql doesn't plan a MATCH_RECOGNIZE that reads a column of an enclosing query",
+        ),
+    ];
+    for (query, message) in cases {
+        let found = errors(&query);
+        assert_eq!(found.len(), 1, "{query}: {found:?}");
+        assert_eq!(found[0].0, message, "{query}");
+    }
+}
