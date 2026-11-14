@@ -24,30 +24,19 @@ use datafusion::{
     functions_aggregate::count::count_udaf,
     functions_window::row_number::row_number_udwf,
     logical_expr::{
-        binary_expr, expr::WindowFunction, utils::find_aggregate_exprs, Cast, Expr,
-        LogicalPlanBuilder, Operator, SortExpr, WindowFunctionDefinition,
+        binary_expr, expr::WindowFunction, utils::find_aggregate_exprs, Expr, LogicalPlanBuilder,
+        Operator, SortExpr, WindowFunctionDefinition,
     },
 };
 
 use super::{
+    build::{cast, float, int},
     expr::Scope,
     model::Definition,
     rows::{self, Col, Item, RangeVar, Rows},
     Pass,
 };
 use crate::library::{form::coercion, random, Ty};
-
-fn cast(expr: Expr, ty: DataType) -> Expr {
-    Expr::Cast(Cast::new(Box::new(expr), ty))
-}
-
-fn int(value: i64) -> Expr {
-    Expr::Literal(ScalarValue::Int64(Some(value)), None)
-}
-
-fn float(value: f64) -> Expr {
-    Expr::Literal(ScalarValue::Float64(Some(value)), None)
-}
 
 /// `func` over the window of `partition` in the order of `order`.
 fn window(

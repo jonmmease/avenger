@@ -18,12 +18,13 @@ use datafusion::{
     common::{Column, ScalarValue, UnnestOptions},
     functions::core::expr_fn as core,
     functions_nested::expr_fn as nested,
-    logical_expr::{when, Expr, LogicalPlan, LogicalPlanBuilder, Subquery},
+    logical_expr::{when, Expr, LogicalPlan, LogicalPlanBuilder},
 };
-use std::sync::Arc;
 
 use super::{
+    build::{self, cast, int},
     expr::{Outer, Scope},
+    query::alias_name,
     rows::{Col, Item, RangeVar, Rows},
     Pass, WithName,
 };
@@ -31,10 +32,6 @@ use crate::library::Ty;
 
 /// A name, and the range of its text.
 type Named = (String, TextRange);
-
-fn int(value: i64) -> Expr {
-    Expr::Literal(ScalarValue::Int64(Some(value)), None)
-}
 
 impl Pass<'_> {
     /// The rows of one row and no columns, which a `FROM UNNEST(...)` unnests onto.
@@ -147,12 +144,9 @@ impl Pass<'_> {
         range: TextRange,
     ) -> Rows {
         let base = base.unordered();
-        let alias = unnest
-            .alias()
-            .and_then(|alias| alias.name())
-            .and_then(|name| Some((name.text()?, name.syntax().text_range())));
+        let alias = alias_name(unnest.alias());
         let offset = unnest.with_offset().map(|offset| {
-            let name = offset.alias().and_then(|a| a.name()).and_then(|n| n.text());
+            let name = alias_name(offset.alias()).map(|(name, _)| name);
             (
                 name.unwrap_or_else(|| "offset".into()),
                 offset.syntax().text_range(),
@@ -162,10 +156,7 @@ impl Pass<'_> {
         let mut arrays: Vec<(Option<Expr>, Option<Named>, TextRange)> = Vec::new();
         for aliased in unnest.aliased_exprs() {
             let at = aliased.syntax().text_range();
-            let name = aliased
-                .alias()
-                .and_then(|a| a.name())
-                .and_then(|name| Some((name.text()?, name.syntax().text_range())));
+            let name = alias_name(aliased.alias());
             let planned = aliased
                 .expr()
                 .and_then(|expr| self.expr(&expr, Scope::of(&base, "UNNEST")));
@@ -265,7 +256,7 @@ impl Pass<'_> {
             let mut array = expr.clone().expect("an array");
             let list =
                 Ty::Array(Box::new(element.clone().expect("a type"))).arrow(self.type_options);
-            array = Expr::Cast(datafusion::logical_expr::Cast::new(Box::new(array), list));
+            array = cast(array, list);
             if outer {
                 // An empty array unnests to no row, and a `NULL` one keeps its row.
                 array = when(
@@ -294,10 +285,7 @@ impl Pass<'_> {
             )
             .otherwise(nested::range(
                 int(0),
-                Expr::Cast(datafusion::logical_expr::Cast::new(
-                    Box::new(longest),
-                    DataType::Int64,
-                )),
+                cast(longest, DataType::Int64),
                 int(1),
             ))
             .expect("a CASE");
@@ -370,7 +358,7 @@ impl Pass<'_> {
         }
         // The columns of the elements, and of the offsets.
         let mut items: Vec<Item> = visible.iter().cloned().map(Item::Carry).collect();
-        for ((list, (_, name, at)), _) in lists.iter().zip(&arrays).zip(&elements) {
+        for (list, (_, name, at)) in lists.iter().zip(&arrays) {
             items.push(Item::Compute {
                 name: name
                     .as_ref()
@@ -424,20 +412,12 @@ impl Pass<'_> {
         self.outers.push(Outer::of(Scope::of(left, "LATERAL")));
         let inner = self.query(&query);
         self.outers.pop();
-        let alias = subquery
-            .alias()
-            .and_then(|alias| alias.name())
-            .and_then(|name| Some((name.text()?, name.syntax().text_range())));
+        let alias = alias_name(subquery.alias());
         let rows = self.close(inner, alias, false, range);
         let Some(plan) = rows.plan.clone() else {
             return rows;
         };
-        let outer_ref_columns = plan.all_out_ref_exprs();
-        let plan = LogicalPlan::Subquery(Subquery {
-            subquery: Arc::new(plan),
-            outer_ref_columns,
-            spans: Default::default(),
-        });
+        let plan = LogicalPlan::Subquery(build::subquery(plan));
         Rows {
             plan: Some(plan),
             ..rows

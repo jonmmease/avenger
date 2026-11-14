@@ -24,12 +24,13 @@ use datafusion::{
         expr::{
             AggregateFunction, Case, Exists, InSubquery, NullTreatment, Placeholder, WindowFunction,
         },
-        Cast, Expr, ExprSchemable, SortExpr, Subquery, TryCast, WindowFrame, WindowFrameBound,
-        WindowFrameUnits, WindowFunctionDefinition,
+        Expr, ExprSchemable, LogicalPlanBuilder, SortExpr, Subquery, TryCast, WindowFrame,
+        WindowFrameBound, WindowFrameUnits, WindowFunctionDefinition,
     },
 };
 
 use super::{
+    build::{self, cast, int, subquery},
     model::{CallForm, Definition},
     rows::{Col, RangeVar, Rows},
     Pass,
@@ -128,10 +129,6 @@ fn error_range(error: &CallError, ranges: &[TextRange], range: TextRange) -> Tex
 
 fn is_null_literal(expr: &Expr) -> bool {
     matches!(expr, Expr::Literal(ScalarValue::Null, _))
-}
-
-fn cast(expr: Expr, ty: DataType) -> Expr {
-    Expr::Cast(Cast::new(Box::new(expr), ty))
 }
 
 impl Pass<'_> {
@@ -526,7 +523,7 @@ impl Pass<'_> {
         if let Expr::Literal(value, _) = &count {
             if let Some(Some(text)) = value.try_as_str() {
                 match text.trim().parse::<i64>() {
-                    Ok(value) => count = Expr::Literal(ScalarValue::Int64(Some(value)), None),
+                    Ok(value) => count = int(value),
                     Err(_) => {
                         self.error(count_range, format!("Invalid interval literal: '{text}'"));
                         return None;
@@ -570,26 +567,23 @@ impl Pass<'_> {
         Some(rows)
     }
 
-    /// The subquery of the rows `rows`, with its visible columns, and its outer references.
+    /// The subquery of the rows `rows`: whether they have rows when `exists`, and otherwise the
+    /// value of their one column.
     fn subquery_of(&mut self, rows: Rows, range: TextRange, exists: bool) -> Option<Subquery> {
         let plan = rows.plan.clone()?;
-        let built = match rows.columns.as_slice() {
+        let built = match (exists, rows.columns.as_slice()) {
             // EXISTS reads whether the query has rows, through a projection of a constant, as
             // DataFusion's decorrelation expects.
-            columns if exists || columns.len() != 1 => {
-                datafusion::logical_expr::LogicalPlanBuilder::from(plan)
-                    .project(vec![
-                        Expr::Literal(ScalarValue::Int64(Some(1)), None).alias("$exists")
-                    ])
-                    .and_then(|b| b.build())
-            }
-            [col] => {
+            (true, _) => LogicalPlanBuilder::from(plan)
+                .project(vec![int(1).alias("$exists")])
+                .and_then(|b| b.build()),
+            (false, [col]) => {
                 let column = Expr::Column(col.column.clone());
-                let builder = datafusion::logical_expr::LogicalPlanBuilder::from(plan);
                 // DataFusion decorrelates a scalar subquery of one aggregate, so a correlated
                 // query of one value gives any of its values, where GoogleSQL fails for more
                 // than one.
-                let correlated = !builder.clone().build().ok()?.all_out_ref_exprs().is_empty();
+                let correlated = !plan.all_out_ref_exprs().is_empty();
+                let builder = LogicalPlanBuilder::from(plan);
                 match correlated {
                     true => builder
                         .aggregate(
@@ -608,7 +602,7 @@ impl Pass<'_> {
                     false => builder.project(vec![column]).and_then(|b| b.build()),
                 }
             }
-            _ => unreachable!(),
+            (false, _) => unreachable!("the callers check that a value's query has one column"),
         };
         let plan = match built {
             Ok(plan) => plan,
@@ -617,11 +611,7 @@ impl Pass<'_> {
                 return None;
             }
         };
-        Some(Subquery {
-            outer_ref_columns: plan.all_out_ref_exprs(),
-            subquery: Arc::new(plan),
-            spans: Default::default(),
-        })
+        Some(subquery(plan))
     }
 
     /// `ARRAY(query)`: the array of the values of the query's one column, in its order, and an
@@ -649,7 +639,7 @@ impl Pass<'_> {
             None,
         ));
         let list = Ty::Array(Box::new(element)).arrow(self.type_options);
-        let plan = datafusion::logical_expr::LogicalPlanBuilder::from(plan)
+        let plan = LogicalPlanBuilder::from(plan)
             .aggregate(Vec::<Expr>::new(), vec![values.alias("$array")])
             .and_then(|b| b.build());
         let plan = match plan {
@@ -659,14 +649,9 @@ impl Pass<'_> {
                 return None;
             }
         };
-        let subquery = Subquery {
-            outer_ref_columns: plan.all_out_ref_exprs(),
-            subquery: Arc::new(plan),
-            spans: Default::default(),
-        };
         let empty = cast(make_array(Vec::new()), list.clone());
         Some(cast(
-            core::coalesce(vec![Expr::ScalarSubquery(subquery), empty]),
+            core::coalesce(vec![Expr::ScalarSubquery(subquery(plan)), empty]),
             list,
         ))
     }
@@ -678,34 +663,40 @@ impl Pass<'_> {
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names: Vec<String> = refs.iter().map(|name| name.text()).collect::<Option<_>>()?;
         let first = names.first()?.clone();
-        let outers = self.outers.clone();
+        // The scopes of the enclosing queries, which the lookups borrow from the pass.
+        let outers = std::mem::take(&mut self.outers);
         let levels = std::iter::once(scope).chain(outers.iter().rev().map(|outer| Scope {
             columns: &outer.columns,
             vars: &outer.vars,
             schema: outer.schema.as_ref(),
             ..scope
         }));
-        let mut found = None;
+        let mut found = Lookup::Missing;
         for (depth, level) in levels.enumerate() {
-            match self.lookup(&names, &refs, level) {
-                Lookup::Found(expr, rest) => {
-                    let expr = match depth {
-                        0 => expr,
-                        _ => outer_reference(expr, level.schema)?,
-                    };
-                    found = Some((expr, rest));
-                    break;
+            found = match self.lookup(&names, &refs, level) {
+                Lookup::Found(expr, rest) if depth > 0 => {
+                    match outer_reference(expr, level.schema) {
+                        Some(expr) => Lookup::Found(expr, rest),
+                        None => Lookup::Failed,
+                    }
                 }
-                Lookup::Missing => continue,
-                Lookup::Failed => return None,
+                lookup => lookup,
+            };
+            if !matches!(found, Lookup::Missing) {
+                break;
             }
         }
-        let Some((mut expr, rest)) = found else {
-            self.error(
-                refs[0].syntax().text_range(),
-                format!("Unrecognized name: {first}"),
-            );
-            return None;
+        self.outers = outers;
+        let (mut expr, rest) = match found {
+            Lookup::Found(expr, rest) => (expr, rest),
+            Lookup::Failed => return None,
+            Lookup::Missing => {
+                self.error(
+                    refs[0].syntax().text_range(),
+                    format!("Unrecognized name: {first}"),
+                );
+                return None;
+            }
         };
         for (name, name_ref) in names.iter().zip(&refs).skip(rest) {
             expr = self.field(expr, name, name_ref.syntax().text_range(), scope)?;
@@ -900,9 +891,7 @@ impl Pass<'_> {
                     Some(LiteralKind::Int) => {
                         let value = literal.int_value().map(|value| -i128::from(value));
                         return match value.map(i64::try_from) {
-                            Some(Ok(value)) => {
-                                Some(Expr::Literal(ScalarValue::Int64(Some(value)), None))
-                            }
+                            Some(Ok(value)) => Some(int(value)),
                             _ => {
                                 self.error(
                                     range,
@@ -1932,7 +1921,7 @@ pub(crate) struct WindowSyntax {
 /// values in its order, as a slice of the array of its values.
 fn limited(name: &str, aggregate: AggregateFunction, n: Expr) -> Expr {
     use datafusion::functions_nested::expr_fn::{array_slice, array_to_string};
-    let one = Expr::Literal(ScalarValue::Int64(Some(1)), None);
+    let one = int(1);
     if !name.eq_ignore_ascii_case("STRING_AGG") {
         return array_slice(Expr::AggregateFunction(aggregate), one, n, None);
     }
@@ -1961,15 +1950,11 @@ fn cast_subquery(subquery: Subquery, ty: DataType) -> Option<Subquery> {
     let plan = subquery.subquery.as_ref().clone();
     let column = plan.schema().columns().into_iter().next()?;
     let name = column.name.clone();
-    let plan = datafusion::logical_expr::LogicalPlanBuilder::from(plan)
+    let plan = LogicalPlanBuilder::from(plan)
         .project(vec![cast(Expr::Column(column), ty).alias(name)])
         .and_then(|b| b.build())
         .ok()?;
-    Some(Subquery {
-        outer_ref_columns: plan.all_out_ref_exprs(),
-        subquery: Arc::new(plan),
-        spans: subquery.spans,
-    })
+    Some(build::subquery(plan))
 }
 
 /// The outcome of a lookup of a name in one scope.

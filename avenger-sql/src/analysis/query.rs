@@ -17,6 +17,7 @@ use datafusion::{
 };
 
 use super::{
+    build::cast,
     expr::{direction, inferred_name, Scope},
     model::Definition,
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
@@ -46,7 +47,7 @@ impl Kind {
 }
 
 /// The name and the range of an alias, when it has a name.
-fn alias_name(alias: Option<ast::Alias>) -> Option<(String, TextRange)> {
+pub(super) fn alias_name(alias: Option<ast::Alias>) -> Option<(String, TextRange)> {
     let name = alias?.name()?;
     Some((name.text()?, name.syntax().text_range()))
 }
@@ -648,10 +649,7 @@ impl Pass<'_> {
                 let expr = Expr::Column(col.column.clone());
                 match schema.field_from_column(&col.column) {
                     Ok(field) if crate::library::exact(field.data_type(), &ty, options) => expr,
-                    _ => Expr::Cast(datafusion::logical_expr::Cast::new(
-                        Box::new(expr),
-                        arrow.clone(),
-                    )),
+                    _ => cast(expr, arrow.clone()),
                 }
             };
             let (le, re) = (side(lk), side(rk));
@@ -1168,10 +1166,9 @@ impl Pass<'_> {
                 self.error(at, "LIMIT and OFFSET take a non-negative integer");
                 None
             }
-            Expr::Placeholder(_) => Some(Expr::Cast(datafusion::logical_expr::Cast::new(
-                Box::new(planned),
-                datafusion::arrow::datatypes::DataType::Int64,
-            ))),
+            Expr::Placeholder(_) => {
+                Some(cast(planned, datafusion::arrow::datatypes::DataType::Int64))
+            }
             _ => {
                 let name = match planned.get_type(&empty) {
                     Ok(ty) => crate::types::googlesql_name(&ty),

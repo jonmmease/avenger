@@ -10,6 +10,7 @@
 //! [`analyze`] runs the pass over the queries of a script. The tables of a script come from a
 //! [`Catalog`], which [`crate::catalog::references`] tells what to load.
 
+mod build;
 mod expr;
 mod model;
 mod nested;
