@@ -1077,6 +1077,7 @@ dependencies = [
  "avenger-format-datetime-d3",
  "avenger-format-number-d3",
  "avenger-render-fixtures",
+ "avenger-sql-syntax",
  "avenger-style",
  "avenger-svg",
  "avenger-typst-label",

@@ -8,6 +8,7 @@ readme = "README.md"
 [dependencies]
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
+avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
 prost = { workspace = true }
 
