@@ -162,7 +162,8 @@ pub enum NameRole {
     Column,
     /// A table, a pipe `WITH` name, or a temporary table.
     Table,
-    Function,
+    /// A function, by what a call of it computes.
+    Function(FunctionRole),
     Type,
     /// A name that a node defines, such as an alias.
     Alias,
@@ -178,6 +179,10 @@ pub enum NameRole {
     Parameter,
     /// A variable of a script.
     Variable,
+    /// A name for the row of a source, as `p` in `p.x` after `FROM penguins AS p`, or a pattern
+    /// variable of `MATCH_RECOGNIZE` that qualifies a column, as `dn` in `dn.x`. Only a semantic
+    /// model gives this role: the syntax takes the first name of a path for a column.
+    RangeVariable,
     Module,
     /// A date part, such as `MONTH` in `INTERVAL 1 MONTH`.
     DatePart,
@@ -185,4 +190,28 @@ pub enum NameRole {
     Option,
     /// Another name, such as a sampling method.
     Other,
+}
+
+/// What a call of a function computes. The syntax tells a table function by its place, after
+/// `FROM` or a pipe `CALL`, and the kind of a function that a `CREATE` defines. A semantic model
+/// tells the rest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum FunctionRole {
+    /// A call whose function the syntax alone does not tell.
+    Unresolved,
+    /// A value of each row.
+    Scalar,
+    /// A value of the rows of a group, or of a window with `OVER`.
+    Aggregate,
+    /// A value of each row over a window.
+    Window,
+    /// The rows of a table, after `FROM` or a pipe `CALL`.
+    Table,
+    /// A mark of avenger-chart, which builds a chart of the rows of its group.
+    Mark,
+    /// A constructor of avenger-chart, or `scaled` or `direct`, which returns a fragment of a
+    /// chart's message.
+    Constructor,
+    /// A transform: `bin`, `stack`, `timeunit`, `lump`, or `impute`.
+    Transform,
 }

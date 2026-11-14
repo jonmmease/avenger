@@ -21,7 +21,7 @@
 80..82 "AS" Keyword
 83..90 "doubled" Name(Alias) definition
 90..91 "," Punctuation
-92..102 "ROW_NUMBER" Name(Function)
+92..102 "ROW_NUMBER" Name(Function(Unresolved))
 102..103 "(" Punctuation
 103..104 ")" Punctuation
 105..109 "OVER" Keyword
@@ -67,7 +67,7 @@
 267..268 "," Punctuation
 269..271 "|>" Operator
 272..281 "AGGREGATE" Keyword
-282..285 "SUM" Name(Function)
+282..285 "SUM" Name(Function(Unresolved))
 285..286 "(" Punctuation
 286..291 "total" Name(Column)
 291..292 ")" Punctuation
@@ -75,7 +75,7 @@
 296..299 "sum" Name(Alias) definition
 300..304 "DESC" Keyword
 304..305 "," Punctuation
-306..311 "COUNT" Name(Function)
+306..311 "COUNT" Name(Function(Unresolved))
 311..312 "(" Punctuation
 312..313 "*" Operator
 313..314 ")" Punctuation
@@ -138,7 +138,7 @@
 550..551 "i" Name(Alias) definition
 552..554 "|>" Operator
 555..559 "CALL" Keyword
-560..563 "bin" Name(Function)
+560..563 "bin" Name(Function(Table))
 563..564 "(" Punctuation
 564..565 "x" Name(Column)
 565..566 "," Punctuation
@@ -174,7 +174,7 @@
 667..669 "|>" Operator
 670..675 "PIVOT" Keyword
 676..677 "(" Punctuation
-677..680 "SUM" Name(Function)
+677..680 "SUM" Name(Function(Unresolved))
 680..681 "(" Punctuation
 681..686 "sales" Name(Column)
 686..687 ")" Punctuation

@@ -2,7 +2,7 @@
 
 mod common;
 
-use avenger_sql_syntax::{highlight, parse, parse_module, Highlight, NameRole};
+use avenger_sql_syntax::{highlight, parse, parse_module, FunctionRole, Highlight, NameRole};
 use common::*;
 
 /// The highlighted ranges of `text`: their text, class and whether they define a name.
@@ -56,10 +56,11 @@ fn a_name_takes_the_role_of_its_node() {
     assert_eq!(class_of(text, "items"), (name(NameRole::Field), false));
     assert_eq!(class_of(text, "MONTH"), (name(NameRole::DatePart), false));
     assert_eq!(class_of(text, "@m"), (Highlight::QueryParameter, false));
-    assert_eq!(class_of(text, "f"), (name(NameRole::Function), false));
+    let call = name(NameRole::Function(FunctionRole::Unresolved));
+    assert_eq!(class_of(text, "f"), (call, false));
     assert_eq!(class_of(text, "x"), (name(NameRole::Parameter), false));
     assert_eq!(class_of(text, "NUMERIC"), (name(NameRole::Type), false));
-    assert_eq!(class_of(text, "SUM"), (name(NameRole::Function), false));
+    assert_eq!(class_of(text, "SUM"), (call, false));
     assert_eq!(class_of(text, "total"), (name(NameRole::Field), false));
     assert_eq!(class_of(text, "w"), (name(NameRole::Window), false));
 }
@@ -71,7 +72,8 @@ fn definitions_are_marked() {
                 CREATE TEMP TABLE t (k STRING) ; \
                 FROM t |> WITH u AS (FROM t) |> AS v";
     assert_eq!(class_of(text, "n"), (name(NameRole::Variable), true));
-    assert_eq!(class_of(text, "add"), (name(NameRole::Function), true));
+    let scalar = name(NameRole::Function(FunctionRole::Scalar));
+    assert_eq!(class_of(text, "add"), (scalar, true));
     assert_eq!(class_of(text, "a"), (name(NameRole::Parameter), true));
     assert_eq!(class_of(text, "k"), (name(NameRole::Column), true));
     assert_eq!(class_of(text, "u"), (name(NameRole::Query), true));
@@ -83,6 +85,32 @@ fn definitions_are_marked() {
         .find(|range| &module[range.range] == "charts")
         .unwrap();
     assert_eq!(first.highlight, name(NameRole::Module));
+}
+
+#[test]
+fn the_syntax_tells_table_functions_and_the_kinds_of_created_functions() {
+    let role = |role| name(NameRole::Function(role));
+    let text = "CREATE TEMP AGGREGATE FUNCTION total(x INT64) AS (SUM(x)); \
+                CREATE TEMP TABLE FUNCTION rows_of(n INT64) AS (FROM t); \
+                FROM rows_of(3) |> CALL impute(k, v, value => 0)";
+    assert_eq!(
+        class_of(text, "total"),
+        (role(FunctionRole::Aggregate), true)
+    );
+    assert_eq!(class_of(text, "rows_of"), (role(FunctionRole::Table), true));
+    assert_eq!(
+        classes(text)
+            .iter()
+            .filter(|(word, ..)| word == "rows_of")
+            .nth(1)
+            .map(|(_, highlight, definition)| (*highlight, *definition)),
+        Some((role(FunctionRole::Table), false))
+    );
+    assert_eq!(class_of(text, "impute"), (role(FunctionRole::Table), false));
+    assert_eq!(
+        class_of(text, "SUM"),
+        (role(FunctionRole::Unresolved), false)
+    );
 }
 
 #[test]

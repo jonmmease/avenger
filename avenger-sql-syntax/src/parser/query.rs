@@ -3,7 +3,7 @@
 use super::{expr::BIT_OR_LEVEL, CompletedMarker, Parser};
 use crate::{
     diagnostic::{DiagnosticCode, TextEdit},
-    Expected, NameRole,
+    Expected, FunctionRole, NameRole,
     SyntaxKind::{self, *},
 };
 
@@ -1012,7 +1012,7 @@ impl Parser<'_> {
             }
             "CALL" => {
                 self.bump_keyword();
-                self.path(NameRole::Function);
+                self.path(NameRole::Function(FunctionRole::Table));
                 self.table_arguments();
                 self.alias(NameRole::Alias);
                 self.call_order();

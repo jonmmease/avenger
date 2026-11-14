@@ -12,7 +12,7 @@ use avenger_datafusion_transforms::{
 };
 use avenger_sql_syntax::{
     ast::{self, AstNode},
-    TextRange,
+    FunctionRole, TextRange,
 };
 use datafusion::{
     common::{
@@ -24,7 +24,7 @@ use datafusion::{
 
 use super::{
     expr::Scope,
-    model::{CallForm, Definition},
+    model::{CallForm, Definition, EnumValue},
     rows::{Col, Rows},
     Pass,
 };
@@ -140,6 +140,22 @@ impl Pass<'_> {
     }
 
     /// A call of `lump`: the lump of each row's category, as a placeholder window.
+    /// Records the named arguments of `args` that are string literals and that the parameters of
+    /// `function` take as one value of a set, after its call planned.
+    fn record_enum_options(&mut self, function: &str, args: &Arguments) {
+        let function = self.library.get(function).expect("the function");
+        for (name, expr, _) in &args.named {
+            if let Some(range) = super::expr::string_literal(expr) {
+                if function.takes_one_of(name) {
+                    self.model.enum_values.push(EnumValue {
+                        range,
+                        param: name.clone(),
+                    });
+                }
+            }
+        }
+    }
+
     pub(super) fn lump(
         &mut self,
         call: &ast::CallExpr,
@@ -316,6 +332,7 @@ impl Pass<'_> {
                 "lump({ty}) -> STRUCT<value {ty}, other STRING, weight FLOAT64, category_count INT64>"
             ),
         });
+        self.record_enum_options("lump", &args);
         Some(expr)
     }
 
@@ -411,6 +428,7 @@ impl Pass<'_> {
             path_range,
             Definition::Function {
                 name: "impute".to_string(),
+                role: FunctionRole::Transform,
             },
         );
         let Some(args) = self.arguments(arguments, "impute") else {
@@ -546,6 +564,7 @@ impl Pass<'_> {
                 definition: Some(at),
             });
         }
+        self.record_enum_options("impute", &args);
         let imputed = Rows::new(planned, columns, Vec::new());
         self.close(imputed, alias, false, range)
     }

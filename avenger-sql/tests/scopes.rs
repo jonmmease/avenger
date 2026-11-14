@@ -177,7 +177,7 @@ fn the_model_resolves_each_name_to_its_definition() {
                     )
                 }
                 Definition::Table { names } => format!("table {}", names.join(".")),
-                Definition::Function { name } => format!("function {name}"),
+                Definition::Function { name, role } => format!("function {name} ({role:?})"),
                 Definition::Field { name, .. } => format!("field {name}"),
                 Definition::Query { name, .. } => format!("query {name}"),
                 Definition::Variable { name, .. } => format!("variable {name}"),
@@ -194,7 +194,7 @@ fn the_model_resolves_each_name_to_its_definition() {
             ("a", "range variable a at Some(\"a\")".to_string()),
             ("x", "column x at Some(\"one_row\")".to_string()),
             ("y", "column y at Some(\"y\")".to_string()),
-            ("UPPER", "function UPPER".to_string()),
+            ("UPPER", "function UPPER (Scalar)".to_string()),
             ("s", "column s at Some(\"one_row\")".to_string()),
         ]
     );

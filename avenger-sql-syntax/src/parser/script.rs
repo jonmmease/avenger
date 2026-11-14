@@ -5,7 +5,7 @@
 //! functions and constants, following GoogleSQL's modules.
 
 use super::Parser;
-use crate::{diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
+use crate::{diagnostic::DiagnosticCode, Expected, FunctionRole, NameRole, SyntaxKind::*};
 
 /// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
 /// statements and blocks, DDL, DML, transactions and the rest.
@@ -408,15 +408,27 @@ impl Parser<'_> {
         };
         self.record_name(match object {
             Object::Table => NameRole::Table,
-            Object::Function(_) => NameRole::Function,
+            Object::Function(FunctionKind::Scalar) => NameRole::Function(FunctionRole::Scalar),
+            Object::Function(FunctionKind::Aggregate) => {
+                NameRole::Function(FunctionRole::Aggregate)
+            }
+            Object::Function(FunctionKind::Table) => NameRole::Function(FunctionRole::Table),
             Object::Constant => NameRole::Variable,
         });
         match object {
             Object::Table => {
                 self.table_path();
             }
-            _ => {
-                self.path(NameRole::Function);
+            Object::Function(kind) => {
+                let role = match kind {
+                    FunctionKind::Scalar => FunctionRole::Scalar,
+                    FunctionKind::Aggregate => FunctionRole::Aggregate,
+                    FunctionKind::Table => FunctionRole::Table,
+                };
+                self.path(NameRole::Function(role));
+            }
+            Object::Constant => {
+                self.path(NameRole::Variable);
             }
         }
         let kind = match object {

@@ -11,6 +11,7 @@
 //! [`Catalog`], which [`crate::catalog::references`] tells what to load.
 
 mod expr;
+mod highlight;
 mod match_recognize;
 mod model;
 mod nested;
@@ -24,7 +25,9 @@ mod transforms;
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 use datafusion::{common::DataFusionError, logical_expr::LogicalPlan};
 
-pub use model::{CallForm, Column, Definition, Model, NameUse, OperatorScope, RangeVariable};
+pub use model::{
+    CallForm, Column, Definition, EnumValue, Model, NameUse, OperatorScope, RangeVariable,
+};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
 use rows::{Col, Qualifiers, Rows};
