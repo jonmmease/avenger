@@ -1,0 +1,57 @@
+6..18 "`my-project`" Name(Table)
+19..24 "sales" Name(Table)
+25..31 "orders" Name(Table)
+35..36 "o" Name(Alias) definition
+46..47 "o" Name(Column)
+48..54 "amount" Name(Field)
+69..75 "amount" Name(Column)
+83..90 "doubled" Name(Alias) definition
+92..102 "ROW_NUMBER" Name(Function)
+110..111 "w" Name(Window)
+115..116 "n" Name(Alias) definition
+124..125 "w" Name(Window) definition
+139..142 "day" Name(Column)
+151..157 "amount" Name(Column)
+160..166 "amount" Name(Column)
+179..186 "doubled" Name(Column)
+198..199 "n" Name(Column)
+203..211 "position" Name(Alias) definition
+213..219 "amount" Name(Column)
+220..225 "total" Name(Alias) definition
+232..237 "sales" Name(Alias) definition
+257..260 "day" Name(Column)
+262..267 "total" Name(Column)
+282..285 "SUM" Name(Function)
+286..291 "total" Name(Column)
+296..299 "sum" Name(Alias) definition
+306..311 "COUNT" Name(Function)
+334..337 "day" Name(Column)
+378..381 "day" Name(Column)
+400..403 "sum" Name(Column)
+444..449 "other" Name(Table)
+458..463 "third" Name(Table)
+478..487 "customers" Name(Table)
+495..497 "id" Name(Column)
+520..525 "items" Name(Column)
+530..534 "item" Name(Alias) definition
+550..551 "i" Name(Alias) definition
+560..563 "bin" Name(Function)
+564..565 "x" Name(Column)
+567..574 "maxbins" Name(Parameter)
+585..591 "binned" Name(Alias) definition
+607..613 "SYSTEM" Name(Other)
+635..636 "a" Name(Query) definition
+646..648 "t1" Name(Table)
+651..652 "b" Name(Query) definition
+662..664 "t2" Name(Table)
+677..680 "SUM" Name(Function)
+681..686 "sales" Name(Column)
+691..696 "total" Name(Alias) definition
+701..708 "quarter" Name(Column)
+721..723 "q1" Name(Alias) definition
+758..763 "sales" Name(Column)
+768..775 "quarter" Name(Column)
+780..782 "q1" Name(Column)
+792..794 "q2" Name(Column)
+835..836 "x" Name(Table)
+887..888 "y" Name(Table)

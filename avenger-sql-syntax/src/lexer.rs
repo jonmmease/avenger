@@ -2,8 +2,8 @@
 //!
 //! The lexer never fails and loses no text: every byte belongs to a token, whitespace and
 //! comments are trivia tokens, and a malformed token keeps a kind and adds a diagnostic, so the
-//! parser can go on. Tokens keep their raw text, and [`unescape`] decodes a literal's value.
-//! Keywords and unquoted names are [`SyntaxKind::WORD`] tokens, which the parser tells apart.
+//! parser can go on. Tokens keep their raw text: the accessors of [`crate::ast`] decode a
+//! literal's value, and the validation pass checks its escapes. Keywords and unquoted names are [`SyntaxKind::WORD`] tokens, which the parser tells apart.
 //! As in GoogleSQL, `<>` and `>>` are two tokens each, which the parser reads as one operator
 //! when they are adjacent.
 
@@ -227,9 +227,6 @@ impl Lexer<'_> {
         let quote = self.bytes[self.position];
         let triple = quote != b'`' && self.peek(1) == Some(quote) && self.peek(2) == Some(quote);
         self.position += if triple { 3 } else { 1 };
-        let raw = self.source[start..start + prefix]
-            .bytes()
-            .any(|b| b.eq_ignore_ascii_case(&b'r'));
         let closed = loop {
             let Some(byte) = self.peek(0) else {
                 break false;
@@ -267,27 +264,6 @@ impl Lexer<'_> {
             );
             if at_line_end {
                 diagnostic.help("triple quotes, ''' or \"\"\", hold line ends");
-            }
-            return;
-        }
-        let quote_len = if triple { 3 } else { 1 };
-        let body_start = start + prefix + quote_len;
-        let body = &self.source[body_start..self.position - quote_len];
-        match unescape(body, raw, kind == BYTES) {
-            Ok(value) => {
-                if kind == QUOTED_IDENT && value.is_empty() {
-                    self.error(start, self.position, "a quoted identifier can't be empty");
-                } else if kind != BYTES && String::from_utf8(value).is_err() {
-                    self.error(
-                        start,
-                        self.position,
-                        "this string's escapes don't form UTF-8 text",
-                    );
-                }
-            }
-            Err(error) => {
-                let at = body_start + error.offset;
-                self.error(at, at + error.len, error.message);
             }
         }
     }
@@ -443,93 +419,4 @@ impl Lexer<'_> {
         self.position += len;
         self.push(kind, start);
     }
-}
-
-/// An error in the escapes of a literal: its offset in the literal's body, its length, and its
-/// message.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EscapeError {
-    pub offset: usize,
-    pub len: usize,
-    pub message: String,
-}
-
-/// The value of the body of a quoted literal or identifier, the text between its quotes, after
-/// its escapes. A raw body keeps its backslashes, and a bytes body takes no `\u` or `\U`.
-pub fn unescape(body: &str, raw: bool, bytes: bool) -> Result<Vec<u8>, EscapeError> {
-    let source = body.as_bytes();
-    let mut value = Vec::with_capacity(source.len());
-    let mut index = 0;
-    while index < source.len() {
-        let byte = source[index];
-        if byte != b'\\' || index + 1 >= source.len() {
-            value.push(byte);
-            index += 1;
-            continue;
-        }
-        let next = source[index + 1];
-        if raw {
-            value.extend([b'\\', next]);
-            index += 2;
-            continue;
-        }
-        let start = index;
-        index += 2;
-        let digits = |index: &mut usize, count: usize, radix: u32| -> Result<u32, EscapeError> {
-            let mut code = 0u32;
-            for _ in 0..count {
-                let digit = source
-                    .get(*index)
-                    .and_then(|b| (*b as char).to_digit(radix))
-                    .ok_or_else(|| EscapeError {
-                        offset: start,
-                        len: *index - start,
-                        message: format!("this escape takes {count} digits"),
-                    })?;
-                code = code * radix + digit;
-                *index += 1;
-            }
-            Ok(code)
-        };
-        match next {
-            b'a' => value.push(0x07),
-            b'b' => value.push(0x08),
-            b'f' => value.push(0x0c),
-            b'n' => value.push(b'\n'),
-            b'r' => value.push(b'\r'),
-            b't' => value.push(b'\t'),
-            b'v' => value.push(0x0b),
-            b'\\' | b'?' | b'"' | b'\'' | b'`' => value.push(next),
-            b'0'..=b'7' => {
-                let rest = digits(&mut index, 2, 8)?;
-                let code = u32::from(next - b'0') * 64 + rest;
-                let code = u8::try_from(code).map_err(|_| EscapeError {
-                    offset: start,
-                    len: index - start,
-                    message: "an octal escape is at most \\377".to_string(),
-                })?;
-                value.push(code);
-            }
-            b'x' | b'X' => value.push(digits(&mut index, 2, 16)? as u8),
-            b'u' | b'U' if !bytes => {
-                let count = if next == b'u' { 4 } else { 8 };
-                let code = digits(&mut index, count, 16)?;
-                let character = char::from_u32(code).ok_or_else(|| EscapeError {
-                    offset: start,
-                    len: index - start,
-                    message: "this escape names no Unicode character".to_string(),
-                })?;
-                let mut buffer = [0; 4];
-                value.extend(character.encode_utf8(&mut buffer).as_bytes());
-            }
-            _ => {
-                return Err(EscapeError {
-                    offset: start,
-                    len: 2,
-                    message: format!("`\\{}` is not an escape", next as char),
-                })
-            }
-        }
-    }
-    Ok(value)
 }

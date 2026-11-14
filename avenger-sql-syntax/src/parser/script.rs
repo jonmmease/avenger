@@ -4,8 +4,6 @@
 //! `IMPORT MODULE` and `CREATE PUBLIC` or `CREATE PRIVATE` statements of functions, table
 //! functions and constants, following GoogleSQL's modules.
 
-use rowan::TextRange;
-
 use super::Parser;
 use crate::{diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
 
@@ -60,14 +58,12 @@ impl Parser<'_> {
         marker.complete(self, MODULE);
     }
 
-    /// The statements up to the end, separated by `;`. As in GoogleSQL, every `DECLARE` of a
-    /// script comes before its other statements.
+    /// The statements up to the end, separated by `;`.
     fn statements(&mut self) {
         let place = match self.in_module {
             true => "module",
             false => "script",
         };
-        let mut after_others = false;
         loop {
             self.record(Expected::Statement);
             if self.at_eof() {
@@ -75,17 +71,6 @@ impl Parser<'_> {
             }
             let start = self.position;
             let statement = self.statement();
-            if let Some(statement) = statement {
-                if statement.kind() == DECLARE_STMT && after_others {
-                    let range = self.node_range(statement);
-                    self.error(
-                        DiagnosticCode::InvalidStatement,
-                        range,
-                        "a DECLARE comes before the other statements of a script",
-                    );
-                }
-                after_others |= statement.kind() != DECLARE_STMT;
-            }
             let query = matches!(statement.map(|s| s.kind()), Some(QUERY));
             if self.eat(SEMICOLON) || self.at_eof() {
                 continue;
@@ -176,7 +161,9 @@ impl Parser<'_> {
                 range,
                 "an IMPORT MODULE names its module by a path, as in `charts.scales`",
             );
+            let error = self.start();
             self.bump();
+            error.complete(self, ERROR);
         } else {
             self.path(NameRole::Module);
         }
@@ -187,8 +174,10 @@ impl Parser<'_> {
                 range,
                 "an IMPORT MODULE names its alias with AS, not INTO",
             );
+            let error = self.start();
             self.bump_keyword();
             self.name(NameRole::Alias);
+            error.complete(self, ERROR);
         } else if self.at_keyword("AS") {
             let alias = self.start();
             self.bump_keyword();
@@ -205,24 +194,13 @@ impl Parser<'_> {
         self.bump_keyword();
         self.comma_list(|p| p.name(NameRole::Variable));
         let at_end = matches!(self.current(), SEMICOLON | EOF);
-        let typed = !self.at_keyword("DEFAULT") && !at_end;
-        if typed {
+        if !self.at_keyword("DEFAULT") && !at_end {
             self.ty();
         }
-        let defaulted = self.eat_keyword("DEFAULT");
-        if defaulted {
+        if self.eat_keyword("DEFAULT") {
             self.expr();
         }
-        let node = marker.complete(self, DECLARE_STMT);
-        if !typed && !defaulted {
-            let range = self.node_range(node);
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "a DECLARE takes a type, a DEFAULT, or both",
-            );
-        }
-        node
+        marker.complete(self, DECLARE_STMT)
     }
 
     /// `SET name = value` or `SET (names) = value`
@@ -247,48 +225,18 @@ impl Parser<'_> {
         marker.complete(self, SET_STMT)
     }
 
-    /// A `CREATE` statement.
+    /// A `CREATE` statement. The validation pass checks its modifiers against its object and
+    /// against the scripts and modules.
     fn create(&mut self) -> super::CompletedMarker {
         let marker = self.start();
         self.bump_keyword();
-        let mode = self.start();
-        let or_replace = self.keywords_range(&["OR", "REPLACE"]);
-        if let (Some(range), true) = (or_replace, self.in_module) {
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "a module creates each object once, so no OR REPLACE",
-            );
-        }
-        let scope_range = self.range();
-        let scope = ["TEMP", "TEMPORARY", "PUBLIC", "PRIVATE"]
+        self.eat_keywords(&["OR", "REPLACE"]);
+        if let Some(scope) = ["TEMP", "TEMPORARY", "PUBLIC", "PRIVATE"]
             .iter()
             .find(|word| self.at_keyword(word))
-            .map(|word| word.to_string());
-        if scope.is_some() {
-            self.bump_keyword();
+        {
+            self.eat_keyword(scope);
         }
-        let public = matches!(scope.as_deref(), Some("PUBLIC" | "PRIVATE"));
-        if self.in_module && !public {
-            let range = match scope {
-                None => self.range(),
-                Some(_) => scope_range,
-            };
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "a CREATE in a module is PUBLIC or PRIVATE",
-            )
-            .help("PUBLIC objects are visible to the scripts and modules that import the module");
-        }
-        if !self.in_module && public {
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                scope_range,
-                "PUBLIC and PRIVATE belong to the CREATE statements of a module",
-            );
-        }
-        let object_start = self.range();
         let object = if self.eat_keywords(&["AGGREGATE", "FUNCTION"]) {
             Some(Object::Function(FunctionKind::Aggregate))
         } else if self.at_keyword("TABLE")
@@ -309,57 +257,22 @@ impl Parser<'_> {
             );
             None
         };
-        let object_range = self.since(object_start);
-        match (object, self.in_module) {
-            (Some(Object::Table), true) => {
-                self.error(
-                    DiagnosticCode::InvalidStatement,
-                    object_range,
-                    "a module creates functions, table functions and constants, not tables",
-                );
-            }
-            (Some(Object::Constant), false) => {
-                self.error(
-                    DiagnosticCode::InvalidStatement,
-                    object_range,
-                    "a CONSTANT belongs to a module",
-                )
-                .help =
-                    Some("a script declares a variable, as in `DECLARE x DEFAULT 1`".to_string());
-            }
-            _ => {}
-        }
-        let if_not_exists = self.keywords_range(&["IF", "NOT", "EXISTS"]);
-        if let Some(range) = if_not_exists {
-            if or_replace.is_some() || self.in_module {
-                let message = match self.in_module {
-                    true => "a module creates each object once, so no IF NOT EXISTS",
-                    false => "OR REPLACE and IF NOT EXISTS don't go together",
-                };
-                self.error(DiagnosticCode::InvalidStatement, range, message);
-            }
-        }
-        mode.complete(self, CREATE_MODE);
+        self.eat_keywords(&["IF", "NOT", "EXISTS"]);
         let Some(object) = object else {
             self.skip_until(|p| p.current() == SEMICOLON);
-            return marker.complete(self, CREATE_TABLE_STMT);
+            return marker.complete(self, ERROR);
         };
         self.record_name(match object {
             Object::Table => NameRole::Table,
             Object::Function(_) => NameRole::Function,
             Object::Constant => NameRole::Variable,
         });
-        let name = match object {
-            Object::Table => self.table_name(),
-            _ => self.definition_path(),
-        };
-        if let (Some((range, parts)), true) = (name, self.in_module) {
-            if parts > 1 {
-                self.error(
-                    DiagnosticCode::InvalidStatement,
-                    range,
-                    "an object of a module has a one-part name",
-                );
+        match object {
+            Object::Table => {
+                self.table_path();
+            }
+            _ => {
+                self.path(NameRole::Function);
             }
         }
         let kind = match object {
@@ -380,35 +293,9 @@ impl Parser<'_> {
         marker.complete(self, kind)
     }
 
-    /// The name of a table that a `CREATE TABLE` defines, which can hold dashes, and the range
-    /// and the number of its names.
-    fn table_name(&mut self) -> Option<(TextRange, usize)> {
-        let (path, _) = self.table_path()?;
-        let range = self.node_range(path);
-        Some((range, self.path_parts(range)))
-    }
-
-    /// The path of a function or a constant that a `CREATE` defines.
-    fn definition_path(&mut self) -> Option<(TextRange, usize)> {
-        let (path, parts) = self.path(NameRole::Function)?;
-        Some((self.node_range(path), parts))
-    }
-
-    /// The number of names in the path at `range`: its dots that the lexer read as tokens, plus
-    /// one.
-    fn path_parts(&self, range: TextRange) -> usize {
-        (self.tokens.iter())
-            .filter(|token| token.kind == DOT && range.contains_range(token.range))
-            .count()
-            + 1
-    }
-
     /// The rest of `CREATE TABLE`, after its name.
     fn create_table(&mut self) {
-        let start = self.range();
-        let mut columns = false;
         if self.current() == L_PAREN {
-            columns = true;
             let list = self.start();
             self.parens(|p| {
                 p.comma_list_until(Self::column_definition, |p| p.current() == R_PAREN);
@@ -434,17 +321,8 @@ impl Parser<'_> {
             }
         }
         self.options();
-        let query = self.eat_keyword("AS");
-        if query {
+        if self.eat_keyword("AS") {
             self.query();
-        }
-        if !columns && !query {
-            let range = self.since(start);
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "a CREATE TABLE takes columns, AS and a query, or both",
-            );
         }
     }
 
@@ -502,7 +380,7 @@ impl Parser<'_> {
     /// The rest of `CREATE [AGGREGATE | TABLE] FUNCTION`, after its name.
     fn create_function(&mut self, kind: FunctionKind) {
         let list = self.start();
-        self.paren_list(|p| p.parameter(kind), true);
+        self.paren_list(Self::parameter, true);
         list.complete(self, PARAM_LIST);
         match kind {
             FunctionKind::Table => {
@@ -556,82 +434,50 @@ impl Parser<'_> {
         }
     }
 
-    /// `name type`, `name ANY TYPE`, or for a table function `name TABLE<columns>` or `name ANY
-    /// TABLE`, or for an aggregate function `name type NOT AGGREGATE`.
-    fn parameter(&mut self, kind: FunctionKind) {
+    /// `name type`, `name ANY TYPE`, `name TABLE<columns>`, or `name ANY TABLE`, and `NOT
+    /// AGGREGATE`. The validation pass checks them against the kind of the function.
+    fn parameter(&mut self) {
         let marker = self.start();
         self.name(NameRole::Parameter);
-        let type_start = self.range();
-        let table = if self.at_keyword("ANY") && self.keyword_at(1, "TYPE") {
+        if self.at_keyword("ANY") && self.keyword_at(1, "TYPE") {
             let any = self.start();
             self.eat_keywords(&["ANY", "TYPE"]);
             any.complete(self, ANY_TYPE);
-            false
         } else if self.at_keyword("ANY") && self.keyword_at(1, "TABLE") {
             let any = self.start();
             self.eat_keywords(&["ANY", "TABLE"]);
             any.complete(self, ANY_TABLE);
-            true
         } else if self.keyword_at(0, "TABLE") && self.nth(1) == LT {
             let table = self.start();
             self.bump_keyword();
             self.bump();
             self.table_columns();
             table.complete(self, TABLE_TYPE);
-            true
         } else {
             self.ty();
-            false
-        };
-        if table && kind != FunctionKind::Table {
-            let range = self.since(type_start);
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "a table parameter belongs to a TABLE FUNCTION",
-            );
         }
-        if let Some(range) = self.keywords_range(&["NOT", "AGGREGATE"]) {
-            if kind != FunctionKind::Aggregate {
-                self.error(
-                    DiagnosticCode::InvalidStatement,
-                    range,
-                    "NOT AGGREGATE belongs to a parameter of an AGGREGATE FUNCTION",
-                );
-            }
-        }
+        self.eat_keywords(&["NOT", "AGGREGATE"]);
         marker.complete(self, PARAMETER);
     }
 
-    /// The columns of `TABLE<...>`, after `<` and through `>`, each a name and a type.
+    /// The columns of `TABLE<...>`, after `<` and through `>`. The validation pass checks that
+    /// each has a name.
     fn table_columns(&mut self) {
-        let start = self.previous_range();
-        let mut unnamed = self.current() == GT;
-        if !self.eat(GT) {
-            loop {
-                let named = self.at_ident() && !matches!(self.nth(1), COMMA | GT | L_PAREN | LT);
-                let field = self.start();
-                match named {
-                    true => {
-                        self.name(NameRole::Column);
-                    }
-                    false => unnamed = true,
-                }
-                self.ty();
-                field.complete(self, STRUCT_FIELD);
-                if !self.eat(COMMA) {
-                    break;
-                }
+        if self.eat(GT) {
+            return;
+        }
+        loop {
+            let named = self.at_ident() && !matches!(self.nth(1), COMMA | GT | L_PAREN | LT);
+            let field = self.start();
+            if named {
+                self.name(NameRole::Column);
             }
-            self.expect(GT, "`>`");
+            self.ty();
+            field.complete(self, STRUCT_FIELD);
+            if !self.eat(COMMA) {
+                break;
+            }
         }
-        if unnamed {
-            let range = self.since(start);
-            self.error(
-                DiagnosticCode::InvalidStatement,
-                range,
-                "the columns of a table each take a name and a type",
-            );
-        }
+        self.expect(GT, "`>`");
     }
 }

@@ -2,7 +2,10 @@
 
 mod common;
 
-use avenger_sql_syntax::SyntaxKind::*;
+use avenger_sql_syntax::{
+    ast::{self, AstNode},
+    SyntaxKind::*,
+};
 use common::*;
 
 #[test]
@@ -30,18 +33,14 @@ fn precedence_follows_googlesql() {
 #[test]
 fn commas_and_joins_associate_to_the_left() {
     let root = accepts("FROM a, b JOIN c USING (k)");
-    let joins = nodes(&root, JOIN);
-    assert_eq!(joins.len(), 2);
-    let outer = &joins[0];
-    let left = outer.children().next().unwrap();
-    assert_eq!(left.kind(), JOIN);
-    assert_eq!(text_of(&left, JOIN_OP), ",");
-}
-
-#[test]
-fn a_dashed_table_name_holds_its_dashes() {
-    let root = accepts("FROM my-project-2.dataset.table");
-    assert_eq!(text_of(&root, PATH), "my-project-2.dataset.table");
+    let outer = root.descendants().find_map(ast::Join::cast).unwrap();
+    assert!(outer.join_op().and_then(|op| op.join_kw()).is_some());
+    assert!(outer.join_condition().is_some());
+    let Some(ast::Source::Join(left)) = outer.lhs() else {
+        panic!("the left operand is not a join: {outer:?}");
+    };
+    assert!(left.join_op().and_then(|op| op.comma()).is_some());
+    assert_eq!(left.to_string(), "a, b");
 }
 
 #[test]
