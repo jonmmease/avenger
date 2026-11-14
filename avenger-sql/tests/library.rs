@@ -11,10 +11,8 @@ use datafusion::{
     arrow::{
         array::{Int64Array, RecordBatch, StringArray},
         datatypes::{DataType, Field, Schema},
-        util::pretty::pretty_format_batches,
     },
     datasource::MemTable,
-    prelude::SessionContext,
 };
 
 /// GoogleSQL's values of these expressions, from `execute_query --output_mode=json`, in its
@@ -70,9 +68,9 @@ async fn each_function_returns_googlesqls_value() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The table `cases` of the column `x` of integers and the column `s` of strings, beside the tables
-/// of the pass's tests.
-fn table(x: &[Option<i64>], s: &[&str]) -> (RecordBatch, MemoryCatalog) {
+/// The catalog of the pass's tests with the table `cases` of the column `x` of integers and the
+/// column `s` of strings.
+fn table(x: &[Option<i64>], s: &[&str]) -> MemoryCatalog {
     let rows = x.len().max(s.len());
     let x: Int64Array = (0..rows).map(|i| x.get(i).copied().flatten()).collect();
     let s: StringArray = (0..rows).map(|i| s.get(i).copied()).collect();
@@ -84,11 +82,8 @@ fn table(x: &[Option<i64>], s: &[&str]) -> (RecordBatch, MemoryCatalog) {
         vec![Arc::new(x), Arc::new(s)],
     )
     .expect("a table");
-    let table = MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).unwrap();
-    (
-        batch,
-        pass::catalog().with_table(&["cases"], Arc::new(table)),
-    )
+    let table = MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap();
+    pass::catalog().with_table(&["cases"], Arc::new(table))
 }
 
 /// The values of the first column of `query` over `catalog`, in their order, in GoogleSQL's
@@ -115,7 +110,7 @@ async fn aggregates_return_googlesqls_values() {
     ];
     let mut failures = Vec::new();
     for (text, x, s, expected) in cases {
-        let (_, catalog) = table(x, s);
+        let catalog = table(x, s);
         let found = values(&catalog, &format!("FROM cases |> AGGREGATE {text} AS v")).await;
         if found != [expected] {
             failures.push(format!(
@@ -144,7 +139,7 @@ async fn window_functions_return_googlesqls_values() {
     ];
     let mut failures = Vec::new();
     for (text, x, expected) in cases {
-        let (_, catalog) = table(x, &[]);
+        let catalog = table(x, &[]);
         // The rows of two equal `x` are in the order of the window's values.
         let query = format!(
             "FROM cases |> EXTEND {text} OVER (ORDER BY x) AS v |> ORDER BY x, v |> SELECT v"
@@ -190,46 +185,6 @@ fn the_library_names_functions_without_regard_to_case() {
     assert_eq!(library.get("sum").expect("SUM").name, "SUM");
     assert_eq!(library.get("BAR").expect("bar").name, "bar");
     assert!(library.get("OFFSET").is_none());
-}
-
-/// The rows of `query`, run by DataFusion's SQL planner as avenger-sql does today, and of
-/// `piped` as the pass plans it, over the table `cases`.
-async fn same_rows(query: &str, piped: &str) {
-    let (batch, catalog) = table(
-        &[Some(3), Some(1), Some(4), Some(1), Some(5)],
-        &["a", "b", "a", "c", "b"],
-    );
-    let ctx = SessionContext::new();
-    avenger_sql::register(&ctx).unwrap();
-    ctx.register_batch("cases", batch).unwrap();
-    let expected = avenger_sql::sql(&ctx, query)
-        .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    let found = (pass::run_in(&ctx, &catalog, piped).await)
-        .unwrap_or_else(|errors| panic!("{piped}: {errors:?}"));
-    let show = |batches: &[RecordBatch]| pretty_format_batches(batches).unwrap().to_string();
-    assert_eq!(show(&found), show(&expected), "{query}");
-}
-
-#[tokio::test]
-async fn a_mark_builds_the_chart_of_its_sql_call() {
-    same_rows(
-        "SELECT bar(x => s, y => x) AS chart FROM cases",
-        "FROM cases |> AGGREGATE bar(x => s, y => x) AS chart",
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn bin_takes_its_options_as_named_arguments() {
-    same_rows(
-        "SELECT x, bin(x, 'maxbins', 2) OVER () AS b FROM cases ORDER BY x",
-        "FROM cases |> EXTEND bin(x, maxbins => 2) OVER () AS b |> SELECT x, b |> ORDER BY x",
-    )
-    .await;
 }
 
 #[test]

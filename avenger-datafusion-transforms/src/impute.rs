@@ -1,14 +1,15 @@
 //! `impute`: a table function that adds the rows that each group lacks.
 //!
 //! ```sql
-//! SELECT * FROM impute((SELECT month, region, sum(units) AS units FROM sales GROUP BY 1, 2),
-//!                      month, [region], units, value => 0, flag => imputed)
+//! FROM sales
+//! |> AGGREGATE SUM(units) AS units GROUP BY month, region
+//! |> CALL impute(month, [region], units, value => 0, flag => 'imputed')
 //! ```
 //!
-//! The first argument is the input: a subquery, a CTE, or a table. Then come the key column,
-//! the group columns (a list, `[]`, or one column without brackets), and the value column. The named arguments are `value`, `method`
+//! [`plan`] plans a call over its input, from the key column, the group columns, and the value
+//! column, and the named arguments: `value`, `method`
 //! (`'avg'`, `'median'`, `'min'`, or `'max'`), `frame => [lo, hi]`, `keys => [...]`,
-//! `extra_keys => [...]`, `fill_gaps`, `partition_by`, and `flag => name`.
+//! `extra_keys => [...]`, `fill_gaps`, `partition_by`, and `flag`, the name of a column.
 //!
 //! For each group (the distinct combinations of the group columns) and each key value, the
 //! function adds a row when the group has no row with that key. The key values are `keys`,
@@ -31,8 +32,8 @@
 //! - A unit, such as `'month'`, for a DATE or a timestamp key. Weeks start on Monday, and a
 //!   fiscal unit needs a key from `timeunit`, which carries the fiscal year start.
 //! - A struct with any of `start`, `end`, and `step`; a field that it leaves out comes from
-//!   the keys. `bin_params(...)` is a sequence of the bins of one mesh. A number key needs a
-//!   `step`.
+//!   the keys. The struct of `bin_params(...)` is a sequence of the bins of one mesh. A number
+//!   key needs a `step`.
 //!
 //! The range is half-open, `[start, end)`. Keys outside it stay key values, and impute fills no
 //! gaps outside it. The intervals of a partition must have one width and one alignment, and the
@@ -44,7 +45,7 @@
 //! Added rows follow the input rows of their partition, by group in the order in which the
 //! groups first occur, then in key order.
 //!
-//! `impute` is a [table function](crate::table_function): [`Impute`] binds its arguments, and
+//! `impute` is a [table function](crate::table_function): [`plan`] binds its arguments, and
 //! [`ImputeTransform`] adds the rows of each partition. It reads its input once, into memory.
 //! The same result from SQL joins would read the input once for the keys, once for the
 //! groups, and once for the rows: DataFusion does not share a subplan between readers, and the
@@ -72,13 +73,12 @@ use datafusion::logical_expr::type_coercion::functions::fields_with_udf;
 use datafusion::physical_expr::PhysicalExpr;
 use datafusion::physical_expr::aggregate::AggregateExprBuilder;
 use datafusion::physical_expr::expressions::Column as PhysicalColumn;
-use datafusion::sql::sqlparser::ast::{Expr as SqlExpr, Spanned, Value};
-use datafusion::sql::sqlparser::tokenizer::Span as SqlSpan;
 
 use crate::table_function::{
-    Call, PartitionTransform, TableFunction, TableTransform, cast_exact, constant, err_at,
+    ArgAt, ArgError, PartitionTransform, TableFunctionNode, TableTransform, cast_exact, constant,
     row_bytes,
 };
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan};
 
 mod gaps;
 pub use gaps::{GapKind, Gaps, Step};
@@ -293,79 +293,121 @@ impl TableTransform for ImputeTransform {
 // The arguments
 // ---------------------------------------------------------------------------------------
 
-/// The table function `impute`.
-#[derive(Debug)]
-pub struct Impute;
-
-impl TableFunction for Impute {
-    fn name(&self) -> &'static str {
-        "impute"
-    }
-    fn positional(&self) -> &'static [&'static str] {
-        &["the key", "the groups", "the value column"]
-    }
-    fn named(&self) -> &'static [&'static str] {
-        &[
-            "value",
-            "method",
-            "frame",
-            "keys",
-            "extra_keys",
-            "fill_gaps",
-            "flag",
-        ]
-    }
-    fn plan(&self, call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
-        plan_impute(call)
-    }
+/// A named argument of a call of `impute`.
+#[derive(Clone, Debug)]
+pub enum Named {
+    /// A constant expression, of `value`, `method` and `fill_gaps`.
+    Value(Expr),
+    /// A list of constant expressions, of `frame`, `keys` and `extra_keys`.
+    List(Vec<Expr>),
+    /// A name, of `flag`.
+    Name(String),
+    /// Columns of the input, of `partition_by`.
+    Columns(Vec<Column>),
 }
 
-fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
-    let schema = call.schema();
-    let mut positional = std::mem::take(&mut call.positional).into_iter();
-    let key = call.column("key", positional.next().expect("the key"))?;
+/// A call of `impute` over an input: the key column, the group columns, the value column, and
+/// the named arguments, each with its name in lower case.
+#[derive(Clone, Debug)]
+pub struct ImputeCall {
+    pub key: Column,
+    pub groups: Vec<Column>,
+    pub value: Column,
+    pub named: Vec<(String, Named)>,
+}
+
+/// The names of the named arguments of `impute`.
+pub const NAMED: &[&str] = &[
+    "value",
+    "method",
+    "frame",
+    "keys",
+    "extra_keys",
+    "fill_gaps",
+    "flag",
+    "partition_by",
+];
+
+/// The bounds of a frame, before and after the row, `None` for an unbounded side.
+type Frame = (Option<i64>, Option<i64>);
+
+/// The plan of `call` over `input`: a [`TableFunctionNode`] of an [`ImputeTransform`], or the
+/// error of an argument.
+pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<LogicalPlan, ArgError> {
+    let schema = input.schema().clone();
+    let ImputeCall {
+        key,
+        groups,
+        value: val,
+        named,
+    } = call;
     let mut groupby = Vec::new();
-    for (c, span) in call.columns("group", positional.next().expect("the groups"))? {
+    for (i, c) in groups.into_iter().enumerate() {
         if c == key {
-            return Err(err_at(
-                span,
-                format!("the key {c} of impute is also a group column"),
+            return Err(ArgError::new(
+                ArgAt::Element(1, i),
+                format!("the key {} of impute is also a group column", c.name),
             ));
         }
         if groupby.contains(&c) {
-            return Err(err_at(
-                span,
-                format!("the group column {c} of impute is given twice"),
+            return Err(ArgError::new(
+                ArgAt::Element(1, i),
+                format!("the group column {} of impute is given twice", c.name),
             ));
         }
         groupby.push(c);
     }
-    let val_expr = positional.next().expect("the value column");
-    let val_span = val_expr.span();
-    let val = call.column("value column", val_expr)?;
     if val == key || groupby.contains(&val) {
-        return Err(err_at(
-            val_span,
-            format!("the value column {val} of impute is also the key or a group column"),
+        return Err(ArgError::new(
+            ArgAt::Positional(2),
+            format!(
+                "the value column {} of impute is also the key or a group column",
+                val.name
+            ),
         ));
     }
     let key_type = schema.field_from_column(&key)?.data_type().clone();
     let val_type = schema.field_from_column(&val)?.data_type().clone();
-    let call_span = call.span;
 
-    // The named arguments.
     let mut value = None;
-    let mut method: Option<(String, SqlSpan)> = None;
-    let mut frame = None;
+    let mut method: Option<(String, usize)> = None;
+    let mut frame: Option<(Frame, usize)> = None;
     let mut keys = None;
     let mut extra_keys = Vec::new();
-    let mut gaps: Option<(Gaps, SqlSpan)> = None;
+    let mut gaps: Option<(Gaps, usize)> = None;
     let mut flag = None;
-    for (name, e) in std::mem::take(&mut call.named) {
-        let span = e.span();
-        match name.as_str() {
-            "value" => {
-                let v = call.constant("`value`", e)?;
+    let mut partition_by: Vec<Column> = Vec::new();
+    let mut partition_at = None;
+    let mut seen: Vec<&str> = Vec::new();
+    for (index, (name, arg)) in named.iter().enumerate() {
+        let at = ArgAt::Named(index);
+        let Some(&known) = NAMED.iter().find(|n| name.eq_ignore_ascii_case(n)) else {
+            return Err(ArgError::new(
+                at,
+                format!(
+                    "unknown argument `{name}` of impute: the named arguments are {}",
+                    NAMED.join(", ")
+                ),
+            ));
+        };
+        if seen.contains(&known) {
+            return Err(ArgError::new(
+                at,
+                format!("the argument `{known}` of impute is given twice"),
+            ));
+        }
+        seen.push(known);
+        let constant_of = |what: &str, e: &Expr| -> std::result::Result<ScalarValue, ArgError> {
+            constant(e).map_err(|e| {
+                ArgError::new(
+                    at,
+                    format!("{what} must be a constant: {}", e.strip_backtrace()),
+                )
+            })
+        };
+        match (known, arg) {
+            ("value", Named::Value(e)) => {
+                let v = constant_of("`value`", e)?;
                 // A value that the column's type holds keeps the type. A number that a numeric
                 // column's type does not hold widens the column, as `COALESCE` of the column
                 // and the value would.
@@ -382,61 +424,50 @@ fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
                     } else {
                         format!("'{v}'")
                     };
-                    return Err(err_at(
-                        span,
-                        format!("`value` {shown} does not coerce to the type of {val}, {val_type}"),
+                    return Err(ArgError::new(
+                        at,
+                        format!(
+                            "`value` {shown} does not coerce to the type of {}, {val_type}",
+                            val.name
+                        ),
                     ));
                 };
-                value = Some((cast, span));
+                value = Some(cast);
             }
-            "method" => {
-                let SqlExpr::Value(v) = &e else {
-                    return Err(err_at(
-                        span,
+            ("method", Named::Value(e)) => {
+                let v = constant_of("`method`", e)?;
+                let Some(Some(m)) = v.try_as_str() else {
+                    return Err(ArgError::new(
+                        at,
                         "`method` must be 'avg', 'median', 'min', or 'max'",
                     ));
                 };
-                let Value::SingleQuotedString(s) = &v.value else {
-                    return Err(err_at(
-                        span,
-                        format!("`method` must be 'avg', 'median', 'min', or 'max'; found {e}"),
-                    ));
-                };
-                method = Some((s.clone(), span));
+                method = Some((m.to_string(), index));
             }
-            "frame" => {
-                let SqlExpr::Array(a) = e else {
-                    return Err(err_at(
-                        span,
-                        "`frame` must be a list of two bounds, such as [-2, 2]",
-                    ));
-                };
-                if a.elem.len() != 2 {
-                    return Err(err_at(
-                        span,
+            ("frame", Named::List(bounds_exprs)) => {
+                if bounds_exprs.len() != 2 {
+                    return Err(ArgError::new(
+                        at,
                         "`frame` must be a list of two bounds, such as [-2, 2]",
                     ));
                 }
                 let mut bounds = [None, None];
-                for (i, b) in a.elem.into_iter().enumerate() {
-                    let bspan = b.span();
-                    let expr = call.ctx.sql_to_expr(b, &DFSchema::empty()).map_err(|_| {
-                        err_at(bspan, "a bound of `frame` must be an integer or NULL")
-                    })?;
-                    bounds[i] = match constant(&expr) {
+                for (i, b) in bounds_exprs.iter().enumerate() {
+                    let bat = ArgAt::NamedElement(index, i);
+                    bounds[i] = match constant(b) {
                         Ok(v) if v.is_null() => None,
                         Ok(v) if v.data_type().is_integer() => match v.cast_to(&DataType::Int64) {
                             Ok(ScalarValue::Int64(Some(b))) => Some(b),
                             _ => {
-                                return Err(err_at(
-                                    bspan,
-                                    "a bound of `frame` must fit in a BIGINT",
+                                return Err(ArgError::new(
+                                    bat,
+                                    "a bound of `frame` must fit in an INT64",
                                 ));
                             }
                         },
                         _ => {
-                            return Err(err_at(
-                                bspan,
+                            return Err(ArgError::new(
+                                bat,
                                 "a bound of `frame` must be an integer or NULL",
                             ));
                         }
@@ -445,81 +476,101 @@ fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
                 if let [Some(lo), Some(hi)] = bounds
                     && lo > hi
                 {
-                    return Err(err_at(
-                        span,
+                    return Err(ArgError::new(
+                        at,
                         format!("the start of `frame`, {lo}, is after its end, {hi}"),
                     ));
                 }
-                frame = Some(((bounds[0], bounds[1]), span));
+                frame = Some(((bounds[0], bounds[1]), index));
             }
-            "keys" => keys = Some(call.constant_list("`keys`", e, &key_type, "the key")?),
-            "extra_keys" => {
-                extra_keys = call.constant_list("`extra_keys`", e, &key_type, "the key")?
+            ("keys", Named::List(list)) => {
+                keys = Some(constants(list, index, "`keys`", &key_type, "the key")?);
             }
-            "fill_gaps" => {
-                let v = call.constant("`fill_gaps`", e)?;
-                if let Some(g) = Gaps::plan(&v, &key_type).map_err(|m| err_at(span, m))? {
-                    gaps = Some((g, span));
+            ("extra_keys", Named::List(list)) => {
+                extra_keys = constants(list, index, "`extra_keys`", &key_type, "the key")?;
+            }
+            ("fill_gaps", Named::Value(e)) => {
+                let v = constant_of("`fill_gaps`", e)?;
+                if let Some(g) = Gaps::plan(&v, &key_type).map_err(|m| ArgError::new(at, m))? {
+                    gaps = Some((g, index));
                 }
             }
-            "flag" => {
-                let SqlExpr::Identifier(id) = e else {
-                    return Err(err_at(
-                        span,
-                        "`flag` must be a column name, such as `flag => imputed`",
-                    ));
-                };
-                let name = call.ctx.normalize_ident(id);
-                if schema.fields().iter().any(|f| f.name() == &name) {
-                    return Err(err_at(
-                        span,
+            ("flag", Named::Name(name)) => {
+                if schema
+                    .fields()
+                    .iter()
+                    .any(|f| f.name().eq_ignore_ascii_case(name))
+                {
+                    return Err(ArgError::new(
+                        at,
                         format!("the flag column `{name}` is already a column of the input"),
                     ));
                 }
-                flag = Some(name);
+                flag = Some(name.clone());
             }
-            _ => unreachable!("checked above"),
+            ("partition_by", Named::Columns(columns)) => {
+                for (i, c) in columns.iter().enumerate() {
+                    if partition_by.contains(c) {
+                        return Err(ArgError::new(
+                            ArgAt::NamedElement(index, i),
+                            format!("the partition column {} of impute is given twice", c.name),
+                        ));
+                    }
+                    partition_by.push(c.clone());
+                }
+                partition_at = Some(index);
+            }
+            (known, _) => {
+                let wants = match known {
+                    "frame" | "keys" | "extra_keys" => "a list of constants, such as [1, 2]",
+                    "flag" => "a column name, such as `flag => 'imputed'`",
+                    "partition_by" => "a list of columns of the input",
+                    _ => "a constant",
+                };
+                return Err(ArgError::new(at, format!("`{known}` takes {wants}")));
+            }
         }
     }
 
-    if let (Some((_, span)), Some(_)) = (&gaps, &keys) {
-        return Err(err_at(
-            *span,
+    if let (Some((_, index)), Some(_)) = (&gaps, &keys) {
+        return Err(ArgError::new(
+            ArgAt::Named(*index),
             "`fill_gaps` adds to the key values of the rows, which `keys` replaces; give one of them",
         ));
     }
     let gaps = gaps.map(|(g, _)| g);
     let fill = match (value, method) {
-        (Some(_), Some((_, span))) => {
-            return Err(err_at(
-                span,
+        (Some(_), Some((_, index))) => {
+            return Err(ArgError::new(
+                ArgAt::Named(index),
                 "impute needs exactly one of `value` and `method`; found both",
             ));
         }
         (None, None) => {
-            return Err(err_at(
-                call_span,
+            return Err(ArgError::new(
+                ArgAt::Call,
                 "impute needs exactly one of `value` and `method`; found neither",
             ));
         }
-        (Some((v, _)), None) => {
-            if let Some((_, span)) = frame {
-                return Err(err_at(
-                    span,
+        (Some(v), None) => {
+            if let Some((_, index)) = frame {
+                return Err(ArgError::new(
+                    ArgAt::Named(index),
                     "`frame` needs a method of 'avg', 'median', 'min', or 'max'; found `value`",
                 ));
             }
             Fill::Value(v)
         }
-        (None, Some((m, span))) => {
+        (None, Some((m, index))) => {
+            let at = ArgAt::Named(index);
             let stat = match m.as_str() {
                 "avg" => Stat::Avg,
                 "median" => Stat::Median,
                 "min" => Stat::Min,
                 "max" => Stat::Max,
                 _ => {
-                    return Err(err_at(
-                        span,
+                    return Err(ArgError::new(
+                        at,
                         format!("`method` must be 'avg', 'median', 'min', or 'max'; found '{m}'"),
                     ));
                 }
@@ -530,10 +581,11 @@ fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
             };
             if let Err(e) = fill.value_type(schema.field_from_column(&val)?) {
                 let e = e.strip_backtrace();
-                return Err(err_at(
-                    span,
+                return Err(ArgError::new(
+                    at,
                     format!(
-                        "`method => '{m}'` does not apply to {val}, {val_type}: {}",
+                        "`method => '{m}'` does not apply to {}, {val_type}: {}",
+                        val.name,
                         e.lines().next().unwrap_or("")
                     ),
                 ));
@@ -541,7 +593,7 @@ fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
             fill
         }
     };
-    Ok(Arc::new(ImputeTransform {
+    let transform = Arc::new(ImputeTransform {
         key,
         groupby,
         val,
@@ -550,7 +602,69 @@ fn plan_impute(mut call: Call<'_>) -> Result<Arc<dyn TableTransform>> {
         extra_keys,
         gaps,
         flag,
+    });
+    let read = transform.columns();
+    if let (Some(c), Some(index)) = (partition_by.iter().find(|c| read.contains(c)), partition_at) {
+        return Err(ArgError::new(
+            ArgAt::Named(index),
+            format!(
+                "the partition column {} of impute is also a column of another argument",
+                c.name
+            ),
+        ));
+    }
+    let node = TableFunctionNode::try_new(input, partition_by, transform)?;
+    Ok(LogicalPlan::Extension(Extension {
+        node: Arc::new(node),
     }))
+}
+
+/// The constants of the list of the named argument at `index`, each cast exactly to
+/// `data_type`, without repeats. `what` names the list, such as "`keys`", and `of` the type,
+/// such as "the key".
+fn constants(
+    list: &[Expr],
+    index: usize,
+    what: &str,
+    data_type: &DataType,
+    of: &str,
+) -> std::result::Result<Vec<ScalarValue>, ArgError> {
+    let mut out: Vec<ScalarValue> = Vec::new();
+    for (i, e) in list.iter().enumerate() {
+        let at = ArgAt::NamedElement(index, i);
+        let v = constant(e).map_err(|e| {
+            ArgError::new(
+                at,
+                format!(
+                    "a value of {what} must be a constant: {}",
+                    e.strip_backtrace()
+                ),
+            )
+        })?;
+        if v.is_null() {
+            return Err(ArgError::new(
+                at,
+                format!("a value of {what} cannot be NULL"),
+            ));
+        }
+        let v = cast_exact(&v, data_type).ok_or_else(|| {
+            let shown = if v.try_as_str().is_some() {
+                format!("'{v}'")
+            } else {
+                v.to_string()
+            };
+            ArgError::new(
+                at,
+                format!(
+                    "the value {shown} of {what} does not coerce to the type of {of}, {data_type}"
+                ),
+            )
+        })?;
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------------------

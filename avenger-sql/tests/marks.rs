@@ -84,7 +84,7 @@ fn session() -> SessionContext {
 
 /// The batches of `query`.
 async fn run(query: &str) -> datafusion::error::Result<Vec<RecordBatch>> {
-    session().sql(query).await?.collect().await
+    avenger_sql::sql(&session(), query).await?.collect().await
 }
 
 /// The charts of the column `chart` of `query`.
@@ -109,7 +109,7 @@ async fn chart(query: &str) -> Chart {
 
 /// The planning error of `query`.
 async fn error(query: &str) -> String {
-    let result = session().sql(query).await;
+    let result = avenger_sql::sql(&session(), query).await;
     let result = match result {
         Ok(frame) => frame.into_optimized_plan().map(|_| ()),
         Err(error) => Err(error),
@@ -148,8 +148,8 @@ fn floats(table: &RecordBatch, column: &str) -> Vec<f64> {
 #[tokio::test]
 async fn a_call_binds_at_planning_and_keeps_its_name() {
     let ctx = session();
-    let query = "SELECT symbol(x => a, y => b) FROM t";
-    let frame = ctx.sql(query).await.unwrap();
+    let query = "FROM t |> AGGREGATE symbol(x => a, y => b)";
+    let frame = avenger_sql::sql(&ctx, query).await.unwrap();
     let name = frame.schema().field(0).name().clone();
     let plan = frame.clone().into_optimized_plan().unwrap();
     let display = plan.display_indent().to_string();
@@ -172,7 +172,7 @@ async fn a_call_binds_at_planning_and_keeps_its_name() {
 
 #[tokio::test]
 async fn a_chart_holds_the_columns_of_its_channels() {
-    let chart = chart("SELECT symbol(x => a, y => b * 2, color => c) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b * 2, color => c) AS chart").await;
     let table = table(&chart);
     let names: Vec<&str> = table
         .schema_ref()
@@ -190,7 +190,7 @@ async fn a_chart_holds_the_columns_of_its_channels() {
 
 #[tokio::test]
 async fn channels_with_one_expression_share_a_column() {
-    let chart = chart("SELECT symbol(x => a, y => b, color => a) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, color => a) AS chart").await;
     assert_eq!(table(&chart).num_columns(), 2);
     assert!(matches!(
         encoding(&chart, Channel::Color),
@@ -200,7 +200,7 @@ async fn channels_with_one_expression_share_a_column() {
 
 #[tokio::test]
 async fn a_constant_argument_arrives_folded() {
-    let chart = chart("SELECT symbol(x => a, y => 2 * 50) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => 2 * 50) AS chart").await;
     let Some(encoding::Kind::ScaledValue(value)) = encoding(&chart, Channel::Y) else {
         panic!("a constant of a position is a scaled value")
     };
@@ -215,7 +215,8 @@ async fn a_constant_argument_arrives_folded() {
 #[tokio::test]
 async fn bare_values_take_the_kinds_of_the_builders() {
     let symbols =
-        chart("SELECT symbol(x => a, y => 3, color => c, fill => 'red') AS chart FROM t").await;
+        chart("FROM t |> AGGREGATE symbol(x => a, y => 3, color => c, fill => 'red') AS chart")
+            .await;
     assert!(matches!(
         encoding(&symbols, Channel::X),
         Some(encoding::Kind::ScaledField(field)) if field == "a"
@@ -235,7 +236,7 @@ async fn bare_values_take_the_kinds_of_the_builders() {
         ),
         "a constant of a channel other than a position is drawn as it is"
     );
-    let text = chart("SELECT text(text => s, x => a, y => b) AS chart FROM t").await;
+    let text = chart("FROM t |> AGGREGATE text(text => s, x => a, y => b) AS chart").await;
     assert!(matches!(
         encoding(&text, Channel::Text),
         Some(encoding::Kind::DirectField(field)) if field == "s"
@@ -244,8 +245,8 @@ async fn bare_values_take_the_kinds_of_the_builders() {
 
 #[tokio::test]
 async fn scaled_and_direct_give_their_kinds() {
-    let query = "SELECT symbol(x => direct(0.5), y => b, color => scaled('p'), fill => direct(c), \
-                 stroke => direct(CAST(NULL AS VARCHAR))) AS chart FROM t";
+    let query = "FROM t |> AGGREGATE symbol(x => direct(0.5), y => b, color => scaled('p'), fill => direct(c), \
+                 stroke => direct(CAST(NULL AS STRING))) AS chart";
     let chart = chart(query).await;
     assert!(
         matches!(
@@ -273,21 +274,19 @@ async fn scaled_and_direct_give_their_kinds() {
 
 #[tokio::test]
 async fn a_null_argument_leaves_its_channel_unset() {
-    let chart = chart("SELECT symbol(x => a, y => b, color => NULL) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, color => NULL) AS chart").await;
     assert!(encoding(&chart, Channel::Color).is_none());
 }
 
 #[tokio::test]
-async fn a_named_argument_after_an_omitted_one_needs_the_omitted_one() {
-    // DataFusion binds named arguments only as a prefix of the parameters; avenger-sql fills the
-    // omitted ones with NULL.
-    let message = error("SELECT symbol(x => a, y => b, opacity => a) AS chart FROM t").await;
-    assert!(message.contains("Missing required parameter"), "{message}");
+async fn a_named_argument_after_an_omitted_one_binds() {
+    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, opacity => a) AS chart").await;
+    assert_eq!(table(&chart).num_rows(), 8);
 }
 
 #[tokio::test]
 async fn the_draw_order_survives_a_partial_aggregation() {
-    let query = "SELECT * FROM t |> AGGREGATE symbol(x => a, y => b ORDER BY k DESC) AS chart";
+    let query = "FROM t |> AGGREGATE symbol(x => a, y => b ORDER BY k DESC) AS chart";
     let chart = chart(query).await;
     let table = table(&chart);
     assert_eq!(table.num_columns(), 2, "the order keys are no columns");
@@ -296,7 +295,7 @@ async fn the_draw_order_survives_a_partial_aggregation() {
 
 #[tokio::test]
 async fn group_by_gives_a_chart_for_each_group() {
-    let batches = run("SELECT c, bar(x => c, y => a) AS chart FROM t GROUP BY c ORDER BY c")
+    let batches = run("FROM t |> AGGREGATE bar(x => c, y => a) AS chart GROUP BY c |> ORDER BY c")
         .await
         .unwrap();
     let batch = arrow::compute::concat_batches(&batches[0].schema(), &batches).unwrap();
@@ -313,14 +312,14 @@ async fn group_by_gives_a_chart_for_each_group() {
 }
 
 #[tokio::test]
-async fn a_filter_selects_the_rows() {
-    let chart = chart("SELECT symbol(x => a, y => b) FILTER (WHERE c = 'p') AS chart FROM t").await;
+async fn a_where_selects_the_rows() {
+    let chart = chart("FROM t |> WHERE c = 'p' |> AGGREGATE symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 4);
 }
 
 #[tokio::test]
 async fn a_call_builds_the_chart_of_its_builder() {
-    let chart = chart("SELECT bar(x => c, y => a ORDER BY k) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE bar(x => c, y => a ORDER BY k) AS chart").await;
     let table = table(&chart).clone();
     let layer = CartesianLayer::bar(table, BarMark::builder().x("c").y("a"));
     let expected = Chart::builder(Plot::cartesian([layer])).build().unwrap();
@@ -329,7 +328,7 @@ async fn a_call_builds_the_chart_of_its_builder() {
 
 #[tokio::test]
 async fn field_metadata_and_struct_types_reach_the_layer_table() {
-    let chart = chart("SELECT bar(x => st, y => m) AS chart FROM t").await;
+    let chart = chart("FROM t |> AGGREGATE bar(x => st, y => m) AS chart").await;
     let schema = table(&chart).schema();
     assert!(matches!(
         schema.field_with_name("st").unwrap().data_type(),
@@ -344,8 +343,7 @@ async fn every_mark_builds_a_chart_of_its_channels() {
     let names: Vec<&str> = marks().iter().map(|mark| mark.name).collect();
     assert!(names.contains(&"bar") && names.contains(&"polar_bar"));
     assert!(names.contains(&"geo_shape") && names.contains(&"geo_symbol"));
-    // A geo mark needs `coord`, which the tests of avenger-sql give, because a call in plain
-    // DataFusion names its parameters in order.
+    // A geo mark needs `coord`, which the tests of the constructors give.
     for name in names.into_iter().filter(|name| !name.starts_with("geo_")) {
         // The required channels take strings, which every one of them takes, and the positions
         // are numbers, or the categories that a rect spans the bands of.
@@ -362,7 +360,7 @@ async fn every_mark_builds_a_chart_of_its_channels() {
             _ if name.starts_with("polar_") => "theta => a, radius => b",
             _ => "x => a, y => b",
         };
-        let query = format!("SELECT {name}({required}{positions}) AS chart FROM t");
+        let query = format!("FROM t |> AGGREGATE {name}({required}{positions}) AS chart");
         let charts = charts(&query).await;
         let chart = &charts[0];
         let layer = layer(chart);
@@ -379,28 +377,27 @@ async fn every_mark_builds_a_chart_of_its_channels() {
 async fn invalid_calls_fail_at_planning() {
     for (query, expected) in [
         (
-            "SELECT text(text => NULL, x => a) FROM t",
+            "FROM t |> AGGREGATE text(text => NULL, x => a)",
             "text() needs a value for `text`",
         ),
-        ("SELECT symbol(DISTINCT a, b) FROM t", "takes no DISTINCT"),
         (
-            "SELECT symbol(x => direct(a) + 1, y => b) FROM t",
+            "FROM t |> AGGREGATE symbol(DISTINCT a, b)",
+            "symbol does not support DISTINCT",
+        ),
+        (
+            "FROM t |> AGGREGATE symbol(x => direct(a) + 1, y => b)",
             "direct() is the whole value",
         ),
         (
-            "SELECT symbol(x => scaled(direct(a)), y => b) FROM t",
+            "FROM t |> AGGREGATE symbol(x => scaled(direct(a)), y => b)",
             "direct() is the whole value",
         ),
         (
-            "SELECT symbol(x => a, y => b, color => direct(NULL)) FROM t",
-            "direct(NULL) of `color` has no type",
-        ),
-        (
-            "SELECT text(text => scaled(s), x => a) FROM t",
+            "FROM t |> AGGREGATE text(text => scaled(s), x => a)",
             "scaled() needs a channel with a scale, and `text` of text() has none",
         ),
         (
-            "SELECT symbol(x => 1, y => 2) FROM t",
+            "FROM t |> AGGREGATE symbol(x => 1, y => 2)",
             "needs a channel that reads a column",
         ),
     ] {
@@ -411,29 +408,6 @@ async fn invalid_calls_fail_at_planning() {
 
 #[tokio::test]
 async fn an_empty_group_gives_a_chart_of_no_rows() {
-    let chart = chart("SELECT symbol(x => a, y => b) AS chart FROM t WHERE a > 100").await;
+    let chart = chart("FROM t |> WHERE a > 100 |> AGGREGATE symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 0);
-}
-
-#[test]
-fn every_mark_has_documentation() {
-    let ctx = SessionContext::new();
-    avenger_sql::register(&ctx).unwrap();
-    let state = ctx.state();
-    for name in marks().iter().map(|mark| mark.name) {
-        let function = state.aggregate_functions().get(name).unwrap();
-        let documentation = function.documentation().expect("a mark has documentation");
-        assert!(!documentation.description.is_empty(), "{name}");
-        assert!(documentation
-            .syntax_example
-            .starts_with(&format!("{name}(")));
-        let arguments = documentation.arguments.as_deref().unwrap_or_default();
-        assert!(!arguments.is_empty(), "{name} documents its channels");
-        for (argument, description) in arguments {
-            assert!(
-                !description.is_empty(),
-                "{name}({argument} => ...) has documentation"
-            );
-        }
-    }
 }

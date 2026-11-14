@@ -178,10 +178,7 @@ impl Pass<'_> {
                 Some(clause) => self.unpivot(rows, &clause, range),
                 None => rows.fail(),
             },
-            ast::PipeOperator::PipeCall(_) => {
-                self.error(range, "avenger-sql doesn't plan this pipe operator yet");
-                rows.fail()
-            }
+            ast::PipeOperator::PipeCall(op) => self.pipe_call(rows, op, range),
         }
     }
 
@@ -835,7 +832,18 @@ impl Pass<'_> {
     fn wildcard(&mut self, wildcard: &ast::Wildcard, scope: Scope) -> Option<Vec<Item>> {
         let range = wildcard.syntax().text_range();
         let mut items: Vec<Item> = match wildcard.path() {
-            None => scope.columns.iter().cloned().map(Item::Carry).collect(),
+            // The value of a value table gives its fields, as GoogleSQL's `*` does.
+            None => (scope.columns.iter())
+                .flat_map(|col| {
+                    let value =
+                        (scope.vars.iter()).find(|var| var.value.as_ref() == Some(&col.column));
+                    match value {
+                        Some(var) => var.columns.clone(),
+                        None => vec![col.clone()],
+                    }
+                })
+                .map(Item::Carry)
+                .collect(),
             Some(path) => {
                 let names = path.names()?;
                 let refs: Vec<ast::NameRef> = path.name_refs().collect();

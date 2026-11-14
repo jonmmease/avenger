@@ -1,11 +1,11 @@
-//! `lump`: each case, with the rule, against hand-written SQL in the shape of a table
-//! function (a grouped SELECT of the categories, joined back to the rows); the cases with
-//! `'n'` and the default weight also through the window's own evaluator. Then aggregates
-//! grouped by lumps, fused and unfused, and errors.
+//! `lump`: each case through [`lump::plan`] against hand-written SQL in the shape of its plan (a
+//! grouped SELECT of the categories, joined back to the rows), aggregates grouped by lumps, and
+//! the errors of the plan. The calls are written `lump(category, name => value, ...) OVER
+//! (PARTITION BY ...)`, which the tests' adapter plans.
 
 mod common;
 
-use common::session;
+use common::{calls, session};
 
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::util::display::array_value_to_string;
@@ -27,14 +27,7 @@ async fn context(ctx: SessionContext) -> Result<SessionContext> {
     Ok(ctx)
 }
 
-/// A session with the rules but without the fusion of aggregates.
-async fn unfused() -> Result<SessionContext> {
-    let ctx = session(true);
-    ctx.remove_optimizer_rule("lump_aggregate_fusion");
-    context(ctx).await
-}
-
-/// A case: the category, the options as SQL, and their parts for the hand-written SQL.
+/// A case: the category, the named arguments, and their parts for the hand-written SQL.
 struct Case {
     name: &'static str,
     category: &'static str,
@@ -56,7 +49,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "n 2",
             category: "port",
-            options: "'n', 2",
+            options: "n => 2",
             keep: N(2),
             weight: "count(*)",
             other: "Other",
@@ -64,7 +57,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "n 2 by sum",
             category: "port",
-            options: "'n', 2, 'weight', 'sum(tons)'",
+            options: "n => 2, weight => sum(tons)",
             keep: N(2),
             weight: "sum(tons)",
             other: "Other",
@@ -72,7 +65,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "keep a share",
             category: "port",
-            options: "'keep', 'count(*) >= 0.2 * sum(count(*)) OVER ()'",
+            options: "keep => count(*) >= 0.2 * sum(count(*)) OVER ()",
             keep: Cond("count(*) >= 0.2 * sum(count(*)) OVER (PARTITION BY {keys})"),
             weight: "count(*)",
             other: "Other",
@@ -80,7 +73,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "keep two measures",
             category: "port",
-            options: "'keep', 'sum(tons) > 10 AND count(*) >= 2'",
+            options: "keep => sum(tons) > 10 AND count(*) >= 2",
             keep: Cond("sum(tons) > 10 AND count(*) >= 2"),
             weight: "count(*)",
             other: "Other",
@@ -88,7 +81,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "n 2 by avg (second pass)",
             category: "port",
-            options: "'n', 2, 'weight', 'avg(tons)'",
+            options: "n => 2, weight => avg(tons)",
             keep: N(2),
             weight: "avg(tons)",
             other: "Other",
@@ -96,7 +89,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "by max, keep max",
             category: "port",
-            options: "'weight', 'max(tons)', 'keep', 'max(tons) >= 5'",
+            options: "weight => max(tons), keep => max(tons) >= 5",
             keep: Cond("max(tons) >= 5"),
             weight: "max(tons)",
             other: "Other",
@@ -104,7 +97,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "other label",
             category: "port",
-            options: "'n', 1, 'other', 'Rest'",
+            options: "n => 1, other => 'Rest'",
             keep: N(1),
             weight: "count(*)",
             other: "Rest",
@@ -112,7 +105,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "NULL condition drops",
             category: "port",
-            options: "'keep', 'CASE WHEN port = ''b'' THEN NULL ELSE true END'",
+            options: "keep => CASE WHEN port = 'b' THEN NULL ELSE true END",
             keep: Cond("CASE WHEN port = 'b' THEN NULL ELSE true END"),
             weight: "count(*)",
             other: "Other",
@@ -120,7 +113,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "category expression",
             category: "lower(port)",
-            options: "'n', 2",
+            options: "n => 2",
             keep: N(2),
             weight: "count(*)",
             other: "Other",
@@ -128,7 +121,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "Pareto cut",
             category: "port",
-            options: "'keep', 'sum(count(*)) OVER (ORDER BY count(*) DESC, port ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER ()'",
+            options: "keep => sum(count(*)) OVER (ORDER BY count(*) DESC, port ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER ()",
             keep: Cond(
                 "sum(count(*)) OVER (PARTITION BY {keys} ORDER BY count(*) DESC, port ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER (PARTITION BY {keys})",
             ),
@@ -138,7 +131,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "keep median (no state)",
             category: "port",
-            options: "'keep', 'median(tons) >= 2'",
+            options: "keep => median(tons) >= 2",
             keep: Cond("median(tons) >= 2"),
             weight: "count(*)",
             other: "Other",
@@ -146,7 +139,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "by stddev",
             category: "port",
-            options: "'n', 2, 'weight', 'stddev_pop(tons)'",
+            options: "n => 2, weight => stddev_pop(tons)",
             keep: N(2),
             weight: "stddev_pop(tons)",
             other: "Other",
@@ -154,7 +147,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "ranked: top 2 by weight",
             category: "port",
-            options: "'weight', 'sum(tons)', 'keep', 'row_number() OVER ranked <= 2'",
+            options: "weight => sum(tons), keep => row_number() OVER ranked <= 2",
             keep: N(2),
             weight: "sum(tons)",
             other: "Other",
@@ -162,7 +155,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "ranked: ties",
             category: "port",
-            options: "'weight', 'sum(tons)', 'keep', 'rank() OVER ranked <= 2'",
+            options: "weight => sum(tons), keep => rank() OVER ranked <= 2",
             keep: Cond(
                 "rank() OVER (PARTITION BY {keys} ORDER BY sum(tons) DESC NULLS LAST, port ASC NULLS LAST) <= 2",
             ),
@@ -172,7 +165,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "ranked: Pareto cut",
             category: "port",
-            options: "'keep', 'sum(count(*)) OVER (ranked ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER ()'",
+            options: "keep => sum(count(*)) OVER (ranked ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER ()",
             keep: Cond(
                 "sum(count(*)) OVER (PARTITION BY {keys} ORDER BY count(*) DESC NULLS LAST, port ASC NULLS LAST ROWS UNBOUNDED PRECEDING) - count(*) < 0.6 * sum(count(*)) OVER (PARTITION BY {keys})",
             ),
@@ -182,7 +175,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "ranked: bottom 2",
             category: "port",
-            options: "'keep', 'row_number() OVER ranked > count(*) OVER () - 2'",
+            options: "keep => row_number() OVER ranked > count(*) OVER () - 2",
             keep: Cond(
                 "row_number() OVER (PARTITION BY {keys} ORDER BY count(*) DESC NULLS LAST, port ASC NULLS LAST) > count(*) OVER (PARTITION BY {keys}) - 2",
             ),
@@ -192,7 +185,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "ranked: percent rank",
             category: "port",
-            options: "'weight', 'max(tons)', 'keep', 'percent_rank() OVER ranked <= 0.5'",
+            options: "weight => max(tons), keep => percent_rank() OVER ranked <= 0.5",
             keep: Cond(
                 "percent_rank() OVER (PARTITION BY {keys} ORDER BY max(tons) DESC NULLS LAST, port ASC NULLS LAST) <= 0.5",
             ),
@@ -202,7 +195,7 @@ fn cases() -> Vec<Case> {
         Case {
             name: "rank",
             category: "port",
-            options: "'keep', 'rank() OVER (ORDER BY sum(tons) DESC) <= 2'",
+            options: "keep => rank() OVER (ORDER BY sum(tons) DESC) <= 2",
             keep: Cond("rank() OVER (PARTITION BY {keys} ORDER BY sum(tons) DESC) <= 2"),
             weight: "count(*)",
             other: "Other",
@@ -216,12 +209,21 @@ const WINDOWS: [(&str, &str); 2] = [("OVER ()", ""), ("OVER (PARTITION BY region
 /// The modes of the NULL category: the default, and each mode by name.
 const NULLS: [Option<&str>; 3] = [None, Some("other"), Some("drop")];
 
-fn lump_query(table: &str, c: &Case, over: &str, nulls: Option<&str>) -> String {
-    let nulls = nulls.map_or(String::new(), |mode| format!(", 'nulls', '{mode}'"));
-    format!(
+/// The view of the lump of `c` over `table`, as a query.
+async fn lump_query(
+    ctx: &SessionContext,
+    table: &str,
+    c: &Case,
+    over: &str,
+    nulls: Option<&str>,
+) -> Result<String> {
+    let nulls = nulls.map_or(String::new(), |mode| format!(", null_category => '{mode}'"));
+    let query = format!(
         "SELECT *, lump({}, {}{nulls}) {over} AS l FROM {table}",
         c.category, c.options
-    )
+    );
+    let view = calls::lump_view(ctx, &query).await?;
+    Ok(format!("SELECT * FROM {view}"))
 }
 
 /// Hand-written SQL with the same result: the categories, the decision, the Other weight,
@@ -334,35 +336,24 @@ const COLUMNS: &str = "region, port, tons, l['value'] AS value, l['other'] AS ot
 
 #[tokio::test]
 async fn hand_sql() -> Result<()> {
-    let rules = unfused().await?;
-    let plain = context(session(false)).await?;
+    let ctx = context(session(true)).await?;
     for c in cases() {
         for (over, keys) in WINDOWS {
             for nulls in NULLS {
-                let lump = lump_query("c", &c, over, nulls);
-                let ours = rows(&rules, &lump, COLUMNS).await?;
-                let hand = rows(&rules, &hand_query("c", &c, keys, nulls), COLUMNS).await?;
+                let lump = lump_query(&ctx, "c", &c, over, nulls).await?;
+                let ours = rows(&ctx, &lump, COLUMNS).await?;
+                let hand = rows(&ctx, &hand_query("c", &c, keys, nulls), COLUMNS).await?;
                 assert_eq!(ours, hand, "{} {over} {nulls:?}", c.name);
-                if matches!(c.keep, Keep::N(_)) && c.weight == "count(*)" {
-                    let eval = rows(&plain, &lump, COLUMNS).await?;
-                    assert_eq!(
-                        eval, hand,
-                        "{} {over} {nulls:?}, the window evaluator",
-                        c.name
-                    );
-                }
             }
         }
     }
     Ok(())
 }
 
-/// Aggregates grouped by lumps: the fused plan (one pass) against the unfused plan (the lump on each
-/// row, then the aggregate) and against the hand-written SQL.
+/// Aggregates grouped by lumps, against the hand-written SQL.
 #[tokio::test]
 async fn aggregates() -> Result<()> {
-    let fused = context(session(true)).await?;
-    let joined = unfused().await?;
+    let ctx = context(session(true)).await?;
     let aggs = "count(*) AS n, count(tons) AS nt, sum(tons) AS s, min(tons) AS lo, max(tons) AS hi, avg(tons) AS mean, var_samp(tons) AS vs, stddev_pop(tons) AS sp";
     let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, round(l['weight'], 9) AS w, l['category_count'] AS c, n, nt, round(s, 9) AS s, lo, hi, round(mean, 9) AS mean, round(vs, 9) AS vs, round(sp, 9) AS sp";
     for c in cases() {
@@ -373,19 +364,12 @@ async fn aggregates() -> Result<()> {
                         |q: String| format!("SELECT l{extra}, {aggs} FROM ({q}) GROUP BY l{extra}");
                     let cols = format!("{cols}{}", if extra.is_empty() { "" } else { ", region" });
                     let what = format!("{} {over}{extra} {nulls:?}", c.name);
-                    let lump = grouped(lump_query("c", &c, over, nulls));
-                    let a = rows(&fused, &lump, &cols).await?;
+                    let lump = grouped(lump_query(&ctx, "c", &c, over, nulls).await?);
                     assert_eq!(
-                        a,
-                        rows(&joined, &lump, &cols).await?,
-                        "{what}: fused and unfused"
+                        rows(&ctx, &lump, &cols).await?,
+                        rows(&ctx, &grouped(hand_query("c", &c, keys, nulls)), &cols).await?,
+                        "{what}"
                     );
-                    assert_eq!(
-                        a,
-                        rows(&joined, &grouped(hand_query("c", &c, keys, nulls)), &cols).await?,
-                        "{what}: fused and hand"
-                    );
-                    assert!(fuses(&fused, &lump).await?, "{what} does not fuse");
                 }
             }
         }
@@ -393,20 +377,12 @@ async fn aggregates() -> Result<()> {
     Ok(())
 }
 
-async fn fuses(ctx: &SessionContext, sql: &str) -> Result<bool> {
-    let plan = ctx.sql(&format!("EXPLAIN {sql}")).await?.collect().await?;
-    Ok(
-        datafusion::arrow::util::pretty::pretty_format_batches(&plan)?
-            .to_string()
-            .contains("_merge("),
-    )
-}
-
 /// The number of categories of each lump value: 1 for a kept category, and for the Other
 /// group the number of categories that the lump lumps in its window partition. In region N,
 /// the 2 largest of the ports a, b, c, and 'Other' are a and b, and the NULL port is a category
-/// of its own, in the Other group with `'nulls', 'other'`, or without a lump with `'nulls',
-/// 'drop'`; in region S, of a, b, c, d, and e, they are b and c; the NULL region has 2 ports.
+/// of its own, in the Other group with `null_category => 'other'`, or without a lump with
+/// `null_category => 'drop'`; in region S, of a, b, c, d, and e, they are b and c; the NULL
+/// region has 2 ports.
 #[tokio::test]
 async fn category_count() -> Result<()> {
     let cols = "region, port IS NULL AS null_port, l IS NULL AS dropped, l['other'] AS other, \
@@ -424,7 +400,7 @@ async fn category_count() -> Result<()> {
             ],
         ),
         (
-            ", 'nulls', 'other'",
+            ", null_category => 'other'",
             vec![
                 "N | false | false | NULL | 1",
                 "N | false | false | Other | 3",
@@ -435,7 +411,7 @@ async fn category_count() -> Result<()> {
             ],
         ),
         (
-            ", 'nulls', 'drop'",
+            ", null_category => 'drop'",
             vec![
                 "N | false | false | NULL | 1",
                 "N | false | false | Other | 2",
@@ -446,229 +422,84 @@ async fn category_count() -> Result<()> {
             ],
         ),
     ];
-    // Through the rule, and through the window's own evaluator.
-    for ctx in [unfused().await?, context(session(false)).await?] {
-        for (nulls, want) in &cases {
-            let sql = format!(
-                "SELECT *, lump(port, 'n', 2{nulls}) OVER (PARTITION BY region) AS l FROM c"
-            );
-            let mut got = rows(&ctx, &sql, cols).await?;
-            got.dedup();
-            assert_eq!(&got, want, "{nulls}");
-        }
+    let ctx = context(session(true)).await?;
+    for (nulls, want) in &cases {
+        let view = calls::lump_view(
+            &ctx,
+            &format!("SELECT *, lump(port, n => 2{nulls}) OVER (PARTITION BY region) AS l FROM c"),
+        )
+        .await?;
+        let mut got = rows(&ctx, &format!("SELECT * FROM {view}"), cols).await?;
+        got.dedup();
+        assert_eq!(&got, want, "{nulls}");
     }
     Ok(())
 }
 
+/// The errors of the plan, for options that a front end planned.
 #[tokio::test]
 async fn errors() -> Result<()> {
-    let rules = context(session(true)).await?;
-    let plain = context(session(false)).await?;
+    let ctx = context(session(true)).await?;
     let errors = [
         (
-            &rules,
-            "lump(port) OVER ()",
-            "lump needs exactly one of the options 'n' and 'keep'",
+            "lump(port, n => 2, weight => sum(tons) / sum(sum(tons)) OVER ()) OVER ()",
+            "the weight of lump is the weight of one category, so it has no window",
         ),
         (
-            &rules,
-            "lump(port, 'n', 2, 'keep', 'true') OVER ()",
-            "lump needs exactly one of the options 'n' and 'keep'",
+            "lump(port, n => 2, weight => tons) OVER ()",
+            "the weight of lump is an aggregate of the rows of a category",
         ),
         (
-            &rules,
-            "lump(port, 'n', 2, 'other', false) OVER ()",
-            "lump cannot remove rows, so 'other' cannot be false",
+            "lump(port, keep => count(*) >= 0.2 * sum(count(*)) OVER (PARTITION BY port)) OVER ()",
+            "takes no PARTITION BY",
         ),
         (
-            &rules,
-            "lump(port, 'top', 2) OVER ()",
-            "unknown lump option 'top'",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'nulls', 'rank') OVER ()",
-            "the lump option 'nulls' is 'keep', 'other', or 'drop', not 'rank'",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 0) OVER ()",
-            "the lump option 'n' must be a positive integer, not 0",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'weight', 'sum(') OVER ()",
-            "the lump option 'weight' is not an expression",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'sum(nosuch) > 1') OVER ()",
-            "No field named nosuch",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'tons > 5') OVER ()",
-            "must appear in the GROUP BY clause or must be part of an aggregate function",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2) OVER (ORDER BY tons)",
-            "the window of lump cannot have an ORDER BY",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'count(*) >= 0.2 * sum(count(*)) OVER (PARTITION BY port)') OVER ()",
-            "remove its PARTITION BY",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'count(*) >= 0.2 * sum(count(*))') OVER ()",
-            "`sum(count(*))` is an aggregate of aggregates; in the 'keep' of lump, an aggregate over the categories is a window, such as `sum(count(*)) OVER ()`",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'max(sum(count(*))) > 1') OVER ()",
-            "is an aggregate of aggregates",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'weight', 'sum(count(*))') OVER ()",
-            "cannot be an aggregate of aggregates",
-        ),
-        (
-            &plain,
-            "lump(port, 'n', 2, 'weight', 'sum(tons)') OVER ()",
-            "needs the lump rewrite rule",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'weight', 'sum(tons) garbage') OVER ()",
-            "the lump option 'weight' is not an expression",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'weight', 'sum(tons) / sum(sum(tons)) OVER ()') OVER ()",
-            "it cannot have a window",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'rank() OVER (ranked ORDER BY port) <= 2') OVER ()",
-            "the window `ranked` in the 'keep' of lump has an ORDER BY already",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'rank() OVER (ranked PARTITION BY port) <= 2') OVER ()",
-            "remove its PARTITION BY",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'rank() OVER w <= 2') OVER ()",
-            "unknown window `w` in the 'keep' of lump; its windows are `ranked`",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'sum(count(*)) OVER (ROWS UNBOUNDED PRECEDING) < 10') OVER ()",
-            "a window frame in the 'keep' of lump needs an order",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 2, 'by', 'sum(tons)') OVER ()",
-            "unknown lump option 'by'",
-        ),
-        (
-            &rules,
-            "lump(port, 'keep', 'count(*)') OVER ()",
-            "the 'keep' of lump must be a condition, not an expression of type Int64",
-        ),
-        (
-            &rules,
-            "lump(DISTINCT port, 'n', 1) OVER ()",
-            "lump takes no DISTINCT",
-        ),
-        (
-            &rules,
-            "lump(port, 'n', 1) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
-            "it cannot have a frame",
+            "lump(port, keep => count(*)) OVER ()",
+            "the keep of lump is a condition",
         ),
     ];
-    for (ctx, call, message) in errors {
-        let sql = format!("SELECT *, {call} AS l FROM c");
-        let e = common::error(ctx, &sql)
+    for (call, message) in errors {
+        let e = calls::lump_view(&ctx, &format!("SELECT *, {call} AS l FROM c"))
             .await
-            .unwrap_or_else(|| panic!("no error: {call}"));
+            .err()
+            .unwrap_or_else(|| panic!("no error: {call}"))
+            .to_string();
         assert!(e.contains(message), "{call}: {e}");
     }
     Ok(())
 }
 
-/// A window node with a lump and other functions, two lumps in one window node, and inputs
-/// that the rules must not read two times.
+/// A lump beside a window over the rows, and two lumps over one input.
 #[tokio::test]
-async fn mixed_and_volatile() -> Result<()> {
-    let rules = unfused().await?;
+async fn mixed() -> Result<()> {
+    let ctx = context(session(true)).await?;
     let cols = "region, port, tons, l['value'] AS value, l['other'] AS other, round(l['weight'], 9) AS weight, l['category_count'] AS category_count, t";
-    let mixed =
-        "SELECT *, lump(port, 'keep', 'count(*) >= 2') OVER () AS l, sum(tons) OVER () AS t FROM c";
-    let single = "SELECT *, lump(port, 'keep', 'count(*) >= 2') OVER () AS l, (SELECT sum(tons) FROM c) AS t FROM c";
-    let a = rows(&rules, mixed, cols).await?;
-    let b = rows(&rules, single, cols).await?;
+    let mixed = calls::lump_view(
+        &ctx,
+        "SELECT *, lump(port, keep => count(*) >= 2) OVER () AS l, sum(tons) OVER () AS t FROM c",
+    )
+    .await?;
+    let a = rows(&ctx, &format!("SELECT * FROM {mixed}"), cols).await?;
+    let single = calls::lump_view(
+        &ctx,
+        "SELECT *, lump(port, keep => count(*) >= 2) OVER () AS l, (SELECT sum(tons) FROM c) AS t FROM c",
+    )
+    .await?;
+    let b = rows(&ctx, &format!("SELECT * FROM {single}"), cols).await?;
     assert_eq!(a.len(), 19);
     assert_eq!(a, b);
 
-    let two = "SELECT *, lump(port, 'n', 1) OVER () AS l, lump(port, 'keep', 'sum(tons) > 5') OVER () AS m FROM c";
-    // Selecting a field of each, such as `l['other']`, fails in DataFusion 55.2's
-    // push_down_leaf_projections with an ambiguous reference.
-    let got = rows(&rules, two, "port, l, m").await?;
+    let two = calls::lump_view(
+        &ctx,
+        "SELECT *, lump(port, n => 1) OVER () AS l, lump(port, keep => sum(tons) > 5) OVER () AS m FROM c",
+    )
+    .await?;
+    let got = rows(
+        &ctx,
+        &format!("SELECT * FROM {two}"),
+        "port, l['other'] AS lo, m['other'] AS mo",
+    )
+    .await?;
     assert_eq!(got.len(), 19);
-
-    // With 'keep' or 'weight', a volatile input is an error; with 'n', the window evaluator reads
-    // the input once.
-    let e = common::error(&rules, "SELECT *, lump(port, 'keep', 'count(*) >= 2') OVER () AS l FROM (SELECT * FROM c WHERE random() < 2)").await;
-    assert!(e.is_some_and(|e| e.contains("cannot have a volatile function")));
-    let n = rules
-        .sql("SELECT *, lump(port, 'n', 2) OVER () AS l FROM (SELECT * FROM c WHERE random() < 2)")
-        .await?
-        .count()
-        .await?;
-    assert_eq!(n, 19);
-    Ok(())
-}
-
-/// The fusion falls back to the lump on each row where it cannot fuse. A `by` with a
-/// subquery fuses the aggregate, and its decisions read the input again.
-#[tokio::test]
-async fn aggregates_that_do_not_fuse() -> Result<()> {
-    let fused = context(session(true)).await?;
-    let joined = unfused().await?;
-    for (grouped, fuse) in [
-        (
-            "SELECT l, count(DISTINCT tons) AS n FROM (SELECT *, lump(port, 'n', 2) OVER () AS l FROM c) GROUP BY l",
-            false,
-        ),
-        (
-            "SELECT l, count(NULL) AS n FROM (SELECT *, lump(port, 'n', 2) OVER () AS l FROM c) GROUP BY l",
-            false,
-        ),
-        (
-            "SELECT l, sum(tons) FILTER (WHERE tons > 2) AS n FROM (SELECT *, lump(port, 'n', 2) OVER () AS l FROM c) GROUP BY l",
-            false,
-        ),
-        (
-            "SELECT l, count(*) AS n FROM (SELECT *, lump(port, 'n', 2, 'weight', 'sum(tons) / (SELECT sum(tons) FROM __input)') OVER () AS l FROM c) GROUP BY l",
-            true,
-        ),
-        (
-            "SELECT l, count(1) AS n FROM (SELECT *, lump(port, 'n', 2) OVER () AS l FROM c) GROUP BY l",
-            true,
-        ),
-    ] {
-        let cols = "CAST(l['value'] AS VARCHAR) AS v, l['other'] AS o, l['category_count'] AS c, n";
-        assert_eq!(
-            rows(&fused, grouped, cols).await?,
-            rows(&joined, grouped, cols).await?,
-            "{grouped}"
-        );
-        assert_eq!(fuses(&fused, grouped).await?, fuse, "{grouped}");
-    }
     Ok(())
 }
