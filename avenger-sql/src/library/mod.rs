@@ -793,7 +793,7 @@ fn observe(arg: &Arg, schema: &DFSchema) -> Result<Observed, CallError> {
         Arg::DatePart(part) => Ok(Observed::Part(*part)),
         Arg::Value(expr) => {
             let ty = expr.get_type(schema)?;
-            let ty = Ty::of_arrow(&ty)
+            let ty = observed_type(expr, &ty)
                 .ok_or_else(|| CallError::call(format!("avenger-sql has no type for {ty}")))?;
             Ok(Observed::Value {
                 ty,
@@ -801,6 +801,28 @@ fn observe(arg: &Arg, schema: &DFSchema) -> Result<Observed, CallError> {
             })
         }
     }
+}
+
+/// The type of `expr`, of the Arrow type `ty`, as resolution sees it: the empty array literal `[]`
+/// is an `ARRAY<NULL>`, which coerces to any array, as GoogleSQL's does, though its own type is
+/// `ARRAY<INT64>`.
+pub(crate) fn observed_type(expr: &Expr, ty: &DataType) -> Option<Ty> {
+    if let Expr::Literal(ScalarValue::List(list), _) = expr {
+        use datafusion::arrow::array::Array;
+        if list.len() == 1 && list.value_length(0) == 0 && !list.is_null(0) {
+            return Some(Ty::Array(Box::new(Ty::Null)));
+        }
+    }
+    Ty::of_arrow(ty)
+}
+
+/// The empty array literal `[]`, an `ARRAY<INT64>`, which [`observed_type`] sees as an array of
+/// any type.
+pub(crate) fn empty_array() -> Expr {
+    Expr::Literal(
+        ScalarValue::List(ScalarValue::new_list_nullable(&[], &DataType::Int64)),
+        None,
+    )
 }
 
 /// The argument of `signature` that each argument of `args` binds to, or the error of binding.
@@ -890,15 +912,21 @@ fn coerce(expr: Expr, ty: Option<Ty>, context: &PlanContext) -> Result<Expr, Cal
 }
 
 /// Whether a value of the Arrow type `current` has the type `ty` as the library maps it to Arrow:
-/// a scalar type exactly, as an `INT32` column isn't an `INT64` until a cast, bytes of any layout,
-/// and an array, a struct or an interval as its GoogleSQL type.
+/// a scalar type exactly, as an `INT32` column isn't an `INT64` until a cast, bytes and strings of
+/// any layout, and an array, a struct or an interval as its GoogleSQL type.
 pub(crate) fn exact(current: &DataType, ty: &Ty, options: TypeOptions) -> bool {
     match ty {
-        // A view of bytes is a `BYTES` as it is, as the charts and fragments of avenger's
-        // functions are, with the extension of their fields.
+        // Bytes and strings of any layout are `BYTES` and `STRING` as they are: the charts and
+        // fragments of avenger's functions keep their views and the extensions of their fields,
+        // and a column keeps its layout, so an argument stays the column that an `ORDER BY` of
+        // the call names.
         Ty::Bytes => matches!(
             current,
             DataType::Binary | DataType::BinaryView | DataType::LargeBinary
+        ),
+        Ty::String => matches!(
+            current,
+            DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8
         ),
         Ty::Array(_) | Ty::Struct(_) | Ty::Interval | Ty::Any | Ty::Var(_) | Ty::Null => {
             Ty::of_arrow(current).as_ref() == Some(ty)

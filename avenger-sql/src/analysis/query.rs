@@ -734,7 +734,7 @@ impl Pass<'_> {
         };
         let at = condition.syntax().text_range();
         let predicate = {
-            let scope = Scope::of(&rows, "WHERE clause");
+            let scope = Scope::of(&rows, "pipe WHERE clause");
             self.expr(&condition, scope)
                 .and_then(|expr| self.boolean(expr, at, "WHERE clause", scope))
         };
@@ -1188,7 +1188,7 @@ impl Pass<'_> {
                         }
                     }
                 }
-                _ => self.expr(&expr, Scope::of(&rows, "pipe ORDER BY").windows()),
+                _ => self.expr(&expr, Scope::of(&rows, "pipe ORDER BY clause").windows()),
             };
             match planned {
                 Some(expr) => keys.push(SortExpr::new(expr, asc, nulls_first)),

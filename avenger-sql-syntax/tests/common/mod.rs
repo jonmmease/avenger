@@ -296,7 +296,7 @@ pub const QUERIES: &[&str] = &[
     "CREATE TEMP FUNCTION f(x INT64) OPTIONS (description = 'f') AS (x + 1)",
     "CREATE TEMP FUNCTION f(x INT64) AS (x + 1) OPTIONS (hash = 1, proto = 2)",
     "CREATE TEMP TABLE FUNCTION g(n INT64) AS (FROM t) |> LIMIT n",
-    "CREATE TEMP TABLE function (x INT64)",
+    "CREATE TEMP TABLE `function` (x INT64)",
     "CREATE TEMP TABLE my-proj.ds.t AS FROM u",
     "DECLARE k DEFAULT 2; IMPORT MODULE charts.scales AS s; IMPORT MODULE geo OPTIONS (a = 1); IMPORT MODULE module.`all`; FROM t |> EXTEND s.scaled(v, k) AS w; IMPORT MODULE late",
 ];
@@ -313,7 +313,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("SELECT a FROM t", "expected `FROM`", "SELECT"),
     ("FROM t |> WHERE a < b < c", "comparisons don't chain", "<"),
     ("FROM t |> SELECT AS STRUCT a", "no value tables", "AS"),
-    ("FROM t |> SELECT 5abc", "can't start with a digit", "5abc"),
+    ("FROM t |> SELECT 5abc", "can't start with a digit", "abc"),
     ("FROM t |> SELECT 'a\nb'", "has no closing quote", "'a"),
     (
         "FROM t |> WHERE x = 1 |> QUALIFY y",
@@ -365,22 +365,18 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ),
     ("FROM t |> DROP order", "expected a name", "order"),
     ("FROM t |> WHERE x = 'a\rb'", "has no closing quote", "'a"),
-    ("FROM t |> WHERE x = 0x", "takes digits after 0x", "0x"),
+    ("FROM t |> WHERE x = 0x", "takes digits after 0x", "x"),
     ("FROM t |> WHERE x = @@sys", "no system variables", "@@sys"),
     (
         "FROM t |> WHERE x = 'a''b'",
         "need whitespace or a comment",
         "'b'",
     ),
-    (
-        "FROM t |> SELECT 1.5abc",
-        "can't start with a digit",
-        "1.5abc",
-    ),
+    ("FROM t |> SELECT 1.5abc", "can't start with a digit", "abc"),
     (
         "FROM my-default.t",
-        "expected `|>`, `;` or the end of the script",
-        "-",
+        "`default` is reserved, so it can't follow a dash in a table name",
+        "default",
     ),
     (
         "FROM t |> WHERE a = NOT b",
@@ -444,7 +440,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     (
         "FROM t |> UNPIVOT (v FOR n IN (a AS 1.1))",
         "a string or an integer",
-        "AS 1.1",
+        "1.1",
     ),
     (
         "FROM t TABLESAMPLE SYSTEM (-1 ROWS)",
@@ -474,6 +470,57 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "CREATE TEMP TABLE t (a INT64) OPTIONS (a = 1,)",
         "expected a name",
         ")",
+    ),
+    // A `(` that the text ends inside.
+    (
+        "FROM (FROM t",
+        "expected `)`, found the end of the text",
+        "",
+    ),
+    (
+        "FROM t |> WHERE f(1",
+        "expected `)`, found the end of the text",
+        "",
+    ),
+    (
+        "FROM t |> PIVOT(x FOR y IN (0)",
+        "expected `)`, found the end of the text",
+        "",
+    ),
+    // Errors where GoogleSQL finds them.
+    (
+        "FROM t |> DROP t.x",
+        "names a column alone, not a path",
+        "t.x",
+    ),
+    (
+        "FROM t |> RENAME x.abc AS y",
+        "names a column alone, not a path",
+        "x.abc",
+    ),
+    (
+        "FROM t |> SET t.y = x",
+        "names a column alone, not a path",
+        "t.y",
+    ),
+    ("SET a, b = (4, 5)", "takes them in parentheses", "a, b"),
+    ("SET a, b) = y", "expected `=`", ")"),
+    ("DECLARE x;", "takes a type, a DEFAULT, or both", ""),
+    (
+        "FROM t |> UNION ALL STRICT BY NAME (FROM u)",
+        "STRICT takes CORRESPONDING, not BY NAME",
+        "STRICT",
+    ),
+    (
+        "FROM t |> UNPIVOT EXCLUDE NULL (a FOR c IN (x, y))",
+        "expected `NULLS`",
+        "NULL",
+    ),
+    // `TABLE FUNCTION` is a table function.
+    (
+        "CREATE TEMP TABLE function (x INT64)",
+        "expected a name",
+        "(",
     ),
 ];
 
@@ -510,7 +557,7 @@ pub const VALIDATED: &[(&str, &str, &str)] = &[
         "takes no condition",
         "ON true",
     ),
-    ("DECLARE x", "takes a type, a DEFAULT, or both", "DECLARE x"),
+    ("DECLARE x", "takes a type, a DEFAULT, or both", ""),
     (
         "FROM t; DECLARE x INT64",
         "comes before the other statements",

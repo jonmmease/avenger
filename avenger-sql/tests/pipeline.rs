@@ -102,3 +102,23 @@ async fn a_syntax_error_comes_before_the_analysis() {
     };
     assert!(message.contains("[at 2:10]"), "{message}");
 }
+
+#[tokio::test]
+async fn an_ordered_aggregate_reads_a_string_column_of_any_layout() {
+    // The session maps strings to views, and the column of the table is `Utf8`: the argument
+    // stays the column, which the `ORDER BY` of the call names.
+    let ctx = session();
+    let batches = avenger_sql::sql(
+        &ctx,
+        "FROM penguins |> AGGREGATE STRING_AGG(DISTINCT island, ',' ORDER BY island) AS islands",
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let text = datafusion::arrow::util::pretty::pretty_format_batches(&batches)
+        .unwrap()
+        .to_string();
+    assert!(text.contains("Biscoe,Dream,Torgersen"), "{text}");
+}

@@ -501,3 +501,42 @@ async fn unnest_gives_a_row_for_each_element() {
         ["+---+", "+---+", "+---+", "| 3 |", "| n |"],
     );
 }
+
+#[tokio::test]
+async fn an_empty_array_literal_coerces_to_any_array() {
+    // `[]` is an `ARRAY<INT64>` alone, and an array of the type beside it.
+    let analysis = pass::analysis("FROM t |> SELECT [] AS e, IF(x = 1, [], ['a']) AS s");
+    let plan = analysis
+        .plan
+        .unwrap_or_else(|| panic!("{:?}", analysis.diagnostics));
+    let types: Vec<String> = (plan.schema().fields().iter())
+        .map(|field| avenger_sql::types::googlesql_name(field.data_type()))
+        .collect();
+    assert_eq!(types, ["ARRAY<INT64>", "ARRAY<STRING>"]);
+    assert!(table_text("FROM t |> SELECT IF(x = 1, [], ['a']) AS s")
+        .await
+        .contains("[]"));
+}
+
+#[tokio::test]
+async fn a_cast_to_an_integer_rounds_half_away_from_zero() {
+    let text = table_text(
+        "FROM one |> SELECT CAST(2.5 AS INT64) AS a, CAST(-2.5 AS INT64) AS b, CAST(1.4 AS INT64) AS c, SAFE_CAST(NUMERIC '0.5' AS INT64) AS d",
+    )
+    .await;
+    let row = text.lines().nth(3).expect("a row");
+    let cells: Vec<&str> = row.trim_matches('|').split('|').map(str::trim).collect();
+    assert_eq!(cells, ["3", "-3", "1", "1"]);
+}
+
+#[tokio::test]
+async fn a_parenthesized_name_names_its_column() {
+    let analysis = pass::analysis(
+        "FROM sales |> AGGREGATE COUNT(*) AS n GROUP BY GROUPING SETS ((sp), (isl), ()) |> SELECT (sp), ((isl)), n",
+    );
+    let plan = analysis.plan.expect("a plan");
+    let names: Vec<&str> = (plan.schema().fields().iter())
+        .map(|field| field.name().as_str())
+        .collect();
+    assert_eq!(names, ["sp", "isl", "n"]);
+}
