@@ -69,7 +69,7 @@ mod validation;
 
 use rowan::{GreenNode, TextSize};
 
-pub use diagnostic::{Diagnostic, DiagnosticCode, Fix, TextEdit};
+pub use diagnostic::{line_column, Diagnostic, DiagnosticCode, Fix, TextEdit};
 pub use highlight::{highlight, Highlight, HighlightRange};
 pub use parser::is_reserved;
 pub use rowan::{TextRange, TextSize as Offset};

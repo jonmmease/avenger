@@ -202,7 +202,7 @@ fn the_errors_of_lump_are_at_their_text() {
         }
     }
     let found = errors("FROM penguins |> WHERE lump(island, n => 1) OVER () IS NULL");
-    if found[0].0 != "Analytic function lump not allowed in WHERE clause" {
+    if found[0].0 != "Analytic function lump not allowed in pipe WHERE clause" {
         failures.push(format!("WHERE: {found:?}"));
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));

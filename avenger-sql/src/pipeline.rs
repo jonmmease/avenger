@@ -3,6 +3,8 @@
 
 use std::{fmt, sync::OnceLock};
 
+use avenger_sql_syntax::line_column;
+
 use datafusion::{
     common::{DataFusionError, Result},
     dataframe::DataFrame,
@@ -37,15 +39,6 @@ impl ScriptError {
             text: text.to_string(),
         }
     }
-
-    /// The line and the column, from 1, of the byte offset `offset` of the text, the column in
-    /// characters.
-    fn position(&self, offset: usize) -> (usize, usize) {
-        let before = &self.text[..offset.min(self.text.len())];
-        let line = before.matches('\n').count() + 1;
-        let start = before.rfind('\n').map_or(0, |i| i + 1);
-        (line, before[start..].chars().count() + 1)
-    }
 }
 
 impl fmt::Display for ScriptError {
@@ -54,7 +47,7 @@ impl fmt::Display for ScriptError {
             if index > 0 {
                 writeln!(f)?;
             }
-            let (line, column) = self.position(usize::from(diagnostic.range.start()));
+            let (line, column) = line_column(&self.text, diagnostic.range.start());
             write!(f, "{} [at {line}:{column}]", diagnostic.message)?;
         }
         Ok(())

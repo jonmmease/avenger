@@ -1,0 +1,169 @@
+# Pipe queries of the planner's conformance check, each after a line `## <label>`. Each runs after
+# tables.sql, which types the CSV tables penguins, sales, and events. GoogleSQL's execute_query
+# takes America/Los_Angeles as its default time zone and avenger UTC, so the queries name UTC where
+# a timestamp meets a civil time.
+
+## where
+FROM penguins |> WHERE island = 'Dream' AND body_mass_g > 4000 |> AGGREGATE COUNT(*) AS n
+## where-null
+FROM penguins |> WHERE sex IS NULL |> SELECT species, island, body_mass_g
+## select-expressions
+FROM sales |> SELECT region, units * price AS revenue, units IS NULL AS missing
+## extend-set-drop-rename
+FROM sales |> EXTEND units * 2 AS doubled |> SET price = price * 10 |> DROP month |> RENAME doubled AS twice |> WHERE region = 'east'
+## as-range-variable
+FROM sales |> AS s |> WHERE s.units > 3 |> SELECT s.region, s.units
+## aggregate-group-by
+FROM penguins |> AGGREGATE COUNT(*) AS n, AVG(body_mass_g) AS mean, MIN(bill_length_mm) AS shortest GROUP BY species, island
+## aggregate-group-and-order-by
+FROM sales |> AGGREGATE SUM(units) AS units GROUP AND ORDER BY region DESC
+## aggregate-without-groups
+FROM sales |> AGGREGATE COUNT(*) AS n_rows, COUNT(units) AS counted, SUM(units) AS total, COUNT(DISTINCT region) AS regions
+## aggregate-rollup
+FROM sales |> AGGREGATE SUM(units) AS units GROUP BY ROLLUP(region, product)
+## aggregate-grouping-sets
+FROM sales |> AGGREGATE COUNT(*) AS n GROUP BY GROUPING SETS ((region), (product), ())
+## aggregate-cube
+FROM sales |> AGGREGATE COUNT(*) AS n GROUP BY CUBE(region, month)
+## aggregate-functions
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> AGGREGATE STRING_AGG(DISTINCT island, ',' ORDER BY island) AS islands, ARRAY_AGG(DISTINCT species ORDER BY species) AS kinds, COUNTIF(sex = 'MALE') AS males, LOGICAL_AND(body_mass_g > 2000) AS all_heavy, ANY_VALUE(species IS NOT NULL) AS anything
+## aggregate-having-max
+FROM sales |> AGGREGATE ANY_VALUE(product HAVING MAX units) AS best GROUP BY region
+## order-by-limit
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> ORDER BY body_mass_g DESC, bill_length_mm |> LIMIT 5 OFFSET 2 |> SELECT species, body_mass_g
+## distinct
+FROM sales |> SELECT region |> DISTINCT
+## join-using
+FROM sales |> JOIN (FROM sales |> AGGREGATE SUM(units) AS total GROUP BY region) USING (region) |> SELECT region, product, units, total
+## join-left
+FROM (FROM sales |> SELECT DISTINCT region) AS r |> LEFT JOIN (FROM sales |> WHERE product = 'plum') AS p ON r.region = p.region |> SELECT r.region, p.units
+## join-full
+FROM (FROM sales |> WHERE region = 'east') AS a |> FULL JOIN (FROM sales |> WHERE region = 'west') AS b USING (product, month) |> SELECT product, month, a.units AS east, b.units AS west
+## join-cross-comma
+FROM (FROM sales |> SELECT DISTINCT region), (FROM sales |> SELECT DISTINCT product) |> AGGREGATE COUNT(*) AS pairs
+## union-all
+FROM sales |> SELECT region |> UNION ALL (FROM events |> SELECT kind)
+## union-distinct-by-name
+FROM sales |> SELECT product, region |> UNION DISTINCT BY NAME (FROM sales |> SELECT region, product)
+## intersect-except
+FROM sales |> SELECT product |> INTERSECT DISTINCT (FROM sales |> WHERE region = 'west' |> SELECT product) |> EXCEPT DISTINCT (FROM sales |> WHERE region = 'north' |> SELECT product)
+## intersect-all
+FROM sales |> SELECT region |> INTERSECT ALL (FROM sales |> WHERE units > 2 |> SELECT region)
+## corresponding
+FROM sales |> SELECT region, units |> UNION ALL CORRESPONDING (FROM sales |> SELECT units, product AS region)
+## pivot
+FROM sales |> SELECT region, product, units |> PIVOT (SUM(units) AS u FOR product IN ('apple', 'pear', 'plum'))
+## unpivot
+FROM (FROM sales |> AGGREGATE SUM(units) AS units, SUM(price) AS price GROUP BY region) |> UNPIVOT (amount FOR measure IN (units, price))
+## unpivot-include-nulls
+FROM sales |> WHERE region = 'east' |> SELECT product, month, units |> UNPIVOT INCLUDE NULLS (value FOR k IN (units))
+## pipe-with
+FROM sales |> WITH totals AS (FROM sales |> AGGREGATE SUM(units) AS total GROUP BY region) |> JOIN totals USING (region) |> SELECT DISTINCT region, total
+## scalar-subquery
+FROM sales |> SELECT region, units, (FROM sales |> AGGREGATE MAX(units)) AS most
+## correlated-exists
+FROM (FROM sales |> SELECT DISTINCT region) AS r |> WHERE EXISTS (FROM sales AS s |> WHERE s.region = r.region AND s.product = 'apple')
+## in-subquery
+FROM penguins |> WHERE species IN (FROM penguins |> WHERE body_mass_g > 6000 |> SELECT species) |> AGGREGATE COUNT(*) AS n
+## array-subquery
+FROM (FROM sales |> SELECT DISTINCT region) AS r |> SELECT region, ARRAY(FROM sales |> WHERE sales.region = r.region |> SELECT product |> ORDER BY product) AS products
+## unnest-cross-join
+FROM events |> CROSS JOIN UNNEST(tags) AS tag WITH OFFSET AS pos |> SELECT id, tag, pos
+## unnest-from
+FROM UNNEST([3, 1, 2]) AS x WITH OFFSET AS i |> SELECT x, i
+## unnest-structs
+FROM UNNEST([STRUCT('a' AS k, 1 AS v), STRUCT('b', 2)]) |> SELECT k, v * 10 AS w
+## window-rank
+FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND RANK() OVER (PARTITION BY species ORDER BY body_mass_g DESC) AS r |> WHERE r <= 2 |> SELECT species, body_mass_g, r
+## window-running-sum
+FROM sales |> EXTEND SUM(units) OVER (PARTITION BY region ORDER BY month ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running |> SELECT region, month, running
+## window-named
+FROM sales |> EXTEND AVG(price) OVER w AS mean, COUNT(*) OVER w AS n WINDOW w AS (PARTITION BY product) |> SELECT DISTINCT product, mean, n
+## window-lag-lead
+FROM sales |> WHERE region = 'east' |> EXTEND LAG(units) OVER (ORDER BY month, product) AS before, LEAD(units, 1, -1) OVER (ORDER BY month, product) AS after |> SELECT product, month, before, after
+## window-ntile-percent
+FROM penguins |> WHERE body_mass_g IS NOT NULL AND species = 'Gentoo' |> EXTEND NTILE(4) OVER (ORDER BY body_mass_g, bill_length_mm) AS q |> AGGREGATE COUNT(*) AS n GROUP BY q
+## case-and-conditionals
+FROM sales |> SELECT CASE WHEN units > 4 THEN 'many' WHEN units > 1 THEN 'some' ELSE 'few' END AS amount, IF(region = 'east', 1, 0) AS east, COALESCE(units, 0) AS units, IFNULL(units, -1) AS u, NULLIF(product, 'pear') AS p
+## case-value
+FROM sales |> SELECT CASE region WHEN 'east' THEN 'E' WHEN 'west' THEN 'W' END AS r
+## casts
+FROM sales |> SELECT CAST(units AS STRING) AS s, CAST(price AS INT64) AS rounded, CAST(month AS STRING) AS m, SAFE_CAST(product AS INT64) AS bad
+## math
+FROM sales |> SELECT units / 2 AS half, DIV(units, 2) AS whole, MOD(units, 2) AS odd, ROUND(price * 1.07, 2) AS taxed, ABS(units - 4) AS distance, POW(2, units) AS power, SQRT(units) AS root, GREATEST(units, 3) AS at_least, LEAST(price, 2) AS at_most
+## math-rounding
+FROM UNNEST([-2.5, -1.5, -0.5, 0.5, 1.5, 2.5]) AS x |> SELECT x, ROUND(x) AS r, TRUNC(x) AS t, CEIL(x) AS c, FLOOR(x) AS f, SIGN(x) AS s
+## strings
+FROM sales |> SELECT UPPER(region) AS up, LENGTH(product) AS len, CONCAT(region, '-', product) AS key, SUBSTR(product, 2, 2) AS mid, REPLACE(product, 'p', 'P') AS swapped, STARTS_WITH(product, 'p') AS p, STRPOS(product, 'e') AS e
+## strings-more
+FROM UNNEST(['  Hello World ', 'abc', '']) AS s |> SELECT TRIM(s) AS t, LTRIM(s) AS l, LOWER(s) AS lo, SPLIT(TRIM(s), ' ') AS words
+## regexp
+FROM UNNEST(['a1b22', 'ccc', 'x9']) AS s |> SELECT REGEXP_CONTAINS(s, r'\d') AS digits, REGEXP_EXTRACT(s, r'(\d+)') AS number, REGEXP_REPLACE(s, r'\d', '#') AS masked
+## like
+FROM sales |> WHERE product LIKE 'p%' OR region LIKE '%th' |> SELECT region, product
+## dates
+FROM sales |> SELECT month, EXTRACT(MONTH FROM month) AS m, DATE_ADD(month, INTERVAL 1 MONTH) AS next, DATE_DIFF(DATE '2024-12-31', month, DAY) AS days, DATE_TRUNC(month, QUARTER) AS quarter, FORMAT_DATE('%Y/%m', month) AS label
+## timestamps
+FROM events |> SELECT id, EXTRACT(HOUR FROM ts AT TIME ZONE 'UTC') AS hour, UNIX_SECONDS(TIMESTAMP_TRUNC(ts, DAY, 'UTC')) AS day, TIMESTAMP_DIFF(ts, TIMESTAMP '2024-03-10 00:00:00+00', MINUTE) AS minutes, DATE(ts, 'UTC') AS d, UNIX_SECONDS(ts) AS seconds
+## timestamps-format
+FROM events |> SELECT id, FORMAT_TIMESTAMP('%Y-%m-%d %H:%M', ts, 'UTC') AS text, UNIX_SECONDS(TIMESTAMP_ADD(ts, INTERVAL 90 MINUTE)) AS later
+## datetime-parse
+FROM UNNEST(['2024-02-29', '2023-12-31']) AS s |> SELECT PARSE_DATE('%Y-%m-%d', s) AS d
+## arrays
+FROM events |> SELECT id, ARRAY_LENGTH(tags) AS n, tags[SAFE_OFFSET(0)] AS first, 'a' IN UNNEST(tags) AS has_a, ARRAY_CONCAT(tags, ['z']) AS more
+## array-literals
+FROM UNNEST([1, 2, 3]) AS x |> SELECT x, GENERATE_ARRAY(1, x) AS upto, [x, x * x] AS pair, ARRAY_REVERSE([x, 0]) AS back
+## structs
+FROM sales |> SELECT STRUCT(region AS r, units AS u) AS s |> SELECT s.r, s.u
+## struct-field-access
+FROM UNNEST([STRUCT(1 AS a, STRUCT('x' AS b) AS nested)]) AS row |> SELECT row.a, row.nested.b
+## between-in
+FROM sales |> WHERE units BETWEEN 2 AND 5 AND region IN ('east', 'west') AND product NOT IN ('pear') |> SELECT region, product, units
+## is-distinct-from
+FROM sales |> WHERE units IS DISTINCT FROM 3 |> AGGREGATE COUNT(*) AS n
+## logic-with-nulls
+FROM UNNEST([TRUE, FALSE, NULL]) AS a CROSS JOIN UNNEST([TRUE, FALSE, NULL]) AS b |> SELECT a, b, a AND b AS both_true, a OR b AS either, NOT a AS na
+## tablesample-percent
+FROM penguins |> TABLESAMPLE BERNOULLI (100 PERCENT) |> AGGREGATE COUNT(*) AS n
+## variables
+DECLARE heavy FLOAT64 DEFAULT 5000;
+SET heavy = heavy + 500;
+FROM penguins |> WHERE body_mass_g >= heavy |> AGGREGATE COUNT(*) AS n
+## temp-function
+CREATE TEMP FUNCTION revenue(u INT64, p FLOAT64) AS (u * p); FROM sales |> SELECT region, revenue(units, price) AS r
+## temp-table
+CREATE TEMP TABLE big AS (FROM sales |> WHERE units > 3); FROM big |> AGGREGATE COUNT(*) AS n, SUM(units) AS s
+## temp-table-function
+CREATE TEMP TABLE FUNCTION top(k INT64) AS (FROM sales |> ORDER BY units DESC |> LIMIT k); FROM top(2) |> SELECT product, units
+## parameters-of-literals
+FROM UNNEST([1]) |> SELECT 5 / 2 AS q, 7 / 7 AS one, 1e3 AS big, 0x1F AS hex, NUMERIC '1.10' AS n, b'ab' AS bytes, 'it\'s' AS quote, """triple""" AS t, r'\n' AS raw
+## missing-initcap
+FROM UNNEST(['hello world']) AS s |> SELECT INITCAP(s) AS cap
+## missing-repeat
+FROM UNNEST(['ab']) AS s |> SELECT REPEAT(s, 2) AS twice
+## missing-left-right
+FROM UNNEST(['abcdef']) AS s |> SELECT LEFT(s, 3) AS first, RIGHT(s, 3) AS last
+## missing-lpad
+FROM sales |> SELECT LPAD(product, 6, '*') AS padded
+## missing-reverse
+FROM UNNEST(['abc', '']) AS s |> SELECT REVERSE(s) AS r
+## missing-last-day
+FROM UNNEST([DATE '2024-02-10']) AS d |> SELECT LAST_DAY(d) AS last
+## missing-array-to-string
+FROM events |> SELECT id, ARRAY_TO_STRING(tags, '+') AS joined
+## intervals
+FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
+## error-unknown-column
+FROM sales |> WHERE nope = 1
+## error-type
+FROM sales |> WHERE region + 1 > 0
+## error-aggregate-in-where
+FROM sales |> WHERE SUM(units) > 3
+## error-unknown-table
+FROM nowhere
+## error-mismatched-union
+FROM sales |> SELECT region |> UNION ALL (FROM sales |> SELECT units)
+## error-group-by-non-aggregate
+FROM sales |> AGGREGATE units GROUP BY region
+## error-function-signature
+FROM sales |> SELECT SUBSTR(region)

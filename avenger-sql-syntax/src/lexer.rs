@@ -277,7 +277,12 @@ impl Lexer<'_> {
                 self.position += 1;
             }
             if self.position == digits {
-                self.error(start, self.position, "a hex integer takes digits after 0x");
+                // At the `x`, where GoogleSQL finds the alias of `0`.
+                self.error(
+                    start + 1,
+                    self.position,
+                    "a hex integer takes digits after 0x",
+                );
             }
             self.end_number(start, INTEGER);
             return;
@@ -321,13 +326,15 @@ impl Lexer<'_> {
             self.push(kind, start);
             return;
         }
+        let letters = self.position;
         while self.peek(0).is_some_and(is_ident_continue) {
             self.position += 1;
         }
         self.push(WORD, start);
         let text = self.source[start..self.position].to_string();
         let end = self.position;
-        self.error(start, end, "a name can't start with a digit")
+        // At the letters, where GoogleSQL finds an alias with no space before it.
+        self.error(letters, end, "a name can't start with a digit")
             .help("quote the name in backticks")
             .fix(
                 "Quote the name in backticks",
