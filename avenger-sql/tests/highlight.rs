@@ -49,6 +49,7 @@ fn names_take_the_roles_of_their_definitions() {
                 SET lo = lo + 1;\n\
                 CREATE TEMP FUNCTION half(v FLOAT64) AS (v / 2);\n\
                 CREATE TEMP TABLE FUNCTION evens(k INT64) AS (FROM t |> WHERE MOD(x, k) = 0);\n\
+                CREATE TEMP FUNCTION heavy(v FLOAT64) AS (v > lo);\n\
                 FROM penguins AS p\n\
                 |> WHERE p.body_mass_g > lo\n\
                 |> EXTEND half(p.body_mass_g) AS half_mass, UPPER(island) AS isle,\n\
@@ -67,7 +68,9 @@ fn names_take_the_roles_of_their_definitions() {
     // Variables, where the syntax gives a column.
     assert_eq!(class(&ranges, "lo", 1), name(NameRole::Variable));
     assert_eq!(class(&ranges, "lo", 2), name(NameRole::Variable));
+    // In a temporary function's body, then in a WHERE.
     assert_eq!(class(&ranges, "lo", 3), name(NameRole::Variable));
+    assert_eq!(class(&ranges, "lo", 4), name(NameRole::Variable));
     // A range variable and its column, where the syntax gives a column and a field.
     assert_eq!(class(&ranges, "p", 1), name(NameRole::RangeVariable));
     assert_eq!(class(&ranges, "body_mass_g", 0), name(NameRole::Column));
