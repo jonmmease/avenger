@@ -173,4 +173,7 @@ enum Channel {
   CHANNEL_HEIGHT = 32;
   // Splits the rows of a line, a trail, or an area into series, without a scale.
   CHANNEL_DETAIL = 33;
+  // The order of the rows of each series of a line or an area along its path, ascending, without
+  // a scale. Values: numbers, strings, dates, or timestamps, with `NULL` last.
+  CHANNEL_ORDERING = 34;
 }

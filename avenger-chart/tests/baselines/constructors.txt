@@ -70,7 +70,7 @@ point_key(column, source)
   column (required): string
   source: string
 interval_select(channels, cell)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
   cell: number
 tooltip(find, title, fields, anchor, hide_swatch)
   find: string -> a member's name; nearest_find(...) -> nearest
@@ -86,7 +86,7 @@ nearest_find(max_radius, metric)
   max_radius: number
   metric: one of euclidean, along_x, along_y
 navigate(channels)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
 attribution(credits, side, align, separator, separator_space, text_style, line_gap, background)
   credits: array of string
   side: one of bottom, top, left, right
@@ -290,7 +290,7 @@ scale_domain(domain)
   domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; selection_domain(...) -> selection; summary_domain(...) -> summary
 selection_domain(selection, channel, fallback)
   selection (required): string
-  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
   fallback (required): Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; summary_domain(...) -> summary
 data_domain(fit)
   fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; domain_fit(...); interval_fit(...) -> interval
