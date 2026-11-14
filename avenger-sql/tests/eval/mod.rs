@@ -342,8 +342,32 @@ pub fn json(array: &ArrayRef, index: usize) -> String {
             let items: Vec<String> = (0..values.len()).map(|i| json(&values, i)).collect();
             format!("[{}]", items.join(", "))
         }
+        // GoogleSQL's JSON writes bytes in base64.
+        DataType::Binary | DataType::BinaryView | DataType::LargeBinary => {
+            let bytes = datafusion::arrow::compute::cast(&array.slice(index, 1), &DataType::Binary)
+                .expect("bytes");
+            format!("\"{}\"", base64(bytes.as_binary::<i32>().value(0)))
+        }
         other => panic!("the tests show no {other}"),
     }
+}
+
+/// `bytes` in base64, with padding.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let value = (chunk.iter().enumerate()).fold(0u32, |value, (i, byte)| {
+            value | u32::from(*byte) << (16 - 8 * i)
+        });
+        for index in 0..4 {
+            match index <= chunk.len() {
+                true => out.push(ALPHABET[(value >> (18 - 6 * index) & 63) as usize] as char),
+                false => out.push('='),
+            }
+        }
+    }
+    out
 }
 
 pub fn string(value: &str) -> String {
@@ -411,7 +435,15 @@ pub fn literal(array: &ArrayRef, index: usize) -> String {
                 DataType::LargeBinary => array.as_binary::<i64>().value(index).to_vec(),
                 _ => array.as_binary_view().value(index).to_vec(),
             };
-            format!("b'{}'", String::from_utf8_lossy(&bytes))
+            // Printable ASCII as itself, and every other byte as `\xNN`.
+            let text: String = (bytes.iter())
+                .map(|byte| match byte {
+                    b'\'' | b'\\' => format!("\\{}", *byte as char),
+                    0x20..=0x7e => (*byte as char).to_string(),
+                    _ => format!("\\x{byte:02x}"),
+                })
+                .collect();
+            format!("b'{text}'")
         }
         DataType::Date32 => format!("DATE '{}'", display()),
         DataType::Timestamp(_, None) => format!("DATETIME '{}'", display().replace('T', " ")),

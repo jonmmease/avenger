@@ -27,7 +27,7 @@ mod aggregate;
 mod array;
 mod avenger;
 mod bytes;
-mod cast_format;
+pub(crate) mod cast_format;
 mod conditional;
 mod datetime;
 pub(crate) mod error;
