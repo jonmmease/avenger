@@ -21,6 +21,10 @@ const DATA: &[(&str, &str)] = &[
         "googlesql_pipe_5b.txt",
         include_str!("data/googlesql_pipe_5b.txt"),
     ),
+    (
+        "googlesql_pipe_5c.txt",
+        include_str!("data/googlesql_pipe_5c.txt"),
+    ),
 ];
 
 /// The cases where the pass differs from GoogleSQL, and why.
@@ -127,8 +131,9 @@ async fn pipe_queries_return_googlesqls_rows() {
             let result = pass::run(query).await;
             if columns == "ERROR" {
                 match result {
-                    // GoogleSQL can add a hint after the message.
-                    Err(errors) if expected.starts_with(&errors[0]) => {}
+                    // GoogleSQL can add a hint after the message, and the pass a reason.
+                    Err(errors)
+                        if expected.starts_with(&errors[0]) || errors[0].starts_with(expected) => {}
                     Err(errors) => failures.push(format!(
                         "{file}: {query}: wants the error {expected:?}, has {:?}",
                         errors[0]
@@ -147,13 +152,18 @@ async fn pipe_queries_return_googlesqls_rows() {
                 }
             };
             let schema = pass::analysis(query).plan.expect("a plan").schema().clone();
+            // A record of a script has the names of its columns, without their types.
+            let typed = serde_free::strings(columns)
+                .iter()
+                .any(|column| column.contains(' '));
             let found: Vec<String> = (schema.fields().iter())
-                .map(|field| {
-                    format!(
+                .map(|field| match typed {
+                    true => format!(
                         "{} {}",
                         field.name(),
                         types::googlesql_name(field.data_type())
-                    )
+                    ),
+                    false => field.name().clone(),
                 })
                 .collect();
             let want: Vec<String> = (serde_free::strings(columns).into_iter())

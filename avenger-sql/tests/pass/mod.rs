@@ -146,13 +146,9 @@ pub async fn run_in(
             .map(|diagnostic| diagnostic.message.clone())
             .collect());
     }
-    let plan = analysis.plan.expect("a plan without diagnostics");
-    let frame = ctx
-        .execute_logical_plan(plan)
-        .await
-        .map_err(|error| vec![error.to_string()])?;
-    frame
-        .collect()
+    // The statements of the script run in order, and the rows are those of the last query.
+    analysis
+        .run(ctx)
         .await
         .map_err(|error| vec![error.to_string()])
 }

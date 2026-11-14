@@ -290,10 +290,7 @@ impl Pass<'_> {
                 let one = self.one_row();
                 self.unnest_onto(one, unnest, false, range)
             }
-            ast::Source::TvfSource(_) => {
-                self.error(range, "avenger-sql doesn't plan this source yet");
-                Rows::failed(Vec::new(), Vec::new())
-            }
+            ast::Source::TvfSource(source) => self.table_function(source),
         }
     }
 
@@ -335,10 +332,37 @@ impl Pass<'_> {
                 return self.close(with.rows, Some((name, definition)), false, path_range);
             }
         }
-        let Some(table) = self.catalog.table(&names) else {
-            self.error(path_range, format!("Table not found: {}", names.join(".")));
-            return Rows::failed(Vec::new(), Vec::new());
-        };
+        if let Some(table) = self.temp_table(&names, path_range) {
+            return self.close(table.rows, Some((name, definition)), false, path_range);
+        }
+        match self.catalog_table_as(&names, path_range, name, definition) {
+            Some(rows) => rows,
+            None => {
+                self.error(path_range, format!("Table not found: {}", names.join(".")));
+                Rows::failed(Vec::new(), Vec::new())
+            }
+        }
+    }
+
+    /// The rows of the catalog's table at `names`, with the range variable of its name.
+    pub(super) fn catalog_table(
+        &mut self,
+        names: &[String],
+        path_range: TextRange,
+    ) -> Option<Rows> {
+        let name = names.last().cloned().unwrap_or_default();
+        self.catalog_table_as(names, path_range, name, path_range)
+    }
+
+    /// The rows of the catalog's table at `names`, with the range variable `name`.
+    fn catalog_table_as(
+        &mut self,
+        names: &[String],
+        path_range: TextRange,
+        name: String,
+        definition: TextRange,
+    ) -> Option<Rows> {
+        let table = self.catalog.table(names)?;
         self.use_name(
             path_range,
             Definition::Table {
@@ -356,7 +380,7 @@ impl Pass<'_> {
             Ok(plan) => plan,
             Err(error) => {
                 self.datafusion_error(path_range, error);
-                return Rows::failed(Vec::new(), Vec::new());
+                return Some(Rows::failed(Vec::new(), Vec::new()));
             }
         };
         let columns: Vec<Col> = (table.schema().fields().iter())
@@ -372,7 +396,7 @@ impl Pass<'_> {
             columns: columns.clone(),
             value: None,
         }];
-        Rows::new(plan, columns, vars)
+        Some(Rows::new(plan, columns, vars))
     }
 
     /// The rows of a query in parentheses, as a source with the range variable of its alias. The
