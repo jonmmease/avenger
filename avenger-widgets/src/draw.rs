@@ -15,26 +15,59 @@ use crate::widget::{Look, WidgetContext};
 /// A box as `[x, y, width, height]`.
 pub(crate) type Bounds = [f32; 4];
 
-/// Label source text and its syntax mode.
+/// The text of a label or a title and its syntax: plain text, which a `&str` or a `String` gives,
+/// or Typst markup.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Text {
+pub struct Text {
     pub(crate) source: String,
     pub(crate) syntax: TextSyntaxMode,
 }
 
+impl From<&str> for Text {
+    fn from(text: &str) -> Self {
+        Self::plain(text)
+    }
+}
+
+impl From<String> for Text {
+    fn from(text: String) -> Self {
+        Self::plain(text)
+    }
+}
+
+impl From<&String> for Text {
+    fn from(text: &String) -> Self {
+        Self::plain(text.as_str())
+    }
+}
+
 impl Text {
-    pub(crate) fn plain(text: impl Into<String>) -> Self {
+    /// `text` as it is.
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self::new(text, TextSyntaxMode::Plain)
+    }
+
+    /// `source` as Typst markup, such as `*Weight* in $"kg"$`.
+    pub fn markup(source: impl Into<String>) -> Self {
+        Self::new(source, TextSyntaxMode::TypstMarkup)
+    }
+
+    /// `source` in the syntax `syntax`.
+    pub fn new(source: impl Into<String>, syntax: TextSyntaxMode) -> Self {
         Self {
-            source: text.into(),
-            syntax: TextSyntaxMode::Plain,
+            source: source.into(),
+            syntax,
         }
     }
 
-    pub(crate) fn markup(source: String) -> Self {
-        Self {
-            source,
-            syntax: TextSyntaxMode::TypstMarkup,
-        }
+    /// The source text.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// The syntax of the source text.
+    pub fn syntax(&self) -> TextSyntaxMode {
+        self.syntax
     }
 
     /// The text in the style's font, with its top left corner at `at`.

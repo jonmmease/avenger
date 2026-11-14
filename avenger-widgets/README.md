@@ -127,7 +127,8 @@ let points = widgets
 | `GroupBox` | Consumes presses inside it that miss its widgets. | None. It isn't a Tab stop. |
 
 Buttons, check boxes, sliders, radio groups and text inputs have optional labels, set with
-`label`.
+`label`. A label, an item of a radio group or a check box list, and a group box's title are a
+`Text`: plain text, which a `&str` or a `String` gives, or Typst markup, from `Text::markup`.
 Omitted labels reserve no space. A group box takes its title in `new`. Each built-in widget
 also accepts an optional `enabled` closure. A disabled widget keeps its place, draws dimmed,
 receives no input and is not a Tab stop. Disabling a group box does not disable the controls
