@@ -5,8 +5,9 @@
 //!
 //! The module has three parts:
 //!
-//! - Tables that describe the functions: [`constructors`], [`marks`], and [`encoding_options`],
-//!   the options of `scaled`. Each parameter lists every input that it accepts, with the chain of
+//! - Tables that describe the functions: [`constructors`], [`marks`], with the options of the
+//!   plot and the layer of each mark function, and [`encoding_options`], the options of
+//!   `scaled`. Each parameter lists every input that it accepts, with the chain of
 //!   conversions that the input takes.
 //! - [`Constructor::build`], which builds the fragment of a constructor from [`Arg`]s, the
 //!   constant arguments that a binding converts its values to.
@@ -142,6 +143,7 @@ pub(crate) mod generated {
     include!(concat!(env!("OUT_DIR"), "/parameters.rs"));
     include!(concat!(env!("OUT_DIR"), "/constructors.rs"));
     include!(concat!(env!("OUT_DIR"), "/compositions.rs"));
+    include!(concat!(env!("OUT_DIR"), "/mark_options.rs"));
 }
 
 /// The constructors, in the order of the option tree.
@@ -262,6 +264,15 @@ pub struct Mark {
     pub doc: &'static str,
     pub channels: &'static [Channel],
     pub properties: &'static [Param],
+    /// The options of its plot and its layer, which follow its properties and precede `coord`:
+    /// the options of its plot that concern no other layer, `title`, `attribution`, `tools`,
+    /// `width`, and `height`, then the options of its layer, `id` and `classes`, without an option
+    /// whose name the mark's own parameters take, such as `width` of `text`. A mark call places
+    /// each of its tools on the narrowest part that holds it: a navigation on its plot, and a
+    /// tooltip or a selection on its layer. The id is the layer's: the plot of a mark call has
+    /// none, so its path identifies it, and a `layer` composition gives it one. A `layer`
+    /// composition merges the plots' options, as `PlotBuilder::overlay` does.
+    pub options: &'static [Param],
     pub(crate) mark: fn() -> call::LayerMark,
     pub(crate) apply_properties: call::ApplyProperties,
 }
