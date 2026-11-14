@@ -1482,15 +1482,16 @@ impl Pass<'_> {
         let path = call.path()?;
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names = path.names()?;
+        // A temporary function, or a function of a module.
+        if let Some(function) = self.temp_function(&names) {
+            return self.call_temp(function, call, scope, path.syntax().text_range());
+        }
         let (safe, name, name_range) = match names.as_slice() {
             [name] => (false, name.clone(), refs[0].syntax().text_range()),
             [safe, name] if safe.eq_ignore_ascii_case("SAFE") => {
                 (true, name.clone(), refs[1].syntax().text_range())
             }
             _ => {
-                if let Some(function) = self.temp_function(&names) {
-                    return self.call_temp(function, call, scope, path.syntax().text_range());
-                }
                 self.error(
                     path.syntax().text_range(),
                     format!("Function not found: {}", names.join(".")),
@@ -1498,10 +1499,6 @@ impl Pass<'_> {
                 return None;
             }
         };
-        // A temporary function, or a function of a module.
-        if let Some(function) = self.temp_function(&names) {
-            return self.call_temp(function, call, scope, path.syntax().text_range());
-        }
         let library = self.library;
         let Some(function) = library.get(&name) else {
             self.error(name_range, format!("Function not found: {name}"));

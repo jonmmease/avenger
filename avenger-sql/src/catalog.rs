@@ -236,13 +236,7 @@ impl Catalog for MemoryCatalog {
 
     fn module(&self, names: &[String]) -> Option<String> {
         (self.modules.iter())
-            .find(|(path, _)| {
-                path.len() == names.len()
-                    && path
-                        .iter()
-                        .zip(names)
-                        .all(|(a, b)| a.eq_ignore_ascii_case(b))
-            })
+            .find(|(path, _)| same_path(path, names))
             .map(|(_, text)| text.clone())
     }
 }

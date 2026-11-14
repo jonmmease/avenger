@@ -21,7 +21,7 @@ use avenger_sql_syntax::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field},
-    common::{Column, ScalarValue},
+    common::{Column, DFSchema, ScalarValue},
     logical_expr::{expr::Placeholder, Expr, LogicalPlanBuilder},
 };
 use std::sync::Arc;
@@ -30,6 +30,7 @@ use super::{
     build::cast,
     expr::Scope,
     model::{CallForm, Definition},
+    query::alias_name,
     rows::{Col, Rows},
     Pass, StatementPlan, WithName,
 };
@@ -144,10 +145,7 @@ impl Pass<'_> {
             self.error(range, format!("Expected type {want}; found {found}"));
             return None;
         }
-        Some(match self.type_of(&expr, scope) {
-            Some(current) if current == *ty => expr,
-            _ => cast(expr, ty.clone()),
-        })
+        self.coerce_to(expr, &want, scope)
     }
 
     /// The plans of a `DECLARE`: a variable for each name, of the type, of the value of its
@@ -167,8 +165,8 @@ impl Pass<'_> {
             },
             None => None,
         };
-        let one = self.one_row();
-        let scope = Scope::of(&one, "DECLARE");
+        let empty = DFSchema::empty();
+        let scope = Scope::constant(&empty, "DECLARE");
         let value = match declare.expr() {
             Some(expr) => {
                 let at = expr.syntax().text_range();
@@ -235,23 +233,8 @@ impl Pass<'_> {
                 return Vec::new();
             };
             let at = target.syntax().text_range();
-            match self
-                .variables
-                .iter()
-                .find(|v| v.name.eq_ignore_ascii_case(&name))
-                .cloned()
-            {
-                Some(variable) => {
-                    self.use_name(
-                        at,
-                        Definition::Variable {
-                            name: variable.name.clone(),
-                            definition: Some(variable.definition),
-                            ty: Some(variable.ty.clone()),
-                        },
-                    );
-                    variables.push(variable);
-                }
+            match self.use_variable(&name, at) {
+                Some(variable) => variables.push(variable),
                 None => {
                     self.error(at, format!("Undeclared variable: {name}"));
                     return Vec::new();
@@ -262,8 +245,8 @@ impl Pass<'_> {
             return Vec::new();
         };
         let at = expr.syntax().text_range();
-        let one = self.one_row();
-        let scope = Scope::of(&one, "SET");
+        let empty = DFSchema::empty();
+        let scope = Scope::constant(&empty, "SET");
         let Some(value) = self.expr(&expr, scope) else {
             return Vec::new();
         };
@@ -303,8 +286,9 @@ impl Pass<'_> {
         plans
     }
 
-    /// The placeholder of the script variable `name`, when the script declares one.
-    pub(super) fn variable(&mut self, name: &str, range: TextRange) -> Option<Expr> {
+    /// The script variable `name`, as the name at `range` of the model, when the script declares
+    /// one.
+    fn use_variable(&mut self, name: &str, range: TextRange) -> Option<Variable> {
         let variable = (self.variables.iter())
             .find(|v| v.name.eq_ignore_ascii_case(name))
             .cloned()?;
@@ -316,6 +300,12 @@ impl Pass<'_> {
                 ty: Some(variable.ty.clone()),
             },
         );
+        Some(variable)
+    }
+
+    /// The placeholder of the script variable `name`, when the script declares one.
+    pub(super) fn variable(&mut self, name: &str, range: TextRange) -> Option<Expr> {
+        let variable = self.use_variable(name, range)?;
         let field = Arc::new(Field::new(variable.id.clone(), variable.ty.clone(), true));
         Some(Expr::Placeholder(Placeholder::new_with_field(
             variable.id,
@@ -563,8 +553,8 @@ impl Pass<'_> {
                     _ => unreachable!(),
                 })
                 .collect();
-            let one = self.one_row();
-            let scope = Scope::of(&one, "the function's body");
+            let empty = DFSchema::empty();
+            let scope = Scope::constant(&empty, "the function's body");
             let scope = match kind {
                 Kind::Aggregate => scope.aggregates(),
                 _ => scope,
@@ -582,30 +572,34 @@ impl Pass<'_> {
     /// The temporary function or the module function that a call names, in the module whose body
     /// the pass plans first.
     pub(super) fn temp_function(&self, names: &[String]) -> Option<TempFunction> {
-        let path = names.join(".").to_ascii_lowercase();
-        for module in self.module_context.iter().rev() {
-            let key = format!("{module}.{path}");
-            if let Some(function) = self.functions.iter().find(|f| f.path == key) {
-                return Some(function.clone());
-            }
-        }
-        (self.functions.iter())
-            .find(|f| f.path == path && (f.public || f.module.is_none()))
+        let visible = |f: &TempFunction| f.public || f.module.is_none();
+        self.in_scope(&self.functions, names, |f| &f.path, visible)
             .cloned()
     }
 
     /// The constant of a module at `names`, in the module whose body the pass plans first.
     pub(super) fn module_constant(&self, names: &[String]) -> Option<Expr> {
+        self.in_scope(&self.constants, names, |c| &c.path, |c| c.public)
+            .map(|c| c.expr.clone())
+    }
+
+    /// The item of `items` at the path `names`: of the modules whose bodies the pass plans,
+    /// innermost first, then one that `visible` lets a script read.
+    fn in_scope<'i, T>(
+        &self,
+        items: &'i [T],
+        names: &[String],
+        path_of: impl Fn(&T) -> &String,
+        visible: impl Fn(&T) -> bool,
+    ) -> Option<&'i T> {
         let path = names.join(".").to_ascii_lowercase();
         for module in self.module_context.iter().rev() {
             let key = format!("{module}.{path}");
-            if let Some(constant) = self.constants.iter().find(|c| c.path == key) {
-                return Some(constant.expr.clone());
+            if let Some(item) = items.iter().find(|item| *path_of(item) == key) {
+                return Some(item);
             }
         }
-        (self.constants.iter())
-            .find(|c| c.path == path && c.public)
-            .map(|c| c.expr.clone())
+        (items.iter()).find(|item| *path_of(item) == path && visible(item))
     }
 
     /// The plan of the body of `function`, of a scalar or an aggregate function, with its
@@ -616,27 +610,17 @@ impl Pass<'_> {
         let bindings: Vec<(String, Expr)> = (function.params.iter().zip(args))
             .map(|(param, arg)| (param.name.clone(), arg))
             .collect();
-        let saved_params = std::mem::replace(&mut self.params, bindings);
-        let saved_outers = std::mem::take(&mut self.outers);
-        let saved_variables = std::mem::take(&mut self.variables);
-        let pushed = function
-            .module
-            .clone()
-            .map(|m| self.module_context.push(m))
-            .is_some();
         let body_scope = Scope {
             columns: &[],
             vars: &[],
             ..scope
         };
-        let planned = self.expr(&expr, body_scope);
-        if pushed {
-            self.module_context.pop();
-        }
-        self.variables = saved_variables;
-        self.outers = saved_outers;
-        self.params = saved_params;
-        let planned = planned?;
+        let planned = self.in_body(function, bindings, |pass| {
+            let saved_variables = std::mem::take(&mut pass.variables);
+            let planned = pass.expr(&expr, body_scope);
+            pass.variables = saved_variables;
+            planned
+        })?;
         let Some(returns) = &function.returns else {
             return Some(planned);
         };
@@ -653,6 +637,28 @@ impl Pass<'_> {
             return None;
         }
         self.coerce_to(planned, returns, scope)
+    }
+
+    /// The result of `plan` in the body of `function`: its parameters bound to `bindings`, without
+    /// the scopes of the enclosing queries, and in its module, whose names a call reads first.
+    fn in_body<R>(
+        &mut self,
+        function: &TempFunction,
+        bindings: Vec<(String, Expr)>,
+        plan: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved_params = std::mem::replace(&mut self.params, bindings);
+        let saved_outers = std::mem::take(&mut self.outers);
+        if let Some(module) = &function.module {
+            self.module_context.push(module.clone());
+        }
+        let result = plan(self);
+        if function.module.is_some() {
+            self.module_context.pop();
+        }
+        self.outers = saved_outers;
+        self.params = saved_params;
+        result
     }
 
     /// The argument of the parameter `name` of the body of the function that the pass inlines.
@@ -894,8 +900,11 @@ impl Pass<'_> {
             };
             let value = match value {
                 Some(Ok(expr)) => {
-                    let one = self.one_row();
-                    match self.expr(&expr, Scope::of(&one, "a table function's argument")) {
+                    let empty = DFSchema::empty();
+                    match self.expr(
+                        &expr,
+                        Scope::constant(&empty, "a table function's argument"),
+                    ) {
                         Some(expr) => Value::Expr(expr),
                         None => return failed,
                     }
@@ -933,8 +942,8 @@ impl Pass<'_> {
                     rows,
                 }),
                 (Value::Expr(expr), ParamTy::Value(want)) => {
-                    let one = self.one_row();
-                    let scope = Scope::of(&one, "a table function's argument");
+                    let empty = DFSchema::empty();
+                    let scope = Scope::constant(&empty, "a table function's argument");
                     match self.value_of_type(expr, &want.arrow(self.type_options), at, scope) {
                         Some(value) => bindings.push((param.name.clone(), value)),
                         None => return failed,
@@ -964,28 +973,16 @@ impl Pass<'_> {
             self.error(range, format!("The body of {} is no query", function.name));
             return failed;
         };
-        let saved_params = std::mem::replace(&mut self.params, bindings);
-        let saved_outers = std::mem::take(&mut self.outers);
-        let saved_tables = self.temp_tables.len();
-        self.temp_tables.extend(tables);
-        let pushed = function
-            .module
-            .clone()
-            .map(|m| self.module_context.push(m))
-            .is_some();
         let prefix = format!("In {}: ", function.name);
-        let rows = self.inlined(&prefix, range, |pass| pass.query(&query));
-        if pushed {
-            self.module_context.pop();
-        }
-        self.temp_tables.truncate(saved_tables);
-        self.outers = saved_outers;
-        self.params = saved_params;
-        let alias = source
-            .alias()
-            .and_then(|alias| alias.name())
-            .and_then(|name| Some((name.text()?, name.syntax().text_range())));
-        let alias = alias.or_else(|| Some((function.name.clone(), path.syntax().text_range())));
+        let rows = self.in_body(&function, bindings, |pass| {
+            let saved_tables = pass.temp_tables.len();
+            pass.temp_tables.extend(tables);
+            let rows = pass.inlined(&prefix, range, |pass| pass.query(&query));
+            pass.temp_tables.truncate(saved_tables);
+            rows
+        });
+        let alias = alias_name(source.alias())
+            .or_else(|| Some((function.name.clone(), path.syntax().text_range())));
         self.close(rows, alias, false, range)
     }
 
@@ -1019,7 +1016,7 @@ impl Pass<'_> {
             self.error(path_range, format!("Module not found: {}", names.join(".")));
             return;
         };
-        let alias = (import.alias().and_then(|a| a.name()).and_then(|n| n.text()))
+        let alias = (alias_name(import.alias()).map(|(name, _)| name))
             .unwrap_or_else(|| names.last().cloned().unwrap_or_default())
             .to_ascii_lowercase();
         let key = match parent {
@@ -1064,8 +1061,9 @@ impl Pass<'_> {
                     ) else {
                         continue;
                     };
-                    let one = self.one_row();
-                    let Some(value) = self.expr(&expr, Scope::of(&one, "a constant")) else {
+                    let empty = DFSchema::empty();
+                    let Some(value) = self.expr(&expr, Scope::constant(&empty, "a constant"))
+                    else {
                         continue;
                     };
                     self.constants.push(Constant {
