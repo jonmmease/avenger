@@ -114,6 +114,12 @@ impl Rows {
         self.order.clear();
         self
     }
+
+    /// The rows without range variables, for an operator that ends them.
+    pub(crate) fn without_vars(mut self) -> Self {
+        self.vars.clear();
+        self
+    }
 }
 
 /// The names of the qualifiers of an analysis, which no two plans share.

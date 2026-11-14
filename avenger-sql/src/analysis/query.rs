@@ -11,7 +11,8 @@ use datafusion::{
     common::{Column, DFSchema, ExprSchema, JoinType, Result, ScalarValue},
     datasource::provider_as_source,
     logical_expr::{
-        utils::find_aggregate_exprs, Expr, ExprSchemable, LogicalPlan, LogicalPlanBuilder, SortExpr,
+        utils::{find_aggregate_exprs, find_window_exprs, grouping_set_to_exprlist},
+        Aggregate, Expr, ExprSchemable, GroupingSet, LogicalPlan, LogicalPlanBuilder, SortExpr,
     },
 };
 
@@ -148,12 +149,20 @@ impl Pass<'_> {
                 };
                 self.join(rows, right, op.join_op(), op.join_condition(), range)
             }
-            ast::PipeOperator::PipeSetOperation(_)
-            | ast::PipeOperator::PipeCall(_)
-            | ast::PipeOperator::PipeSample(_)
-            | ast::PipeOperator::PipeWith(_)
-            | ast::PipeOperator::PipePivot(_)
-            | ast::PipeOperator::PipeUnpivot(_) => {
+            ast::PipeOperator::PipeSetOperation(op) => self.set_operation(rows, op, range),
+            ast::PipeOperator::PipeSample(op) => match op.sample_clause() {
+                Some(clause) => self.sample(rows, &clause, range),
+                None => rows.fail(),
+            },
+            ast::PipeOperator::PipePivot(op) => match op.pivot_clause() {
+                Some(clause) => self.pivot(rows, &clause, range),
+                None => rows.fail(),
+            },
+            ast::PipeOperator::PipeUnpivot(op) => match op.unpivot_clause() {
+                Some(clause) => self.unpivot(rows, &clause, range),
+                None => rows.fail(),
+            },
+            ast::PipeOperator::PipeCall(_) | ast::PipeOperator::PipeWith(_) => {
                 self.error(range, "avenger-sql doesn't plan this pipe operator yet");
                 rows.fail()
             }
@@ -162,7 +171,7 @@ impl Pass<'_> {
 
     /// The rows of a projection, or after DataFusion's error, the columns of `items` without a
     /// plan.
-    fn projected(
+    pub(super) fn projected(
         &mut self,
         rows: Rows,
         items: Vec<Item>,
@@ -196,7 +205,7 @@ impl Pass<'_> {
     }
 
     /// The rows of a plan that DataFusion built, or after its error, `fallback`.
-    fn built(&mut self, result: Result<Rows>, range: TextRange, fallback: Rows) -> Rows {
+    pub(super) fn built(&mut self, result: Result<Rows>, range: TextRange, fallback: Rows) -> Rows {
         match result {
             Ok(rows) => rows,
             Err(error) => {
@@ -236,11 +245,37 @@ impl Pass<'_> {
                 };
                 self.join(left, right, join.join_op(), join.join_condition(), range)
             }
-            ast::Source::UnnestSource(_)
-            | ast::Source::TvfSource(_)
-            | ast::Source::PivotSource(_)
-            | ast::Source::UnpivotSource(_)
-            | ast::Source::SampleSource(_) => {
+            ast::Source::PivotSource(source) => {
+                let rows = match source.source() {
+                    Some(source) => self.source(&source),
+                    None => Rows::failed(Vec::new(), Vec::new()),
+                };
+                match source.pivot_clause() {
+                    Some(clause) => self.pivot(rows, &clause, range),
+                    None => rows.fail(),
+                }
+            }
+            ast::Source::UnpivotSource(source) => {
+                let rows = match source.source() {
+                    Some(source) => self.source(&source),
+                    None => Rows::failed(Vec::new(), Vec::new()),
+                };
+                match source.unpivot_clause() {
+                    Some(clause) => self.unpivot(rows, &clause, range),
+                    None => rows.fail(),
+                }
+            }
+            ast::Source::SampleSource(source) => {
+                let rows = match source.source() {
+                    Some(source) => self.source(&source),
+                    None => Rows::failed(Vec::new(), Vec::new()),
+                };
+                match source.sample_clause() {
+                    Some(clause) => self.sample(rows, &clause, range),
+                    None => rows.fail(),
+                }
+            }
+            ast::Source::UnnestSource(_) | ast::Source::TvfSource(_) => {
                 self.error(range, "avenger-sql doesn't plan this source yet");
                 Rows::failed(Vec::new(), Vec::new())
             }
@@ -449,6 +484,7 @@ impl Pass<'_> {
                         clause: "JOIN ON clause",
                         aggregates: false,
                         windows: false,
+                        groups: Some(&[]),
                     };
                     on.expr().and_then(|expr| {
                         let at = expr.syntax().text_range();
@@ -666,12 +702,23 @@ impl Pass<'_> {
             false => "pipe SELECT",
         };
         let mut ok = true;
-        if let Some(window) = window {
-            self.error(
-                window.syntax().text_range(),
-                "avenger-sql doesn't plan the WINDOW clause yet",
-            );
-            ok = false;
+        // The named windows, each of which can add to one before it.
+        let outer = std::mem::take(&mut self.windows);
+        for named in window.iter().flat_map(|window| window.named_windows()) {
+            let Some(name) = named.name().and_then(|name| name.text()) else {
+                ok = false;
+                continue;
+            };
+            let at = named.syntax().text_range();
+            let syntax = match (named.name_ref(), named.window_spec()) {
+                (Some(base), _) => self.named_window(&base),
+                (None, Some(spec)) => self.extend_window(&spec, at),
+                (None, None) => None,
+            };
+            match syntax {
+                Some(syntax) => self.windows.push((name, syntax)),
+                None => ok = false,
+            }
         }
         let mut items: Vec<Item> = match extend {
             true => rows.columns.iter().cloned().map(Item::Carry).collect(),
@@ -718,6 +765,7 @@ impl Pass<'_> {
                 },
             }
         }
+        self.windows = outer;
         if !ok {
             let rows = rows::project(
                 &mut self.qualifiers,
@@ -736,8 +784,12 @@ impl Pass<'_> {
     /// `EXCEPT` and with the expressions of its `REPLACE`.
     fn wildcard(&mut self, wildcard: &ast::Wildcard, scope: Scope) -> Option<Vec<Item>> {
         let range = wildcard.syntax().text_range();
-        let mut columns: Vec<Col> = match wildcard.path() {
-            None => scope.columns.to_vec(),
+        let item_name = |item: &Item| match item {
+            Item::Carry(col) => col.name.clone(),
+            Item::Compute { name, .. } => name.clone(),
+        };
+        let mut items: Vec<Item> = match wildcard.path() {
+            None => scope.columns.iter().cloned().map(Item::Carry).collect(),
             Some(path) => {
                 let names = path.names()?;
                 let refs: Vec<ast::NameRef> = path.name_refs().collect();
@@ -748,34 +800,53 @@ impl Pass<'_> {
                         .find(|var| var.name.eq_ignore_ascii_case(name)),
                     _ => None,
                 };
-                let Some(var) = var else {
-                    self.error(
-                        path.syntax().text_range(),
-                        format!(
-                            "avenger-sql expands the wildcard of a range variable, and {} is none",
-                            names.join(".")
-                        ),
-                    );
-                    return None;
-                };
-                self.use_name(
-                    refs[0].syntax().text_range(),
-                    Definition::RangeVariable {
-                        name: var.name.clone(),
-                        definition: var.definition,
-                    },
-                );
-                var.columns.clone()
+                match var {
+                    Some(var) => {
+                        self.use_name(
+                            refs[0].syntax().text_range(),
+                            Definition::RangeVariable {
+                                name: var.name.clone(),
+                                definition: var.definition,
+                            },
+                        );
+                        var.columns.iter().cloned().map(Item::Carry).collect()
+                    }
+                    // A struct's fields, each a column.
+                    None => {
+                        let base = self.path(&path, scope)?;
+                        let ty = self.type_of(&base, scope)?;
+                        let datafusion::arrow::datatypes::DataType::Struct(fields) = &ty else {
+                            self.error(
+                                path.syntax().text_range(),
+                                format!(
+                                    "Dot-star is not supported for type {}",
+                                    crate::types::googlesql_name(&ty)
+                                ),
+                            );
+                            return None;
+                        };
+                        (fields.iter())
+                            .map(|field| Item::Compute {
+                                name: field.name().clone(),
+                                expr: datafusion::functions::core::expr_fn::get_field(
+                                    base.clone(),
+                                    field.name().as_str(),
+                                ),
+                                definition: Some(range),
+                            })
+                            .collect()
+                    }
+                }
             }
         };
-        columns.retain(|col| !col.name.is_empty());
+        items.retain(|item| !item_name(item).is_empty());
         let mut ok = true;
         if let Some(except) = wildcard.except_list() {
             for name_ref in except.name_list().iter().flat_map(|list| list.name_refs()) {
                 let name = name_ref.text()?;
-                let before = columns.len();
-                columns.retain(|col| !col.name.eq_ignore_ascii_case(&name));
-                if columns.len() == before {
+                let before = items.len();
+                items.retain(|item| !item_name(item).eq_ignore_ascii_case(&name));
+                if items.len() == before {
                     self.error(
                         name_ref.syntax().text_range(),
                         format!("Column {name} in SELECT * EXCEPT list does not exist"),
@@ -784,7 +855,7 @@ impl Pass<'_> {
                 }
             }
         }
-        let mut items: Vec<Item> = columns.into_iter().map(Item::Carry).collect();
+
         if let Some(replace) = wildcard.replace_list() {
             for item in replace.replace_items() {
                 let Some(name_node) = item.name() else {
@@ -1073,7 +1144,7 @@ impl Pass<'_> {
 
     /// The `INT64` constant of a `LIMIT` or an `OFFSET`: a literal or a query parameter, which
     /// reads no columns.
-    fn constant(&mut self, expr: &ast::Expr) -> Option<Expr> {
+    pub(super) fn constant(&mut self, expr: &ast::Expr) -> Option<Expr> {
         let at = expr.syntax().text_range();
         let empty = DFSchema::empty();
         let scope = Scope {
@@ -1083,6 +1154,7 @@ impl Pass<'_> {
             clause: "LIMIT",
             aggregates: false,
             windows: false,
+            groups: Some(&[]),
         };
         let planned = self.expr(expr, scope)?;
         match &planned {
@@ -1111,6 +1183,39 @@ impl Pass<'_> {
         }
     }
 
+    /// Adds the group expression `expr` to `groups`, once, and returns its index.
+    fn group_output(
+        &mut self,
+        rows: &Rows,
+        groups: &mut Vec<Output>,
+        expr: Option<ast::Expr>,
+        alias: Option<(String, TextRange)>,
+        order: Option<(bool, bool)>,
+        range: TextRange,
+    ) -> usize {
+        let name = match &alias {
+            Some((name, _)) => name.clone(),
+            None => expr.as_ref().map(inferred_name).unwrap_or_default(),
+        };
+        let definition = alias
+            .map(|(_, range)| range)
+            .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
+        let planned = expr.and_then(|expr| self.expr(&expr, Scope::of(rows, "GROUP BY")));
+        if let Some(planned) = &planned {
+            if let Some(index) = groups.iter().position(|g| g.expr.as_ref() == Some(planned)) {
+                return index;
+            }
+        }
+        groups.push(Output {
+            expr: planned,
+            name,
+            definition,
+            order,
+            range,
+        });
+        groups.len() - 1
+    }
+
     /// The rows of a pipe `AGGREGATE`: one row for each group of the group items, with the group
     /// columns, then the items, each an expression over aggregate functions and the group items.
     /// A suffix `ASC` or `DESC`, or `GROUP AND ORDER BY`, orders the rows by its item: the group
@@ -1122,49 +1227,96 @@ impl Pass<'_> {
             .as_ref()
             .is_some_and(|group| group.and_kw().is_some());
         let mut ok = true;
-        struct Output {
-            expr: Option<Expr>,
-            name: String,
-            definition: Option<TextRange>,
-            order: Option<(bool, bool)>,
-            range: TextRange,
-        }
-        let mut groups = Vec::new();
+        // The group expressions, each once, and for each grouping item, its sets of them: one set
+        // of one expression for a group item, and the sets of a `ROLLUP`, a `CUBE`, `GROUPING
+        // SETS` or `()`.
+        let mut groups: Vec<Output> = Vec::new();
+        let mut item_sets: Vec<Vec<Vec<usize>>> = Vec::new();
+        let mut grouping = false;
         for item in group_by.iter().flat_map(|group| group.grouping_items()) {
             let item_range = item.syntax().text_range();
-            let ast::GroupingItem::GroupItem(item) = item else {
-                self.error(
-                    item_range,
-                    "avenger-sql doesn't plan grouping sets, ROLLUP or CUBE yet",
-                );
-                ok = false;
-                continue;
-            };
-            let expr = item.expr();
-            if let Some(ast::Expr::Literal(literal)) = &expr {
-                if literal.kind() == Some(LiteralKind::Int) {
-                    self.error(item_range, "GROUP BY ordinal not allowed in pipe AGGREGATE");
-                    ok = false;
-                    continue;
+            match item {
+                ast::GroupingItem::GroupItem(item) => {
+                    let expr = item.expr();
+                    if let Some(ast::Expr::Literal(literal)) = &expr {
+                        if literal.kind() == Some(LiteralKind::Int) {
+                            self.error(
+                                item_range,
+                                "GROUP BY ordinal not allowed in pipe AGGREGATE",
+                            );
+                            ok = false;
+                            continue;
+                        }
+                    }
+                    let alias = alias_name(item.alias());
+                    let order = suffix(item.order_suffix(), ascending);
+                    let index =
+                        self.group_output(&rows, &mut groups, expr, alias, order, item_range);
+                    item_sets.push(vec![vec![index]]);
+                }
+                ast::GroupingItem::GroupingEmpty(_) => {
+                    grouping = true;
+                    item_sets.push(vec![Vec::new()]);
+                }
+                ast::GroupingItem::Rollup(rollup) => {
+                    grouping = true;
+                    let order = ascending.then_some((true, true));
+                    let indices: Vec<usize> = (rollup.exprs())
+                        .map(|expr| {
+                            let at = expr.syntax().text_range();
+                            self.group_output(&rows, &mut groups, Some(expr), None, order, at)
+                        })
+                        .collect();
+                    item_sets.push(rollup_sets(&indices));
+                }
+                ast::GroupingItem::Cube(cube) => {
+                    grouping = true;
+                    let order = ascending.then_some((true, true));
+                    let indices: Vec<usize> = (cube.exprs())
+                        .map(|expr| {
+                            let at = expr.syntax().text_range();
+                            self.group_output(&rows, &mut groups, Some(expr), None, order, at)
+                        })
+                        .collect();
+                    item_sets.push(cube_sets(&indices));
+                }
+                ast::GroupingItem::GroupingSets(sets) => {
+                    grouping = true;
+                    let order = ascending.then_some((true, true));
+                    let mut all = Vec::new();
+                    for set in sets.grouping_sets() {
+                        let mut add = |pass: &mut Self, expr: ast::Expr| {
+                            let at = expr.syntax().text_range();
+                            pass.group_output(&rows, &mut groups, Some(expr), None, order, at)
+                        };
+                        match set {
+                            ast::GroupingSet::GroupingEmpty(_) => all.push(Vec::new()),
+                            ast::GroupingSet::Rollup(rollup) => {
+                                let indices: Vec<usize> =
+                                    rollup.exprs().map(|expr| add(self, expr)).collect();
+                                all.extend(rollup_sets(&indices));
+                            }
+                            ast::GroupingSet::Cube(cube) => {
+                                let indices: Vec<usize> =
+                                    cube.exprs().map(|expr| add(self, expr)).collect();
+                                all.extend(cube_sets(&indices));
+                            }
+                            // `(a, b)` is a set of two expressions.
+                            ast::GroupingSet::Expr(ast::Expr::TupleExpr(tuple)) => {
+                                let indices = tuple.exprs().map(|expr| add(self, expr)).collect();
+                                all.push(indices);
+                            }
+                            ast::GroupingSet::Expr(expr) => {
+                                let index = add(self, expr);
+                                all.push(vec![index]);
+                            }
+                        }
+                    }
+                    item_sets.push(all);
                 }
             }
-            let alias = alias_name(item.alias());
-            let name = match &alias {
-                Some((name, _)) => name.clone(),
-                None => expr.as_ref().map(inferred_name).unwrap_or_default(),
-            };
-            let definition = alias
-                .map(|(_, range)| range)
-                .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
-            let planned = expr.and_then(|expr| self.expr(&expr, Scope::of(&rows, "GROUP BY")));
-            groups.push(Output {
-                expr: planned,
-                name,
-                definition,
-                order: suffix(item.order_suffix(), ascending),
-                range: item_range,
-            });
         }
+        let group_keys: Vec<Expr> = groups.iter().filter_map(|g| g.expr.clone()).collect();
         let mut items = Vec::new();
         for item in op.aggregate_items() {
             let item_range = item.syntax().text_range();
@@ -1177,7 +1329,10 @@ impl Pass<'_> {
             let definition = alias
                 .map(|(_, range)| range)
                 .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
-            let scope = Scope::of(&rows, "pipe AGGREGATE").aggregates();
+            let keys = (!grouping).then_some(group_keys.as_slice());
+            let scope = Scope::of(&rows, "pipe AGGREGATE")
+                .aggregates()
+                .grouped(keys);
             let planned = expr.and_then(|expr| self.expr(&expr, scope));
             items.push(Output {
                 expr: planned,
@@ -1213,18 +1368,79 @@ impl Pass<'_> {
         let (Some(plan), true, true) = (rows.plan.clone(), ok, all) else {
             return failed();
         };
+        // The windows of `HAVING MAX` and `HAVING MIN`, which a window node computes before the
+        // aggregate.
+        let windows = find_window_exprs(items.iter().filter_map(|item| item.expr.as_ref()));
+        let plan = match windows.is_empty() {
+            true => plan,
+            false => match LogicalPlanBuilder::window_plan(plan, windows.clone()) {
+                Ok(plan) => {
+                    for item in &mut items {
+                        let expr = item.expr.take().expect("an item");
+                        match rows::rebase(expr, &windows) {
+                            Ok(expr) => item.expr = Some(expr),
+                            Err(error) => {
+                                self.datafusion_error(item.range, error);
+                                return failed();
+                            }
+                        }
+                    }
+                    plan
+                }
+                Err(error) => {
+                    self.datafusion_error(range, error);
+                    return failed();
+                }
+            },
+        };
         let item_exprs: Vec<Expr> = items
             .iter()
             .map(|item| item.expr.clone().expect("an item"))
             .collect();
         let aggregates = find_aggregate_exprs(&item_exprs);
-        let mut group_exprs: Vec<Expr> = Vec::new();
+        let mut distinct: Vec<Expr> = Vec::new();
         for group in &groups {
             let expr = group.expr.clone().expect("a group");
-            if !group_exprs.contains(&expr) {
-                group_exprs.push(expr);
+            if !distinct.contains(&expr) {
+                distinct.push(expr);
             }
         }
+        // A grouping item other than an expression groups by the sets of the cross product of the
+        // items' sets, and the aggregate adds a column of the grouping id after the group columns.
+        let group_exprs = match grouping {
+            false => distinct.clone(),
+            true => {
+                let mut sets: Vec<Vec<usize>> = vec![Vec::new()];
+                for item in &item_sets {
+                    sets = (sets.iter())
+                        .flat_map(|set| {
+                            item.iter().map(move |more| {
+                                let mut set = set.clone();
+                                for index in more {
+                                    if !set.contains(index) {
+                                        set.push(*index);
+                                    }
+                                }
+                                set
+                            })
+                        })
+                        .collect();
+                }
+                let sets = (sets.into_iter())
+                    .map(|set| {
+                        let mut exprs: Vec<Expr> = Vec::new();
+                        for index in set {
+                            let expr = groups[index].expr.clone().expect("a group");
+                            if !exprs.contains(&expr) {
+                                exprs.push(expr);
+                            }
+                        }
+                        exprs
+                    })
+                    .collect();
+                vec![Expr::GroupingSet(GroupingSet::GroupingSets(sets))]
+            }
+        };
         let plan = LogicalPlanBuilder::from(plan)
             .aggregate(group_exprs.clone(), aggregates.clone())
             .and_then(|b| b.build());
@@ -1235,7 +1451,17 @@ impl Pass<'_> {
                 return failed();
             }
         };
-        let output = plan.schema().columns();
+        let output: Vec<Column> = (plan.schema().columns().into_iter())
+            .filter(|column| column.name != Aggregate::INTERNAL_GROUPING_ID)
+            .collect();
+        // The distinct group expressions in the order of the aggregate's output.
+        let group_exprs: Vec<Expr> = match grouping_set_to_exprlist(&group_exprs) {
+            Ok(exprs) => exprs.into_iter().cloned().collect(),
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return failed();
+            }
+        };
         let mut projection = Vec::new();
         for group in &groups {
             let expr = group.expr.as_ref().expect("a group");
@@ -1306,6 +1532,37 @@ impl Pass<'_> {
             .collect();
         rows
     }
+}
+
+/// A column of the output of a pipe `AGGREGATE`: a group expression or an item.
+struct Output {
+    expr: Option<Expr>,
+    name: String,
+    definition: Option<TextRange>,
+    order: Option<(bool, bool)>,
+    range: TextRange,
+}
+
+/// The sets of `ROLLUP (a, b, ...)`: each prefix of its expressions, from all of them to none.
+fn rollup_sets(indices: &[usize]) -> Vec<Vec<usize>> {
+    (0..=indices.len())
+        .rev()
+        .map(|n| indices[..n].to_vec())
+        .collect()
+}
+
+/// The sets of `CUBE (a, b, ...)`: each subset of its expressions, from all of them to none.
+fn cube_sets(indices: &[usize]) -> Vec<Vec<usize>> {
+    let n = indices.len();
+    (0..1usize << n)
+        .rev()
+        .map(|mask| {
+            (indices.iter().enumerate())
+                .filter(|(bit, _)| mask & (1 << (n - 1 - bit)) != 0)
+                .map(|(_, index)| *index)
+                .collect()
+        })
+        .collect()
 }
 
 /// `expr` with each group expression of `grouped` written as its column of the aggregate's

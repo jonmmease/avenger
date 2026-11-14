@@ -398,3 +398,58 @@ async fn names_resolve_by_googlesql_rules() {
     let text = table_text("FROM t |> WHERE x = 1 |> SELECT t").await;
     assert_eq!(text.lines().nth(3).unwrap(), "| {x: 1, s: a} |");
 }
+
+#[tokio::test]
+async fn set_operations_by_quantifier_and_name() {
+    assert_eq!(
+        rows("FROM penguins |> SELECT island |> INTERSECT DISTINCT (FROM penguins |> WHERE species = 'Gentoo' |> SELECT island)").await,
+        standard_rows("SELECT island FROM penguins INTERSECT SELECT island FROM penguins WHERE species = 'Gentoo'").await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> SELECT species, island |> UNION ALL BY NAME (FROM penguins |> SELECT island, species) |> AGGREGATE COUNT(*) AS n GROUP BY species").await,
+        standard_rows("SELECT species, count(*) * 2 AS n FROM penguins GROUP BY species").await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> SELECT species |> UNION DISTINCT (FROM penguins |> SELECT island) |> AGGREGATE COUNT(*) AS n").await,
+        standard_rows("SELECT count(*) AS n FROM (SELECT species FROM penguins UNION SELECT island FROM penguins)").await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> SELECT island |> EXCEPT DISTINCT (FROM penguins |> WHERE species = 'Gentoo' |> SELECT island)").await,
+        standard_rows("SELECT island FROM penguins EXCEPT SELECT island FROM penguins WHERE species = 'Gentoo'").await,
+    );
+}
+
+#[tokio::test]
+async fn rollup_and_cube_group_by_grouping_sets() {
+    assert_eq!(
+        rows("FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY ROLLUP (species, island)").await,
+        standard_rows(
+            "SELECT species, island, count(*) AS n FROM penguins GROUP BY ROLLUP (species, island)"
+        )
+        .await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY CUBE (species, island)").await,
+        standard_rows(
+            "SELECT species, island, count(*) AS n FROM penguins GROUP BY CUBE (species, island)"
+        )
+        .await,
+    );
+    assert_eq!(
+        rows("FROM penguins |> AGGREGATE SUM(body_mass_g) AS total GROUP BY sex, ROLLUP (species, island)").await,
+        standard_rows("SELECT sex, species, island, sum(body_mass_g) AS total FROM penguins GROUP BY sex, ROLLUP (species, island)").await,
+    );
+}
+
+#[tokio::test]
+async fn a_sample_keeps_about_its_percent_and_repeats_with_a_seed() {
+    let count = |text: String| async move { column(&text, "n").await[0] };
+    let n =
+        count("FROM big |> TABLESAMPLE BERNOULLI (10 PERCENT) |> AGGREGATE COUNT(*) AS n".into())
+            .await;
+    assert!((19_000..21_000).contains(&n), "{n} of 200,000 rows");
+    let n = count("FROM big |> TABLESAMPLE RESERVOIR (100 ROWS PARTITION BY MOD(i, 4)) |> AGGREGATE COUNT(*) AS n".into()).await;
+    assert_eq!(n, 400);
+    let sample = "FROM t |> ORDER BY x |> TABLESAMPLE BERNOULLI (50 PERCENT) REPEATABLE (3) |> AGGREGATE STRING_AGG(s, ',' ORDER BY s) AS kept";
+    assert_eq!(table_text(sample).await, table_text(sample).await);
+}

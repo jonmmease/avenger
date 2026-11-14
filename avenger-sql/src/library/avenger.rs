@@ -48,6 +48,7 @@ pub(super) fn functions() -> Vec<Function> {
             .description(mark.doc)
             .order_by();
         function.clauses.over = super::Over::Forbidden;
+        function.clauses.having = false;
         let mut args = Vec::new();
         for channel in mark.channels {
             function = function.param(&sql_name(channel.name), channel.doc);

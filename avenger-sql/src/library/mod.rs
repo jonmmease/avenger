@@ -32,6 +32,7 @@ pub mod form;
 pub(crate) mod interval;
 mod math;
 mod operator;
+pub(crate) mod random;
 mod reference;
 mod string;
 
@@ -46,7 +47,7 @@ use datafusion::{
 };
 
 pub use array::Subscript;
-pub(crate) use datetime::extract;
+pub(crate) use datetime::{cast_format, extract};
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
 pub use reference::reference;
@@ -110,6 +111,11 @@ pub struct Clauses {
     /// `IGNORE NULLS` and `RESPECT NULLS`.
     pub null_treatment: bool,
     pub order_by: bool,
+    /// `HAVING MAX` and `HAVING MIN`, which compute an aggregate over the rows of the greatest or
+    /// the least value of an expression.
+    pub having: bool,
+    /// `LIMIT n`, which keeps the first values of an aggregate in its order.
+    pub limit: bool,
     pub over: Over,
 }
 
@@ -118,6 +124,8 @@ impl Clauses {
         distinct: false,
         null_treatment: false,
         order_by: false,
+        having: false,
+        limit: false,
         over: Over::Forbidden,
     };
 }
@@ -356,6 +364,7 @@ impl Function {
     /// An aggregate function, which a call can also compute over a window.
     pub(crate) fn aggregate(name: &str, summary: &str) -> Self {
         let clauses = Clauses {
+            having: true,
             over: Over::Optional,
             ..Clauses::NONE
         };
@@ -402,6 +411,11 @@ impl Function {
 
     pub(crate) fn order_by(mut self) -> Self {
         self.clauses.order_by = true;
+        self
+    }
+
+    pub(crate) fn limit(mut self) -> Self {
+        self.clauses.limit = true;
         self
     }
 

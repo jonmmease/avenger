@@ -13,7 +13,9 @@
 mod expr;
 mod model;
 mod query;
+mod reshape;
 mod rows;
+mod set;
 
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 use datafusion::{common::DataFusionError, logical_expr::LogicalPlan};
@@ -74,6 +76,7 @@ pub fn analyze(
         diagnostics: Vec::new(),
         model: Model::default(),
         positional: 0,
+        windows: Vec::new(),
     };
     let mut plan = None;
     match ast::Script::cast(root.clone()) {
@@ -111,6 +114,8 @@ pub(crate) struct Pass<'a> {
     model: Model,
     /// The number of `?` parameters so far, which become `$1`, `$2` and so on.
     positional: usize,
+    /// The named windows of the `WINDOW` clause of the operator that the pass plans.
+    windows: Vec<(String, expr::WindowSyntax)>,
 }
 
 impl Pass<'_> {

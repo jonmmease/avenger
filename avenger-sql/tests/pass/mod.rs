@@ -48,13 +48,47 @@ pub fn small() -> (RecordBatch, RecordBatch) {
     (one, t)
 }
 
-/// The catalog of the tests: `penguins`, `one` and `t`.
+/// A batch of the columns `columns`, each a name and its values.
+fn batch(columns: Vec<(&str, arrow::array::ArrayRef)>) -> RecordBatch {
+    RecordBatch::try_from_iter(columns).unwrap()
+}
+
+fn ints(values: &[Option<i64>]) -> arrow::array::ArrayRef {
+    Arc::new(Int64Array::from(values.to_vec()))
+}
+
+fn strings(values: &[&str]) -> arrow::array::ArrayRef {
+    Arc::new(StringArray::from(values.to_vec()))
+}
+
+/// The catalog of the tests: `penguins`, `one` and `t`, and the tables of the recorded queries,
+/// whose GoogleSQL rows are in `scratch/projects/pipe-parser/queries/tables.json`: `u`, of
+/// `(x, s)`; `sales`, of `(sp, isl, m)`; and `wide`, of `(k, a, b, c, d)`.
 pub fn catalog() -> MemoryCatalog {
     let (one, t) = small();
+    let u = batch(vec![
+        ("x", ints(&[Some(2), Some(3), Some(4)])),
+        ("s", strings(&["b", "c", "d"])),
+    ]);
+    let sales = batch(vec![
+        ("sp", strings(&["A", "A", "B", "B"])),
+        ("isl", strings(&["x", "y", "x", "y"])),
+        ("m", ints(&[Some(1), Some(2), Some(5), Some(3)])),
+    ]);
+    let wide = batch(vec![
+        ("k", ints(&[Some(1), Some(2)])),
+        ("a", ints(&[Some(10), Some(20)])),
+        ("b", ints(&[None, Some(2)])),
+        ("c", ints(&[Some(3), None])),
+        ("d", ints(&[Some(4), None])),
+    ]);
     MemoryCatalog::new()
         .with_table(&["penguins"], table(penguins()))
         .with_table(&["one"], table(one))
         .with_table(&["t"], table(t))
+        .with_table(&["u"], table(u))
+        .with_table(&["sales"], table(sales))
+        .with_table(&["wide"], table(wide))
 }
 
 /// The analysis of the script `text`.
