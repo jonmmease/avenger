@@ -34,6 +34,7 @@ pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
 mod like;
+pub(crate) mod match_recognize;
 mod math;
 mod number_format;
 mod operator;
@@ -1010,6 +1011,7 @@ impl Library {
             .chain(array::functions())
             .chain(conditional::functions())
             .chain(datetime::functions())
+            .chain(match_recognize::functions())
             .chain(math::functions())
             .chain(string::functions())
             .chain(avenger::functions())

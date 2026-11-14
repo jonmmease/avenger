@@ -164,11 +164,10 @@ impl Pass<'_> {
                 Some(clause) => self.sample(rows, &clause, range),
                 None => rows.fail(),
             },
-            // Phase 4 of the MATCH_RECOGNIZE plan plans the clause.
-            ast::PipeOperator::PipeMatchRecognize(_) => {
-                self.error(range, "avenger-sql doesn't plan MATCH_RECOGNIZE yet");
-                rows.fail()
-            }
+            ast::PipeOperator::PipeMatchRecognize(op) => match op.match_recognize_clause() {
+                Some(clause) => self.match_recognize(rows, &clause, range),
+                None => rows.fail(),
+            },
             ast::PipeOperator::PipePivot(op) => match op.pivot_clause() {
                 Some(clause) => self.pivot(rows, &clause, range),
                 None => rows.fail(),
@@ -349,11 +348,31 @@ impl Pass<'_> {
                 )
             }
             ast::Source::MatchRecognizeSource(source) => {
-                if let Some(source) = source.source() {
-                    self.source(&source);
+                let inner = source.source();
+                let rows = match &inner {
+                    Some(inner) => self.source(inner),
+                    None => Rows::failed(Vec::new(), Vec::new()),
+                };
+                let message = match &inner {
+                    Some(ast::Source::UnnestSource(_)) => {
+                        Some("MATCH_RECOGNIZE is not allowed with array scans")
+                    }
+                    Some(
+                        ast::Source::MatchRecognizeSource(_)
+                        | ast::Source::PivotSource(_)
+                        | ast::Source::UnpivotSource(_)
+                        | ast::Source::SampleSource(_),
+                    ) => Some("Unsupported combination of table operators. The only allowed combination is PIVOT/UNPIVOT followed by TABLESAMPLE."),
+                    _ => None,
+                };
+                if let Some(message) = message {
+                    self.error(range, message);
+                    return rows.fail();
                 }
-                self.error(range, "avenger-sql doesn't plan MATCH_RECOGNIZE yet");
-                Rows::failed(Vec::new(), Vec::new())
+                match source.match_recognize_clause() {
+                    Some(clause) => self.match_recognize(rows, &clause, range),
+                    None => rows.fail(),
+                }
             }
             ast::Source::PivotSource(source) => {
                 let rows = match source.source() {
@@ -1956,7 +1975,7 @@ fn cube_sets(indices: &[usize]) -> Vec<Vec<usize>> {
 
 /// `expr` with each group expression of `grouped` written as its column of the aggregate's
 /// output, so an item reads a group item, as `SUM(x) + y GROUP BY y` does.
-fn regroup(expr: Expr, grouped: &[(Expr, Column)]) -> Result<Expr> {
+pub(super) fn regroup(expr: Expr, grouped: &[(Expr, Column)]) -> Result<Expr> {
     use datafusion::common::tree_node::{Transformed, TreeNode};
     expr.transform_down(|e| match grouped.iter().find(|(group, _)| *group == e) {
         Some((_, column)) => Ok(Transformed::yes(Expr::Column(column.clone()))),

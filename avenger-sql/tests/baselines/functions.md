@@ -1839,6 +1839,175 @@ TIMESTAMP_MICROS(1704067200000000)
 Result: `TIMESTAMP '2024-01-01 00:00:00+00'`
 
 
+## `PREV`
+
+```googlesql
+PREV(value: T[, offset: INT64]) -> T where T: ANY
+```
+
+Returns a value of the row that is a number of rows before the row, in a `DEFINE` of `MATCH_RECOGNIZE`.
+
+Reads the rows of the partition in the order of `MATCH_RECOGNIZE`, whatever the matches, as `LAG` does over that partition and order. Returns `NULL` when no row is that far before the row.
+
+**Parameters**
+
++ `value`: The value of the row, which can't call `PREV` or `NEXT`.
++ `offset`: How many rows to read, an `INT64` literal or query parameter that is not negative or `NULL`. 0 reads the row. When omitted, 1.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES MIN(id) AS first_id, COUNT(*) AS n PATTERN (up+) DEFINE up AS price > PREV(price))
+```
+
+| first_id | n |
+| --- | --- |
+| 3 | 2 |
+
+
+## `NEXT`
+
+```googlesql
+NEXT(value: T[, offset: INT64]) -> T where T: ANY
+```
+
+Returns a value of the row that is a number of rows after the row, in a `DEFINE` of `MATCH_RECOGNIZE`.
+
+Reads the rows of the partition in the order of `MATCH_RECOGNIZE`, whatever the matches, as `LEAD` does over that partition and order. Returns `NULL` when no row is that far after the row.
+
+**Parameters**
+
++ `value`: The value of the row, which can't call `PREV` or `NEXT`.
++ `offset`: How many rows to read, an `INT64` literal or query parameter that is not negative or `NULL`. 0 reads the row. When omitted, 1.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES MIN(id) AS peak_id PATTERN (peak) DEFINE peak AS price > PREV(price) AND price > NEXT(price))
+```
+
+| peak_id |
+| --- |
+| 4 |
+
+
+## `FIRST`
+
+```googlesql
+FIRST(value: T) -> T where T: ANY
+```
+
+Returns the value of the first row of the match, or of a pattern variable's rows, in a `MEASURES` of `MATCH_RECOGNIZE`.
+
+Reads the rows in the order of `MATCH_RECOGNIZE`, and leaves out the `NULL` values, as GoogleSQL's `execute_query` does. Returns `NULL` when no row has a value that isn't `NULL`, as for a variable without rows.
+
+**Parameters**
+
++ `value`: The value of each row: of the match's rows, or of a pattern variable's rows, as `FIRST(v.price)`.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES FIRST(price) AS first_price, LAST(price) AS last_price PATTERN (up+) DEFINE up AS price > PREV(price))
+```
+
+| first_price | last_price |
+| --- | --- |
+| 9 | 12 |
+
+
+## `LAST`
+
+```googlesql
+LAST(value: T) -> T where T: ANY
+```
+
+Returns the value of the last row of the match, or of a pattern variable's rows, in a `MEASURES` of `MATCH_RECOGNIZE`.
+
+Reads the rows in the order of `MATCH_RECOGNIZE`, and leaves out the `NULL` values, as GoogleSQL's `execute_query` does. Returns `NULL` when no row has a value that isn't `NULL`, as for a variable without rows.
+
+**Parameters**
+
++ `value`: The value of each row: of the match's rows, or of a pattern variable's rows, as `LAST(v.price)`.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES FIRST(dn.price) AS low, LAST(up.price) AS high PATTERN (dn up+) DEFINE dn AS price < PREV(price), up AS price > PREV(price))
+```
+
+| low | high |
+| --- | --- |
+| 8 | 12 |
+
+
+## `MATCH_NUMBER`
+
+```googlesql
+MATCH_NUMBER() -> INT64
+```
+
+Returns the number of the match in its partition, from 1.
+
+Matches take their numbers in the order of their first rows, and the numbers count empty matches and overlapping matches. A measure reads it outside aggregates, since it is the same for every row of a match.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES MATCH_NUMBER() AS m, MIN(id) AS first_id PATTERN (x x) DEFINE x AS TRUE)
+```
+
+| m | first_id |
+| --- | --- |
+| 1 | 1 |
+| 2 | 3 |
+
+
+## `MATCH_ROW_NUMBER`
+
+```googlesql
+MATCH_ROW_NUMBER() -> INT64
+```
+
+Returns the number of the row in its partition, from 1, in the order of `MATCH_RECOGNIZE`.
+
+A measure reads it in aggregates only, since each row of a match has its own. The number counts the rows of the partition, so the rows of a second match can be 3 and 4.
+
+**Note:** GoogleSQL's docs number the rows of each match from 1. avenger-sql numbers them in the partition, as GoogleSQL's `execute_query` does.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES ARRAY_AGG(MATCH_ROW_NUMBER()) AS row_numbers PATTERN (x x) DEFINE x AS TRUE)
+```
+
+| row_numbers |
+| --- |
+| [1, 2] |
+| [3, 4] |
+
+
+## `CLASSIFIER`
+
+```googlesql
+CLASSIFIER() -> STRING
+```
+
+Returns the pattern variable that the row matched, as `DEFINE` spells it.
+
+A measure reads it in aggregates only, since each row of a match has its own.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 9), STRUCT(4, 12), STRUCT(5, 11)]) |> SELECT * |> MATCH_RECOGNIZE(ORDER BY id MEASURES STRING_AGG(CLASSIFIER(), ',') AS variables PATTERN (dn up+) DEFINE dn AS price < PREV(price), up AS price > PREV(price))
+```
+
+| variables |
+| --- |
+| 'dn,up,up' |
+
+
 ## `ABS`
 
 ```googlesql
