@@ -1,0 +1,826 @@
+// The syntax tree of avenger-sql: a subset of GoogleSQL's grammar.
+//
+// This file describes the shape of the tree that the parser builds: the children of each node,
+// in order. It doesn't parse anything. `build.rs` reads it and generates the node kinds of
+// `SyntaxKind` and the typed nodes of `ast`, and a test checks that every tree of the test
+// corpora has the shape that this file describes.
+//
+// A rule `Name = ...` defines a node of kind `NAME`. A rule whose alternatives are all nodes,
+// such as `Expr`, defines no kind: it is an enum of the nodes it names. A quoted keyword, such
+// as 'where', is that keyword's token, and quoted punctuation, such as '|>', is that token. The
+// classes of tokens are '#ident' (a word that isn't reserved, or a name in backticks),
+// '#string', '#bytes', '#int', '#float' and '#param' (`@name`). A label, as in `lhs:Expr`, names
+// the accessor of a child, and labels tell apart the children of one type: the first `Expr` is
+// `lhs`, the second `rhs`. `///` comments document a node; `//` comments are notes.
+//
+// Sources:
+//
+// - GoogleSQL's grammar, `googlesql/parser/googlesql.tm`, its `keywords.cc`, and its parser
+//   tests, such as `pipe_*.test`, `operator_precedence.test`, `modules.test` and
+//   `create_function.test`, at https://github.com/google/googlesql
+// - GoogleSQL's module catalog, `googlesql/public/modules.cc`
+// - BigQuery's pipe syntax, multi-statement queries and procedural language, for what the
+//   forms mean
+//
+// The subset: every query, nested ones included, is a `FROM` clause or a query in parentheses,
+// followed by pipe operators. A script holds queries, `IMPORT MODULE`, `DECLARE`, `SET`,
+// `CREATE TEMP TABLE`, and `CREATE FUNCTION` of scalar, aggregate and table functions. A module
+// holds `IMPORT MODULE` and `CREATE PUBLIC` or `CREATE PRIVATE` functions, table functions and
+// constants. Within the subset, the parser accepts what GoogleSQL accepts and rejects what
+// GoogleSQL rejects, with its first error where GoogleSQL reports one.
+//
+// Left out, each rejected with an error at the form:
+//
+// - A query that starts with `SELECT`, and the standard `WITH` clause.
+// - Value tables (`SELECT AS STRUCT`), `FOR SYSTEM_TIME AS OF`, `FROM 'string'`, hints, and the
+//   join hints `HASH` and `LOOKUP`.
+// - The pipe operators `MATCH_RECOGNIZE`, `WINDOW`, `ASSERT`, `LOG`, `IF`, `FORK`, `TEE`,
+//   `DESCRIBE`, `STATIC_DESCRIBE`, `FINISH`, `EXPORT DATA`, `CREATE TABLE`, `INSERT` and
+//   `ALIGN`, recursive set operations and `WITH RECURSIVE`, the pipe `CALL`'s `PARTITION BY`
+//   and `ORDER BY`, and `LIMIT ALL`.
+// - `COLLATE` in order keys and after types, dot-star after an expression that isn't a path,
+//   and dot-star in `AGGREGATE`.
+// - Chained calls, quantified comparisons, lambdas, `WITH(...)` expressions, `::` casts, `@@`
+//   system variables, argument aliases, and dotted type names.
+// - `OFFSET`, `LIMIT ALL`, `WHERE` and `GROUP BY` in an aggregate call.
+// - Graph queries, protocol buffers, `NEW`, `ENUM` and macros.
+// - Table function arguments other than values and `TABLE name`.
+// - The procedural statements of scripts, and `SET` of a system variable.
+// - Other `CREATE` statements, modules' views, procedures and macros, and `IMPORT PROTO`.
+// - The physical clauses of `CREATE TABLE`, and the defaults, options and constraints of its
+//   columns.
+// - Function clauses: `LANGUAGE`, determinism, `SQL SECURITY`, parameter defaults and aliases,
+//   and the templated types `ANY STRUCT`, `ANY ARRAY` and `ANY STRING`.
+//
+// The validation pass, `src/validation.rs`, makes the checks that GoogleSQL makes after its
+// parser, in its resolver or module catalog, when they are about syntax: the rules of modules,
+// the order of `DECLARE`, the clauses that a kind of function takes, and the escapes of literals.
+
+// --- Scripts and modules ---
+
+/// A script: statements separated by `;`.
+Script =
+  (Stmt ';'?)*
+
+/// A module, a `.sqlm` file: its `MODULE` statement, and the statements after it.
+Module =
+  ModuleStmt ';'? (Stmt ';'?)*
+
+Stmt =
+  Query
+| ImportStmt
+| DeclareStmt
+| SetStmt
+| CreateTableStmt
+| CreateFunctionStmt
+| CreateConstantStmt
+
+/// `MODULE path [OPTIONS (...)]`
+ModuleStmt =
+  'module' Path Options?
+
+/// `IMPORT MODULE path [AS alias] [OPTIONS (...)]`
+ImportStmt =
+  'import' 'module' Path Alias? Options?
+
+// As in GoogleSQL, every `DECLARE` of a script comes before its other statements, and a
+// `DECLARE` takes a type, a `DEFAULT`, or both: checks of the validation pass.
+/// `DECLARE names [type] [DEFAULT value]`
+DeclareStmt =
+  'declare' (Name (',' Name)*) Type? ('default' Expr)?
+
+/// `SET name = value`, or `SET (names) = value`
+SetStmt =
+  'set' (NameRef | NameList) '=' Expr
+
+// In a script, a `CREATE` is `TEMP` or `TEMPORARY`, or has no scope; in a module, it is
+// `PUBLIC` or `PRIVATE`, and takes no `OR REPLACE` or `IF NOT EXISTS`. `OR REPLACE` and
+// `IF NOT EXISTS` don't go together. These are checks of the validation pass.
+/// `CREATE [OR REPLACE] [TEMP] TABLE [IF NOT EXISTS] name [(columns)] [OPTIONS (...)] [AS query]`
+CreateTableStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  'table' ('if' 'not' 'exists')? Path ColumnList? Options? ('as' Query)?
+
+/// `CREATE [OR REPLACE] [TEMP] [AGGREGATE | TABLE] FUNCTION [IF NOT EXISTS] name (parameters)
+/// [RETURNS type] [OPTIONS (...)] AS body [OPTIONS (...)]`
+CreateFunctionStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  ('aggregate' | 'table')? 'function' ('if' 'not' 'exists')? Path ParamList ReturnsClause?
+  (Options FunctionBody | FunctionBody Options?)
+
+/// `CREATE {PUBLIC | PRIVATE} CONSTANT name = value`, in a module.
+CreateConstantStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  'constant' ('if' 'not' 'exists')? Path '=' Expr
+
+/// `(name type [NOT NULL], ...)`
+ColumnList =
+  '(' (ColumnDef (',' ColumnDef)* ','?)? ')'
+
+/// `name type [NOT NULL]`
+ColumnDef =
+  Name Type ('not' 'null')?
+
+/// `OPTIONS (name = value, ...)`
+Options =
+  'options' '(' (OptionEntry (',' OptionEntry)*)? ')'
+
+/// `name = value`. As in GoogleSQL, an option's name can also be `HASH`, `PROTO` or `PARTITION`.
+OptionEntry =
+  Name '=' Expr
+
+/// `(parameter, ...)`
+ParamList =
+  '(' (Parameter (',' Parameter)*)? ')'
+
+// A table parameter belongs to a table function, and `NOT AGGREGATE` to a parameter of an
+// aggregate function: checks of the validation pass.
+/// `name type [NOT AGGREGATE]`
+Parameter =
+  Name ParamType ('not' 'aggregate')?
+
+ParamType =
+  Type
+| AnyType
+| AnyTable
+| TableType
+
+/// `ANY TYPE`
+AnyType =
+  'any' 'type'
+
+/// `ANY TABLE`
+AnyTable =
+  'any' 'table'
+
+// The columns of a table each take a name: a check of the validation pass.
+/// `TABLE<name type, ...>`
+TableType =
+  'table' '<' (StructField (',' StructField)*)? '>'
+
+/// `RETURNS type`, or `RETURNS TABLE<...>` of a table function.
+ReturnsClause =
+  'returns' (Type | TableType)
+
+/// `AS (expression)` of a function, or `AS query` of a table function.
+FunctionBody =
+  'as' ('(' Expr ')' | Query)
+
+// --- Names ---
+
+/// A name that a node defines: an alias, a `WITH` name, a parameter, or a `CREATE` name.
+Name =
+  '#ident'
+
+// The first name of a table's path can hold single dashes, as in `my-project.dataset.table`,
+// when no space separates them. A part after a dash is a name that isn't reserved, or a number,
+// and `my-project-2.dataset` holds the float `2.`.
+/// A name that refers to a definition: a column, a table, a function, or a module.
+NameRef =
+  '#ident' ('-' ('#ident' | '#int' | '#float'))*
+
+/// Names separated by dots.
+Path =
+  NameRef ('.' NameRef)*
+
+/// `[AS] name`
+Alias =
+  'as'? Name
+
+/// `(name, ...)`
+NameList =
+  '(' (NameRef (',' NameRef)*)? ')'
+
+/// A path, or paths in parentheses, of an `UNPIVOT`.
+PathList =
+  '('? Path (',' Path)* ')'?
+
+// --- Types ---
+
+Type =
+  NamedType
+| ArrayType
+| StructType
+| RangeType
+
+/// A type by its name, such as `INT64` or `STRING(10)`, or `INTERVAL`.
+NamedType =
+  (NameRef | 'interval') TypeParams?
+
+/// `(parameter, ...)` of a type: literals or `MAX`.
+TypeParams =
+  '(' ((Literal | 'max') (',' (Literal | 'max'))*)? ')'
+
+/// `ARRAY<type>`
+ArrayType =
+  'array' '<' Type '>'
+
+/// `STRUCT<[name] type, ...>`
+StructType =
+  'struct' '<' (StructField (',' StructField)*)? '>'
+
+/// `[name] type`
+StructField =
+  Name? Type
+
+/// `RANGE<type>`
+RangeType =
+  'range' '<' Type '>'
+
+// --- Queries ---
+
+/// A query: a `FROM` clause, or a query in parentheses, and pipe operators.
+Query =
+  (FromClause | ParenQuery Alias?) PipeOperator*
+
+/// `(query)`
+ParenQuery =
+  '(' Query ')'
+
+/// `FROM source`
+FromClause =
+  'from' Source
+
+// Commas and joins associate to the left, as in GoogleSQL, so `a, b JOIN c` joins `c` to the
+// cross join of `a` and `b`.
+Source =
+  TableSource
+| SubquerySource
+| UnnestSource
+| TvfSource
+| ParenJoin
+| Join
+| PivotSource
+| UnpivotSource
+| SampleSource
+
+// `LATERAL` comes before a query in parentheses or a table function call: a check of the
+// validation pass.
+/// A table: `path [[AS] alias] [WITH OFFSET [[AS] alias]]`
+TableSource =
+  'lateral'? Path Alias? WithOffset?
+
+/// `[LATERAL] (query) [[AS] alias]`
+SubquerySource =
+  'lateral'? ParenQuery Alias?
+
+/// `UNNEST(arrays [, mode => value]) [[AS] alias] [WITH OFFSET [[AS] alias]]`
+UnnestSource =
+  'unnest' '(' (AliasedExpr (',' AliasedExpr)*)? (',' NamedArg)? ')' Alias? WithOffset?
+
+// A table function's name has no dashes: a check of the validation pass.
+/// A table function call: `[LATERAL] path(arguments) [[AS] alias]`
+TvfSource =
+  'lateral'? Path ArgList Alias?
+
+/// `(join)`, a join in parentheses, which holds no commas.
+ParenJoin =
+  '(' Source ')'
+
+// As in GoogleSQL, a `RIGHT` or `FULL` join after a comma join needs parentheses, and a cross
+// join takes no condition: checks of the validation pass.
+/// `source join_op source [condition]`, or `source, source`
+Join =
+  lhs:Source JoinOp rhs:Source JoinCondition?
+
+/// `[NATURAL] [INNER | CROSS | {LEFT | RIGHT | FULL} [OUTER]] JOIN`, or `,`
+JoinOp =
+  'natural'? ('inner' | 'cross' | ('left' | 'right' | 'full') 'outer'?)? 'join'
+| ','
+
+JoinCondition =
+  OnCondition
+| UsingCondition
+
+/// `ON condition`
+OnCondition =
+  'on' Expr
+
+/// `USING (columns)`
+UsingCondition =
+  'using' NameList
+
+/// `WITH OFFSET [[AS] alias]`
+WithOffset =
+  'with' 'offset' Alias?
+
+/// A source and its `PIVOT`.
+PivotSource =
+  Source PivotClause
+
+/// A source and its `UNPIVOT`.
+UnpivotSource =
+  Source UnpivotClause
+
+/// A source and its `TABLESAMPLE`.
+SampleSource =
+  Source SampleClause
+
+/// `TABLESAMPLE method (size {ROWS | PERCENT} [PARTITION BY ...]) [REPEATABLE (seed)]
+/// [WITH WEIGHT [[AS] alias] [REPEATABLE (seed)]]`
+SampleClause =
+  'tablesample' method:NameRef '(' SampleSize ')' (Repeatable | Weight Repeatable?)?
+
+/// `size {ROWS | PERCENT} [PARTITION BY expressions]`: a number, a query parameter, or a `CAST`
+/// of one.
+SampleSize =
+  Expr ('rows' | 'percent') PartitionBy?
+
+/// `REPEATABLE (seed)`
+Repeatable =
+  'repeatable' '(' Expr ')'
+
+/// `WITH WEIGHT [[AS] alias]`
+Weight =
+  'with' 'weight' Alias?
+
+/// `PIVOT (aggregates FOR column IN (values)) [[AS] alias]`
+PivotClause =
+  'pivot' '(' AliasedExpr (',' AliasedExpr)* ','? 'for' column:Expr 'in' PivotValues ')'
+  Alias?
+
+/// `(value [[AS] alias], ...)` of a `PIVOT`.
+PivotValues =
+  '(' AliasedExpr (',' AliasedExpr)* ','? ')'
+
+/// `UNPIVOT [{INCLUDE | EXCLUDE} NULLS] (values FOR name IN (columns)) [[AS] alias]`
+UnpivotClause =
+  'unpivot' (('include' | 'exclude') 'nulls')? '(' PathList 'for' Path 'in'
+  '(' UnpivotItem (',' UnpivotItem)* ','? ')' ')' Alias?
+
+/// The columns of an `UNPIVOT`, and their label: `columns [[AS] label]`, where a label is a
+/// string or an integer.
+UnpivotItem =
+  PathList ('as'? Literal)?
+
+/// An expression and its alias.
+AliasedExpr =
+  Expr Alias?
+
+// --- Pipe operators ---
+
+PipeOperator =
+  PipeSelect
+| PipeExtend
+| PipeSet
+| PipeDrop
+| PipeRename
+| PipeAs
+| PipeWhere
+| PipeAggregate
+| PipeDistinct
+| PipeOrderBy
+| PipeLimit
+| PipeSetOperation
+| PipeJoin
+| PipeCall
+| PipeSample
+| PipeWith
+| PipePivot
+| PipeUnpivot
+
+/// `|> SELECT [DISTINCT | ALL] items [WINDOW ...]`
+PipeSelect =
+  '|>' 'select' ('distinct' | 'all')? SelectEntry (',' SelectEntry)* ','? WindowClause?
+
+// As in GoogleSQL, a pipe `EXTEND` takes no `*`, and takes `t.*`.
+/// `|> EXTEND items [WINDOW ...]`
+PipeExtend =
+  '|>' 'extend' SelectEntry (',' SelectEntry)* ','? WindowClause?
+
+/// `|> SET column = value, ...`
+PipeSet =
+  '|>' 'set' Assignment (',' Assignment)* ','?
+
+/// `|> DROP columns`
+PipeDrop =
+  '|>' 'drop' NameRef (',' NameRef)* ','?
+
+/// `|> RENAME column [AS] name, ...`
+PipeRename =
+  '|>' 'rename' RenameItem (',' RenameItem)* ','?
+
+/// `|> AS alias`
+PipeAs =
+  '|>' 'as' Name
+
+/// `|> WHERE condition`
+PipeWhere =
+  '|>' 'where' condition:Expr
+
+/// `|> AGGREGATE [items] [GROUP [AND ORDER] BY items]`
+PipeAggregate =
+  '|>' 'aggregate' (AggregateItem (',' AggregateItem)* ','?)? GroupBy?
+
+/// `|> DISTINCT`
+PipeDistinct =
+  '|>' 'distinct'
+
+/// `|> ORDER BY keys`
+PipeOrderBy =
+  '|>' OrderBy
+
+/// `|> LIMIT count [OFFSET skip]`
+PipeLimit =
+  '|>' 'limit' count:Expr LimitOffset?
+
+// The mode of a set operation goes with `BY NAME` or `CORRESPONDING`, and `STRICT` doesn't go
+// with a mode: checks of the validation pass.
+/// `|> [mode] {UNION | INTERSECT | EXCEPT} {ALL | DISTINCT} [BY NAME | CORRESPONDING] (query), ...`
+PipeSetOperation =
+  '|>' SetOpMode? ('union' | 'intersect' | 'except') ('all' | 'distinct')
+  (ByName | Corresponding)? ParenQuery (',' ParenQuery)* ','?
+
+/// `|> join_op source [condition]`
+PipeJoin =
+  '|>' JoinOp Source JoinCondition?
+
+/// `|> CALL path(arguments) [[AS] alias]`
+PipeCall =
+  '|>' 'call' Path ArgList Alias?
+
+/// `|> TABLESAMPLE ...`
+PipeSample =
+  '|>' SampleClause
+
+/// `|> WITH name AS (query), ...`
+PipeWith =
+  '|>' 'with' NamedQuery (',' NamedQuery)* ','?
+
+/// `|> PIVOT (...)`
+PipePivot =
+  '|>' PivotClause
+
+/// `|> UNPIVOT (...)`
+PipeUnpivot =
+  '|>' UnpivotClause
+
+SelectEntry =
+  SelectItem
+| Wildcard
+
+/// `expression [[AS] alias]`
+SelectItem =
+  Expr Alias?
+
+/// `[path.]* [EXCEPT (columns)] [REPLACE (expression AS name, ...)]`
+Wildcard =
+  (Path '.')? '*' ExceptList? ReplaceList?
+
+/// `EXCEPT (columns)`
+ExceptList =
+  'except' NameList
+
+/// `REPLACE (expression AS name, ...)`
+ReplaceList =
+  'replace' '(' ReplaceItem (',' ReplaceItem)* ','? ')'
+
+/// `expression AS name`
+ReplaceItem =
+  Expr 'as' Name
+
+/// `WINDOW name AS window, ...`
+WindowClause =
+  'window' NamedWindow (',' NamedWindow)* ','?
+
+/// `name AS window`
+NamedWindow =
+  Name 'as' (NameRef | WindowSpec)
+
+/// `column = value`
+Assignment =
+  NameRef '=' Expr
+
+/// `column [AS] name`
+RenameItem =
+  NameRef 'as'? Name
+
+/// `expression [[AS] alias] [{ASC | DESC} [NULLS {FIRST | LAST}]]`
+AggregateItem =
+  Expr Alias? OrderSuffix?
+
+/// `{ASC | DESC} [NULLS {FIRST | LAST}]`, or for a group item `NULLS {FIRST | LAST}` alone.
+OrderSuffix =
+  ('asc' | 'desc')? ('nulls' ('first' | 'last'))?
+
+/// `GROUP [AND ORDER] BY items`
+GroupBy =
+  'group' ('and' 'order')? 'by' GroupingItem (',' GroupingItem)* ','?
+
+GroupingItem =
+  GroupItem
+| GroupingEmpty
+| Rollup
+| Cube
+| GroupingSets
+
+/// `expression [[AS] alias] [{ASC | DESC}] [NULLS {FIRST | LAST}]`
+GroupItem =
+  Expr Alias? OrderSuffix?
+
+/// `()`
+GroupingEmpty =
+  '(' ')'
+
+/// `ROLLUP (expressions)`
+Rollup =
+  'rollup' '(' Expr (',' Expr)* ')'
+
+/// `CUBE (expressions)`
+Cube =
+  'cube' '(' Expr (',' Expr)* ')'
+
+/// `GROUPING SETS (sets)`
+GroupingSets =
+  'grouping' 'sets' '(' GroupingSet (',' GroupingSet)* ')'
+
+GroupingSet =
+  GroupingEmpty
+| Rollup
+| Cube
+| Expr
+
+/// `ORDER BY keys`
+OrderBy =
+  'order' 'by' OrderKey (',' OrderKey)* ','?
+
+/// `expression [ASC | DESC] [NULLS {FIRST | LAST}]`
+OrderKey =
+  Expr ('asc' | 'desc')? ('nulls' ('first' | 'last'))?
+
+/// `OFFSET skip`
+LimitOffset =
+  'offset' Expr
+
+/// The mode of a set operation: `INNER`, `OUTER`, or `{LEFT | FULL} [OUTER]`.
+SetOpMode =
+  'inner'
+| 'outer'
+| ('left' | 'full') 'outer'?
+
+/// `BY NAME [ON (columns)]`
+ByName =
+  'by' 'name' ('on' NameList)?
+
+/// `[STRICT] CORRESPONDING [BY (columns)]`
+Corresponding =
+  'strict'? 'corresponding' ('by' NameList)?
+
+/// `name AS (query)`
+NamedQuery =
+  Name 'as' ParenQuery
+
+// --- Expressions ---
+
+// The operators bind as in GoogleSQL, from the loosest: `OR`; `AND`; `NOT`; the comparisons,
+// `IS`, `LIKE`, `BETWEEN` and `IN`, which don't chain; `|`; `^`; `&`; `<<` and `>>`; `+` and
+// `-`; `||`; `*` and `/`; and the prefix `-`, `+` and `~`. A `NOT` in the operand of a tighter
+// operator needs parentheses.
+Expr =
+  Literal
+| TypedLiteral
+| IntervalExpr
+| ParamExpr
+| PathExpr
+| FieldExpr
+| SubscriptExpr
+| PrefixExpr
+| BinExpr
+| IsExpr
+| IsDistinctExpr
+| BetweenExpr
+| InExpr
+| LikeExpr
+| CaseExpr
+| CastExpr
+| ExtractExpr
+| ArrayExpr
+| StructExpr
+| TupleExpr
+| ParenExpr
+| CallExpr
+| SubqueryExpr
+| ExistsExpr
+| ArraySubqueryExpr
+
+// Adjacent string literals, or adjacent bytes literals, concatenate when whitespace or a
+// comment separates them. A string and a bytes literal don't concatenate: a check of the
+// validation pass.
+/// A number, strings, bytes, `NULL`, `TRUE` or `FALSE`.
+Literal =
+  '#int'
+| '#float'
+| '#string' '#string'*
+| '#bytes' '#bytes'*
+| 'null'
+| 'true'
+| 'false'
+
+// A typed literal takes strings, not bytes: a check of the validation pass.
+/// `DATE '...'` and the other typed literals, and `RANGE<type> '...'`.
+TypedLiteral =
+  ( 'date' | 'time' | 'datetime' | 'timestamp' | 'numeric' | 'decimal' | 'bignumeric'
+  | 'bigdecimal' | 'json' | 'range' '<' Type '>' )
+  ('#string' | '#bytes') ('#string' | '#bytes')*
+
+/// `INTERVAL value part [TO part]`
+IntervalExpr =
+  'interval' Expr from:NameRef ('to' to:NameRef)?
+
+/// `@name` or `?`
+ParamExpr =
+  '#param'
+| '?'
+
+/// A column, or a path of a column and its fields.
+PathExpr =
+  Path
+
+/// `expression.field`
+FieldExpr =
+  Expr '.' NameRef
+
+/// `expression[index]`
+SubscriptExpr =
+  base:Expr '[' index:Expr ']'
+
+/// `-x`, `+x`, `~x` or `NOT x`
+PrefixExpr =
+  op:('-' | '+' | '~' | 'not') Expr
+
+// `<>` is `<` and `>`, and `>>` is `>` and `>`, adjacent.
+/// A binary operator and its operands.
+BinExpr =
+  lhs:Expr
+  op:( 'or' | 'and' | '=' | '!=' | '<' | '<=' | '>' | '>=' | '|' | '^' | '&' | '<<' | '+'
+     | '-' | '||' | '*' | '/' )
+  '>'? rhs:Expr
+
+/// `x IS [NOT] {NULL | TRUE | FALSE | UNKNOWN}`
+IsExpr =
+  Expr 'is' 'not'? ('null' | 'true' | 'false' | 'unknown')
+
+/// `x IS [NOT] DISTINCT FROM y`
+IsDistinctExpr =
+  lhs:Expr 'is' 'not'? 'distinct' 'from' rhs:Expr
+
+/// `x [NOT] BETWEEN low AND high`
+BetweenExpr =
+  value:Expr 'not'? 'between' low:Expr 'and' high:Expr
+
+/// `x [NOT] IN (values)`, `x [NOT] IN (query)`, or `x [NOT] IN UNNEST(array)`
+InExpr =
+  Expr 'not'? 'in' InSet
+
+InSet =
+  InList
+| InQuery
+| InUnnest
+
+/// `(values)`
+InList =
+  '(' (Expr (',' Expr)*)? ')'
+
+/// `(query)`
+InQuery =
+  ParenQuery
+
+/// `UNNEST(array)`
+InUnnest =
+  'unnest' '(' Expr ')'
+
+/// `x [NOT] LIKE pattern`, or `x [NOT] LIKE {ANY | SOME | ALL} (patterns)`
+LikeExpr =
+  value:Expr 'not'? 'like' (pattern:Expr | QuantifiedPatterns)
+
+/// `{ANY | SOME | ALL} (patterns)`
+QuantifiedPatterns =
+  ('any' | 'some' | 'all') InSet
+
+/// `CASE [value] WHEN ... THEN ... [ELSE ...] END`
+CaseExpr =
+  'case' operand:Expr? WhenClause* ElseClause? 'end'
+
+/// `WHEN condition THEN result`
+WhenClause =
+  'when' condition:Expr 'then' result:Expr
+
+/// `ELSE result`
+ElseClause =
+  'else' Expr
+
+/// `CAST(value AS type [FORMAT ...])`, or `SAFE_CAST`.
+CastExpr =
+  ('cast' | 'safe_cast') '(' Expr 'as' Type FormatClause? ')'
+
+/// `FORMAT format [AT TIME ZONE zone]`
+FormatClause =
+  'format' Expr TimeZone?
+
+/// `AT TIME ZONE zone`
+TimeZone =
+  'at' 'time' 'zone' Expr
+
+/// `EXTRACT(part FROM value [AT TIME ZONE zone])`
+ExtractExpr =
+  'extract' '(' part:Expr 'from' value:Expr TimeZone? ')'
+
+/// `[ARRAY[<type>]] [elements]`
+ArrayExpr =
+  ('array' ('<' Type '>')?)? '[' (Expr (',' Expr)*)? ']'
+
+/// `STRUCT[<fields>](values)`
+StructExpr =
+  'struct' ('<' (StructField (',' StructField)*)? '>')? '(' (AliasedExpr (',' AliasedExpr)*)? ')'
+
+/// `(a, b, ...)`, a tuple of two values or more.
+TupleExpr =
+  '(' Expr (',' Expr)* ')'
+
+/// `(expression)`
+ParenExpr =
+  '(' Expr ')'
+
+/// A function call: `path(arguments) [OVER window]`, or a function that GoogleSQL calls
+/// without parentheses, such as `CURRENT_DATE`.
+CallExpr =
+  Path ArgList? OverClause?
+
+// A `*` is a call's only argument: a check of the validation pass.
+/// `([DISTINCT] arguments [{IGNORE | RESPECT} NULLS] [HAVING {MAX | MIN} x] [ORDER BY ...]
+/// [LIMIT n])` of a call, or the arguments of a table function call.
+ArgList =
+  '(' 'distinct'? StarArg? (Argument (',' Argument)*)? NullTreatment? HavingClause? OrderBy?
+  CallLimit? ')'
+
+Argument =
+  Arg
+| NamedArg
+| TableArg
+| NamedTableArg
+
+/// A value argument.
+Arg =
+  Expr
+
+/// `name => value`
+NamedArg =
+  NameRef '=>' Expr
+
+/// `*`, as in `COUNT(*)`
+StarArg =
+  '*'
+
+/// `TABLE name`, an argument of a table function.
+TableArg =
+  'table' Path
+
+/// `name => TABLE name`
+NamedTableArg =
+  NameRef '=>' 'table' Path
+
+/// `{IGNORE | RESPECT} NULLS`
+NullTreatment =
+  ('ignore' | 'respect') 'nulls'
+
+/// `HAVING {MAX | MIN} expression` of an aggregate call.
+HavingClause =
+  'having' ('max' | 'min') Expr
+
+/// `LIMIT n` of an aggregate call.
+CallLimit =
+  'limit' Expr
+
+/// `OVER window`
+OverClause =
+  'over' (NameRef | WindowSpec)
+
+/// `([name] [PARTITION BY ...] [ORDER BY ...] [frame])`
+WindowSpec =
+  '(' NameRef? PartitionBy? OrderBy? Frame? ')'
+
+/// `PARTITION BY expressions`
+PartitionBy =
+  'partition' 'by' Expr (',' Expr)*
+
+/// `{ROWS | RANGE} bound`, or `{ROWS | RANGE} BETWEEN bound AND bound`
+Frame =
+  ('rows' | 'range') ('between' start:FrameBound 'and' end:FrameBound | start:FrameBound)
+
+/// `UNBOUNDED {PRECEDING | FOLLOWING}`, `CURRENT ROW`, or `n {PRECEDING | FOLLOWING}`
+FrameBound =
+  'unbounded' ('preceding' | 'following')
+| 'current' 'row'
+| Expr ('preceding' | 'following')
+
+/// `(query)` as a value.
+SubqueryExpr =
+  ParenQuery
+
+/// `EXISTS (query)`
+ExistsExpr =
+  'exists' ParenQuery
+
+/// `ARRAY (query)`
+ArraySubqueryExpr =
+  'array' ParenQuery

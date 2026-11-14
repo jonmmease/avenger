@@ -405,22 +405,23 @@ SCRIPT@0..548
         WHITESPACE@465..466 " "
         IN_KW@466..468 "IN"
         WHITESPACE@468..469 " "
-        L_PAREN@469..470 "("
-        ALIASED_EXPR@470..478
-          LITERAL@470..473
-            STRING@470..473 "'a'"
-          WHITESPACE@473..474 " "
-          ALIAS@474..478
-            AS_KW@474..476 "AS"
-            WHITESPACE@476..477 " "
-            NAME@477..478
-              WORD@477..478 "a"
-        COMMA@478..479 ","
-        WHITESPACE@479..480 " "
-        ALIASED_EXPR@480..483
-          LITERAL@480..483
-            STRING@480..483 "'b'"
-        R_PAREN@483..484 ")"
+        PIVOT_VALUES@469..484
+          L_PAREN@469..470 "("
+          ALIASED_EXPR@470..478
+            LITERAL@470..473
+              STRING@470..473 "'a'"
+            WHITESPACE@473..474 " "
+            ALIAS@474..478
+              AS_KW@474..476 "AS"
+              WHITESPACE@476..477 " "
+              NAME@477..478
+                WORD@477..478 "a"
+          COMMA@478..479 ","
+          WHITESPACE@479..480 " "
+          ALIASED_EXPR@480..483
+            LITERAL@480..483
+              STRING@480..483 "'b'"
+          R_PAREN@483..484 ")"
         R_PAREN@484..485 ")"
         WHITESPACE@485..486 " "
         ALIAS@486..490
@@ -436,7 +437,7 @@ SCRIPT@0..548
         UNPIVOT_KW@494..501 "UNPIVOT"
         WHITESPACE@501..502 " "
         L_PAREN@502..503 "("
-        NAME_LIST@503..511
+        PATH_LIST@503..511
           L_PAREN@503..504 "("
           PATH@504..506
             NAME_REF@504..506
@@ -457,8 +458,8 @@ SCRIPT@0..548
         IN_KW@518..520 "IN"
         WHITESPACE@520..521 " "
         L_PAREN@521..522 "("
-        UNPIVOT_COLUMNS@522..536
-          NAME_LIST@522..528
+        UNPIVOT_ITEM@522..536
+          PATH_LIST@522..528
             L_PAREN@522..523 "("
             PATH@523..524
               NAME_REF@523..524
@@ -476,10 +477,11 @@ SCRIPT@0..548
             STRING@532..536 "'ab'"
         COMMA@536..537 ","
         WHITESPACE@537..538 " "
-        UNPIVOT_COLUMNS@538..541
-          PATH@538..539
-            NAME_REF@538..539
-              WORD@538..539 "c"
+        UNPIVOT_ITEM@538..541
+          PATH_LIST@538..539
+            PATH@538..539
+              NAME_REF@538..539
+                WORD@538..539 "c"
           WHITESPACE@539..540 " "
           LITERAL@540..541
             INTEGER@540..541 "1"

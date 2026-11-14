@@ -3,7 +3,7 @@
 
 mod common;
 
-use avenger_sql_syntax::{expected_at, parse, parse_module, SyntaxKind, SyntaxNode};
+use avenger_sql_syntax::{expected_at, highlight, parse, parse_module, SyntaxKind, SyntaxNode};
 use common::*;
 
 fn inputs() -> Vec<String> {
@@ -19,6 +19,12 @@ fn inputs() -> Vec<String> {
     );
     inputs.extend(REJECTED.iter().map(|(text, _, _)| text.to_string()));
     inputs.extend(REJECTED_MODULES.iter().map(|(text, _, _)| text.to_string()));
+    inputs.extend(VALIDATED.iter().map(|(text, _, _)| text.to_string()));
+    inputs.extend(
+        VALIDATED_MODULES
+            .iter()
+            .map(|(text, _, _)| text.to_string()),
+    );
     // Prefixes of the longer inputs, as an editor sees them while a user types.
     for text in [OPERATORS, STATEMENTS, SOURCES] {
         let mut end = 0;
@@ -31,6 +37,24 @@ fn inputs() -> Vec<String> {
         }
     }
     inputs
+}
+
+/// Checks that the highlighted ranges are in order, don't overlap, and cover every keyword.
+fn check_highlights(root: &SyntaxNode) {
+    let ranges = highlight(root);
+    for pair in ranges.windows(2) {
+        assert!(pair[0].range.end() <= pair[1].range.start(), "{pair:?}");
+    }
+    for token in root
+        .descendants_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| token.kind().is_keyword())
+    {
+        let covered = ranges
+            .iter()
+            .any(|range| range.range.contains_range(token.text_range()));
+        assert!(covered, "{token:?} has no class");
+    }
 }
 
 /// Checks that no node starts or ends with whitespace, and that only a node that holds its
@@ -62,6 +86,7 @@ fn every_input_round_trips() {
             let root = parse.syntax();
             assert_eq!(root.text().to_string(), text);
             check_edges(&root);
+            check_highlights(&root);
             for diagnostic in parse.diagnostics() {
                 assert!(usize::from(diagnostic.range.end()) <= text.len());
             }

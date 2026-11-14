@@ -516,22 +516,23 @@ SCRIPT@0..890
         WHITESPACE@708..709 " "
         IN_KW@709..711 "IN"
         WHITESPACE@711..712 " "
-        L_PAREN@712..713 "("
-        ALIASED_EXPR@713..723
-          LITERAL@713..717
-            STRING@713..717 "'Q1'"
-          WHITESPACE@717..718 " "
-          ALIAS@718..723
-            AS_KW@718..720 "AS"
-            WHITESPACE@720..721 " "
-            NAME@721..723
-              WORD@721..723 "q1"
-        COMMA@723..724 ","
-        WHITESPACE@724..725 " "
-        ALIASED_EXPR@725..729
-          LITERAL@725..729
-            STRING@725..729 "'Q2'"
-        R_PAREN@729..730 ")"
+        PIVOT_VALUES@712..730
+          L_PAREN@712..713 "("
+          ALIASED_EXPR@713..723
+            LITERAL@713..717
+              STRING@713..717 "'Q1'"
+            WHITESPACE@717..718 " "
+            ALIAS@718..723
+              AS_KW@718..720 "AS"
+              WHITESPACE@720..721 " "
+              NAME@721..723
+                WORD@721..723 "q1"
+          COMMA@723..724 ","
+          WHITESPACE@724..725 " "
+          ALIASED_EXPR@725..729
+            LITERAL@725..729
+              STRING@725..729 "'Q2'"
+          R_PAREN@729..730 ")"
         R_PAREN@730..731 ")"
     WHITESPACE@731..732 "\n"
     PIPE_UNPIVOT@732..796
@@ -545,9 +546,10 @@ SCRIPT@0..890
         NULLS_KW@751..756 "NULLS"
         WHITESPACE@756..757 " "
         L_PAREN@757..758 "("
-        PATH@758..763
-          NAME_REF@758..763
-            WORD@758..763 "sales"
+        PATH_LIST@758..763
+          PATH@758..763
+            NAME_REF@758..763
+              WORD@758..763 "sales"
         WHITESPACE@763..764 " "
         FOR_KW@764..767 "FOR"
         WHITESPACE@767..768 " "
@@ -558,10 +560,11 @@ SCRIPT@0..890
         IN_KW@776..778 "IN"
         WHITESPACE@778..779 " "
         L_PAREN@779..780 "("
-        UNPIVOT_COLUMNS@780..790
-          PATH@780..782
-            NAME_REF@780..782
-              WORD@780..782 "q1"
+        UNPIVOT_ITEM@780..790
+          PATH_LIST@780..782
+            PATH@780..782
+              NAME_REF@780..782
+                WORD@780..782 "q1"
           WHITESPACE@782..783 " "
           AS_KW@783..785 "AS"
           WHITESPACE@785..786 " "
@@ -569,10 +572,11 @@ SCRIPT@0..890
             STRING@786..790 "'Q1'"
         COMMA@790..791 ","
         WHITESPACE@791..792 " "
-        UNPIVOT_COLUMNS@792..794
-          PATH@792..794
-            NAME_REF@792..794
-              WORD@792..794 "q2"
+        UNPIVOT_ITEM@792..794
+          PATH_LIST@792..794
+            PATH@792..794
+              NAME_REF@792..794
+                WORD@792..794 "q2"
         R_PAREN@794..795 ")"
         R_PAREN@795..796 ")"
     WHITESPACE@796..797 "\n"
