@@ -1328,25 +1328,28 @@ impl Pass<'_> {
         let range = cast_expr.syntax().text_range();
         let value = self.child(cast_expr.expr(), scope);
         let target = cast_expr.ty()?;
+        // The format, `None` for `NULL`, the time zone, and whether the cast names it.
         let format = match cast_expr.format_clause() {
             Some(clause) => {
                 let format = self.child(clause.expr(), scope);
-                let zone = match clause.time_zone() {
+                let (zone, explicit) = match clause.time_zone() {
                     Some(zone) => match self.child(zone.expr(), scope) {
                         Some(Expr::Literal(value, _)) => value.try_as_str().flatten().map(String::from),
                         _ => None,
                     }
+                    .map(|zone| (zone, true))
                     .or_else(|| {
                         self.error(range, "avenger-sql takes the time zone of CAST ... FORMAT as a string literal");
                         None
                     })?,
-                    None => self.options.time_zone.clone(),
+                    None => (self.options.time_zone.clone(), false),
                 };
                 match format {
                     Some(Expr::Literal(value, _)) => match value.try_as_str() {
-                        Some(Some(format)) => Some((format.to_string(), zone)),
-                        _ => {
-                            self.error(range, "The FORMAT of CAST is a string literal");
+                        Some(format) => Some((format.map(String::from), zone, explicit)),
+                        None if value.is_null() => Some((None, zone, explicit)),
+                        None => {
+                            self.error(range, "The FORMAT of CAST is a string");
                             return None;
                         }
                     },
@@ -1371,15 +1374,22 @@ impl Pass<'_> {
         };
         let value = value?;
         let from = self.type_of(&value, scope)?;
-        if let Some((format, zone)) = format {
+        if let Some((format, zone, explicit)) = format {
             let (Some(from_ty), Some(to_ty)) = (Ty::of_arrow(&from), Ty::of_arrow(&target)) else {
                 return None;
             };
-            return match library::cast_format(value, &from_ty, &to_ty, &format, &zone) {
-                Ok(expr) => Some(match cast_expr.safe_cast_kw() {
-                    Some(_) => Expr::TryCast(TryCast::new(Box::new(expr), target)),
-                    None => expr,
-                }),
+            let safe = cast_expr.safe_cast_kw().is_some();
+            let cast = library::cast_format(
+                value,
+                &from_ty,
+                &to_ty,
+                format.as_deref(),
+                &zone,
+                explicit,
+                safe,
+            );
+            return match cast {
+                Ok(expr) => Some(expr),
                 Err(message) => {
                     self.error(range, message);
                     None
