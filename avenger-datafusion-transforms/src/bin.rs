@@ -42,6 +42,62 @@ use crate::utils::{
 // Options
 // ---------------------------------------------------------------------------------------
 
+/// The options of `bin`, which its options parse, with their defaults, which
+/// [`BinOptions::default`] gives.
+pub const OPTIONS: &[crate::OptionSpec] = &[
+    option(
+        "maxbins",
+        "FLOAT64",
+        "The greatest number of bins. When omitted, 20.",
+    ),
+    option(
+        "base",
+        "FLOAT64",
+        "The number base of the steps. When omitted, 10.",
+    ),
+    option(
+        "divide",
+        "ARRAY<FLOAT64>",
+        "The factors by which a step can be divided to give more bins. When omitted, `[5, 2]`.",
+    ),
+    option(
+        "extent",
+        "ARRAY<FLOAT64>",
+        "The range to bin, as `[low, high]`. A value outside it has no bin. When omitted, the range of the finite values of the partition.",
+    ),
+    option(
+        "span",
+        "FLOAT64",
+        "The length of the range that chooses the step, in place of the length of the extent.",
+    ),
+    option(
+        "step",
+        "FLOAT64",
+        "The step of the bins, in place of the step that `bin` chooses.",
+    ),
+    option(
+        "steps",
+        "ARRAY<FLOAT64>",
+        "The steps that `bin` chooses from: the smallest that gives at most `maxbins` bins.",
+    ),
+    option("minstep", "FLOAT64", "The smallest step. When omitted, 0."),
+    option(
+        "nice",
+        "BOOL",
+        "Whether the first bin starts at a whole multiple of the step. When omitted, `TRUE`. With `FALSE`, the first bin starts at the low end of the range.",
+    ),
+    option("anchor", "FLOAT64", "A value at which a bin starts."),
+];
+
+const fn option(name: &'static str, ty: &'static str, doc: &'static str) -> crate::OptionSpec {
+    crate::OptionSpec {
+        name,
+        ty,
+        values: &[],
+        doc,
+    }
+}
+
 /// The options of `bin`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinOptions {

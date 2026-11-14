@@ -30,6 +30,19 @@ mod utils;
 
 pub use utils::StructGroupSplit;
 
+/// An option of a window transform, for the bindings that take options as named arguments: its
+/// name, its GoogleSQL type, the strings that it takes when it takes one of a set, and its doc,
+/// which gives its default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OptionSpec {
+    pub name: &'static str,
+    /// The type of the option's value, such as `FLOAT64` or `ARRAY<FLOAT64>`.
+    pub ty: &'static str,
+    /// The strings that the option takes, or none for an option of any value of its type.
+    pub values: &'static [&'static str],
+    pub doc: &'static str,
+}
+
 use std::sync::Arc;
 
 use datafusion::common::{Result, plan_err};

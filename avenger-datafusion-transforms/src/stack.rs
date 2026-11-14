@@ -108,6 +108,14 @@ pub fn stack_values(values: &[Option<f64>], offset: StackOffset) -> Vec<Option<(
         .collect()
 }
 
+/// The options of `stack`.
+pub const OPTIONS: &[crate::OptionSpec] = &[crate::OptionSpec {
+    name: "offset",
+    ty: "STRING",
+    values: &["zero", "normalize", "center"],
+    doc: "Where each stack starts: `'zero'`, where positive values stack up from zero and negative values down from zero, `'normalize'`, where the absolute values stack from 0 to 1 as fractions of their stack's total, or `'center'`, where the absolute values stack centered on zero. When omitted, `'zero'`.",
+}];
+
 /// `stack(v, ..options) OVER (..)`.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StackWindow {

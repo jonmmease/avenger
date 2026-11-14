@@ -30,6 +30,40 @@ impl WeekStart {
     }
 }
 
+/// The options of `timeunit`.
+pub const OPTIONS: &[crate::OptionSpec] = &[
+    crate::OptionSpec {
+        name: "unit",
+        ty: "STRING",
+        values: &[],
+        doc: "The unit, such as `'month'`, which holds a span of time and takes a count and a plural, as in `'15 minutes'` or `'3 months'`, or a collapsing unit, such as `'month_of_year'`, which maps each value into one reference year. The fiscal units `'fiscal_year'` and `'fiscal_quarter'` need `fiscal_year_start`. When omitted, `timeunit` chooses one unit for each partition.",
+    },
+    crate::OptionSpec {
+        name: "min_unit",
+        ty: "STRING",
+        values: &[],
+        doc: "The shortest unit that `timeunit` can choose. When omitted, the shortest is the resolution of the data, such as `'month'` for values that are all first days of months.",
+    },
+    crate::OptionSpec {
+        name: "maxbins",
+        ty: "INT64",
+        values: &[],
+        doc: "The greatest number of units that a chosen unit gives the partition. When omitted, 20.",
+    },
+    crate::OptionSpec {
+        name: "week_start",
+        ty: "STRING",
+        values: &["monday", "sunday"],
+        doc: "The first day of a week. When omitted, `'monday'`.",
+    },
+    crate::OptionSpec {
+        name: "fiscal_year_start",
+        ty: "INT64",
+        values: &[],
+        doc: "The number of the month, from 1 to 12, in which a fiscal year starts, such as 10 for October.",
+    },
+];
+
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TimeUnitOptions {
     pub unit: Option<Unit>,
