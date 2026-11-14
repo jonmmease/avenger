@@ -309,6 +309,17 @@ pub const QUERIES: &[&str] = &[
     "FROM t |> WHERE x IN (FROM u |> SELECT x) AND EXISTS (FROM u)",
     "DECLARE x INT64 DEFAULT 1; SET x = 2; CREATE TEMP TABLE u AS (FROM t)",
     "FROM t |> CALL f(TABLE u, 1) AS r",
+    // MATCH_RECOGNIZE, as a pipe operator and after a source, with each clause and pattern form.
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a b+) DEFINE a AS TRUE, b AS x < PREV(x)) AS m",
+    "FROM t |> MATCH_RECOGNIZE (PARTITION BY k, f(j) ORDER BY x DESC NULLS LAST, y MEASURES MAX(a.x) AS hi, MATCH_NUMBER() AS id AFTER MATCH SKIP TO NEXT ROW PATTERN (^ (a | b)+? c{2,} d{,3}? e{3} || f?? $) DEFINE a AS x > NEXT(x, 2), b AS TRUE, c AS TRUE, d AS TRUE, e AS TRUE, f AS TRUE OPTIONS (use_longest_match = TRUE)) m",
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a{@lo, ?} (() | a)* ((^))*) DEFINE a AS TRUE) |> WHERE n > 0",
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN () DEFINE a AS TRUE)",
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (| a |) DEFINE `select` AS TRUE, a AS FALSE)",
+    "FROM t MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) AS m TABLESAMPLE BERNOULLI (10 PERCENT)",
+    "FROM (FROM t) AS s MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) MATCH_RECOGNIZE (ORDER BY n MEASURES SUM(n) AS total PATTERN (b*) DEFINE b AS TRUE)",
+    "FROM t, u MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) JOIN (v JOIN w USING (k)) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) USING (n)",
+    "FROM f(1) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)",
+    "FROM t |> SELECT `match_recognize`, measures, pattern, `define` AS skip, past, after",
 ];
 
 /// Scripts that GoogleSQL rejects: the text, a part of the first diagnostic's message, and the
@@ -649,6 +660,23 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "takes columns, AS and a query",
         "OPTIONS (a = 1)",
     ),
+    // The forms of MATCH_RECOGNIZE that GoogleSQL rejects, at GoogleSQL's positions.
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `|>`", "MATCH_RECOGNIZE"),
+    ("FROM t MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) PIVOT (SUM(x) FOR y IN (1))", "expected `|>`", "("),
+    ("FROM t |> MATCH_RECOGNIZE (MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `ORDER`", "MEASURES"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x, MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)", "expected `MEASURES`", "COUNT"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) n PATTERN (a) DEFINE a AS TRUE)", "expected `AS`", "n"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n ONE ROW PER MATCH PATTERN (a) DEFINE a AS TRUE)", "expected `PATTERN`", "ONE"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n AFTER MATCH SKIP TO FIRST a PATTERN (a) DEFINE a AS TRUE)", "expected `NEXT`", "FIRST"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE,)", "expected a name", ")"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN ({- a -}) DEFINE a AS TRUE)", "expected `)`", "{"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (^*) DEFINE a AS TRUE)", "expected `)`", "*"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a{2}?) DEFINE a AS TRUE)", "expected `)`", "?"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a**) DEFINE a AS TRUE)", "expected `)`", "*"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a{-1}) DEFINE a AS TRUE)", "expected `,`", "-"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (select) DEFINE a AS TRUE)", "expected `)`", "select"),
+    ("FROM t |> MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) SUBSET u = (a) DEFINE a AS TRUE)", "expected `DEFINE`", "SUBSET"),
+    ("FROM t |> SELECT 1 AS match_recognize", "expected a name", "match_recognize"),
 ];
 
 /// Modules that GoogleSQL rejects, as [`REJECTED`].

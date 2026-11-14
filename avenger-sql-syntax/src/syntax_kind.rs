@@ -95,6 +95,8 @@ node_kinds! { syntax_kinds! {
         L_BRACE,
         /// `}`
         R_BRACE,
+        /// `$`, the end of a partition in a pattern of `MATCH_RECOGNIZE`.
+        DOLLAR,
         /// A hint, `@{...}`, which avenger-sql reads as trivia and reports.
         HINT,
         /// A character outside the grammar, or a malformed token.
@@ -160,6 +162,7 @@ node_kinds! { syntax_kinds! {
         LIKE_KW = "LIKE",
         LIMIT_KW = "LIMIT",
         LOOKUP_KW = "LOOKUP",
+        MATCH_RECOGNIZE_KW = "MATCH_RECOGNIZE",
         MERGE_KW = "MERGE",
         NATURAL_KW = "NATURAL",
         NEW_KW = "NEW",
@@ -203,6 +206,7 @@ node_kinds! { syntax_kinds! {
         WITHIN_KW = "WITHIN",
     ],
     keywords: [
+        AFTER_KW = "AFTER",
         AGGREGATE_KW = "AGGREGATE",
         BIGDECIMAL_KW = "BIGDECIMAL",
         BIGNUMERIC_KW = "BIGNUMERIC",
@@ -223,13 +227,18 @@ node_kinds! { syntax_kinds! {
         JSON_KW = "JSON",
         LANGUAGE_KW = "LANGUAGE",
         LAST_KW = "LAST",
+        MATCH_KW = "MATCH",
         MAX_KW = "MAX",
+        MEASURES_KW = "MEASURES",
         MIN_KW = "MIN",
         MODULE_KW = "MODULE",
         NAME_KW = "NAME",
+        NEXT_KW = "NEXT",
         NUMERIC_KW = "NUMERIC",
         OFFSET_KW = "OFFSET",
         OPTIONS_KW = "OPTIONS",
+        PAST_KW = "PAST",
+        PATTERN_KW = "PATTERN",
         PERCENT_KW = "PERCENT",
         PIVOT_KW = "PIVOT",
         PRIVATE_KW = "PRIVATE",
@@ -241,6 +250,7 @@ node_kinds! { syntax_kinds! {
         ROW_KW = "ROW",
         SAFE_CAST_KW = "SAFE_CAST",
         SETS_KW = "SETS",
+        SKIP_KW = "SKIP",
         STRICT_KW = "STRICT",
         SYSTEM_TIME_KW = "SYSTEM_TIME",
         TABLE_KW = "TABLE",

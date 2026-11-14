@@ -488,7 +488,12 @@ impl<'a> Parser<'a> {
     /// Reports that the current token is not `expected`.
     pub(crate) fn error_expected(&mut self, expected: &str) -> &mut Diagnostic {
         let message = format!("expected {expected}, found {}", self.found());
-        let range = self.range();
+        // As in GoogleSQL, an error at the end is after the last token or comment, before the
+        // whitespace after them.
+        let range = match self.at_eof() {
+            true => TextRange::empty(TextSize::of(self.source.trim_end())),
+            false => self.range(),
+        };
         self.error(DiagnosticCode::Expected, range, message)
     }
 
