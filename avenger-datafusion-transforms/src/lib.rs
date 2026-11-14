@@ -89,7 +89,16 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
         };
         rules.splice(at + 1..at + 1, ours);
     }
+    // An aggregate grouped by a lump reads its input once.
+    let mut analyzers = state.analyzer().rules.clone();
+    if !analyzers
+        .iter()
+        .any(|r| r.name() == "lump_aggregate_fusion")
+    {
+        analyzers.push(Arc::new(lump::LumpAggregateFusion));
+    }
     *state = SessionStateBuilder::new_from_existing(state.clone())
+        .with_analyzer_rules(analyzers)
         .with_optimizer_rules(rules)
         .with_query_planner(Arc::new(table_function::TransformsQueryPlanner))
         .build();

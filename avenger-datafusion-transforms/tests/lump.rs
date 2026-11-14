@@ -377,6 +377,46 @@ async fn aggregates() -> Result<()> {
     Ok(())
 }
 
+/// An aggregate grouped by a lump, and by the lump's partition keys, reads its input once
+/// through the fusion, and the plan of the lump alone reads it more than once.
+#[tokio::test]
+async fn an_aggregate_grouped_by_a_lump_reads_its_input_once() -> Result<()> {
+    let ctx = context(session(true)).await?;
+    let scans = |plan: &datafusion::logical_expr::LogicalPlan| {
+        let mut n = 0;
+        plan.apply(|node| {
+            if matches!(node, datafusion::logical_expr::LogicalPlan::TableScan(_)) {
+                n += 1;
+            }
+            Ok(datafusion::common::tree_node::TreeNodeRecursion::Continue)
+        })
+        .unwrap();
+        n
+    };
+    use datafusion::common::tree_node::TreeNode;
+    for c in cases() {
+        for (over, keys) in WINDOWS {
+            let lump = lump_query(&ctx, "c", &c, over, None).await?;
+            let extra = if keys.is_empty() {
+                String::new()
+            } else {
+                format!(", {keys}")
+            };
+            let grouped = format!(
+                "SELECT l{extra}, count(*) AS n, sum(tons) AS s, avg(tons) AS a FROM ({lump}) GROUP BY l{extra}"
+            );
+            let plan = ctx.sql(&grouped).await?.into_optimized_plan()?;
+            assert_eq!(scans(&plan), 1, "{} {over}\n{plan}", c.name);
+        }
+    }
+    // A median doesn't merge from states, so the lump plans as it does alone.
+    let lump = lump_query(&ctx, "c", &cases()[0], "OVER ()", None).await?;
+    let grouped = format!("SELECT l, median(tons) AS m FROM ({lump}) GROUP BY l");
+    let plan = ctx.sql(&grouped).await?.into_optimized_plan()?;
+    assert!(scans(&plan) > 1, "{plan}");
+    Ok(())
+}
+
 /// The number of categories of each lump value: 1 for a kept category, and for the Other
 /// group the number of categories that the lump lumps in its window partition. In region N,
 /// the 2 largest of the ports a, b, c, and 'Other' are a and b, and the NULL port is a category

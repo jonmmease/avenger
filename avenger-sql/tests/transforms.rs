@@ -294,3 +294,36 @@ fn the_errors_of_impute_are_at_their_text() {
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
+
+/// A pipe AGGREGATE grouped by a lump, and by the lump's partition, reads its input once, and
+/// returns the rows of the same aggregate that a `WHERE` keeps from the fusion.
+#[tokio::test]
+async fn an_aggregate_grouped_by_a_lump_reads_its_input_once() {
+    let lumped = "FROM penguins
+|> EXTEND lump(island, n => 1, weight => SUM(body_mass_g)) OVER (PARTITION BY species) AS l";
+    let aggregate = "|> AGGREGATE COUNT(*) AS n, AVG(body_mass_g) AS m, MAX(flipper_length_mm) AS f, MIN(bill_depth_mm) AS s GROUP BY species, l
+|> SELECT species, l.value, l.other, l.category_count, n, ROUND(m, 6) AS m, f, ROUND(s, 6) AS s";
+    let fused = format!("{lumped}\n{aggregate}");
+    let unfused = format!("{lumped}\n|> WHERE TRUE\n{aggregate}");
+    assert_eq!(lines(&fused).await, lines(&unfused).await);
+    let scans = |plan: &datafusion::logical_expr::LogicalPlan| {
+        use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+        let mut n = 0;
+        plan.apply(|node| {
+            n += usize::from(matches!(
+                node,
+                datafusion::logical_expr::LogicalPlan::TableScan(_)
+            ));
+            Ok(TreeNodeRecursion::Continue)
+        })
+        .unwrap();
+        n
+    };
+    let plan = |text: String| async move {
+        let analysis = pass::analysis(&text);
+        let frame = analysis.dataframe(&pass::session()).await.unwrap();
+        frame.into_optimized_plan().unwrap()
+    };
+    assert_eq!(scans(&plan(fused).await), 1);
+    assert!(scans(&plan(unfused).await) > 1);
+}
