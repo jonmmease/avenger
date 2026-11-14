@@ -119,5 +119,7 @@ When implementing new features:
 3. For interactivity: Attach `EventStreamHandler`s to scenes, or package a reusable interaction as a `Tool`, in `avenger-app`
 4. For GPU optimizations: Modify shaders in `avenger-wgpu/src/shaders/`
 
+To write or read avenger-sql, start with `avenger-sql/SPEC.md`, a short guide to the language
+
 To move `avenger-typst-label` to a new upstream Typst release, follow "Following upstream" in
 `avenger-typst-label/UPSTREAM.md`
