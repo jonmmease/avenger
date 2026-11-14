@@ -2168,16 +2168,16 @@ Result: `'a'`
 ## `CONCAT`
 
 ```googlesql
-CONCAT(values: STRING, ...) -> STRING
+CONCAT(values: T, ...) -> T where T: STRING | BYTES
 ```
 
-Joins strings into one.
+Joins strings, or bytes, into one.
 
 Returns `NULL` when any value is `NULL`.
 
 **Parameters**
 
-+ `values`: The strings, in order.
++ `values`: The strings, or the bytes, in order.
 
 A call can write `SAFE.` before the name.
 

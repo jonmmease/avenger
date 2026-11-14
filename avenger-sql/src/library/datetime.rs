@@ -942,3 +942,65 @@ fn date_diff(call: &Call, end: Expr, start: Expr, part: DatePart) -> Result<Expr
     };
     Ok(difference)
 }
+
+/// `EXTRACT(part FROM value)` of a value of the type `ty`, a `DATE`, a `DATETIME`, a `TIMESTAMP`
+/// in the time zone `zone`, or a `TIME`, or `None` when the value has no such part. `DATE`,
+/// `TIME` and `DATETIME` are values of their types, and the other parts `INT64`s: `DAYOFWEEK`
+/// from 1 for Sunday, `WEEK` from 0 for the days before the year's first Sunday, and `ISOWEEK`
+/// and `ISOYEAR` as ISO 8601 numbers them.
+pub(crate) fn extract(part: DatePart, value: Expr, ty: &super::Ty, zone: &str) -> Option<Expr> {
+    use super::Ty;
+    let (civil, has_date, has_time) = match ty {
+        Ty::Date => (value, true, false),
+        Ty::Datetime => (value, true, true),
+        Ty::Timestamp => (local(value, zone), true, true),
+        Ty::Time => (value, false, true),
+        _ => return None,
+    };
+    let date = || cast(civil.clone(), DataType::Date32);
+    // The microseconds since midnight.
+    let day_micros = || match ty {
+        Ty::Time => cast(civil.clone(), DataType::Int64),
+        _ => {
+            let day = lit_i64(86_400_000_000);
+            (micros(civil.clone()) % day.clone() + day.clone()) % day
+        }
+    };
+    let part_of = |name: &str| cast(f::date_part(lit_str(name), date()), DataType::Int64);
+    let extracted = match part {
+        DatePart::Year if has_date => year(date()),
+        DatePart::Quarter if has_date => part_of("quarter"),
+        DatePart::Month if has_date => month(date()),
+        DatePart::Day if has_date => part_of("day"),
+        DatePart::DayOfWeek if has_date => part_of("dow") + lit_i64(1),
+        DatePart::DayOfYear if has_date => part_of("doy"),
+        DatePart::Week(start) if has_date => {
+            let day = days(date());
+            let january_1 = f::make_date(
+                cast(year(date()), DataType::Int32),
+                cast(lit_i64(1), DataType::Int32),
+                cast(lit_i64(1), DataType::Int32),
+            );
+            // The first day `start` of the year, on or after January 1.
+            let first = week_start(days(january_1) + lit_i64(6), start);
+            (day - first + lit_i64(7)) / lit_i64(7)
+        }
+        DatePart::IsoWeek if has_date => {
+            let day = days(date());
+            (day.clone() - iso_year_start(day)) / lit_i64(7) + lit_i64(1)
+        }
+        DatePart::IsoYear if has_date => iso_year(days(date())),
+        DatePart::Hour if has_time => day_micros() / lit_i64(3_600_000_000),
+        DatePart::Minute if has_time => day_micros() / lit_i64(60_000_000) % lit_i64(60),
+        DatePart::Second if has_time => day_micros() / lit_i64(1_000_000) % lit_i64(60),
+        DatePart::Millisecond if has_time => day_micros() / lit_i64(1_000) % lit_i64(1_000),
+        DatePart::Microsecond if has_time => day_micros() % lit_i64(1_000_000),
+        DatePart::Date if has_date && has_time => date(),
+        DatePart::Time if has_date && has_time => {
+            cast(civil, DataType::Time64(TimeUnit::Microsecond))
+        }
+        DatePart::Datetime if *ty == Ty::Timestamp => civil,
+        _ => return None,
+    };
+    Some(extracted)
+}
