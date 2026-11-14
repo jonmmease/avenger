@@ -67,6 +67,17 @@ impl std::error::Error for ScriptError {}
 /// its value. A script with an error returns a [`ScriptError`] of every diagnostic, as
 /// [`DataFusionError::External`].
 pub async fn sql(ctx: &SessionContext, text: &str) -> Result<DataFrame> {
+    sql_with_modules(ctx, text, &|_| None).await
+}
+
+/// The rows of the last query of the script `text`, as [`sql`] plans them, with the modules that
+/// `modules` gives for its `IMPORT MODULE`s: the text of the module at a path, or `None` for a
+/// path without one.
+pub async fn sql_with_modules(
+    ctx: &SessionContext,
+    text: &str,
+    modules: &dyn Fn(&[String]) -> Option<String>,
+) -> Result<DataFrame> {
     let parse = avenger_sql_syntax::parse(text);
     if !parse.ok() {
         let diagnostics = (parse.diagnostics().iter())
@@ -78,7 +89,10 @@ pub async fn sql(ctx: &SessionContext, text: &str) -> Result<DataFrame> {
         return Err(script_error(text, diagnostics));
     }
     let root = parse.syntax();
-    let catalog = SessionCatalog::load(ctx, &references(&root)).await?;
+    let references = references(&root);
+    let catalog = SessionCatalog::load(ctx, &references)
+        .await?
+        .with_modules(&references, modules);
     let analysis = analyze(&root, &catalog, library(), &Options::default());
     if !analysis.diagnostics.is_empty() {
         return Err(script_error(text, analysis.diagnostics));

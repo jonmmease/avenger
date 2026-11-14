@@ -35,7 +35,7 @@ pub mod types;
 use datafusion::{common::Result, prelude::SessionContext};
 
 pub use analysis::analyze;
-pub use pipeline::{sql, ScriptError};
+pub use pipeline::{sql, sql_with_modules, ScriptError};
 
 /// Registers in `ctx` what the plans of the transforms of avenger-datafusion-transforms need to
 /// run: the query planner of `impute`, so `ctx` must have DataFusion's default query planner, and

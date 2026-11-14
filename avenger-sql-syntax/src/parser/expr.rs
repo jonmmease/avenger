@@ -377,8 +377,14 @@ impl Parser<'_> {
             }
             return Some(node);
         }
+        let start = self.position;
         let mut expr = self.primary()?;
         loop {
+            // `.*` after the whole expression of an item is a wildcard of its struct, for the item
+            // to read. Elsewhere, as in `1 + s.*`, the `*` is an error after the `.`.
+            if self.current() == DOT && self.nth(1) == STAR && self.dot_star_at == Some(start) {
+                return Some(expr);
+            }
             if self.current() == DOT {
                 // A reserved word follows a `.` only after a name, as in `t.select`.
                 let after_name = matches!(self.previous_kind(), Some(WORD | QUOTED_IDENT));

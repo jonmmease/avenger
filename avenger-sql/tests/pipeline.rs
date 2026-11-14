@@ -122,3 +122,35 @@ async fn an_ordered_aggregate_reads_a_string_column_of_any_layout() {
         .to_string();
     assert!(text.contains("Biscoe,Dream,Torgersen"), "{text}");
 }
+
+#[tokio::test]
+async fn a_script_imports_the_modules_that_its_host_gives() {
+    let modules = |names: &[String]| {
+        match names.join(".").as_str() {
+        "util" => Some(
+            "MODULE util;\nIMPORT MODULE base;\nCREATE PUBLIC FUNCTION heavy(x FLOAT64) AS (x > base.heavy_mass);\n"
+                .to_string(),
+        ),
+        "base" => Some("MODULE base;\nCREATE PUBLIC CONSTANT heavy_mass = 5000;\n".to_string()),
+        _ => None,
+    }
+    };
+    let ctx = session();
+    let batches = avenger_sql::sql_with_modules(
+        &ctx,
+        "IMPORT MODULE util; FROM penguins |> WHERE util.heavy(body_mass_g) |> AGGREGATE COUNT(*) AS n",
+        &modules,
+    )
+    .await
+    .unwrap()
+    .collect()
+    .await
+    .unwrap();
+    let text = datafusion::arrow::util::pretty::pretty_format_batches(&batches)
+        .unwrap()
+        .to_string();
+    assert!(text.contains("| 61 |"), "{text}");
+    // Without the host's modules, the import is an error.
+    let found = errors("IMPORT MODULE util; FROM penguins").await;
+    assert_eq!(found[0].0, "Module not found: util");
+}

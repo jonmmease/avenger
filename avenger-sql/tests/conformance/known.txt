@@ -1,3 +1,4 @@
 # Differences from GoogleSQL's results that the planner's conformance check explains: the label of a
 # query of queries.txt, a tab, and the reason.
 error-function-signature	avenger names the missing argument of a call, where GoogleSQL lists the signatures
+select-as-struct-value	GoogleSQL's execute_query prints the column of a value table as `value`, which avenger names `$col_1` as any column without a name

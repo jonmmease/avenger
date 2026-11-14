@@ -8,7 +8,7 @@
 //!   schema of a join never holds a name two times. A source takes the name of its range
 //!   variable as its qualifier, and the columns that an operator computes take a qualifier of
 //!   the operator's, such as `_2`. The column keeps the name that the query gives it, so a mark
-//!   names a channel's layer column after it. A column without a name is `$col1`, `$col2` and
+//!   names a channel's layer column after it. A column without a name is `$col_1`, `$col_2` and
 //!   so on, after its place.
 //! - A range variable reads the row of its source as the source wrote it, after `SET`, `DROP`,
 //!   `RENAME` and `EXTEND`, as in GoogleSQL, so its columns stay in the plan as hidden columns
@@ -157,10 +157,10 @@ impl Qualifiers {
 }
 
 /// The name of the column of a plan for the column `name` at `index` of its operator's output:
-/// the name, or `$col1` and so on for a column without one.
+/// the name, or `$col_1` and so on, as GoogleSQL names it, for a column without one.
 pub(crate) fn plan_name(name: &str, index: usize) -> String {
     match name {
-        "" => format!("$col{}", index + 1),
+        "" => format!("$col_{}", index + 1),
         name => name.to_string(),
     }
 }
@@ -282,6 +282,31 @@ pub(crate) fn rebase(expr: Expr, bases: &[Expr]) -> Result<Expr> {
         false => Ok(Transformed::no(e)),
     })
     .map(|t| t.data)
+}
+
+/// The rows that `predicate` keeps. A predicate that calls a window function, as GoogleSQL's
+/// pipe `WHERE` allows, reads a window node over the rows, whose columns the filter drops.
+pub(crate) fn filter(rows: Rows, predicate: Expr) -> Result<Rows> {
+    let Some(plan) = rows.plan else {
+        return Ok(Rows::failed(rows.columns, rows.vars));
+    };
+    let windows = find_window_exprs([&predicate]);
+    let plan = match windows.is_empty() {
+        true => LogicalPlanBuilder::from(plan).filter(predicate)?.build()?,
+        false => {
+            let input = plan.schema().columns();
+            let predicate = rebase(predicate, &windows)?;
+            let plan = windowed(plan, windows)?;
+            LogicalPlanBuilder::from(plan)
+                .filter(predicate)?
+                .project(input.into_iter().map(Expr::Column))?
+                .build()?
+        }
+    };
+    Ok(Rows {
+        plan: Some(plan),
+        ..rows
+    })
 }
 
 /// The rows in the order of `keys`, sort expressions over the input. A key that isn't a column of

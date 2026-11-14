@@ -65,6 +65,21 @@ pub fn cell(array: &ArrayRef, index: usize) -> String {
             let items: Vec<String> = (0..values.len()).map(|i| cell(&values, i)).collect();
             format!("[{}]", items.join(", "))
         }
+        // The table mode prints a struct as its values, each before its field's name, as
+        // `{2 x, b s}`, with no name for an anonymous field.
+        DataType::Struct(fields) => {
+            let array = array.as_struct();
+            let values: Vec<String> = (fields.iter().enumerate())
+                .map(|(field_index, field)| {
+                    let value = cell(array.column(field_index), index);
+                    match field.name().is_empty() || field.name().starts_with("_field_") {
+                        true => value,
+                        false => format!("{value} {}", field.name()),
+                    }
+                })
+                .collect();
+            format!("{{{}}}", values.join(", "))
+        }
         // The table mode prints bytes as their text.
         DataType::Binary | DataType::BinaryView | DataType::LargeBinary => {
             let bytes = match array.data_type() {
