@@ -208,6 +208,19 @@ fn the_model_resolves_each_name_to_its_definition() {
 }
 
 #[test]
+fn the_model_resolves_the_columns_of_an_unpivot() {
+    let text = "FROM wide |> UNPIVOT (v FOR g IN (a, b))";
+    let analysis = pass::analysis(text);
+    let columns: Vec<&str> = (analysis.model.names.iter())
+        .filter_map(|name| match &name.definition {
+            Definition::Column(column) => Some(column.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(columns, ["a", "b"]);
+}
+
+#[test]
 fn an_operator_with_an_error_keeps_the_names_after_it() {
     let text = "FROM one_row |> SELECT nope AS z, x |> SELECT z, x |> EXTEND z + 1 AS w";
     let analysis = pass::analysis_in(&catalog(), text);

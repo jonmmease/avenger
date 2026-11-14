@@ -49,6 +49,105 @@ pub(crate) fn of_part(count: Expr, part: DatePart) -> Option<Expr> {
     Some(MAKE.call(vec![count, lit(unit as i64), lit(months)]))
 }
 
+/// The interval of `INTERVAL 'text' from TO to`, a literal, or the error of its text.
+pub(crate) fn of_text(text: &str, from: DatePart, to: DatePart) -> Result<Expr, String> {
+    let (months, days, nanos) = parts_of_text(text, from, to)?;
+    Ok(Expr::Literal(
+        ScalarValue::IntervalMonthDayNano(Some(IntervalMonthDayNano::new(months, days, nanos))),
+        None,
+    ))
+}
+
+/// The months, days and nanoseconds of the text of `INTERVAL 'text' from TO to`, as GoogleSQL reads
+/// it: `Y-M` for years and months, then days, then `H:M:S` for the parts of the time, each group
+/// with a sign of its own, for the parts from `from` to `to`.
+fn parts_of_text(text: &str, from: DatePart, to: DatePart) -> Result<(i32, i32, i64), String> {
+    let invalid = || format!("Invalid INTERVAL value '{text}'");
+    let rank = |part: DatePart| match part {
+        DatePart::Year => Some(0),
+        DatePart::Month => Some(1),
+        DatePart::Day => Some(2),
+        DatePart::Hour => Some(3),
+        DatePart::Minute => Some(4),
+        DatePart::Second => Some(5),
+        _ => None,
+    };
+    let (Some(start), Some(end)) = (rank(from), rank(to)) else {
+        return Err(format!(
+            "Unsupported INTERVAL datetime fields {} TO {}",
+            from.name(),
+            to.name()
+        ));
+    };
+    if start >= end {
+        return Err(format!(
+            "Unsupported INTERVAL datetime fields {} TO {}",
+            from.name(),
+            to.name()
+        ));
+    }
+    let signed = |token: &str| -> (i64, String) {
+        match token.strip_prefix('-') {
+            Some(rest) => (-1, rest.to_string()),
+            None => (1, token.trim_start_matches('+').to_string()),
+        }
+    };
+    let number = |text: &str| text.parse::<i64>().map_err(|_| invalid());
+    let mut tokens = text.split_whitespace();
+    let (mut months, mut days, mut nanos) = (0i64, 0i64, 0i128);
+    if start <= 1 {
+        let (sign, token) = signed(tokens.next().ok_or_else(invalid)?);
+        let value = match (start, end) {
+            (0, _) => {
+                let (years, rest) = token.split_once('-').ok_or_else(invalid)?;
+                number(years)? * 12 + number(rest)?
+            }
+            _ => number(&token)?,
+        };
+        months = sign * value;
+    }
+    if start <= 2 && end >= 2 {
+        let (sign, token) = signed(tokens.next().ok_or_else(invalid)?);
+        days = sign * number(&token)?;
+    }
+    if end >= 3 {
+        let (sign, token) = signed(tokens.next().ok_or_else(invalid)?);
+        let first = start.max(3);
+        let fields: Vec<&str> = token.split(':').collect();
+        if fields.len() != end - first + 1 {
+            return Err(invalid());
+        }
+        let mut total: i128 = 0;
+        for (offset, field) in fields.iter().enumerate() {
+            let unit: i128 = match first + offset {
+                3 => 3_600_000_000_000,
+                4 => 60_000_000_000,
+                _ => 1_000_000_000,
+            };
+            let value: i128 = match (first + offset, field.split_once('.')) {
+                (5, Some((whole, fraction))) => {
+                    if fraction.len() > 9 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+                        return Err(invalid());
+                    }
+                    let digits = format!("{fraction:0<9}");
+                    i128::from(number(whole)?) * unit
+                        + digits.parse::<i128>().map_err(|_| invalid())?
+                }
+                _ => i128::from(number(field)?) * unit,
+            };
+            total += value;
+        }
+        nanos = i128::from(sign) * total;
+    }
+    if tokens.next().is_some() {
+        return Err(invalid());
+    }
+    let months = i32::try_from(months).map_err(|_| invalid())?;
+    let days = i32::try_from(days).map_err(|_| invalid())?;
+    let nanos = i64::try_from(nanos).map_err(|_| invalid())?;
+    Ok((months, days, nanos))
+}
+
 /// The interval of `days`, an `INT64`, such as the difference of two dates.
 pub(crate) fn of_days(days: Expr) -> Expr {
     MAKE.call(vec![days, lit(Unit::Days as i64), lit(1)])

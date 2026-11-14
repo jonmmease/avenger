@@ -51,6 +51,9 @@ pub(crate) struct Scope<'r> {
     pub clause: &'static str,
     pub aggregates: bool,
     pub windows: bool,
+    /// The group expressions of the aggregate whose items the scope plans, over which `HAVING MAX`
+    /// finds the greatest value, or `None` for grouping sets.
+    pub groups: Option<&'r [Expr]>,
 }
 
 impl<'r> Scope<'r> {
@@ -62,6 +65,21 @@ impl<'r> Scope<'r> {
             clause,
             aggregates: false,
             windows: false,
+            groups: Some(&[]),
+        }
+    }
+
+    /// The scope of a constant, such as the count of a `LIMIT`, which reads no columns, over
+    /// `empty`, an empty schema.
+    pub(crate) fn constant(empty: &'r DFSchema, clause: &'static str) -> Self {
+        Self {
+            columns: &[],
+            vars: &[],
+            schema: Some(empty),
+            clause,
+            aggregates: false,
+            windows: false,
+            groups: Some(&[]),
         }
     }
 
@@ -70,6 +88,11 @@ impl<'r> Scope<'r> {
             aggregates: true,
             ..self
         }
+    }
+
+    /// The scope of the items of an aggregate of the group expressions `groups`.
+    pub(crate) fn grouped(self, groups: Option<&'r [Expr]>) -> Self {
+        Self { groups, ..self }
     }
 
     pub(crate) fn windows(self) -> Self {
@@ -363,7 +386,7 @@ impl Pass<'_> {
     }
 
     /// A `STRING` literal, of the Arrow type of the session's strings.
-    fn string_literal(&self, value: &str) -> Expr {
+    pub(crate) fn string_literal(&self, value: &str) -> Expr {
         let value = match self.type_options.utf8_view {
             true => ScalarValue::Utf8View(Some(value.to_string())),
             false => ScalarValue::Utf8(Some(value.to_string())),
@@ -428,9 +451,36 @@ impl Pass<'_> {
         let planned = self.expr(&count, scope);
         let part_name = interval.from()?;
         let part_text = part_name.text()?;
-        if interval.to_kw().is_some() {
-            self.error(range, "avenger-sql doesn't plan INTERVAL ... TO ... yet");
-            return None;
+        if let Some(to) = interval.to() {
+            let to_text = to.text()?;
+            let parts = (
+                DatePart::parse(&part_text, None),
+                DatePart::parse(&to_text, None),
+            );
+            let (Some(from), Some(to_part)) = parts else {
+                self.error(
+                    range,
+                    format!("Unsupported INTERVAL datetime fields {part_text} TO {to_text}"),
+                );
+                return None;
+            };
+            let Some(Expr::Literal(value, _)) = planned else {
+                if planned.is_some() {
+                    self.error(count_range, "INTERVAL ... TO ... takes a string literal");
+                }
+                return None;
+            };
+            let Some(Some(text)) = value.try_as_str() else {
+                self.error(count_range, "INTERVAL ... TO ... takes a string literal");
+                return None;
+            };
+            return match library::interval::of_text(text, from, to_part) {
+                Ok(interval) => Some(interval),
+                Err(message) => {
+                    self.error(count_range, message);
+                    None
+                }
+            };
         }
         let part = DatePart::parse(&part_text, None).filter(|&part| library::interval::takes(part));
         let Some(part) = part else {
@@ -480,7 +530,7 @@ impl Pass<'_> {
     }
 
     /// The plan of a path: a range variable and its column, a column, and the fields of a struct.
-    fn path(&mut self, path: &ast::Path, scope: Scope) -> Option<Expr> {
+    pub(crate) fn path(&mut self, path: &ast::Path, scope: Scope) -> Option<Expr> {
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names: Vec<String> = refs.iter().map(|name| name.text()).collect::<Option<_>>()?;
         let first = names.first()?;
@@ -854,17 +904,12 @@ impl Pass<'_> {
                 self.operator("$like", operands, range, scope)?
             }
             Some(quantified) => {
-                let name = match quantified.all_kw() {
-                    Some(_) => "$like_all",
-                    None => "$like_any",
+                let name = match (like.not_kw().is_some(), quantified.all_kw().is_some()) {
+                    (false, false) => "$like_any",
+                    (false, true) => "$like_all",
+                    (true, false) => "$not_like_any",
+                    (true, true) => "$not_like_all",
                 };
-                if like.not_kw().is_some() {
-                    self.error(
-                        range,
-                        "avenger-sql doesn't plan NOT LIKE ANY or NOT LIKE ALL yet",
-                    );
-                    return None;
-                }
                 let ast::InSet::InList(list) = quantified.in_set()? else {
                     self.error(
                         range,
@@ -959,10 +1004,40 @@ impl Pass<'_> {
         let range = cast_expr.syntax().text_range();
         let value = self.child(cast_expr.expr(), scope);
         let target = cast_expr.ty()?;
-        if cast_expr.format_clause().is_some() {
-            self.error(range, "avenger-sql doesn't plan CAST ... FORMAT yet");
-            return None;
-        }
+        let format = match cast_expr.format_clause() {
+            Some(clause) => {
+                let format = self.child(clause.expr(), scope);
+                let zone = match clause.time_zone() {
+                    Some(zone) => match self.child(zone.expr(), scope) {
+                        Some(Expr::Literal(value, _)) => value.try_as_str().flatten().map(String::from),
+                        _ => None,
+                    }
+                    .or_else(|| {
+                        self.error(range, "avenger-sql takes the time zone of CAST ... FORMAT as a string literal");
+                        None
+                    })?,
+                    None => self.options.time_zone.clone(),
+                };
+                match format {
+                    Some(Expr::Literal(value, _)) => match value.try_as_str() {
+                        Some(Some(format)) => Some((format.to_string(), zone)),
+                        _ => {
+                            self.error(range, "The FORMAT of CAST is a string literal");
+                            return None;
+                        }
+                    },
+                    Some(_) => {
+                        self.error(
+                            range,
+                            "avenger-sql takes the FORMAT of CAST as a string literal",
+                        );
+                        return None;
+                    }
+                    None => return None,
+                }
+            }
+            None => None,
+        };
         let target = match types::arrow_type(&target, self.type_options) {
             Ok(target) => target,
             Err(error) => {
@@ -972,6 +1047,28 @@ impl Pass<'_> {
         };
         let value = value?;
         let from = self.type_of(&value, scope)?;
+        if let Some((format, zone)) = format {
+            let (Some(from_ty), Some(to_ty)) = (Ty::of_arrow(&from), Ty::of_arrow(&target)) else {
+                return None;
+            };
+            return match library::cast_format(
+                value,
+                &from_ty,
+                &to_ty,
+                &format,
+                &zone,
+                self.type_options,
+            ) {
+                Ok(expr) => Some(match cast_expr.safe_cast_kw() {
+                    Some(_) => Expr::TryCast(TryCast::new(Box::new(expr), target)),
+                    None => expr,
+                }),
+                Err(message) => {
+                    self.error(range, message);
+                    None
+                }
+            };
+        }
         let castable = match (Ty::of_arrow(&from), Ty::of_arrow(&target)) {
             (Some(from), Some(to)) => castable(&from, &to),
             _ => false,
@@ -1222,14 +1319,30 @@ impl Pass<'_> {
                 );
                 ok = false;
             }
-            if list.having_clause().is_some() || list.call_limit().is_some() {
+            if list.having_clause().is_some() && (!clauses.having || over.is_some()) {
                 self.error(
                     range,
-                    format!("avenger-sql doesn't plan HAVING or LIMIT in a call of {fname} yet"),
+                    format!("{fname} does not support HAVING MAX or HAVING MIN"),
+                );
+                ok = false;
+            }
+            if list.call_limit().is_some() && !clauses.limit {
+                self.error(
+                    range,
+                    format!("Aggregate function {fname} does not support LIMIT in arguments"),
                 );
                 ok = false;
             }
         }
+        // `HAVING MAX x` or `HAVING MIN x`, and `LIMIT n`.
+        let having = (list.as_ref().and_then(|list| list.having_clause())).map(|having| {
+            let value = having
+                .expr()
+                .and_then(|expr| self.expr(&expr, scope.arguments()));
+            (having.max_kw().is_some(), value)
+        });
+        let limit = (list.as_ref().and_then(|list| list.call_limit()))
+            .map(|limit| limit.expr().and_then(|expr| self.constant(&expr)));
         match (clauses.over, &over) {
             (Over::Forbidden, Some(over)) => {
                 self.error(
@@ -1358,14 +1471,46 @@ impl Pass<'_> {
                         self.error(range, message);
                         return None;
                     }
-                    let aggregate = Expr::AggregateFunction(AggregateFunction::new_udf(
+                    let mut filter = filter;
+                    if let Some((max, value)) = having {
+                        let value = value?;
+                        let Some(groups) = scope.groups else {
+                            self.error(range, "avenger-sql doesn't compute HAVING MAX or HAVING MIN with grouping sets yet");
+                            return None;
+                        };
+                        // The rows of the greatest or the least value of the group.
+                        let extreme = match max {
+                            true => datafusion::functions_aggregate::min_max::max_udaf(),
+                            false => datafusion::functions_aggregate::min_max::min_udaf(),
+                        };
+                        let extreme = Window {
+                            partition: groups.to_vec(),
+                            order: Vec::new(),
+                            frame: WindowFrame::new(None),
+                        }
+                        .window(
+                            WindowFunctionDefinition::AggregateUDF(extreme),
+                            vec![value.clone()],
+                            None,
+                        );
+                        let condition = value.eq(extreme);
+                        filter = Some(match filter {
+                            Some(filter) => filter.and(condition),
+                            None => condition,
+                        });
+                    }
+                    let aggregate = AggregateFunction::new_udf(
                         func,
                         args,
                         distinct,
                         filter.map(Box::new),
                         order_by,
                         null_treatment,
-                    ));
+                    );
+                    let aggregate = match limit {
+                        Some(limit) => limited(fname, aggregate, limit?),
+                        None => Expr::AggregateFunction(aggregate),
+                    };
                     Some(typed(aggregate, result))
                 }
             },
@@ -1392,27 +1537,20 @@ impl Pass<'_> {
         scope: Scope,
     ) -> Option<Window> {
         let range = over.syntax().text_range();
-        let Some(spec) = over.window_spec() else {
-            self.error(range, "avenger-sql doesn't plan named windows yet");
-            return None;
-        };
-        if spec.name_ref().is_some() {
-            self.error(range, "avenger-sql doesn't plan named windows yet");
-            return None;
-        }
-        let partition: Vec<Option<Expr>> = (spec.partition_by().into_iter())
+        let spec = self.window_syntax(over)?;
+        let partition: Vec<Option<Expr>> = (spec.partition.iter())
             .flat_map(|partition| partition.exprs().collect::<Vec<_>>())
             .map(|expr| self.expr(&expr, scope))
             .collect();
-        let order = match spec.order_by() {
-            Some(order) => self.sort_keys(&order, scope),
+        let order = match &spec.order {
+            Some(order) => self.sort_keys(order, scope),
             None => Some(Vec::new()),
         };
         let (order_need, frame_allowed) = match clause {
             Over::Required { order_by, frame } => (order_by, frame),
             _ => (Need::Allowed, true),
         };
-        let frame = match spec.frame() {
+        let frame = match &spec.frame {
             Some(frame) if !frame_allowed => {
                 self.error(
                     frame.syntax().text_range(),
@@ -1420,7 +1558,7 @@ impl Pass<'_> {
                 );
                 return None;
             }
-            Some(frame) => Some(self.frame(&frame, scope)?),
+            Some(frame) => Some(self.frame(frame, scope)?),
             None => None,
         };
         let partition: Vec<Expr> = partition.into_iter().collect::<Option<_>>()?;
@@ -1448,6 +1586,76 @@ impl Pass<'_> {
             order,
             frame,
         })
+    }
+
+    /// The window of an `OVER` clause: its own specification, a named window of the `WINDOW`
+    /// clause, or a named window that the specification adds to.
+    fn window_syntax(&mut self, over: &ast::OverClause) -> Option<WindowSyntax> {
+        if let Some(name) = over.name_ref() {
+            return self.named_window(&name);
+        }
+        let spec = over.window_spec()?;
+        let range = spec.syntax().text_range();
+        self.extend_window(&spec, range)
+    }
+
+    /// The window `spec`, after the named window that it names, which it adds to.
+    pub(crate) fn extend_window(
+        &mut self,
+        spec: &ast::WindowSpec,
+        range: TextRange,
+    ) -> Option<WindowSyntax> {
+        let own = WindowSyntax {
+            partition: spec.partition_by(),
+            order: spec.order_by(),
+            frame: spec.frame(),
+        };
+        let Some(name) = spec.name_ref() else {
+            return Some(own);
+        };
+        let base = self.named_window(&name)?;
+        let text = name.text().unwrap_or_default();
+        if own.partition.is_some() {
+            self.error(
+                range,
+                "If a window has a PARTITION BY, it cannot reference a named window",
+            );
+            return None;
+        }
+        if base.frame.is_some() {
+            self.error(
+                range,
+                format!("The window {text} has a frame, so no window can add to it"),
+            );
+            return None;
+        }
+        if base.order.is_some() && own.order.is_some() {
+            self.error(
+                range,
+                format!("ORDER BY cannot be specified when the named window {text} has one"),
+            );
+            return None;
+        }
+        Some(WindowSyntax {
+            partition: base.partition,
+            order: own.order.or(base.order),
+            frame: own.frame,
+        })
+    }
+
+    /// The named window `name` of the `WINDOW` clause of the operator.
+    pub(crate) fn named_window(&mut self, name: &ast::NameRef) -> Option<WindowSyntax> {
+        let text = name.text()?;
+        let found = (self.windows.iter().rev())
+            .find(|(window, _)| window.eq_ignore_ascii_case(&text))
+            .map(|(_, syntax)| syntax.clone());
+        if found.is_none() {
+            self.error(
+                name.syntax().text_range(),
+                format!("Unrecognized window alias {text}"),
+            );
+        }
+        found
     }
 
     fn frame(&mut self, frame: &ast::Frame, scope: Scope) -> Option<WindowFrame> {
@@ -1494,6 +1702,43 @@ impl Pass<'_> {
             false => WindowFrameBound::Following(value),
         })
     }
+}
+
+/// The syntax of a window: its `PARTITION BY`, its `ORDER BY` and its frame, which the pass plans
+/// in the scope of each call that reads it.
+#[derive(Clone, Debug)]
+pub(crate) struct WindowSyntax {
+    pub partition: Option<ast::PartitionBy>,
+    pub order: Option<ast::OrderBy>,
+    pub frame: Option<ast::Frame>,
+}
+
+/// The aggregate `aggregate` of `ARRAY_AGG` or `STRING_AGG` with `LIMIT n`: the first `n`
+/// values in its order, as a slice of the array of its values.
+fn limited(name: &str, aggregate: AggregateFunction, n: Expr) -> Expr {
+    use datafusion::functions_nested::expr_fn::{array_slice, array_to_string};
+    let one = Expr::Literal(ScalarValue::Int64(Some(1)), None);
+    if !name.eq_ignore_ascii_case("STRING_AGG") {
+        return array_slice(Expr::AggregateFunction(aggregate), one, n, None);
+    }
+    // STRING_AGG leaves out `NULL` values, which the array of its values doesn't count.
+    let params = aggregate.params;
+    let value = params.args[0].clone();
+    let delimiter = params.args[1].clone();
+    let kept = value.clone().is_not_null();
+    let filter = match params.filter {
+        Some(filter) => filter.and(kept),
+        None => kept,
+    };
+    let values = Expr::AggregateFunction(AggregateFunction::new_udf(
+        datafusion::functions_aggregate::array_agg::array_agg_udaf(),
+        vec![value],
+        params.distinct,
+        Some(Box::new(filter)),
+        params.order_by,
+        None,
+    ));
+    array_to_string(array_slice(values, one, n, None), delimiter)
 }
 
 /// The `OVER` clause of a window call.

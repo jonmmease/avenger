@@ -384,3 +384,16 @@ async fn distinct_gives_each_row_once() {
         ["+---+", "+---+", "+---+", "| 5 |", "| n |"],
     );
 }
+
+#[tokio::test]
+async fn a_sample_keeps_about_its_percent_and_repeats_with_a_seed() {
+    let count = |text: String| async move { column(&text, "n").await[0] };
+    let n =
+        count("FROM big |> TABLESAMPLE BERNOULLI (10 PERCENT) |> AGGREGATE COUNT(*) AS n".into())
+            .await;
+    assert!((19_000..21_000).contains(&n), "{n} of 200,000 rows");
+    let n = count("FROM big |> TABLESAMPLE RESERVOIR (100 ROWS PARTITION BY MOD(i, 4)) |> AGGREGATE COUNT(*) AS n".into()).await;
+    assert_eq!(n, 400);
+    let sample = "FROM t |> ORDER BY x |> TABLESAMPLE BERNOULLI (50 PERCENT) REPEATABLE (3) |> AGGREGATE STRING_AGG(s, ',' ORDER BY s) AS kept";
+    assert_eq!(table_text(sample).await, table_text(sample).await);
+}

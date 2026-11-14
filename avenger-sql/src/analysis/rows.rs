@@ -22,9 +22,10 @@ use std::collections::HashSet;
 
 use avenger_sql_syntax::TextRange;
 use datafusion::{
+    arrow::datatypes::DataType,
     common::{
         tree_node::{Transformed, TreeNode},
-        Column, DFSchema, Result, TableReference,
+        Column, DFSchema, ExprSchema, Result, TableReference,
     },
     logical_expr::{utils::find_window_exprs, Expr, LogicalPlan, LogicalPlanBuilder, SortExpr},
 };
@@ -72,6 +73,14 @@ pub(crate) enum Item {
 }
 
 impl Item {
+    /// The name of the item's column.
+    pub(crate) fn name(&self) -> &str {
+        match self {
+            Item::Carry(col) => &col.name,
+            Item::Compute { name, .. } => name,
+        }
+    }
+
     /// The column of the item, of a name without a plan for a computed one, as the rows after an
     /// error hold it.
     pub(crate) fn col(&self) -> Col {
@@ -117,9 +126,22 @@ impl Rows {
         self.plan.as_ref().map(|plan| plan.schema().as_ref())
     }
 
+    /// The type of the column `col`, when the rows have a plan.
+    pub(crate) fn ty(&self, col: &Col) -> Option<DataType> {
+        let schema = self.schema()?;
+        let field = schema.field_from_column(&col.column).ok()?;
+        Some(field.data_type().clone())
+    }
+
     /// The rows without an order, for an operator that doesn't keep one.
     pub(crate) fn unordered(mut self) -> Self {
         self.order.clear();
+        self
+    }
+
+    /// The rows without range variables, for an operator that ends them.
+    pub(crate) fn without_vars(mut self) -> Self {
+        self.vars.clear();
         self
     }
 }
