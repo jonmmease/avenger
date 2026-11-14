@@ -196,9 +196,9 @@
 743..750 "INCLUDE" Keyword
 751..756 "NULLS" Keyword
 757..758 "(" Punctuation
-758..763 "sales" Name(Column)
+758..763 "sales" Name(Column) definition
 764..767 "FOR" Keyword
-768..775 "quarter" Name(Column)
+768..775 "quarter" Name(Column) definition
 776..778 "IN" Keyword
 779..780 "(" Punctuation
 780..782 "q1" Name(Column)

@@ -76,7 +76,8 @@ impl Parser<'_> {
         marker.complete(self, MODULE);
     }
 
-    /// The statements up to the end, separated by `;`.
+    /// The statements up to the end, separated by `;`. A statement starts at the start of the
+    /// text or after a `;`.
     fn statements(&mut self) {
         let place = match self.in_module {
             true => "module",
@@ -90,8 +91,11 @@ impl Parser<'_> {
             let start = self.position;
             let statement = self.statement();
             let query = matches!(statement.map(|s| s.kind()), Some(QUERY));
-            if self.eat(SEMICOLON) || self.at_eof() {
+            if self.eat(SEMICOLON) {
                 continue;
+            }
+            if self.at_eof() {
+                break;
             }
             let expected = match query {
                 true => format!("`|>`, `;` or the end of the {place}"),
@@ -102,8 +106,10 @@ impl Parser<'_> {
             self.paren_depth = 0;
             self.skip_until(|p| p.current() == SEMICOLON);
             self.paren_depth = saved;
-            self.eat(SEMICOLON);
             debug_assert!(self.position > start || self.at_eof());
+            if !self.eat(SEMICOLON) {
+                break;
+            }
         }
     }
 
@@ -274,6 +280,8 @@ impl Parser<'_> {
         self.bump_keyword();
         self.comma_list(|p| p.name(NameRole::Variable));
         let at_end = matches!(self.current(), SEMICOLON | EOF);
+        // The type is optional, so it can start where the text ends.
+        self.record(Expected::Type);
         if !self.at_keyword("DEFAULT") && !at_end {
             self.ty();
         }
@@ -338,15 +346,22 @@ impl Parser<'_> {
         let marker = self.start();
         self.bump_keyword();
         self.eat_keywords(&["OR", "REPLACE"]);
-        if let Some(scope) = ["TEMP", "TEMPORARY", "PUBLIC", "PRIVATE"]
-            .iter()
-            .find(|word| self.at_keyword(word))
-        {
+        // A script creates temporary objects and a module public or private ones, as the
+        // validation pass checks, so the parser expects the scopes of the text that it reads.
+        let scopes: [(&str, bool); 4] = [
+            ("TEMP", !self.in_module),
+            ("TEMPORARY", !self.in_module),
+            ("PUBLIC", self.in_module),
+            ("PRIVATE", self.in_module),
+        ];
+        if let Some((scope, _)) = (scopes.iter()).find(|(word, expected)| {
+            (*expected && self.at_keyword(word)) || self.keyword_at(0, word)
+        }) {
             self.eat_keyword(scope);
         }
         let object = if self.eat_keywords(&["AGGREGATE", "FUNCTION"]) {
             Some(Object::Function(FunctionKind::Aggregate))
-        } else if self.at_keyword("TABLE") && self.keyword_at(1, "FUNCTION") {
+        } else if self.at_keywords(&["TABLE", "FUNCTION"]) {
             // As in GoogleSQL, `TABLE FUNCTION` is a table function, and a table named `function`
             // takes backticks.
             self.eat_keywords(&["TABLE", "FUNCTION"]);
@@ -355,7 +370,10 @@ impl Parser<'_> {
             Some(Object::Function(FunctionKind::Scalar))
         } else if self.eat_keyword("TABLE") {
             Some(Object::Table)
-        } else if self.eat_keyword("CONSTANT") {
+        } else if (self.in_module && self.at_keyword("CONSTANT")) || self.keyword_at(0, "CONSTANT")
+        {
+            // A constant belongs to a module, so a script doesn't expect one.
+            self.bump_keyword();
             Some(Object::Constant)
         } else if self.current() == WORD {
             // An object of GoogleSQL's that avenger-sql doesn't create, such as a view.
@@ -575,7 +593,8 @@ impl Parser<'_> {
     /// The rest of `CREATE [AGGREGATE | TABLE] FUNCTION`, after its name.
     fn create_function(&mut self, kind: FunctionKind) {
         let list = self.start();
-        self.paren_list(Self::parameter, true);
+        let table = kind == FunctionKind::Table;
+        self.paren_list(|p| p.parameter(table), true);
         list.complete(self, PARAM_LIST);
         match kind {
             FunctionKind::Table => {
@@ -656,7 +675,7 @@ impl Parser<'_> {
 
     /// Whether a function names a LANGUAGE, which it reports, skipping the rest of the statement.
     fn language(&mut self) -> bool {
-        if !self.at_keyword("LANGUAGE") {
+        if !self.keyword_at(0, "LANGUAGE") {
             return false;
         }
         let range = self.range();
@@ -672,6 +691,8 @@ impl Parser<'_> {
     /// Whether a function ends without a body, as a declaration of GoogleSQL's does, which it
     /// reports.
     fn no_body(&mut self) -> bool {
+        // The body, where the text ends.
+        self.record(Expected::Keyword(AS_KW));
         if !matches!(self.current(), SEMICOLON | EOF) {
             return false;
         }
@@ -695,7 +716,7 @@ impl Parser<'_> {
 
     /// `name type`, `name ANY TYPE`, `name TABLE<columns>`, or `name ANY TABLE`, and `NOT
     /// AGGREGATE`. The validation pass checks them against the kind of the function.
-    fn parameter(&mut self) {
+    fn parameter(&mut self, table: bool) {
         let marker = self.start();
         // GoogleSQL's parameters without names, such as `(STRING, INT64)`, and its templated
         // parameters without names, such as `(ANY TYPE)`.
@@ -733,11 +754,15 @@ impl Parser<'_> {
                 "avenger-sql's templated parameters are ANY TYPE and ANY TABLE",
             );
         }
-        if self.at_keyword("ANY") && self.keyword_at(1, "TYPE") {
+        if self.at_keywords(&["ANY", "TYPE"]) {
             let any = self.start();
             self.eat_keywords(&["ANY", "TYPE"]);
             any.complete(self, ANY_TYPE);
-        } else if self.at_keyword("ANY") && self.keyword_at(1, "TABLE") {
+        } else if (table && self.at_keywords(&["ANY", "TABLE"]))
+            || (self.keyword_at(0, "ANY") && self.keyword_at(1, "TABLE"))
+        {
+            // A table parameter belongs to a table function, as the validation pass checks, so
+            // only a table function's parameters expect one.
             let any = self.start();
             self.eat_keywords(&["ANY", "TABLE"]);
             any.complete(self, ANY_TABLE);

@@ -153,7 +153,65 @@ pub enum Expected {
     PipeOperator,
     /// The start of a statement.
     Statement,
+    /// One word of a fixed set, such as a date part or a sampling method. Some words, such as
+    /// `TRUE` or `DATE`, are not keywords of the lexer.
+    Words(&'static [&'static str]),
+    /// Words in a sequence, such as `BY NAME`, where the grammar takes the first only with the
+    /// rest. When the text ends after the first words, the phrase holds the words after them.
+    Phrase(&'static [&'static str]),
 }
+
+/// The words that start a constant: `NULL`, `TRUE`, `FALSE`, and the keywords of typed literals
+/// that avenger-sql reads, as `DATE '2024-01-01'`.
+pub const LITERAL_WORDS: &[&str] = &[
+    "NULL",
+    "TRUE",
+    "FALSE",
+    "DATE",
+    "TIME",
+    "DATETIME",
+    "TIMESTAMP",
+    "NUMERIC",
+    "DECIMAL",
+    "BIGNUMERIC",
+    "BIGDECIMAL",
+];
+
+/// The date parts of an `INTERVAL`, as in `INTERVAL 3 DAY` or `INTERVAL '1-2' YEAR TO MONTH`.
+pub const INTERVAL_PARTS: &[&str] = &[
+    "YEAR",
+    "QUARTER",
+    "MONTH",
+    "WEEK",
+    "DAY",
+    "HOUR",
+    "MINUTE",
+    "SECOND",
+    "MILLISECOND",
+    "MICROSECOND",
+];
+
+/// GoogleSQL's date parts, which `EXTRACT` and the functions of dates and times take. `WEEK`
+/// also takes a day, as in `WEEK(MONDAY)`.
+pub const DATE_PARTS: &[&str] = &[
+    "YEAR",
+    "ISOYEAR",
+    "QUARTER",
+    "MONTH",
+    "WEEK",
+    "ISOWEEK",
+    "DAY",
+    "DAYOFYEAR",
+    "DAYOFWEEK",
+    "HOUR",
+    "MINUTE",
+    "SECOND",
+    "MILLISECOND",
+    "MICROSECOND",
+    "DATE",
+    "TIME",
+    "DATETIME",
+];
 
 /// The role of a name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

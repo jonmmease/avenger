@@ -36,7 +36,22 @@ const BARE_CALLS: &[&str] = &[
     "CURRENT_TIMESTAMP",
 ];
 
-/// The keywords of typed literals, such as `DATE '2024-01-01'`.
+/// The words that start an expression, besides a name, a call, and the words of a constant,
+/// `LITERAL_WORDS`. `NOT` starts an operand only where it binds as loosely as the operator
+/// around it, so `record_expression` records it apart.
+const EXPRESSION_WORDS: &[&str] = &[
+    "CASE",
+    "CAST",
+    "SAFE_CAST",
+    "EXTRACT",
+    "INTERVAL",
+    "EXISTS",
+    "ARRAY",
+    "STRUCT",
+];
+
+/// The keywords of typed literals, such as `DATE '2024-01-01'`. avenger-sql has no JSON type, so
+/// the parser reads `JSON` but does not expect it.
 const TYPED_LITERALS: &[&str] = &[
     "DATE",
     "TIME",
@@ -197,7 +212,11 @@ impl Parser<'_> {
     fn expr_at_inner(&mut self, level: u8) -> Option<CompletedMarker> {
         let mut left = self.prefix(level)?;
         let mut compared = false;
-        while let Some(op_level) = self.infix_level() {
+        loop {
+            self.record_infix(level);
+            let Some(op_level) = self.infix_level() else {
+                break;
+            };
             if op_level < level {
                 break;
             }
@@ -227,6 +246,69 @@ impl Parser<'_> {
         Some(left)
     }
 
+    /// At the cursor, records that an operand can start here, in an expression whose operators
+    /// bind at least as tightly as `level`, with the words that start one.
+    pub(super) fn record_expression(&self, level: u8) {
+        self.record(Expected::Expression);
+        self.record(Expected::Words(EXPRESSION_WORDS));
+        if level <= NOT {
+            self.record(Expected::Keyword(NOT_KW));
+        }
+        // The typed literals that avenger-sql reads, which are all but `JSON`.
+        debug_assert!(TYPED_LITERALS
+            .iter()
+            .all(|word| *word == "JSON" || crate::LITERAL_WORDS.contains(word)));
+        self.record(Expected::Words(crate::LITERAL_WORDS));
+    }
+
+    /// At the cursor, records the infix operators that can follow an operand in an expression
+    /// whose operators bind at least as tightly as `level`.
+    fn record_infix(&self, level: u8) {
+        if !self.at_cursor() {
+            return;
+        }
+        let keywords = [
+            (AND_KW, AND),
+            (OR_KW, OR),
+            (IS_KW, COMPARISON),
+            (IN_KW, COMPARISON),
+            (LIKE_KW, COMPARISON),
+            (BETWEEN_KW, COMPARISON),
+        ];
+        for (keyword, op_level) in keywords {
+            if op_level >= level {
+                self.record(Expected::Keyword(keyword));
+            }
+        }
+        if COMPARISON >= level {
+            for phrase in [&["NOT", "IN"][..], &["NOT", "LIKE"], &["NOT", "BETWEEN"]] {
+                self.record(Expected::Phrase(phrase));
+            }
+        }
+        let tokens = [
+            (EQ, COMPARISON),
+            (NEQ, COMPARISON),
+            (LT, COMPARISON),
+            (LT_EQ, COMPARISON),
+            (GT, COMPARISON),
+            (GT_EQ, COMPARISON),
+            (BIT_OR, BIT_OR_LEVEL),
+            (CARET, BIT_XOR),
+            (AMP, BIT_AND),
+            (SHL, SHIFT),
+            (PLUS, ADDITIVE),
+            (MINUS, ADDITIVE),
+            (CONCAT, CONCAT_LEVEL),
+            (STAR, MULTIPLICATIVE),
+            (SLASH, MULTIPLICATIVE),
+        ];
+        for (token, op_level) in tokens {
+            if op_level >= level {
+                self.record(Expected::Token(token));
+            }
+        }
+    }
+
     /// The level of the infix operator at the current token.
     fn infix_level(&self) -> Option<u8> {
         let level = match self.current() {
@@ -248,10 +330,9 @@ impl Parser<'_> {
                     || self.at_keyword("LIKE")
                     || self.at_keyword("BETWEEN")
                     || self.at_keyword("IN")
-                    || (self.at_keyword("NOT")
-                        && (self.keyword_at(1, "LIKE")
-                            || self.keyword_at(1, "BETWEEN")
-                            || self.keyword_at(1, "IN")))
+                    || self.at_keywords(&["NOT", "LIKE"])
+                    || self.at_keywords(&["NOT", "BETWEEN"])
+                    || self.at_keywords(&["NOT", "IN"])
                 {
                     COMPARISON
                 } else {
@@ -343,7 +424,7 @@ impl Parser<'_> {
     /// in an expression at `level`. As in GoogleSQL, a `NOT` in the operand of a tighter
     /// operator needs parentheses.
     fn prefix(&mut self, level: u8) -> Option<CompletedMarker> {
-        self.record(Expected::Expression);
+        self.record_expression(level);
         let operand_level = match self.current() {
             PLUS | MINUS | TILDE => Some(UNARY),
             WORD if self.at_keyword("NOT") => Some(NOT),
@@ -530,9 +611,11 @@ impl Parser<'_> {
             "INTERVAL" => {
                 self.bump_keyword();
                 self.expr();
-                self.name_ref(NameRole::DatePart);
+                self.record(Expected::Words(crate::INTERVAL_PARTS));
+                self.name_ref(NameRole::Other);
                 if self.eat_keyword("TO") {
-                    self.name_ref(NameRole::DatePart);
+                    self.record(Expected::Words(crate::INTERVAL_PARTS));
+                    self.name_ref(NameRole::Other);
                 }
                 INTERVAL_EXPR
             }
@@ -652,7 +735,7 @@ impl Parser<'_> {
                 p.expr();
                 having.complete(p, HAVING_CLAUSE);
             }
-            if p.at_keyword("GROUP") || p.at_keyword("WHERE") {
+            if p.keyword_at(0, "GROUP") || p.keyword_at(0, "WHERE") {
                 let range = p.range();
                 p.error(
                     DiagnosticCode::Unsupported,
@@ -883,9 +966,7 @@ impl Parser<'_> {
 
     /// `[AT TIME ZONE zone]`
     fn time_zone(&mut self) {
-        let at_zone =
-            self.at_keyword("AT") && self.keyword_at(1, "TIME") && self.keyword_at(2, "ZONE");
-        if !at_zone {
+        if !self.at_keywords(&["AT", "TIME", "ZONE"]) {
             return;
         }
         let marker = self.start();
@@ -940,6 +1021,7 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.parens(|p| {
+            p.record_name(NameRole::Window);
             if p.at_ident() {
                 p.name_ref(NameRole::Window);
             }
@@ -1000,7 +1082,9 @@ impl Parser<'_> {
                 self.struct_fields();
             }
             STRUCT_TYPE
-        } else if self.eat_keyword("RANGE") {
+        } else if self.keyword_at(0, "RANGE") {
+            // avenger-sql has no RANGE type, which the analysis reports, so it isn't expected.
+            self.bump_keyword();
             self.expect(LT, "`<`");
             self.ty();
             self.expect(GT, "`>`");

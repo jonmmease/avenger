@@ -99,6 +99,10 @@ pub(crate) struct Parser<'a> {
     dot_star_at: Option<usize>,
     cursor: Option<TextSize>,
     expected: RefCell<Vec<Expected>>,
+    /// Whether the parser reported a missing token at the cursor. What its recovery reads
+    /// after that, such as the clauses after a `)` that the text lacks, cannot follow the text
+    /// before the cursor, so the parser records no more.
+    closed: bool,
 }
 
 /// The start of a node, which the parser completes or abandons.
@@ -124,6 +128,7 @@ pub(crate) struct Checkpoint {
     diagnostics: usize,
     paren_depth: u32,
     depth: u32,
+    closed: bool,
 }
 
 impl Marker {
@@ -191,6 +196,7 @@ impl<'a> Parser<'a> {
             dot_star_at: None,
             cursor,
             expected: RefCell::new(Vec::new()),
+            closed: false,
         }
     }
 
@@ -292,6 +298,10 @@ impl<'a> Parser<'a> {
     /// Whether the token `n` ahead starts a query: a pipe query's `FROM`, or GoogleSQL's standard
     /// `SELECT` or `WITH`, which the query reports.
     pub(crate) fn query_at(&self, n: usize) -> bool {
+        // A query can start where the text ends, as after `IN (`.
+        if self.nth(n) == EOF {
+            self.record_at_end(Expected::Keyword(FROM_KW));
+        }
         // `WITH(` is GoogleSQL's WITH expression, not a query.
         ["FROM", "SELECT"]
             .iter()
@@ -386,18 +396,31 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether the next tokens are the keywords `keywords`, which it consumes when they are.
-    pub(crate) fn eat_keywords(&mut self, keywords: &[&str]) -> bool {
-        if let Some(kind) = keywords.first().and_then(|word| SyntaxKind::keyword(word)) {
-            self.record(Expected::Keyword(kind));
-        }
-        let found =
-            (keywords.iter().enumerate()).all(|(offset, keyword)| self.keyword_at(offset, keyword));
+    pub(crate) fn eat_keywords(&mut self, keywords: &'static [&'static str]) -> bool {
+        let found = self.at_keywords(keywords);
         if found {
             for _ in keywords {
                 self.bump_keyword();
             }
         }
         found
+    }
+
+    /// Whether the next tokens are the keywords `keywords`. At the cursor, it records them as a
+    /// phrase. When the text ends after the first of them at the cursor, as in `BY` of `BY NAME`,
+    /// it records the rest.
+    pub(crate) fn at_keywords(&self, keywords: &'static [&'static str]) -> bool {
+        self.record(Expected::Phrase(keywords));
+        for (offset, keyword) in keywords.iter().enumerate() {
+            if self.keyword_at(offset, keyword) {
+                continue;
+            }
+            if offset > 0 && self.nth(offset) == EOF {
+                self.record_at_end(Expected::Phrase(&keywords[offset..]));
+            }
+            return false;
+        }
+        true
     }
 
     /// Consumes `kind`, or reports that it is missing.
@@ -487,6 +510,9 @@ impl<'a> Parser<'a> {
 
     /// Reports that the current token is not `expected`.
     pub(crate) fn error_expected(&mut self, expected: &str) -> &mut Diagnostic {
+        if self.cursor == Some(self.range().start()) {
+            self.closed = true;
+        }
         let message = format!("expected {expected}, found {}", self.found());
         // As in GoogleSQL, an error at the end is after the last token or comment, before the
         // whitespace after them.
@@ -591,6 +617,7 @@ impl<'a> Parser<'a> {
             diagnostics: self.diagnostics.len(),
             paren_depth: self.paren_depth,
             depth: self.depth,
+            closed: self.closed,
         }
     }
 
@@ -600,6 +627,7 @@ impl<'a> Parser<'a> {
         self.diagnostics.truncate(checkpoint.diagnostics);
         self.paren_depth = checkpoint.paren_depth;
         self.depth = checkpoint.depth;
+        self.closed = checkpoint.closed;
     }
 
     /// Runs `parse`. When it reports an error, rewinds and returns the start of its first
@@ -636,7 +664,7 @@ impl<'a> Parser<'a> {
         let Some(cursor) = self.cursor else {
             return;
         };
-        if self.range().start() != cursor {
+        if self.closed || self.range().start() != cursor {
             return;
         }
         let mut list = self.expected.borrow_mut();
@@ -645,9 +673,30 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Records that a name in `role` can stand at the current token.
+    /// Records that a name in `role` can stand at the current token, with the words of a date
+    /// part.
     pub(crate) fn record_name(&self, role: NameRole) {
         self.record(Expected::Name(role));
+        if role == NameRole::DatePart {
+            self.record(Expected::Words(crate::DATE_PARTS));
+        }
+    }
+
+    /// Whether the parser is at the cursor, where it records what it expects.
+    pub(crate) fn at_cursor(&self) -> bool {
+        !self.closed && self.cursor == Some(self.range().start())
+    }
+
+    /// Records `expected` at the end of the text, which is the cursor: the parser reads the text
+    /// before the cursor only, so a lookahead past the current token can reach the cursor.
+    pub(crate) fn record_at_end(&self, expected: Expected) {
+        if self.cursor.is_none() || self.closed {
+            return;
+        }
+        let mut list = self.expected.borrow_mut();
+        if !list.contains(&expected) {
+            list.push(expected);
+        }
     }
 
     // --- Lists ---
@@ -667,6 +716,13 @@ impl<'a> Parser<'a> {
         item(self);
         while self.eat(COMMA) {
             if ends(self) {
+                // A list that takes a comma after its last item ends here, but an item can also
+                // start here: at the cursor, record what an item takes.
+                if self.at_cursor() {
+                    let checkpoint = self.checkpoint();
+                    item(self);
+                    self.rewind(&checkpoint);
+                }
                 break;
             }
             item(self);
