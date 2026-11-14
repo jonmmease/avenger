@@ -21,9 +21,14 @@
 //! [`register`] adds the mark functions and the constructors of avenger-chart to a session, and
 //! the transforms of avenger-datafusion-transforms: the window functions `bin`, `stack`,
 //! `timeunit`, and `lump`, and the table function `impute`.
+//!
+//! The parts of planning GoogleSQL with [`avenger_sql_syntax`]: [`types`] maps GoogleSQL's types
+//! to Arrow types, and [`catalog`] looks up the tables that a script names.
 
+pub mod catalog;
 mod functions;
 mod pipeline;
+pub mod types;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
