@@ -73,8 +73,8 @@ fn owner_order(tree: &Tree) -> HashMap<Vec<u8>, usize> {
     let mut order = HashMap::new();
     for plot in &tree.plots {
         let layers = tree.layers[plot.layers.clone()].iter();
-        let identities =
-            (plot.identity.iter()).chain(layers.filter_map(|layer| layer.identity.as_ref()));
+        let identities = (plot.identity.named().into_iter())
+            .chain(layers.filter_map(|layer| layer.identity.named()));
         for identity in identities {
             let position = order.len();
             order.entry(owner_key("", identity)).or_insert(position);
@@ -439,7 +439,7 @@ fn selections(
         for mut clause in std::mem::take(&mut selection.initial) {
             by_key(&mut clause.partition, |value| value.column.clone());
             let owner = Identity {
-                id: clause.owner.clone(),
+                id: crate::resolve::Id::Given(clause.owner.clone()),
                 partition: (clause.partition.iter())
                     .map(|value| {
                         let index = value.value.as_ref().expect("a valid value is set").index;

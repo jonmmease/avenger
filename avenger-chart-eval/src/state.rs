@@ -35,9 +35,9 @@ type Result<T> = std::result::Result<T, EvalError>;
 pub enum ScaleIdentity {
     /// The share family that the specs of the scale name, with the scale's channel.
     Family { family: String, channel: Channel },
-    /// The first plot of the scale with an identity, in tree order, the scale's channel, and the
-    /// position of the scale among the plot's scales of the channel: 0, or 1 for the second scale
-    /// of a channel in one plot.
+    /// The first plot of the scale with an id, or else its first plot, in tree order, the scale's
+    /// channel, and the position of the scale among the plot's scales of the channel: 0, or 1 for
+    /// the second scale of a channel in one plot.
     Plot {
         plot: Identity,
         channel: Channel,
@@ -51,12 +51,11 @@ pub enum ScaleIdentity {
 pub enum ProjectionIdentity {
     /// The share family that the geo specs of the projection name.
     Family(String),
-    /// The first geo plot of the projection with an identity, in tree order.
+    /// The first geo plot of the projection with an id, or else its first plot, in tree order.
     Plot(Identity),
 }
 
-/// The identity of each scale group of `resolved`, by its position in `Resolved::scales`, or
-/// `None` for a group without a family whose plots have no ids.
+/// The identity of each scale group of `resolved`, by its position in `Resolved::scales`.
 pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>> {
     let tree = &resolved.tree;
     let plots_of = |group: &ScaleGroup| {
@@ -75,14 +74,17 @@ pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>
                     channel: group.channel,
                 });
             }
-            let plot =
-                (plots_of(group).into_iter()).find(|plot| tree.plots[*plot].identity.is_some())?;
+            let plots = plots_of(group);
+            let named = plots
+                .iter()
+                .find(|plot| tree.plots[**plot].identity.named().is_some());
+            let plot = *named.or(plots.first())?;
             // The position of the group among the plot's groups of its channel.
             let index = (resolved.scales.iter())
                 .filter(|other| other.channel == group.channel && plots_of(other).contains(&plot))
                 .position(|other| std::ptr::eq(other, group))?;
             Some(ScaleIdentity::Plot {
-                plot: tree.plots[plot].identity.clone()?,
+                plot: tree.plots[plot].identity.clone(),
                 channel: group.channel,
                 index,
             })
@@ -92,7 +94,7 @@ pub(crate) fn scale_identities(resolved: &Resolved) -> Vec<Option<ScaleIdentity>
 
 /// The identity of each projection group of `resolved`, by its position in
 /// `Resolved::projections`: the share family that its specs name, or else the identity of its
-/// first plot with one.
+/// first plot with an id, or of its first plot.
 pub(crate) fn projection_identities(resolved: &Resolved) -> Vec<Option<ProjectionIdentity>> {
     let tree = &resolved.tree;
     (resolved.projections.iter())
@@ -100,9 +102,10 @@ pub(crate) fn projection_identities(resolved: &Resolved) -> Vec<Option<Projectio
             if !group.spec.family.is_empty() {
                 return Some(ProjectionIdentity::Family(group.spec.family.clone()));
             }
-            (group.plots.iter())
-                .find_map(|plot| tree.plots[*plot].identity.clone())
-                .map(ProjectionIdentity::Plot)
+            let named =
+                (group.plots.iter()).find(|plot| tree.plots[**plot].identity.named().is_some());
+            (named.or(group.plots.first()))
+                .map(|plot| ProjectionIdentity::Plot(tree.plots[*plot].identity.clone()))
         })
         .collect()
 }
@@ -120,6 +123,33 @@ pub(crate) fn plot_groups(resolved: &Resolved) -> Vec<BTreeMap<Channel, usize>> 
 }
 
 /// Whether the domain of `spec` reads a selection.
+/// Whether the scale groups `a` of `resolved_a` and `b` of `resolved_b` scale the same values: their
+/// scales have one type, and their encodings scale the same fields, so a view of one stands for the
+/// other.
+pub(crate) fn same_values(
+    resolved_a: &Resolved,
+    a: usize,
+    resolved_b: &Resolved,
+    b: usize,
+) -> bool {
+    let fields = |resolved: &Resolved, index: usize| {
+        let mut fields: Vec<String> = (resolved.scales[index].members.iter())
+            .filter_map(|member| {
+                let mark = resolved.tree.layers[member.layer].mark;
+                match &mark.encoding(member.channel)?.kind {
+                    Some(proto::encoding::Kind::ScaledField(name)) => Some(name.clone()),
+                    _ => None,
+                }
+            })
+            .collect();
+        fields.sort();
+        fields.dedup();
+        fields
+    };
+    resolved_a.scales[a].spec.r#type == resolved_b.scales[b].spec.r#type
+        && fields(resolved_a, a) == fields(resolved_b, b)
+}
+
 pub(crate) fn selection_domain(spec: &proto::Scale) -> bool {
     matches!(
         spec.domain

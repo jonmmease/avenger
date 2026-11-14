@@ -161,7 +161,7 @@ impl Checker<'_> {
                 .collect();
             once_each(&selects, &self.chart.message.modes, &plot.path)?;
             let selections = selects.iter().map(|(selection, _)| *selection).collect();
-            if let Some(identity) = &plot.identity {
+            if let Some(identity) = plot.identity.named() {
                 writers.push((identity, selections, &plot.path));
             }
         }
@@ -176,7 +176,7 @@ impl Checker<'_> {
                 .collect();
             once_each(&selects, &self.chart.message.modes, &layer.path)?;
             let selections: Vec<&str> = selects.iter().map(|(selection, _)| *selection).collect();
-            if let Some(identity) = &layer.identity {
+            if let Some(identity) = layer.identity.named() {
                 writers.push((identity, selections, &layer.path));
             }
         }
@@ -195,10 +195,7 @@ impl Checker<'_> {
                         )
                     })
                     .collect();
-                let owner = Identity {
-                    id: clause.owner.clone(),
-                    partition,
-                };
+                let owner = Identity::given(clause.owner.clone(), partition);
                 if clause.widget.is_empty() {
                     let writer = writers.iter().find(|(identity, _, _)| **identity == owner);
                     match writer {
@@ -261,7 +258,7 @@ impl Checker<'_> {
             group.key == clause.widget
                 && match &group.anchor {
                     Some(anchor) => anchor == owner,
-                    None => owner.id.is_empty() && owner.partition.is_empty(),
+                    None => owner.given_id() == Some("") && owner.partition.is_empty(),
                 }
         });
         fn writes(group: &resolve::WidgetGroup) -> &str {

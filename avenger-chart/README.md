@@ -194,7 +194,7 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 
 | Field of `Resolved` | What it holds |
 |---|---|
-| `tree` | The plots, the layers, and the concats, wraps, and facets with ids, in tree order, with their paths, their identities, and their partitions: the values that apply to every layer and empty cell below each node |
+| `tree` | The plots, the layers, and the concats, wraps, and facets with ids, in tree order, with their paths, their identities, by id or by path, and their partitions: the values that apply to every layer and empty cell below each node |
 | `scales` | The scales: the encodings that share each scale by the resolve rules and the share families, with the spec that merges their specs, the node that owns the scale's axis or legend, and its identity |
 | `projections` | The geo plots that share each projection |
 | `tables` | The place of each node in its table of tracks, with the length that plots and concats fix for each track |
@@ -203,7 +203,7 @@ A renderer or an app reads a chart through `Chart::resolve`, which builds the mo
 
 The `layer` module gives a view of a layer of any coordinate system, and its mark's encodings by channel.
 
-Plots, layers, concats, wraps, axes, legends, and facets share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets.
+Plots, layers, concats, wraps, axes, legends, and facets share one namespace of identities, and two parts with one id and one partition are a conflict whatever their kinds, so an identity names one part of a chart. An app carries the views and the selections of a plot to a new chart by its identity, its id and its partition, so the plot of a facet keeps them when a new query reorders the facets. A plot or a layer without an id has the identity of its path in the tree and its partition, where the cells of a facet take `children[*]` for their index, so its tools keep their views in a new chart of the same structure, and start anew when the plot moves to another path. A view carries to a scale of the same type that scales the same fields. An id is needed only where something names the part: a stylesheet's `#id`, a selection's clauses, which name their owner by id, so a plot or a layer that declares a selection has one, as a plot whose navigation moves a scale whose domain reads a selection does, and the anchor of a widget.
 
 A widget is not one of these parts. Layers declare widgets under keys, which repeat: the declarations of one key are copies, and the resolve rules decide how many widgets they make, as they decide how many scales the encodings of a channel make. A widget's identity is its key with its anchor, the child or the layer that an independent rule made its group for, so a widget that the whole chart shares is its key alone, and the widgets of the facets of a facet grid are its key with each facet's plot. A widget's clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`, so it keeps its value across chart updates as a brush does.
 
