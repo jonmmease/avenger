@@ -238,119 +238,32 @@ fn ours(name: &str, form: &Form) -> Vec<Vec<String>> {
 }
 
 /// The forms of GoogleSQL that the library doesn't map, by function, and why.
+#[rustfmt::skip]
 const OMITTED: &[(&str, &str, &str)] = &[
     ("SUM", "INTERVAL", "DataFusion's sum doesn't add intervals"),
-    (
-        "AVG",
-        "INTERVAL",
-        "DataFusion's avg doesn't average intervals",
-    ),
-    (
-        "STRING_AGG",
-        "BYTES",
-        "DataFusion's string_agg joins strings",
-    ),
-    (
-        "GENERATE_ARRAY",
-        "NUMERIC",
-        "DataFusion's range generates integers",
-    ),
-    (
-        "GENERATE_ARRAY",
-        "BIGNUMERIC",
-        "DataFusion's range generates integers",
-    ),
-    (
-        "GENERATE_ARRAY",
-        "FLOAT64",
-        "DataFusion's range generates integers",
-    ),
-    (
-        "CONCAT",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
+    ("AVG", "INTERVAL", "DataFusion's avg doesn't average intervals"),
+    ("STRING_AGG", "BYTES", "DataFusion's string_agg joins strings"),
+    ("GENERATE_ARRAY", "NUMERIC", "DataFusion's range generates integers"),
+    ("GENERATE_ARRAY", "BIGNUMERIC", "DataFusion's range generates integers"),
+    ("GENERATE_ARRAY", "FLOAT64", "DataFusion's range generates integers"),
+    ("CONCAT", "BYTES", "the string functions of DataFusion take strings"),
     ("LENGTH", "BYTES", "DataFusion's octet_length takes strings"),
-    (
-        "LOWER",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "UPPER",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "SUBSTR",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "SUBSTRING",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "TRIM",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "LTRIM",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "RTRIM",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "REPLACE",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "STARTS_WITH",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "ENDS_WITH",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "STRPOS",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "SPLIT",
-        "BYTES",
-        "the string functions of DataFusion take strings",
-    ),
-    (
-        "REGEXP_CONTAINS",
-        "BYTES",
-        "the regular expressions of DataFusion take strings",
-    ),
-    (
-        "REGEXP_EXTRACT",
-        "BYTES",
-        "the regular expressions of DataFusion take strings",
-    ),
-    (
-        "REGEXP_REPLACE",
-        "BYTES",
-        "the regular expressions of DataFusion take strings",
-    ),
-    (
-        "REGEXP_EXTRACT",
-        "INT64",
-        "the position and the occurrence of a match have no mapping",
-    ),
+    ("LOWER", "BYTES", "the string functions of DataFusion take strings"),
+    ("UPPER", "BYTES", "the string functions of DataFusion take strings"),
+    ("SUBSTR", "BYTES", "the string functions of DataFusion take strings"),
+    ("SUBSTRING", "BYTES", "the string functions of DataFusion take strings"),
+    ("TRIM", "BYTES", "the string functions of DataFusion take strings"),
+    ("LTRIM", "BYTES", "the string functions of DataFusion take strings"),
+    ("RTRIM", "BYTES", "the string functions of DataFusion take strings"),
+    ("REPLACE", "BYTES", "the string functions of DataFusion take strings"),
+    ("STARTS_WITH", "BYTES", "the string functions of DataFusion take strings"),
+    ("ENDS_WITH", "BYTES", "the string functions of DataFusion take strings"),
+    ("STRPOS", "BYTES", "the string functions of DataFusion take strings"),
+    ("SPLIT", "BYTES", "the string functions of DataFusion take strings"),
+    ("REGEXP_CONTAINS", "BYTES", "the regular expressions of DataFusion take strings"),
+    ("REGEXP_EXTRACT", "BYTES", "the regular expressions of DataFusion take strings"),
+    ("REGEXP_REPLACE", "BYTES", "the regular expressions of DataFusion take strings"),
+    ("REGEXP_EXTRACT", "INT64", "the position and the occurrence of a match have no mapping"),
 ];
 
 #[test]
@@ -432,18 +345,34 @@ async fn resolution_picks_googlesqls_form() {
 }
 
 #[test]
-fn the_reference_of_every_function() {
+fn the_reference_renders_each_part_of_an_entry() {
+    // The entries of a sample of functions that show each part of an entry: `SAFE.` and notes
+    // (SUBSTR), clauses (COUNT), `OVER` (LAG), a date part (DATE_TRUNC), and named, constant
+    // and one-of arguments (bin). The docs of each function are in its declaration, and
+    // `every_function_is_documented` checks them all.
     let text = reference(&Library::new());
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let output = manifest.join("tests/output");
+    std::fs::create_dir_all(&output).unwrap();
+    // The whole reference, for reading.
+    std::fs::write(output.join("reference.md"), &text).unwrap();
+    let sample: String = ["COUNT", "LAG", "DATE_TRUNC", "SUBSTR", "bin"]
+        .iter()
+        .map(|name| {
+            let header = format!("## `{name}`\n");
+            let start = text.find(&header).unwrap_or_else(|| panic!("{name}"));
+            let end = (text[start + header.len()..].find("\n## "))
+                .map_or(text.len(), |end| start + header.len() + end + 1);
+            &text[start..end]
+        })
+        .collect();
     let baseline = manifest.join("tests/baselines/functions.md");
     let expected = std::fs::read_to_string(&baseline).unwrap_or_default();
-    if expected != text {
-        let output = manifest.join("tests/output");
-        std::fs::create_dir_all(&output).unwrap();
+    if expected != sample {
         let written = output.join("functions.md");
-        std::fs::write(&written, &text).unwrap();
+        std::fs::write(&written, &sample).unwrap();
         panic!(
-            "the reference differs from {}; the new reference is in {}",
+            "the sample of the reference differs from {}; the new sample is in {}",
             baseline.display(),
             written.display()
         );

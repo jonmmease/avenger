@@ -107,9 +107,7 @@ async fn aggregates_return_googlesqls_values() {
     let ctx = SessionContext::new();
     let mut failures = Vec::new();
     for (text, x, s, expected) in cases {
-        // `>` reads as `<` in the evaluator, so the cases write their comparisons through it.
-        let text = text.replace("x > 1", "1 < x");
-        let aggregate = expr(&library, &text);
+        let aggregate = expr(&library, text);
         let batches = ctx
             .read_batch(table(x, s))
             .unwrap()
