@@ -157,6 +157,168 @@ FROM UNNEST([1, 2, 2, 3, NULL]) AS x |> AGGREGATE MAX(x) AS greatest
 | 3 |
 
 
+## `STDDEV_SAMP`
+
+```googlesql
+STDDEV_SAMP(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the sample standard deviation of the values that are not `NULL`.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE STDDEV_SAMP(x) AS deviation
+```
+
+| deviation |
+| --- |
+| 2.0 |
+
+
+## `STDDEV`
+
+```googlesql
+STDDEV(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the sample standard deviation of the values that are not `NULL`, as `STDDEV_SAMP` does.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE STDDEV(x) AS deviation
+```
+
+| deviation |
+| --- |
+| 2.0 |
+
+
+## `STDDEV_POP`
+
+```googlesql
+STDDEV_POP(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the population standard deviation of the values that are not `NULL`.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE STDDEV_POP(x) AS deviation
+```
+
+| deviation |
+| --- |
+| 1.632993161855452 |
+
+
+## `VAR_SAMP`
+
+```googlesql
+VAR_SAMP(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the sample variance of the values that are not `NULL`.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE VAR_SAMP(x) AS variance
+```
+
+| variance |
+| --- |
+| 4.0 |
+
+
+## `VARIANCE`
+
+```googlesql
+VARIANCE(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the sample variance of the values that are not `NULL`, as `VAR_SAMP` does.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE VARIANCE(x) AS variance
+```
+
+| variance |
+| --- |
+| 4.0 |
+
+
+## `VAR_POP`
+
+```googlesql
+VAR_POP(value: T) -> FLOAT64 where T: FLOAT64 | NUMERIC | BIGNUMERIC
+```
+
+Returns the population variance of the values that are not `NULL`.
+
+The sample statistics are `NULL` for a group of fewer than two values, and the population statistics for a group without values.
+
+**Parameters**
+
++ `value`: The value of each row.
+
+**Clauses**: `DISTINCT`, `HAVING MAX` and `HAVING MIN`, `OVER`
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 3, 5, NULL]) AS x |> AGGREGATE VAR_POP(x) AS variance
+```
+
+| variance |
+| --- |
+| 2.6666666666666665 |
+
+
 ## `ANY_VALUE`
 
 ```googlesql
@@ -2796,6 +2958,114 @@ RPAD('abc', 1)
 ```
 
 Result: `'a'`
+
+
+## `TO_HEX`
+
+```googlesql
+TO_HEX(bytes: BYTES) -> STRING
+```
+
+Returns the hexadecimal digits of bytes, in lower case.
+
+**Parameters**
+
++ `bytes`: The bytes.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+TO_HEX(b'\x00\x01\xef\xff')
+```
+
+Result: `'0001efff'`
+
+
+## `FROM_HEX`
+
+```googlesql
+FROM_HEX(value: STRING) -> BYTES
+```
+
+Returns the bytes of hexadecimal digits.
+
+The digits are in either case. An odd number of digits starts with a `0`. A character that isn't a digit is an error.
+
+**Parameters**
+
++ `value`: The hexadecimal digits.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+FROM_HEX('0001EFff')
+```
+
+Result: `b'\x00\x01\xef\xff'`
+
+```googlesql
+FROM_HEX('abc')
+```
+
+Result: `b'\x0a\xbc'`
+
+
+## `TO_BASE64`
+
+```googlesql
+TO_BASE64(bytes: BYTES) -> STRING
+```
+
+Returns the base64 text of bytes, as RFC 4648 defines it.
+
+**Parameters**
+
++ `bytes`: The bytes.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+TO_BASE64(b'\xde\xad\xbe\xef')
+```
+
+Result: `'3q2+7w=='`
+
+
+## `FROM_BASE64`
+
+```googlesql
+FROM_BASE64(value: STRING) -> BYTES
+```
+
+Returns the bytes of base64 text, as RFC 4648 defines it.
+
+The text can leave out its padding, and whitespace in it is ignored. A character outside the base64 alphabet is an error.
+
+**Parameters**
+
++ `value`: The base64 text.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+FROM_BASE64('3q2+7w==')
+```
+
+Result: `b'\xde\xad\xbe\xef'`
+
+```googlesql
+FROM_BASE64('3q2+ 7w')
+```
+
+Result: `b'\xde\xad\xbe\xef'`
 
 
 ## `REVERSE`

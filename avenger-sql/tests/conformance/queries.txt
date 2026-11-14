@@ -223,6 +223,18 @@ FROM sales |> SELECT product, CAST(units AS STRING FORMAT 'S0999') AS u, CAST(pr
 FROM sales |> SELECT CAST(units AS STRING FORMAT '9X') AS u
 ## cast-to-string
 FROM events |> SELECT id, CAST(score AS STRING) AS s, CAST(score / 3 AS STRING) AS third, CAST(CAST(score AS NUMERIC) AS STRING) AS n, CAST(DATETIME(ts, 'UTC') AS STRING) AS dt, CONCAT('#', CAST(id * 1.5 AS STRING)) AS label
+## spreads
+FROM sales |> AGGREGATE STDDEV(units) AS s, STDDEV_POP(price) AS p, VARIANCE(DISTINCT units) AS v, VAR_POP(units) AS vp, VAR_SAMP(CAST(price AS NUMERIC)) AS vn, COUNT(*) AS n GROUP BY region
+## spread-windows
+FROM sales |> EXTEND STDDEV_SAMP(price) OVER (PARTITION BY region ORDER BY month, product) AS running |> SELECT region, product, month, running
+## spread-of-one
+FROM sales |> WHERE product = 'apple' |> AGGREGATE STDDEV(units) AS s, STDDEV_POP(units) AS p GROUP BY region
+## hex-and-base64
+FROM sales |> SELECT DISTINCT product, TO_HEX(CAST(product AS BYTES)) AS hex, TO_BASE64(CAST(product AS BYTES)) AS b64, CAST(FROM_HEX(TO_HEX(CAST(product AS BYTES))) AS STRING) AS back, CAST(FROM_BASE64(TO_BASE64(CAST(product AS BYTES))) AS STRING) AS back64
+## error-from-hex
+FROM sales |> SELECT FROM_HEX(product) AS b
+## safe-from-base64
+FROM sales |> SELECT DISTINCT product, SAFE.FROM_BASE64(CONCAT(product, '!')) AS b
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column

@@ -1156,6 +1156,19 @@ fn canonical(array: &ArrayRef, row: usize, offset: Option<i64>) -> Result<String
     })
 }
 
+/// The text of the bytes `value` in `encoding`, such as `"HEX"`, as `TO_HEX` gives it.
+pub(crate) fn encoded(value: Expr, encoding: &str, safe: bool) -> Expr {
+    let safe = lit_str(if safe { "safe" } else { "" });
+    BYTES_TO_STRING.call(vec![lit_str(encoding), safe, lit_str(""), value])
+}
+
+/// The bytes of the text `value` in `encoding`, such as `"HEX"`, as `FROM_HEX` gives them, with
+/// GoogleSQL's error for text outside the encoding, or `NULL` where `safe`.
+pub(crate) fn decoded(value: Expr, encoding: &str, safe: bool) -> Expr {
+    let safe = lit_str(if safe { "safe" } else { "" });
+    STRING_TO_BYTES.call(vec![lit_str(encoding), safe, lit_str(""), value])
+}
+
 /// `CAST(value AS STRING)` of a value of the type `from`, as GoogleSQL writes it, where Arrow's
 /// cast writes it otherwise: a `FLOAT64`, a `NUMERIC` or `BIGNUMERIC`, a `DATETIME`, or a
 /// `TIMESTAMP` in the time zone `zone`. `None` for another type, whose Arrow cast is GoogleSQL's.
