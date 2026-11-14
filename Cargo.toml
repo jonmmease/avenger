@@ -155,6 +155,7 @@ arrow-cast = { version = "59.3" }
 arrow-schema = { version = "59.3" }
 rowan = "0.16"
 ungrammar = "1.16"
+regex = "1.13"
 datafusion = { version = "55.2", default-features = false }
 datafusion-proto = { version = "55.2", default-features = false }
 css-color-parser = "0.1.2"

@@ -29,10 +29,10 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
-mod constructor;
-mod declaration;
+pub(crate) mod constructor;
+pub(crate) mod declaration;
 mod instance;
-mod kind;
+pub(crate) mod kind;
 
 use std::sync::Arc;
 
