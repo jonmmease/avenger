@@ -11,6 +11,47 @@ use crate::{
 const FROM_FIRST: &str = "a query starts with FROM, as in `FROM t |> SELECT a`";
 
 /// The pipe operators of GoogleSQL that avenger-sql does not read.
+/// The words that start each pipe operator that avenger-sql reads, with the words that the first
+/// takes after it, such as `ORDER BY`.
+const PIPE_OPERATORS: &[&str] = &[
+    "SELECT",
+    "EXTEND",
+    "SET",
+    "DROP",
+    "RENAME",
+    "AS",
+    "WHERE",
+    "AGGREGATE",
+    "DISTINCT",
+    "ORDER BY",
+    "LIMIT",
+    "UNION ALL",
+    "UNION DISTINCT",
+    "INTERSECT ALL",
+    "INTERSECT DISTINCT",
+    "EXCEPT ALL",
+    "EXCEPT DISTINCT",
+    "FULL UNION ALL BY NAME",
+    "LEFT UNION ALL BY NAME",
+    "INNER UNION ALL BY NAME",
+    "JOIN",
+    "INNER JOIN",
+    "LEFT JOIN",
+    "RIGHT JOIN",
+    "FULL JOIN",
+    "CROSS JOIN",
+    "NATURAL JOIN",
+    "CALL",
+    "TABLESAMPLE",
+    "WITH",
+    "PIVOT",
+    "UNPIVOT",
+    "MATCH_RECOGNIZE",
+];
+
+/// The sampling methods of `TABLESAMPLE`.
+const SAMPLE_METHODS: &[&str] = &["BERNOULLI", "SYSTEM", "RESERVOIR"];
+
 const UNSUPPORTED_OPERATORS: &[&str] = &[
     "RECURSIVE",
     "WINDOW",
@@ -78,8 +119,8 @@ impl Parser<'_> {
             )
             .help(FROM_FIRST);
         } else {
-            let select = self.at_keyword("SELECT");
-            let with = self.at_keyword("WITH");
+            let select = self.keyword_at(0, "SELECT");
+            let with = self.keyword_at(0, "WITH");
             let rewrite = select.then(|| self.pipe_rewrite()).flatten();
             let diagnostic = self.error_expected("`FROM`");
             if select {
@@ -282,7 +323,7 @@ impl Parser<'_> {
             }
             _ => {}
         }
-        if self.at_keyword("HASH") || self.at_keyword("LOOKUP") {
+        if self.keyword_at(0, "HASH") || self.keyword_at(0, "LOOKUP") {
             let range = self.range();
             self.error(
                 DiagnosticCode::Unsupported,
@@ -428,7 +469,7 @@ impl Parser<'_> {
                 self.table_alias();
                 self.with_offset();
                 self.locking();
-                if self.at_keyword("FOR") && self.keyword_at(1, "SYSTEM_TIME") {
+                if self.keyword_at(0, "FOR") && self.keyword_at(1, "SYSTEM_TIME") {
                     let range = self.range();
                     self.error(
                         DiagnosticCode::Unsupported,
@@ -446,7 +487,7 @@ impl Parser<'_> {
 
     /// GoogleSQL's locking clause, `FOR UPDATE`, which avenger-sql reports and skips.
     fn locking(&mut self) {
-        if !(self.at_keyword("FOR") && self.keyword_at(1, "UPDATE")) {
+        if !(self.keyword_at(0, "FOR") && self.keyword_at(1, "UPDATE")) {
             return;
         }
         let range = self.range().cover(self.nth_range(1));
@@ -514,7 +555,7 @@ impl Parser<'_> {
 
     /// `[WITH OFFSET [[AS] alias]]`
     fn with_offset(&mut self) {
-        if !(self.at_keyword("WITH") && self.keyword_at(1, "OFFSET")) {
+        if !self.at_keywords(&["WITH", "OFFSET"]) {
             return;
         }
         let marker = self.start();
@@ -829,6 +870,7 @@ impl Parser<'_> {
         let marker = self.start();
         self.bump();
         self.record(Expected::PipeOperator);
+        self.record(Expected::Words(PIPE_OPERATORS));
         let word = match self.current() {
             WORD => self.nth_text(0).to_ascii_uppercase(),
             _ => String::new(),
@@ -856,8 +898,12 @@ impl Parser<'_> {
                 if !self.eat_keyword("DISTINCT") {
                     self.eat_keyword("ALL");
                 }
-                if self.at_keyword("AS") {
-                    if self.keyword_at(1, "STRUCT") || self.keyword_at(1, "VALUE") {
+                // `AS STRUCT` and `AS VALUE`, which the parser expects whole: `AS` and a type is
+                // an error.
+                let as_struct = self.at_keywords(&["AS", "STRUCT"]);
+                let as_value = self.at_keywords(&["AS", "VALUE"]);
+                if self.keyword_at(0, "AS") {
+                    if as_struct || as_value {
                         let marker = self.start();
                         self.bump_keyword();
                         self.bump_keyword();
@@ -963,7 +1009,7 @@ impl Parser<'_> {
             }
             "LIMIT" => {
                 self.bump_keyword();
-                if self.at_keyword("ALL") {
+                if self.keyword_at(0, "ALL") {
                     let range = self.range();
                     self.error(
                         DiagnosticCode::Unsupported,
@@ -985,7 +1031,7 @@ impl Parser<'_> {
                 PIPE_LIMIT
             }
             "UNION" | "INTERSECT" | "EXCEPT" => {
-                self.set_operation();
+                self.set_operation(false);
                 PIPE_SET_OPERATION
             }
             "INNER" | "LEFT" | "FULL" | "OUTER"
@@ -1000,7 +1046,7 @@ impl Parser<'_> {
                     self.eat_keyword("OUTER");
                 }
                 mode.complete(self, SET_OP_MODE);
-                self.set_operation();
+                self.set_operation(true);
                 PIPE_SET_OPERATION
             }
             "JOIN" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "NATURAL" | "HASH"
@@ -1198,6 +1244,8 @@ impl Parser<'_> {
     /// `AGGREGATE [items] [GROUP [AND ORDER] BY items]`, where either list can be empty.
     fn aggregate(&mut self) {
         self.bump_keyword();
+        // The items are optional, so an expression can start here even where the operator ends.
+        self.record_expression(0);
         let at_group = |p: &Self| p.at_keyword("GROUP") || p.at_operator_end();
         if !at_group(self) {
             self.comma_list_until(
@@ -1223,7 +1271,7 @@ impl Parser<'_> {
         if self.at_keyword("GROUP") {
             let marker = self.start();
             self.bump_keyword();
-            if self.at_keyword("AND") && self.keyword_at(1, "ORDER") {
+            if self.at_keywords(&["AND", "ORDER"]) {
                 self.bump_keyword();
                 self.bump_keyword();
             }
@@ -1239,7 +1287,7 @@ impl Parser<'_> {
         if self.grouping_base() {
             return;
         }
-        if self.at_keyword("GROUPING") && self.keyword_at(1, "SETS") {
+        if self.at_keywords(&["GROUPING", "SETS"]) {
             let marker = self.start();
             self.eat_keywords(&["GROUPING", "SETS"]);
             self.paren_list(
@@ -1296,20 +1344,38 @@ impl Parser<'_> {
     }
 
     /// `set_operator [BY NAME | CORRESPONDING] (query), ...`, after the mode.
-    fn set_operation(&mut self) {
+    fn set_operation(&mut self, mode: bool) {
         let operator = self.nth_text(0).to_ascii_uppercase();
         if !matches!(operator.as_str(), "UNION" | "INTERSECT" | "EXCEPT") {
             self.error_expected("`UNION`, `INTERSECT` or `EXCEPT`");
         } else {
             self.bump_keyword();
         }
-        if !self.eat_keyword_of(&["ALL", "DISTINCT"]) {
+        // A mode goes with `BY NAME` or `CORRESPONDING`, so after one the parser expects them
+        // with `ALL` or `DISTINCT`.
+        let (all, distinct) = match mode {
+            true => {
+                for phrase in [
+                    &["ALL", "BY", "NAME"][..],
+                    &["ALL", "CORRESPONDING"],
+                    &["DISTINCT", "BY", "NAME"],
+                    &["DISTINCT", "CORRESPONDING"],
+                ] {
+                    self.record(Expected::Phrase(phrase));
+                }
+                (self.keyword_at(0, "ALL"), self.keyword_at(0, "DISTINCT"))
+            }
+            false => (self.at_keyword("ALL"), self.at_keyword("DISTINCT")),
+        };
+        if all || distinct {
+            self.bump_keyword();
+        } else {
             self.error_expected("`ALL` or `DISTINCT`").help(format!(
                 "GoogleSQL writes `{operator} ALL` or `{operator} DISTINCT`"
             ));
         }
         // As GoogleSQL does, `STRICT BY NAME` is an error at `STRICT`.
-        if self.at_keyword("STRICT") && self.keyword_at(1, "BY") && self.keyword_at(2, "NAME") {
+        if self.keyword_at(0, "STRICT") && self.keyword_at(1, "BY") && self.keyword_at(2, "NAME") {
             let range = self.range();
             self.error(
                 DiagnosticCode::Expected,
@@ -1321,7 +1387,7 @@ impl Parser<'_> {
             self.bump_keyword();
             error.complete(self, ERROR);
         }
-        if self.at_keyword("BY") && self.keyword_at(1, "NAME") {
+        if self.at_keywords(&["BY", "NAME"]) {
             let marker = self.start();
             self.eat_keywords(&["BY", "NAME"]);
             if self.eat_keyword("ON") {
@@ -1345,6 +1411,7 @@ impl Parser<'_> {
     fn sample(&mut self) {
         let marker = self.start();
         self.bump_keyword();
+        self.record(Expected::Words(SAMPLE_METHODS));
         self.name_ref(NameRole::Other);
         self.parens(|p| {
             let size = p.start();
@@ -1360,7 +1427,7 @@ impl Parser<'_> {
             size.complete(p, SAMPLE_SIZE);
         });
         let repeatable = self.repeatable();
-        if !repeatable && self.at_keyword("WITH") && self.keyword_at(1, "WEIGHT") {
+        if !repeatable && self.at_keywords(&["WITH", "WEIGHT"]) {
             let weight = self.start();
             self.eat_keywords(&["WITH", "WEIGHT"]);
             if self.at_keyword("AS") || (self.at_ident() && !self.at_keyword("REPEATABLE")) {
@@ -1440,14 +1507,15 @@ impl Parser<'_> {
             self.expect_keyword("NULLS");
         }
         self.parens(|p| {
-            p.path_or_paths();
+            // The value columns and the label column are new names.
+            p.path_or_paths(NameRole::Alias);
             p.expect_keyword("FOR");
-            p.path(NameRole::Column);
+            p.path(NameRole::Alias);
             p.expect_keyword("IN");
             p.paren_list(
                 |p| {
                     let item = p.start();
-                    p.path_or_paths();
+                    p.path_or_paths(NameRole::Column);
                     let has_as = p.eat_keyword("AS");
                     match p.current() {
                         STRING | INTEGER => {
@@ -1478,20 +1546,20 @@ impl Parser<'_> {
     }
 
     /// A path, or paths in parentheses, in a `PATH_LIST` node.
-    fn path_or_paths(&mut self) {
+    fn path_or_paths(&mut self, role: NameRole) {
         if self.unpack() {
             return;
         }
         let marker = self.start();
         if self.current() != L_PAREN {
-            self.path(NameRole::Column);
+            self.path(role);
             marker.complete(self, PATH_LIST);
             return;
         }
         self.paren_list(
             |p| {
                 if !p.unpack() {
-                    p.path(NameRole::Column);
+                    p.path(role);
                 }
             },
             false,

@@ -178,7 +178,13 @@ fn path_role(name: &SyntaxNode, path: &SyntaxNode) -> (NameRole, bool) {
         TVF_SOURCE | PIPE_CALL => NameRole::Function(FunctionRole::Table),
         CALL_EXPR => NameRole::Function(FunctionRole::Unresolved),
         IMPORT_STMT | MODULE_STMT => NameRole::Module,
-        PATH_LIST | UNPIVOT_CLAUSE => NameRole::Column,
+        // The value columns and the label column of an `UNPIVOT` are new names, and the columns
+        // of its items are the input's.
+        PATH_LIST if holder.parent().is_some_and(|p| p.kind() == UNPIVOT_CLAUSE) => {
+            return (NameRole::Column, true)
+        }
+        UNPIVOT_CLAUSE => return (NameRole::Column, true),
+        PATH_LIST => NameRole::Column,
         CREATE_TABLE_STMT => return (NameRole::Table, true),
         CREATE_FUNCTION_STMT => {
             let kind = ast::CreateFunctionStmt::cast(holder).map(|stmt| stmt.function_kind());
