@@ -30,6 +30,7 @@ pub mod catalog;
 mod functions;
 pub mod library;
 mod pipeline;
+pub mod streaming;
 pub mod types;
 
 use datafusion::{common::Result, prelude::SessionContext};

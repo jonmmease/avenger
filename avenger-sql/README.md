@@ -91,6 +91,10 @@ Its arguments name the columns of its input: the key, an array of the group colu
 
 The example `sql-chart` shows the chart of a query in a chart app, and `chart-lump` the lumped genres of movies.
 
+## Streaming queries over events
+
+`streaming::split` splits the plan of a query over a table of events, such as the pointer events of a chart, for a streaming runtime: the stateless stages that read the events, a front that reduces their rows, and the rest of the query over the front's output. The fronts are an `AGGREGATE`, grouped or ungrouped, and an `ORDER BY ... LIMIT` whose last key is `seq`. A query of another shape is a rejection that names the operator, and runs as a batch plan. avenger-streaming runs the split frame by frame, with the batch plan's result after every frame.
+
 ## Conformance with GoogleSQL
 
 Two kinds of tests compare avenger-sql with GoogleSQL's `execute_query` 2026.11.1. `tests/googlesql_queries.rs` runs pipe queries whose results `execute_query` recorded in `tests/data/googlesql_pipe_*.txt`, and runs in every test run. The ignored test `tests/conformance.rs` runs each query of `tests/conformance/queries.txt` through `sql` and through `execute_query --mode=execute` over the CSV tables of `tests/conformance`, which both read as `STRING` columns and `tables.sql` types, and compares the names of the columns and the rows, or the errors. A difference that `tests/conformance/known.txt` lists, such as a function that the library doesn't map yet, is explained, and any other fails the test. The report is in `tests/output/conformance.md`. The test needs the binary at `scratch/tools/googlesql/execute_query_macos`, and without it skips with a message:
