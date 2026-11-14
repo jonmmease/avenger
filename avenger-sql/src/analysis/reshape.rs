@@ -31,6 +31,7 @@ use datafusion::{
 
 use super::{
     expr::Scope,
+    model::PlaceKind,
     rows::{self, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -92,6 +93,24 @@ pub(super) fn alias_var(alias: Option<ast::Alias>, columns: &[Col]) -> Vec<Range
 }
 
 impl Pass<'_> {
+    /// Whether `expr` calls an aggregate function: of the library, or a temporary one.
+    fn calls_aggregate(&self, expr: &ast::Expr) -> bool {
+        let ast::Expr::CallExpr(call) = expr else {
+            return false;
+        };
+        let Some(names) = call.path().and_then(|path| path.names()) else {
+            return false;
+        };
+        if let Some(function) = self.temp_function(&names) {
+            return function.kind == super::script::Kind::Aggregate;
+        }
+        let name = match names.as_slice() {
+            [name] | [_, name] => name,
+            _ => return false,
+        };
+        (self.library.get(name)).is_some_and(|f| f.kind == crate::library::FunctionKind::Aggregate)
+    }
+
     /// The rows of a `PIVOT`.
     pub(super) fn pivot(
         &mut self,
@@ -100,6 +119,12 @@ impl Pass<'_> {
         range: TextRange,
     ) -> Rows {
         let rows = rows.unordered().without_vars();
+        // The clause reads the columns of its input, which an editor offers in it.
+        self.record_operator(clause.syntax().text_range(), Some(&rows), &rows);
+        {
+            let scope = Scope::of(&rows, "PIVOT").aggregates();
+            self.place(clause.syntax().text_range(), PlaceKind::Pivot, &scope, None);
+        }
         let aggregates: Vec<(Option<Expr>, Option<String>, TextRange)> = clause
             .aliased_exprs()
             .map(|aliased| {
@@ -109,12 +134,23 @@ impl Pass<'_> {
                     .and_then(|a| a.name())
                     .and_then(|n| n.text());
                 let scope = Scope::of(&rows, "PIVOT").aggregates();
-                (aliased.expr().and_then(|e| self.expr(&e, scope)), alias, at)
+                let expr = aliased.expr().and_then(|e| {
+                    let planned = self.expr(&e, scope)?;
+                    // A call of a function that plans to its argument, as `CONCAT(SUM(x))`,
+                    // is no aggregate call, though its plan is one.
+                    match self.calls_aggregate(&e) {
+                        true => Some(planned),
+                        false => Some(Expr::Literal(ScalarValue::Null, None)),
+                    }
+                });
+                (expr, alias, at)
             })
             .collect();
-        let for_expr = clause
-            .column()
-            .and_then(|e| self.expr(&e, Scope::of(&rows, "PIVOT")));
+        let for_expr = clause.column().and_then(|e| {
+            let scope = Scope::of(&rows, "PIVOT");
+            self.place(e.syntax().text_range(), PlaceKind::GroupKey, &scope, None);
+            self.expr(&e, scope)
+        });
         let values: Vec<(Option<Expr>, Option<String>, TextRange)> =
             (clause.pivot_values().into_iter())
                 .flat_map(|values| values.aliased_exprs().collect::<Vec<_>>())
@@ -286,6 +322,12 @@ impl Pass<'_> {
         range: TextRange,
     ) -> Rows {
         let rows = rows.unordered().without_vars();
+        // The clause reads the columns of its input, which an editor offers in it.
+        self.record_operator(clause.syntax().text_range(), Some(&rows), &rows);
+        if let Some(in_kw) = clause.in_kw() {
+            let list = TextRange::new(in_kw.text_range().end(), clause.syntax().text_range().end());
+            self.place_without_scope(list, PlaceKind::ColumnList);
+        }
         let include_nulls = clause.include_kw().is_some();
         let value_names: Vec<(String, TextRange)> = (clause.path_list().into_iter())
             .flat_map(|list| list.paths().collect::<Vec<_>>())
@@ -414,10 +456,13 @@ impl Pass<'_> {
             exprs.push(label.clone().alias("$label"));
             let mut builder = LogicalPlanBuilder::from(plan.clone());
             if !include_nulls {
-                let kept = (columns.iter())
+                // A text without value columns, which its syntax error reports, has none to keep.
+                let Some(kept) = (columns.iter())
                     .map(|expr| expr.clone().is_not_null())
                     .reduce(Expr::or)
-                    .expect("a column");
+                else {
+                    return failed(self);
+                };
                 builder = match builder.filter(kept) {
                     Ok(builder) => builder,
                     Err(error) => {

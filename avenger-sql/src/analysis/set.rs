@@ -16,6 +16,7 @@ use datafusion::{
 };
 
 use super::{
+    model::PlaceKind,
     rows::{Col, Item, Rows},
     Pass,
 };
@@ -90,6 +91,7 @@ impl Pass<'_> {
         let list: Option<Vec<(String, TextRange)>> = (by_name.as_ref().and_then(|b| b.name_list()))
             .or_else(|| corresponding.as_ref().and_then(|c| c.name_list()))
             .map(|list| {
+                self.place_without_scope(list.syntax().text_range(), PlaceKind::ColumnList);
                 list.name_refs()
                     .filter_map(|name| Some((name.text()?, name.syntax().text_range())))
                     .collect()

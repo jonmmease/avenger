@@ -18,7 +18,7 @@ use datafusion::{
 
 use super::{
     expr::{inferred_name, Scope},
-    model::Definition,
+    model::{Definition, PlaceKind},
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -675,6 +675,7 @@ impl Pass<'_> {
                         windows: false,
                         groups: Some(&[]),
                     };
+                    self.place(on.syntax().text_range(), PlaceKind::Filter, &scope, None);
                     on.expr().and_then(|expr| {
                         let at = expr.syntax().text_range();
                         let planned = self.expr(&expr, scope)?;
@@ -717,6 +718,9 @@ impl Pass<'_> {
         range: TextRange,
     ) -> Rows {
         let mut keys: Vec<(Col, Col, TextRange)> = Vec::new();
+        if let Some(list) = using.name_list() {
+            self.place_without_scope(list.syntax().text_range(), PlaceKind::ColumnList);
+        }
         for name_ref in using.name_list().iter().flat_map(|list| list.name_refs()) {
             let at = name_ref.syntax().text_range();
             let Some(name) = name_ref.text() else {
@@ -850,6 +854,10 @@ impl Pass<'_> {
     // --- Pipe operators ---
 
     fn pipe_where(&mut self, rows: Rows, op: &ast::PipeWhere) -> Rows {
+        {
+            let scope = Scope::of(&rows, "pipe WHERE clause").windows();
+            self.place(op.syntax().text_range(), PlaceKind::Filter, &scope, None);
+        }
         let Some(condition) = op.condition() else {
             return rows.fail();
         };
@@ -890,6 +898,7 @@ impl Pass<'_> {
                 continue;
             };
             let at = named.syntax().text_range();
+            self.place(at, PlaceKind::OrderKey, &Scope::of(&rows, clause), None);
             let syntax = match (named.name_ref(), named.window_spec()) {
                 (Some(base), _) => self.named_window(&base),
                 (None, Some(spec)) => self.extend_window(&spec, at),
@@ -905,6 +914,7 @@ impl Pass<'_> {
             false => Vec::new(),
         };
         let scope = Scope::of(&rows, clause).windows();
+        self.place(range, PlaceKind::SelectItem, &scope, None);
         for entry in entries {
             match entry {
                 ast::SelectEntry::SelectItem(item) => {
@@ -1147,6 +1157,10 @@ impl Pass<'_> {
     /// The rows of a pipe `SET`: each assignment replaces a column in its place. The range
     /// variables keep the values before it.
     fn set(&mut self, rows: Rows, op: &ast::PipeSet, range: TextRange) -> Rows {
+        {
+            let scope = Scope::of(&rows, "pipe SET").windows();
+            self.place(range, PlaceKind::SelectItem, &scope, None);
+        }
         let mut items: Vec<Item> = rows.columns.iter().cloned().map(Item::Carry).collect();
         let mut assigned = HashSet::new();
         let mut ok = true;
@@ -1295,6 +1309,10 @@ impl Pass<'_> {
     /// The rows of a pipe `ORDER BY`: the keys replace the order. An integer literal is the
     /// position of a column, from 1.
     fn order_by(&mut self, rows: Rows, op: &ast::PipeOrderBy, range: TextRange) -> Rows {
+        {
+            let scope = Scope::of(&rows, "pipe ORDER BY clause").windows();
+            self.place(range, PlaceKind::OrderKey, &scope, None);
+        }
         let Some(order) = op.order_by() else {
             return rows.fail();
         };
@@ -1346,6 +1364,7 @@ impl Pass<'_> {
 
     /// The rows of a pipe `LIMIT`, whose count and offset are `INT64` constants.
     fn limit(&mut self, rows: Rows, op: &ast::PipeLimit, range: TextRange) -> Rows {
+        self.place_without_scope(range, PlaceKind::Constant);
         let fetch = op.count().and_then(|count| self.constant(&count));
         let skip = match op.limit_offset() {
             Some(offset) => offset
@@ -1497,6 +1516,19 @@ impl Pass<'_> {
     /// A suffix `ASC` or `DESC`, or `GROUP AND ORDER BY`, orders the rows by its item: the group
     /// items first, then the items.
     fn aggregate(&mut self, rows: Rows, op: &ast::PipeAggregate, range: TextRange) -> Rows {
+        {
+            let scope = Scope::of(&rows, "pipe AGGREGATE").aggregates();
+            self.place(range, PlaceKind::AggregateItem, &scope, None);
+            if let Some(group_by) = op.group_by() {
+                let scope = Scope::of(&rows, "GROUP BY");
+                self.place(
+                    group_by.syntax().text_range(),
+                    PlaceKind::GroupKey,
+                    &scope,
+                    None,
+                );
+            }
+        }
         let rows = rows.unordered();
         let group_by = op.group_by();
         let ascending = group_by
