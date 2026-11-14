@@ -27,3 +27,8 @@ CREATE TEMP FUNCTION f(x INT64) AS (x + 1); FROM t |> SELECT f(x => 3) AS y	["y"
 CREATE TEMP AGGREGATE FUNCTION h(v INT64, k INT64 NOT AGGREGATE) AS (SUM(v) * k); FROM t |> AGGREGATE h(x, 10) AS total	["total"]	[["60"]]
 CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v) * 2); FROM t |> SELECT h(x)	ERROR	Aggregate function h not allowed in pipe SELECT
 CREATE TEMP FUNCTION f(x INT64) AS (y + 1)	ERROR	Unrecognized name: y
+DECLARE lo INT64 DEFAULT 0; CREATE TEMP FUNCTION f(a INT64) AS (a + lo); FROM t |> SELECT f(x) AS y	["y"]	[["1"], ["2"], ["3"]]
+DECLARE lo INT64 DEFAULT 0; CREATE TEMP FUNCTION f(a INT64) AS (a + lo); SET lo = 5; FROM t |> SELECT f(x) AS y	["y"]	[["6"], ["7"], ["8"]]
+DECLARE x INT64 DEFAULT 10; CREATE TEMP FUNCTION f(x INT64) AS (x * 2); FROM t |> SELECT f(1) AS y	["y"]	[["2"], ["2"], ["2"]]
+DECLARE k INT64 DEFAULT 10; CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v) + k); FROM t |> AGGREGATE h(x) AS total	["total"]	[["16"]]
+DECLARE k INT64 DEFAULT 2; CREATE TEMP TABLE FUNCTION g(n INT64) AS (FROM t |> WHERE x >= n + k); FROM g(0) |> SELECT x	["x"]	[["2"], ["3"]]

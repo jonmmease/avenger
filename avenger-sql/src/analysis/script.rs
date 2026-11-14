@@ -632,7 +632,13 @@ impl Pass<'_> {
             .collect();
         let saved_params = std::mem::replace(&mut self.params, bindings);
         let saved_outers = std::mem::take(&mut self.outers);
-        let saved_variables = std::mem::take(&mut self.variables);
+        // A temporary function's body reads the script's variables, with their values at the
+        // call, as in GoogleSQL, and a parameter hides a variable of its name. A module's
+        // function reads none, since a module is apart from the scripts that import it.
+        let saved_variables = match function.module {
+            Some(_) => std::mem::take(&mut self.variables),
+            None => self.variables.clone(),
+        };
         let pushed = function
             .module
             .clone()
