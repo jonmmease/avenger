@@ -4,9 +4,11 @@
 //!
 //! - `kinds.rs`: the macro `node_kinds!`, which adds the node kinds, in the grammar's order and
 //!   with its `///` docs, to the invocation of `syntax_kinds!` in `src/syntax_kind.rs`.
-//! - `nodes.rs`: for each rule whose alternatives are all nodes, an enum of those nodes; for
-//!   each other rule, a struct around its `SyntaxNode`, with an accessor for each child; and
-//!   `shape`, the kinds of the children and tokens that a node of each kind can hold.
+//! - `nodes.rs`: for each rule whose alternatives are all nodes, an enum of those nodes, through
+//!   `ast_enum!`; for each other rule, a struct around its `SyntaxNode`, through `ast_node!`,
+//!   with an accessor for each child.
+//! - `shape.rs`: `shape`, the kinds of the children and tokens that a node of each kind can
+//!   hold, which the tests include to check their trees against the grammar.
 //!
 //! An accessor of a token returns its first token of the token's kinds. An accessor of a node
 //! returns the first child of the node's type, or with a label, as in `rhs:Expr`, the child of
@@ -36,6 +38,7 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out.join("kinds.rs"), model.kinds()).unwrap();
     std::fs::write(out.join("nodes.rs"), model.nodes()).unwrap();
+    std::fs::write(out.join("shape.rs"), model.shape()).unwrap();
 }
 
 /// A rule of the grammar: an enum of nodes, or a node with fields.
@@ -204,7 +207,6 @@ impl Model {
                 Def::Enum(variants) => self.write_enum(&mut out, name, variants, docs),
             }
         }
-        self.write_shape(&mut out);
         out
     }
 
@@ -216,30 +218,13 @@ impl Model {
         docs: Option<&Vec<String>>,
     ) {
         let kind = kind_name(name);
+        writeln!(out, "ast_node!(").unwrap();
         write_docs(
             out,
             docs,
             &format!("A node of kind [`SyntaxKind::{kind}`]."),
         );
-        writeln!(out, "#[derive(Clone, Debug, PartialEq, Eq, Hash)]").unwrap();
-        writeln!(out, "pub struct {name} {{ pub(crate) syntax: SyntaxNode }}").unwrap();
-        writeln!(out, "impl AstNode for {name} {{").unwrap();
-        writeln!(
-            out,
-            "    fn can_cast(kind: SyntaxKind) -> bool {{ kind == SyntaxKind::{kind} }}"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "    fn cast(syntax: SyntaxNode) -> Option<Self> {{ Self::can_cast(syntax.kind()).then_some(Self {{ syntax }}) }}"
-        )
-        .unwrap();
-        writeln!(
-            out,
-            "    fn syntax(&self) -> &SyntaxNode {{ &self.syntax }}"
-        )
-        .unwrap();
-        writeln!(out, "}}").unwrap();
+        writeln!(out, "{name}, {kind});").unwrap();
         writeln!(out, "impl {name} {{").unwrap();
         for field in fields {
             let accessor = accessor(field);
@@ -271,7 +256,6 @@ impl Model {
             }
         }
         writeln!(out, "}}").unwrap();
-        write_display(out, name);
     }
 
     fn write_enum(
@@ -281,55 +265,15 @@ impl Model {
         variants: &[String],
         docs: Option<&Vec<String>>,
     ) {
+        writeln!(out, "ast_enum!(").unwrap();
         write_docs(out, docs, &format!("One of: {}.", variants.join(", ")));
-        writeln!(out, "#[derive(Clone, Debug, PartialEq, Eq, Hash)]").unwrap();
-        writeln!(out, "pub enum {name} {{").unwrap();
-        for variant in variants {
-            writeln!(out, "    {variant}({variant}),").unwrap();
-        }
-        writeln!(out, "}}").unwrap();
-        writeln!(out, "impl AstNode for {name} {{").unwrap();
-        let can_cast: Vec<String> = variants
-            .iter()
-            .map(|variant| format!("{variant}::can_cast(kind)"))
-            .collect();
-        writeln!(
-            out,
-            "    fn can_cast(kind: SyntaxKind) -> bool {{ {} }}",
-            can_cast.join(" || ")
-        )
-        .unwrap();
-        writeln!(out, "    fn cast(syntax: SyntaxNode) -> Option<Self> {{").unwrap();
-        writeln!(out, "        let kind = syntax.kind();").unwrap();
-        for variant in variants {
-            writeln!(
-                out,
-                "        if {variant}::can_cast(kind) {{ return {variant}::cast(syntax).map(Self::{variant}); }}"
-            )
-            .unwrap();
-        }
-        writeln!(out, "        None").unwrap();
-        writeln!(out, "    }}").unwrap();
-        writeln!(out, "    fn syntax(&self) -> &SyntaxNode {{").unwrap();
-        writeln!(out, "        match self {{").unwrap();
-        for variant in variants {
-            writeln!(out, "            Self::{variant}(node) => node.syntax(),").unwrap();
-        }
-        writeln!(out, "        }}").unwrap();
-        writeln!(out, "    }}").unwrap();
-        writeln!(out, "}}").unwrap();
-        for variant in variants {
-            writeln!(
-                out,
-                "impl From<{variant}> for {name} {{ fn from(node: {variant}) -> Self {{ Self::{variant}(node) }} }}"
-            )
-            .unwrap();
-        }
-        write_display(out, name);
+        writeln!(out, "{name} {{ {} }});", variants.join(", ")).unwrap();
     }
 
     /// `shape`: for each node kind, the kinds of the nodes and the tokens that it can hold.
-    fn write_shape(&self, out: &mut String) {
+    fn shape(&self) -> String {
+        let mut out = String::new();
+        writeln!(out, "// Generated by build.rs from sql.ungram.").unwrap();
         writeln!(
             out,
             "/// The kinds of the child nodes and of the tokens, other than trivia, that a node of `kind`"
@@ -342,7 +286,7 @@ impl Model {
         .unwrap();
         writeln!(
             out,
-            "pub(crate) fn shape(kind: SyntaxKind) -> Option<(&'static [SyntaxKind], &'static [SyntaxKind])> {{"
+            "pub fn shape(kind: SyntaxKind) -> Option<(&'static [SyntaxKind], &'static [SyntaxKind])> {{"
         )
         .unwrap();
         writeln!(out, "    match kind {{").unwrap();
@@ -373,6 +317,7 @@ impl Model {
         writeln!(out, "        _ => None,").unwrap();
         writeln!(out, "    }}").unwrap();
         writeln!(out, "}}").unwrap();
+        out
     }
 }
 
@@ -385,14 +330,6 @@ fn write_docs(out: &mut String, docs: Option<&Vec<String>>, default: &str) {
         }
         None => writeln!(out, "/// {default}").unwrap(),
     }
-}
-
-fn write_display(out: &mut String, name: &str) {
-    writeln!(
-        out,
-        "impl std::fmt::Display for {name} {{ fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {{ std::fmt::Display::fmt(self.syntax(), f) }} }}"
-    )
-    .unwrap();
 }
 
 /// The variants of a rule whose alternatives are all nodes.

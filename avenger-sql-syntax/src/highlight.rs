@@ -160,11 +160,7 @@ fn path_role(name: &SyntaxNode, path: &SyntaxNode) -> (NameRole, bool) {
 /// Whether the path expression `expr` is the date part of an `EXTRACT`, as `MONTH` is in
 /// `EXTRACT(MONTH FROM d)`.
 fn is_date_part(expr: &SyntaxNode) -> bool {
-    let Some(parent) = expr.parent().filter(|node| node.kind() == EXTRACT_EXPR) else {
-        return false;
-    };
-    let first_expr = parent
-        .children()
-        .find(|child| crate::ast::Expr::can_cast(child.kind()));
-    first_expr.as_ref() == Some(expr)
+    (expr.parent().and_then(crate::ast::ExtractExpr::cast))
+        .and_then(|extract| extract.part())
+        .is_some_and(|part| part.syntax() == expr)
 }

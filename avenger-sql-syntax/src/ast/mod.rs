@@ -78,39 +78,79 @@ mod support {
     }
 }
 
-include!(concat!(env!("OUT_DIR"), "/nodes.rs"));
+/// The tokens of `node`, not of its children, other than trivia.
+pub(crate) fn tokens(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
+    node.children_with_tokens()
+        .filter_map(|element| element.into_token())
+        .filter(|token| !token.kind().is_trivia())
+}
 
-/// The places where the tree `root` differs from `sql.ungram`: each child node and each token,
-/// other than trivia and `ERROR` nodes, that the grammar doesn't give its parent, as
-/// `PARENT: CHILD`. The tests check that the trees of their corpora have none.
-#[doc(hidden)]
-pub fn grammar_violations(root: &SyntaxNode) -> Vec<String> {
-    let mut violations = Vec::new();
-    for node in root.descendants() {
-        let kind = node.kind();
-        if kind == SyntaxKind::ERROR {
-            continue;
+/// A typed node of one kind.
+macro_rules! ast_node {
+    ($(#[$meta:meta])* $name:ident, $kind:ident) => {
+        $(#[$meta])*
+        #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+        pub struct $name {
+            pub(crate) syntax: SyntaxNode,
         }
-        let Some((nodes, tokens)) = shape(kind) else {
-            violations.push(format!("{kind:?}: no rule"));
-            continue;
-        };
-        for child in node.children_with_tokens() {
-            let child_kind = child.kind();
-            let allowed = match &child {
-                rowan::NodeOrToken::Node(_) => {
-                    child_kind == SyntaxKind::ERROR || nodes.contains(&child_kind)
-                }
-                rowan::NodeOrToken::Token(_) => {
-                    child_kind.is_trivia() || tokens.contains(&child_kind)
-                }
-            };
-            if !allowed {
-                violations.push(format!("{kind:?}: {child_kind:?}"));
+
+        impl AstNode for $name {
+            fn can_cast(kind: SyntaxKind) -> bool {
+                kind == SyntaxKind::$kind
+            }
+
+            fn cast(syntax: SyntaxNode) -> Option<Self> {
+                Self::can_cast(syntax.kind()).then_some(Self { syntax })
+            }
+
+            fn syntax(&self) -> &SyntaxNode {
+                &self.syntax
             }
         }
-    }
-    violations.sort();
-    violations.dedup();
-    violations
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Display::fmt(&self.syntax, f)
+            }
+        }
+    };
 }
+
+/// A typed node of any of the kinds of its variants.
+macro_rules! ast_enum {
+    ($(#[$meta:meta])* $name:ident { $($variant:ident),* $(,)? }) => {
+        $(#[$meta])*
+        #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+        pub enum $name {
+            $($variant($variant),)*
+        }
+
+        impl AstNode for $name {
+            fn can_cast(kind: SyntaxKind) -> bool {
+                $($variant::can_cast(kind))||*
+            }
+
+            fn cast(syntax: SyntaxNode) -> Option<Self> {
+                let kind = syntax.kind();
+                $(if $variant::can_cast(kind) {
+                    return $variant::cast(syntax).map(Self::$variant);
+                })*
+                None
+            }
+
+            fn syntax(&self) -> &SyntaxNode {
+                match self {
+                    $(Self::$variant(node) => node.syntax(),)*
+                }
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::Display::fmt(self.syntax(), f)
+            }
+        }
+    };
+}
+
+include!(concat!(env!("OUT_DIR"), "/nodes.rs"));

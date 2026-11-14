@@ -4,13 +4,6 @@
 use super::*;
 use crate::{escape, SyntaxKind::*};
 
-/// The tokens of `node`, not of its children, other than trivia.
-fn tokens(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia())
-}
-
 /// The text of a name, without its backticks and with its escapes decoded. A table's dashed
 /// first name, such as `my-project-2.` in `my-project-2.dataset`, is its text without the dot
 /// that its last number holds.
@@ -100,7 +93,7 @@ impl Literal {
     /// The value of a string literal: its adjacent strings concatenated, with their escapes
     /// decoded, or `None` when an escape is wrong or the value isn't UTF-8.
     pub fn string_value(&self) -> Option<String> {
-        concatenated(&self.syntax, STRING).and_then(|value| String::from_utf8(value).ok())
+        string_of(&self.syntax)
     }
 
     /// The value of a bytes literal: its adjacent bytes literals concatenated, with their
@@ -114,8 +107,13 @@ impl TypedLiteral {
     /// The value of the string of the literal, as [`Literal::string_value`] decodes it, such as
     /// `2024-01-01` in `DATE '2024-01-01'`.
     pub fn value(&self) -> Option<String> {
-        concatenated(&self.syntax, STRING).and_then(|value| String::from_utf8(value).ok())
+        string_of(&self.syntax)
     }
+}
+
+/// The string of the string literals of `node`, concatenated, with their escapes decoded.
+fn string_of(node: &SyntaxNode) -> Option<String> {
+    concatenated(node, STRING).and_then(|value| String::from_utf8(value).ok())
 }
 
 /// The concatenated values of the tokens of `node` of `kind`, or `None` when there are none or
@@ -231,13 +229,22 @@ pub trait CreateStmt: AstNode {
         tokens(self.syntax()).any(|token| token.kind() == EXISTS_KW)
     }
 
+    /// The keyword of the statement's scope: `TEMP`, `TEMPORARY`, `PUBLIC` or `PRIVATE`.
+    fn scope_token(&self) -> Option<SyntaxToken> {
+        tokens(self.syntax()).find(|token| {
+            matches!(
+                token.kind(),
+                TEMP_KW | TEMPORARY_KW | PUBLIC_KW | PRIVATE_KW
+            )
+        })
+    }
+
     fn scope_kind(&self) -> Option<Scope> {
-        tokens(self.syntax()).find_map(|token| match token.kind() {
+        match self.scope_token()?.kind() {
             TEMP_KW | TEMPORARY_KW => Some(Scope::Temp),
             PUBLIC_KW => Some(Scope::Public),
-            PRIVATE_KW => Some(Scope::Private),
-            _ => None,
-        })
+            _ => Some(Scope::Private),
+        }
     }
 
     /// The path that the statement names its object by.

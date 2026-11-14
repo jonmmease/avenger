@@ -25,7 +25,7 @@
 use rowan::{TextRange, TextSize};
 
 use crate::{
-    ast::{self, AstNode, CreateStmt, FunctionKind, Scope},
+    ast::{self, tokens, AstNode, CreateStmt, FunctionKind, Scope},
     diagnostic::{Diagnostic, DiagnosticCode},
     escape,
     SyntaxKind::{self, *},
@@ -58,11 +58,9 @@ struct Validator {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// The tokens of `node`, not of its children, other than trivia.
-fn tokens(node: &SyntaxNode) -> impl Iterator<Item = SyntaxToken> {
-    node.children_with_tokens()
-        .filter_map(|element| element.into_token())
-        .filter(|token| !token.kind().is_trivia())
+/// `node` as the typed node of its kind.
+fn cast<N: AstNode>(node: &SyntaxNode) -> N {
+    N::cast(node.clone()).expect("a node of its kind")
 }
 
 /// The range from the first token of `node` whose kind is in `first` through the first token
@@ -103,23 +101,23 @@ impl Validator {
         match node.kind() {
             DECLARE_STMT => self.declare(node),
             CREATE_TABLE_STMT => {
-                let statement = ast::CreateTableStmt::cast(node.clone()).unwrap();
+                let statement = cast::<ast::CreateTableStmt>(node);
                 self.create(&statement, &[TABLE_KW]);
                 self.create_table(&statement);
             }
             CREATE_FUNCTION_STMT => {
-                let statement = ast::CreateFunctionStmt::cast(node.clone()).unwrap();
+                let statement = cast::<ast::CreateFunctionStmt>(node);
                 self.create(&statement, &[AGGREGATE_KW, TABLE_KW, FUNCTION_KW]);
             }
             CREATE_CONSTANT_STMT => {
-                let statement = ast::CreateConstantStmt::cast(node.clone()).unwrap();
+                let statement = cast::<ast::CreateConstantStmt>(node);
                 self.create(&statement, &[CONSTANT_KW]);
             }
-            PARAMETER => self.parameter(ast::Parameter::cast(node.clone()).unwrap()),
+            PARAMETER => self.parameter(cast::<ast::Parameter>(node)),
             TABLE_TYPE => self.table_type(node),
-            TVF_SOURCE => self.tvf_source(ast::TvfSource::cast(node.clone()).unwrap()),
+            TVF_SOURCE => self.tvf_source(cast::<ast::TvfSource>(node)),
             TABLE_SOURCE => {
-                if let Some(lateral) = ast::TableSource::cast(node.clone()).unwrap().lateral_kw() {
+                if let Some(lateral) = cast::<ast::TableSource>(node).lateral_kw() {
                     self.error(
                         DiagnosticCode::Expected,
                         lateral.text_range(),
@@ -127,16 +125,14 @@ impl Validator {
                     );
                 }
             }
-            UNNEST_SOURCE => self.unnest(ast::UnnestSource::cast(node.clone()).unwrap()),
-            JOIN => self.join(ast::Join::cast(node.clone()).unwrap()),
+            UNNEST_SOURCE => self.unnest(cast::<ast::UnnestSource>(node)),
+            JOIN => self.join(cast::<ast::Join>(node)),
             PIPE_JOIN => {
-                let join = ast::PipeJoin::cast(node.clone()).unwrap();
+                let join = cast::<ast::PipeJoin>(node);
                 self.join_condition(join.join_op(), join.join_condition());
             }
-            PIPE_SET_OPERATION => {
-                self.set_operation(ast::PipeSetOperation::cast(node.clone()).unwrap())
-            }
-            ARG_LIST => self.arguments(ast::ArgList::cast(node.clone()).unwrap()),
+            PIPE_SET_OPERATION => self.set_operation(cast::<ast::PipeSetOperation>(node)),
+            ARG_LIST => self.arguments(cast::<ast::ArgList>(node)),
             LITERAL | TYPED_LITERAL => self.literal(node),
             _ => {}
         }
@@ -159,7 +155,7 @@ impl Validator {
     }
 
     fn declare(&mut self, node: &SyntaxNode) {
-        let declare = ast::DeclareStmt::cast(node.clone()).unwrap();
+        let declare = cast::<ast::DeclareStmt>(node);
         if declare.ty().is_none() && declare.default_kw().is_none() {
             self.error(
                 DiagnosticCode::InvalidStatement,
@@ -181,12 +177,7 @@ impl Validator {
                 "a module creates each object once, so no OR REPLACE",
             );
         }
-        let scope_token = tokens(node).find(|token| {
-            matches!(
-                token.kind(),
-                TEMP_KW | TEMPORARY_KW | PUBLIC_KW | PRIVATE_KW
-            )
-        });
+        let scope_token = statement.scope_token();
         let object_range = tokens_range(node, object, *object.last().unwrap());
         let public = matches!(statement.scope_kind(), Some(Scope::Public | Scope::Private));
         if self.in_module && !public {
@@ -245,10 +236,7 @@ impl Validator {
             }
         }
         if let (true, Some(path)) = (self.in_module, statement.name_path()) {
-            let dots = tokens(path.syntax())
-                .filter(|token| token.kind() == DOT)
-                .count();
-            if dots > 0 {
+            if path.name_refs().nth(1).is_some() {
                 self.error(
                     DiagnosticCode::InvalidStatement,
                     path.range(),
@@ -308,7 +296,7 @@ impl Validator {
 
     /// The columns of a table each take a name and a type.
     fn table_type(&mut self, node: &SyntaxNode) {
-        let table = ast::TableType::cast(node.clone()).unwrap();
+        let table = cast::<ast::TableType>(node);
         let fields: Vec<_> = table.struct_fields().collect();
         if !fields.is_empty() && fields.iter().all(|field| field.name().is_some()) {
             return;
