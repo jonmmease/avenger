@@ -14,7 +14,6 @@ const FROM_FIRST: &str = "a query starts with FROM, as in `FROM t |> SELECT a`";
 const UNSUPPORTED_OPERATORS: &[&str] = &[
     "RECURSIVE",
     "WINDOW",
-    "MATCH_RECOGNIZE",
     "FINISH",
     "DESCRIBE",
     "STATIC_DESCRIBE",
@@ -345,10 +344,24 @@ impl Parser<'_> {
     /// A source of `FROM` or of a join, with its `TABLESAMPLE` clauses.
     fn source(&mut self) -> Option<CompletedMarker> {
         let mut item = self.source_primary()?;
-        while self.at_keyword("TABLESAMPLE") {
+        // As in GoogleSQL, `TABLESAMPLE` and `MATCH_RECOGNIZE` follow a source in any order.
+        loop {
+            let sample = self.at_keyword("TABLESAMPLE");
+            if !sample && !self.match_recognize_ahead() {
+                break;
+            }
             let marker = item.precede(self);
-            self.sample();
-            item = marker.complete(self, SAMPLE_SOURCE);
+            let kind = match sample {
+                true => {
+                    self.sample();
+                    SAMPLE_SOURCE
+                }
+                false => {
+                    self.match_recognize();
+                    MATCH_RECOGNIZE_SOURCE
+                }
+            };
+            item = marker.complete(self, kind);
         }
         Some(item)
     }
@@ -625,6 +638,181 @@ impl Parser<'_> {
         self.alias(NameRole::Alias);
     }
 
+    /// Whether `MATCH_RECOGNIZE`, a reserved word, starts a clause here.
+    fn match_recognize_ahead(&self) -> bool {
+        self.at_keyword("MATCH_RECOGNIZE")
+    }
+
+    /// `MATCH_RECOGNIZE ([PARTITION BY ...] ORDER BY ... MEASURES ... [AFTER MATCH SKIP ...]
+    /// PATTERN (...) DEFINE ... [OPTIONS (...)]) [[AS] alias]`, in GoogleSQL's fixed order of
+    /// clauses, without trailing commas.
+    fn match_recognize(&mut self) {
+        let marker = self.start();
+        self.bump_keyword();
+        self.parens(|p| {
+            if p.at_keyword("PARTITION") {
+                let partition = p.start();
+                p.bump_keyword();
+                p.expect_keyword("BY");
+                p.comma_list(Self::expr);
+                partition.complete(p, PARTITION_BY);
+            }
+            match p.at_keyword("ORDER") {
+                true => p.order_by(|_| false),
+                false => {
+                    p.error_expected("`ORDER`");
+                }
+            }
+            let measures = p.start();
+            if p.expect_keyword("MEASURES") {
+                p.comma_list(|p| {
+                    let measure = p.start();
+                    p.expr();
+                    p.expect_keyword("AS");
+                    p.name(NameRole::Alias);
+                    measure.complete(p, MEASURE);
+                });
+            }
+            measures.complete(p, MEASURES);
+            if p.at_keyword("AFTER") {
+                let skip = p.start();
+                p.bump_keyword();
+                p.expect_keyword("MATCH");
+                p.expect_keyword("SKIP");
+                if p.eat_keyword("PAST") {
+                    p.expect_keyword("LAST");
+                    p.expect_keyword("ROW");
+                } else if p.eat_keyword("TO") {
+                    p.expect_keyword("NEXT");
+                    p.expect_keyword("ROW");
+                } else {
+                    p.error_expected("`PAST` or `TO`");
+                }
+                skip.complete(p, AFTER_MATCH_SKIP);
+            }
+            let pattern = p.start();
+            if p.expect_keyword("PATTERN") {
+                p.parens(|q| {
+                    q.pattern_alternation();
+                });
+            }
+            pattern.complete(p, ROW_PATTERN);
+            let define = p.start();
+            if p.expect_keyword("DEFINE") {
+                p.comma_list(|p| {
+                    let definition = p.start();
+                    p.name(NameRole::PatternVariable);
+                    p.expect_keyword("AS");
+                    p.expr();
+                    definition.complete(p, PATTERN_DEFINITION);
+                });
+            }
+            define.complete(p, DEFINE);
+            p.options();
+        });
+        // As in GoogleSQL, a `PIVOT` after the clause is its alias.
+        self.alias(NameRole::Alias);
+        marker.complete(self, MATCH_RECOGNIZE_CLAUSE);
+    }
+
+    /// Alternatives of a pattern, separated by `|` or `||`, each of which can be empty.
+    fn pattern_alternation(&mut self) {
+        let marker = self.start();
+        self.pattern_sequence();
+        while matches!(self.current(), BIT_OR | CONCAT) {
+            self.bump();
+            self.pattern_sequence();
+        }
+        marker.complete(self, PATTERN_ALTERNATION);
+    }
+
+    /// The terms of a concatenation of a pattern: variables, groups and anchors.
+    fn pattern_sequence(&mut self) {
+        let marker = self.start();
+        loop {
+            let term = self.start();
+            let kind = match self.current() {
+                CARET | DOLLAR => {
+                    self.bump();
+                    PATTERN_ANCHOR
+                }
+                L_PAREN => {
+                    if !self.enter() {
+                        term.abandon(self);
+                        break;
+                    }
+                    let opened = self.open_paren();
+                    self.pattern_alternation();
+                    self.close_paren(opened);
+                    self.leave();
+                    self.quantifier();
+                    PATTERN_GROUP
+                }
+                _ if self.at_ident() => {
+                    self.name_ref(NameRole::PatternVariable);
+                    self.quantifier();
+                    PATTERN_VARIABLE
+                }
+                _ => {
+                    term.abandon(self);
+                    break;
+                }
+            };
+            term.complete(self, kind);
+        }
+        marker.complete(self, PATTERN_SEQUENCE);
+    }
+
+    /// `?`, `*`, `+`, `{n}`, `{n,}`, `{n,m}`, `{,m}` or `{,}`, reluctant with a trailing `?`
+    /// but for `{n}`. A bound is an integer or a query parameter.
+    fn quantifier(&mut self) {
+        let bound = |p: &Self| matches!(p.current(), INTEGER | PARAM | POSITIONAL);
+        let marker = self.start();
+        let mut exact = false;
+        match self.current() {
+            POSITIONAL | PLUS => {
+                self.bump();
+            }
+            // GoogleSQL reads `**` as one token, which no pattern takes.
+            STAR if self.nth(1) == STAR && self.adjacent(0) => {
+                marker.abandon(self);
+                return;
+            }
+            STAR => {
+                self.bump();
+            }
+            L_BRACE => {
+                self.bump();
+                let min = bound(self);
+                if min {
+                    let node = self.start();
+                    self.primary();
+                    node.complete(self, QUANTIFIER_MIN);
+                }
+                if self.eat(COMMA) {
+                    if bound(self) {
+                        let node = self.start();
+                        self.primary();
+                        node.complete(self, QUANTIFIER_MAX);
+                    }
+                } else if min {
+                    exact = true;
+                } else {
+                    self.error_expected("`,`");
+                }
+                self.expect(R_BRACE, "`}`");
+            }
+            _ => {
+                marker.abandon(self);
+                return;
+            }
+        }
+        if !exact && self.current() == POSITIONAL {
+            self.bump();
+        }
+        marker.complete(self, QUANTIFIER);
+    }
+
     fn pivot_ahead(&self) -> bool {
         self.at_keyword("PIVOT") && self.nth(1) == L_PAREN
     }
@@ -865,6 +1053,10 @@ impl Parser<'_> {
             "UNPIVOT" => {
                 self.unpivot();
                 PIPE_UNPIVOT
+            }
+            "MATCH_RECOGNIZE" => {
+                self.match_recognize();
+                PIPE_MATCH_RECOGNIZE
             }
             "GROUP" => {
                 let range = self.range();

@@ -28,3 +28,5 @@ crate:QUERIES:27	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, wh
 crate:QUERIES:33	avenger accepts a script without statements
 create_sql_function.test:23	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
 create_template_function.test:4:3	avenger checks ANY TABLE against the kind of the function as it parses, and GoogleSQL as it analyzes
+match_recognize.test:17:fromclause	GRAPH_TABLE queries, of the SQL graph syntax that the subset leaves out
+match_recognize.test:18:fromclause	GRAPH_TABLE queries, of the SQL graph syntax that the subset leaves out
