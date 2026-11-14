@@ -27,6 +27,7 @@ mod aggregate;
 mod array;
 mod avenger;
 mod bytes;
+mod cast_format;
 mod conditional;
 mod datetime;
 pub(crate) mod error;
@@ -34,6 +35,7 @@ pub mod form;
 pub(crate) mod interval;
 mod like;
 mod math;
+mod number_format;
 mod operator;
 pub(crate) mod random;
 mod reference;
@@ -50,7 +52,8 @@ use datafusion::{
 };
 
 pub use array::Subscript;
-pub(crate) use datetime::{cast_format, extract};
+pub(crate) use cast_format::cast_format;
+pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
 pub use reference::reference;
