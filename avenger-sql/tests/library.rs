@@ -1,18 +1,21 @@
-//! The function library against GoogleSQL: each expression of `CASES` planned through the
-//! library and run, with GoogleSQL's value of it, and the binding of arguments.
+//! The function library against GoogleSQL: each expression of `CASES`, and aggregate and window
+//! calls, planned through the pass and run, with GoogleSQL's values, and the binding of
+//! arguments.
 
-mod eval;
+mod pass;
 
 use std::sync::Arc;
 
-use avenger_sql::library::{CallError, Library, Planned};
-use avenger_sql_syntax::ast;
+use avenger_sql::{catalog::MemoryCatalog, library::Library};
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema},
-    logical_expr::{expr::WindowFunction, Expr, ExprFunctionExt},
+    arrow::{
+        array::{Int64Array, RecordBatch, StringArray},
+        datatypes::{DataType, Field, Schema},
+        util::pretty::pretty_format_batches,
+    },
+    datasource::MemTable,
     prelude::SessionContext,
 };
-use eval::*;
 
 /// GoogleSQL's values of these expressions, from `execute_query --output_mode=json`, in its
 /// JSON forms: an integer as a string, a date as its day number, a timestamp as microseconds,
@@ -54,19 +57,11 @@ const CASES: &[(&str, &str)] = &[
 
 #[tokio::test]
 async fn each_function_returns_googlesqls_value() {
-    let library = Library::new();
     let mut failures = Vec::new();
     for (text, expected) in CASES {
-        let planned = match plan(&library, &parse(text)) {
-            Ok(planned) => planned,
-            Err(error) => {
-                failures.push(format!("{text}: {error}"));
-                continue;
-            }
-        };
-        let found = match tokio::spawn(run(planned)).await {
-            Ok(array) => json(&array, 0),
-            Err(error) => format!("a failed run: {error}"),
+        let found = match pass::value(text).await {
+            Ok(array) => pass::values::json(&array, 0),
+            Err(errors) => format!("{errors:?}"),
         };
         if &found != expected {
             failures.push(format!("{text}: GoogleSQL {expected}, avenger-sql {found}"));
@@ -75,25 +70,39 @@ async fn each_function_returns_googlesqls_value() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// A table of the column `x` of integers, and the column `s` of strings.
-fn table(x: &[Option<i64>], s: &[&str]) -> datafusion::arrow::array::RecordBatch {
-    use datafusion::arrow::array::{Int64Array, StringArray};
+/// The table `cases` of the column `x` of integers and the column `s` of strings, beside the tables
+/// of the pass's tests.
+fn table(x: &[Option<i64>], s: &[&str]) -> (RecordBatch, MemoryCatalog) {
     let rows = x.len().max(s.len());
     let x: Int64Array = (0..rows).map(|i| x.get(i).copied().flatten()).collect();
     let s: StringArray = (0..rows).map(|i| s.get(i).copied()).collect();
-    datafusion::arrow::array::RecordBatch::try_new(
+    let batch = RecordBatch::try_new(
         Arc::new(Schema::new(vec![
             Field::new("x", DataType::Int64, true),
             Field::new("s", DataType::Utf8, true),
         ])),
         vec![Arc::new(x), Arc::new(s)],
     )
-    .expect("a table")
+    .expect("a table");
+    let table = MemTable::try_new(batch.schema(), vec![vec![batch.clone()]]).unwrap();
+    (
+        batch,
+        pass::catalog().with_table(&["cases"], Arc::new(table)),
+    )
+}
+
+/// The values of the first column of `query` over `catalog`, in their order, in GoogleSQL's
+/// JSON form.
+async fn values(catalog: &MemoryCatalog, query: &str) -> Vec<String> {
+    let batches = (pass::run_in(&pass::session(), catalog, query).await)
+        .unwrap_or_else(|errors| panic!("{query}: {errors:?}"));
+    (batches.iter())
+        .flat_map(|batch| (0..batch.num_rows()).map(|i| pass::values::json(batch.column(0), i)))
+        .collect()
 }
 
 #[tokio::test]
 async fn aggregates_return_googlesqls_values() {
-    let library = Library::new();
     let numbers = [Some(1), Some(2), Some(2), Some(3), None];
     // GoogleSQL's values over UNNEST([1, 2, 2, 3, NULL]) and UNNEST(['a', 'b', 'c']).
     let cases = [
@@ -104,21 +113,14 @@ async fn aggregates_return_googlesqls_values() {
         ("STRING_AGG(s)", &[], &["a", "b", "c"][..], "\"a,b,c\""),
         ("STRING_AGG(s, '-')", &[], &["a", "b", "c"], "\"a-b-c\""),
     ];
-    let ctx = SessionContext::new();
     let mut failures = Vec::new();
     for (text, x, s, expected) in cases {
-        let aggregate = expr(&library, text);
-        let batches = ctx
-            .read_batch(table(x, s))
-            .unwrap()
-            .aggregate(vec![], vec![aggregate.alias("v")])
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
-        let found = json(batches[0].column(0), 0);
-        if found != expected {
-            failures.push(format!("{text}: GoogleSQL {expected}, avenger-sql {found}"));
+        let (_, catalog) = table(x, s);
+        let found = values(&catalog, &format!("FROM cases |> AGGREGATE {text} AS v")).await;
+        if found != [expected] {
+            failures.push(format!(
+                "{text}: GoogleSQL {expected}, avenger-sql {found:?}"
+            ));
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
@@ -126,7 +128,6 @@ async fn aggregates_return_googlesqls_values() {
 
 #[tokio::test]
 async fn window_functions_return_googlesqls_values() {
-    let library = Library::new();
     let ties = [Some(1), Some(2), Some(2), Some(3)];
     let distinct = [Some(1), Some(2), Some(3), Some(4)];
     // GoogleSQL's values over each row in the order of `x`.
@@ -141,54 +142,14 @@ async fn window_functions_return_googlesqls_values() {
             "[\"0\", \"1\", \"2\", \"3\"]",
         ),
     ];
-    let ctx = SessionContext::new();
     let mut failures = Vec::new();
     for (text, x, expected) in cases {
-        // The window of the call, with its order, cast to GoogleSQL's type of its result.
-        let parsed = parse(text);
-        let ast::Expr::CallExpr(call) = &parsed else {
-            panic!("{text} is not a call");
-        };
-        let (_, name) = call_name(call);
-        let result = match library.get(&name).unwrap().plan(
-            plan_args(&library, call),
-            false,
-            false,
-            context(&schema()),
-        ) {
-            Ok(Planned::Window { func, args, result }) => (
-                Expr::from(WindowFunction::new(func, args))
-                    .order_by(vec![datafusion::prelude::col("x").sort(true, false)])
-                    .build()
-                    .unwrap(),
-                result,
-            ),
-            other => panic!("{text}: {other:?}"),
-        };
-        // The cast goes in a projection after the window, as the pass places it.
-        let batches = ctx
-            .read_batch(table(x, &[]))
-            .unwrap()
-            .window(vec![result.0.alias("w")])
-            .unwrap()
-            .sort(vec![datafusion::prelude::col("x").sort(true, false)])
-            .unwrap()
-            .select(vec![
-                typed(datafusion::prelude::col("w"), result.1).alias("v")
-            ])
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
-        let column = datafusion::arrow::compute::concat(
-            &batches
-                .iter()
-                .map(|batch| batch.column(0).as_ref())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap();
-        let values: Vec<String> = (0..column.len()).map(|i| json(&column, i)).collect();
-        let found = format!("[{}]", values.join(", "));
+        let (_, catalog) = table(x, &[]);
+        // The rows of two equal `x` are in the order of the window's values.
+        let query = format!(
+            "FROM cases |> EXTEND {text} OVER (ORDER BY x) AS v |> ORDER BY x, v |> SELECT v"
+        );
+        let found = format!("[{}]", values(&catalog, &query).await.join(", "));
         if found != expected {
             failures.push(format!("{text}: GoogleSQL {expected}, avenger-sql {found}"));
         }
@@ -196,37 +157,30 @@ async fn window_functions_return_googlesqls_values() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// The error of planning `text`.
-fn error(library: &Library, text: &str) -> CallError {
-    match plan(library, &parse(text)) {
-        Ok(expr) => panic!("{text} planned as {expr}"),
-        Err(error) => error,
-    }
-}
-
 #[test]
 fn calls_bind_their_arguments_as_googlesql_does() {
-    use avenger_sql::library::ErrorAt;
-    let library = Library::new();
+    // Each call, as `FROM t |> SELECT <call>`, the text of its error, at an argument or at the
+    // function's name, and its message.
     let cases = [
-        ("SUBSTR('abc', 1, 2, 3)", ErrorAt::Arg(3), "takes 3 positional arguments"),
-        ("SUBSTR('abc')", ErrorAt::Call, "needs its argument `position`"),
-        ("SUBSTR('abc', size => 1)", ErrorAt::Arg(1), "has no parameter named `size`"),
-        ("SUBSTR(value => 'abc', 1)", ErrorAt::Arg(1), "comes before the named arguments"),
-        ("SUBSTR('abc', 1, position => 2)", ErrorAt::Arg(2), "`position` has two arguments"),
-        ("SAFE.SUM(x)", ErrorAt::Call, "SAFE. doesn't apply to SUM"),
-        ("SUM(*)", ErrorAt::Call, "SUM takes no `*`"),
-        ("REGEXP_EXTRACT('a', r'(a)(b)')", ErrorAt::Arg(1), "at most one capturing group"),
-        ("REGEXP_CONTAINS('a', r'(')", ErrorAt::Arg(1), "the pattern doesn't compile"),
-        ("DATE_TRUNC(DATE '2024-01-01', HOUR)", ErrorAt::Arg(1), "not HOUR"),
-        ("TIMESTAMP_DIFF(TIMESTAMP '2024-01-01 00:00:00+00', TIMESTAMP '2024-01-01 00:00:00+00', MONTH)", ErrorAt::Arg(2), "not MONTH"),
-        ("DIV(1.5, 2)", ErrorAt::Call, "no form of DIV takes (FLOAT64, INT64)"),
-        ("bin(x, 30)", ErrorAt::Arg(1), "takes 1 positional argument"),
+        ("SUBSTR('abc', 1, 2, 3)", "3", "takes 3 positional arguments"),
+        ("SUBSTR('abc')", "SUBSTR", "needs its argument `position`"),
+        ("SUBSTR('abc', size => 1)", "size => 1", "has no parameter named `size`"),
+        ("SUBSTR(value => 'abc', 1)", "1", "comes before the named arguments"),
+        ("SUBSTR('abc', 1, position => 2)", "position => 2", "`position` has two arguments"),
+        ("SAFE.SUM(x)", "SUM", "SAFE. doesn't apply to SUM"),
+        ("SUM(*)", "SUM", "SUM takes no `*`"),
+        ("REGEXP_EXTRACT('a', r'(a)(b)')", "r'(a)(b)'", "at most one capturing group"),
+        ("REGEXP_CONTAINS('a', r'(')", "r'('", "the pattern doesn't compile"),
+        ("DATE_TRUNC(DATE '2024-01-01', HOUR)", "HOUR", "not HOUR"),
+        ("TIMESTAMP_DIFF(TIMESTAMP '2024-01-01 00:00:00+00', TIMESTAMP '2024-01-01 00:00:00+00', MONTH)", "MONTH", "not MONTH"),
+        ("DIV(1.5, 2)", "DIV", "no form of DIV takes (FLOAT64, INT64)"),
+        ("bin(x, 30) OVER ()", "30", "takes 1 positional argument"),
     ];
     for (text, at, message) in cases {
-        let found = error(&library, text);
-        assert_eq!(found.at, at, "{text}: {found}");
-        assert!(found.message.contains(message), "{text}: {found}");
+        let errors = pass::errors(&format!("FROM t |> SELECT {text}"));
+        let (found, found_at) = errors.first().unwrap_or_else(|| panic!("{text} planned"));
+        assert_eq!(found_at, at, "{text}: {found}");
+        assert!(found.contains(message), "{text}: {found}");
     }
 }
 
@@ -239,61 +193,41 @@ fn the_library_names_functions_without_regard_to_case() {
 }
 
 /// The rows of `query`, run by DataFusion's SQL planner as avenger-sql does today, and of
-/// `expr` as the library plans it, over the same table.
-async fn same_rows(
-    query: &str,
-    frame: impl FnOnce(datafusion::dataframe::DataFrame) -> datafusion::dataframe::DataFrame,
-) {
-    let ctx = SessionContext::new();
-    avenger_sql::register(&ctx).unwrap();
-    let t = table(
+/// `piped` as the pass plans it, over the table `cases`.
+async fn same_rows(query: &str, piped: &str) {
+    let (batch, catalog) = table(
         &[Some(3), Some(1), Some(4), Some(1), Some(5)],
         &["a", "b", "a", "c", "b"],
     );
-    ctx.register_batch("t", t).unwrap();
+    let ctx = SessionContext::new();
+    avenger_sql::register(&ctx).unwrap();
+    ctx.register_batch("cases", batch).unwrap();
     let expected = avenger_sql::sql(&ctx, query)
         .await
         .unwrap()
         .collect()
         .await
         .unwrap();
-    let found = frame(ctx.table("t").await.unwrap())
-        .collect()
-        .await
-        .unwrap();
-    let show = |batches: &[datafusion::arrow::array::RecordBatch]| {
-        datafusion::arrow::util::pretty::pretty_format_batches(batches)
-            .unwrap()
-            .to_string()
-    };
+    let found = (pass::run_in(&ctx, &catalog, piped).await)
+        .unwrap_or_else(|errors| panic!("{piped}: {errors:?}"));
+    let show = |batches: &[RecordBatch]| pretty_format_batches(batches).unwrap().to_string();
     assert_eq!(show(&found), show(&expected), "{query}");
 }
 
 #[tokio::test]
 async fn a_mark_builds_the_chart_of_its_sql_call() {
-    let library = Library::new();
-    let bar = expr(&library, "bar(x => s, y => x)");
-    same_rows("SELECT bar(x => s, y => x) AS chart FROM t", |frame| {
-        frame.aggregate(vec![], vec![bar.alias("chart")]).unwrap()
-    })
+    same_rows(
+        "SELECT bar(x => s, y => x) AS chart FROM cases",
+        "FROM cases |> AGGREGATE bar(x => s, y => x) AS chart",
+    )
     .await;
 }
 
 #[tokio::test]
 async fn bin_takes_its_options_as_named_arguments() {
-    let library = Library::new();
-    let bin = expr(&library, "bin(x, maxbins => 2)");
     same_rows(
-        "SELECT x, bin(x, 'maxbins', 2) OVER () AS b FROM t ORDER BY x",
-        |frame| {
-            frame
-                .window(vec![bin.alias("b")])
-                .unwrap()
-                .select_columns(&["x", "b"])
-                .unwrap()
-                .sort(vec![datafusion::prelude::col("x").sort(true, false)])
-                .unwrap()
-        },
+        "SELECT x, bin(x, 'maxbins', 2) OVER () AS b FROM cases ORDER BY x",
+        "FROM cases |> EXTEND bin(x, maxbins => 2) OVER () AS b |> SELECT x, b |> ORDER BY x",
     )
     .await;
 }

@@ -29,7 +29,9 @@ mod avenger;
 mod conditional;
 mod datetime;
 pub mod form;
+pub(crate) mod interval;
 mod math;
+pub(crate) mod operator;
 mod reference;
 mod string;
 
@@ -44,6 +46,7 @@ use datafusion::{
 };
 
 pub use array::Subscript;
+pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
 pub use reference::reference;
@@ -143,6 +146,8 @@ pub enum ErrorAt {
 pub struct CallError {
     pub at: ErrorAt,
     pub message: String,
+    /// Whether the error is that no form of the function takes the types of the arguments.
+    pub no_form: bool,
 }
 
 impl CallError {
@@ -150,6 +155,7 @@ impl CallError {
         Self {
             at: ErrorAt::Call,
             message: message.into(),
+            no_form: false,
         }
     }
 
@@ -157,6 +163,7 @@ impl CallError {
         Self {
             at: ErrorAt::Arg(index),
             message: message.into(),
+            no_form: false,
         }
     }
 }
@@ -495,6 +502,19 @@ impl Function {
         safe: bool,
         context: PlanContext,
     ) -> Result<Planned, CallError> {
+        self.plan_resolved(args, star, safe, context)
+            .map(|(planned, _)| planned)
+    }
+
+    /// Plans a call as [`Function::plan`] does, and returns the form that resolution picked,
+    /// with the types to which it coerced the arguments.
+    pub fn plan_resolved(
+        &self,
+        args: Vec<(Option<String>, Arg)>,
+        star: bool,
+        safe: bool,
+        context: PlanContext,
+    ) -> Result<(Planned, Resolved), CallError> {
         if safe && !self.safe {
             return Err(CallError::call(format!(
                 "SAFE. doesn't apply to {}",
@@ -540,9 +560,24 @@ impl Function {
             return Err(self.no_form(failures, unresolved, &observed));
         };
         let form = &self.forms[index];
+        let resolved = Resolved {
+            form: index,
+            args: (binding.iter().zip(&observed))
+                .map(|(&slot, observed)| {
+                    match (form.signature.arg_type(slot, &resolution), observed) {
+                        (_, Observed::Part(part)) => part.name(),
+                        (Some(Ty::Any), Observed::Value { ty: Ty::Null, .. }) => "INT64".into(),
+                        (Some(Ty::Any), Observed::Value { ty, .. }) => ty.to_string(),
+                        (Some(ty), _) => ty.to_string(),
+                        (None, _) => "ANY".into(),
+                    }
+                })
+                .collect(),
+            result: form.signature.result_type(&resolution),
+        };
         let call = self.call(form, args, &binding, resolution, star, safe, context)?;
         let planned = (form.mapping)(&call)?;
-        self.typed(form, &call, planned)
+        Ok((self.typed(form, &call, planned)?, resolved))
     }
 
     /// Checks that every name of `args` names a parameter, and that the named arguments come
@@ -593,12 +628,15 @@ impl Function {
                 Observed::Part(part) => part.name(),
             })
             .collect();
-        CallError::call(format!(
-            "no form of {} takes ({}); its forms are {}",
-            self.name,
-            types.join(", "),
-            self.signatures().join("; ")
-        ))
+        CallError {
+            no_form: true,
+            ..CallError::call(format!(
+                "no form of {} takes ({}); its forms are {}",
+                self.name,
+                types.join(", "),
+                self.signatures().join("; ")
+            ))
+        }
     }
 
     /// The call of `args` to `form`, with each value cast to its type in the form, after the
@@ -693,7 +731,7 @@ impl Function {
             return Ok(planned);
         }
         let options = call.context.type_options;
-        let differs = |ty: &DataType| Ty::of_arrow(ty).as_ref() != Some(&want);
+        let differs = |ty: &DataType| !exact(ty, &want, options);
         let fields = |args: &[Expr]| -> Result<Vec<FieldRef>, CallError> {
             args.iter()
                 .map(|arg| Ok(arg.to_field(call.context.schema)?.1))
@@ -828,17 +866,47 @@ fn coerce(expr: Expr, ty: Option<Ty>, context: &PlanContext) -> Result<Expr, Cal
         return Ok(expr);
     };
     let current = expr.get_type(context.schema)?;
-    if Ty::of_arrow(&current).as_ref() == Some(&ty) {
+    if exact(&current, &ty, context.type_options) {
         return Ok(expr);
     }
     // A `NULL` of an array or a struct takes its type from the cast below.
     Ok(cast(expr, ty.arrow(context.type_options)))
 }
 
+/// Whether a value of the Arrow type `current` has the type `ty` as the library maps it to Arrow:
+/// a scalar type exactly, as an `INT32` column isn't an `INT64` until a cast, and an array, a
+/// struct or an interval as its GoogleSQL type.
+pub(crate) fn exact(current: &DataType, ty: &Ty, options: TypeOptions) -> bool {
+    match ty {
+        Ty::Array(_) | Ty::Struct(_) | Ty::Interval | Ty::Any | Ty::Var(_) | Ty::Null => {
+            Ty::of_arrow(current).as_ref() == Some(ty)
+        }
+        _ => *current == ty.arrow(options),
+    }
+}
+
+/// The form that resolution picked for a call: its index among the function's forms, the type to
+/// which it coerced each argument, in the order of the call, and the type of its result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Resolved {
+    pub form: usize,
+    pub args: Vec<String>,
+    pub result: Ty,
+}
+
+impl Resolved {
+    /// The form as GoogleSQL's resolved tree writes it, such as `$add(DATE, INT64) -> DATE`.
+    pub fn render(&self, name: &str) -> String {
+        format!("{name}({}) -> {}", self.args.join(", "), self.result)
+    }
+}
+
 /// GoogleSQL's functions and avenger's, by name.
 pub struct Library {
     functions: Vec<Function>,
     index: HashMap<String, usize>,
+    /// The operators, by their names in GoogleSQL's resolved tree, such as `$add`.
+    operators: HashMap<String, Function>,
 }
 
 impl fmt::Debug for Library {
@@ -862,6 +930,9 @@ impl Library {
         let mut library = Self {
             functions: Vec::new(),
             index: HashMap::new(),
+            operators: (operator::operators().into_iter())
+                .map(|function| (function.name.clone(), function))
+                .collect(),
         };
         for function in (aggregate::functions().into_iter())
             .chain(aggregate::window_functions())
@@ -893,6 +964,11 @@ impl Library {
         self.index
             .get(&name.to_ascii_uppercase())
             .map(|&index| &self.functions[index])
+    }
+
+    /// The operator named `name` in GoogleSQL's resolved tree, such as `$add` for `+`.
+    pub fn operator(&self, name: &str) -> Option<&Function> {
+        self.operators.get(name)
     }
 
     /// The functions of the library, in the order of their groups.

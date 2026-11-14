@@ -26,6 +26,7 @@
 //! functions and avenger's onto DataFusion, [`types`] maps GoogleSQL's types to Arrow types, and
 //! [`catalog`] looks up the tables that a script names.
 
+pub mod analysis;
 pub mod catalog;
 mod functions;
 pub mod library;
@@ -34,6 +35,7 @@ pub mod types;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
+pub use analysis::analyze;
 pub use pipeline::{expand, sql};
 
 /// Registers the mark functions, the constructors, `scaled`, and `direct` of avenger-chart, and
