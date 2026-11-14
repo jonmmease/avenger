@@ -397,3 +397,11 @@ async fn a_sample_keeps_about_its_percent_and_repeats_with_a_seed() {
     let sample = "FROM t |> ORDER BY x |> TABLESAMPLE BERNOULLI (50 PERCENT) REPEATABLE (3) |> AGGREGATE STRING_AGG(s, ',' ORDER BY s) AS kept";
     assert_eq!(table_text(sample).await, table_text(sample).await);
 }
+
+#[tokio::test]
+async fn a_limit_in_a_join_target_takes_the_first_rows_in_its_order() {
+    assert_eq!(
+        rows("FROM one |> CROSS JOIN (FROM penguins |> WHERE body_mass_g IS NOT NULL |> ORDER BY body_mass_g DESC |> LIMIT 2 |> SELECT body_mass_g)").await,
+        ["+-----+-------------+", "+-----+-------------+", "+-----+-------------+", "| 1   | 6050.0      |", "| 1   | 6300.0      |", "| one | body_mass_g |"],
+    );
+}

@@ -10,8 +10,10 @@
 //! [`analyze`] runs the pass over the queries of a script. The tables of a script come from a
 //! [`Catalog`], which [`crate::catalog::references`] tells what to load.
 
+mod build;
 mod expr;
 mod model;
+mod nested;
 mod query;
 mod reshape;
 mod rows;
@@ -80,6 +82,8 @@ pub fn analyze(
         model: Model::default(),
         positional: 0,
         windows: Vec::new(),
+        outers: Vec::new(),
+        with_names: Vec::new(),
     };
     let mut plan = None;
     match ast::Script::cast(root.clone()) {
@@ -119,6 +123,18 @@ pub(crate) struct Pass<'a> {
     positional: usize,
     /// The named windows of the `WINDOW` clause of the operator that the pass plans.
     windows: Vec<(String, expr::WindowSyntax)>,
+    /// The scopes of the queries that enclose the query that the pass plans, outermost first.
+    outers: Vec<expr::Outer>,
+    /// The names of the pipe `WITH`s in scope, innermost last.
+    with_names: Vec<WithName>,
+}
+
+/// A name of a pipe `WITH`, and the rows of its query.
+#[derive(Clone, Debug)]
+struct WithName {
+    name: String,
+    definition: TextRange,
+    rows: Rows,
 }
 
 impl Pass<'_> {
