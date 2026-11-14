@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use datafusion::{
     arrow::datatypes::{DataType, TimeUnit},
+    common::ScalarValue,
     functions::expr_fn as f,
     logical_expr::{Expr, Operator},
 };
@@ -905,15 +906,8 @@ fn last_day(call: &Call, date: Expr) -> Result<Expr, CallError> {
                 DatePart::Quarter => 3,
                 _ => 12,
             };
-            let start = date_trunc(date, part);
-            let next = Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
-                Box::new(start),
-                Operator::Plus,
-                Box::new(Expr::Literal(
-                    datafusion::common::ScalarValue::new_interval_mdn(months, 0, 0),
-                    None,
-                )),
-            ));
+            let interval = ScalarValue::new_interval_mdn(months, 0, 0);
+            let next = date_trunc(date, part) + Expr::Literal(interval, None);
             days(next) - lit_i64(1)
         }
         _ => {

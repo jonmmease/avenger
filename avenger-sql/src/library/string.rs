@@ -341,10 +341,10 @@ fn substr(name: &str, summary: &str) -> Function {
             };
             // DataFusion's substring fails on a negative length, so it reads `NULL` there.
             let negative = length.clone().lt(lit_i64(0));
-            let result = f::substring(value, start, null_when(negative, length.clone()));
+            let result = f::substring(value, start, null_when(negative.clone(), length));
             // GoogleSQL names SUBSTRING `SUBSTR` in its message.
             let message = "Third argument in SUBSTR() cannot be negative";
-            Ok(guard(call, length.lt(lit_i64(0)), result, message, Vec::new()))
+            Ok(guard(call, negative, result, message, Vec::new()))
         })
         .safe()
 }
