@@ -128,62 +128,35 @@ async fn pipe_queries_return_googlesqls_rows() {
                     )
                 })
                 .collect();
-            let want: Vec<String> = (serde_free::strings(columns).into_iter())
-                .map(|column| column.replace("DOUBLE", "FLOAT64"))
-                .collect();
+            let want: Vec<String> = (serde_json::from_str::<Vec<String>>(columns)
+                .unwrap()
+                .into_iter())
+            .map(|column| column.replace("DOUBLE", "FLOAT64"))
+            .collect();
             if found != want {
                 failures.push(format!(
                     "{file}: {query}: the columns {found:?}, not {want:?}"
                 ));
             }
-            let mut rows: Vec<String> = Vec::new();
+            let mut rows: Vec<Vec<String>> = Vec::new();
             for batch in &batches {
                 for row in 0..batch.num_rows() {
-                    let cells: Vec<String> = (batch.columns().iter())
-                        .map(|column| serde_free::quote(&cell(column, row)))
-                        .collect();
-                    rows.push(format!("[{}]", cells.join(", ")));
+                    rows.push(
+                        (batch.columns().iter())
+                            .map(|column| cell(column, row))
+                            .collect(),
+                    );
                 }
             }
             rows.sort();
-            let rows = format!("[{}]", rows.join(", "));
+            let expected: Vec<Vec<String>> = serde_json::from_str(expected).unwrap();
             if rows != expected {
                 failures.push(format!(
-                    "{file}: {query}:\n  the pass {rows}\n  GoogleSQL {expected}"
+                    "{file}: {query}:\n  the pass {rows:?}\n  GoogleSQL {expected:?}"
                 ));
             }
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     assert!(checked > 50, "{checked} queries");
-}
-
-/// The JSON of the data: arrays of strings, as Python's `json.dumps` writes them.
-mod serde_free {
-    /// The strings of a JSON array of strings without escapes other than `\"` and `\\`.
-    pub fn strings(json: &str) -> Vec<String> {
-        let inner = json.trim().trim_start_matches('[').trim_end_matches(']');
-        let mut out = Vec::new();
-        let mut chars = inner.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c != '"' {
-                continue;
-            }
-            let mut text = String::new();
-            while let Some(c) = chars.next() {
-                match c {
-                    '\\' => text.extend(chars.next()),
-                    '"' => break,
-                    c => text.push(c),
-                }
-            }
-            out.push(text);
-        }
-        out
-    }
-
-    /// `text` as a JSON string, as `json.dumps` writes it.
-    pub fn quote(text: &str) -> String {
-        format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
-    }
 }

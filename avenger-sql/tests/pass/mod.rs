@@ -62,9 +62,9 @@ fn strings(values: &[&str]) -> arrow::array::ArrayRef {
     Arc::new(StringArray::from(values.to_vec()))
 }
 
-/// The catalog of the tests: `penguins`, `one` and `t`, and the tables of the recorded queries,
-/// whose GoogleSQL rows are in `scratch/projects/pipe-parser/queries/tables.json`: `u`, of
-/// `(x, s)`; `sales`, of `(sp, isl, m)`; and `wide`, of `(k, a, b, c, d)`.
+/// The catalog of the tests: `penguins`, `one` and `t`, and the tables of the queries that GoogleSQL
+/// recorded over the same rows, in `data/googlesql_pipe_*.txt`: `u`, of `(x, s)`; `sales`, of
+/// `(sp, isl, m)`; and `wide`, of `(k, a, b, c, d)`.
 pub fn catalog() -> MemoryCatalog {
     let (one, t) = small();
     let u = batch(vec![
