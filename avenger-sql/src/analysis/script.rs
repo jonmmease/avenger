@@ -17,7 +17,7 @@
 
 use avenger_sql_syntax::{
     ast::{self, AstNode, CreateStmt, Scope as CreateScope},
-    TextRange,
+    FunctionRole, TextRange,
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field},
@@ -55,6 +55,17 @@ pub(crate) enum Kind {
     Scalar,
     Aggregate,
     Table,
+}
+
+impl Kind {
+    /// The role of a function of this kind, for highlighting.
+    pub(crate) fn role(self) -> FunctionRole {
+        match self {
+            Kind::Scalar => FunctionRole::Scalar,
+            Kind::Aggregate => FunctionRole::Aggregate,
+            Kind::Table => FunctionRole::Table,
+        }
+    }
 }
 
 /// What a parameter of a temporary function takes.
@@ -744,6 +755,7 @@ impl Pass<'_> {
             name_range,
             Definition::Function {
                 name: function.name.clone(),
+                role: function.kind.role(),
             },
         );
         if function.kind == Kind::Table {
@@ -904,6 +916,7 @@ impl Pass<'_> {
             path.syntax().text_range(),
             Definition::Function {
                 name: function.name.clone(),
+                role: function.kind.role(),
             },
         );
         // The arguments: values, which read only the script's variables, and tables.

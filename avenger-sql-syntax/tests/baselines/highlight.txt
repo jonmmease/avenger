@@ -6,7 +6,7 @@
 48..54 "amount" Name(Field)
 69..75 "amount" Name(Column)
 83..90 "doubled" Name(Alias) definition
-92..102 "ROW_NUMBER" Name(Function)
+92..102 "ROW_NUMBER" Name(Function(Unresolved))
 110..111 "w" Name(Window)
 115..116 "n" Name(Alias) definition
 124..125 "w" Name(Window) definition
@@ -21,10 +21,10 @@
 232..237 "sales" Name(Alias) definition
 257..260 "day" Name(Column)
 262..267 "total" Name(Column)
-282..285 "SUM" Name(Function)
+282..285 "SUM" Name(Function(Unresolved))
 286..291 "total" Name(Column)
 296..299 "sum" Name(Alias) definition
-306..311 "COUNT" Name(Function)
+306..311 "COUNT" Name(Function(Unresolved))
 334..337 "day" Name(Column)
 378..381 "day" Name(Column)
 400..403 "sum" Name(Column)
@@ -35,7 +35,7 @@
 520..525 "items" Name(Column)
 530..534 "item" Name(Alias) definition
 550..551 "i" Name(Alias) definition
-560..563 "bin" Name(Function)
+560..563 "bin" Name(Function(Table))
 564..565 "x" Name(Column)
 567..574 "maxbins" Name(Parameter)
 585..591 "binned" Name(Alias) definition
@@ -44,7 +44,7 @@
 646..648 "t1" Name(Table)
 651..652 "b" Name(Query) definition
 662..664 "t2" Name(Table)
-677..680 "SUM" Name(Function)
+677..680 "SUM" Name(Function(Unresolved))
 681..686 "sales" Name(Column)
 691..696 "total" Name(Alias) definition
 701..708 "quarter" Name(Column)

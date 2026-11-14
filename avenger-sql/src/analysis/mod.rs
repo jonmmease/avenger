@@ -12,6 +12,7 @@
 
 mod build;
 mod expr;
+mod highlight;
 mod match_recognize;
 mod model;
 mod nested;
@@ -28,7 +29,9 @@ use datafusion::{
     logical_expr::LogicalPlan,
 };
 
-pub use model::{CallForm, Column, Definition, Model, NameUse, OperatorScope, RangeVariable};
+pub use model::{
+    CallForm, Column, Definition, EnumValue, Model, NameUse, OperatorScope, RangeVariable,
+};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
 use rows::{Col, Qualifiers, RangeVar, Rows};
