@@ -1,0 +1,1000 @@
+(a | ((a){1,} | c b | (a | b)))	000,111,011,100	next	false	2:a 3:b 4:a
+a c () (c){2} c ^	011,110,010,110	next	false	
+b	110,000	past	true	1:b
+((c){,2}? (c | ^) (c | c | c)){0,}?		next	false	
+a (() | c | c) a	110,000,010,101,001,010,110	past	false	
+((($ | ^ | b) | c) | ^ | (()){2,})	100,110,000,011,100,101,101	next	false	-: 2:b -: 4:b -: 6:c 7:c
+(c){0,}		past	true	
+a	111,001	next	false	1:a
+((b $ a){0,1})*	111,011,101,010,010,010	next	false	-: -: -: -: -: -:
+b ($){2,} a	000,011,011,001,010	next	true	
+b	011,001,100,001,111,110	past	false	1:b 5:b 6:b
+((a | (b | ^) | (c | a | c)) | ((b)+)+ | ())	100,100	past	false	1:a 2:a
+a	011,100,010,011,011,111,011	next	false	2:a 6:a
+(a $ | (()){0,1}?) (c)+ (c | b | ^) c	100,111	past	true	
+c	100,011	past	false	2:c
+()	001,100,101,111	next	false	-: -: -: -:
+(c)*? (c | b | b) c a b ^ (b | c | ()) ()	111,010	past	false	
+(b c b){2,}? c $ a c b (a | c)	111	next	false	
+b		next	false	
+^	000,100,001,110,000,100,000	past	true	-:
+(c){0,} (b | ^) ((c | a) | (() | () | ()))	001,001,000,001,000,100	past	false	1:c
+(() | a | a () b c b b a)	100,000,100,000	past	false	-: -: -: -:
+(((b){0,}){1,2})+	011,111	past	false	1:bb
+()	101,001	next	true	-: -:
+b	111,101,100,010,001	next	false	1:b 4:b
+(b){0,} b (c | b)	000,010,011,011	next	false	2:bbc 3:bc
+a		past	true	
+b	100,000,100,010,011,111	next	false	4:b 5:b 6:b
+(^)+ b	110,010,100,000,110,010	next	false	1:b
+a	001,010	next	false	
+c	110,110,101,111,100	next	false	3:c 4:c
+a	010,101,100,100,101	past	false	2:a 3:a 4:a 5:a
+a	110,001,111	next	true	1:a 3:a
+(((^ | c) | a | (a){0,}?) | () | (($ | b | a) | (^)*? | b))	001,011,101,100,010,100,000	next	true	1:c 2:c 3:aa 4:a 5:b 6:a -:
+b	111,001	past	false	1:b
+(((b)+)+){,2}	100	past	false	-:
+(c)+ ((c | b)){2} c	011,110,110	past	true	
+(((^){0,}){1,2}?){2}		past	false	
+a	100,100,011,100,001,100	next	false	1:a 2:a 4:a 6:a
+((c | a) | (c){0,1})	010,000,100,101,111,010,001	past	true	-: -: 3:a 4:c 5:c -: 7:c
+a (c | (c){0,1})	000,111,010	past	false	2:a
+(c)+?	010	next	true	
+a	010,111,001,100,101	past	true	2:a 4:a 5:a
+b	010	next	true	1:b
+b	010,010	next	true	1:b 2:b
+((b b | a | b a) | a | ((a){2} | a))	011,010,011,000	past	false	1:bb
+(a)+	000	next	false	
+c		past	false	
+b	000,100,110	next	false	3:b
+c (b | b | c) $ (c b c | b c | (a | c))	010,111,110,001,100	next	false	
+a a	110,011,110,110,101	past	false	3:aa
+b	111,110	past	false	1:b 2:b
+a	110,011,100,000,100,000	next	true	1:a 3:a 5:a
+((() | (c | () | a) | b) | b (c | b | ()) c)		next	false	
+()	000,011	past	false	-: -:
+c	101,010,110,100,101,010	next	false	1:c 5:c
+b	100,100,001	past	false	
+(b | (b | a | b) | (b | a | b)) ((a){1,}?)?	110,011	next	false	1:b 2:b
+$	011,101,011,111,111	past	true	
+b	100,010	past	false	2:b
+a (() | (b | c | c))	000,001,000,001,011,100,010	past	false	6:a
+^	001,001,110,000,000,011,010	next	false	-:
+((^)* a | c c c | ((a){,2}){2,})	111,101,011,111	next	false	1:a 2:a -: 4:a
+(a b (c)??)*	110,100,011,100	past	true	-: 2:ab -:
+b	011,110,010,001	past	false	1:b 2:b 3:b
+a		past	true	
+((a a a){1,} | ((b){1,2} | (c | b | b)) | (b | (^){2,}? | (c){,2}))	010,001,111,011,110,011	next	false	1:b 2:c 3:bb 4:bb 5:bb 6:b
+a	100,100	past	false	1:a 2:a
+(c | b)	001,111,101,101,100	past	true	1:c 2:c 3:c 4:c
+((b){1,2} (b | c | a)){1,2}	111,001,111,111,011,111	past	true	1:bcbbb
+b	101,111	next	true	2:b
+(c () | (^){1,2}? | (c | c | b)) (c)+? (b){0,1} a $	100	past	false	
+c	011,100,110,011	next	false	1:c 4:c
+((b){1,}? | b | ((b){1,2} | a ^))	000,100,010,100,010,010,100	next	false	3:b 5:b 6:b
+(((b){1,} | (b | b))){,2}?	100,101	past	false	-: -:
+c	000,101,110,011,101,010	next	false	2:c 4:c 5:c
+a	100,101	next	false	1:a 2:a
+(a c b ())??	000,101	next	false	-: -:
+b	000,011,011,101,100,100,011	past	false	2:b 3:b 7:b
+(() | ((c){,2}){,2}?)	011,010	next	false	-: -:
+(((a | b)){2,})*	010,110,111,110,110,110,100	past	false	1:baaaaaa
+b b (b a b)?	011,000,100,110	past	true	
+(c){1,}?		past	false	
+(((a)*?){1,}?){1,2}	010,110,111,010,000	next	false	-: -: -: -: -:
+(a (b){1,2}? | (b c | b ()))	110,011,000	next	false	1:ab 2:b
+(a a (c | a | b) | (a){,2} () c (c){1,}? | (^)+?)	110,101	past	false	-:
+(b | (c | (b | b) | ^) | ^)	010,000,110,111,110	past	false	1:b 3:b 4:b 5:b
+((b | b | ^) (b){0,} | ((c | $))*?)	010	past	false	1:b
+((b | b b c | (a | b | a)) | (c | ()) (b | ()) | (b b b){0,}?)	001,100,100,101	past	true	1:c 2:a 3:a 4:a
+(b){0,}	011	past	false	1:b
+((a a c | (a | b | b))){2,}	100,011,101,000,000	next	false	1:aba 2:ba
+((b | b | a) ($){2,}? | ((b){1,} | c b) | (())* c (c){,2})	010,101,100,100,101	next	false	1:b 2:c 5:a
+((b | b | $)){0,1} a ^ (() | c) (b | () b)	101,011,000,011,100,000,011	past	false	
+(((c){0,}? | c) | ((b | ()) | (a){2}))		past	true	
+c c	101,101,101,101,101,010,101	next	false	1:cc 2:cc 3:cc 4:cc
+(((a | b)){1,}? | c | (b | b))	101	next	false	1:a
+((() | (b | c | b))){0,1}	010,101	past	true	1:b 2:c
+($ a | b) b a (a){,2} (c){1,}? $ b	000,110,110,101,001,000,011	next	false	
+()	000,011,001,100,101,001,101	past	false	-: -: -: -: -: -: -:
+(a){1,2}? (a | a | c)	101,100,110,000,111,100,001	next	false	1:aa 2:aa 5:aa 6:ac
+a a c	010,110,000	next	false	
+(())??	000,110,100,010,101,000	next	false	-: -: -: -: -: -:
+b b ((^ | ^ | ^)){1,}	110,000,000	next	false	
+((^)*? | b a | (c | a | ())) (b | () | ())	011,011,101	past	false	1:b 2:b -:
+c	111,110,011	past	false	1:c 3:c
+(((b){2} | (c | ()) | (b)*)){2}	001,101,000,001,001,100,001	next	true	1:cc 2:c -: 4:cc 5:c -: 7:c
+$ (a | b) (c | c) ^ a ()	111,111,001,011,111,001	next	false	
+b	110	next	false	1:b
+(b | $ b) (b b a | (c){2,} | b) c	010,011,011,011	next	false	1:bccc 2:bbc
+a	001,001,001,000,001,111,110	next	false	6:a 7:a
+((a | b c ^) | (a){2})	010,110	past	true	2:a
+((a){0,}){2}	001,111,010,101	past	true	-: 2:a -: 4:a
+((() | (b | a | b)) | a | $ ^ c a () (a){,2})	001,101,001,101,101,101,010	past	false	-: -: -: -: -: -: -:
+b	001,111	past	false	2:b
+(c | c | b b ()) ((a | c | b) | c | c b) (c c c){0,}	110,111,101,010,000,010,100	next	false	1:bba 2:ca 3:cb
+b (()){2,} (c)*? (b c)+	110,010,111	next	false	1:bbc
+($ $ b)* ((a | a)){2} a	001,110	past	true	
+((($)+?){0,}?){2}	011,110,110,110,101	next	false	-: -: -: -: -:
+(a | (b b b | (b){2}))	111,010,010,101,101	past	false	1:a 2:bb 4:a 5:a
+b (a c c){0,1}		next	false	
+(() | (c){,2}? b)	110,000	next	false	-: -:
+c	110,000,110	past	true	
+((b | (() | b) | b () b)){0,1}	111,100,111,100	next	false	1:b -: 3:b -:
+a	101,110,111	past	false	1:a 2:a 3:a
+((c){2,} | (b a)+ | b c b c)	001,110,110,001	next	false	2:ba
+$ ((c){0,1}){2}	111	next	false	
+(b | ())		past	true	
+((a){,2}?){0,}	011,001	past	false	-: -:
+(a)*?	100,011	past	false	-: -:
+(^ | ((b | a | c) | b () b | (() | b | ())))	001,101	next	false	-: 2:a
+(((a){0,}){1,2}){2}	111,100,100,101	past	false	1:aaaa
+(() | (b){2} | b)	011,001,101	next	true	1:b -: -:
+b	110,111,100,011,000	next	true	1:b 2:b 4:b
+a (() a)* (($){1,2}?){2,}	111,111,000	past	false	
+a	111,110,011,011,000	next	false	1:a 2:a
+c	111,110,111,011,000,000,010	next	false	1:c 3:c 4:c
+(((b | c)){,2}? | b (c)?)	001	past	true	1:c
+(c | (c | (b){0,1}))	111,100,111,011,110,100	next	false	1:c -: 3:c 4:c 5:b -:
+((c | (b){0,}? | (b)+?)){,2}	110,110,011,111	past	false	-: -: 3:cc
+b (b){2} (c c){2,}?	010,001,000,000,100	next	true	
+() b (a b){0,}	111,001,011	next	true	1:b 3:b
+(a a a | c | c a b) c (c | a | a) (a | () | ()) b	010	past	false	
+((^){2,}? a){,2}?	101,101	past	false	-: -:
+(c | ((c){2,}? | (c | c | a)) | (a){1,})	011,010,101,100,100,100,100	past	false	1:c 3:c 4:a 5:a 6:a 7:a
+(((b)*){1,}? | (a){2} c)	100	next	false	-:
+b	011,101,001,101,010,010,100	next	false	1:b 5:b 6:b
+(c a){2,} (()){0,1}? ()	011,011,000,100	past	false	
+((a a c | b | b) | c)	010,001,010,001,001,111,000	next	false	1:b 2:c 3:b 4:c 5:c 6:b
+((c c | () | ()) | (a | c) | b)	010,010,000,001,010,001	past	false	-: -: -: -: -: -:
+b	100,100,010,001,111,110	past	false	3:b 5:b 6:b
+c	101	past	true	1:c
+(((b | b | c) | b)){1,2}	000	past	false	
+(b){0,}?	000,111,001	next	false	-: -: -:
+b ((b){1,2}){2} ((a | c)){,2}	010,110,000,010,000	past	false	
+(b)* b (b b)*	101,001,110,100	past	true	3:b
+(b ^ b (b){1,} c | a b $)	001,101,100,001	past	false	
+(^ a (a){1,} | (a a | c) | a)	011,010,100,000,110,001,110	next	true	1:c 3:a 5:a 6:c 7:a
+()	101,011,000	next	true	-: -: -:
+(a)?	010,010,100,110,011	next	false	-: -: 3:a 4:a -:
+c	010,100,101,010,011,110,111	next	false	3:c 5:c 7:c
+b	001,110,100,011	next	false	2:b 4:b
+^		next	false	
+((a | (a | b | c) | (b){0,}) | (b b b)??)	110,101,111	next	false	1:a 2:a 3:a
+(a | ((c | b | b) | b c a | b) | (c){2})		past	false	
+(a | b)	010,010,000,011,110,011,010	past	false	1:b 2:b 4:b 5:a 6:b 7:b
+b	001,001,110,110,110,101	next	true	3:b 4:b 5:b
+c		next	false	
+((b | b) | () | (b | ())) c a ^ b c	000,100,110	past	false	
+() ((c | a) | (c | c | ()) | (c){,2})	011,101,001,111,110,101,110	past	false	1:c 2:c 3:c 4:c 5:a 6:c 7:a
+b	011,001,101	next	false	1:b
+b (c | c | b) b () $ (a b)?	110,111,000,011	past	false	
+(())?	111,110	next	false	-: -:
+($){,2}	111	past	false	-:
+((c | b) (c){1,2}? () ^ ^){0,}?	100,001,001	past	false	-: -: -:
+(((()){1,}?){1,2}){,2}	101,011,011,100,001,111	next	false	-: -: -: -: -: -:
+b	011,000,011	past	false	1:b 3:b
+((^ | a)){1,} ((c | ()) | (a | c) | a b)	101,001,110,100,100,100,010	next	false	1:c 3:aaaa 4:aaa 5:aa 6:a
+((a | ($)*)){2,}?	010,111	next	true	-: 2:a
+b (c | a | ()) (() | a) (a){2}	011,011,110,110,011	next	true	1:bcaa 2:baa
+$ b $ ($){0,1}? (() | c) (b)?? a	110	past	false	
+a	111,110,001	past	true	1:a 2:a
+() b b	101,100,111	next	true	
+b ()	001	next	true	
+(((a | $ | b)){0,1}?){1,2}	011	next	false	-:
+((^ ^ $){1,2}?)*?	011,001,110,001,101,101	past	false	-: -: -: -: -: -:
+((a | c) (b){1,}){1,}?	111,110,000	past	false	1:ab
+($ | a) a c (c c){2}		past	true	
+(^ b)* (c){2,}? ((a){1,}? | b a () | (a)*)	101,110,001	past	false	
+^ ((c)*? | (a){0,1}?)		past	true	
+(($){2} | (b | ()) | b)	001,011,110	past	false	-: 2:b 3:b
+b	101,000	next	true	
+(c){2,}	001,000	next	true	
+b (c | $) ((a | a | b)){2,}?	001,101,000,001,001,001,110	next	false	
+((b c | b) | $ c | ((c | c) | (() | b) | (a | () | c)))	000,011,011,111	past	false	-: 2:bc 4:b
+((b | b) (a){,2}? a b){0,}?	010,010,111,101	next	false	-: -: -: -:
+(b ^){1,2} ^	010	next	false	
+b	110,111,101	next	false	1:b 2:b
+(((b){1,2}){1,2} | (a b)+)	001,101	past	true	
+(a){1,}? b (c | b | c) (c | c) (^){0,}	111,010,111,101,011	past	false	1:abcc
+(b | ((a){0,}){2} | (a){1,2} ($)?)	011,011,100	past	false	1:b 2:b 3:a
+^	111,111,011,111,001	next	true	-:
+(((b | a | c) | (b){0,1}) | ((a){0,}){0,})	110,010,100	past	false	1:b 2:b 3:a
+(b | c) b (a){0,1}? ((()){2,}){1,}? ^	010,101,100,010,011,011,001	next	false	
+a	101,010,101,101	past	true	1:a 3:a 4:a
+(($){2} c b c)??	000,100,110,111	next	false	-: -: -: -:
+((())+ | (($ | a | ^)){2} | b (b){2} c)	110,001,101,001,101,001	next	false	-: -: -: -: -: -:
+a	110,111,010,011,111,110,100	next	true	1:a 2:a 5:a 6:a 7:a
+((c){1,2} | a | ((b | c) | (b){1,} | (c){0,}?))	010,001,000,111,011,001,010	next	false	1:b 2:c -: 4:cc 5:cc 6:c 7:b
+a (a | $) ((b | b)){1,2}? a	110	past	false	
+()	011,100,001,110,111	past	true	-: -: -: -: -:
+((b | a | a)){1,2} ((b | a | c) | (a | b) | b c b) ((() | a | b) | b)	100,101,001,111,100,000	past	false	1:aac 4:ba
+(a b ^ b)*		next	false	
+(((a){0,}? | b)){1,}	111,000,101,100,011,101,111	next	false	-: -: -: -: -: -: -:
+a	100,011,000,011	past	true	1:a
+(() | b)	000,110	next	true	-: 2:b
+()	010,001	next	true	-: -:
+c	001,011	past	false	1:c 2:c
+a		next	false	
+((()){1,2}?){,2}	111,110	next	false	-: -:
+((a | $)){0,}? a b	111,001,101,011	past	true	3:ab
+((c c){0,1} | a | a a c b)	000,100,100	next	true	-: 2:a 3:a
+b ((c)?)?	100,110,111	next	false	2:bc 3:b
+(b | b c | ^ a) b ((c){,2} | c b | a $)	111,000,110	next	false	
+a	010	past	false	
+^	011,001,001,000	past	true	-:
+(c a | b) b a ^ b		next	true	
+(^){1,} (c | a | b) (b){0,1}? (^){2,}? b	001,010,111,011,000,111	past	true	
+(((c){2} | a c | $ b ^) | ($)* c)	100,100,010	next	false	
+(((c){2,})?){2}	011,111,110,101,001,001	next	false	1:cc -: -: 4:ccc 5:cc -:
+c ($ c)* (() | a | c) b a	000	next	false	
+(((b | a) | (()){2} | (^ | a | a)) | b | (a a c | b))	011,011,010,101,110,001,100	past	false	1:b 2:b 3:b 4:a 5:b -: 7:a
+((b)+?)*	001,100,011,110,011	past	false	-: -: 3:bbb
+((c c $ | (^ | c)))??	101,011,000,101,001,101	past	false	-: -: -: -: -: -:
+((c)?? b | (a){1,2}? | (a b b){2})	001,111,010,010,011	next	false	1:cb 2:b 3:b 4:b 5:b
+(((b | b | ^)){2,}){,2}	101,011,110,100,011	next	false	-: 2:bb -: -: -:
+(($){0,1}?)+	110,100	past	false	-: -:
+c	011,100,001,010,110,001	next	true	1:c 3:c 6:c
+$ (c){1,2}? (b)?? a c	010,011,011,010,001,110	next	false	
+c a (b | b b a | (b | c | b))	100	past	false	
+a	101,101,101	past	true	1:a 2:a 3:a
+((b){2,} | (c)+) c (c | c | ^)	110,110,111	next	false	
+b	101,111	next	true	2:b
+^ (()){0,1} c ^ c (c | b | b) c	111	past	true	
+(^ (b)+? | c $ (^){2} (b | a | ^))	101,101,111,001,110,000	next	true	
+b	101,001,100,100,001,011,001	next	false	6:b
+a	100	past	true	1:a
+(a | (a | a | c) (c){2,}?)	001,110,010,010,110,010	next	false	2:a 5:a
+b a	000,000,010	next	true	
+a	110	past	false	1:a
+($ | b b a) a c b $	000,010,111,000	next	true	
+$	001,001,010	past	false	
+a	110,001,011	next	false	1:a
+(((b | ()) | (b | b | a)))+?	011,011,011,111,011,001,011	next	false	1:b 2:b 3:b 4:b 5:b -: 7:b
+(^){1,}	011,001,010,111,101,110,000	next	false	-:
+a	110,001,111,110,100	next	true	1:a 3:a 4:a 5:a
+(c){2,} (b){0,1}? (c)? a b b (($)+ | b | a)	001,101,111,101	past	false	
+a	000,101,110,100,110,001,111	past	false	2:a 3:a 4:a 5:a 7:a
+b	010,010	next	false	1:b 2:b
+(a | b c $ | c) b		next	false	
+(c a a c | c)	101,010,000,001,110,100,111	past	true	1:c 4:caac
+b	001,101,000,010,010,011,101	past	false	4:b 5:b 6:b
+()	110,101,110,101	past	true	-: -: -: -:
+(($ a a | b) | c)	001,111,010,011,011,010,001	past	false	1:c 2:b 3:b 4:b 5:b 6:b 7:c
+()	110,101,001,001,111	past	false	-: -: -: -: -:
+((b){0,1}? b c a a | a)	000,110,010,001,110	next	false	2:a 5:a
+(a | b | a) c (b | ()) (^ | c) (b | ^)	010,101,111,000	past	true	
+b (c | b | b) a c a $ (() | c | a)	010,000	past	true	
+b		next	true	
+b	111,110,111,001,100,010	next	false	1:b 2:b 3:b 6:b
+c	001	past	false	1:c
+(((a | () | ^) | ($){0,}? | c) | (b)? (b)? b b () | c)	111	next	false	1:a
+() b $ c (a){,2} (b)+	001,110	next	false	
+(c | a | ((b){,2} | (a | b | ^) | (a){0,}?))	100,110,100,111,110	past	false	1:a 2:a 3:a 4:c 5:a
+c	111,100,010,001,101	next	false	1:c 4:c 5:c
+(c b c)+?	101,101,010,001,111	past	true	2:cbc
+(^){2} ((b | b)){2,}? $	110,000,101,110,011	past	false	
+((^ | b | b) $ a)+	101,100,110	past	false	
+(b | ())	101,111,101	next	true	-: 2:b -:
+((() | b))*? ((b){2,}? | c b ())	111,110,011,111,001	past	false	1:bb 3:bb
+(()){2}	010,110	past	false	-: -:
+(^)* (c c | b)	000,010,011,101,001	past	false	2:b 3:cc
+((b | $ a | (() | c)))+	100,001,001,111,011	past	true	-: 2:ccbb
+b	000,000,000,001,100,110	next	false	6:b
+(((a){,2}? | (c){0,}? | a) | ())	111,010	past	true	1:a -:
+b	101,100,010	next	false	3:b
+() b b (a | a | c) ((b){2}){2,} (c | ($ | b) | c b c)	011,111,111	next	true	
+a b (a){1,2} c c ^ b (a){0,1}?	010,010,111,110	next	false	
+((a | b b b) | (c | c) | (() | () | a) (c | a) c)	111,010	next	false	1:a
+((a b | (a){1,2}) | ((b){0,}?){1,2}?)		past	false	
+(b | (c | $ | b)) a	110,000,110,011	next	false	
+b	101,101,000,000	past	false	
+((a)+ (a)?)+	001,111,100,011	past	false	2:aa
+((()){,2} b){2}	000,010,100,000,011,101,010	next	true	
+((a){1,}){2} () c a (a | () | c)	011	next	false	
+a	000,010,111,011	past	false	3:a
+(c | (c b){0,1}?)	000,011	next	false	-: 2:c
+((b () c | $) | c b b)	101,001,111	past	false	
+^		past	false	
+b	001,001,111	next	true	3:b
+((c b c | (()){2,}))+	110,001,001,101	past	true	-: -: -: -:
+a	101	next	false	1:a
+(c){2}	111,010,101,011,110	next	false	3:cc
+(())?		past	false	
+((b | (a)* | (() | c | a)) | (a){1,2} c)	010	past	false	1:b
+(b | (b){,2} | (b c | a | c a))	000,111,100,011,011	next	false	-: 2:b -: 4:b 5:b
+c	101,100,111,011	past	false	1:c 3:c 4:c
+((a){0,} (b)+? | b)	110,100,100,100,011,000,110	next	true	1:aaaab 2:aaab 3:aab 4:ab 5:b 7:b
+a	111,000	next	true	1:a
+b	101,010,001,100,010,001,111	next	false	2:b 5:b 7:b
+()	000,010,101,011,101,011,001	past	true	-: -: -: -: -: -: -:
+(c | () | c) (b)+ $		next	false	
+()	011,111,001,010,110,110	next	false	-: -: -: -: -: -:
+(a | ((c){0,1})*)	111,010,000,100	past	false	1:a -: -: 4:a
+c		past	false	
+a	110,000,101,110,110,111,100	past	true	1:a 3:a 4:a 5:a 6:a 7:a
+(b (b){2,})*?	001,011,010,011,101,011	next	true	-: 2:bbb -: -: -: -:
+a	101,000,110,000	next	false	1:a 3:a
+(c b | (c | a | a) c (() | a | c))	101,100,000	past	false	
+(((c){1,2} | ()) | b | b c)	011,010,011	past	true	1:c 2:bc
+(b)*?	010	next	false	-:
+b	011,001,100,110,001	next	false	1:b 4:b
+((b | c) | c | ((c){2,} | (a | a | ()) | (a)+?))	010	next	false	1:b
+(b)??	111,010	past	false	-: -:
+b		next	false	
+a a c (b){,2} b (b)+	001,101,010	next	false	
+((a b)??){,2}	110	next	false	-:
+c	000,110,010,010,011,111	past	false	5:c 6:c
+c	111,100,001	next	false	1:c 3:c
+c	000	next	false	
+a	110,010,011	next	true	1:a
+b	101,101	past	false	
+b b b a ((c){0,}? | ())	001,001,111,001	next	false	
+($ c)?? ((()){,2}?){1,2}?	010,010,000,110,111,001	next	false	-: -: -: -: -: -:
+((c | c c () | a) | (b | c | ()) a)	110	past	true	1:a
+(($ | () | a) | c b) (a)+? () ^ b	101,111	next	true	
+c	000,001,111,110,010,110	past	false	2:c 3:c
+a	101	next	true	1:a
+a		past	false	
+(a)* () (b){1,2}? (($){2,}){,2}?	010,110,011,111,011,111	next	true	1:bb 2:abb 3:bb 4:abb 5:bb 6:b
+(b | (a | c) | b)	000	next	false	
+a (a){0,1}? (b | c) a c		past	true	
+(b | a)		past	false	
+$	010,100,011,011,101,010	next	false	
+c	110,101,101,100,110,110	past	false	2:c 3:c
+($ | $)	010,111,000,001	next	false	
+(a | c)		past	true	
+a	111,000,011	next	false	1:a
+()	100,001,101,101,010,011,110	past	false	-: -: -: -: -: -: -:
+a	011,111,111,101,011,000	next	true	2:a 3:a 4:a
+(b | b | a) b $ () c (()){1,2} ((b){1,}? | a a)	010,100,000,010,110,001	next	false	
+(((b | c | b) | a a b)){1,2}?	111,100,110,111,000	next	true	1:baab 2:aab 3:bb 4:b
+(a c ($){0,1}){1,2}?	111,000,101,001	next	true	3:ac
+((c () c | (b){2} | (c){2}) | (b){2} (^ | b))		next	false	
+(((c){1,2} | a) | (($)?)?? | b (a)*?)	010,010,111,111,011	past	false	-: -: 3:cc 5:c
+(((a | b)){1,2}?){2,}?	011,010,100,101,111	next	false	1:bb 2:ba 3:aa 4:aa
+()	110,011,000,100,111	past	true	-: -: -: -: -:
+b ((b){0,1}?){1,}? (() | ($ | $))	100,111,011,111,111,000,110	past	true	2:bbbb 7:b
+((a){1,2} ^ ^ | (b ()){0,} | (b b b)+)	110,101	next	true	1:b -:
+(c){,2}	101,011,101,111,001	next	false	1:cc 2:cc 3:cc 4:cc 5:c
+(((c){0,1}){,2}?){1,2}	101	past	false	-:
+a	101,101,010,001,010	next	false	1:a 2:a
+c	110,101,101,011,010	past	false	2:c 3:c 4:c
+((a c | (^ | c))){0,}	111,010,110,111,011,011	past	false	1:c -: 3:accc
+((a | ^ | c) | () | b) (a a | (^){2,}) b c ^	011,000,010,111,011,100,010	past	false	
+c	101,000,100,011,011,100,101	next	true	1:c 4:c 5:c 7:c
+c	000,101,010,111	next	false	2:c 4:c
+b	100	next	true	
+c	101,111,001,010,010,011,011	next	false	1:c 2:c 3:c 6:c 7:c
+a	001,010,001,100,011,100,100	next	false	4:a 6:a 7:a
+((c){0,1} | (^){2})	111	past	false	1:c
+c		next	false	
+b c c	000,101,011,100,111,010,101	past	true	
+b	111,101,101,011,100,011,110	past	true	1:b 4:b 6:b 7:b
+((b | b | a b a) | b)	100	next	false	
+((c | a | b ()) | (b b a | (b){0,}) | () b c a $)	000,111,100	next	false	-: 2:c 3:a
+(c){0,1}? ((b | c | a))+ a c c a a	110	next	true	
+()		next	false	
+a b () b ()	011,011,110,101,101,101,011	past	false	
+(a (b){,2}?){0,}?	101,100,100	past	true	1:aaa
+(c | c)		next	false	
+((b | ()))*? (c)*	111,110,100,101,011,010,001	next	false	1:c -: -: 4:cc 5:c -: 7:c
+(b c c (b | b | c) $)+	010,101,110,011,100,010	past	false	
+((a | a | b) (b | () | b) (a | b | a)){0,1}	000,110,000,011	next	false	-: -: -: -:
+a	101	past	true	1:a
+(((b){2}){1,2}){,2}?	010,110,011,011,110,111,100	past	false	-: -: -: -: -: -: -:
+a b ((b | c | b) | ($){1,2} | b b)	001	next	false	
+a		next	true	
+(a | ((c){,2}? | a | (a){2,}))	110,101	past	false	1:a 2:a
+(((c | b | a)){,2}){0,}?	011,000,001	past	false	-: -: -:
+((a)+ b (b | b | a)){2,}?	001,100	past	false	
+((a | a b) | ((b | ())){1,}? | (c | a | $) () $ (a){0,1})	110,100,011,100	next	false	1:a 2:a 3:b 4:a
+b	001,010,010,111,101,100	next	false	2:b 3:b 4:b
+(() | ((b | b)){,2}?)	100	past	false	-:
+a a	010,000,110,010,001	next	false	
+(a a ^){2,}?	101	past	false	
+((a)*){0,}	111,010	next	false	1:a -:
+(c c){1,} a b		past	false	
+(((b){1,2})? | (c){1,2} c a c)	100,010,100,111,101,101,010	next	false	-: 2:b -: 4:b -: -: 7:b
+()	101,110,101	next	true	-: -: -:
+b	010,010,000,101,110,111,110	next	false	1:b 2:b 5:b 6:b 7:b
+(b | $)	000,000,000,001,011,101	past	false	5:b
+(((^){,2})* | (b ()){,2}?)	010,000,000,101,111	next	true	1:b -: -: -: 5:b
+(((b | b | ()))*?){,2}	011,101,110,000	past	false	-: -: -: -:
+b	110,011,001,100,101,111	next	false	1:b 2:b 6:b
+((a b){2,} | () | b)	001,010,001,110,000	next	true	-: 2:b -: 4:b -:
+a a c	001,110,111,010	next	false	
+(((c | () | a) | (b){,2} | ()))*	100,000,110,110	next	false	1:a -: 3:aa 4:a
+(((^ | a) | b b | (b | b)) | a | () c (a | a | b) c)	000	next	false	-:
+a		next	false	
+(b a)+ a	110,001,000,101,001,111	next	true	
+((c)?){1,}	100,111,011,110,110,000	next	false	-: 2:cc 3:c -: -: -:
+a	000	next	true	
+((() | (a){0,1}) | (b ())??)	010,011,110,111,011	next	true	1:b 2:b 3:a 4:a 5:b
+(b | (b | c | c)) ((() | b | $)){0,1} b	110,101,000,010	past	true	
+b (a b () | () | (c | ()))	011,010,100,101,110,011	past	true	1:b 2:b 5:bc
+(b){1,2} (c | a () b)	001	past	false	
+a	010,111,101,111,000,010	next	true	2:a 3:a 4:a
+(b){1,}	101,001,110,100,000	next	true	3:b
+(b | () $ a) ((b)*)? ((b){1,2})*?	000	next	false	
+b	000	past	false	
+(c | ^ | ((^ | c) | c))	110,001	next	true	-: 2:c
+((()){,2}? | (b | b) | b b) ((c){0,} | c | () c) ((b | b))*	101,100,111,101,110,000,000	past	false	1:c -: 3:ccb -: -:
+(c a ^ c ^ a){1,2}?	001,100,110	past	false	
+$		past	true	
+(c | a | c) () a () c c c c	010,110,010,010,010	next	false	
+^	110,001	past	false	-:
+a	101,100,011,100,011,000	past	false	1:a 2:a 4:a
+b	100,111,010,010,010,101	next	true	2:b 3:b 4:b 5:b
+()		next	false	
+(b | b | b) b (c | c | ^) $ b	110	next	true	
+(c | b)	001,101,001,100,010,101,000	next	false	1:c 2:c 3:c 5:b 6:c
+((a){0,}?){,2}	111	next	true	1:a
+($)+?	000,011,000	past	false	
+a (b | (c){2,} | (b){1,2})	011,000	next	true	
+((b | c | c) | (b){0,}? | (c | b)) ((a | a) | (a | b))	001,010	past	false	1:cb
+(((a)*?){2,}){0,1}	111,111,100,111,001	next	false	-: -: -: -: -:
+c	110,011,000,100	next	false	2:c
+((c){2,}? | a)		past	true	
+(b)??	001,111,000,010,000,001	past	false	-: -: -: -: -: -:
+c	101,110,111,101,001,101,011	next	false	1:c 3:c 4:c 5:c 6:c 7:c
+(a c | (c a | a c ^))	110,011,010,011	past	false	1:ac
+()		past	true	
+(b (a){,2}? | (b b b){2,}?)	110,000	next	false	1:b
+c	111,100,011,000	past	false	1:c 3:c
+(((b){1,2}?){2} | ((a){0,1}? | b) | b $ (c)?)	010,101	past	false	-: -:
+(c a)+ (() ^){1,} b	010,110,101,011,101,010,100	past	false	
+c	000,100,011	next	false	3:c
+((a | b | ^)){1,2} (a){1,} b c ((c | a)){,2}	001,011,010,001,110,111,010	next	true	
+(c ^ a (b | a | b)){0,1}?	000,101,110	next	false	-: -: -:
+c	010,111,100	next	false	2:c
+a		past	true	
+(^){1,2}?		past	false	
+(()){1,}?	000	past	true	-:
+(c)*?	110,100,110,010,111	past	true	-: -: -: -: 5:c
+c	001,011,110,111,011,110	next	true	1:c 2:c 4:c 5:c
+((b $)*){1,}	110,011	next	false	-: 2:b
+(b | () | (b){2,}?) (c c a){0,}	110,001,101,101	past	false	1:bcca
+(c | a | b) (b)? (c | b | a) a	000,001,101,100,000	next	false	2:cca
+(a b (c | b | ^) | () | ((c | ())){2,})	010	past	true	-:
+((a){2}){0,1}? (c)+ $ a () $ (b c){0,}	011,100,110,011	next	false	
+(b){1,} b ((() | a | $)){2,} (c b | (b | $) | b)	000,100,010,010,101,101,101	past	false	3:bbaaa
+((b){0,} | (b c c | c a c) | (c | () | a) (b | c | a))	001,000,001,111,110,010,101	past	false	-: -: -: 4:bbb -:
+b	101	past	true	
+((b c a)? | (b a b | ()) | a)	100,100,100,111	next	false	-: -: -: -:
+(((c){2} | (b){,2}? | (() | c | b)) | (b ^ | (c | b | a) | b) | a)	111,100,100,110	next	true	1:b 2:a 3:a 4:b
+(a ($){1,}?){2,}?		next	false	
+(a a ())?	001,010,111	next	true	-: -: -:
+(c | b)	111,101	past	false	1:c 2:c
+(b){0,1}? c a b (^ c a | (b){0,1}?)	100,001,011,101,110	next	false	3:cab
+b	011,110	next	true	1:b 2:b
+a	011,000,001	past	false	
+b		past	false	
+((a | (a)*?) | (b | a) | ((^ | b | b) | (^ | a) | (^ | ^ | c)))	101,100,111,011,110,110	past	false	1:a 2:a 3:a -: 5:a 6:a
+b		next	false	
+(((a)* | ^ a) | ($){2} $ (^){0,}?)	001,111,110,011,110,111,010	next	true	-: 2:aa 3:a -: 5:aa 6:a -:
+(b c c (b){0,1}){,2}	101,011,010,011	past	false	-: -: -: -:
+((b | (a){1,}?) | ((b | $ | ^)){1,} | (b | (()){2} | (b | c | c)))	010,010,010	past	false	1:b 2:b 3:b
+b (c){1,}?	000,101	next	true	
+b a a (a){1,2}? c b a (c | a) (a)+	000,001,111	past	false	
+b	110,111	past	false	1:b 2:b
+b	100,100,011	next	false	3:b
+a	000	next	true	
+((^ | c | b) ($ | $ | c) | (a)? | a)	001,011,010,000,110,111	next	false	1:c -: -: -: 5:bc 6:c
+^	101,001	past	false	-:
+a (b | (b | c | a) | (^ | b)) (b | (^){2} | (b | $ | a))	110,101,000,001,011,100,011	next	false	6:ab
+() (c b ()){1,2}?	001,111,111,011,111,110,011	next	false	1:cb 2:cb 3:cb 4:cb 5:cb
+(b | c | (b | (^){1,2} | () b a))	001,010	past	false	1:c 2:b
+c		past	false	
+(b | (c){0,1}?)		next	true	
+(b a $ b c (c)*? | () ^ () (b){,2}? | ((^){0,}?){0,1}?)	111,110,110	next	false	-: -: -:
+a	110,001,101	next	false	1:a 3:a
+(()){1,2}?	101,011,111,110	past	true	-: -: -: -:
+(a | (b | a) (a | a) c b ^ | ((a | a | c)){2,})	101,010,100,100,001,010	next	true	1:a 3:aac 4:ac
+((b | (()){,2} | () b) | (c | a) (a){0,}? a b b | (b b a){0,1})	001,101,000	next	false	-: -: -:
+b ((a | c) | (c){0,1})	001,100,010,110,010	next	false	3:ba 4:b 5:b
+c		past	true	
+a	110,110,110,000,011,010	next	false	1:a 2:a 3:a
+b b		next	false	
+c	111,110,110	past	false	1:c
+b (b){0,1} (c)? ((b){0,} | (a | b | c) | ())	010,000	next	true	1:b
+((c | b | ()) | (c)+? | (b){2,}) (a | a) b c () c b	001,001,001,000,011,000,001	next	false	
+($ | ($ b a | a))	000,011,101,010	next	true	3:a
+a	111	next	false	1:a
+a	110	next	false	1:a
+(((c){1,}? | $))*?	101	past	false	-:
+c	111	past	false	1:c
+(b b (b){0,1}? ()){0,}?	000,010,100,101,001,110,111	past	false	-: -: -: -: -: -: -:
+((c | c | b)){2,} (() a){1,2} c	111,001,000,100,000,010,000	next	false	
+c	000,110,011,100,011	next	false	3:c 5:c
+((a){2}){2} (b){1,} (a $ | a | (a){2})		next	false	
+((c)? | a) ((a | b | b) | (b | a | a))	111	next	false	1:a
+((b | a | c))+? ((a){1,} | ()) a	101,000,111,001,001	next	true	
+(a){0,1}? (b){2} b (() | (() | c | c)) (a c c){2}	110,100,100	next	false	
+a	110,100,000,100	next	false	1:a 2:a 4:a
+(a | (a a a){0,} | (c | c) a)	000,010,000,110,101	next	false	-: -: -: 4:a 5:a
+((b)?? | ((() | a) | c ()) | ($ | a) (b | a))	111,011	past	false	-: -:
+()	101,100,101,101,001	next	false	-: -: -: -: -:
+(b){2,}	010,111,101,000,111,111	next	true	1:bb 5:bb
+((a | a)){1,2} ((a | b) | c b b)		next	true	
+(a | (b b | (a | b)) | a)	001	past	false	
+a	000,000,000,001,001	past	false	
+$ ((b)+? | (a){,2}?)		next	false	
+b	100	past	false	
+$	110	past	false	
+((^ | a | a) | (a | a) | (b)+) (b){,2}?	100,000,111,100,110,011	next	true	1:a 3:a 4:abb 5:ab 6:b
+(b | (() b b | (c)?? | b) | b b a (a){1,})	010,000,100,100,110,110	past	true	1:b -: -: -: 5:bb
+$	001,001	next	false	
+(a)+	010,101,011,100,100	next	false	2:a 4:aa 5:a
+(() | () | ((a | a | a)){1,}?)	111,010,100,111,011	next	true	1:a -: 3:aa 4:a -:
+(a | (b){2,}?)	100,100,110,011,000	past	false	1:a 2:a 3:a
+((^ | b | (b){0,}))+	100,011,001,111,100,101,001	past	false	-: 2:b -: 4:b -: -: -:
+(((b){2,}){,2}){1,2}?	010,100,011,011,101,011,000	next	true	-: -: 3:bb -: -: -: -:
+c b b c (a | ()) b ^		past	true	
+(a c (b)* | b | (a | b | a b $))	110,011,101,000,000,110	next	false	1:ac 2:b 3:a 6:b
+b		past	true	
+b	101,000,111	past	false	3:b
+b	000,111,100,111,000,100	past	false	2:b 4:b
+c $ (a){2}	001,010,001	past	true	
+$		next	true	
+(((c | b | ^))* | a)		next	false	
+c	101,000,101	next	false	1:c 3:c
+(a | (b | a | a a a))	111,010,000,111,001,100,100	next	false	1:a 2:b 4:a 6:a 7:a
+(() | b)		next	true	
+b	101	past	true	
+((b)+ | c) c b		next	false	
+((a)*? | (b)+ (() | a) | (($){0,1}){0,1})	100	next	false	-:
+a ((^){1,}){1,2}? (^ | () a a)	100,000,101,001	next	true	
+(b | ^ () () a c)	001,110,111	next	true	2:b 3:b
+(a)+	110,101,001,011	next	false	1:aa 2:a
+((c){1,2} c){0,}?	101,111	next	true	1:cc -:
+((b b)+ | b | (a | (c | b)))	110,111,101,000,001,011	next	false	1:bb 2:b 3:a 5:c 6:b
+^		past	false	
+(a)?	111,000,000,101,010,101	past	false	1:a -: -: 4:a -: 6:a
+(((b){1,2}){2} | () | (()){1,2} (() | c | a))	101,001,001,010,110	past	true	1:c 2:c 3:c 4:bb
+c	011,110,110,101	next	false	1:c 4:c
+($){1,2} ((b){2} | (a)??)	100	past	true	
+c	110,111,100	past	false	2:c
+c a (a){2,}? (c | b c c | b a c)	011	past	false	
+()	010,110,110,011	next	false	-: -: -: -:
+c		past	false	
+(c | b (c){0,1})	110	past	false	1:b
+(((c | a | ^)){1,2})*	010	next	false	-:
+c	100,011,010	past	false	2:c
+c	101,001,010,011	past	true	1:c 2:c 4:c
+c	010	past	false	
+(b b (b){2,}?){0,1}	010,100,000,010	past	false	-: -: -: -:
+$	100,010,010,011,000	next	false	
+((a $ | ($ | c | ^))){2,}	101	next	false	1:a
+b	001,000,111,010,001	past	false	3:b 4:b
+(((b | a)){,2}){1,2}?		next	false	
+(c | (() | () ()) | ((c){0,1}? | b | b))	101,010,100	past	false	1:c -: -:
+(a | c | c) b c ((a | $) | c c | c a c)		past	false	
+($){1,}?	010,011,110,011,110	next	false	
+b	001,001,111	next	true	3:b
+a	000,100	past	true	2:a
+($){1,}	001,100,001	past	true	
+(((b | a)){2,} | b c b b b)	101,110,110,000,010,001	past	true	1:abb
+b	001,001,101,010,111,000,001	next	true	4:b 5:b
+c c		next	false	
+(c){2,} (b | ^) ((c){1,}? | b a ()) b a	101,011,011,101,111	next	false	
+((a){0,} | b b (a){2,} | c)	110,111,100,001	next	false	1:aaa 2:aa 3:a -:
+c	101,000,100,100,111,100,001	past	false	1:c 5:c 7:c
+((c){1,2} | (b)? | a () a) b b (b | b | c) a b $ (c){1,2}? (a | a | a) (b | a | a)	111,010,010	past	false	
+a	110,110,111,000,110,101	past	false	1:a 2:a 3:a 5:a 6:a
+c (b c c){,2}	010,001,100,001,111,101,100	next	true	2:c 4:c 5:c 6:c
+a	011	past	true	
+(((c | $ | a) | (^ | a) | (b | b))){1,}	101,010,100	past	false	1:cba
+$	011,000,000,011,011,100,110	past	false	
+((c a | (c)* | (b)??)){0,1}	011,100,111,100,000,101,001	next	false	1:ca -: 3:ca -: -: 6:cc 7:c
+a	100,001	next	false	1:a
+(((c | b | ^) | c | (c){2,})){0,1}?	000,011,111,000	past	false	-: -: -: -:
+(()){0,}	101,000,101,110	next	false	-: -: -: -:
+a	010,011,100,000,110	next	false	3:a 5:a
+((b a | ())){2}	101,110,111	past	true	-: 2:ba
+((a | b | a) (c)?? | a | (b){2,}? (b){,2} (a | b | b))	001,011,011,000	past	true	2:bc
+b	000,001	next	true	
+((()){2,} | ((b)? | (c | b | b)))	100,100,010	past	false	-: -: -:
+(((b | b) | c ^ a) | c)	101	next	false	1:c
+(b)*		past	false	
+c	101,000,010,111,010	past	true	1:c 4:c
+(((c | a) | (a | c)) | c)	110	past	false	1:a
+a	011,001,011,111,010,110	past	false	4:a 6:a
+c ((b | ())){0,}?	101,101,110,101,001	past	false	1:c 2:c 4:c 5:c
+a	111,101,110,001,101,001	past	true	1:a 2:a 3:a 5:a
+(((c){1,}){2,})*?	000,110	past	false	-: -:
+b	100,011,000,110,001,001	past	false	2:b 4:b
+(b | b) (c)??	101	past	false	
+($ | c) c (b){0,} b		past	true	
+(($){2} | a | ((a | c | ^) | (b){2,} | a c))	000,001,100,110,110	past	false	-: 2:c 3:a 4:a 5:a
+a	100,010	past	false	1:a
+((a | c)){0,1}?	101,110,111,000,000	next	false	-: -: -: -: -:
+((b | b | (c | b | ())) | (a c | c | (a)+?))	110,010	next	false	1:b 2:b
+((c $ | c | () b $) | (b){2} (a)?? | ())	010,001,101,001	past	true	-: 2:c 3:c 4:c
+((c | a | b) $ (a | c | ^) | (b a c | a | (a | c)) | ((b | b | c)){0,1})	101,001	next	true	1:a 2:c
+^	110,011,010,110,101,111	next	false	-:
+(a | b b | (c)+) c a b $ $	101,011,000	next	false	
+(a b (a | b | b)){0,1}	001,000	next	true	-: -:
+((b | c)){,2}?	101,011,101,011	next	false	-: -: -: -:
+(((c)*){0,1}? | (b $ ()){1,2} | (c | a a b))	101,010,100,110,101	past	false	-: -: -: -: -:
+((b | (b){,2}?) | ((a)?)*)	101,111,001,101,100,100	past	false	-: 2:b -: -: -: -:
+a	101,100,001	next	false	1:a 2:a
+((a | a))+? b	111,111,010,010	next	false	1:ab 2:ab
+(c a){1,}? ()		next	true	
+(((b){2,}){0,1}? | (^){1,2} (a){1,2}? (a){2,}?)		next	true	
+a	000,111,110,010	past	true	2:a 3:a
+c b b $ ^ b c a c b	011,100,100,001,100	past	false	
+(b){1,}? (b | ^ | ()) c b ()	011,111	next	false	
+a a b b (()){2,}	110,000,110,110,001,010,111	next	false	
+c		next	false	
+(b | $)	011,001,101,011,101,011	next	false	1:b 4:b 6:b
+(a){2,}?	011,111,000,000,110	next	true	
+b a a (c | c | c) a	111,111,100,011,000	past	true	
+(b (b){0,} (^ | c)){2}	011	past	false	
+a ()	100,110,100,010,110,110	past	false	1:a 2:a 3:a 5:a 6:a
+(())*	110,110	next	false	-: -:
+((a)+?){0,1}? a	010	next	false	
+((c c | (()){1,2}? | ())){1,}?	101,111	next	false	1:cc -:
+c ((b){1,2}?){,2} c (b){0,1}	001,011,110,001,110,011	past	false	1:cbbcb
+((b | () | a))+? ((b)+ | a | (b | a | a))	100,000,000,110,001	past	false	1:a 4:b
+b (a){1,2}? b	000,010,010,101,000,100,101	past	false	
+(((b){1,}){,2} | b b (c | a))	101,011,110,111,111	next	false	-: 2:bbbb 3:bbb 4:bb 5:b
+(((b | b)){,2}){0,1}	100,001,110,010,011	past	false	-: -: 3:bb 5:b
+((c | a) | c) (b c c){2,}	110,111,111,000	next	true	
+(b)+? () c	100,111,100,011,110,001	next	false	4:bbc 5:bc
+(b | ((a | c | a)){0,1})		next	false	
+((a){2}){1,}	000	past	false	
+(a | c | ()) c b a (b | b | b) b	111,001,110,101,110	next	false	
+((a){1,}?)* (^){2} c (b)* a	101,111,100,101,110,100,110	next	false	1:cba
+(c b (b | ()) | (^ ^ | (a | a) | () c b) | ((c | b | ()) | (a){1,2} | b))	111,001,110,001,000	next	false	-: 2:cb 3:a 4:c -:
+(c){2,} ()	110,110,011,110,100,110,101	next	true	
+((c){2}){2,} c	001,111,110,010,010,111,011	past	false	
+a	001	past	false	
+(a | b)	011	next	true	1:b
+(()){2}	010,001	past	true	-: -:
+c () c a (a | b | a) (b){1,2}?	001,000	past	false	
+b b	001,101,001,010,001,001,101	next	true	
+()	111,110,100,010,100,101,010	next	true	-: -: -: -: -: -: -:
+(b | b | b) ^ c c (b){0,1}? b	101,000,010,101,000	next	false	
+a (^ () a){0,1}?	101,100,011,000,001,001,110	past	false	1:a 2:a 7:a
+a (() | a) (b){2,} c a c	100,110,101	next	true	
+b ((a){2,})??	011,101	past	false	1:b
+((b | c) (c | a) | (($ | b)){1,}? | ((())+){0,}?)	111,000,011	next	false	1:b -: 3:b
+b	110,110,000,101,100,111	past	false	1:b 2:b 6:b
+b	100,011	past	true	2:b
+(^){0,1}		past	false	
+((a){,2}? | c) $	101,101,001	past	false	3:c
+^	001,101,110,110,110,010	past	false	-:
+(b a c (() | () | b) (b | b)){2,}	111,111	past	true	
+(((() | () | b) | a a b | (a){1,}) | () b a a | a)		next	false	
+(b a c (b | b))*?	001,100,100,001	past	false	-: -: -: -:
+((c b | c a c)){2}	110,000,000	next	true	
+(^){2,}	000,011,001,001,011	past	true	-:
+b c	011,000,111,001	past	true	3:bc
+(b){2,}	100,001	past	true	
+(()){0,}?	001,111,111,111,101,000	past	false	-: -: -: -: -: -:
+(b | ^ b b) ()	111,100	past	true	1:b
+b	001,100,111,110,001	past	false	3:b 4:b
+(() | (b | c | b) | c) ^	110,010,010,011,010	past	false	-:
+a ((a | c) | (b){,2})	111,110,010,011	past	true	1:abb
+a		past	true	
+(a){0,}	111,100,101,110,110	next	false	1:aaaaa 2:aaaa 3:aaa 4:aa 5:a
+b b		next	true	
+(((b)+ | c) | c | c)	110,101,100,101	past	false	1:b 2:c 4:c
+b	001,100,111,011,011,100,110	past	false	3:b 4:b 5:b 7:b
+((($){2}){0,}){1,2}		next	false	
+c	110,010,000	next	false	
+(b | ((a)*?){0,1})	110,001,100,011,100	past	true	1:b -: 3:a 4:b 5:a
+c	100,110,101,001,010,111	next	true	3:c 4:c 6:c
+((b ^){0,}?){,2}	011	next	false	-:
+(((a)*?){0,}){,2}		past	true	
+((b){,2}? (b){0,} a){2}	110,011,100,010,011,001,110	past	true	1:aba
+(b | b a | c b) ((a)*?)*	000,011	past	false	2:b
+(a)? (() | ^ | ()) a a	001,111,000,110,111,110,101	past	false	4:aaa
+((($){2,}){0,1} | c | (a)?)	111,010,101,111,110,111	past	false	-: -: -: -: -: -:
+((()){,2})?		next	false	
+(((b | b | ()) | (b){0,})){1,}		next	true	
+(c){1,}	111,000,011,010	past	true	1:c 3:c
+(($)*? (b | b | a) | (b){,2} (c)+? a ^)		past	false	
+(b){2,} b (c){1,2}	100,111	next	false	
+a	010,110,110,111,011	past	false	2:a 3:a 4:a
+a		next	false	
+(c){0,1} b a	001,011,111,001,100	next	true	1:cba 2:ba
+(((c | b) | a))+	100,001,010,010	next	true	1:acbb 2:cbb 3:bb 4:b
+((b c a | a | (a | ^ | ())) | ((b){0,1}?){2} | ((c){2} | a | (b){,2}))	110,001	past	false	1:a -:
+((a | c b | (a){1,}?) | (b | c) | ((b | b)){0,})	001,001,100,001,000,100,001	next	false	1:c 2:c 3:a 4:c -: 6:a 7:c
+b	100,010,011,001,000	next	false	2:b 3:b
+((a)?)+ b	110,010,101,010,111,000	past	false	1:ab 3:ab 5:b
+a		past	true	
+(((^ | c | ()) | (a | c) | (a){,2}) | a)	110,111,100,111,011	past	true	1:aa 3:aa 5:c
+((c){,2} (b | () | b) | (b | a c) | ((a){1,2}?){2,})	000,000	past	false	-: -:
+()	100,100,010,001	next	true	-: -: -: -:
+(((b | c) | c a))*	010	next	true	1:b
+(a (() | c | b) (b | c | a) | (^ | b ()) | (c){2})	100,111	past	false	1:ab
+(c | ((c | b | ())){1,2}?)	010,010,111,111	past	true	1:bb 3:cc
+(((a | () | c) | () | (c | () | b))){1,2}	101,010,011,101,110,011	next	false	1:a -: -: 4:aa 5:a -:
+b	111,000,000,110,000,110	next	false	1:b 4:b 6:b
+((b c | b c a | a b a) | ((b | b))?)		past	false	
+a	100,001,110,011	next	false	1:a 3:a
+(a){2} (a){0,1} (b | c | b) (($ | b) | ($){0,}? | (b){,2}) $	100	past	false	
+a	111,011,001,001,011,011	next	false	1:a
+((a | c | a) | a $) (a | $)		past	false	
+(c){0,}	100,110,100	next	false	-: -: -:
+a		next	true	
+b	110,101	past	false	1:b
+((c | c | c) | (b | ^) | ()) (^ ^){2}	111,000,111	past	true	-:
+b	110,001,011,010,110,111	next	false	1:b 3:b 4:b 5:b 6:b
+((^ | a | c) b a){2}	100,110,011,101,011	next	false	
+(b)+	101	past	false	
+c	011,100,110,100,011,111	past	false	1:c 5:c 6:c
+a	011,011,100,110,110,001,111	past	false	3:a 4:a 5:a 7:a
+((b | a) (c)? (a | b) | a a (b | b | a) a)	010,000	next	false	
+(c | a)	111,100,011,111,110,101,011	next	false	1:c 2:a 3:c 4:c 5:a 6:c 7:c
+(c | (b | (c | b) | b))	000,111,101,111,110,011,001	next	true	2:c 3:c 4:c 5:b 6:c 7:c
+a (c){2} a c a (c | b) (b | c)	000,010	next	false	
+(((a | b | c) | a b b | (a){1,}?) | (c | c c | (a | b | a)))	111,011,011,100	next	false	1:a 2:b 3:b 4:a
+()		past	false	
+b	111,101,011,001	past	false	1:b 3:b
+(((a | c) | (c | c))){,2}	001	next	false	1:c
+b	110,100,101,011	past	false	1:b 4:b
+(a | b a | (a){,2}) (c | (b | $ | a))	100,110,101,111,111,101	past	false	1:ab 3:ac 5:ac
+(((c | a | ^)){0,1}?){0,}	010,100,110,000,000,000,101	past	false	-: 2:aa -: -: -: 7:c
+(((^ | c))+)??	111,010,101	next	false	-: -: -:
+a (b | b | b) ($ | a | c)	101,101,001,101,011	next	false	4:ab
+((c){0,1} | (())??) ((c){2}){,2} c	001,101,011,110,100	next	false	1:cc 2:cc 3:c
+()	100,110,111,100,100,110	past	false	-: -: -: -: -: -:
+(^ (a){0,1}? | c | (a | $ | c) c ^ a c)	101,101,111	past	false	-: 2:c 3:c
+b	110,000	past	false	1:b
+((b){,2})+ (^){1,} (b | a | b) b c c	010,110	next	false	
+^	101,011	next	false	-:
+((a){1,2}?){,2}	011,001,111,000	next	false	-: -: 3:a -:
+()	000,110,010,111,101,100	next	false	-: -: -: -: -: -:
+(a b){1,}		past	true	
+((b | $) (b)*){1,}	000,011,100,110,001,111	past	false	2:b 4:b 6:b
+(c c | (() | ()) | c) c (c a | (^)+ | (b)*?)	101,101,001,110,011,100	past	true	1:cccbb
+(()){1,}		next	true	
+(b () ^ c){,2}	001,100,110,111,001	past	false	-: -: -: -: -:
+((() | c)){0,1} c	110,111,010,010,100,100	next	false	2:c
+()	011,110,010,111	past	false	-: -: -: -:
+c	010	next	false	
+c	000,000,100,001,000,010,011	next	true	4:c 7:c
+(b | a) (c ^ b | ()) ()	110	past	false	1:b
+(a){2}		past	false	
+(((c){0,}?){0,}?){2}		next	true	
+(((a | ()))? | (^ a ()){0,} | (b ()){0,})	001,011,100	next	false	-: -: 3:a
+(((c)?? | a | c) | ($){2} b b | b)	101	next	true	1:c
+(((b)+){,2}){1,2}?	000,000,101,001,000	next	false	-: -: -: -: -:
+(a){2} c (a | c) (() | b | b)	000,000,101,011,000,100,110	next	false	
+((c | $) ($){1,} c){1,}?	110,010	next	false	
+(b)? b c ((b | ()) | ^)	100,110,010,011,010	next	false	2:bbcb 3:bcb
+a	100,001	past	false	1:a
+(((^){2}){1,}? | c | c)	001,111	next	false	-: 2:c
+(((b | () | a)){2,} | ((c | c | a) | c ()))	010,011,111,010,101	past	false	1:bbbba
+(c){2}	000,000,111,011,010,101,111	next	false	3:cc 6:cc
+(((b){1,} | (b | ^)) | ((a)+?){0,1}?)	001	past	false	-:
+((b b | c b c | ($ | b | b))){2,}?	000,111,000,011,100,001	next	false	
+c	111,110,000,001	past	false	1:c 4:c
+b	110,101,000,110,110,111,000	next	true	1:b 4:b 5:b 6:b
+() (()){2,}? ((b)?? | (a | ^) | a $ ())	011,000	past	true	1:b -:
+b	011,100,101,010	past	false	1:b 4:b
+(a $ a (b){0,}){,2}	011,110	past	false	-: -:
+((b)?){0,}	101,110,110	next	false	-: 2:bb 3:b
+(a c)*? ((c | b | c) | (b | c | c) | c)	000,011,001,011,100,000,110	next	false	2:c 3:c 4:c 7:b
+a	101,001,101,000	past	false	1:a 3:a
+c	001	past	true	1:c
+(((b){1,} | ())){,2}?	111,100	past	false	-: -:
+(b | ($)+ a (b){1,})		next	true	
+(((b | a | c) | (()){0,}) | (($){0,} | (c | c | b)) | b c (b){1,2})	110,000,110	next	false	1:b -: 3:b
+(b)?		past	false	
+b	110,111,011	past	true	1:b 2:b 3:b
+(a c b a b c){1,}	001,010,110,000,101,101	next	false	
+a		past	false	
+(((b | ^) | ($){1,}? | (^)+) | $ (^ | c) a b a | c)	101,100	next	false	-:
+(c | $) (a | a | b) (b | a | $)	110,111	past	false	
+(a | a | c)	110,000	next	false	1:a
+(c | b | ^) b a ((a){1,} | a a)		past	true	
+b c ^ b a ^ a	110,001,110,101,010,011	past	false	
+(a c a a a | (c $){2})	010,110,101,100,110	past	false	
+a	010	next	false	
+(((^)?? | (a | b))){0,1}?	000	past	true	-:
+((c)?? | b () a | ($){2}) (c c | b)	000,011,101	past	false	2:cc
+(^ (c | a) b c | (c | () $ b | (() | a | b)))	110,101,011,100,001	next	false	-: 2:c 3:c -: 5:c
+a	100,111,010,111,011	past	true	1:a 2:a 4:a
+b	111,001,000,110,110	next	false	1:b 4:b 5:b
+b	001,011,001,000,111	next	true	2:b 5:b
+((a | b))*? a	110,000	past	false	1:a
+^	000,111,111,000,010,110	past	false	-:
+(c | ((c | c | b) | (a | c)) | b)	101,000,000,110,110,010,111	next	false	1:c 4:b 5:b 6:b 7:c
+(b | c | (b){1,2} c b)		next	true	
+b (() b a){2,}?	000	next	true	
+c ^ b c b (a ()){,2}	011,101,010,101,001	past	false	
+((a){2} | (a){0,1}?) (c){0,}? ((c){2,} | (a | b) | (^)+)	110,111	past	false	1:a 2:a
+(a | (c | c | b)) (c b){,2}	001,010,000,011,001,100,100	past	true	1:c 2:b 4:c 5:c 6:a 7:a
+((b | () | a)){0,1} b ((^ | c | ^) | (^ | $))	101	past	false	
+a	110,000	past	false	1:a
+((()){0,}){1,2} ((c){2,}?){2} ((b | a)){0,1}	111	next	false	
+()		past	false	
+a	011,001,001,010,100,011	past	false	5:a
+((a){1,2})??	110,110,100,111,001,110	next	true	1:aa 2:aa 3:aa 4:a -: 6:a
+() (($){2} | ^ c | (() | a | c)) a	101,000,001	next	true	1:a
+()	101,101,101,110,010	past	true	-: -: -: -: -:
+($)*		past	true	
+c	101,011	past	true	1:c 2:c
+(() | b)	101,001	next	false	-: -:
+c c b b ()	011,110,111,001,000	next	true	
+(((b | b)){1,}? | (b | b | ^) ($){1,2}?)	010,001,010,111,101,100,101	past	false	1:b 3:b 4:b
+(()){,2}?	011,001	past	true	-: -:
+()	001,101	past	false	-: -:
+b	000,101,001,100	next	true	
+()		past	false	
+c	101,100,000,110,111	past	true	1:c 5:c
+((() | (a){2} | $))+?	101,000,010,101,101,100	past	false	-: -: -: -: -: -:
+b	010,110,010,111,000,011	past	false	1:b 2:b 3:b 4:b 6:b
+(((c | b | c))+?){,2}	111,100	next	false	1:c -:
+((c | c) | c | ($){,2} (^){1,2})	001,101,010,100,011,111,010	past	true	1:c 2:c 5:c 6:c
+c b c b b (c){0,1} c () a	100,101	past	true	
+(((a){1,})+ | ((b | $))+ | (a | b b | (b)??))	000	past	false	-:
+(^ | ((c){0,1})+ | (c | b | b) c b ^)	100,010,100,101,101,011	past	false	-: -: -: 4:ccc
+(a (b){2,} b ^ a | (c ^ c | (c)+?))	010,001,110,110	past	false	2:c
+((($ | c) | c | (a){1,}?)){1,}?	011,010,000	past	true	1:c
+$ (b){2}	010,001,100,111,011,111,110	next	false	
+c ^ c c	010	next	true	
+(b | a b | b b) (b | (c)?? | (a)+)	000,010,110,001,011,111	next	false	2:bb 3:b 5:bb 6:b
+c	101,100	next	true	1:c
+((a c | a c b | (b){0,}?))*	100,011,010,100,001,110	past	false	1:acbacb
+(c){2} (a){0,} a b c (a)*?	000,011,001,111	past	true	
+c (c | c) a a (()){1,2}? (a | a | b) $ $ b	011,001,101,101,000	past	false	
+((b){1,2} b a a (b | a)){1,}?	110,110,111,010,110,000	next	false	
+($ b b | b a | (c | ^ | b)) ((b | c))+	111,001,100,000,000	next	false	1:cc
+((a b c | (c | c | c) | a a))+	011,111,000,010	past	true	1:cc
+b	110,010,011,001,010,001,111	next	true	1:b 2:b 3:b 5:b 7:b
+((() | a) | b a b) (b b){2,}	001,100,111,011,010	past	false	
+(a c c | b) ((b | a) | (() | $ | c)) c c c	010,101,101,101,001,010	next	false	1:baccc
+((b){1,2}){2}	110,000,011,010,111,001,111	past	true	3:bbb
+(b c c c a){2,}	101,101,001,000,010,101,100	next	false	
+((c b c){0,1}?){2,}?	101,010	next	false	-: -:
+^		next	false	
+((a | b) | $ | () c b) c	111,001,100,110,010,100	past	true	1:ac
+b c a	100,010,101,110,011	next	true	2:bca
+((c b)??)+		next	false	
+(() c b $ | (() b){2})	100,110,100,110	past	true	
+b c	001,101,000	next	false	
+((a $ | (a | a)) | ((b)?){0,1} | ((a | b | c))*)	000,100,000,000,011	next	false	-: 2:a -: -: 5:b
+((c | a | ()) c $ () (a | $)){1,2}		next	false	
+(((b | b | b) | a) | ((b | c) | a a) | (b | c b $))	101,011,001,001,101,110	next	true	1:a 2:b 3:c 4:c 5:aa 6:b
+(a | (()){0,1}? | b ()) ((c | b | c)){2}	111,100,110,000	next	false	
+$	001,101	next	false	
+()		next	false	
+(((c){,2} | b)){2}	101,011,010,110,101,011	past	true	1:ccb 4:bcc
+c	011,100,111,101,100	past	false	1:c 3:c 4:c
+((($ | b) | a | (b | ()))){1,2}	011,001,111,001,110,111	past	false	1:b -: 3:b -: 5:bb
+((c){0,} b c b)+?	011,110,011	next	true	
+(() c)+ (c){1,} ((b | $) | (c){2})	100,011,001,110,111,001	past	false	2:ccb 5:cc
+a	101	next	false	1:a
+(a $ b a b c | c)	000,111,000,110,001,010	past	true	2:c 5:c
+((b){0,} c (() | b) | (b b | (a)+?) | (a){2} c b)	110,001,011,010,011,111	past	true	1:bcb 4:bbc
+((c){0,1}){,2}? (b () a | (b){0,}? | (a)*) (b c a)?	101,000	past	false	-: -:
+(((^)+){1,} | ($){1,2} a b)	000,111	next	true	-:
+b	001	past	false	
+$	101,011,011,110,011	next	true	
+(b $ b)*? (a | (c){2,}? | (()){0,1}) a		past	false	
+(a (c)+? c | (a | b | b) (^ | b) (c | c))		next	false	
+(b | c a | c a) a (a)?? ($ | c | a)	101,001,100	past	false	
+((b){0,1} | a b | (a | c | ())) ((b | a | b) | c c | a $) a		next	false	
+((() | (b){0,}) | (a | (c | c)) | (b ^ | () | (c | c | b)))	110	past	true	1:b
+$ ((()){0,}?){2,}	001,011,001	past	true	
+b	010,001	next	true	1:b
+((b){1,} | (b | ()) ($)* | ((c | b) | (b | a)))	111,010,011,100,100,111,111	past	false	1:bbb -: -: 6:bb
+((a | (a){0,} | (a | a)))+?	101,110,000,000,001,110	next	false	1:a 2:a -: -: -: 6:a
+((b | b) (c | a) (b | b | b) | (c c){0,1}? | (c | b b a | b))	000,000,001,100,011	next	false	-: -: -: -: -:
+(c | (b | b | a) | ($ | b)) ((b){2}){,2}	011,100	next	true	1:c 2:a
+c	000,110,000,110,001,111	next	true	5:c 6:c
+(c a){2} b	100,111,001,011,001	next	false	
+(a | (() | b)) (^ | b | (c){1,2}?) ((c){,2}? | c)	010	past	false	-:
+((a){0,} | (c){2} b)	001,110,101	next	true	-: 2:aa 3:a
+(b () b (b){2,})??	000,011,101,010	next	true	-: -: -: -:
+(a){2}		next	false	
+((b | a | a) (b){,2} c ()){2}	110,110,001,100	past	false	
+(c (b){2,}? ($)+?){1,}	111,010,101	past	true	
+c	011,010,100,101	past	false	1:c 4:c
+(((b | a) | c b b | a) | ((a | ^) | ($ | b | a)) | (b){0,}?)	111,111,111,111,011,111	next	false	1:b 2:b 3:b 4:b 5:b 6:b
+() $ (b)?? (())*? c	100,001	past	true	
+a	000,000,110	next	true	3:a
+((c c | (()){,2}? | a b) | (b | b) (() | b) c)	101,010,001	past	true	1:ab -:
+(c){0,1} b (() () | b ^)	010,001,101,000,000,100,011	next	false	1:b 7:b
+b	010,110,011,110,111,011,110	next	false	1:b 2:b 3:b 4:b 5:b 6:b 7:b
+b	000	next	false	
+((c | b))*? (c $ | (b){2}) (b | c | a) (a){2} (()){2,}	101,101,101,111,100	next	false	
+((c){0,1}? | () () a () ())		next	false	
+b	100,100,111,111,001	past	true	3:b 4:b
+b	001,100,000,111	next	false	4:b
+(() | a)	010,000,010	past	false	-: -: -:
+(c a c | (a){,2}? | b c) ((a){2,} | ^) (a){2,} () b b c	100,011,001,011,000	next	true	
+(b | (c | a) (b){,2}? (c | b))	010,100,011,111	past	true	1:b 2:abc
+(($){1,})+	111,000	past	false	
+c	101	past	true	1:c
+((b | (c | b))){,2}	110,111,001	past	true	1:bb 3:c
+(() | a | (a ^ a){2,})	001,010,010,111,010,101	past	true	-: -: -: 4:a -: 6:a
+(a ^ a | (c){,2}? | a ()) ((a | c)){2,}? a (() | b | c)	110	past	false	
+$ (c b | b | c a)	100,010,010,000,111,010,100	past	false	
+() a b a b b (b | (() | b)) (b a b){1,2}?	111,000,011,011,111	past	false	
+a		past	true	
+(((c){2}){1,2}){0,}	011	past	false	-:
+c a	001,111,110,001,110,100	past	false	1:ca 4:ca
+((() | a) (a | b) (a)+? | (b a c | b c c))	101,001,110,000,111,101	next	false	5:aa
+(b | b)	011,000,000,000,010,010,110	past	true	1:b 5:b 6:b 7:b
+((c b ^)*? | () | (a b){2,}?)		past	false	
+(((b)*? | c b)){0,1}	101,001,010,110,100,000,001	past	false	-: -: -: -: -: -: -:
+((b){0,1}){0,1}?	101	past	false	-:
+(b | b | c)	111	past	false	1:b
+(b){0,1}	110,011,010,001,010,010,110	next	false	1:b 2:b 3:b -: 5:b 6:b 7:b
+b		next	false	
+(c b (b){0,1}?)?	101,110,010,010,100,001	past	false	1:cb -: -: -: -:
+()		past	false	
+(((c | ())){0,}){,2}	001,100,011,001,001,010,011	next	false	1:c -: 3:ccc 4:cc 5:c -: 7:c
+((a){1,}?){2}	100,110,010,111,111	next	true	1:aa 4:aa
+((b a ())* | ((b){,2}?)?)	111,010,100,101,110	next	false	-: 2:ba -: -: -:
+(a | b | c)	100,110	next	true	1:a 2:a
+(b){0,1} a ($ | () | ())	110,011	next	false	1:a
+(($ | b | ^) a (a | $ | $))??	111,110,110	next	false	-: -: -:
+b	110,001	past	true	1:b
+b		past	false	
+(c){,2}?	010,110,000	next	false	-: -: -:
+(b | (a)? b)	000,111,001,000,101	next	true	2:b
+((a | c) (()){2,} b | c | a (b | c | ()) (b){0,})		past	false	
+(b (c | () | a) a c c){0,1}?	000,001,011	past	true	-: -: -:
+(b b a (^ | () | b) c){1,2}	011	past	false	
+c	011,000,111,101,010	next	false	1:c 3:c 4:c
+c ((() | b | b) | b a b | (b | b | a))	100,000,011,010,100	next	false	3:c
+(b | a)		past	true	
+(b ($){0,1} | (a | $) ^ b b | ((a)*? | a c | b))	111,100,010,110	next	true	1:aa 2:a 3:b 4:b
+b	001,101,101,011,010	past	false	4:b 5:b
+((a | b)){2} c	110	next	false	
+(b | (()){2,}?)	001,011,110,101	past	false	-: 2:b 3:b -:
+b	001,111,101,011	next	false	2:b 4:b
+(a | c | b) ()		next	true	
+(() | c | b) (b){2,}? b a a a () b b ((a)+){1,2}	101,100,000	past	false	
+$ ((a)*){1,2}	101,001,011,001,100,101	past	false	
+(((c | b | b) | (a){1,}?) | b)	010,111,110,110	past	true	1:b 2:aaa
+((a){1,})?? c	000,010,000,000,110	past	true	
+(() | a) () a ((^){,2}? | c b | (a){0,}?)	000,011,100,111,000,110,010	next	false	3:a 4:a 6:a
+($)*?	000	next	false	-:
+(()){2,}?	110,100	next	false	-: -:
+b	000	past	false	
+c	100,010,000,000,110,011	next	false	6:c
+(a a){1,} a (() | $ | a) a b b (a c c | (c){,2}? | c c b)	100,011	next	false	
+b		next	false	
+a	010,011,101,000,011,100,010	past	false	3:a 6:a
+(c)*	100,000	past	false	-: -:
+(($){0,})+? ((a){,2}?){,2} c	010,011	past	true	2:c
+c	111,011,000,010	next	false	1:c 2:c
+(()){0,}	100,001	next	false	-: -:
+(b | ($ | ()) a | (b | a | c) c b c b)	100,110,010,010,100,000,011	next	true	1:a 2:b 3:b 4:b 5:a 7:b
+c	000,100,100,000,110,101,011	next	false	6:c 7:c
+(b | b | c)	001,011,011,111	next	false	1:c 2:b 3:b 4:b
+(()){2} b ^ $ ((a){0,1} | $ a | $ b $) ((c){2} | a)	111,011,101	past	false	
+$	001,010,101,100,101,101,111	past	false	
+(()){0,}?	110,111,010	past	false	-: -: -:
+(((a | () | ()) | (a | $) | a) | (a | (b){1,}? | (a){2,}) | b)	010,110,101,000,100,110,100	next	false	-: 2:a 3:a -: 5:a 6:a 7:a
+((b | $) a $ | (() b c){,2}?)	111,111,010	past	false	-: -: -:
+^	110,011,111,001	past	false	-:
+(a b b)*?	110,000,011,111,001,100	next	false	-: -: -: -: -: -:
+((a | (b | a | b))){,2}	110,000,100,001,010	next	false	1:a -: 3:a -: 5:b
+(c c (b){1,2}?){0,}?	110,010,100,011,011,001	past	true	-: -: -: -: -: -:
+c	100,010,111,010,001	next	false	3:c 5:c
+b	010,101	past	true	1:b
+(((b | b | c)){0,1})+	000,010,110	next	false	-: 2:bb 3:b
+((a)*?){2,}?	011,001,110,011	next	false	-: -: -: -:
+((b c c){0,}){0,1}	110	next	false	-:
+$	111,110,111,010,011,000	next	true	
+(c)?	010,011,111,110,011	past	false	-: 2:c 3:c -: 5:c
+(() | ^ | (a | b))	001,110,010,011,110	next	false	-: -: -: -: -:
+(a | ())	001,000,111	past	false	-: -: 3:a
+(() ($){0,1}? a c)+	000,100,111	next	true	2:ac
+a	000,101,101,011,101	next	false	2:a 3:a 5:a
+(((a | a) | a | c b)){,2}?	000,101	next	true	-: 2:a
+((c){2})*		past	true	
+(((())* | b () ^)){,2}	001,000,100,000,010,101	next	true	-: -: -: -: -: -:
+(a){,2}	100,100	past	false	1:aa
+c		past	true	
+c	100,010,101,000	past	false	3:c
