@@ -1,8 +1,12 @@
 //! The function library: GoogleSQL's functions, and avenger's own, mapped onto DataFusion.
 //!
-//! The pass resolves the name of each call against the [`Library`]. A [`Function`] has a
-//! signature of named parameters, which binds the arguments of a call, positional or named as in
-//! `bin(x, maxbins => 30)`, and a mapping from the bound arguments to DataFusion:
+//! The pass resolves the name of each call against the [`Library`]. A [`Function`] documents
+//! itself and each of its parameters, and declares its valid combinations of arguments as
+//! [`Form`]s, typed as GoogleSQL types them, as in `SUBSTR(value: STRING, position: INT64[,
+//! length: INT64]) -> STRING`. A call takes the form that its arguments fit at the least cost of
+//! coercion, which [`form`] describes. The pass, the docs, and completion read the same forms.
+//!
+//! Each form has a mapping from its arguments, cast to the types of the form, to DataFusion:
 //!
 //! - a scalar function maps to an [`Expr`];
 //! - an aggregate function maps to an [`AggregateUDF`] and its arguments, to which the pass adds
@@ -16,27 +20,36 @@
 //!
 //! Each mapping follows GoogleSQL's result where DataFusion's function differs, as in `LOG(x, b)`,
 //! the logarithm of `x` in the base `b`, and `WEEK`, whose weeks start on Sunday. Time zones
-//! default to UTC, as in BigQuery. Where GoogleSQL fails at run time and DataFusion returns `NaN`
-//! or infinity, as for `SQRT(-1)`, the mapping returns DataFusion's value.
+//! default to UTC, as in BigQuery. A function's notes name where avenger-sql differs from
+//! GoogleSQL, as `SQRT(-1)` does, which returns `NaN` where GoogleSQL fails.
 
 mod aggregate;
 mod array;
 mod avenger;
 mod conditional;
 mod datetime;
+pub mod form;
 mod math;
+mod reference;
 mod string;
 
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::datatypes::{DataType, FieldRef},
     common::{DFSchema, ScalarValue},
-    logical_expr::{AggregateUDF, Expr, ExprSchemable, WindowFunctionDefinition},
+    logical_expr::{
+        function::WindowUDFFieldArgs, AggregateUDF, Expr, ExprSchemable, WindowFunctionDefinition,
+    },
 };
 
 pub use array::Subscript;
 pub use datetime::{DatePart, Weekday};
+pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
+pub use reference::reference;
+
+use crate::types::TypeOptions;
+use form::{Observed, Resolution};
 
 /// What a call of a function computes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -49,67 +62,61 @@ pub enum FunctionKind {
     Window,
 }
 
-/// What a parameter takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ParamKind {
-    /// An expression.
-    Value,
-    /// A date part, such as `MONTH` or `WEEK(MONDAY)`.
-    DatePart,
-}
-
-/// How many arguments a parameter takes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Arity {
-    Required,
-    Optional,
-    /// Any number of arguments, at the end of the parameters.
-    Repeated,
-}
-
-/// A parameter of a function.
+/// A parameter of a function, which the forms of the function take by its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Param {
     pub name: String,
-    pub kind: ParamKind,
-    pub arity: Arity,
-    /// Whether an argument takes this parameter only by its name, as the options of `bin` do.
-    pub named_only: bool,
+    /// What the parameter takes, what its values mean, and what omitting it does.
+    pub doc: String,
 }
 
-impl Param {
-    fn new(name: &str, arity: Arity) -> Self {
-        Self {
-            name: name.to_string(),
-            kind: ParamKind::Value,
-            arity,
-            named_only: false,
-        }
-    }
+/// An example of a call: a query or an expression, and its result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Example {
+    /// An expression, for a scalar function, or a pipe query.
+    pub query: String,
+    /// The result as GoogleSQL's literals write it, such as `'pple'` or `DATE '2024-05-17'`, or
+    /// the rows of a query as a table.
+    pub result: String,
+}
 
-    pub(crate) fn required(name: &str) -> Self {
-        Self::new(name, Arity::Required)
-    }
+/// Whether a clause of `OVER` is required, allowed, or forbidden.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Need {
+    Required,
+    Allowed,
+    Forbidden,
+}
 
-    pub(crate) fn optional(name: &str) -> Self {
-        Self::new(name, Arity::Optional)
-    }
+/// The `OVER` clause that a call takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Over {
+    /// No `OVER`: a scalar function, or an aggregate that only groups.
+    Forbidden,
+    /// An aggregate, which a call can also compute over a window.
+    Optional,
+    /// A window function, whose `OVER` takes an `ORDER BY` as `order_by` says, and a frame when
+    /// `frame` holds.
+    Required { order_by: Need, frame: bool },
+}
 
-    pub(crate) fn repeated(name: &str) -> Self {
-        Self::new(name, Arity::Repeated)
-    }
+/// The clauses that a call of a function takes in its parentheses, and its `OVER`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Clauses {
+    pub distinct: bool,
+    /// `IGNORE NULLS` and `RESPECT NULLS`.
+    pub null_treatment: bool,
+    pub order_by: bool,
+    pub over: Over,
+}
 
-    pub(crate) fn date_part(name: &str) -> Self {
-        Self {
-            kind: ParamKind::DatePart,
-            ..Self::required(name)
-        }
-    }
-
-    pub(crate) fn named(mut self) -> Self {
-        self.named_only = true;
-        self
-    }
+impl Clauses {
+    const NONE: Clauses = Clauses {
+        distinct: false,
+        null_treatment: false,
+        order_by: false,
+        over: Over::Forbidden,
+    };
 }
 
 /// An argument of a call, which the pass plans by the kind of its parameter.
@@ -173,17 +180,23 @@ pub enum Planned {
         /// The rows of the group that the aggregate reads, as `COUNTIF` reads the rows of its
         /// condition.
         filter: Option<Expr>,
-        /// The type of GoogleSQL's result, when it differs from the aggregate's, as `STRING_AGG`
+        /// The type of the form's result, when it differs from the aggregate's, as `STRING_AGG`
         /// returns a `STRING`. The pass casts the aggregate's column to it after the aggregate.
         result: Option<DataType>,
     },
     Window {
         func: WindowFunctionDefinition,
         args: Vec<Expr>,
-        /// The type of GoogleSQL's result, when it differs from the function's, as `ROW_NUMBER`
+        /// The type of the form's result, when it differs from the function's, as `ROW_NUMBER`
         /// returns an `INT64`. The pass casts the window's column to it after the window.
         result: Option<DataType>,
     },
+}
+
+impl From<Expr> for Planned {
+    fn from(expr: Expr) -> Self {
+        Planned::Scalar(expr)
+    }
 }
 
 /// What a mapping knows of the place of its call.
@@ -193,15 +206,18 @@ pub struct PlanContext<'a> {
     pub schema: &'a DFSchema,
     /// The default time zone of the functions that take one.
     pub time_zone: &'a str,
+    /// How GoogleSQL's types map to Arrow types.
+    pub type_options: TypeOptions,
 }
 
-/// The arguments of a call, bound to the parameters of its function.
+/// The arguments of a call, bound to the arguments of its form and cast to their types.
 pub struct Call<'a> {
-    /// The argument of each parameter, other than a repeated one, and the index at which the
-    /// call writes it.
+    /// The argument of each argument of the form, other than a repeated one, and the index at
+    /// which the call writes it.
     slots: Vec<Option<(usize, Arg)>>,
-    /// The arguments of the repeated parameter, with their indices.
+    /// The arguments of the repeated argument of the form, with their indices.
     rest: Vec<(usize, Arg)>,
+    resolution: Resolution,
     /// Whether the call writes `SAFE.` before the function's name.
     pub safe: bool,
     /// Whether the call's only argument is `*`, as in `COUNT(*)`.
@@ -210,7 +226,7 @@ pub struct Call<'a> {
 }
 
 impl<'a> Call<'a> {
-    /// The value of the parameter at `index`, when the call gives one.
+    /// The value of the form's argument at `index`, when the call gives one.
     pub(crate) fn value(&self, index: usize) -> Option<&Expr> {
         match self.slots.get(index)? {
             Some((_, Arg::Value(expr))) => Some(expr),
@@ -218,23 +234,22 @@ impl<'a> Call<'a> {
         }
     }
 
-    /// The value of the required parameter at `index`, which binding guarantees.
+    /// The value of the required argument at `index`, which binding guarantees.
     pub(crate) fn arg(&self, index: usize) -> Expr {
         self.value(index)
             .cloned()
-            .expect("binding gives each required parameter a value")
+            .expect("binding gives each required argument a value")
     }
 
-    /// The date part of the parameter at `index`.
-    pub(crate) fn date_part(&self, index: usize) -> Option<DatePart> {
-        match self.slots.get(index)? {
-            Some((_, Arg::DatePart(part))) => Some(*part),
-            _ => None,
+    /// The date part of the form's argument at `index`.
+    pub(crate) fn date_part(&self, index: usize) -> DatePart {
+        match self.slots.get(index) {
+            Some(Some((_, Arg::DatePart(part)))) => *part,
+            _ => panic!("binding gives each date part argument a date part"),
         }
     }
 
-    /// The values of the repeated parameter, or of every parameter for a function whose only
-    /// parameter repeats.
+    /// The values of the repeated argument.
     pub(crate) fn rest(&self) -> Vec<Expr> {
         self.rest
             .iter()
@@ -245,11 +260,20 @@ impl<'a> Call<'a> {
             .collect()
     }
 
-    /// The values of all the parameters, in their order, with `None` for an omitted one.
+    /// The values of all the arguments of the form, in their order, with `None` for an omitted
+    /// one.
     pub(crate) fn values(&self) -> Vec<Option<Expr>> {
         (0..self.slots.len())
             .map(|index| self.value(index).cloned())
             .collect()
+    }
+
+    /// The type that the form's type variable `var` takes for the call.
+    pub(crate) fn var(&self, var: &str) -> &Ty {
+        self.resolution
+            .vars
+            .get(var)
+            .expect("resolution gives each variable a type")
     }
 
     /// The type of `expr` in the call's input.
@@ -257,13 +281,8 @@ impl<'a> Call<'a> {
         Ok(expr.get_type(self.context.schema)?)
     }
 
-    /// The type of the value of the parameter at `index`.
-    pub(crate) fn type_at(&self, index: usize) -> Result<DataType, CallError> {
-        self.type_of(&self.arg(index))
-    }
-
-    /// An error at the argument of the parameter at `index`, or at the call when the call gives
-    /// it no argument.
+    /// An error at the argument at `index` of the form, or at the call when the call gives it no
+    /// argument.
     pub(crate) fn error_at(&self, index: usize, message: impl Into<String>) -> CallError {
         match self.slots.get(index).and_then(|slot| slot.as_ref()) {
             Some((at, _)) => CallError::arg(*at, message),
@@ -272,58 +291,115 @@ impl<'a> Call<'a> {
     }
 }
 
-/// The mapping of a function.
-type Mapping = Box<dyn Fn(&Call) -> Result<Planned, CallError> + Send + Sync>;
+/// The mapping of a form.
+type Mapping = Arc<dyn Fn(&Call) -> Result<Planned, CallError> + Send + Sync>;
 
-/// A function of the library.
-pub struct Function {
-    pub name: String,
-    pub kind: FunctionKind,
-    pub params: Vec<Param>,
-    /// Whether a call can write `SAFE.` before the name.
-    pub safe: bool,
-    /// What the function computes, for completion and hover, when the library has it.
-    pub doc: Option<String>,
-    pub(crate) mapping: Mapping,
+/// A form of a function: its signature and its mapping.
+#[derive(Clone)]
+pub struct Form {
+    pub signature: Signature,
+    mapping: Mapping,
 }
 
-impl fmt::Debug for Function {
+impl fmt::Debug for Form {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Function")
-            .field("name", &self.name)
-            .field("kind", &self.kind)
-            .field("params", &self.params)
-            .field("safe", &self.safe)
+        f.debug_struct("Form")
+            .field("signature", &self.signature)
             .finish_non_exhaustive()
     }
 }
 
+/// A function of the library.
+#[derive(Clone, Debug)]
+pub struct Function {
+    pub name: String,
+    pub kind: FunctionKind,
+    /// One line, for completion lists.
+    pub summary: String,
+    /// What the function computes beyond what its parameters say: its result, its `NULL`s, and
+    /// the edge cases of the whole call.
+    pub description: String,
+    /// Where avenger-sql differs from GoogleSQL.
+    pub notes: Vec<String>,
+    pub params: Vec<Param>,
+    pub forms: Vec<Form>,
+    pub clauses: Clauses,
+    /// Whether a call can write `SAFE.` before the name.
+    pub safe: bool,
+    pub examples: Vec<Example>,
+}
+
 impl Function {
-    pub(crate) fn new(
-        name: &str,
-        kind: FunctionKind,
-        params: Vec<Param>,
-        mapping: impl Fn(&Call) -> Result<Planned, CallError> + Send + Sync + 'static,
-    ) -> Self {
+    fn new(name: &str, kind: FunctionKind, summary: &str, clauses: Clauses) -> Self {
         Self {
             name: name.to_string(),
             kind,
-            params,
+            summary: summary.to_string(),
+            description: String::new(),
+            notes: Vec::new(),
+            params: Vec::new(),
+            forms: Vec::new(),
+            clauses,
             safe: false,
-            doc: None,
-            mapping: Box::new(mapping),
+            examples: Vec::new(),
         }
     }
 
-    /// A scalar function whose mapping returns an expression.
-    pub(crate) fn scalar(
-        name: &str,
-        params: Vec<Param>,
-        mapping: impl Fn(&Call) -> Result<Expr, CallError> + Send + Sync + 'static,
-    ) -> Self {
-        Self::new(name, FunctionKind::Scalar, params, move |call| {
-            mapping(call).map(Planned::Scalar)
-        })
+    /// A scalar function, with its one-line summary.
+    pub(crate) fn scalar(name: &str, summary: &str) -> Self {
+        Self::new(name, FunctionKind::Scalar, summary, Clauses::NONE)
+    }
+
+    /// An aggregate function, which a call can also compute over a window.
+    pub(crate) fn aggregate(name: &str, summary: &str) -> Self {
+        let clauses = Clauses {
+            over: Over::Optional,
+            ..Clauses::NONE
+        };
+        Self::new(name, FunctionKind::Aggregate, summary, clauses)
+    }
+
+    /// A window function, whose `OVER` takes an `ORDER BY` as `order_by` says and a frame when
+    /// `frame` holds.
+    pub(crate) fn window(name: &str, summary: &str, order_by: Need, frame: bool) -> Self {
+        let clauses = Clauses {
+            over: Over::Required { order_by, frame },
+            ..Clauses::NONE
+        };
+        Self::new(name, FunctionKind::Window, summary, clauses)
+    }
+
+    pub(crate) fn description(mut self, description: &str) -> Self {
+        self.description = description.to_string();
+        self
+    }
+
+    pub(crate) fn note(mut self, note: &str) -> Self {
+        self.notes.push(note.to_string());
+        self
+    }
+
+    pub(crate) fn param(mut self, name: &str, doc: &str) -> Self {
+        self.params.push(Param {
+            name: name.to_string(),
+            doc: doc.to_string(),
+        });
+        self
+    }
+
+    pub(crate) fn distinct(mut self) -> Self {
+        self.clauses.distinct = true;
+        self
+    }
+
+    pub(crate) fn null_treatment(mut self) -> Self {
+        self.clauses.null_treatment = true;
+        self
+    }
+
+    pub(crate) fn order_by(mut self) -> Self {
+        self.clauses.order_by = true;
+        self
     }
 
     /// Lets calls write `SAFE.` before the name.
@@ -332,33 +408,78 @@ impl Function {
         self
     }
 
-    pub(crate) fn with_doc(mut self, doc: impl Into<String>) -> Self {
-        self.doc = Some(doc.into());
+    pub(crate) fn example(mut self, query: &str, result: &str) -> Self {
+        self.examples.push(Example {
+            query: query.to_string(),
+            result: result.to_string(),
+        });
         self
     }
 
-    /// The kind of argument that the argument at `position`, or the one named `name`, takes,
-    /// so the pass can plan it. `None` when no parameter takes it.
-    pub fn param_kind(&self, position: usize, name: Option<&str>) -> Option<ParamKind> {
-        let param = match name {
-            Some(name) => self.param_named(name).map(|index| &self.params[index]),
-            None => (self.params.iter())
-                .filter(|param| !param.named_only && param.arity != Arity::Repeated)
-                .nth(position)
-                .or_else(|| (self.params.last()).filter(|param| param.arity == Arity::Repeated)),
-        }?;
-        Some(param.kind)
+    /// Adds the form that `declaration` declares, as [`form`] describes, with its mapping.
+    pub(crate) fn form<R: Into<Planned>>(
+        self,
+        declaration: &str,
+        mapping: impl Fn(&Call) -> Result<R, CallError> + Send + Sync + 'static,
+    ) -> Self {
+        let signature =
+            Signature::parse(declaration).unwrap_or_else(|error| panic!("{}: {error}", self.name));
+        self.with_signature(signature, mapping)
     }
 
-    fn param_named(&self, name: &str) -> Option<usize> {
+    /// Adds the form of `signature`, with its mapping.
+    pub(crate) fn with_signature<R: Into<Planned>>(
+        mut self,
+        signature: Signature,
+        mapping: impl Fn(&Call) -> Result<R, CallError> + Send + Sync + 'static,
+    ) -> Self {
+        self.forms.push(Form {
+            signature,
+            mapping: Arc::new(move |call| mapping(call).map(Into::into)),
+        });
+        self
+    }
+
+    /// The forms as signature help shows them.
+    pub fn signatures(&self) -> Vec<String> {
+        self.forms
+            .iter()
+            .map(|form| form.signature.render(&self.name))
+            .collect()
+    }
+
+    /// The parameter named `name`, without regard to case.
+    pub fn param_named(&self, name: &str) -> Option<&Param> {
         self.params
             .iter()
-            .position(|param| param.name.eq_ignore_ascii_case(name))
+            .find(|param| param.name.eq_ignore_ascii_case(name))
     }
 
-    /// Binds the arguments `args`, in the order that the call writes them, each with its name
-    /// when it is a named argument, and plans the call. `star` is a call of `*`, as in
-    /// `COUNT(*)`, and `safe` a call of `SAFE.`.
+    /// Whether the argument at `position`, or the one named `name`, takes a date part in some
+    /// form, so the pass reads it as a date part, as `MONTH` in `DATE_TRUNC(d, MONTH)`.
+    pub fn takes_date_part(&self, position: usize, name: Option<&str>) -> bool {
+        self.forms.iter().any(|form| {
+            let args = &form.signature.args;
+            let arg = match name {
+                Some(name) => args.iter().find(|arg| arg.param.eq_ignore_ascii_case(name)),
+                None => args
+                    .iter()
+                    .filter(|arg| !arg.named_only && arg.arity != Arity::Repeated)
+                    .nth(position),
+            };
+            matches!(
+                arg,
+                Some(FormArg {
+                    accept: Accept::Part(_),
+                    ..
+                })
+            )
+        })
+    }
+
+    /// Plans a call of the arguments `args`, in the order that the call writes them, each with
+    /// its name when it is a named argument. `star` is a call of `*`, as in `COUNT(*)`, and
+    /// `safe` a call of `SAFE.`.
     pub fn plan(
         &self,
         args: Vec<(Option<String>, Arg)>,
@@ -375,111 +496,344 @@ impl Function {
         if star && self.name != "COUNT" {
             return Err(CallError::call(format!("{} takes no `*`", self.name)));
         }
-        let call = self.bind(args, star, safe, context)?;
-        (self.mapping)(&call)
-    }
-
-    fn bind<'a>(
-        &self,
-        args: Vec<(Option<String>, Arg)>,
-        star: bool,
-        safe: bool,
-        context: PlanContext<'a>,
-    ) -> Result<Call<'a>, CallError> {
-        let repeated = self
-            .params
-            .last()
-            .is_some_and(|param| param.arity == Arity::Repeated);
-        let fixed = self.params.len() - usize::from(repeated);
-        let mut slots: Vec<Option<(usize, Arg)>> = vec![None; fixed];
-        let mut rest = Vec::new();
-        let positional: Vec<usize> = (0..fixed)
-            .filter(|&index| !self.params[index].named_only)
-            .collect();
-        let mut next = 0;
-        let mut named_seen = false;
-        for (at, (name, arg)) in args.into_iter().enumerate() {
-            match name {
-                None => {
-                    if named_seen {
-                        return Err(CallError::arg(
-                            at,
-                            "a positional argument comes before the named arguments",
-                        ));
-                    }
-                    if let Some(&index) = positional.get(next) {
-                        slots[index] = Some((at, arg));
-                        next += 1;
-                    } else if repeated {
-                        rest.push((at, arg));
-                    } else {
-                        return Err(CallError::arg(
-                            at,
-                            format!(
-                                "{} takes {} positional argument{}",
-                                self.name,
-                                positional.len(),
-                                if positional.len() == 1 { "" } else { "s" }
-                            ),
-                        ));
+        self.check_names(&args)?;
+        let observed = args
+            .iter()
+            .map(|(_, arg)| observe(arg, context.schema))
+            .collect::<Result<Vec<_>, _>>()?;
+        // The cheapest form that the arguments fit, or the reasons that none fits.
+        let mut best: Option<(usize, Vec<Option<usize>>, Resolution)> = None;
+        let mut failures = Vec::new();
+        for (index, form) in self.forms.iter().enumerate() {
+            let binding = match bind(&self.name, &form.signature, &args, star) {
+                Ok(binding) => binding,
+                Err(error) => {
+                    failures.push(error);
+                    continue;
+                }
+            };
+            let bound: Vec<(usize, Observed)> = (binding.iter().enumerate())
+                .filter_map(|(at, slot)| slot.map(|arg| (arg, observed[at].clone())))
+                .collect();
+            match form.signature.resolve(&bound) {
+                Some(resolution) => {
+                    if best
+                        .as_ref()
+                        .is_none_or(|(_, _, b)| resolution.cost < b.cost)
+                    {
+                        best = Some((index, binding, resolution));
                     }
                 }
+                None => failures.push(CallError::call(String::new())),
+            }
+        }
+        let Some((index, binding, resolution)) = best else {
+            return Err(self.no_form(failures, &observed));
+        };
+        let form = &self.forms[index];
+        let call = self.call(form, args, &binding, resolution, star, safe, context)?;
+        let planned = (form.mapping)(&call)?;
+        self.typed(form, &call, planned)
+    }
+
+    /// Checks that every name of `args` names a parameter, and that the named arguments come
+    /// after the positional ones.
+    fn check_names(&self, args: &[(Option<String>, Arg)]) -> Result<(), CallError> {
+        let mut named_seen = false;
+        for (at, (name, _)) in args.iter().enumerate() {
+            match name {
+                None if named_seen => {
+                    return Err(CallError::arg(
+                        at,
+                        "a positional argument comes before the named arguments",
+                    ))
+                }
+                None => {}
                 Some(name) => {
                     named_seen = true;
-                    let Some(index) = self.param_named(&name).filter(|&index| index < fixed) else {
+                    if self.param_named(name).is_none() {
                         return Err(CallError::arg(
                             at,
                             format!("{} has no parameter named `{name}`", self.name),
                         ));
-                    };
-                    if slots[index].is_some() {
-                        return Err(CallError::arg(
-                            at,
-                            format!(
-                                "the parameter `{}` has two arguments",
-                                self.params[index].name
-                            ),
-                        ));
                     }
-                    slots[index] = Some((at, arg));
                 }
             }
         }
-        for (index, param) in self.params.iter().take(fixed).enumerate() {
-            match (&slots[index], param.arity) {
-                (None, Arity::Required) => {
-                    return Err(CallError::call(format!(
-                        "{} needs its argument `{}`",
-                        self.name, param.name
-                    )))
-                }
-                (Some((at, arg)), _) => {
-                    let fits = matches!(
-                        (arg, param.kind),
-                        (Arg::Value(_), ParamKind::Value) | (Arg::DatePart(_), ParamKind::DatePart)
-                    );
-                    if !fits {
-                        let what = match param.kind {
-                            ParamKind::Value => "a value",
-                            ParamKind::DatePart => "a date part, such as MONTH",
-                        };
-                        return Err(CallError::arg(
-                            *at,
-                            format!("the argument `{}` is {what}", param.name),
-                        ));
+        Ok(())
+    }
+
+    /// The error of a call that fits no form: the error of binding, when every form fails at it
+    /// the same way, or the forms and the types of the arguments.
+    fn no_form(&self, failures: Vec<CallError>, observed: &[Observed]) -> CallError {
+        let binding: Vec<&CallError> = failures
+            .iter()
+            .filter(|error| !error.message.is_empty())
+            .collect();
+        if binding.len() == failures.len() && !binding.is_empty() {
+            let first = binding[0];
+            if binding.iter().all(|error| *error == first) || self.forms.len() == 1 {
+                return first.clone();
+            }
+        }
+        let types: Vec<String> = observed
+            .iter()
+            .map(|observed| match observed {
+                Observed::Value { ty, .. } => ty.to_string(),
+                Observed::Part(part) => part.name(),
+            })
+            .collect();
+        CallError::call(format!(
+            "no form of {} takes ({}); its forms are {}",
+            self.name,
+            types.join(", "),
+            self.signatures().join("; ")
+        ))
+    }
+
+    /// The call of `args` to `form`, with each value cast to its type in the form, after the
+    /// checks of the arguments that take a literal, a set of strings, or a set of date parts.
+    #[allow(clippy::too_many_arguments)]
+    fn call<'a>(
+        &self,
+        form: &Form,
+        args: Vec<(Option<String>, Arg)>,
+        binding: &[Option<usize>],
+        resolution: Resolution,
+        star: bool,
+        safe: bool,
+        context: PlanContext<'a>,
+    ) -> Result<Call<'a>, CallError> {
+        let signature = &form.signature;
+        let repeated = signature
+            .args
+            .last()
+            .is_some_and(|arg| arg.arity == Arity::Repeated);
+        let fixed = signature.args.len() - usize::from(repeated);
+        let mut slots: Vec<Option<(usize, Arg)>> = vec![None; fixed];
+        let mut rest = Vec::new();
+        for (at, ((_, arg), slot)) in args.into_iter().zip(binding).enumerate() {
+            let index = slot.expect("a bound argument");
+            let form_arg = &signature.args[index];
+            let arg = match arg {
+                Arg::DatePart(part) => {
+                    if let Accept::Part(set) = form_arg.accept {
+                        if !set.contains(part) {
+                            return Err(CallError::arg(
+                                at,
+                                format!(
+                                    "{} takes {} as `{}`, not {}",
+                                    self.name,
+                                    set.names().join(", "),
+                                    form_arg.param,
+                                    part.name()
+                                ),
+                            ));
+                        }
                     }
+                    Arg::DatePart(part)
                 }
-                _ => {}
+                Arg::Value(expr) => {
+                    match &form_arg.accept {
+                        Accept::Const(_) if !matches!(expr, Expr::Literal(..)) => {
+                            return Err(CallError::arg(
+                                at,
+                                format!("`{}` takes a literal", form_arg.param),
+                            ))
+                        }
+                        Accept::OneOf(values) => {
+                            let value = match &expr {
+                                Expr::Literal(value, _) => value.try_as_str().flatten(),
+                                _ => None,
+                            };
+                            if !value.is_some_and(|value| values.iter().any(|v| v == value)) {
+                                let values: Vec<String> =
+                                    values.iter().map(|v| format!("'{v}'")).collect();
+                                return Err(CallError::arg(
+                                    at,
+                                    format!(
+                                        "`{}` takes one of {}",
+                                        form_arg.param,
+                                        values.join(", ")
+                                    ),
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                    let ty = signature.arg_type(index, &resolution);
+                    Arg::Value(coerce(expr, ty, &context)?)
+                }
+            };
+            match index < fixed {
+                true => slots[index] = Some((at, arg)),
+                false => rest.push((at, arg)),
             }
         }
         Ok(Call {
             slots,
             rest,
+            resolution,
             safe,
             star,
             context,
         })
     }
+
+    /// `planned` with the type of the form's result.
+    fn typed(&self, form: &Form, call: &Call, planned: Planned) -> Result<Planned, CallError> {
+        let want = form.signature.result_type(&call.resolution);
+        if want == Ty::Any {
+            return Ok(planned);
+        }
+        let options = call.context.type_options;
+        let differs = |ty: &DataType| Ty::of_arrow(ty).as_ref() != Some(&want);
+        let fields = |args: &[Expr]| -> Result<Vec<FieldRef>, CallError> {
+            args.iter()
+                .map(|arg| Ok(arg.to_field(call.context.schema)?.1))
+                .collect()
+        };
+        Ok(match planned {
+            Planned::Scalar(expr) => {
+                let ty = call.type_of(&expr)?;
+                match differs(&ty) {
+                    true => Planned::Scalar(cast(expr, want.arrow(options))),
+                    false => Planned::Scalar(expr),
+                }
+            }
+            Planned::Aggregate {
+                func,
+                args,
+                filter,
+                result,
+            } => {
+                let ty = func.return_field(&fields(&args)?)?.data_type().clone();
+                let result = result.or_else(|| differs(&ty).then(|| want.arrow(options)));
+                Planned::Aggregate {
+                    func,
+                    args,
+                    filter,
+                    result,
+                }
+            }
+            Planned::Window { func, args, result } => {
+                let inputs = fields(&args)?;
+                let ty = match &func {
+                    WindowFunctionDefinition::WindowUDF(udwf) => udwf
+                        .field(WindowUDFFieldArgs::new(&inputs, &self.name))?
+                        .data_type()
+                        .clone(),
+                    WindowFunctionDefinition::AggregateUDF(udaf) => {
+                        udaf.return_field(&inputs)?.data_type().clone()
+                    }
+                };
+                let result = result.or_else(|| differs(&ty).then(|| want.arrow(options)));
+                Planned::Window { func, args, result }
+            }
+        })
+    }
+}
+
+/// What resolution knows of the argument `arg`.
+fn observe(arg: &Arg, schema: &DFSchema) -> Result<Observed, CallError> {
+    match arg {
+        Arg::DatePart(part) => Ok(Observed::Part(*part)),
+        Arg::Value(expr) => {
+            let ty = expr.get_type(schema)?;
+            let ty = Ty::of_arrow(&ty)
+                .ok_or_else(|| CallError::call(format!("avenger-sql has no type for {ty}")))?;
+            Ok(Observed::Value {
+                ty,
+                literal: matches!(expr, Expr::Literal(..)),
+            })
+        }
+    }
+}
+
+/// The argument of `signature` that each argument of `args` binds to, or the error of binding.
+fn bind(
+    name: &str,
+    signature: &Signature,
+    args: &[(Option<String>, Arg)],
+    star: bool,
+) -> Result<Vec<Option<usize>>, CallError> {
+    let form_args = &signature.args;
+    let repeated = form_args
+        .last()
+        .is_some_and(|arg| arg.arity == Arity::Repeated);
+    let fixed = form_args.len() - usize::from(repeated);
+    let positional: Vec<usize> = (0..fixed)
+        .filter(|&index| !form_args[index].named_only)
+        .collect();
+    let mut filled = vec![false; form_args.len()];
+    let mut binding = Vec::with_capacity(args.len());
+    let mut next = 0;
+    for (at, (arg_name, _)) in args.iter().enumerate() {
+        let index = match arg_name {
+            None => match positional.get(next) {
+                Some(&index) => {
+                    next += 1;
+                    index
+                }
+                None if repeated => fixed,
+                None => {
+                    return Err(CallError::arg(
+                        at,
+                        format!(
+                            "{name} takes {} positional argument{}",
+                            positional.len(),
+                            if positional.len() == 1 { "" } else { "s" }
+                        ),
+                    ))
+                }
+            },
+            Some(arg_name) => {
+                let Some(index) =
+                    (0..fixed).find(|&index| form_args[index].param.eq_ignore_ascii_case(arg_name))
+                else {
+                    return Err(CallError::arg(
+                        at,
+                        format!("this form of {name} takes no `{arg_name}`"),
+                    ));
+                };
+                if filled[index] {
+                    return Err(CallError::arg(
+                        at,
+                        format!(
+                            "the parameter `{}` has two arguments",
+                            form_args[index].param
+                        ),
+                    ));
+                }
+                index
+            }
+        };
+        filled[index] = true;
+        binding.push(Some(index));
+    }
+    let star_fills = star && fixed > 0;
+    for (index, arg) in form_args.iter().enumerate().take(fixed) {
+        if arg.arity == Arity::Required && !filled[index] && !(star_fills && index == 0) {
+            return Err(CallError::call(format!(
+                "{name} needs its argument `{}`",
+                arg.param
+            )));
+        }
+    }
+    Ok(binding)
+}
+
+/// `expr` cast to the type `ty`, when its type is another.
+fn coerce(expr: Expr, ty: Option<Ty>, context: &PlanContext) -> Result<Expr, CallError> {
+    let Some(ty) = ty.filter(|ty| *ty != Ty::Any) else {
+        return Ok(expr);
+    };
+    let current = expr.get_type(context.schema)?;
+    if Ty::of_arrow(&current).as_ref() == Some(&ty) {
+        return Ok(expr);
+    }
+    // A `NULL` of an array or a struct takes its type from the cast below.
+    Ok(cast(expr, ty.arrow(context.type_options)))
 }
 
 /// GoogleSQL's functions and avenger's, by name.
@@ -568,18 +922,6 @@ pub(crate) fn null() -> Expr {
 
 pub(crate) fn cast(expr: Expr, ty: DataType) -> Expr {
     Expr::Cast(datafusion::logical_expr::Cast::new(Box::new(expr), ty))
-}
-
-pub(crate) fn is_integer(ty: &DataType) -> bool {
-    ty.is_integer()
-}
-
-/// `expr` as `FLOAT64` when it is an integer, as GoogleSQL computes math of integers.
-pub(crate) fn float_of_integer(call: &Call, expr: Expr) -> Result<Expr, CallError> {
-    Ok(match is_integer(&call.type_of(&expr)?) {
-        true => cast(expr, DataType::Float64),
-        false => expr,
-    })
 }
 
 /// `value`, or `NULL` when any of `args` is `NULL`, as GoogleSQL's functions return.

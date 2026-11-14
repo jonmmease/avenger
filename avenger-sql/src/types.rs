@@ -158,8 +158,8 @@ pub fn googlesql_name(ty: &DataType) -> String {
     match ty {
         DataType::Int64 => "INT64".to_string(),
         DataType::Float64 => "FLOAT64".to_string(),
-        DataType::Decimal128(38, 9) => "NUMERIC".to_string(),
-        DataType::Decimal256(76, 38) => "BIGNUMERIC".to_string(),
+        DataType::Decimal128(..) => "NUMERIC".to_string(),
+        DataType::Decimal256(..) => "BIGNUMERIC".to_string(),
         DataType::Boolean => "BOOL".to_string(),
         DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => "STRING".to_string(),
         DataType::Binary | DataType::BinaryView | DataType::LargeBinary => "BYTES".to_string(),
