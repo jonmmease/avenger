@@ -1,6 +1,5 @@
 //! The pass's plans of the sources and the core operators, against the rows of hand-written
-//! standard queries that DataFusion plans, ported from the probes and tests of the earlier
-//! planner.
+//! standard queries that DataFusion plans.
 
 mod pass;
 
@@ -384,19 +383,4 @@ async fn distinct_gives_each_row_once() {
             .await,
         ["+---+", "+---+", "+---+", "| 5 |", "| n |"],
     );
-}
-
-#[tokio::test]
-async fn names_resolve_by_googlesql_rules() {
-    // A range variable reads its row as its source gives it, after SET, DROP and EXTEND.
-    assert_eq!(
-        rows("FROM t |> WHERE x = 1 |> SET x = 5 |> EXTEND 3 AS y |> DROP s |> SELECT t.x, t.s, x, y").await,
-        ["+---+---+---+---+", "+---+---+---+---+", "+---+---+---+---+", "| 1 | a | 5 | 3 |", "| x | s | x | y |"],
-    );
-    // Names match without regard to case, and an output column keeps the case it's written in.
-    let text = table_text("FROM t AS T |> WHERE X = 1 |> SELECT T.X, S").await;
-    assert_eq!(text.lines().nth(1).unwrap(), "| X | S |");
-    // A range variable alone is its row, as a struct.
-    let text = table_text("FROM t |> WHERE x = 1 |> SELECT t").await;
-    assert_eq!(text.lines().nth(3).unwrap(), "| {x: 1, s: a} |");
 }

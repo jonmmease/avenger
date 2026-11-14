@@ -1,12 +1,12 @@
-//! The pass over a test query: a catalog of the tests' tables, the analysis of a query, and its
-//! rows.
+//! The pass over a test query: a catalog of the tests' tables, the analysis of a query, its rows,
+//! and their values as GoogleSQL writes them.
 
 #![allow(dead_code)]
 
 use std::sync::Arc;
 
 use arrow::{
-    array::{Int64Array, RecordBatch, StringArray},
+    array::{ArrayRef, Int64Array, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
 };
 use avenger_sql::{
@@ -18,6 +18,7 @@ use datafusion::{arrow::util::pretty::pretty_format_batches, datasource::MemTabl
 
 #[path = "../common/mod.rs"]
 mod common;
+pub mod values;
 
 pub use common::{penguins, session};
 
@@ -102,6 +103,13 @@ pub async fn run_in(
         .collect()
         .await
         .map_err(|error| vec![error.to_string()])
+}
+
+/// The value of the expression `text`, as `FROM one |> SELECT <text> AS v` computes it, or the
+/// messages of its diagnostics.
+pub async fn value(text: &str) -> Result<ArrayRef, Vec<String>> {
+    let batches = run(&format!("FROM one |> SELECT {text} AS v")).await?;
+    Ok(batches[0].column(0).clone())
 }
 
 /// The rows of `text` as a table, in their order.

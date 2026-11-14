@@ -2,7 +2,7 @@
 //! return their results and GoogleSQL's, its forms are forms of GoogleSQL, resolution picks
 //! GoogleSQL's form, and the reference of every function matches its baseline.
 
-mod eval;
+mod pass;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -10,7 +10,6 @@ use std::{
 };
 
 use avenger_sql::library::{reference, Accept, Arity, Form, FunctionKind, Library, Ty};
-use eval::*;
 
 /// The functions of avenger, whose forms GoogleSQL doesn't have.
 fn is_avenger(name: &str) -> bool {
@@ -63,6 +62,10 @@ fn every_function_is_documented() {
 
 #[tokio::test]
 async fn examples_return_their_results_and_googlesqls() {
+    // Each example of a scalar function, as `FROM one |> SELECT <example> AS v`, returns the
+    // result that its docs give, and a function of GoogleSQL returns GoogleSQL's value too. The
+    // examples of avenger's constructors build fragments of messages, which the tests of the
+    // constructors check.
     let library = Library::new();
     let googlesql: BTreeMap<String, String> = include_str!("data/googlesql_examples.tsv")
         .lines()
@@ -72,41 +75,40 @@ async fn examples_return_their_results_and_googlesqls() {
     let mut failures = Vec::new();
     let mut checked = 0;
     for function in library.functions() {
-        if function.kind != FunctionKind::Scalar || is_avenger(&function.name) {
+        if function.kind != FunctionKind::Scalar {
             continue;
         }
         for example in &function.examples {
-            let planned = match plan(&library, &parse(&example.query)) {
-                Ok(planned) => planned,
-                Err(error) => {
-                    failures.push(format!("{}: {error}", example.query));
-                    continue;
-                }
-            };
-            let array = match tokio::spawn(run(planned)).await {
+            if example.query.contains("|>") || example.result.contains('\n') {
+                continue;
+            }
+            let array = match pass::value(&example.query).await {
                 Ok(array) => array,
-                Err(error) => {
-                    failures.push(format!("{}: a failed run: {error}", example.query));
+                Err(errors) => {
+                    failures.push(format!("{}: {errors:?}", example.query));
                     continue;
                 }
             };
-            let found = literal(&array, 0);
+            let found = pass::values::literal(&array, 0);
             if found != example.result {
                 failures.push(format!(
                     "{}: the docs say {}, avenger-sql {found}",
                     example.query, example.result
                 ));
             }
+            checked += 1;
+            if is_avenger(&function.name) {
+                continue;
+            }
             match googlesql.get(&example.query) {
-                Some(value) if *value != json(&array, 0) => failures.push(format!(
+                Some(value) if *value != pass::values::json(&array, 0) => failures.push(format!(
                     "{}: GoogleSQL {value}, avenger-sql {}",
                     example.query,
-                    json(&array, 0)
+                    pass::values::json(&array, 0)
                 )),
                 Some(_) => {}
                 None => failures.push(format!("{}: no recorded value of GoogleSQL", example.query)),
             }
-            checked += 1;
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
@@ -244,9 +246,7 @@ const OMITTED: &[(&str, &str, &str)] = &[
     ("AVG", "INTERVAL", "DataFusion's avg doesn't average intervals"),
     ("STRING_AGG", "BYTES", "DataFusion's string_agg joins strings"),
     ("GENERATE_ARRAY", "NUMERIC", "DataFusion's range generates integers"),
-    ("GENERATE_ARRAY", "BIGNUMERIC", "DataFusion's range generates integers"),
     ("GENERATE_ARRAY", "FLOAT64", "DataFusion's range generates integers"),
-    ("CONCAT", "BYTES", "the string functions of DataFusion take strings"),
     ("LENGTH", "BYTES", "DataFusion's octet_length takes strings"),
     ("LOWER", "BYTES", "the string functions of DataFusion take strings"),
     ("UPPER", "BYTES", "the string functions of DataFusion take strings"),
@@ -279,6 +279,7 @@ fn the_forms_are_googlesqls() {
         }
     }
     let mut failures = Vec::new();
+    let mut excused = BTreeSet::new();
     for function in library.functions() {
         if is_avenger(&function.name) {
             continue;
@@ -298,16 +299,26 @@ fn the_forms_are_googlesqls() {
             }
         }
         for list in theirs.difference(&mine) {
-            let omitted = OMITTED.iter().any(|(name, ty, _)| {
+            let omitted = OMITTED.iter().position(|(name, ty, _)| {
                 *name == function.name && list.iter().any(|arg| arg.contains(ty))
             });
-            if !omitted {
+            if let Some(index) = omitted {
+                excused.insert(index);
+            } else {
                 failures.push(format!(
                     "{}({}): a form of GoogleSQL without a mapping or an omission",
                     function.name,
                     list.join(", ")
                 ));
             }
+        }
+    }
+    // An omission that excuses no form is stale: the library maps the form now.
+    for (index, (name, ty, _)) in OMITTED.iter().enumerate() {
+        if !excused.contains(&index) {
+            failures.push(format!(
+                "{name}({ty}): an omission of a form that the library maps"
+            ));
         }
     }
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
@@ -332,10 +343,9 @@ async fn resolution_picks_googlesqls_form() {
         ("FORMAT_DATE('%Y', '2024-01-01')", "STRING"),
         ("IF(TRUE, NULL, NULL)", "INT64"),
     ];
-    let library = Library::new();
     let mut failures = Vec::new();
     for (text, expected) in cases {
-        let array = run(expr(&library, text)).await;
+        let array = (pass::value(text).await).unwrap_or_else(|errors| panic!("{text}: {errors:?}"));
         let found = avenger_sql::types::googlesql_name(array.data_type());
         if found != expected {
             failures.push(format!("{text}: GoogleSQL {expected}, avenger-sql {found}"));

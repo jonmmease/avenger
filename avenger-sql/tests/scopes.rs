@@ -100,6 +100,12 @@ const RULES: &[(&str, &str, Outcome)] = &[
         "FROM one_row AS t |> AGGREGATE COUNT(*) AS n GROUP BY s |> SELECT t.s",
         Outcome::Error("Unrecognized name: t"),
     ),
+    // A range variable alone is its row, as a struct.
+    (
+        "FROM (SELECT 1 AS x, 'a' AS s) AS t |> SELECT t",
+        "FROM one_row AS t |> SELECT t",
+        Outcome::Row("| t            |", "| {x: 1, s: a} |"),
+    ),
 ];
 
 #[tokio::test]

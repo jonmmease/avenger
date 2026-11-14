@@ -2,13 +2,8 @@
 //! `execute_query` recorded, planned through the pass as `FROM one |> SELECT <case> AS v`, with
 //! the form of its outermost operator, the type of its result, and its value.
 
-mod eval;
 mod pass;
 
-use arrow::{
-    array::{Array, AsArray},
-    datatypes::{DataType, IntervalMonthDayNanoType},
-};
 use avenger_sql::types;
 use avenger_sql_syntax::ast::{self, AstNode};
 
@@ -60,70 +55,6 @@ fn normalized(form: &str) -> String {
         false => form[..open].to_ascii_uppercase(),
     };
     format!("{name}({}) -> {}", args.join(", "), &form[close + 5..])
-}
-
-/// The value at row 0 of `array` as the data writes it: JSON, or GoogleSQL's text of an
-/// `INTERVAL`, a `NUMERIC` or a `BIGNUMERIC`.
-fn value(array: &arrow::array::ArrayRef) -> String {
-    if array.is_null(0) {
-        return "null".to_string();
-    }
-    match array.data_type() {
-        DataType::Interval(_) => {
-            let value = array.as_primitive::<IntervalMonthDayNanoType>().value(0);
-            let (years, months) = (value.months / 12, value.months % 12);
-            let micros = value.nanoseconds / 1_000;
-            let sign = if micros < 0 { "-" } else { "" };
-            let micros = micros.abs();
-            let (hours, minutes, seconds, fraction) = (
-                micros / 3_600_000_000,
-                micros / 60_000_000 % 60,
-                micros / 1_000_000 % 60,
-                micros % 1_000_000,
-            );
-            let seconds = match fraction {
-                0 => seconds.to_string(),
-                f => format!("{seconds}.{}", format!("{f:06}").trim_end_matches('0')),
-            };
-            format!(
-                "\"{years}-{months} {} {sign}{hours}:{minutes}:{seconds}\"",
-                value.days
-            )
-        }
-        DataType::Decimal128(..) | DataType::Decimal256(..) => {
-            let text = arrow::util::display::array_value_to_string(array, 0).unwrap();
-            let text = match text.contains('.') {
-                true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
-                false => text,
-            };
-            format!("\"{text}\"")
-        }
-        DataType::Binary => {
-            use base64_free::encode;
-            format!("\"{}\"", encode(array.as_binary::<i32>().value(0)))
-        }
-        _ => eval::json(array, 0),
-    }
-}
-
-/// Base64, as GoogleSQL's JSON writes `BYTES`.
-mod base64_free {
-    pub fn encode(bytes: &[u8]) -> String {
-        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut out = String::new();
-        for chunk in bytes.chunks(3) {
-            let n = (u32::from(chunk[0]) << 16)
-                | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-                | u32::from(*chunk.get(2).unwrap_or(&0));
-            for i in 0..4 {
-                match i <= chunk.len() {
-                    true => out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char),
-                    false => out.push('='),
-                }
-            }
-        }
-        out
-    }
 }
 
 /// The cases where avenger-sql differs from GoogleSQL's `execute_query`, and why.
@@ -190,7 +121,7 @@ async fn operators_resolve_and_compute_as_googlesql_does() {
         if ty != want_ty {
             failures.push(format!("{}: the type {ty}, not {want_ty}", case.text));
         }
-        let got = value(column);
+        let got = pass::values::json(column, 0);
         if got != case.value {
             failures.push(format!("{}: {got}, not {}", case.text, case.value));
         }
