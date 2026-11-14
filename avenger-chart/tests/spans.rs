@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float64Array, StructArray},
-    datatypes::{DataType, Field, Float64Type},
+    array::{ArrayRef, AsArray, DictionaryArray, Float64Array, StructArray},
+    datatypes::{DataType, Field, Float64Type, Int32Type},
     record_batch::RecordBatch,
 };
 use avenger_chart::{
@@ -77,6 +77,66 @@ fn a_span_gives_its_channel_and_its_partner() {
     ))
     .unwrap();
     assert_eq!(both, chart);
+}
+
+#[test]
+fn a_span_with_a_unit_gives_its_channel_and_its_partner() {
+    // The struct of the `timeunit` transform: a `start`, an `end`, and a `unit` of text.
+    let numbers = |values: &[f64]| Arc::new(Float64Array::from(values.to_vec())) as ArrayRef;
+    let units: DictionaryArray<Int32Type> = ["month", "month"].into_iter().collect();
+    let column: ArrayRef = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("start", DataType::Float64, false)),
+            numbers(&[0.0, 31.0]),
+        ),
+        (
+            Arc::new(Field::new("end", DataType::Float64, false)),
+            numbers(&[31.0, 60.0]),
+        ),
+        (
+            Arc::new(Field::new(
+                "unit",
+                DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8)),
+                false,
+            )),
+            Arc::new(units) as ArrayRef,
+        ),
+    ]));
+    assert!(span::is_span(column.data_type()));
+    assert_eq!(span::values_type(column.data_type()), DataType::Float64);
+    let ends = span::channel_values(&column, Channel::X2);
+    assert_eq!(ends.as_primitive::<Float64Type>().values(), &[31.0, 60.0]);
+    let table =
+        RecordBatch::try_from_iter([("month", column), ("count", numbers(&[4.0, 7.0]))]).unwrap();
+    let rects = CartesianLayer::rect(table, RectMark::builder().x("month").y("count").y2(0.0));
+    let chart = read(rects).unwrap();
+    let Some(node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("the root is a plot")
+    };
+    let Some(plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("the plot is Cartesian")
+    };
+    let Some(cartesian_layer::Mark::Rect(rect)) = &cartesian.layers[0].mark else {
+        panic!("the layer draws rects")
+    };
+    assert_eq!(
+        rect.x2.as_ref().unwrap().kind,
+        Some(encoding::Kind::ScaledField("month".to_string()))
+    );
+    // A third field of another name or type is not a span.
+    let other = |name: &str, data_type: DataType| {
+        DataType::Struct(
+            vec![
+                Field::new("start", DataType::Float64, false),
+                Field::new("end", DataType::Float64, false),
+                Field::new(name, data_type, false),
+            ]
+            .into(),
+        )
+    };
+    assert!(!span::is_span(&other("unit", DataType::Int32)));
+    assert!(!span::is_span(&other("label", DataType::Utf8)));
+    assert!(span::is_span(&other("unit", DataType::Utf8)));
 }
 
 #[test]
