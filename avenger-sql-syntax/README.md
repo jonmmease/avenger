@@ -34,7 +34,9 @@ Each error is a `Diagnostic`, with a `DiagnosticCode`, a range, a message, help,
 
 ## Completion
 
-`expected_at(text, offset)` returns what the grammar accepts at a cursor: keywords, tokens, names in their roles (a column, a table, a function, and so on), expressions, types, pipe operators, and statements. When a word ends at the cursor, the result is what can take that word's place.
+`expected_at(text, offset)` returns what the grammar accepts at a cursor: keywords, tokens, names in their roles (a column, a table, a function, and so on), expressions, types, pipe operators, and statements, and words outside the lexer's keywords: a set of words, such as the date parts, the sampling methods, and the words that start an expression or a pipe operator, and phrases, such as `BY NAME`, which the grammar takes only whole. When the text ends inside a phrase, the result holds the rest of it, as `NAME` after `UNION ALL BY`. When a word ends at the cursor, the result is what can take that word's place.
+
+The result holds only what can follow the text before the cursor. After an operand, it holds the operators that can follow it. After a comma of a list that can end with one, it holds what an item takes. After a token that the text lacks, such as the `)` of an open call, it holds nothing more, since what follows the token cannot follow the cursor. A statement starts at the start of the text or after a `;`. The forms of GoogleSQL that avenger-sql reports as errors, such as `SELECT` at the start of a query or a `CONSTANT` in a script, are not in the result.
 
 ## Highlighting
 
