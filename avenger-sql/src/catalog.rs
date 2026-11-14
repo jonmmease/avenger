@@ -87,6 +87,9 @@ pub trait Catalog {
     /// The table at the path `names`, matched without regard to case.
     fn table(&self, names: &[String]) -> Option<Table>;
 
+    /// The tables of the catalog, which an editor offers where a script names a table.
+    fn tables(&self) -> Vec<Table>;
+
     /// The text of the module at the path `names` of an `IMPORT MODULE`, a `.sqlm` file.
     fn module(&self, _names: &[String]) -> Option<String> {
         None
@@ -208,6 +211,11 @@ impl Catalog for SessionCatalog {
         lookup(&self.tables, names)
     }
 
+    /// The tables that the catalog loaded, which are those that the script names.
+    fn tables(&self) -> Vec<Table> {
+        self.tables.clone()
+    }
+
     fn module(&self, names: &[String]) -> Option<String> {
         (self.modules.iter())
             .find(|(path, _)| {
@@ -271,6 +279,10 @@ impl MemoryCatalog {
 impl Catalog for MemoryCatalog {
     fn table(&self, names: &[String]) -> Option<Table> {
         lookup(&self.tables, names)
+    }
+
+    fn tables(&self) -> Vec<Table> {
+        self.tables.clone()
     }
 
     fn module(&self, names: &[String]) -> Option<String> {

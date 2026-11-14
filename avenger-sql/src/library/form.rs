@@ -304,6 +304,12 @@ impl Signature {
     /// one type written as its type: `SUBSTR(value: STRING, position: INT64[, length: INT64]) ->
     /// STRING`.
     pub fn render(&self, name: &str) -> String {
+        self.label(name).text
+    }
+
+    /// The signature as [`Signature::render`] writes it, and the range of each argument in it,
+    /// such as `position: INT64`, which signature help marks while a call is at that argument.
+    pub fn label(&self, name: &str) -> Label {
         let single: BTreeMap<String, Ty> = (self.vars.iter())
             .filter(|(_, set)| set.len() == 1)
             .map(|(var, set)| (var.clone(), set[0].clone()))
@@ -322,14 +328,21 @@ impl Signature {
             },
         };
         let mut out = format!("{name}(");
+        let mut args = Vec::with_capacity(self.args.len());
         for (index, arg) in self.args.iter().enumerate() {
             let sep = if index == 0 { "" } else { ", " };
             let marker = if arg.named_only { " => " } else { ": " };
             let core = format!("{}{marker}{}", arg.param, accept(&arg.accept));
+            if arg.arity == Arity::Optional {
+                out.push('[');
+            }
+            out.push_str(sep);
+            args.push(out.len()..out.len() + core.len());
+            out.push_str(&core);
             match arg.arity {
-                Arity::Required => out.push_str(&format!("{sep}{core}")),
-                Arity::Optional => out.push_str(&format!("[{sep}{core}]")),
-                Arity::Repeated => out.push_str(&format!("{sep}{core}, ...")),
+                Arity::Required => {}
+                Arity::Optional => out.push(']'),
+                Arity::Repeated => out.push_str(", ..."),
             }
         }
         out.push_str(&format!(") -> {}", self.result.substitute_keep(&single)));
@@ -346,8 +359,15 @@ impl Signature {
         if !multi.is_empty() {
             out.push_str(&format!(" where {}", multi.join(", ")));
         }
-        out
+        Label { text: out, args }
     }
+}
+
+/// A signature as text, and the byte range of each of its arguments in the text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Label {
+    pub text: String,
+    pub args: Vec<std::ops::Range<usize>>,
 }
 
 impl Ty {

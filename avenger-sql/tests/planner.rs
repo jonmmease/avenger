@@ -1331,3 +1331,39 @@ fn errors_of_names_function_bodies_and_correlation() {
         assert_eq!(found[0].0, message, "{query}");
     }
 }
+
+#[test]
+fn a_column_of_a_temporary_table_needs_a_type_of_avenger_sql() {
+    let found = errors("CREATE TEMP TABLE w (a INT32, b STRING); FROM w");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, "`INT32` is not a type of avenger-sql");
+}
+
+#[test]
+fn a_table_function_of_typed_parameters_has_the_errors_of_its_body_at_its_definition() {
+    let text = "CREATE TEMP TABLE FUNCTION f(k INT64) AS (FROM nowhere |> LIMIT k)";
+    let found = errors(text);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0],
+        (
+            "Table not found: nowhere".to_string(),
+            "nowhere".to_string()
+        )
+    );
+    // A parameter of any table plans the body only at a call.
+    assert_eq!(
+        errors("CREATE TEMP TABLE FUNCTION g(src ANY TABLE) AS (FROM nowhere)"),
+        Vec::new()
+    );
+}
+
+#[test]
+fn a_pivot_expression_is_an_aggregate_call_without_a_wrapper() {
+    let found = errors("FROM UNNEST(['a']) AS s |> PIVOT (CONCAT(ANY_VALUE(s)) FOR s IN ('a'))");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(
+        found[0].0,
+        "PIVOT expression must be an aggregate function call"
+    );
+}

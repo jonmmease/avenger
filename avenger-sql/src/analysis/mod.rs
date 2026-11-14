@@ -23,10 +23,14 @@ mod set;
 mod transforms;
 
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
-use datafusion::{common::DataFusionError, logical_expr::LogicalPlan};
+use datafusion::{
+    common::DataFusionError,
+    logical_expr::{Expr, LogicalPlan},
+};
 
 pub use model::{
-    CallForm, Column, Definition, EnumValue, Model, NameUse, OperatorScope, RangeVariable,
+    match_recognize_part, CallForm, Column, Definition, EnumValue, FieldBase, MatchRecognizePart,
+    Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
@@ -366,6 +370,143 @@ impl Pass<'_> {
                 })
                 .collect(),
             output: Self::columns_info(output),
+            queries: self.queries_in_scope(),
+            outer: self.outer_columns(),
+            outer_range_variables: self.outer_range_variables(),
+        });
+    }
+
+    /// The columns of the enclosing queries that a subquery reads, innermost first: not those
+    /// of a `MATCH_RECOGNIZE` clause, whose columns its subqueries can't read.
+    pub(crate) fn outer_columns(&self) -> Vec<Column> {
+        // The parameters of the function whose body the pass plans, which its queries read.
+        let params = self.params.iter().map(|(name, arg)| Column {
+            name: name.clone(),
+            qualifiers: Vec::new(),
+            definition: None,
+            ty: match arg {
+                Expr::Placeholder(placeholder) => {
+                    (placeholder.field.as_ref()).map(|field| field.data_type().clone())
+                }
+                Expr::Cast(cast) => Some(cast.field.data_type().clone()),
+                _ => None,
+            },
+        });
+        let readable = self
+            .outers
+            .iter()
+            .rev()
+            .filter(|o| o.match_recognize.is_none());
+        let outer = (readable).flat_map(|outer| {
+            outer.columns.iter().map(move |col| Column {
+                name: col.name.clone(),
+                qualifiers: (outer.vars.iter())
+                    .filter(|var| var.columns.iter().any(|c| c.column == col.column))
+                    .map(|var| var.name.clone())
+                    .collect(),
+                definition: col.definition,
+                ty: (outer.schema.as_ref())
+                    .and_then(|schema| {
+                        datafusion::common::ExprSchema::field_from_column(schema, &col.column).ok()
+                    })
+                    .map(|field| field.data_type().clone()),
+            })
+        });
+        outer.chain(params).collect()
+    }
+
+    /// The range variables of the enclosing queries that a subquery reads, innermost first.
+    pub(crate) fn outer_range_variables(&self) -> Vec<RangeVariable> {
+        let readable = self
+            .outers
+            .iter()
+            .rev()
+            .filter(|o| o.match_recognize.is_none());
+        (readable)
+            .flat_map(|outer| {
+                outer.vars.iter().map(move |var| RangeVariable {
+                    name: var.name.clone(),
+                    definition: var.definition,
+                    columns: (var.columns.iter())
+                        .map(|col| Column {
+                            name: col.name.clone(),
+                            qualifiers: vec![var.name.clone()],
+                            definition: col.definition,
+                            ty: (outer.schema.as_ref())
+                                .and_then(|schema| {
+                                    datafusion::common::ExprSchema::field_from_column(
+                                        schema,
+                                        &col.column,
+                                    )
+                                    .ok()
+                                })
+                                .map(|field| field.data_type().clone()),
+                        })
+                        .collect(),
+                })
+            })
+            .collect()
+    }
+
+    /// The names of the pipe `WITH`s and the temporary tables in scope.
+    pub(crate) fn queries_in_scope(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for with in self.with_names.iter().chain(&self.temp_tables) {
+            if !names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&with.name))
+            {
+                names.push(with.name.clone());
+            }
+        }
+        names
+    }
+
+    /// Records the place `range` of the kind `kind`, where the pass plans expressions in
+    /// `scope`, with the type of its value when the pass knows it.
+    pub(crate) fn place(
+        &mut self,
+        range: TextRange,
+        kind: model::PlaceKind,
+        scope: &expr::Scope,
+        expected: Option<datafusion::arrow::datatypes::DataType>,
+    ) {
+        use model::{MatchRecognizePart, PlaceKind};
+        let match_recognize = self.mr_frame().and_then(|frame| match frame.clause {
+            match_recognize::Clause::Measures => Some(MatchRecognizePart::Measures),
+            match_recognize::Clause::Define => Some(MatchRecognizePart::Define),
+            match_recognize::Clause::Keys => None,
+        });
+        let expected = expected.or_else(|| {
+            matches!(kind, PlaceKind::Filter | PlaceKind::Define)
+                .then_some(datafusion::arrow::datatypes::DataType::Boolean)
+        });
+        self.model.places.push(model::Place {
+            range,
+            kind,
+            // The body of a function reads its parameters as names, and a subquery the columns of
+            // the queries around it.
+            columns: !scope.columns.is_empty()
+                || !self.params.is_empty()
+                || !self.outers.is_empty(),
+            aggregates: scope.aggregates,
+            windows: scope.windows,
+            match_recognize,
+            expected,
+        });
+    }
+
+    /// Records the place `range` that holds names of the input's columns only, as
+    /// `CORRESPONDING BY (...)`, or a constant, which reads no columns.
+    pub(crate) fn place_without_scope(&mut self, range: TextRange, kind: model::PlaceKind) {
+        self.model.places.push(model::Place {
+            range,
+            kind,
+            columns: kind == model::PlaceKind::ColumnList,
+            aggregates: false,
+            windows: false,
+            match_recognize: None,
+            expected: None,
         });
     }
 

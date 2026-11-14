@@ -177,7 +177,14 @@ fn the_model_resolves_each_name_to_its_definition() {
                     )
                 }
                 Definition::Table { names } => format!("table {}", names.join(".")),
-                Definition::Function { name, role } => format!("function {name} ({role:?})"),
+                Definition::Function {
+                    name,
+                    role,
+                    definition,
+                } => match definition {
+                    Some(r) => format!("function {name} ({role:?}) at {:?}", at(text, *r)),
+                    None => format!("function {name} ({role:?})"),
+                },
                 Definition::Field { name, .. } => format!("field {name}"),
                 Definition::Query { name, .. } => format!("query {name}"),
                 Definition::Variable { name, .. } => format!("variable {name}"),
@@ -223,6 +230,33 @@ fn the_model_resolves_each_name_to_its_definition() {
 }
 
 #[test]
+fn a_temporary_function_is_defined_by_the_name_of_its_create() {
+    let text =
+        "CREATE TEMP FUNCTION twice(v INT64) AS (v * 2);\nFROM one_row |> SELECT twice(x) AS y";
+    let analysis = pass::analysis_in(&catalog(), text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    // The call's name is defined by the name of the `CREATE`, at the start of the text.
+    let definitions: Vec<(usize, Option<usize>)> = (analysis.model.names.iter())
+        .filter_map(|name| match &name.definition {
+            Definition::Function { definition, .. } => Some((
+                usize::from(name.range.start()),
+                definition.map(|r| usize::from(r.start())),
+            )),
+            _ => None,
+        })
+        .collect();
+    let create = text.find("twice").unwrap();
+    assert_eq!(
+        definitions,
+        [(text.find("twice(x)").unwrap(), Some(create))]
+    );
+}
+
+#[test]
 fn an_operator_with_an_error_keeps_the_names_after_it() {
     let text = "FROM one_row |> SELECT nope AS z, x |> SELECT z, x |> EXTEND z + 1 AS w";
     let analysis = pass::analysis_in(&catalog(), text);
@@ -242,4 +276,222 @@ fn an_operator_with_an_error_keeps_the_names_after_it() {
         .map(|name| at(text, name.range))
         .collect();
     assert_eq!(resolved, ["x", "z", "x", "z"]);
+}
+
+/// The analysis of `text`, which can have errors.
+fn analysis_of(text: &str) -> avenger_sql::analysis::Analysis {
+    let parse = avenger_sql_syntax::parse(text);
+    avenger_sql::analyze(
+        &parse.syntax(),
+        &catalog(),
+        &avenger_sql::library::Library::new(),
+        &avenger_sql::analysis::Options::default(),
+    )
+}
+
+#[test]
+fn each_clause_records_the_place_of_its_expressions() {
+    use avenger_sql::analysis::PlaceKind;
+    let text = "FROM one_row |> WHERE x > 1 |> EXTEND x + 1 AS y \
+                |> AGGREGATE SUM(y) AS t GROUP BY s |> LIMIT 1";
+    let analysis = analysis_of(text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let at = |needle: &str| {
+        let offset = text.find(needle).unwrap() as u32;
+        analysis.model.place_at(offset.into()).unwrap().clone()
+    };
+    let filter = at("x > 1");
+    assert_eq!(filter.kind, PlaceKind::Filter);
+    assert_eq!(filter.expected, Some(DataType::Boolean));
+    assert!(filter.windows && !filter.aggregates);
+    assert_eq!(at("x + 1").kind, PlaceKind::SelectItem);
+    let item = at("SUM(y)");
+    assert_eq!(item.kind, PlaceKind::AggregateItem);
+    assert!(item.aggregates && !item.takes_columns());
+    let argument = at("y) AS t");
+    assert_eq!(argument.kind, PlaceKind::Argument);
+    assert!(!argument.aggregates && argument.takes_columns());
+    assert_eq!(at("s |> LIMIT").kind, PlaceKind::GroupKey);
+    let count = text.rfind('1').unwrap() as u32;
+    let constant = analysis.model.place_at(count.into()).unwrap();
+    assert_eq!(constant.kind, PlaceKind::Constant);
+    assert!(!constant.takes_columns());
+}
+
+#[test]
+fn a_clause_without_expressions_at_the_end_of_a_text_has_a_place() {
+    use avenger_sql::analysis::PlaceKind;
+    for (text, kind) in [
+        ("FROM one_row |> WHERE ", PlaceKind::Filter),
+        ("FROM one_row |> AGGREGATE ", PlaceKind::AggregateItem),
+        ("FROM one_row |> AGGREGATE SUM(", PlaceKind::Argument),
+        ("FROM one_row |> LIMIT ", PlaceKind::Constant),
+        (
+            "FROM one_row |> UNION ALL CORRESPONDING BY (",
+            PlaceKind::ColumnList,
+        ),
+    ] {
+        // As completion does, the place of the last token before the cursor.
+        let analysis = analysis_of(text);
+        let place = analysis
+            .model
+            .place_at((text.trim_end().len() as u32).into());
+        assert_eq!(place.map(|place| place.kind), Some(kind), "{text}");
+    }
+}
+
+#[test]
+fn a_place_takes_the_functions_that_the_pass_accepts_there() {
+    let library = avenger_sql::library::Library::new();
+    // Each place, with `{}` for a call.
+    let places = [
+        "FROM one_row |> WHERE {} IS NOT NULL",
+        "FROM one_row |> EXTEND {} AS v",
+        "FROM one_row |> AGGREGATE {} AS v",
+        "FROM one_row |> AGGREGATE COUNT({}) AS v",
+        "FROM one_row |> ORDER BY {}",
+    ];
+    // Each function, and its call without and with `OVER`.
+    let calls = [
+        ("SUM", "SUM(x)"),
+        ("ROW_NUMBER", "ROW_NUMBER()"),
+        ("UPPER", "UPPER(s)"),
+        ("bar", "bar(x => s)"),
+        ("MATCH_NUMBER", "MATCH_NUMBER()"),
+    ];
+    // Each text is valid but for the call, so the pass accepts the call when it reports no error.
+    let mut failures = Vec::new();
+    for place in places {
+        for (name, call) in calls {
+            // A scalar function stands in an item of `|> AGGREGATE` over an aggregate.
+            let call = match (place, name) {
+                ("FROM one_row |> AGGREGATE {} AS v", "UPPER") => "UPPER(MAX(s))",
+                _ => call,
+            };
+            let accepts = |call: &str| {
+                analysis_of(&place.replace("{}", call))
+                    .diagnostics
+                    .is_empty()
+            };
+            let accepted = accepts(call) || accepts(&format!("{call} OVER ()"));
+            let text = place.replace("{}", call);
+            let offset = text.find(call).unwrap() as u32;
+            let analysis = analysis_of(&text);
+            let takes = analysis
+                .model
+                .place_at(offset.into())
+                .is_some_and(|p| p.takes(library.get(name).unwrap()));
+            if takes != accepted {
+                failures.push(format!(
+                    "{text}: takes {takes}, the pass accepts {accepted}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[test]
+fn a_function_body_is_a_scope_of_its_parameters() {
+    let text = "CREATE TEMP FUNCTION f(a INT64) AS (a + 1);\nFROM one_row |> SELECT f(x) AS v";
+    let analysis = analysis_of(text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let offset = text.find("a + 1").unwrap() as u32;
+    let scope = analysis.model.operator_at(offset.into()).unwrap();
+    let input: Vec<(&str, Option<&DataType>)> = (scope.input.iter())
+        .map(|column| (column.name.as_str(), column.ty.as_ref()))
+        .collect();
+    assert_eq!(input, [("a", Some(&DataType::Int64))]);
+}
+
+#[test]
+fn a_field_access_records_the_type_before_its_dot() {
+    let text = "FROM one_row |> SELECT STRUCT(x AS a, s AS b).a AS v";
+    let analysis = analysis_of(text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let dot = text.find(").a").unwrap() as u32 + 1;
+    let ty = analysis.model.field_base_at(dot.into()).unwrap();
+    let DataType::Struct(fields) = ty else {
+        panic!("{ty:?}")
+    };
+    let names: Vec<&str> = fields.iter().map(|f| f.name().as_str()).collect();
+    assert_eq!(names, ["a", "b"]);
+}
+
+#[test]
+fn an_unpivot_without_value_columns_reports_an_error() {
+    // The completion evaluation found a panic here: a group of columns without values.
+    let analysis = analysis_of("FROM one_row UNPIVOT (FOR ( ))");
+    let parse = avenger_sql_syntax::parse("FROM one_row UNPIVOT (FOR ( ))");
+    assert!(!parse.ok() || !analysis.diagnostics.is_empty());
+}
+
+#[test]
+fn a_pivot_and_an_unpivot_read_the_columns_of_their_input() {
+    for (text, needle) in [
+        ("FROM one_row |> PIVOT (SUM(x) FOR s IN ('a'))", "x) FOR"),
+        ("FROM one_row |> UNPIVOT (v FOR k IN (x))", "x))"),
+    ] {
+        let analysis = analysis_of(text);
+        let offset = text.find(needle).unwrap() as u32;
+        let scope = analysis.model.operator_at(offset.into()).unwrap();
+        let input: Vec<&str> = scope.input.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(input, ["x", "s"], "{text}");
+        assert!(scope.range_variables.is_empty(), "{text}");
+    }
+}
+
+#[test]
+fn a_scope_holds_the_queries_in_scope() {
+    let text = "CREATE TEMP TABLE big AS FROM one_row;\nFROM one_row |> WITH w AS (FROM one_row) |> WHERE x IN (FROM w)";
+    let analysis = analysis_of(text);
+    let offset = text.rfind("w)").unwrap() as u32;
+    let scope = analysis.model.operator_at(offset.into()).unwrap();
+    assert!(
+        scope.queries.contains(&"w".to_string()),
+        "{:?}",
+        scope.queries
+    );
+    assert!(
+        scope.queries.contains(&"big".to_string()),
+        "{:?}",
+        scope.queries
+    );
+}
+
+#[test]
+fn a_table_function_body_is_a_scope_of_its_value_parameters() {
+    let text = "CREATE TEMP TABLE FUNCTION tf(n INT64, src ANY TABLE) AS (FROM src |> LIMIT n);\nFROM one_row";
+    let analysis = analysis_of(text);
+    let offset = text.find("LIMIT").unwrap() as u32;
+    let scope = (analysis.model.operators.iter())
+        .find(|scope| scope.range.contains(offset.into()) && !scope.input.is_empty())
+        .unwrap();
+    let input: Vec<&str> = scope.input.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(input, ["n"]);
+}
+
+#[test]
+fn an_aggregate_item_takes_no_function_of_constants() {
+    let library = avenger_sql::library::Library::new();
+    let text = "FROM one_row |> AGGREGATE COUNT(*) AS n";
+    let analysis = analysis_of(text);
+    let place = analysis
+        .model
+        .place_at((text.find("COUNT").unwrap() as u32).into())
+        .unwrap();
+    assert!(!place.takes(library.get("CURRENT_DATE").unwrap()));
+    assert!(place.takes(library.get("ABS").unwrap()));
 }

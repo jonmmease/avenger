@@ -29,6 +29,7 @@ use std::sync::Arc;
 
 use super::{
     expr::{Outer, Scope},
+    model::PlaceKind,
     rows::{Col, Item, RangeVar, Rows},
     Pass, WithName,
 };
@@ -203,6 +204,7 @@ impl Pass<'_> {
         let at = on.syntax().text_range();
         let matched = {
             let scope = Scope::of(&rows, "JOIN ON clause");
+            self.place(at, PlaceKind::Filter, &scope, None);
             self.expr(&on, scope)
                 .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
         };
@@ -274,6 +276,7 @@ impl Pass<'_> {
         let at = on.syntax().text_range();
         let predicate = {
             let scope = Scope::of(&rows, "JOIN ON clause");
+            self.place(at, PlaceKind::Filter, &scope, None);
             self.expr(on, scope)
                 .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
         };
@@ -364,7 +367,18 @@ impl Pass<'_> {
                 offset.syntax().text_range(),
             )
         });
-        // The arrays, each with its alias.
+        // The arrays, each with its alias. They read the columns before the `UNNEST`, and call no
+        // aggregate or window.
+        {
+            let range = unnest.syntax().text_range();
+            self.record_operator(range, Some(&base), &base);
+            self.place(
+                range,
+                PlaceKind::Argument,
+                &Scope::of(&base, "UNNEST"),
+                None,
+            );
+        }
         let mut arrays: Vec<(Option<Expr>, Option<Named>, TextRange)> = Vec::new();
         for aliased in unnest.aliased_exprs() {
             let at = aliased.syntax().text_range();
