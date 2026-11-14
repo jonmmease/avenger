@@ -130,6 +130,16 @@ fn a_title_reads_as_typst_markup_and_a_title_from_the_data_as_plain_text() {
 }
 
 #[test]
+fn a_title_and_a_subtitle_draw_their_typst_markup() {
+    let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
+    let title = Title::new("*Fuel* economy").subtitle(r#"by _weight_, with $"mpg" prop 1 / w^2$"#);
+    let chart = Chart::builder(Plot::cartesian([symbols]).title(title))
+        .build()
+        .unwrap();
+    render(&chart, [360.0, 260.0], "title-typst-markup");
+}
+
+#[test]
 fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.
     let symbols = CartesianLayer::symbol(
