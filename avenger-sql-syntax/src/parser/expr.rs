@@ -97,6 +97,9 @@ impl Parser<'_> {
     /// A `NAME` or a `NAME_REF` in `role`.
     fn name_node(&mut self, kind: SyntaxKind, role: NameRole) -> bool {
         self.record_name(role);
+        if self.unpack() {
+            return false;
+        }
         if !self.at_ident() {
             return self.error_name(kind);
         }
@@ -327,7 +330,7 @@ impl Parser<'_> {
             marker.complete(self, IN_UNNEST);
             return;
         }
-        if query && self.at(L_PAREN) && self.keyword_at(1, "FROM") {
+        if query && self.at(L_PAREN) && self.query_at(1) {
             self.parenthesized_query();
             marker.complete(self, IN_QUERY);
             return;
@@ -423,7 +426,32 @@ impl Parser<'_> {
     }
 
     /// A literal, a name, a call, or a form in parentheses or brackets.
+    /// Whether GoogleSQL's unpack, `**x` of a struct's or a proto's fields, is at the current
+    /// token, which it reports and skips with the expression after it.
+    pub(super) fn unpack(&mut self) -> bool {
+        if !(self.current() == STAR && self.nth(1) == STAR) {
+            return false;
+        }
+        let marker = self.start();
+        let range = self.range().cover(self.nth_range(1));
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql has no `**` unpack; a struct's fields are `s.*`",
+        );
+        self.bump();
+        self.bump();
+        self.primary();
+        marker.complete(self, ERROR);
+        true
+    }
+
     pub(super) fn primary(&mut self) -> Option<CompletedMarker> {
+        if self.current() == STAR && self.nth(1) == STAR {
+            let marker = self.start();
+            self.unpack();
+            return Some(marker.complete(self, ERROR));
+        }
         match self.current() {
             INTEGER | FLOAT => {
                 let marker = self.start();
@@ -659,6 +687,29 @@ impl Parser<'_> {
 
     /// An argument of a table function call: a value, `TABLE name`, or either after `name =>`.
     fn table_argument(&mut self) {
+        // GoogleSQL's arguments of a model, a connection, columns and an input table.
+        let other = [
+            ("DESCRIPTOR", L_PAREN),
+            ("MODEL", WORD),
+            ("CONNECTION", WORD),
+        ]
+        .iter()
+        .find(|(word, next)| self.keyword_at(0, word) && self.nth(1) == *next)
+        .map(|(word, _)| word.to_string())
+        .or_else(|| {
+            (self.keyword_at(0, "INPUT") && self.keyword_at(1, "TABLE"))
+                .then(|| "INPUT TABLE".to_string())
+        });
+        if let Some(word) = other {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                format!("avenger-sql's table functions take no {word} argument"),
+            );
+            self.skip_until(|p| matches!(p.current(), COMMA | R_PAREN | SEMICOLON | EOF));
+            return;
+        }
         if self.current() == STAR {
             let range = self.range();
             self.error(
@@ -684,6 +735,18 @@ impl Parser<'_> {
             marker.complete(self, NAMED_TABLE_ARG);
             return;
         }
+        if self.keyword_at(0, "TABLE") && self.nth(1) == L_PAREN {
+            // GoogleSQL's `TABLE(t PARTITION BY ...)`, a table argument with its partitions.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's table arguments are `TABLE t`, without PARTITION BY or ORDER BY",
+            );
+            self.skip_until(|p| matches!(p.current(), COMMA | R_PAREN | SEMICOLON | EOF));
+            marker.complete(self, ERROR);
+            return;
+        }
         if self.keyword_at(0, "TABLE") && self.ident_at(1) {
             self.bump_keyword();
             self.path(NameRole::Table);
@@ -704,7 +767,7 @@ impl Parser<'_> {
     /// `(expr)`, a tuple of two values or more, or a query in parentheses.
     fn parenthesized(&mut self) -> CompletedMarker {
         let marker = self.start();
-        if self.keyword_at(1, "FROM") {
+        if self.query_at(1) {
             self.parenthesized_query();
             return marker.complete(self, SUBQUERY_EXPR);
         }
@@ -931,6 +994,47 @@ impl Parser<'_> {
             self.expect(GT, "`>`");
             RANGE_TYPE
         } else if self.eat_keyword("INTERVAL") {
+            NAMED_TYPE
+        } else if self.keyword_at(0, "FUNCTION") && self.nth(1) == LT {
+            // GoogleSQL's types of functions, as `FUNCTION<INT64 -> INT64>`.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql has no function types",
+            );
+            let error = self.start();
+            self.bump_keyword();
+            self.bump();
+            let mut depth = 1;
+            while depth > 0 && !matches!(self.current(), EOF | SEMICOLON) {
+                match self.current() {
+                    MINUS if self.nth(1) == GT => {
+                        self.bump();
+                    }
+                    LT => depth += 1,
+                    GT => depth -= 1,
+                    _ => {}
+                }
+                self.skip_balanced();
+            }
+            error.complete(self, ERROR);
+            NAMED_TYPE
+        } else if self.nth(1) == DOT && self.current() == WORD {
+            // A named type of GoogleSQL's, such as a protocol buffer's or an enum's.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql has no protocol buffer or enum types",
+            );
+            let error = self.start();
+            while self.current() == WORD && self.nth(1) == DOT {
+                self.bump();
+                self.bump();
+            }
+            self.bump();
+            error.complete(self, ERROR);
             NAMED_TYPE
         } else {
             self.name_ref(NameRole::Type);

@@ -89,6 +89,14 @@ node_kinds! { syntax_kinds! {
         SHL,
         /// `=>`
         FAT_ARROW,
+        /// `:`, of GoogleSQL's labels and braced constructors.
+        COLON,
+        /// `{`
+        L_BRACE,
+        /// `}`
+        R_BRACE,
+        /// A hint, `@{...}`, which avenger-sql reads as trivia and reports.
+        HINT,
         /// A character outside the grammar, or a malformed token.
         ERROR_TOKEN,
         /// The end of the text, which the parser sees and the tree does not hold.
@@ -269,7 +277,10 @@ impl SyntaxKind {
 
     /// Whitespace and comments, which the parser skips.
     pub fn is_trivia(self) -> bool {
-        matches!(self, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)
+        matches!(
+            self,
+            SyntaxKind::WHITESPACE | SyntaxKind::COMMENT | SyntaxKind::HINT
+        )
     }
 
     fn from_raw(raw: u16) -> SyntaxKind {

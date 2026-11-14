@@ -7,13 +7,12 @@ tag of the `execute_query` binary that the check runs. Each file holds cases sep
 which the check ignores, since it runs the binary itself. An input can hold alternations,
 `{{a|b}}`, which give one input for each choice.
 
-An input falls in the subset when its first statement starts as a statement of avenger-sql does: a
-query that starts with `FROM`, or `DECLARE`, `SET`, `CREATE TEMP`, `CREATE TEMPORARY`,
-`CREATE OR REPLACE TEMP`, or `IMPORT`. Most tests of the pipe operators start with a standard
-query, as `select x |> SET x = 1`, which isn't in the subset, so the corpus also holds each of them
-with the text before its first pipe operator as `FROM t`, labeled `:from`. The check compares the
-binary's verdict and ours on each input, so an input that both reject still checks the place of
-the first error.
+The corpus holds every input, apart from the tests of SQL graph syntax, which avenger leaves out,
+and the cases that parse an expression or a type rather than a statement. avenger reports a
+construct outside its subset as unsupported, so the check compares its verdict on every input.
+Most tests of the pipe operators start with a standard query, as `select x |> SET x = 1`, so the
+corpus also holds each of them with the text before its first pipe operator as `FROM t`, labeled
+`:from`, which checks the pipe operators themselves.
 
 The script clones the tag into `scratch/tools/googlesql/googlesql-<TAG>`, unless it is there, and
 writes the corpus to `scratch/tools/googlesql/parser-corpus.txt`: a line `## <file>:<case>[:<alt>]`
@@ -29,11 +28,11 @@ CHECKOUT = f"{TOOLS}/googlesql-{TAG}"
 TESTDATA = f"{CHECKOUT}/googlesql/parser/testdata"
 CORPUS = f"{TOOLS}/parser-corpus.txt"
 
-# The first words of a statement of the subset.
-STARTS = re.compile(
-    r"^\(*\s*(FROM\b|DECLARE\b|SET\b|IMPORT\b|CREATE\s+(OR\s+REPLACE\s+)?TEMP(ORARY)?\b)",
-    re.IGNORECASE,
-)
+# The test files of SQL graph syntax, which avenger leaves out.
+GRAPH = re.compile(r"^(graph_.*|unpack_expression_graph)\.test$")
+# The options of a file whose cases parse an expression or a type rather than a statement.
+NOT_STATEMENTS = ("[default mode=expression]", "[default mode=type]")
+
 # The most inputs that the alternations of one case give.
 MOST = 64
 
@@ -111,10 +110,12 @@ def main():
     with open(CORPUS, "w") as out:
         out.write(f"# GoogleSQL {TAG}'s parser test inputs in avenger-sql's subset, by extract.py.\n")
         for name in sorted(os.listdir(TESTDATA)):
-            if not name.endswith(".test"):
+            if not name.endswith(".test") or GRAPH.match(name):
                 continue
             # A few files test bytes that aren't UTF-8, which a `&str` can't hold.
             text = open(os.path.join(TESTDATA, name), encoding="utf-8", errors="replace").read()
+            if any(option in text for option in NOT_STATEMENTS):
+                continue
             cases = re.split(r"^==$", text, flags=re.M)
             for index, case in enumerate(cases):
                 source = inputs(case)
@@ -122,16 +123,14 @@ def main():
                     if "\ufffd" in text or not text.strip():
                         continue
                     label = f"{name}:{index}" + (f":{alt}" if alt else "")
-                    first = first_statement(text)
-                    if not STARTS.match(first):
-                        if not re.match(r"select\b", first, re.IGNORECASE):
-                            continue
-                        text = from_query(first)
-                        if text is None:
-                            continue
-                        label += ":from"
                     out.write(f"## {label}\n{text}\n")
                     count += 1
+                    first = first_statement(text)
+                    if re.match(r"select\b", first, re.IGNORECASE):
+                        piped = from_query(first)
+                        if piped is not None:
+                            out.write(f"## {label}:from\n{piped}\n")
+                            count += 1
     print(f"{count} inputs in {CORPUS}")
 
 

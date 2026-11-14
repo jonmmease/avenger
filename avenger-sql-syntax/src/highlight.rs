@@ -82,13 +82,14 @@ pub fn highlight(root: &SyntaxNode) -> Vec<HighlightRange> {
 fn token_class(token: &SyntaxToken) -> Option<Highlight> {
     let kind = token.kind();
     let class = match kind {
-        COMMENT => Highlight::Comment,
+        COMMENT | HINT => Highlight::Comment,
         STRING | BYTES => Highlight::String,
         INTEGER | FLOAT => Highlight::Number,
         PARAM | POSITIONAL => Highlight::QueryParameter,
         EQ | NEQ | LT | LT_EQ | GT | GT_EQ | PLUS | MINUS | STAR | SLASH | CONCAT | BIT_OR
         | AMP | CARET | TILDE | SHL | FAT_ARROW | PIPE => Highlight::Operator,
-        L_PAREN | R_PAREN | L_BRACK | R_BRACK | COMMA | DOT | SEMICOLON => Highlight::Punctuation,
+        L_PAREN | R_PAREN | L_BRACK | R_BRACK | L_BRACE | R_BRACE | COLON | COMMA | DOT
+        | SEMICOLON => Highlight::Punctuation,
         _ if kind.is_keyword() => Highlight::Keyword,
         _ => return None,
     };
