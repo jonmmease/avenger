@@ -93,6 +93,26 @@ pub fn plan(input: LogicalPlan, call: MatchRecognizeCall) -> Result<LogicalPlan>
     }))
 }
 
+/// The call of a node of `MATCH_RECOGNIZE`, or `None` for another node, as a streaming runtime
+/// reads it from a batch plan.
+pub fn call_of(node: &TableFunctionNode) -> Option<MatchRecognizeCall> {
+    let transform = node
+        .transform
+        .as_any()
+        .downcast_ref::<MatchRecognizeTransform>()?;
+    Some(MatchRecognizeCall {
+        partition_by: node.partition_by.clone(),
+        position: transform.position.clone(),
+        variables: transform.variables.clone(),
+        names: transform.names.clone(),
+        pattern: transform.pattern.clone(),
+        skip: transform.skip,
+        longest: transform.longest,
+        match_number: transform.match_number.clone(),
+        classifier: transform.classifier.clone(),
+    })
+}
+
 impl TableTransform for MatchRecognizeTransform {
     fn name(&self) -> &'static str {
         "MatchRecognize"

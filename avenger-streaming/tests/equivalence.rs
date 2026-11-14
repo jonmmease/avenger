@@ -25,15 +25,46 @@ const QUERIES: &[&str] = &[
     "FROM events |> WHERE x IS NOT NULL |> AGGREGATE COUNT(*) AS n, ARRAY_AGG(seq ORDER BY seq DESC LIMIT 2) AS last_two GROUP BY MOD(seq, 7) AS bucket",
     // Hot targets: a grouped front, then a filter and an ungrouped aggregate downstream.
     "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS n GROUP BY target |> WHERE n >= 3 |> AGGREGATE COUNT(*) AS hot_targets",
+    // A float group and a float order, whose zeros of either sign are one value in batch.
+    "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY x |> AGGREGATE COUNT(*) AS group_count, SUM(n) AS total",
+    "FROM events |> ORDER BY x, seq |> LIMIT 40 |> SELECT seq, x",
     // A table function downstream of a grouped front.
     "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, inside |> CALL impute(type, [inside], n, value => 0)",
     // The last click, and the last pointer position.
     "FROM events |> WHERE type = 'click' |> ORDER BY seq DESC |> LIMIT 1 |> SELECT target, x, y",
     "FROM events |> WHERE type = 'pointermove' |> ORDER BY seq DESC |> LIMIT 1 |> SELECT x, y, ts",
+    // MATCH_RECOGNIZE: a drag brush, the latest drag's extent.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 0 |> ORDER BY last_seq DESC |> LIMIT 1 |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
+    // A brush that a double click clears.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup', 'dblclick') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves, COUNT(clr.seq) > 0 AS cleared, MAX(seq) AS last_seq PATTERN (dn mv* up? | clr) DEFINE dn AS type = 'pointerdown' AND inside, mv AS type = 'pointermove', up AS type = 'pointerup', clr AS type = 'dblclick' AND inside) |> WHERE moves > 0 OR cleared |> ORDER BY last_seq DESC |> LIMIT 1 |> WHERE NOT cleared |> SELECT LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi",
+    // The second and third latest drags, through the latest rows of the match table.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.x) AS x0, COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 2 |> ORDER BY last_seq DESC |> LIMIT 2 OFFSET 1 |> SELECT x0, moves",
+    // The total time of the drags, the one in progress too.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES FIRST(dn.ts) AS t0, LAST(mv.ts) AS t1 PATTERN (dn mv+) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove') |> AGGREGATE SUM(TIMESTAMP_DIFF(t1, t0, MILLISECOND)) AS total_drag_ms, COUNT(*) AS drags",
+    // Hot targets through MATCH_RECOGNIZE.
+    "FROM events |> WHERE type = 'click' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES ANY_VALUE(c.target) AS target PATTERN (c) DEFINE c AS TRUE) |> AGGREGATE COUNT(*) AS n GROUP BY target |> WHERE n >= 3 |> AGGREGATE COUNT(*) AS hot_targets",
+    // Pauses before a move, with NEXT, whose last row's condition changes as events arrive.
+    "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(p.seq) AS pause_seq PATTERN (p) DEFINE p AS TIMESTAMP_DIFF(NEXT(ts), ts, MILLISECOND) > 400 OR NEXT(ts) IS NULL) |> AGGREGATE COUNT(*) AS pauses, MAX(pause_seq) AS last_pause",
+    // Flicks, with PREV at two offsets, and in partitions.
+    "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS moves PATTERN (f{3,}) DEFINE f AS ABS(x - PREV(x)) > 4 AND ABS(x - PREV(x, 2)) > 6) |> AGGREGATE COUNT(*) AS flicks, MAX(moves) AS longest",
+    "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(PARTITION BY inside ORDER BY seq MEASURES COUNT(*) AS moves, MAX(MATCH_ROW_NUMBER()) AS last_row PATTERN (f{2,}) DEFINE f AS ABS(x - PREV(x)) > 3) |> AGGREGATE COUNT(*) AS flicks, MAX(moves) AS longest, SUM(last_row) AS row_total GROUP BY inside",
+    // Double clicks in partitions of their target.
+    "FROM events |> WHERE type IN ('click', 'dblclick') |> MATCH_RECOGNIZE(PARTITION BY target ORDER BY seq MEASURES COUNT(*) AS n, MATCH_NUMBER() AS m PATTERN (c c? d) DEFINE c AS type = 'click', d AS type = 'dblclick') |> AGGREGATE COUNT(*) AS doubles, SUM(n) AS clicks, MAX(m) AS last_match GROUP BY target",
+    // The end of the partition, empty matches, and overlapping matches.
+    "FROM events |> WHERE type = 'pointermove' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n, MATCH_NUMBER() AS m AFTER MATCH SKIP TO NEXT ROW PATTERN (f{2,} $ | g*) DEFINE f AS x > PREV(x), g AS x < PREV(x) - 3) |> AGGREGATE COUNT(*) AS matches, MAX(n) AS longest, SUM(n) AS matched_rows, MAX(m) AS last_match",
+    // The longest match, over a reluctant quantifier.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n, STRING_AGG(CLASSIFIER(), '') AS path PATTERN (dn mv+? up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup' OPTIONS (use_longest_match = TRUE)) |> AGGREGATE COUNT(*) AS drags, MAX(n) AS longest, MIN(LENGTH(path)) AS shortest_path",
     // The three rightmost positions, ties by seq, with NaN, the infinities and zeros of either sign.
     "FROM events |> ORDER BY x DESC, seq DESC |> LIMIT 3 |> SELECT seq, x",
     // An offset, and a stage that computes the order's first key.
     "FROM events |> EXTEND ABS(y - 300) AS distance |> ORDER BY distance, seq |> LIMIT 2 OFFSET 1 |> SELECT seq, distance",
+    // Several fronts. The boxes since the last clear: a union of the drags, the double clicks
+    // that clear them, and the clicks that clear them inside, each from a MATCH_RECOGNIZE.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq, FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 0 |> SELECT start_seq, LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi, FALSE AS clear |> UNION ALL (FROM events |> WHERE type = 'dblclick' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq PATTERN (d) DEFINE d AS TRUE) |> SELECT start_seq, CAST(NULL AS FLOAT64) AS lo, CAST(NULL AS FLOAT64) AS hi, TRUE AS clear) |> UNION ALL (FROM events |> WHERE type = 'click' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq PATTERN (c c) DEFINE c AS inside) |> SELECT start_seq, CAST(NULL AS FLOAT64) AS lo, CAST(NULL AS FLOAT64) AS hi, TRUE AS clear) |> EXTEND MAX(IF(clear, start_seq, NULL)) OVER () AS reset_seq |> WHERE NOT clear AND start_seq > IFNULL(reset_seq, 0) |> AGGREGATE COUNT(*) AS boxes, MIN(lo) AS lo, MAX(hi) AS hi",
+    // A join of two aggregates by target.
+    "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS clicks GROUP BY target |> JOIN (FROM events |> WHERE type = 'dblclick' |> AGGREGATE COUNT(*) AS doubles, MAX(seq) AS last_double GROUP BY target) AS d USING (target) |> SELECT target, clicks, doubles, last_double",
+    // A union of a limit and an aggregate, and a cross join with an ungrouped aggregate.
+    "FROM events |> WHERE type = 'click' |> ORDER BY seq DESC |> LIMIT 2 |> SELECT seq, target |> UNION ALL (FROM events |> WHERE type = 'dblclick' |> AGGREGATE MAX(seq) AS seq, ANY_VALUE(target) AS target) |> CROSS JOIN (FROM events |> AGGREGATE COUNT(*) AS total) AS t",
 ];
 
 /// The events of `frames` in frames of 1 to 4 frames each, at random.
@@ -100,6 +131,18 @@ async fn a_changed_parameter_rebuilds_the_front_or_runs_the_downstream_again() {
         // The stages read the parameter, so its change replays every event.
         (
             "FROM events |> WHERE x > @min_x |> AGGREGATE COUNT(*) AS n, MAX(x) AS hi",
+            value("min_x", ScalarValue::Float64(Some(380.0))),
+            value("min_x", ScalarValue::Float64(Some(420.0))),
+        ),
+        // The stages after MATCH_RECOGNIZE read the parameter, before the latest match.
+        (
+            "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves >= @least |> ORDER BY last_seq DESC |> LIMIT 1",
+            value("least", ScalarValue::Int64(Some(10))),
+            value("least", ScalarValue::Int64(Some(90))),
+        ),
+        // One of two fronts reads the parameter, so only it replays every event.
+        (
+            "FROM events |> WHERE x > @min_x |> AGGREGATE COUNT(*) AS n GROUP BY target |> JOIN (FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS clicks GROUP BY target) USING (target)",
             value("min_x", ScalarValue::Float64(Some(380.0))),
             value("min_x", ScalarValue::Float64(Some(420.0))),
         ),
