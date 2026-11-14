@@ -1054,6 +1054,132 @@ fn decode(text: &str, encoding: Encoding) -> Result<Vec<u8>, String> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The text of a value without a format.
+// ---------------------------------------------------------------------------------------------
+
+/// `value` as C's `printf` writes it with `%.{precision}g`.
+fn printf_g(value: f64, precision: usize) -> String {
+    let scientific = format!("{value:.*e}", precision - 1);
+    let (mantissa, exponent) = scientific.split_once('e').expect("an exponent");
+    let exponent: i32 = exponent.parse().expect("an integer exponent");
+    let trim = |text: &str| -> String {
+        match text.contains('.') {
+            true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
+            false => text.to_string(),
+        }
+    };
+    if exponent < -4 || exponent >= precision as i32 {
+        let sign = if exponent < 0 { '-' } else { '+' };
+        format!("{}e{sign}{:02}", trim(mantissa), exponent.abs())
+    } else {
+        let decimals = (precision as i32 - 1 - exponent).max(0) as usize;
+        trim(&format!("{value:.decimals$}"))
+    }
+}
+
+/// A `FLOAT64` as GoogleSQL writes it: with 15 significant digits, or 17 where 15 don't give
+/// the value back, as `printf`'s `%g` does, and `nan`, `inf` and `-inf`. Negative zero is `0`.
+fn float_text(value: f64) -> String {
+    match value {
+        _ if value.is_nan() => "nan".to_string(),
+        f64::INFINITY => "inf".to_string(),
+        f64::NEG_INFINITY => "-inf".to_string(),
+        0.0 => "0".to_string(),
+        _ => {
+            let short = printf_g(value, 15);
+            match short.parse::<f64>() == Ok(value) {
+                true => short,
+                false => printf_g(value, 17),
+            }
+        }
+    }
+}
+
+/// The text of the date and time `micros`, civil microseconds, as GoogleSQL writes a `DATETIME`:
+/// its fraction in 3 digits, or 6 where 3 don't hold it, or none.
+fn datetime_text(micros: i64) -> String {
+    let days = micros.div_euclid(MICROS_PER_DAY);
+    let day_micros = micros.rem_euclid(MICROS_PER_DAY);
+    let (year, month, day) = civil_from_days(days);
+    let seconds = day_micros / MICROS_PER_SECOND;
+    let fraction = day_micros % MICROS_PER_SECOND;
+    let fraction = match fraction {
+        0 => String::new(),
+        _ if fraction % 1000 == 0 => format!(".{:03}", fraction / 1000),
+        _ => format!(".{fraction:06}"),
+    };
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02}{fraction}",
+        seconds / 3600,
+        seconds / 60 % 60,
+        seconds % 60
+    )
+}
+
+/// The text of the value at `row` of `array` as GoogleSQL's `CAST(x AS STRING)` writes it: a
+/// float as [`float_text`], a decimal without trailing zeros, and a date and time with a space.
+/// A timestamp's array holds its civil microseconds, and `offset` its time zone's offset in
+/// seconds, which follows as `-08` or `+05:30`.
+fn canonical(array: &ArrayRef, row: usize, offset: Option<i64>) -> Result<String> {
+    use datafusion::arrow::datatypes::{Decimal128Type, Decimal256Type, DecimalType, Float64Type};
+    let trimmed = |text: String| match text.contains('.') {
+        true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
+        false => text,
+    };
+    Ok(match array.data_type() {
+        DataType::Float64 => float_text(array.as_primitive::<Float64Type>().value(row)),
+        DataType::Decimal128(precision, scale) => trimmed(Decimal128Type::format_decimal(
+            array.as_primitive::<Decimal128Type>().value(row),
+            *precision,
+            *scale,
+        )),
+        DataType::Decimal256(precision, scale) => trimmed(Decimal256Type::format_decimal(
+            array.as_primitive::<Decimal256Type>().value(row),
+            *precision,
+            *scale,
+        )),
+        DataType::Int64 => {
+            let text = datetime_text(array.as_primitive::<Int64Type>().value(row));
+            match offset {
+                None => text,
+                Some(offset) => {
+                    let sign = if offset < 0 { '-' } else { '+' };
+                    let (hours, minutes) = (offset.abs() / 3600, offset.abs() / 60 % 60);
+                    match minutes {
+                        0 => format!("{text}{sign}{hours:02}"),
+                        _ => format!("{text}{sign}{hours:02}:{minutes:02}"),
+                    }
+                }
+            }
+        }
+        other => return exec_err!("$to_string takes no {other}"),
+    })
+}
+
+/// `CAST(value AS STRING)` of a value of the type `from`, as GoogleSQL writes it, where Arrow's
+/// cast writes it otherwise: a `FLOAT64`, a `NUMERIC` or `BIGNUMERIC`, a `DATETIME`, or a
+/// `TIMESTAMP` in the time zone `zone`. `None` for another type, whose Arrow cast is GoogleSQL's.
+pub(crate) fn cast_to_string(value: Expr, from: &Ty, zone: &str) -> Option<Expr> {
+    let args = |value: Expr, offset: Option<Expr>| {
+        let mut args = vec![lit_str(""), lit_str(""), lit_str(""), value];
+        args.extend(offset);
+        args
+    };
+    Some(match from {
+        Ty::Float64 => TO_STRING.call(args(cast(value, DataType::Float64), None)),
+        Ty::Numeric | Ty::BigNumeric => TO_STRING.call(args(value, None)),
+        Ty::Datetime => TO_STRING.call(args(cast(value, DataType::Int64), None)),
+        Ty::Timestamp => {
+            let local = local_micros(value.clone(), zone);
+            let utc = cast(cast(value, types::timestamp()), DataType::Int64);
+            let offset = (local.clone() - utc) / lit_i64(MICROS_PER_SECOND);
+            TO_STRING.call(args(local, Some(offset)))
+        }
+        _ => return None,
+    })
+}
+
+// ---------------------------------------------------------------------------------------------
 // The internal functions.
 // ---------------------------------------------------------------------------------------------
 
@@ -1068,6 +1194,8 @@ enum Op {
     BytesToString,
     StringToBytes,
     NumberToString,
+    /// A value to a string without a format, as GoogleSQL's `CAST(x AS STRING)` writes it.
+    ToString,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -1088,6 +1216,7 @@ static PARSE_TEMPORAL: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::Parse
 static BYTES_TO_STRING: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::BytesToString));
 static STRING_TO_BYTES: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::StringToBytes));
 static NUMBER_TO_STRING: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::NumberToString));
+static TO_STRING: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| udf(Op::ToString));
 
 fn parsed_fields() -> Fields {
     Fields::from(vec![
@@ -1124,6 +1253,7 @@ impl ScalarUDFImpl for CastFormat {
             Op::BytesToString => "$bytes_to_string",
             Op::StringToBytes => "$string_to_bytes",
             Op::NumberToString => "$number_to_string",
+            Op::ToString => "$to_string",
         }
     }
 
@@ -1133,7 +1263,9 @@ impl ScalarUDFImpl for CastFormat {
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
         Ok(match self.op {
-            Op::FormatTemporal | Op::BytesToString | Op::NumberToString => DataType::Utf8,
+            Op::FormatTemporal | Op::BytesToString | Op::NumberToString | Op::ToString => {
+                DataType::Utf8
+            }
             Op::ParseTemporal => DataType::Struct(parsed_fields()),
             Op::StringToBytes => DataType::Binary,
         })
@@ -1264,6 +1396,16 @@ impl ScalarUDFImpl for CastFormat {
                             fail(message)?;
                             builder.append_null();
                         }
+                    }
+                }
+                Arc::new(builder.finish())
+            }
+            Op::ToString => {
+                let mut builder = StringBuilder::new();
+                for row in 0..value.len() {
+                    match value.is_null(row) {
+                        true => builder.append_null(),
+                        false => builder.append_value(canonical(&value, row, extra_at(row))?),
                     }
                 }
                 Arc::new(builder.finish())

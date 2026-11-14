@@ -1411,6 +1411,15 @@ impl Pass<'_> {
             );
             return None;
         }
+        // GoogleSQL writes floats, decimals, and dates and times in its own way.
+        if Ty::of_arrow(&target) == Some(Ty::String) {
+            let written = (Ty::of_arrow(&from)).and_then(|from| {
+                library::cast_to_string(value.clone(), &from, &self.options.time_zone)
+            });
+            if let Some(written) = written {
+                return Some(cast(written, target));
+            }
+        }
         // GoogleSQL rounds a float or a decimal to an integer half away from zero, where Arrow's
         // cast truncates.
         let value = match (from.is_floating() || from.is_decimal(), target.is_integer()) {
