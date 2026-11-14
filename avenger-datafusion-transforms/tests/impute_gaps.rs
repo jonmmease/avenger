@@ -431,7 +431,7 @@ async fn errors() -> Result<()> {
         ),
         (
             "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => named_struct('stop', DATE '2024-12-01', 'step', 'month'))",
-            "unknown field `stop`",
+            "Unknown field `stop`",
         ),
         (
             "SELECT * FROM impute((SELECT * FROM sales), d, [series], units, value => 0, partition_by => series)",

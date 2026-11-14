@@ -592,7 +592,7 @@ async fn errors() -> Result<()> {
     let errors = [
         (
             "(SELECT * FROM s), month, [region], units",
-            "impute needs exactly one of `value` and `method`; found neither",
+            "Impute needs exactly one of `value` and `method`; found neither",
             0,
         ),
         (
@@ -612,7 +612,7 @@ async fn errors() -> Result<()> {
         ),
         (
             "(SELECT * FROM s), month, [region], units, method => 'avg', frame => [2, 1]",
-            "the start of `frame`, 2, is after its end, 1",
+            "The start of `frame`, 2, is after its end, 1",
             71,
         ),
         (
@@ -622,7 +622,7 @@ async fn errors() -> Result<()> {
         ),
         (
             "(SELECT * FROM s), month, [region], units, value => 0, fill => 1",
-            "unknown argument `fill` of impute",
+            "Unknown argument `fill` of impute",
             56,
         ),
         (
@@ -637,12 +637,12 @@ async fn errors() -> Result<()> {
         ),
         (
             "(SELECT * FROM s), month, [region], units, value => 0, extra_keys => ['a']",
-            "the value 'a' of `extra_keys` does not coerce",
+            "The value 'a' of `extra_keys` does not coerce",
             71,
         ),
         (
             "(SELECT * FROM s), month, [region], units, value => 0, flag => note",
-            "the flag column `note` is already a column of the input",
+            "The flag column `note` is already a column of the input",
             64,
         ),
         (
@@ -657,22 +657,22 @@ async fn errors() -> Result<()> {
         ),
         (
             "(SELECT * FROM s), month, [month], units, value => 0",
-            "the key month of impute is also a group column",
+            "The key month of impute is also a group column",
             28,
         ),
         (
             "(SELECT * FROM s), month, [region], units, value => 0, keys => [1, NULL]",
-            "a value of `keys` cannot be NULL",
+            "A value of `keys` cannot be NULL",
             68,
         ),
         (
             "(SELECT * FROM s), month, [region], units, value => 0, keys => [1.5]",
-            "the value 1.5 of `keys` does not coerce",
+            "The value 1.5 of `keys` does not coerce",
             65,
         ),
         (
             "(SELECT * FROM s), month, [region], units, method => 'avg', frame => [0, 18446744073709551615]",
-            "a bound of `frame` must fit in an INT64",
+            "A bound of `frame` must fit in an INT64",
             74,
         ),
     ];

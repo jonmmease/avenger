@@ -38,12 +38,13 @@ impl ScriptError {
         }
     }
 
-    /// The line and the column, from 1, of the byte offset `offset` of the text.
+    /// The line and the column, from 1, of the byte offset `offset` of the text, the column in
+    /// characters.
     fn position(&self, offset: usize) -> (usize, usize) {
         let before = &self.text[..offset.min(self.text.len())];
         let line = before.matches('\n').count() + 1;
-        let column = before.len() - before.rfind('\n').map_or(0, |i| i + 1) + 1;
-        (line, column)
+        let start = before.rfind('\n').map_or(0, |i| i + 1);
+        (line, before[start..].chars().count() + 1)
     }
 }
 

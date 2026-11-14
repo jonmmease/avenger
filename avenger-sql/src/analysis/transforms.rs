@@ -17,7 +17,7 @@ use avenger_sql_syntax::{
 use datafusion::{
     common::{
         tree_node::{Transformed, TreeNode, TreeNodeRecursion},
-        Column, ScalarValue,
+        Column, DFSchema, ScalarValue,
     },
     logical_expr::{utils::find_aggregate_exprs, Expr},
 };
@@ -25,6 +25,7 @@ use datafusion::{
 use super::{
     expr::Scope,
     model::{CallForm, Definition},
+    query::alias_name,
     rows::{Col, Rows},
     Pass,
 };
@@ -38,15 +39,6 @@ use crate::{
 struct Arguments {
     positional: Vec<(ast::Expr, TextRange)>,
     named: Vec<(String, ast::Expr, TextRange)>,
-}
-
-/// `text` with its first letter in upper case, as the pass's messages start.
-fn sentence(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
-    }
 }
 
 /// The columns that `expr` reads outside its aggregates and its occurrences of `category`.
@@ -123,8 +115,8 @@ impl Pass<'_> {
     /// The string literal `expr`, the argument `name` of `function`.
     fn literal_text(&mut self, expr: &ast::Expr, function: &str, name: &str) -> Option<String> {
         let at = expr.syntax().text_range();
-        let one = self.one_row();
-        let planned = self.expr(expr, Scope::of(&one, "a constant argument"))?;
+        let empty = DFSchema::empty();
+        let planned = self.expr(expr, Scope::constant(&empty, "a constant argument"))?;
         match planned {
             Expr::Literal(ScalarValue::Utf8(Some(value)), _)
             | Expr::Literal(ScalarValue::Utf8View(Some(value)), _)
@@ -232,8 +224,8 @@ impl Pass<'_> {
         let keep = match (named("n"), named("keep")) {
             (Some((_, expr, _)), None) => {
                 let at = expr.syntax().text_range();
-                let one = self.one_row();
-                match self.expr(expr, Scope::of(&one, "the n of lump"))? {
+                let empty = DFSchema::empty();
+                match self.expr(expr, Scope::constant(&empty, "the n of lump"))? {
                     Expr::Literal(ScalarValue::Int64(Some(n)), _) if n > 0 => Keep::First(n),
                     _ => {
                         self.error(at, "The n of lump is a positive INT64 literal");
@@ -336,8 +328,7 @@ impl Pass<'_> {
             self.error(path_range, message);
             return rows.fail();
         }
-        let alias = (op.alias().and_then(|alias| alias.name()))
-            .and_then(|name| Some((name.text()?, name.syntax().text_range())));
+        let alias = alias_name(op.alias());
         let arguments = op.arg_list().into_iter().flat_map(|list| list.arguments());
         self.impute(rows, arguments, alias, path_range, range)
     }
@@ -374,9 +365,7 @@ impl Pass<'_> {
                 return Rows::failed(Vec::new(), Vec::new());
             }
         };
-        let alias = (source.alias().and_then(|alias| alias.name()))
-            .and_then(|name| Some((name.text()?, name.syntax().text_range())))
-            .or_else(|| Some(("impute".to_string(), path_range)));
+        let alias = alias_name(source.alias()).or_else(|| Some(("impute".to_string(), path_range)));
         self.impute(input, arguments, alias, path_range, range)
     }
 
@@ -450,8 +439,9 @@ impl Pass<'_> {
         };
         let value = column_of(self, &args.positional[2].0, "column to impute");
         let mut named = Vec::new();
+        let mut flag = None;
         let mut ok = true;
-        for (name, expr, _) in &args.named {
+        for (name, expr, at) in &args.named {
             let arg = match name.as_str() {
                 "flag" => self.literal_text(expr, "impute", "flag").map(Named::Name),
                 "partition_by" => match elements(expr) {
@@ -463,37 +453,32 @@ impl Pass<'_> {
                         .map(|column| Named::Columns(vec![column])),
                 },
                 "frame" | "keys" | "extra_keys" if elements(expr).is_some() => {
-                    let one = self.one_row();
-                    let constant = Scope::of(&one, "a constant argument");
+                    let empty = DFSchema::empty();
+                    let constant = Scope::constant(&empty, "a constant argument");
                     (elements(expr).unwrap_or_default().iter())
                         .map(|element| self.expr(element, constant))
                         .collect::<Option<Vec<_>>>()
                         .map(Named::List)
                 }
                 _ => {
-                    let one = self.one_row();
-                    self.expr(expr, Scope::of(&one, "a constant argument"))
+                    let empty = DFSchema::empty();
+                    self.expr(expr, Scope::constant(&empty, "a constant argument"))
                         .map(Named::Value)
                 }
             };
             match arg {
-                Some(arg) => named.push((name.clone(), arg)),
+                Some(arg) => {
+                    if let Named::Name(name) = &arg {
+                        flag = Some((name.clone(), *at));
+                    }
+                    named.push((name.clone(), arg));
+                }
                 None => ok = false,
             }
         }
         let (Some(key), Some(groups), Some(value), true) = (key, groups, value, ok) else {
             return rows.fail();
         };
-        let flag = (args.named.iter())
-            .find(|(name, ..)| name == "flag")
-            .and_then(|(_, _, at)| {
-                named
-                    .iter()
-                    .find_map(|(name, arg)| match (name.as_str(), arg) {
-                        ("flag", Named::Name(flag)) => Some((flag.clone(), *at)),
-                        _ => None,
-                    })
-            });
         let call = ImputeCall {
             key,
             groups,
@@ -517,7 +502,7 @@ impl Pass<'_> {
                         .copied()
                         .unwrap_or(args.named[i].2),
                 };
-                self.error(at, sentence(&message));
+                self.error(at, message);
                 return rows.fail();
             }
         };

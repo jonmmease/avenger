@@ -101,4 +101,10 @@ async fn a_syntax_error_comes_before_the_analysis() {
         Err(error) => error.to_string(),
     };
     assert!(message.contains("[at 2:10]"), "{message}");
+    // The column counts characters, not bytes.
+    let message = match avenger_sql::sql(&ctx, "FROM penguins |> WHERE 'é' = nope").await {
+        Ok(_) => panic!("the query plans"),
+        Err(error) => error.to_string(),
+    };
+    assert!(message.contains("[at 1:30]"), "{message}");
 }

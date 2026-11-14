@@ -73,11 +73,15 @@ pub struct ArgError {
 }
 
 impl ArgError {
+    /// The error `message` at `at`, as a sentence, with its first letter in upper case.
     pub fn new(at: ArgAt, message: impl Into<String>) -> Self {
-        Self {
-            at,
-            message: message.into(),
-        }
+        let message = message.into();
+        let mut chars = message.chars();
+        let message = match chars.next() {
+            Some(first) => first.to_uppercase().chain(chars).collect(),
+            None => message,
+        };
+        Self { at, message }
     }
 }
 
