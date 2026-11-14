@@ -540,3 +540,71 @@ async fn a_parenthesized_name_names_its_column() {
         .collect();
     assert_eq!(names, ["sp", "isl", "n"]);
 }
+
+#[tokio::test]
+async fn functions_fail_where_googlesql_fails_and_safe_gives_null() {
+    let cases = [
+        ("SQRT(-1)", "Argument to SQRT cannot be negative: -1"),
+        (
+            "SQRT(NUMERIC '-4')",
+            "SQRT is undefined for negative value: SQRT(-4)",
+        ),
+        ("LN(0)", "Floating point error in function: LN(0)"),
+        ("LOG(0)", "Floating point error in function: LN(0)"),
+        ("LOG(8, 1)", "Floating point error in function: LOG(8, 1)"),
+        (
+            "LOG10(-2.25)",
+            "Floating point error in function: LOG10(-2.25)",
+        ),
+        (
+            "POW(-8, 0.5)",
+            "Floating point error in function: POW(-8, 0.5)",
+        ),
+        ("POW(NUMERIC '0', -1)", "division by zero: POW(0, -1)"),
+        ("[1, 2][OFFSET(5)]", "Array index 5 is out of bounds"),
+        ("[1, 2][ORDINAL(0)]", "Array index 0 is out of bounds"),
+        (
+            "REPEAT('ab', -1)",
+            "Second argument (repeat count) for REPEAT cannot be negative",
+        ),
+        (
+            "LPAD('abc', -1)",
+            "Second argument (output size) for LPAD/RPAD cannot be negative",
+        ),
+        (
+            "RPAD('abc', 5, '')",
+            "Third argument (pad pattern) for LPAD/RPAD cannot be empty",
+        ),
+        (
+            "LEFT('abc', -1)",
+            "Second argument in LEFT() cannot be negative",
+        ),
+        (
+            "SUBSTRING('abc', 1, -1)",
+            "Third argument in SUBSTR() cannot be negative",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (expr, message) in cases {
+        match run(&format!("FROM one |> SELECT {expr} AS v")).await {
+            Err(errors) if errors[0].contains(message) => {}
+            other => failures.push(format!("{expr}: {other:?}")),
+        }
+        // `SAFE.` returns `NULL` where the call fails.
+        if !expr.starts_with('[') {
+            let text = table_text(&format!("FROM one |> SELECT SAFE.{expr} AS v")).await;
+            let row = text.lines().nth(3).unwrap_or_default();
+            if !row.trim_matches(|c| c == '|' || c == ' ').is_empty() {
+                failures.push(format!("SAFE.{expr}: {row}"));
+            }
+        }
+    }
+    // The `SAFE_` subscripts are `NULL` out of the array, and a branch that no row takes doesn't
+    // fail.
+    let text = table_text(
+        "FROM t |> WHERE x = 1 |> SELECT [1][SAFE_OFFSET(3)] AS a, IF(x = 2, SQRT(-1), 0.0) AS b",
+    )
+    .await;
+    assert!(text.contains("|   | 0.0 |"), "{text}");
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}

@@ -137,20 +137,34 @@ CREATE TEMP TABLE big AS (FROM sales |> WHERE units > 3); FROM big |> AGGREGATE 
 CREATE TEMP TABLE FUNCTION top(k INT64) AS (FROM sales |> ORDER BY units DESC |> LIMIT k); FROM top(2) |> SELECT product, units
 ## parameters-of-literals
 FROM UNNEST([1]) |> SELECT 5 / 2 AS q, 7 / 7 AS one, 1e3 AS big, 0x1F AS hex, NUMERIC '1.10' AS n, b'ab' AS bytes, 'it\'s' AS quote, """triple""" AS t, r'\n' AS raw
-## missing-initcap
+## initcap
 FROM UNNEST(['hello world']) AS s |> SELECT INITCAP(s) AS cap
-## missing-repeat
+## repeat
 FROM UNNEST(['ab']) AS s |> SELECT REPEAT(s, 2) AS twice
-## missing-left-right
+## left-right
 FROM UNNEST(['abcdef']) AS s |> SELECT LEFT(s, 3) AS first, RIGHT(s, 3) AS last
-## missing-lpad
+## lpad
 FROM sales |> SELECT LPAD(product, 6, '*') AS padded
-## missing-reverse
+## reverse
 FROM UNNEST(['abc', '']) AS s |> SELECT REVERSE(s) AS r
-## missing-last-day
+## last-day
 FROM UNNEST([DATE '2024-02-10']) AS d |> SELECT LAST_DAY(d) AS last
-## missing-array-to-string
+## array-to-string
 FROM events |> SELECT id, ARRAY_TO_STRING(tags, '+') AS joined
+## grouping
+FROM sales |> AGGREGATE SUM(units) AS u, GROUPING(region) AS gr, GROUPING(product) AS gp GROUP BY ROLLUP(region, product)
+## error-sqrt
+FROM UNNEST([4.0, -1.0]) AS x |> SELECT SQRT(x) AS r
+## safe-sqrt-ln-pow
+FROM UNNEST([4.0, -1.0, 0.0]) AS x |> SELECT x, SAFE.SQRT(x) AS r, SAFE.LN(x) AS l, SAFE.POW(x, 0.5) AS p
+## error-offset
+FROM events |> SELECT tags[OFFSET(1)] AS second
+## safe-offset
+FROM events |> SELECT id, tags[SAFE_OFFSET(1)] AS second, tags[SAFE_ORDINAL(1)] AS first
+## error-repeat
+FROM sales |> SELECT REPEAT(product, units - 4) AS r
+## error-substr
+FROM sales |> SELECT SUBSTR(product, 1, units - 4) AS s
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column

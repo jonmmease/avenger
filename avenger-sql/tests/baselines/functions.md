@@ -192,8 +192,6 @@ Returns an array of the values of the group.
 
 `ORDER BY` orders the elements, and `IGNORE NULLS` leaves out the `NULL` values.
 
-**Note:** A `NULL` value is an element of the array, where GoogleSQL fails unless the call ignores `NULL`s.
-
 **Parameters**
 
 + `value`: The value of each row.
@@ -209,6 +207,31 @@ FROM UNNEST([1, 2, 2, 3, NULL]) AS x |> AGGREGATE ARRAY_AGG(x IGNORE NULLS ORDER
 | values |
 | --- |
 | [3, 2, 2, 1] |
+
+
+## `GROUPING`
+
+```googlesql
+GROUPING(groupby_expression: T) -> INT64 where T: ANY
+```
+
+Returns whether a group expression is aggregated over in a row of grouping sets.
+
+In an aggregate with `ROLLUP`, `CUBE` or `GROUPING SETS`, returns 1 for a row whose grouping set leaves the expression out, so its value is `NULL` for all its values, and 0 for a row grouped by it.
+
+**Parameters**
+
++ `groupby_expression`: An expression of the `GROUP BY`.
+
+**Examples**
+
+```googlesql
+FROM UNNEST([1, 2, 2, 3, NULL]) AS x |> AGGREGATE COUNT(*) AS n, GROUPING(x) AS g GROUP BY ROLLUP(x) |> WHERE g = 1
+```
+
+| x | n | g |
+| --- | --- | --- |
+| NULL | 5 | 1 |
 
 
 ## `LOGICAL_AND`
@@ -641,6 +664,37 @@ ARRAY_REVERSE([1, 2, 3])
 Result: `[3, 2, 1]`
 
 
+## `ARRAY_TO_STRING`
+
+```googlesql
+ARRAY_TO_STRING(array_expression: ARRAY<STRING>, delimiter: STRING[, null_text: STRING]) -> STRING
+```
+
+Joins the strings of an array into one, with a delimiter between them.
+
+**Parameters**
+
++ `array_expression`: The array of strings.
++ `delimiter`: The string between two elements.
++ `null_text`: The string in the place of a `NULL` element. When omitted, a `NULL` element is left out.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+ARRAY_TO_STRING(['a', NULL, 'c'], ',')
+```
+
+Result: `'a,c'`
+
+```googlesql
+ARRAY_TO_STRING(['a', NULL, 'c'], ',', 'N')
+```
+
+Result: `'a,N,c'`
+
+
 ## `GENERATE_ARRAY`
 
 ```googlesql
@@ -984,6 +1038,43 @@ DATE_TRUNC(DATE '2024-05-17', WEEK(MONDAY))
 ```
 
 Result: `DATE '2024-05-13'`
+
+
+## `LAST_DAY`
+
+```googlesql
+LAST_DAY(value: DATE[, part: DATE PART]) -> DATE
+LAST_DAY(value: DATETIME[, part: DATE PART]) -> DATE
+```
+
+Returns the last day of the part of the date, such as its month.
+
+**Parameters**
+
++ `value`: The `DATE`, or a `DATETIME`, whose date it reads.
++ `part`: The part: `WEEK`, which ends on Saturday, `WEEK(day)`, which starts on the day, `ISOWEEK`, `MONTH`, `QUARTER`, `YEAR` or `ISOYEAR`. When omitted, `MONTH`.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+LAST_DAY(DATE '2024-02-10')
+```
+
+Result: `DATE '2024-02-29'`
+
+```googlesql
+LAST_DAY(DATE '2024-02-10', QUARTER)
+```
+
+Result: `DATE '2024-03-31'`
+
+```googlesql
+LAST_DAY(DATE '2024-02-14', WEEK(MONDAY))
+```
+
+Result: `DATE '2024-02-18'`
 
 
 ## `DATETIME_TRUNC`
@@ -1805,8 +1896,6 @@ SQRT(x: T) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 
 Returns the square root of a number.
 
-**Note:** The square root of a negative number is `NaN`, where GoogleSQL fails. `SAFE.SQRT` returns `NULL` for it, as in GoogleSQL.
-
 **Parameters**
 
 + `x`: The number.
@@ -1865,8 +1954,6 @@ LN(x: T) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 
 Returns the natural logarithm of a number.
 
-**Note:** The logarithm of zero is `-inf`, and of a negative number `NaN`, where GoogleSQL fails. `SAFE.LN` returns `NULL` for them.
-
 **Parameters**
 
 + `x`: The number, which is positive.
@@ -1895,8 +1982,6 @@ LOG(x: T[, base: T]) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 ```
 
 Returns the logarithm of a number, natural or in a base.
-
-**Note:** A number or a base out of range returns `NaN` or infinity, where GoogleSQL fails. `SAFE.LOG` returns `NULL` for them.
 
 **Parameters**
 
@@ -1934,8 +2019,6 @@ LOG10(x: T) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 
 Returns the base 10 logarithm of a number.
 
-**Note:** The logarithm of zero is `-inf`, and of a negative number `NaN`, where GoogleSQL fails. `SAFE.LOG10` returns `NULL` for them.
-
 **Parameters**
 
 + `x`: The number, which is positive.
@@ -1958,8 +2041,6 @@ POW(x: T, y: T) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 ```
 
 Returns a number raised to a power.
-
-**Note:** A negative base with a fractional power is `NaN`, where GoogleSQL fails. `SAFE.POW` returns `NULL` for it.
 
 **Parameters**
 
@@ -1990,8 +2071,6 @@ POWER(x: T, y: T) -> T where T: FLOAT64 | NUMERIC | BIGNUMERIC
 ```
 
 Returns a number raised to a power, as `POW` does.
-
-**Note:** A negative base with a fractional power is `NaN`, where GoogleSQL fails. `SAFE.POW` returns `NULL` for it.
 
 **Parameters**
 
@@ -2619,6 +2698,219 @@ REGEXP_REPLACE('abc', r'(b)', r'<\1>')
 ```
 
 Result: `'a<b>c'`
+
+
+## `REPEAT`
+
+```googlesql
+REPEAT(original_value: STRING, repetitions: INT64) -> STRING
+```
+
+Returns a string repeated a number of times.
+
+**Parameters**
+
++ `original_value`: The string.
++ `repetitions`: The number of times, which is not negative.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+REPEAT('ab', 3)
+```
+
+Result: `'ababab'`
+
+```googlesql
+REPEAT('ab', 0)
+```
+
+Result: `''`
+
+
+## `LPAD`
+
+```googlesql
+LPAD(original_value: STRING, return_length: INT64[, pattern: STRING]) -> STRING
+```
+
+Pads a string at its start to a length, or cuts it to the length.
+
+**Parameters**
+
++ `original_value`: The string.
++ `return_length`: The length of the result, in characters, which is not negative. A shorter length cuts the string.
++ `pattern`: The string that pads, which is not empty. When omitted, a space.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+LPAD('abc', 6)
+```
+
+Result: `'   abc'`
+
+```googlesql
+LPAD('abc', 6, 'xy')
+```
+
+Result: `'xyxabc'`
+
+```googlesql
+LPAD('abc', 2)
+```
+
+Result: `'ab'`
+
+
+## `RPAD`
+
+```googlesql
+RPAD(original_value: STRING, return_length: INT64[, pattern: STRING]) -> STRING
+```
+
+Pads a string at its end to a length, or cuts it to the length.
+
+**Parameters**
+
++ `original_value`: The string.
++ `return_length`: The length of the result, in characters, which is not negative. A shorter length cuts the string.
++ `pattern`: The string that pads, which is not empty. When omitted, a space.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+RPAD('abc', 6, 'xy')
+```
+
+Result: `'abcxyx'`
+
+```googlesql
+RPAD('abc', 1)
+```
+
+Result: `'a'`
+
+
+## `REVERSE`
+
+```googlesql
+REVERSE(value: STRING) -> STRING
+```
+
+Returns the characters of a string in reverse order.
+
+**Parameters**
+
++ `value`: The string.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+REVERSE('abcé')
+```
+
+Result: `'écba'`
+
+
+## `LEFT`
+
+```googlesql
+LEFT(value: STRING, length: INT64) -> STRING
+```
+
+Returns the first characters of a string.
+
+**Parameters**
+
++ `value`: The string.
++ `length`: The number of characters, which is not negative. A length beyond the string's gives the whole string.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+LEFT('abcdef', 3)
+```
+
+Result: `'abc'`
+
+```googlesql
+LEFT('abc', 10)
+```
+
+Result: `'abc'`
+
+
+## `RIGHT`
+
+```googlesql
+RIGHT(value: STRING, length: INT64) -> STRING
+```
+
+Returns the last characters of a string.
+
+**Parameters**
+
++ `value`: The string.
++ `length`: The number of characters, which is not negative. A length beyond the string's gives the whole string.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+RIGHT('abcdef', 2)
+```
+
+Result: `'ef'`
+
+
+## `INITCAP`
+
+```googlesql
+INITCAP(value: STRING[, delimiters: STRING]) -> STRING
+```
+
+Returns a string with the first character of each word in upper case and the others in lower case.
+
+A word starts at the start of the string and after each delimiter. The delimiters stay as they are, and a character that isn't a letter, such as a digit, starts a word too.
+
+**Parameters**
+
++ `value`: The string.
++ `delimiters`: The characters that separate the words, each on its own. When omitted, they are whitespace and ``!"#$%&()*+,-./:;<>?@[\]^_{|}~``.
+
+A call can write `SAFE.` before the name.
+
+**Examples**
+
+```googlesql
+INITCAP('hello wORLD')
+```
+
+Result: `'Hello World'`
+
+```googlesql
+INITCAP("o'neil-smith 1st")
+```
+
+Result: `'O\'neil-Smith 1st'`
+
+```googlesql
+INITCAP('a.b_c d', '.')
+```
+
+Result: `'A.B_c d'`
 
 
 ## `symbol`
