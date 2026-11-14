@@ -57,8 +57,8 @@ pub use array::Subscript;
 pub(crate) use cast_string::cast_to_string;
 pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
-pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
-pub use reference::reference;
+pub use form::{Accept, Arity, FormArg, Label, PartSet, Signature, Ty};
+pub use reference::{entry, reference};
 
 use avenger_sql_syntax::FunctionRole;
 
@@ -550,11 +550,11 @@ impl Function {
         self
     }
 
-    /// The forms as signature help shows them.
-    pub fn signatures(&self) -> Vec<String> {
+    /// The forms as signature help shows them, each with the ranges of its arguments.
+    pub fn signatures(&self) -> Vec<Label> {
         self.forms
             .iter()
-            .map(|form| form.signature.render(&self.name))
+            .map(|form| form.signature.label(&self.name))
             .collect()
     }
 
@@ -742,7 +742,10 @@ impl Function {
                 "no form of {} takes ({}); its forms are {}",
                 self.name,
                 types.join(", "),
-                self.signatures().join("; ")
+                (self.signatures().into_iter())
+                    .map(|label| label.text)
+                    .collect::<Vec<_>>()
+                    .join("; ")
             ))
         }
     }

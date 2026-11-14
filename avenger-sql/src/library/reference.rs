@@ -19,7 +19,7 @@ pub fn entry(function: &Function) -> String {
     let mut out = format!("## `{}`\n\n", function.name);
     out.push_str("```googlesql\n");
     for signature in function.signatures() {
-        out.push_str(&signature);
+        out.push_str(&signature.text);
         out.push('\n');
     }
     if let Some(over) = over(function) {

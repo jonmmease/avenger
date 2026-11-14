@@ -46,7 +46,7 @@ use datafusion::{
 
 use super::{
     expr::{direction, Scope, ARGUMENT},
-    model::Definition,
+    model::{Definition, PlaceKind},
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -69,6 +69,15 @@ pub(crate) enum Clause {
     Keys,
     Define,
     Measures,
+}
+
+/// The clause of a `MATCH_RECOGNIZE` that takes the function `name`, as the model's
+/// `match_recognize_part` says, which is also the rule of an editor's places.
+fn part_clause(name: &str) -> Option<Clause> {
+    super::model::match_recognize_part(name).map(|part| match part {
+        super::model::MatchRecognizePart::Define => Clause::Define,
+        super::model::MatchRecognizePart::Measures => Clause::Measures,
+    })
 }
 
 /// The clause of a `MATCH_RECOGNIZE` that the pass plans, at the depth of the queries that enclose
@@ -284,7 +293,7 @@ impl Pass<'_> {
         }
         match name {
             "PREV" | "NEXT" => {
-                if clause != Some(Clause::Define) {
+                if clause != part_clause(name) {
                     self.error(range, format!("function {name} must be directly inside a MATCH_RECOGNIZE's DEFINE clause, without any enclosing subquery"));
                     return false;
                 }
@@ -344,7 +353,7 @@ impl Pass<'_> {
                 true
             }
             "FIRST" | "LAST" => {
-                if clause != Some(Clause::Measures) {
+                if clause != part_clause(name) {
                     self.error(range, format!("aggregate function {name} can only be used inside a MATCH_RECOGNIZE's MEASURES clause"));
                     return false;
                 }
@@ -361,7 +370,7 @@ impl Pass<'_> {
                 true
             }
             "MATCH_NUMBER" | "MATCH_ROW_NUMBER" | "CLASSIFIER" => {
-                if clause != Some(Clause::Measures) {
+                if clause != part_clause(name) {
                     let in_subquery = (self.match_recognize.iter()).any(|frame| {
                         frame.clause == Clause::Measures && frame.depth < self.outers.len()
                     });
@@ -641,7 +650,14 @@ impl Pass<'_> {
                 ok = false;
                 continue;
             }
-            match self.expr(expr, Scope::of(rows, PARTITION_CLAUSE)) {
+            let scope = Scope::of(rows, PARTITION_CLAUSE);
+            self.place(
+                expr.syntax().text_range(),
+                PlaceKind::GroupKey,
+                &scope,
+                None,
+            );
+            match self.expr(expr, scope) {
                 Some(planned) if self.mr_local(&planned, expr) => partition.push(planned),
                 _ => ok = false,
             }
@@ -662,6 +678,12 @@ impl Pass<'_> {
                 continue;
             }
             let scope = Scope::of(rows, ORDER_CLAUSE);
+            self.place(
+                expr.syntax().text_range(),
+                PlaceKind::OrderKey,
+                &scope,
+                None,
+            );
             let Some(planned) = self.expr(&expr, scope).filter(|p| self.mr_local(p, &expr)) else {
                 ok = false;
                 continue;
@@ -701,6 +723,7 @@ impl Pass<'_> {
             };
             let at = condition.syntax().text_range();
             let scope = Scope::of(rows, DEFINE_CLAUSE);
+            self.place(at, PlaceKind::Define, &scope, None);
             let planned = self
                 .expr(condition, scope)
                 .filter(|planned| self.mr_local(planned, condition))
@@ -887,6 +910,12 @@ impl Pass<'_> {
             let scope = Scope::of(&input, MEASURES_CLAUSE)
                 .aggregates()
                 .grouped(Some(&groups));
+            self.place(
+                measure.syntax().text_range(),
+                PlaceKind::Measures,
+                &scope,
+                None,
+            );
             match self.expr(&expr, scope) {
                 Some(planned) if self.mr_local(&planned, &expr) => {
                     planned_measures.push((planned, expr.syntax().text_range()))
