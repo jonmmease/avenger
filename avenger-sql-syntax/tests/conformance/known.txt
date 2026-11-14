@@ -2,149 +2,29 @@
 # prefix of labels ending in `*`, a tab, and the reason. The first line that matches a label explains it.
 
 # Pipe operators outside the subset.
-pipe_recursive_union.test:*	recursive set operations aren't in the subset
-pipe_insert.test:*	the pipe INSERT isn't in the subset
-statement_with_pipe_operators.test:21	the pipe INSERT isn't in the subset
-pipe_if.test:*	the pipe IF isn't in the subset
-pipe_with.test:10	the pipe IF isn't in the subset
-pipe_fork.test:*	the pipe FORK isn't in the subset
-pipe_tee.test:*	the pipe TEE isn't in the subset
-pipe_create_table.test:*	the pipe CREATE TABLE isn't in the subset
-pipe_export_data.test:*	the pipe EXPORT DATA isn't in the subset
-pipe_align_operator.test:*	the pipe ALIGN isn't in the subset
-pipe_log.test:*	the pipe LOG isn't in the subset
-crate:REJECTED:46	the pipe LOG isn't in the subset
-pipe_assert.test:*	the pipe ASSERT isn't in the subset
-pipe_match_recognize.test:*	MATCH_RECOGNIZE isn't in the subset
-pipe_lock_mode.test:*	locking clauses aren't in the subset
-pipe_group_rows.test:*	GROUP_ROWS isn't in the subset
-pipe_window.test:*	the pipe WINDOW isn't in the subset; windows go in EXTEND
-pipe_named_windows.test:7:2	the pipe WINDOW isn't in the subset; windows go in EXTEND
-pipe_aggregate_with_order.test:14:2	the pipe WINDOW isn't in the subset; windows go in EXTEND
-pipe_query.test:36	the pipe STATIC_DESCRIBE isn't in the subset
-pipe_query.test:38	the pipe DESCRIBE isn't in the subset
+pipe_recursive_union.test:5:*	an outer mode of a set operation takes BY NAME or CORRESPONDING, which avenger checks as it parses and GoogleSQL as it analyzes
 
 # Expressions and clauses outside the subset.
-unpack_expression_*	`**` unpack expressions aren't in the subset
-pipe_aggregate.test:4:from	hints, `@{...}`, aren't in the subset
-pipe_call_tvf.test:2:from	hints, `@{...}`, aren't in the subset
-pipe_call_tvf.test:10:from	hints, `@{...}`, aren't in the subset
-pipe_order_by.test:0:from	hints, `@{...}`, aren't in the subset
-pipe_set_operation.test:1:from	hints, `@{...}`, aren't in the subset
-pipe_from_query.test:28	hints, `@{...}`, and FOR SYSTEM TIME aren't in the subset
-pipe_join.test:0:from	hints, HASH and LOOKUP joins, and standard queries aren't in the subset
-pipe_query.test:12:from	SELECT AS a named type, hints and anonymization aren't in the subset
-crate:REJECTED:4	SELECT AS a named type isn't in the subset
-pipe_query.test:35:from	LIMIT ALL isn't in the subset
-pipe_call_tvf.test:0:from	DESCRIPTOR, MODEL and CONNECTION arguments and standard queries aren't in the subset
-pipe_call_tvf.test:1:from	MODEL and CONNECTION arguments aren't in the subset
-pipe_call_tvf.test:16:from	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:17:from	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:18:from	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:21:from	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:22:from	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:23	INPUT TABLE arguments aren't in the subset
-pipe_call_tvf.test:29:from	the PARTITION BY and ORDER BY of a table function call aren't in the subset
-pipe_call_tvf.test:30:from	the PARTITION BY and ORDER BY of a table function call aren't in the subset
-pipe_call_tvf.test:31:from	the PARTITION BY and ORDER BY of a table function call aren't in the subset
-pipe_call_tvf.test:32:from	the PARTITION BY and ORDER BY of a table function call aren't in the subset
-pipe_join.test:10:from	several USING or ON conditions after nested joins aren't in the subset
-pipe_join.test:11:from	several USING or ON conditions after nested joins aren't in the subset
-pipe_with.test:2	WITH RECURSIVE isn't in the subset
-pipe_with.test:3:*	WITH RECURSIVE isn't in the subset
 pipe_set_operation.test:12:*	an outer mode of a set operation takes BY NAME or CORRESPONDING, which avenger checks as it parses and GoogleSQL as it analyzes
 crate:REJECTED:34	a reserved word after `.` names a field only after a name, not after an expression in parentheses
 crate:REJECTED:39	avenger reports a second PIVOT of a source at the keyword, which GoogleSQL reads as an alias before failing at its `(`
 
 # Standard queries, which the subset leaves out for pipe queries.
-pipe_as.test:7	standard queries aren't in the subset
-pipe_distinct.test:3	standard queries aren't in the subset
-pipe_from_query.test:6	standard queries aren't in the subset
 pipe_from_query.test:16	standard set operations aren't in the subset; they are pipe operators
-pipe_from_query.test:19	standard queries aren't in the subset
-pipe_parenthesized_query_alias.test:7:0	standard queries aren't in the subset
-pipe_set_operation.test:0:from	standard queries aren't in the subset
-pipe_set_operation.test:2:from	standard queries aren't in the subset
-pipe_set_operation.test:4:from	standard queries aren't in the subset
-pipe_set_operation.test:7:0:from	standard queries aren't in the subset
-pipe_set_operation.test:7:1:from	standard queries aren't in the subset
-pipe_set_operation.test:7:2:from	standard queries aren't in the subset
-pipe_set_operation.test:7:3:from	standard queries aren't in the subset
-pipe_set_operation.test:7:4:from	standard queries aren't in the subset
-pipe_set_operation.test:7:5:from	standard queries aren't in the subset
-pipe_set_operation.test:8:from	standard queries aren't in the subset
-pipe_set_operation.test:9:from	standard queries aren't in the subset
-pipe_set_operation.test:14:from	standard queries aren't in the subset
-pipe_set_operation.test:15:from	standard queries aren't in the subset
-pipe_with.test:0	standard queries aren't in the subset
-pipe_with.test:1	standard queries aren't in the subset
-pipe_join.test:1:from	standard queries aren't in the subset
-pipe_join.test:12:from	standard queries aren't in the subset
-set.test:2	standard queries aren't in the subset
-variable_declarations.test:5	standard queries aren't in the subset
-variable_declarations.test:11	standard queries aren't in the subset
-variable_declarations.test:37	standard queries aren't in the subset
-crate:REJECTED:2	standard queries aren't in the subset
 
 # Statements outside the subset.
-create_external_table.test:*	external tables aren't in the subset
-create_external_schema.test:*	external schemas aren't in the subset
-create_view.test:*	views aren't in the subset
-crate:REJECTED:13	views aren't in the subset
-create_model.test:*	models aren't in the subset
-create_table_as_select.test:*	a temporary table's PARTITION BY, CLUSTER BY and similar clauses aren't in the subset
-crate:REJECTED:11	a temporary table's PARTITION BY, CLUSTER BY and similar clauses aren't in the subset
-crate:REJECTED:12	column defaults aren't in the subset
-create_live_table.test:*	live tables aren't in the subset
-create_procedure.test:*	procedures aren't in the subset
-transaction.test:*	transactions aren't in the subset
-string_literal_table_references.test:*	tables named by string literals aren't in the subset
-create_constant.test:*	constants belong to modules, not scripts, in the subset
-create_function.test:*	functions in a language other than SQL aren't in the subset
-create_public_private.test:0:1	functions in a language other than SQL aren't in the subset
-crate:REJECTED:10	functions in a language other than SQL aren't in the subset
-create_sql_function.test:24:*	a SQL function needs a body in the subset
-create_sql_function.test:25:*	a SQL function needs a body in the subset
+create_table_as_select.test:25	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_table_as_select.test:49	the AS takes a GRAPH query, of the SQL graph syntax that the subset leaves out
+create_function.test:29	avenger reports a NOT AGGREGATE outside an aggregate function before the AS after it, where GoogleSQL fails
 modules.test:57	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:58	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:59	IMPORT MODULE names a module by a path, without INTO, in the subset
 crate:REJECTED:48	IMPORT MODULE names a module by a path, without INTO, in the subset
 crate:REJECTED:49	IMPORT MODULE names a module by a path, without INTO, in the subset
-crate:REJECTED:15	IMPORT PROTO isn't in the subset
-crate:REJECTED:14	a MODULE statement starts a module, not a script
-set.test:21:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:21:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:22:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:22:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:23:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:23:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:24:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:24:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:25:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:25:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:26:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:26:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:27:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:27:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:28:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:28:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:29:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:29:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:30:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:30:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:31:0	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:31:1	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:33	SET assigns a variable of the script, not a query parameter or a system variable
-set.test:37	SET assigns a variable of the script, not a query parameter or a system variable
-variable_declarations.test:31	system variables aren't in the subset
-crate:REJECTED:22	system variables aren't in the subset
-variable_declarations.test:23	BEGIN ... END blocks aren't in the subset
-variable_declarations.test:24	BEGIN ... END blocks aren't in the subset
-variable_declarations.test:25	BEGIN ... END blocks aren't in the subset
-variable_declarations.test:26	BEGIN ... END blocks aren't in the subset
-variable_declarations.test:27	BEGIN ... END blocks aren't in the subset
-crate:REJECTED:9	procedural statements, such as IF, aren't in the subset
+set.test:29:*	avenger reports a query parameter without a name at its `@`, and GoogleSQL at the token after it
 
 # Choices of the subset.
 crate:QUERIES:27	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, which the subset leaves out
 crate:QUERIES:33	avenger accepts a script without statements
+create_sql_function.test:23	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_template_function.test:4:3	avenger checks ANY TABLE against the kind of the function as it parses, and GoogleSQL as it analyzes

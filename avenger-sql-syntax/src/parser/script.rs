@@ -7,11 +7,25 @@
 use super::Parser;
 use crate::{diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
 
-/// The procedural statements of GoogleSQL's scripts, which avenger-sql doesn't read.
-const PROCEDURAL: &[&str] = &[
+/// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
+/// statements and blocks, DDL, DML, transactions and the rest.
+const UNSUPPORTED_STATEMENTS: &[&str] = &[
+    // Procedural statements and blocks.
     "BEGIN", "IF", "LOOP", "REPEAT", "WHILE", "FOR", "BREAK", "LEAVE", "CONTINUE", "ITERATE",
-    "RETURN", "RAISE", "EXECUTE", "CALL", "COMMIT", "ROLLBACK", "CASE",
+    "RETURN", "RAISE", "EXECUTE", "CALL", "CASE", // Transactions and batches.
+    "START", "COMMIT", "ROLLBACK", "RUN", "ABORT", // DDL.
+    "ALTER", "DROP", "UNDROP", "RENAME", "TRUNCATE", "GRANT", "REVOKE", "DEFINE", "CLONE",
+    // DML.
+    "INSERT", "UPDATE", "DELETE", "MERGE", // The rest.
+    "EXPORT", "LOAD", "ASSERT", "DESCRIBE", "DESC", "SHOW", "EXPLAIN", "ANALYZE", "GRAPH",
 ];
+
+/// The first keywords of GoogleSQL's blocks, which end at a matching `END`, where they start a
+/// statement. A `CASE` expression ends at an `END` too, so a `CASE` anywhere opens one.
+const BLOCKS: &[&str] = &["BEGIN", "IF", "LOOP", "WHILE", "FOR", "REPEAT", "CASE"];
+
+/// The keywords after which a statement starts, inside a block.
+const STATEMENT_STARTS: &[&str] = &["THEN", "ELSE", "DO", "BEGIN", "LOOP", "REPEAT"];
 
 /// The kind of object that a `CREATE` statement creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +41,10 @@ enum FunctionKind {
     Aggregate,
     Table,
 }
+
+/// The help of a statement that a script doesn't hold.
+const SCRIPT_HOLDS: &str =
+    "a script holds pipe queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE and CREATE TEMP FUNCTION";
 
 impl Parser<'_> {
     /// A script, which, as in GoogleSQL, can hold no statements.
@@ -96,7 +114,12 @@ impl Parser<'_> {
                 false => "a MODULE statement starts a module, not a script",
             };
             let range = self.range();
-            self.error(DiagnosticCode::InvalidStatement, range, message);
+            // GoogleSQL takes a MODULE statement in a script, and avenger reads it in a module.
+            let code = match self.in_module {
+                true => DiagnosticCode::InvalidStatement,
+                false => DiagnosticCode::Unsupported,
+            };
+            self.error(code, range, message);
             self.skip_until(|p| p.current() == SEMICOLON);
             return None;
         }
@@ -125,18 +148,75 @@ impl Parser<'_> {
         if self.at_keyword("CREATE") {
             return Some(self.create());
         }
-        if let Some(word) = PROCEDURAL.iter().find(|word| self.keyword_at(0, word)) {
+        // A statement of GoogleSQL's that avenger-sql doesn't run, with or without a label.
+        let labeled = self.nth(0) == WORD && self.nth(1) == COLON;
+        let first = if labeled { 2 } else { 0 };
+        if let Some(word) =
+            (UNSUPPORTED_STATEMENTS.iter()).find(|word| self.keyword_at(first, word))
+        {
             let range = self.range();
             self.error(
                 DiagnosticCode::Unsupported,
                 range,
-                format!("avenger-sql's scripts have no {word} statement"),
+                format!(
+                    "avenger-sql's scripts have no {} statement",
+                    word.to_ascii_uppercase()
+                ),
             )
-            .help("a script holds queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE and CREATE FUNCTION");
-            self.skip_until(|p| p.current() == SEMICOLON);
+            .help(SCRIPT_HOLDS);
+            self.skip_statement();
             return None;
         }
         self.query()
+    }
+
+    /// Skips a statement into an `ERROR` node, through its `;` or the end, and through the `END`
+    /// of each block that it opens, so the statements of a block skip with it.
+    pub(super) fn skip_statement(&mut self) {
+        let marker = self.start();
+        let saved = self.paren_depth;
+        self.paren_depth = 0;
+        let mut depth = 0usize;
+        let mut statement_start = true;
+        let labeled = self.nth(0) == WORD && self.nth(1) == COLON;
+        if labeled {
+            self.bump();
+            self.bump();
+        }
+        while !self.at_eof() {
+            if self.current() == SEMICOLON && depth == 0 {
+                break;
+            }
+            let opens = match statement_start {
+                // `BEGIN TRANSACTION` and a lone `BEGIN` start a transaction, not a block.
+                true if self.keyword_at(0, "BEGIN") => {
+                    !(self.keyword_at(1, "TRANSACTION") || matches!(self.nth(1), SEMICOLON | EOF))
+                }
+                true => BLOCKS.iter().any(|word| self.keyword_at(0, word)),
+                false => self.keyword_at(0, "CASE"),
+            };
+            if opens {
+                depth += 1;
+            } else if self.keyword_at(0, "END") && depth > 0 {
+                depth -= 1;
+                // The keyword of an `END IF` or `END LOOP` is part of the `END`.
+                if (["IF", "LOOP", "WHILE", "FOR", "REPEAT", "CASE"].iter())
+                    .any(|word| self.keyword_at(1, word))
+                {
+                    self.bump();
+                }
+            }
+            statement_start = self.current() == SEMICOLON
+                || STATEMENT_STARTS.iter().any(|word| self.keyword_at(0, word));
+            self.skip_balanced();
+            // A label of a statement in a block.
+            if statement_start && self.nth(0) == WORD && self.nth(1) == COLON {
+                self.bump();
+                self.bump();
+            }
+        }
+        self.paren_depth = saved;
+        marker.complete(self, ERROR);
     }
 
     /// `IMPORT MODULE path [AS alias] [OPTIONS (...)]`
@@ -212,11 +292,20 @@ impl Parser<'_> {
         } else if self.current() == PARAM {
             let range = self.range();
             self.error(
-                DiagnosticCode::InvalidStatement,
+                DiagnosticCode::Unsupported,
                 range,
                 "SET assigns a variable of the script, not a query parameter",
             );
             self.bump();
+        } else if self.keyword_at(0, "TRANSACTION") {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's scripts have no transactions",
+            );
+            self.skip_statement();
+            return marker.complete(self, ERROR);
         } else {
             let start = self.range();
             self.name_ref(NameRole::Variable);
@@ -268,6 +357,44 @@ impl Parser<'_> {
             Some(Object::Table)
         } else if self.eat_keyword("CONSTANT") {
             Some(Object::Constant)
+        } else if self.current() == WORD {
+            // An object of GoogleSQL's that avenger-sql doesn't create, such as a view.
+            let range = self.range();
+            let mut words = vec![self.nth_text(0).to_ascii_uppercase()];
+            for n in 1..3 {
+                let word = self.nth_text(n).to_ascii_uppercase();
+                if self.nth(n) != WORD || matches!(word.as_str(), "IF" | "AS") {
+                    break;
+                }
+                // The objects of two words, such as `MATERIALIZED VIEW`.
+                if !matches!(
+                    words[0].as_str(),
+                    "MATERIALIZED"
+                        | "EXTERNAL"
+                        | "ROW"
+                        | "SEARCH"
+                        | "VECTOR"
+                        | "AI"
+                        | "UNIQUE"
+                        | "APPROX"
+                        | "PROPERTY"
+                        | "SNAPSHOT"
+                        | "PRIVILEGE"
+                        | "LOCALITY"
+                ) || n > 1
+                {
+                    break;
+                }
+                words.push(word);
+            }
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                format!("avenger-sql's scripts create no {}", words.join(" ")),
+            )
+            .help(SCRIPT_HOLDS);
+            self.skip_statement();
+            return marker.complete(self, ERROR);
         } else {
             self.error_expected(
                 "`TABLE`, `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION` or `CONSTANT`",
@@ -312,12 +439,39 @@ impl Parser<'_> {
 
     /// The rest of `CREATE TABLE`, after its name.
     fn create_table(&mut self) {
+        // GoogleSQL's tables that copy another's schema or data.
+        if let Some(word) = ["LIKE", "CLONE", "COPY"]
+            .iter()
+            .find(|word| self.keyword_at(0, word))
+        {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                format!("avenger-sql's tables take no {word}"),
+            );
+            self.skip_statement();
+            return;
+        }
         if self.current() == L_PAREN {
             let list = self.start();
             self.parens(|p| {
                 p.comma_list_until(Self::column_definition, |p| p.current() == R_PAREN);
             });
             list.complete(self, COLUMN_LIST);
+        }
+        if let Some(word) = ["LIKE", "CLONE", "COPY"]
+            .iter()
+            .find(|word| self.keyword_at(0, word))
+        {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                format!("avenger-sql's tables take no {word}"),
+            );
+            self.skip_statement();
+            return;
         }
         for clause in [
             ["DEFAULT", "COLLATE"],
@@ -385,6 +539,18 @@ impl Parser<'_> {
                 } else {
                     p.name(NameRole::Option);
                 }
+                // GoogleSQL's `+=` and `-=` of an ALTER's options.
+                if matches!(p.current(), PLUS | MINUS) && p.nth(1) == EQ {
+                    let range = p.range();
+                    p.error(
+                        DiagnosticCode::Unsupported,
+                        range,
+                        "avenger-sql's OPTIONS set each option with `=`",
+                    );
+                    let error = p.start();
+                    p.bump();
+                    error.complete(p, ERROR);
+                }
                 p.expect(EQ, "`=`");
                 p.expr();
                 entry.complete(p, OPTION_ENTRY);
@@ -412,7 +578,13 @@ impl Parser<'_> {
                     table.complete(self, TABLE_TYPE);
                     returns.complete(self, RETURNS_CLAUSE);
                 }
+                if self.language() {
+                    return;
+                }
                 self.options();
+                if self.no_body() {
+                    return;
+                }
                 let body = self.start();
                 self.expect_keyword("AS");
                 self.query();
@@ -425,19 +597,38 @@ impl Parser<'_> {
                     self.ty();
                     returns.complete(self, RETURNS_CLAUSE);
                 }
-                if self.at_keyword("LANGUAGE") {
+                if self.language() {
+                    return;
+                }
+                // GoogleSQL's attributes of a function, as `DETERMINISTIC`.
+                let attribute = [
+                    "DETERMINISTIC",
+                    "IMMUTABLE",
+                    "STABLE",
+                    "VOLATILE",
+                    "SQL",
+                    "REMOTE",
+                ]
+                .iter()
+                .any(|word| self.keyword_at(0, word))
+                    || (self.keyword_at(0, "NOT") && self.keyword_at(1, "DETERMINISTIC"))
+                    || (self.keyword_at(0, "WITH") && self.keyword_at(1, "CONNECTION"));
+                if attribute {
                     let range = self.range();
                     self.error(
                         DiagnosticCode::Unsupported,
                         range,
-                        "avenger-sql's functions are SQL, so they take no LANGUAGE",
+                        "avenger-sql's functions take no attributes, such as DETERMINISTIC",
                     );
-                    self.skip_until(|p| p.current() == SEMICOLON);
+                    self.skip_statement();
                     return;
                 }
                 // As in GoogleSQL, OPTIONS goes before the body, or after it.
                 let before = self.at_keyword("OPTIONS");
                 self.options();
+                if self.no_body() {
+                    return;
+                }
                 let body = self.start();
                 self.expect_keyword("AS");
                 self.parens(|p| {
@@ -451,11 +642,85 @@ impl Parser<'_> {
         }
     }
 
+    /// Whether a function names a LANGUAGE, which it reports, skipping the rest of the statement.
+    fn language(&mut self) -> bool {
+        if !self.at_keyword("LANGUAGE") {
+            return false;
+        }
+        let range = self.range();
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql's functions are SQL, so they take no LANGUAGE",
+        );
+        self.skip_until(|p| p.current() == SEMICOLON);
+        true
+    }
+
+    /// Whether a function ends without a body, as a declaration of GoogleSQL's does, which it
+    /// reports.
+    fn no_body(&mut self) -> bool {
+        if !matches!(self.current(), SEMICOLON | EOF) {
+            return false;
+        }
+        let range = self.previous_range();
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql's functions have bodies, as in `AS (x + 1)`",
+        );
+        true
+    }
+
+    /// Reports a form of a parameter that GoogleSQL has and avenger-sql doesn't, and skips the
+    /// parameter.
+    fn unsupported_parameter(&mut self, marker: super::Marker, message: &str) {
+        let range = self.range();
+        self.error(DiagnosticCode::Unsupported, range, message);
+        self.skip_until(|p| matches!(p.current(), COMMA | R_PAREN | SEMICOLON));
+        marker.complete(self, PARAMETER);
+    }
+
     /// `name type`, `name ANY TYPE`, `name TABLE<columns>`, or `name ANY TABLE`, and `NOT
     /// AGGREGATE`. The validation pass checks them against the kind of the function.
     fn parameter(&mut self) {
         let marker = self.start();
+        // GoogleSQL's parameters without names, such as `(STRING, INT64)`, and its templated
+        // parameters without names, such as `(ANY TYPE)`.
+        let unnamed = matches!(self.nth(1), COMMA | R_PAREN)
+            || self.keyword_at(1, "NOT")
+            || self.keyword_at(1, "AS")
+            || (self.keyword_at(0, "ANY") && self.nth(1) == WORD)
+            || (self.nth(1) == LT && !self.keyword_at(0, "TABLE"));
+        if unnamed && !self.at(R_PAREN) {
+            return self.unsupported_parameter(marker, "a parameter of avenger-sql has a name");
+        }
+        if self.current() == WORD && self.nth(1) == DOT {
+            return self.unsupported_parameter(marker, "a parameter's name is one name");
+        }
         self.name(NameRole::Parameter);
+        // `ANY` starts a templated type, and GoogleSQL rejects any other word after it.
+        if self.at_keyword("ANY")
+            && !["TYPE", "TABLE", "PROTO", "ENUM", "STRUCT", "ARRAY"]
+                .iter()
+                .any(|word| self.keyword_at(1, word))
+        {
+            self.bump_keyword();
+            self.error_expected("`TYPE`, `TABLE`, `PROTO`, `ENUM`, `STRUCT` or `ARRAY`");
+            self.skip_until(|p| matches!(p.current(), COMMA | R_PAREN | SEMICOLON));
+            marker.complete(self, PARAMETER);
+            return;
+        }
+        if self.at_keyword("ANY")
+            && ["PROTO", "ENUM", "STRUCT", "ARRAY"]
+                .iter()
+                .any(|word| self.keyword_at(1, word))
+        {
+            return self.unsupported_parameter(
+                marker,
+                "avenger-sql's templated parameters are ANY TYPE and ANY TABLE",
+            );
+        }
         if self.at_keyword("ANY") && self.keyword_at(1, "TYPE") {
             let any = self.start();
             self.eat_keywords(&["ANY", "TYPE"]);
@@ -472,6 +737,13 @@ impl Parser<'_> {
             table.complete(self, TABLE_TYPE);
         } else {
             self.ty();
+        }
+        if self.at_keyword("AS") {
+            return self
+                .unsupported_parameter(marker, "avenger-sql's parameters have no type aliases");
+        }
+        if self.at_keyword("DEFAULT") {
+            return self.unsupported_parameter(marker, "avenger-sql's parameters have no defaults");
         }
         self.eat_keywords(&["NOT", "AGGREGATE"]);
         marker.complete(self, PARAMETER);

@@ -70,6 +70,26 @@ fn deep_nesting_is_one_diagnostic() {
     assert_eq!(deep.len(), 1);
 }
 
+/// A standard query of another shape keeps its diagnostic, without a rewrite.
+#[test]
+fn standard_queries_with_aggregates_or_grouping_have_no_rewrite() {
+    for text in [
+        "SELECT COUNT(*) FROM t",
+        "SELECT a FROM t GROUP BY a",
+        "SELECT a FROM t UNION ALL SELECT b FROM u",
+        "SELECT 1",
+    ] {
+        let parse = parse(text);
+        let diagnostic = &parse.diagnostics()[0];
+        assert_eq!(diagnostic.code, DiagnosticCode::NotPipeSyntax, "{text}");
+        assert!(
+            diagnostic.fixes.is_empty(),
+            "{text}: {:?}",
+            diagnostic.fixes
+        );
+    }
+}
+
 #[test]
 fn fixes_repair_the_text() {
     for (text, fixed) in [
@@ -77,6 +97,16 @@ fn fixes_repair_the_text() {
         ("FROM t |> WHERE a = NOT b", "FROM t |> WHERE a = (NOT b)"),
         ("FROM t |> SELECT 5abc", "FROM t |> SELECT `5abc`"),
         ("FROM t |> WHERE x = 'a''b'", "FROM t |> WHERE x = 'a' 'b'"),
+        // A standard query of a simple shape, rewritten as a pipe query.
+        (
+            "SELECT a, b + 1 AS c FROM t JOIN u USING (k) WHERE a > 1 ORDER BY c DESC LIMIT 5",
+            "FROM t JOIN u USING (k) |> WHERE a > 1 |> SELECT a, b + 1 AS c |> ORDER BY c DESC |> LIMIT 5",
+        ),
+        (
+            "FROM t |> WHERE x IN (SELECT DISTINCT y FROM u)",
+            "FROM t |> WHERE x IN (FROM u |> SELECT DISTINCT y)",
+        ),
+        ("SELECT * FROM t;", "FROM t |> SELECT *;"),
     ] {
         let parse = parse(text);
         let fix = &parse.diagnostics()[0].fixes[0];

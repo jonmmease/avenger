@@ -2,7 +2,7 @@
 
 use super::{expr::BIT_OR_LEVEL, CompletedMarker, Parser};
 use crate::{
-    diagnostic::DiagnosticCode,
+    diagnostic::{DiagnosticCode, TextEdit},
     Expected, NameRole,
     SyntaxKind::{self, *},
 };
@@ -49,13 +49,49 @@ impl Parser<'_> {
             self.bump_keyword();
             self.sources();
             from.complete(self, FROM_CLAUSE);
+        } else if self.keyword_at(0, "TABLE") && matches!(self.nth(1), WORD | QUOTED_IDENT | STRING)
+        {
+            // GoogleSQL's `TABLE t`, a query of a table's rows.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::NotPipeSyntax,
+                range,
+                "avenger-sql reads pipe queries, so a query of a table is `FROM t`",
+            );
+            let error = self.start();
+            self.bump_keyword();
+            match self.current() == STRING {
+                true => {
+                    self.bump();
+                }
+                false => {
+                    self.table_path();
+                }
+            }
+            error.complete(self, ERROR);
+        } else if self.current() == PIPE {
+            // GoogleSQL's subpipeline on its own, which avenger-sql has no input for.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql has no subpipelines on their own",
+            )
+            .help(FROM_FIRST);
         } else {
             let select = self.at_keyword("SELECT");
             let with = self.at_keyword("WITH");
+            let rewrite = select.then(|| self.pipe_rewrite()).flatten();
             let diagnostic = self.error_expected("`FROM`");
             if select {
                 diagnostic.code = DiagnosticCode::NotPipeSyntax;
                 diagnostic.help(format!("avenger-sql reads pipe queries: {FROM_FIRST}"));
+                if let Some((range, replacement)) = rewrite {
+                    diagnostic.fix(
+                        "Rewrite as a pipe query",
+                        vec![TextEdit { range, replacement }],
+                    );
+                }
             } else if with {
                 diagnostic.code = DiagnosticCode::NotPipeSyntax;
                 diagnostic.help("a pipe WITH names queries, as in `FROM t |> WITH u AS (FROM v) |> JOIN u USING (k)`");
@@ -67,6 +103,115 @@ impl Parser<'_> {
         }
         self.leave();
         Some(marker.complete(self, QUERY))
+    }
+
+    /// The range of the standard query at the current `SELECT` and the pipe query that says the
+    /// same, for the shape `SELECT items FROM sources [WHERE c] [ORDER BY k] [LIMIT n]`, without
+    /// aggregates, grouping, windows or set operations, whose rewrite is the order of its clauses.
+    fn pipe_rewrite(&self) -> Option<(rowan::TextRange, String)> {
+        const CLAUSES: &[&str] = &["SELECT", "FROM", "WHERE", "ORDER", "LIMIT"];
+        const OTHERS: &[&str] = &[
+            "GROUP",
+            "HAVING",
+            "QUALIFY",
+            "WINDOW",
+            "UNION",
+            "INTERSECT",
+            "EXCEPT",
+            "WITH",
+        ];
+        const AGGREGATES: &[&str] = &[
+            "COUNT",
+            "COUNTIF",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "ANY_VALUE",
+            "ARRAY_AGG",
+            "STRING_AGG",
+            "LOGICAL_AND",
+            "LOGICAL_OR",
+            "BIT_AND",
+            "BIT_OR",
+            "BIT_XOR",
+            "APPROX_COUNT_DISTINCT",
+            "STDDEV",
+            "VARIANCE",
+            "CORR",
+            "COVAR_POP",
+            "COVAR_SAMP",
+        ];
+        // The clauses at the query's own depth, each a keyword and the token after it.
+        let mut clauses: Vec<(&str, usize)> = Vec::new();
+        let mut depth = 0i32;
+        let mut n = 0;
+        let end = loop {
+            match self.nth(n) {
+                EOF => break n,
+                SEMICOLON if depth == 0 => break n,
+                PIPE if depth == 0 => return None,
+                L_PAREN | L_BRACK => depth += 1,
+                R_PAREN | R_BRACK if depth == 0 => break n,
+                R_PAREN | R_BRACK => depth -= 1,
+                WORD => {
+                    let word = self.nth_text(n).to_ascii_uppercase();
+                    if depth == 0 && OTHERS.contains(&word.as_str()) {
+                        return None;
+                    }
+                    if AGGREGATES.contains(&word.as_str()) && self.nth(n + 1) == L_PAREN {
+                        return None;
+                    }
+                    if depth == 0 {
+                        if let Some(clause) = CLAUSES.iter().find(|clause| **clause == word) {
+                            if clauses.iter().any(|(seen, _)| seen == clause) {
+                                return None;
+                            }
+                            let skip = if word == "ORDER" { 2 } else { 1 };
+                            clauses.push((clause, n + skip));
+                        }
+                    }
+                }
+                _ => {}
+            }
+            n += 1;
+        };
+        let order: Vec<&str> = clauses.iter().map(|(clause, _)| *clause).collect();
+        let expected: Vec<&str> = (CLAUSES.iter().copied())
+            .filter(|clause| order.contains(clause))
+            .collect();
+        if end == 0 || order != expected || !order.contains(&"FROM") {
+            return None;
+        }
+        // The text of each clause, from the token after its keyword to the next clause.
+        let text = |index: usize| -> &str {
+            let start = self.nth_range(clauses[index].1).start();
+            let stop = match clauses.get(index + 1) {
+                Some((clause, after)) => {
+                    let keyword = after - if *clause == "ORDER" { 2 } else { 1 };
+                    self.nth_range(keyword).start()
+                }
+                None => self.nth_range(end - 1).end(),
+            };
+            if start > stop {
+                return "";
+            }
+            self.source[usize::from(start)..usize::from(stop)].trim()
+        };
+        let clause_text = |name: &str| (clauses.iter().position(|(c, _)| *c == name)).map(text);
+        let mut out = format!("FROM {}", clause_text("FROM")?);
+        if let Some(filter) = clause_text("WHERE") {
+            out.push_str(&format!(" |> WHERE {filter}"));
+        }
+        out.push_str(&format!(" |> SELECT {}", clause_text("SELECT")?));
+        if let Some(keys) = clause_text("ORDER") {
+            out.push_str(&format!(" |> ORDER BY {keys}"));
+        }
+        if let Some(count) = clause_text("LIMIT") {
+            out.push_str(&format!(" |> LIMIT {count}"));
+        }
+        let range = self.range().cover(self.nth_range(end - 1));
+        Some((range, out))
     }
 
     /// `(query)`
@@ -108,9 +253,11 @@ impl Parser<'_> {
     /// Whether a join starts at the current token.
     fn at_join(&self) -> bool {
         let offset = usize::from(self.at_keyword("NATURAL"));
-        ["JOIN", "INNER", "CROSS", "LEFT", "RIGHT", "FULL"]
-            .iter()
-            .any(|word| self.keyword_at(offset, word))
+        [
+            "JOIN", "INNER", "CROSS", "LEFT", "RIGHT", "FULL", "HASH", "LOOKUP",
+        ]
+        .iter()
+        .any(|word| self.keyword_at(offset, word))
             || offset == 1
     }
 
@@ -128,14 +275,43 @@ impl Parser<'_> {
                 self.bump_keyword();
                 self.eat_keyword("OUTER");
             }
+            // GoogleSQL's join hints.
+            Some(HASH_KW | LOOKUP_KW) => {}
             _ if natural => {
                 self.error_expected("a join").help =
                     Some("NATURAL comes before a join, as in `NATURAL JOIN u`".to_string());
             }
             _ => {}
         }
+        if self.at_keyword("HASH") || self.at_keyword("LOOKUP") {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's joins take no HASH or LOOKUP; its planner chooses how to join",
+            );
+            let error = self.start();
+            self.bump_keyword();
+            error.complete(self, ERROR);
+        }
         self.expect_keyword("JOIN");
         marker.complete(self, JOIN_OP);
+    }
+
+    /// GoogleSQL's `PARTITION BY` and `ORDER BY` of a table function call, which avenger-sql
+    /// reports and skips.
+    fn call_order(&mut self) {
+        if !((self.at_keyword("PARTITION") || self.at_keyword("ORDER")) && self.keyword_at(1, "BY"))
+        {
+            return;
+        }
+        let range = self.range();
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql's table function calls take no PARTITION BY or ORDER BY",
+        );
+        self.skip_until(|p| p.at_sync());
     }
 
     /// `[ON expr | USING (columns)]`
@@ -152,6 +328,18 @@ impl Parser<'_> {
             return;
         };
         marker.complete(self, kind);
+        // GoogleSQL's several conditions after nested joins, as in `a JOIN b JOIN c USING (x)
+        // USING (y)`.
+        if self.at_keyword("ON") || self.at_keyword("USING") {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's joins take one condition each",
+            )
+            .help("put each join in parentheses with its condition");
+            self.skip_until(|p| p.at_sync() || p.at_join() || p.current() == COMMA);
+        }
     }
 
     /// A source of `FROM` or of a join, with its `TABLESAMPLE` clauses.
@@ -174,7 +362,7 @@ impl Parser<'_> {
         let kind = if self.current() == L_PAREN {
             // A query, or a join when the join reads further than the query before its first
             // error.
-            let query = match self.keyword_at(1, "FROM") {
+            let query = match self.query_at(1) {
                 true => Err(None),
                 false => self
                     .attempt(|p| {
@@ -199,6 +387,19 @@ impl Parser<'_> {
             self.table_alias();
             self.with_offset();
             UNNEST_SOURCE
+        } else if matches!(self.current(), STRING) {
+            // GoogleSQL's table named by a string, as in `FROM 'a.csv'`.
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql names tables with names, not strings",
+            );
+            let error = self.start();
+            self.bump();
+            error.complete(self, ERROR);
+            self.table_alias();
+            TABLE_SOURCE
         } else {
             self.record_name(NameRole::Table);
             if !self.table_path() {
@@ -213,6 +414,7 @@ impl Parser<'_> {
             } else {
                 self.table_alias();
                 self.with_offset();
+                self.locking();
                 if self.at_keyword("FOR") && self.keyword_at(1, "SYSTEM_TIME") {
                     let range = self.range();
                     self.error(
@@ -227,6 +429,23 @@ impl Parser<'_> {
         };
         let item = marker.complete(self, kind);
         Some(self.pivot_or_unpivot(item))
+    }
+
+    /// GoogleSQL's locking clause, `FOR UPDATE`, which avenger-sql reports and skips.
+    fn locking(&mut self) {
+        if !(self.at_keyword("FOR") && self.keyword_at(1, "UPDATE")) {
+            return;
+        }
+        let range = self.range().cover(self.nth_range(1));
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql reads tables without locking them, so no FOR UPDATE",
+        );
+        let error = self.start();
+        self.bump_keyword();
+        self.bump_keyword();
+        error.complete(self, ERROR);
     }
 
     /// Reports that no source is at the current token, and skips it when it is not a token
@@ -475,7 +694,7 @@ impl Parser<'_> {
                 self.bump_keyword();
                 self.comma_list_until(
                     |p| {
-                        if p.current() == STAR {
+                        if p.current() == STAR && p.nth(1) != STAR {
                             let range = p.range();
                             p.error(
                                 DiagnosticCode::Expected,
@@ -506,7 +725,16 @@ impl Parser<'_> {
             }
             "DROP" => {
                 self.bump_keyword();
-                self.comma_list_until(|p| p.column_name("DROP"), Self::at_operator_end);
+                self.comma_list_until(
+                    |p| match p.current() == STAR && p.nth(1) == STAR {
+                        // GoogleSQL's `DROP **s`, of a struct's fields.
+                        true => {
+                            p.primary();
+                        }
+                        false => p.column_name("DROP"),
+                    },
+                    Self::at_operator_end,
+                );
                 PIPE_DROP
             }
             "RENAME" => {
@@ -547,7 +775,19 @@ impl Parser<'_> {
             }
             "LIMIT" => {
                 self.bump_keyword();
-                self.expr();
+                if self.at_keyword("ALL") {
+                    let range = self.range();
+                    self.error(
+                        DiagnosticCode::Unsupported,
+                        range,
+                        "avenger-sql's LIMIT takes a count; without one, leave the LIMIT out",
+                    );
+                    let error = self.start();
+                    self.bump_keyword();
+                    error.complete(self, ERROR);
+                } else {
+                    self.expr();
+                }
                 if self.at_keyword("OFFSET") {
                     let marker = self.start();
                     self.bump_keyword();
@@ -562,6 +802,8 @@ impl Parser<'_> {
             }
             "INNER" | "LEFT" | "FULL" | "OUTER"
                 if !(self.keyword_at(1, "JOIN")
+                    || self.keyword_at(1, "HASH")
+                    || self.keyword_at(1, "LOOKUP")
                     || self.keyword_at(1, "OUTER") && self.keyword_at(2, "JOIN")) =>
             {
                 let mode = self.start();
@@ -573,7 +815,8 @@ impl Parser<'_> {
                 self.set_operation();
                 PIPE_SET_OPERATION
             }
-            "JOIN" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "NATURAL" => {
+            "JOIN" | "INNER" | "LEFT" | "RIGHT" | "FULL" | "CROSS" | "NATURAL" | "HASH"
+            | "LOOKUP" => {
                 self.join_op();
                 self.source();
                 self.join_condition();
@@ -584,6 +827,7 @@ impl Parser<'_> {
                 self.path(NameRole::Function);
                 self.table_arguments();
                 self.alias(NameRole::Alias);
+                self.call_order();
                 PIPE_CALL
             }
             "TABLESAMPLE" => {
@@ -635,11 +879,16 @@ impl Parser<'_> {
             }
             _ if UNSUPPORTED_OPERATORS.contains(&word) => {
                 let range = self.range();
-                self.error(
+                let diagnostic = self.error(
                     DiagnosticCode::Unsupported,
                     range,
                     format!("avenger-sql has no pipe {word}"),
                 );
+                if word == "WINDOW" {
+                    diagnostic.help(
+                        "windows go in EXTEND, as in `|> EXTEND SUM(x) OVER (ORDER BY t) AS total`",
+                    );
+                }
                 self.skip_until(|p| p.at_sync());
                 return None;
             }
@@ -661,7 +910,8 @@ impl Parser<'_> {
 
     fn select_item(&mut self) {
         let marker = self.start();
-        if self.current() != STAR && self.qualified_star_ahead().is_none() {
+        if (self.current() != STAR || self.nth(1) == STAR) && self.qualified_star_ahead().is_none()
+        {
             self.item_expr();
             // `expression.*` of a struct.
             if self.current() == DOT && self.nth(1) == STAR {
@@ -1037,13 +1287,23 @@ impl Parser<'_> {
 
     /// A path, or paths in parentheses, in a `PATH_LIST` node.
     fn path_or_paths(&mut self) {
+        if self.unpack() {
+            return;
+        }
         let marker = self.start();
         if self.current() != L_PAREN {
             self.path(NameRole::Column);
             marker.complete(self, PATH_LIST);
             return;
         }
-        self.paren_list(|p| p.path(NameRole::Column), false);
+        self.paren_list(
+            |p| {
+                if !p.unpack() {
+                    p.path(NameRole::Column);
+                }
+            },
+            false,
+        );
         marker.complete(self, PATH_LIST);
     }
 }
