@@ -93,6 +93,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-chart-app`: An avenger app of a chart: the tools that its plots and layers declare, and one handle of updates of its chart, its styles, its mode, and its selections
 - `avenger-datafusion-shared`: Shared inputs of DataFusion plans: an input that a plan reads several times and that runs once, and the rule that computes cheap inputs again in place of sharing them
 - `avenger-sql`: DataFusion SQL that builds avenger charts: the mark functions and constructors of avenger-chart's `functions` feature as DataFusion functions, the transforms of avenger-datafusion-transforms, and the rewrites that DataFusion needs to plan their queries
+- `avenger-sql-language`: Editor features of avenger-sql scripts from one analysis: diagnostics, semantic highlighting, completion, hover, go to definition, references, rename, signature help, and the outline, in the shape of the Language Server Protocol's requests
 - `avenger-style`: The CSS style language of charts: stylesheets, their checks against the vocabulary of the style tree, and property values
 
 ## Important Patterns
