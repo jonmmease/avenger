@@ -89,7 +89,9 @@ fn groups(chart: &Chart) -> Vec<(String, Option<String>, usize)> {
 
 fn set_resolve(node: &mut Node, sharing: proto::Sharing) {
     let rule = proto::Resolve {
-        key: Some(proto::resolve::Key::Widget("magnitude".to_string())),
+        key: Some(proto::resolve::Key::Widget(proto::WidgetKey {
+            key: "magnitude".to_string(),
+        })),
         sharing: sharing as i32,
     };
     match node.node.as_mut() {
@@ -539,7 +541,9 @@ fn resolve_rules_of_widgets_follow_the_rules_of_channels() {
     if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
         plot.resolve = vec![
             proto::Resolve {
-                key: Some(proto::resolve::Key::Widget("magnitude".to_string())),
+                key: Some(proto::resolve::Key::Widget(proto::WidgetKey {
+                    key: "magnitude".to_string(),
+                })),
                 sharing: proto::Sharing::Shared as i32,
             },
             proto::Resolve {
@@ -557,7 +561,9 @@ fn resolve_rules_of_widgets_follow_the_rules_of_channels() {
         keys,
         [
             Some(proto::resolve::Key::Channel(proto::Channel::Color as i32)),
-            Some(proto::resolve::Key::Widget("magnitude".to_string())),
+            Some(proto::resolve::Key::Widget(proto::WidgetKey {
+                key: "magnitude".to_string()
+            })),
         ]
     );
 }

@@ -1307,14 +1307,17 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
         "root.plot.resolve[0]",
         "`key` is required: one of `channel`, `widget`",
     );
-    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(String::new()));
+    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(proto::WidgetKey {
+        key: String::new(),
+    }));
     invalid(
         parts.clone(),
-        "root.plot.resolve[0].widget",
-        "`widget` is required and not empty",
+        "root.plot.resolve[0].widget.key",
+        "`key` is required and not empty",
     );
-    plot_mut(&mut parts.0).resolve[0].key =
-        Some(proto::resolve::Key::Widget("magnitude".to_string()));
+    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(proto::WidgetKey {
+        key: "magnitude".to_string(),
+    }));
     read(parts).unwrap();
 }
 

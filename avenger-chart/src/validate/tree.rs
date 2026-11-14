@@ -75,6 +75,7 @@ impl Checker<'_> {
         }
         if let Some(facet) = &concat.facet {
             let path = format!("{path}.facet");
+            facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
         }
@@ -107,6 +108,7 @@ impl Checker<'_> {
         }
         if let Some(facet) = &wrap.facet {
             let path = format!("{path}.facet");
+            facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
         }
@@ -713,4 +715,17 @@ fn part_rules(rules: &[proto::PartRule], path: &str) -> Result<()> {
         &format!("{path}.part_rules"),
         "part rules",
     )
+}
+
+/// A facet names its column. The constructor of a facet takes no column, because the composition
+/// that builds a facet sets it from its key, so the reader checks it here rather than through
+/// `required`.
+fn facet_column(facet: &proto::Facet, path: &str) -> Result<()> {
+    match facet.column.is_empty() {
+        true => Err(fail(
+            format!("{path}.column"),
+            "`column` is required and not empty",
+        )),
+        false => Ok(()),
+    }
 }

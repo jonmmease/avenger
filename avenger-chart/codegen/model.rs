@@ -13,7 +13,8 @@
 //! - rule A: a message whose only required content is one field, from the argument of that field
 //! - rule O: a message whose first field, by number, is a member of a oneof, and whose other fields
 //!   are not required, from an argument of the oneof
-//! - rule F: a message without required content, from a field that the `lift` option marks
+//! - rule F: a message without required content, from the argument of a parameter that the `lift`
+//!   option marks and that is not repeated
 //!
 //! An argument of a oneof sets a member by the same steps: a name of a member without required
 //! content in a oneof whose members take no strings, a fragment, or a value of a member's class.
@@ -339,19 +340,21 @@ impl<'a> Model<'a> {
                     }
                 }
             }
-            // Rule F: the lifted fields of a message without required content.
+            // Rule F: the lifted fields of a message without required content that are parameters.
             if required.is_empty() {
                 for field in &message.field {
-                    let lifted = annotations
-                        .lift
-                        .contains(&(name.clone(), field.name().to_string()));
-                    if let (true, Some(Shape::Message(_))) = (lifted, Shape::of(field)) {
-                        edges.push(Edge {
-                            to: node.clone(),
-                            input: Input::Message(field.type_name().to_string()),
-                            set: Set::Field(field),
-                            precedence: 0,
-                        });
+                    let parameter = (model.params.iter()).any(|param| {
+                        matches!(param.kind, ParamKind::Field(of, _) if of.name() == field.name())
+                    });
+                    let lifted = parameter
+                        && annotations
+                            .lift
+                            .contains(&(name.clone(), field.name().to_string()));
+                    match (lifted, Shape::of(field)) {
+                        (true, Some(Shape::Repeated(_))) | (_, None) | (false, _) => {}
+                        (true, Some(shape)) => {
+                            edges.extend(field_edges(node.clone(), &shape, Set::Field(field)));
+                        }
                     }
                 }
             }

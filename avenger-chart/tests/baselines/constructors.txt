@@ -1,3 +1,106 @@
+facet(show, title, show_title, side, labels, label_angle, label_padding, tick_length, rule_color, rule_width, classes, id)
+  show: Boolean
+  title: string -> text; title(...)
+  show_title: Boolean
+  side: one of bottom, top, left, right
+  labels: labels(...)
+  label_angle: number
+  label_padding: number
+  tick_length: number
+  rule_color: string
+  rule_width: number
+  classes: array of string
+  id: string
+labels(format, markup, style)
+  format: string
+  markup: string
+  style: text_style(...)
+text_style(font_family, font_size, font_weight, color)
+  font_family: string
+  font_size: number
+  font_weight: number
+  color: string
+title(text, side, syntax, style, subtitle, subtitle_style, align)
+  text (required): string
+  side: one of top, left, right, bottom
+  syntax: one of plain, plain_lines, typst
+  style: text_style(...)
+  subtitle: string
+  subtitle_style: text_style(...)
+  align: one of start, center, end
+wrap_layout(min_column_width, max_columns, row, gap, part_rules, distribute)
+  min_column_width: number
+  max_columns: integer
+  row: integer -> length; float -> length; string -> a member's name; share(...) -> share; track(...)
+  gap: number
+  part_rules: array of part_rule(...)
+  distribute: one of start, center, end, space_between, space_around, space_evenly
+part_rule(part, rule)
+  part (required): one of axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, attribution, widget
+  rule (required): one of keep, collapse, merge
+track(size)
+  size: integer -> length; float -> length; string -> a member's name; share(...) -> share
+share(weight, max)
+  weight: number
+  max: number
+resolve(key, sharing)
+  key (required): string -> channel; widget_key(...) -> widget
+  sharing (required): one of shared, independent
+widget_key(key)
+  key (required): string
+concat_layout(gap, tracks, part_rules, horizontal_distribute, vertical_distribute)
+  gap: number
+  tracks: array of track(...)
+  part_rules: array of part_rule(...)
+  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
+  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
+tool(kind, modes)
+  kind (required): string -> a member's name; navigate(...) -> navigate; nearest_find(...) -> nearest -> tooltip; select(...) -> select; tooltip(...) -> tooltip
+  modes: array of string
+select(selection, form, scope)
+  selection (required): string
+  form: string -> a member's name; interval_select(...) -> interval; lasso_select(...) -> lasso; point_select(...) -> points
+  scope: array of string
+lasso_select(keys)
+  keys: array of string
+point_select(keys, toggle)
+  keys: array of point_key(...)
+  toggle: Boolean
+point_key(column, source)
+  column (required): string
+  source: string
+interval_select(channels, cell)
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+  cell: number
+tooltip(find, title, fields, anchor, hide_swatch)
+  find: string -> a member's name; nearest_find(...) -> nearest
+  title: tooltip_field(...)
+  fields: array of tooltip_field(...)
+  anchor: one of data, pointer, instance
+  hide_swatch: Boolean
+tooltip_field(column, title, labels)
+  column: string
+  title: string
+  labels: labels(...)
+nearest_find(max_radius, metric)
+  max_radius: number
+  metric: one of euclidean, along_x, along_y
+navigate(channels)
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail
+attribution(credits, side, align, separator, separator_space, text_style, line_gap, background)
+  credits: array of string
+  side: one of bottom, top, left, right
+  align: one of start, end
+  separator: string
+  separator_space: number
+  text_style: text_style(...)
+  line_gap: number
+  background: background(...)
+background(fill, stroke, corner_radius, padding)
+  fill: string
+  stroke: string
+  corner_radius: number
+  padding: number
 geo(surface, family, aspect, navigation)
   surface (required): string -> a member's name; conic_conformal(...) -> conic_conformal -> spherical; conic_equal_area(...) -> conic_equal_area -> spherical; conic_equidistant(...) -> conic_equidistant -> spherical; custom_projection(...) -> custom -> spherical; cylindrical_equal_area_projection(...) -> cylindrical_equal_area -> spherical; hammer_projection(...) -> hammer -> spherical; planar(...) -> planar; spherical(...) -> spherical
   family: string
@@ -43,11 +146,6 @@ graticule(longitude_step, latitude_step, extent, major_longitude_step, major_lat
   label_padding: number
   color: string
   width: number
-text_style(font_family, font_size, font_weight, color)
-  font_family: string
-  font_size: number
-  font_weight: number
-  color: string
 label_sides(sides)
   sides: array of one of bottom, top, left, right
 lon_lat_box(west, south, east, north)
@@ -156,23 +254,6 @@ legend_wrap(wrap)
   wrap: string -> a member's name; legend_grid(...) -> grid
 legend_grid(columns)
   columns: integer
-background(fill, stroke, corner_radius, padding)
-  fill: string
-  stroke: string
-  corner_radius: number
-  padding: number
-labels(format, markup, style)
-  format: string
-  markup: string
-  style: text_style(...)
-title(text, side, syntax, style, subtitle, subtitle_style, align)
-  text (required): string
-  side: one of top, left, right, bottom
-  syntax: one of plain, plain_lines, typst
-  style: text_style(...)
-  subtitle: string
-  subtitle_style: text_style(...)
-  align: one of start, center, end
 axis(title, side, labels, show_labels, label_rotation, label_align, label_baseline, ticks, domain_color, grid, levels, classes, id, angle, show, show_title, show_ticks, show_domain, show_grid, route)
   title: string -> text; title(...)
   side: one of bottom, top, left, right

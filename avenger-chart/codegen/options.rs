@@ -7,6 +7,8 @@
 //! - the mark messages, the members of the `mark` oneof of each layer, and the fields of each that
 //!   are not channels
 //! - the `options` of each plot of a coordinate system: `CartesianPlot`, `PolarPlot`, and `GeoPlot`
+//! - the composition nodes `Plot`, `Concat`, and `Wrap`, whose fields other than the structural ones
+//!   are the options of the compositions that build them
 //!
 //! The tree stops at `ValueRef`, `TableRef`, `Table`, and `Encoding`, which are values, tables,
 //! and channels, not options. build.rs fails, in every build, when a oneof of the tree has two
@@ -25,6 +27,15 @@ use super::{Messages, PACKAGE};
 
 /// The messages where the tree stops.
 const STOPS: [&str; 4] = ["ValueRef", "TableRef", "Table", "Encoding"];
+
+/// The composition nodes, each with its structural fields: its children, its partition, and what
+/// a composition sets, such as the direction of a concat. Their other fields are the options of
+/// the compositions.
+pub(super) const COMPOSITION_NODES: [(&str, &[&str]); 3] = [
+    ("Plot", &["partition", "cartesian", "polar", "geo"]),
+    ("Concat", &["direction", "children", "partition"]),
+    ("Wrap", &["children", "partition"]),
+];
 
 /// The full names of the messages of the option tree, in the order that a walk from the roots
 /// finds them.
@@ -56,6 +67,18 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
     }
     let mut tree: Vec<String> = Vec::new();
     let mut seen = BTreeSet::new();
+    // The composition nodes are members of the tree, and the walk follows only their options.
+    for (node, structural) in COMPOSITION_NODES {
+        let name = format!("{PACKAGE}.{node}");
+        let Some((_, _, message)) = messages.get(&name) else {
+            continue;
+        };
+        for field in (message.field.iter()).filter(|field| !structural.contains(&field.name())) {
+            roots.extend(message_type(field));
+        }
+        seen.insert(name.clone());
+        tree.push(name);
+    }
     while let Some(name) = roots.pop() {
         if !seen.insert(name.clone()) || stops(&name) {
             continue;
@@ -70,11 +93,18 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
 }
 
 /// The fields that are not options of a message of the tree or of `Encoding`, by the message's
-/// full name and the field's name: the members of `Encoding.kind`, which `scaled` and `direct`
-/// set, and `Encoding.conditional`.
+/// full name and the field's name: the structural fields of the composition nodes, the column of a
+/// facet, which the composition that builds a facet sets from its key, the members of
+/// `Encoding.kind`, which `scaled` and `direct` set, and `Encoding.conditional`.
 pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
     let encoding = format!("{PACKAGE}.Encoding");
     let mut excluded = BTreeSet::new();
+    for (node, structural) in COMPOSITION_NODES {
+        for field in structural {
+            excluded.insert((format!("{PACKAGE}.{node}"), field.to_string()));
+        }
+    }
+    excluded.insert((format!("{PACKAGE}.Facet"), "column".to_string()));
     if let Some((_, _, message)) = messages.get(&encoding) {
         let kind = (message.oneof_decl.iter()).position(|oneof| oneof.name() == "kind");
         for field in &message.field {

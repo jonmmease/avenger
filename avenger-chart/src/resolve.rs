@@ -403,7 +403,7 @@ impl<'a> Shares<'a> {
             proto::resolve::Key::Channel(channel) => Some(Shares::Channel(
                 Channel::try_from(*channel).unwrap_or_default(),
             )),
-            proto::resolve::Key::Widget(key) => Some(Shares::Widget(key)),
+            proto::resolve::Key::Widget(widget) => Some(Shares::Widget(&widget.key)),
         }
     }
 }
