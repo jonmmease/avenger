@@ -65,10 +65,7 @@ fn checked(text: &str, parse: Parse) -> SyntaxNode {
 
 /// The diagnostic at its 1-based line and column, which counts characters, and its text.
 pub fn describe(text: &str, diagnostic: &Diagnostic) -> String {
-    let before = &text[..usize::from(diagnostic.range.start())];
-    let line = before.matches('\n').count() + 1;
-    let line_start = before.rfind('\n').map_or(0, |index| index + 1);
-    let column = before[line_start..].chars().count() + 1;
+    let (line, column) = avenger_sql_syntax::line_column(text, diagnostic.range.start());
     format!(
         "{line}:{column}: {diagnostic} at `{}`",
         &text[diagnostic.range]

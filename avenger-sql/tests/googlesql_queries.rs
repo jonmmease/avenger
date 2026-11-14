@@ -2,11 +2,10 @@
 //! `execute_query` ran over the same rows as the tests' tables, through the pass, with its columns,
 //! their types and its rows, or its error.
 
-mod googlesql;
 mod pass;
 
 use avenger_sql::types;
-use googlesql::cell;
+use pass::values::cell;
 
 /// The files of the recorded queries.
 const DATA: &[(&str, &str)] = &[

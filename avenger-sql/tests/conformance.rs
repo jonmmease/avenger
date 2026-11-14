@@ -11,7 +11,7 @@
 //! cargo test --release -p avenger-sql --test conformance -- --ignored
 //! ```
 
-mod googlesql;
+mod pass;
 
 use std::{fmt::Write as _, path::PathBuf, process::Command, sync::Arc};
 
@@ -205,7 +205,7 @@ async fn ours(ctx: &SessionContext, text: &str) -> Outcome {
         for row in 0..batch.num_rows() {
             rows.push(
                 (batch.columns().iter())
-                    .map(|column| googlesql::cell(column, row))
+                    .map(|column| pass::values::cell(column, row))
                     .collect(),
             );
         }

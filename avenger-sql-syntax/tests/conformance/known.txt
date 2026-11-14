@@ -13,7 +13,7 @@ pipe_create_table.test:*	the pipe CREATE TABLE isn't in the subset
 pipe_export_data.test:*	the pipe EXPORT DATA isn't in the subset
 pipe_align_operator.test:*	the pipe ALIGN isn't in the subset
 pipe_log.test:*	the pipe LOG isn't in the subset
-crate:REJECTED:46	the pipe LOG isn't in the subset
+crate:REJECTED:47	the pipe LOG isn't in the subset
 pipe_assert.test:*	the pipe ASSERT isn't in the subset
 pipe_match_recognize.test:*	MATCH_RECOGNIZE isn't in the subset
 pipe_lock_mode.test:*	locking clauses aren't in the subset
@@ -115,8 +115,8 @@ create_sql_function.test:25:*	a SQL function needs a body in the subset
 modules.test:57	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:58	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:59	IMPORT MODULE names a module by a path, without INTO, in the subset
-crate:REJECTED:48	IMPORT MODULE names a module by a path, without INTO, in the subset
 crate:REJECTED:49	IMPORT MODULE names a module by a path, without INTO, in the subset
+crate:REJECTED:50	IMPORT MODULE names a module by a path, without INTO, in the subset
 crate:REJECTED:15	IMPORT PROTO isn't in the subset
 crate:REJECTED:14	a MODULE statement starts a module, not a script
 set.test:21:0	SET assigns a variable of the script, not a query parameter or a system variable
@@ -153,5 +153,5 @@ variable_declarations.test:27	BEGIN ... END blocks aren't in the subset
 crate:REJECTED:9	procedural statements, such as IF, aren't in the subset
 
 # Choices of the subset.
-crate:QUERIES:27	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, which the subset leaves out
-crate:QUERIES:33	avenger accepts a script without statements
+crate:QUERIES:28	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, which the subset leaves out
+crate:QUERIES:34	avenger accepts a script without statements

@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use rowan::TextRange;
+use rowan::{TextRange, TextSize};
 
 /// What a diagnostic is about.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -101,3 +101,12 @@ impl fmt::Display for Diagnostic {
 }
 
 impl std::error::Error for Diagnostic {}
+
+/// The line and the column, each from 1, of the offset `offset` of `text`. The column counts
+/// characters, as GoogleSQL's positions of errors do.
+pub fn line_column(text: &str, offset: TextSize) -> (usize, usize) {
+    let before = &text[..usize::from(offset).min(text.len())];
+    let line = before.matches('\n').count() + 1;
+    let start = before.rfind('\n').map_or(0, |i| i + 1);
+    (line, before[start..].chars().count() + 1)
+}

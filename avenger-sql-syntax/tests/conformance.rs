@@ -90,21 +90,13 @@ fn crate_inputs() -> Vec<Input> {
     inputs
 }
 
-/// The line and the column, from 1, of the byte offset `offset` of `text`.
-fn position(text: &str, offset: usize) -> (usize, usize) {
-    let before = &text[..offset.min(text.len())];
-    let line = before.matches('\n').count() + 1;
-    let column = before.len() - before.rfind('\n').map_or(0, |i| i + 1) + 1;
-    (line, column)
-}
-
 /// Our verdict of `text`.
 fn ours(text: &str) -> Verdict {
     let parse = avenger_sql_syntax::parse(text);
     match parse.diagnostics().iter().min_by_key(|d| d.range.start()) {
         None => Verdict::Accepts,
         Some(diagnostic) => {
-            let (line, column) = position(text, usize::from(diagnostic.range.start()));
+            let (line, column) = avenger_sql_syntax::line_column(text, diagnostic.range.start());
             Verdict::Rejects { line, column }
         }
     }
