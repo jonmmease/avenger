@@ -95,35 +95,47 @@ fn the_fronts_split() {
             "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, target |> CALL impute(type, [target], n, value => 0)",
             "aggregate of 2 groups and 1 aggregates",
         ),
+        // Several reads of events, each with a front, which the downstream joins or unions.
         (
-            "FROM events AS e |> WHERE e.type = 'click' |> AGGREGATE COUNT(*) AS n",
-            "aggregate of 0 groups and 1 aggregates",
+            "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS clicks GROUP BY target |> JOIN (FROM events |> WHERE type = 'move' |> AGGREGATE COUNT(*) AS moves GROUP BY target) AS m USING (target)",
+            "aggregate of 1 groups and 1 aggregates; aggregate of 1 groups and 1 aggregates",
         ),
-        // A table function downstream of the front.
         (
-            "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, target |> CALL impute(type, [target], n, value => 0)",
-            "aggregate of 2 groups and 1 aggregates",
+            "FROM events |> ORDER BY seq DESC |> LIMIT 1 |> SELECT seq |> UNION ALL (FROM events |> AGGREGATE MAX(seq) AS seq)",
+            "limit of 1 after 0, by 1 keys; aggregate of 0 groups and 1 aggregates",
+        ),
+        (
+            "FROM events |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n PATTERN (a b+) DEFINE a AS type = 'down', b AS type = 'move') |> UNION ALL (FROM events |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n PATTERN (e) DEFINE e AS type = 'escape'))",
+            "match of 2 variables in 0 partitions, 0 rows back and 0 ahead; match of 1 variables in 0 partitions, 0 rows back and 0 ahead",
+        ),
+        // Equal reads, each with a front of its own.
+        (
+            "FROM events |> AGGREGATE COUNT(*) AS n |> CROSS JOIN (FROM events |> AGGREGATE COUNT(*) AS n) AS again",
+            "aggregate of 0 groups and 1 aggregates; aggregate of 0 groups and 1 aggregates",
         ),
     ];
     for (query, want) in cases {
         let found = match split_of(query) {
-            Ok(split) => match split.front {
-                Front::Aggregate { groups, aggregates } => format!(
-                    "aggregate of {} groups and {} aggregates",
-                    groups.len(),
-                    aggregates.len()
-                ),
-                Front::Limit { order, skip, fetch } => {
-                    format!("limit of {fetch} after {skip}, by {} keys", order.len())
-                }
-                Front::MatchRecognize(front) => format!(
-                    "match of {} variables in {} partitions, {} rows back and {} ahead",
-                    front.call.variables.len(),
-                    front.partition.len(),
-                    front.back,
-                    front.ahead
-                ),
-            },
+            Ok(split) => (split.fronts.iter())
+                .map(|front| match &front.front {
+                    Front::Aggregate { groups, aggregates } => format!(
+                        "aggregate of {} groups and {} aggregates",
+                        groups.len(),
+                        aggregates.len()
+                    ),
+                    Front::Limit { order, skip, fetch } => {
+                        format!("limit of {fetch} after {skip}, by {} keys", order.len())
+                    }
+                    Front::MatchRecognize(front) => format!(
+                        "match of {} variables in {} partitions, {} rows back and {} ahead",
+                        front.call.variables.len(),
+                        front.partition.len(),
+                        front.back,
+                        front.ahead
+                    ),
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
             Err(message) => message,
         };
         assert_eq!(found, want, "{query}");
@@ -141,7 +153,7 @@ fn the_other_shapes_are_rejected() {
         ),
         (
             "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS n |> SELECT n, (FROM events |> AGGREGATE COUNT(*) AS c) AS total",
-            "the query reads events 2 times",
+            "a subquery of an expression reads events",
         ),
         (
             "FROM events |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS x > (FROM targets |> AGGREGATE COUNT(*) AS c))",
@@ -161,7 +173,12 @@ fn the_other_shapes_are_rejected() {
         ),
         (
             "FROM events |> JOIN events AS other USING (seq) |> AGGREGATE COUNT(*) AS n",
-            "the query reads events 2 times",
+            "a join over events",
+        ),
+        // One read of several without a front of its own.
+        (
+            "FROM events |> AGGREGATE COUNT(*) AS n |> CROSS JOIN (FROM events |> WHERE type = 'click' |> SELECT seq)",
+            "a join over events",
         ),
         (
             "FROM events |> JOIN targets USING (target) |> AGGREGATE COUNT(*) AS n",
@@ -231,6 +248,11 @@ fn a_downstream_of_the_latest_matches_keeps_the_first_final_rows() {
         (format!("{brush} |> AGGREGATE COUNT(*) AS drags"), None),
         (
             "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type |> ORDER BY n DESC |> LIMIT 1".to_string(),
+            None,
+        ),
+        // The latest matches of a query of several fronts.
+        (
+            format!("{brush} |> ORDER BY last_seq DESC |> LIMIT 1 |> UNION ALL ({brush} |> WHERE moves = 0 |> ORDER BY last_seq DESC |> LIMIT 1)"),
             None,
         ),
     ];

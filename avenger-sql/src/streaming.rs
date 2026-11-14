@@ -1,16 +1,17 @@
-//! The split of a query over the built-in `events` table for a streaming runtime: the stateless
-//! stages that read `events`, the front that reduces their rows, and the downstream that reads the
-//! front's output.
+//! The split of a query over the built-in `events` table for a streaming runtime: for each read
+//! of `events`, the stateless stages over it and the front that reduces their rows, and the
+//! downstream that reads the fronts' outputs.
 //!
-//! A streaming runtime runs each frame's events through the stages once and applies the rows
-//! that they keep to the front, whose output is a small table that the runtime maintains. The
-//! downstream is the rest of the query as a batch plan over that table, which reads it through a
-//! [`Slot`]. After every frame, the result equals the batch plan of the whole query over every
-//! event so far. The fronts take rows that only grow, as `events` does, so none of them needs a
-//! retraction:
+//! A streaming runtime runs each frame's events through each read's stages once and applies the
+//! rows that they keep to its front, whose output is a small table that the runtime maintains.
+//! The downstream is the rest of the query as a batch plan over those tables, which reads each
+//! through a [`Slot`], so a join or a union of several fronts is downstream work. After every
+//! frame, the result equals the batch plan of the whole query over every event so far. The fronts
+//! take rows that only grow, as `events` does, so none of them needs a retraction:
 //!
 //! - an `AGGREGATE`, grouped or not, whose accumulators only add rows;
-//! - an `ORDER BY ... LIMIT`, whose kept rows only leave when a new row takes their place.
+//! - an `ORDER BY ... LIMIT`, whose kept rows only leave when a new row takes their place;
+//! - a `MATCH_RECOGNIZE` ordered by `seq`, whose matches before its settled frontier are final.
 //!
 //! [`split`] rejects a query of another shape, whose caller runs the batch plan.
 
@@ -32,17 +33,27 @@ use datafusion::{
 /// A query over `events`, split for a streaming runtime.
 #[derive(Debug, Clone)]
 pub struct Split {
+    /// A front for each read of `events`, in the order of the plan.
+    pub fronts: Vec<FrontSplit>,
+    /// The rest of the query, which reads each front's output through its slot, and joins or
+    /// unions the outputs of several fronts.
+    pub downstream: LogicalPlan,
+    /// The downstream as the latest rows of the front's output, for a query of one front whose
+    /// output keeps its final rows, such as `MATCH_RECOGNIZE`.
+    pub latest: Option<Latest>,
+}
+
+/// A read of `events`: the stages over its scan, the front over the stages, and the slot of the
+/// front's output.
+#[derive(Debug, Clone)]
+pub struct FrontSplit {
     /// The stages: the plan of the rows that reach the front, over the table `events`.
     pub stages: LogicalPlan,
     /// The scan of `events` in `stages`, which a runtime replaces with a scan of each frame.
     pub scan: TableScan,
     pub front: Front,
-    /// The rest of the query, which reads the front's output through `slot`.
-    pub downstream: LogicalPlan,
+    /// The table of the front's output, which the downstream reads.
     pub slot: Slot,
-    /// The downstream as the latest rows of the front's output, for a front whose output keeps
-    /// its final rows, such as `MATCH_RECOGNIZE`.
-    pub latest: Option<Latest>,
 }
 
 /// A downstream that starts with row-wise stages and an `ORDER BY ... LIMIT` over the front's
@@ -174,24 +185,72 @@ impl Slot {
 }
 
 /// The split of `plan`, the plan of a query, whose catalog's table of events is `events`, or why
-/// it doesn't split.
+/// it doesn't split. Each read of `events` has a front of its own, and the downstream reads the
+/// fronts' outputs.
 pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Split, Rejection> {
-    // The path from the plan's root to its one scan of `events`.
-    // Subqueries too, as a downstream can read events again through one.
-    let mut scans = 0;
-    plan.apply_with_subqueries(|node| {
-        if reads(node, events) {
-            scans += 1;
+    let count = |subqueries: bool| {
+        let mut scans = 0;
+        let visit = |node: &LogicalPlan| {
+            if reads(node, events) {
+                scans += 1;
+            }
+            Ok(TreeNodeRecursion::Continue)
+        };
+        match subqueries {
+            true => plan.apply_with_subqueries(visit),
+            false => plan.apply(visit),
         }
-        Ok(TreeNodeRecursion::Continue)
-    })
-    .expect("a walk of the plan");
-    match scans {
-        0 => return reject("the query doesn't read events"),
-        1 => {}
-        n => return reject(format!("the query reads events {n} times")),
+        .expect("a walk of the plan");
+        scans
+    };
+    let scans = count(false);
+    if scans == 0 {
+        return reject("the query doesn't read events");
     }
-    let path = path_to_events(plan, events).expect("the scan of events");
+    // A subquery of an expression that reads events has no front that the runtime evaluates.
+    if count(true) > scans {
+        return reject("a subquery of an expression reads events");
+    }
+    let mut paths = Vec::new();
+    paths_to_events(plan, events, &mut Vec::new(), &mut paths);
+    // The analyzer names each scan of a table on its own, so the output nodes of two fronts
+    // differ. Two equal ones would both read the first front's slot, which holds the same rows.
+    let mut fronts = Vec::new();
+    let mut replaced = Vec::new();
+    for (index, path) in paths.iter().enumerate() {
+        let name = match index {
+            0 => "front".to_string(),
+            n => format!("front_{n}"),
+        };
+        let (front, node) = front_of(path, &name)?;
+        fronts.push(front);
+        replaced.push(node);
+    }
+    // A function whose value changes as time passes, anywhere: a stream would read it at other
+    // times than the batch plan does, and an optimized plan holds its value as a constant.
+    if let Some(name) = time_function(plan) {
+        return reject(format!(
+            "the query reads the function {name}, whose value changes as time passes"
+        ));
+    }
+    let mut downstream = plan.clone();
+    for (front, node) in fronts.iter().zip(&replaced) {
+        downstream = replace(&downstream, node, &front.slot.plan);
+    }
+    let latest = match fronts.as_slice() {
+        [only] if matches!(only.front, Front::MatchRecognize(_)) => latest(&downstream, &only.slot),
+        _ => None,
+    };
+    Ok(Split {
+        fronts,
+        downstream,
+        latest,
+    })
+}
+
+/// The front of the read of `events` at the end of `path`, the nodes from the plan's root down to
+/// the scan, and the node of the front's output, which the slot of the table `name` replaces.
+fn front_of(path: &[LogicalPlan], name: &str) -> Result<(FrontSplit, LogicalPlan), Rejection> {
     let LogicalPlan::TableScan(scan) = path.last().expect("the scan") else {
         unreachable!("the path ends at the scan");
     };
@@ -203,23 +262,10 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
     if top == 0 {
         return reject("the query has no front over events, so its result grows with every event");
     }
-    // A function whose value changes as time passes, anywhere: a stream would read it at other
-    // times than the batch plan does, and an optimized plan holds its value as a constant.
-    if let Some(name) = time_function(plan) {
-        return reject(format!(
-            "the query reads the function {name}, whose value changes as time passes"
-        ));
-    }
     let stages = &path[top];
-    if let Some(front) = match_recognize(&path, top)? {
-        let measures = front.1;
-        return Ok(finish(
-            plan,
-            stages,
-            scan,
-            Front::MatchRecognize(Box::new(front.0)),
-            &path[measures],
-        ));
+    if let Some((front, measures)) = match_recognize(path, top)? {
+        let front = Front::MatchRecognize(Box::new(front));
+        return Ok(front_split(name, stages, scan, front, &path[measures]));
     }
     // Another table function over the stages, below any aggregate or limit.
     let reduced = (0..top)
@@ -279,31 +325,24 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
             ))
         }
     };
-    Ok(finish(plan, stages, scan, front, replaced))
+    Ok(front_split(name, stages, scan, front, replaced))
 }
 
-/// The split of `plan` whose front's output is the node `replaced`.
-fn finish(
-    plan: &LogicalPlan,
+/// The front `front` over `stages`, whose output is the node `replaced`, and that node.
+fn front_split(
+    name: &str,
     stages: &LogicalPlan,
     scan: &TableScan,
     front: Front,
     replaced: &LogicalPlan,
-) -> Split {
-    let slot = Slot::new("front", replaced.schema());
-    let downstream = replace(plan, replaced, &slot.plan);
-    let latest = match front {
-        Front::MatchRecognize(_) => latest(&downstream, &slot),
-        _ => None,
-    };
-    Split {
+) -> (FrontSplit, LogicalPlan) {
+    let split = FrontSplit {
         stages: stages.clone(),
         scan: scan.clone(),
         front,
-        downstream,
-        slot,
-        latest,
-    }
+        slot: Slot::new(name, replaced.schema()),
+    };
+    (split, replaced.clone())
 }
 
 /// The downstream as the latest rows of the front's output, when it starts with row-wise stages
@@ -483,18 +522,21 @@ fn reads(node: &LogicalPlan, events: &Arc<dyn TableProvider>) -> bool {
     }
 }
 
-/// The nodes from `plan` down to its scan of `events`, or `None` without one.
-fn path_to_events(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Option<Vec<LogicalPlan>> {
+/// The paths of nodes from `plan` down to each of its scans of `events`, after `prefix`, in `out`.
+fn paths_to_events(
+    plan: &LogicalPlan,
+    events: &Arc<dyn TableProvider>,
+    prefix: &mut Vec<LogicalPlan>,
+    out: &mut Vec<Vec<LogicalPlan>>,
+) {
+    prefix.push(plan.clone());
     if reads(plan, events) {
-        return Some(vec![plan.clone()]);
+        out.push(prefix.clone());
     }
     for input in plan.inputs() {
-        if let Some(mut path) = path_to_events(input, events) {
-            path.insert(0, plan.clone());
-            return Some(path);
-        }
+        paths_to_events(input, events, prefix, out);
     }
-    None
+    prefix.pop();
 }
 
 /// Whether `node` is a stage: an operator that maps each row on its own. A stage that reads a

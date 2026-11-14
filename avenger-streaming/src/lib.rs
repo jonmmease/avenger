@@ -5,13 +5,15 @@
 //! log: each frame's events go to the log and to every query, and each query's result equals its
 //! batch plan over every event so far.
 //!
-//! A query that [`avenger_sql::streaming::split`] splits runs incrementally: each frame's events
-//! pass through its stages once, the rows that they keep update its front, and the rest of the
-//! query runs as a batch plan over the front's output, only on frames where that output changed.
-//! The fronts take rows that only grow, so neither needs a retraction:
+//! A query that [`avenger_sql::streaming::split`] splits runs incrementally: each read of the
+//! events has its own stages and front, each frame's events pass through the stages of each read
+//! once, the rows that they keep update its front, and the rest of the query runs as a batch plan
+//! over the fronts' outputs, only on frames where an output changed. The fronts take rows that
+//! only grow, so none needs a retraction:
 //!
 //! - an `AGGREGATE` keeps DataFusion's accumulators of each group, which only add rows;
-//! - an `ORDER BY ... LIMIT` keeps the first rows of its order, at most its skip and its fetch.
+//! - an `ORDER BY ... LIMIT` keeps the first rows of its order, at most its skip and its fetch;
+//! - a `MATCH_RECOGNIZE` keeps each partition's rows after its settled frontier.
 //!
 //! Another query runs as its batch plan over the log on each frame with events.
 

@@ -58,6 +58,13 @@ const QUERIES: &[&str] = &[
     "FROM events |> ORDER BY x DESC, seq DESC |> LIMIT 3 |> SELECT seq, x",
     // An offset, and a stage that computes the order's first key.
     "FROM events |> EXTEND ABS(y - 300) AS distance |> ORDER BY distance, seq |> LIMIT 2 OFFSET 1 |> SELECT seq, distance",
+    // Several fronts. The boxes since the last clear: a union of the drags, the double clicks
+    // that clear them, and the clicks that clear them inside, each from a MATCH_RECOGNIZE.
+    "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq, FIRST(dn.x) AS x0, LAST(mv.x) AS x1, COUNT(mv.x) AS moves PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves > 0 |> SELECT start_seq, LEAST(x0, x1) AS lo, GREATEST(x0, x1) AS hi, FALSE AS clear |> UNION ALL (FROM events |> WHERE type = 'dblclick' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq PATTERN (d) DEFINE d AS TRUE) |> SELECT start_seq, CAST(NULL AS FLOAT64) AS lo, CAST(NULL AS FLOAT64) AS hi, TRUE AS clear) |> UNION ALL (FROM events |> WHERE type = 'click' |> MATCH_RECOGNIZE(ORDER BY seq MEASURES MIN(seq) AS start_seq PATTERN (c c) DEFINE c AS inside) |> SELECT start_seq, CAST(NULL AS FLOAT64) AS lo, CAST(NULL AS FLOAT64) AS hi, TRUE AS clear) |> EXTEND MAX(IF(clear, start_seq, NULL)) OVER () AS reset_seq |> WHERE NOT clear AND start_seq > IFNULL(reset_seq, 0) |> AGGREGATE COUNT(*) AS boxes, MIN(lo) AS lo, MAX(hi) AS hi",
+    // A join of two aggregates by target.
+    "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS clicks GROUP BY target |> JOIN (FROM events |> WHERE type = 'dblclick' |> AGGREGATE COUNT(*) AS doubles, MAX(seq) AS last_double GROUP BY target) AS d USING (target) |> SELECT target, clicks, doubles, last_double",
+    // A union of a limit and an aggregate, and a cross join with an ungrouped aggregate.
+    "FROM events |> WHERE type = 'click' |> ORDER BY seq DESC |> LIMIT 2 |> SELECT seq, target |> UNION ALL (FROM events |> WHERE type = 'dblclick' |> AGGREGATE MAX(seq) AS seq, ANY_VALUE(target) AS target) |> CROSS JOIN (FROM events |> AGGREGATE COUNT(*) AS total) AS t",
 ];
 
 /// The events of `frames` in frames of 1 to 4 frames each, at random.
@@ -132,6 +139,12 @@ async fn a_changed_parameter_rebuilds_the_front_or_runs_the_downstream_again() {
             "FROM events |> WHERE type IN ('pointerdown', 'pointermove', 'pointerup') |> MATCH_RECOGNIZE(ORDER BY seq MEASURES COUNT(mv.x) AS moves, MAX(seq) AS last_seq PATTERN (dn mv* up?) DEFINE dn AS type = 'pointerdown', mv AS type = 'pointermove', up AS type = 'pointerup') |> WHERE moves >= @least |> ORDER BY last_seq DESC |> LIMIT 1",
             value("least", ScalarValue::Int64(Some(10))),
             value("least", ScalarValue::Int64(Some(90))),
+        ),
+        // One of two fronts reads the parameter, so only it replays every event.
+        (
+            "FROM events |> WHERE x > @min_x |> AGGREGATE COUNT(*) AS n GROUP BY target |> JOIN (FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS clicks GROUP BY target) USING (target)",
+            value("min_x", ScalarValue::Float64(Some(380.0))),
+            value("min_x", ScalarValue::Float64(Some(420.0))),
         ),
         // Only the downstream reads the parameter.
         (
