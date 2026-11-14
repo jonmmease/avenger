@@ -42,6 +42,8 @@ A `Document` is `Send` and `Sync`. Every edit of the text makes a new `Document`
 
 Completion offers what the grammar takes at the cursor, as avenger-sql-syntax's `expected_at` gives it, filled with the names that the analysis and the catalog know there. The analysis's place at the cursor decides the names and functions: a `WHERE` takes the columns of its input and scalar and window functions, an item of `|> AGGREGATE` takes aggregates and marks but no column by itself, `LIMIT` takes no column, and the functions of `MATCH_RECOGNIZE` stand only in its clauses, by the same rules that the analysis reports as errors. After a named argument, an argument takes only the name of a parameter. A subquery takes the columns and the range variables of the queries that it can read, after its own. Columns of the type that the place expects, such as `BOOL` in a `WHERE`, come first.
 
+`tests/completion_eval.rs` evaluates completion at about 780 locations of 100 example queries, in each whole query and in its text cut at the cursor, against an oracle that parses and analyzes each item after the text before the cursor. It fails when completion does not offer the token of the query where the text before the cursor tells it, offers an item that the oracle rejects, or leaves out an item that the oracle accepts.
+
 ## Positions
 
 Positions and ranges are byte offsets of the text, as in avenger-sql-syntax. A host converts them to its own units: the Language Server Protocol takes UTF-16 positions, or UTF-8 positions with a client that offers them, and a text widget can take characters. A request takes an offset at a character boundary, and an offset past the end reads as the end.
