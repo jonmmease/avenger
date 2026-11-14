@@ -31,7 +31,7 @@ mod datetime;
 pub mod form;
 pub(crate) mod interval;
 mod math;
-mod operator;
+pub(crate) mod operator;
 mod reference;
 mod string;
 
@@ -146,6 +146,8 @@ pub enum ErrorAt {
 pub struct CallError {
     pub at: ErrorAt,
     pub message: String,
+    /// Whether the error is that no form of the function takes the types of the arguments.
+    pub no_form: bool,
 }
 
 impl CallError {
@@ -153,6 +155,7 @@ impl CallError {
         Self {
             at: ErrorAt::Call,
             message: message.into(),
+            no_form: false,
         }
     }
 
@@ -160,6 +163,7 @@ impl CallError {
         Self {
             at: ErrorAt::Arg(index),
             message: message.into(),
+            no_form: false,
         }
     }
 }
@@ -624,12 +628,15 @@ impl Function {
                 Observed::Part(part) => part.name(),
             })
             .collect();
-        CallError::call(format!(
-            "no form of {} takes ({}); its forms are {}",
-            self.name,
-            types.join(", "),
-            self.signatures().join("; ")
-        ))
+        CallError {
+            no_form: true,
+            ..CallError::call(format!(
+                "no form of {} takes ({}); its forms are {}",
+                self.name,
+                types.join(", "),
+                self.signatures().join("; ")
+            ))
+        }
     }
 
     /// The call of `args` to `form`, with each value cast to its type in the form, after the
@@ -962,12 +969,6 @@ impl Library {
     /// The operator named `name` in GoogleSQL's resolved tree, such as `$add` for `+`.
     pub fn operator(&self, name: &str) -> Option<&Function> {
         self.operators.get(name)
-    }
-
-    /// The text of the operator `name`, when GoogleSQL rejects a literal `NULL` as its operand,
-    /// as it does for `+` and `=`.
-    pub fn rejects_null(name: &str) -> Option<&'static str> {
-        operator::rejects_null(name)
     }
 
     /// The functions of the library, in the order of their groups.

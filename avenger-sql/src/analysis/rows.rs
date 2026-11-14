@@ -14,19 +14,17 @@
 //!   `RENAME` and `EXTEND`, as in GoogleSQL, so its columns stay in the plan as hidden columns
 //!   until an operator ends the range variable.
 //!
-//! The order follows the design of the earlier planner: DataFusion guarantees only the order of
-//! a final sort, so an `ORDER BY` records its keys, an operator that keeps the order carries them
-//! through as columns of the plan, and the sort happens at a `LIMIT` and at the end of a
-//! statement.
+//! DataFusion guarantees only the order of a final sort, so an `ORDER BY` records its keys, an
+//! operator that keeps the order carries them through as columns of the plan, and the sort
+//! happens at a `LIMIT` and at the end of a statement.
 
 use std::collections::HashSet;
 
 use avenger_sql_syntax::TextRange;
 use datafusion::{
-    arrow::datatypes::DataType,
     common::{
         tree_node::{Transformed, TreeNode},
-        Column, DFSchema, ExprSchema, Result, TableReference,
+        Column, DFSchema, Result, TableReference,
     },
     logical_expr::{utils::find_window_exprs, Expr, LogicalPlan, LogicalPlanBuilder, SortExpr},
 };
@@ -73,6 +71,23 @@ pub(crate) enum Item {
     },
 }
 
+impl Item {
+    /// The column of the item, of a name without a plan for a computed one, as the rows after an
+    /// error hold it.
+    pub(crate) fn col(&self) -> Col {
+        match self {
+            Item::Carry(col) => col.clone(),
+            Item::Compute {
+                name, definition, ..
+            } => Col {
+                name: name.clone(),
+                column: Column::from_name(name),
+                definition: *definition,
+            },
+        }
+    }
+}
+
 impl Rows {
     pub(crate) fn new(plan: LogicalPlan, columns: Vec<Col>, vars: Vec<RangeVar>) -> Self {
         Self {
@@ -100,13 +115,6 @@ impl Rows {
 
     pub(crate) fn schema(&self) -> Option<&DFSchema> {
         self.plan.as_ref().map(|plan| plan.schema().as_ref())
-    }
-
-    /// The type of the column `col`, when the rows have a plan.
-    pub(crate) fn ty(&self, col: &Col) -> Option<DataType> {
-        let schema = self.schema()?;
-        let field = schema.field_from_column(&col.column).ok()?;
-        Some(field.data_type().clone())
     }
 
     /// The rows without an order, for an operator that doesn't keep one.
@@ -165,19 +173,7 @@ pub(crate) fn project(
     order: bool,
 ) -> Result<Rows> {
     let Some(plan) = rows.plan else {
-        let columns = items
-            .into_iter()
-            .map(|item| match item {
-                Item::Carry(col) => col,
-                Item::Compute {
-                    name, definition, ..
-                } => Col {
-                    column: Column::from_name(name.clone()),
-                    name,
-                    definition,
-                },
-            })
-            .collect();
+        let columns = items.iter().map(Item::col).collect();
         let vars = if vars { rows.vars } else { Vec::new() };
         return Ok(Rows::failed(columns, vars));
     };

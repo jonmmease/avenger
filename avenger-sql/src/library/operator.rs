@@ -117,6 +117,46 @@ pub(super) fn operators() -> Vec<Function> {
     ]
 }
 
+/// The text of the operator `name` in GoogleSQL's message of a call that no form takes, such as
+/// `unary -` of `$unary_minus`. [`rejects_null`] gives the text of its message of a literal
+/// `NULL`, which writes some operators otherwise, as `-` and `LIKE`.
+pub(crate) fn text(name: &str) -> &str {
+    match name {
+        "$add" => "+",
+        "$subtract" => "-",
+        "$multiply" => "*",
+        "$divide" => "/",
+        "$unary_minus" => "unary -",
+        "$equal" => "=",
+        "$not_equal" => "!=",
+        "$less" => "<",
+        "$less_or_equal" => "<=",
+        "$greater" => ">",
+        "$greater_or_equal" => ">=",
+        "$and" => "AND",
+        "$or" => "OR",
+        "$not" => "NOT",
+        "$like" => "LIKE",
+        "$like_any" => "LIKE ANY",
+        "$like_all" => "LIKE ALL",
+        "$between" => "BETWEEN",
+        "$in" => "IN",
+        "$in_array" => "IN UNNEST",
+        "$is_null" => "IS NULL",
+        "$is_true" => "IS TRUE",
+        "$is_false" => "IS FALSE",
+        "$is_distinct_from" => "IS DISTINCT FROM",
+        "$is_not_distinct_from" => "IS NOT DISTINCT FROM",
+        "$bitwise_and" => "&",
+        "$bitwise_or" => "|",
+        "$bitwise_xor" => "^",
+        "$bitwise_left_shift" => "<<",
+        "$bitwise_right_shift" => ">>",
+        "$bitwise_not" => "~",
+        other => other,
+    }
+}
+
 /// The operators whose operands GoogleSQL rejects as a literal `NULL`, with the text of each.
 pub(crate) fn rejects_null(name: &str) -> Option<&'static str> {
     let text = match name {

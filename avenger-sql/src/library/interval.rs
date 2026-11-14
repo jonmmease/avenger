@@ -25,17 +25,27 @@ use super::DatePart;
 const NANOS_PER_MICRO: i64 = 1_000;
 const NANOS_PER_DAY: i64 = 86_400_000_000_000;
 
-/// The interval of `count` of `part`, as `INTERVAL count part` writes it, or `None` for a part
-/// that an interval doesn't take.
-pub(crate) fn of_part(count: Expr, part: DatePart) -> Option<Expr> {
-    let (unit, months) = match part {
+/// Whether `INTERVAL count part` takes the part `part`.
+pub(crate) fn takes(part: DatePart) -> bool {
+    unit(part).is_some()
+}
+
+/// The unit of an interval of the part `part`, and the count of the unit in one part.
+fn unit(part: DatePart) -> Option<(Unit, i64)> {
+    Some(match part {
         DatePart::Year => (Unit::Months, 12),
         DatePart::Quarter => (Unit::Months, 3),
         DatePart::Month => (Unit::Months, 1),
         DatePart::Week(super::Weekday::Sunday) => (Unit::Days, 7),
         DatePart::Day => (Unit::Days, 1),
         other => (Unit::Nanos, other.micros()? * NANOS_PER_MICRO),
-    };
+    })
+}
+
+/// The interval of `count` of `part`, as `INTERVAL count part` writes it, or `None` for a part
+/// that an interval doesn't take.
+pub(crate) fn of_part(count: Expr, part: DatePart) -> Option<Expr> {
+    let (unit, months) = unit(part)?;
     Some(MAKE.call(vec![count, lit(unit as i64), lit(months)]))
 }
 

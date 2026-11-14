@@ -16,12 +16,15 @@ mod query;
 mod rows;
 
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
-use datafusion::{common::DataFusionError, logical_expr::LogicalPlan};
+use datafusion::{
+    common::{DFSchema, DataFusionError, ExprSchema},
+    logical_expr::LogicalPlan,
+};
 
 pub use model::{CallForm, Column, Definition, Model, NameUse, OperatorScope, RangeVariable};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
-use rows::{Col, Qualifiers, Rows};
+use rows::{Col, Qualifiers, RangeVar, Rows};
 
 /// The options of an analysis.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,22 +144,25 @@ impl Pass<'_> {
         self.error(range, error.strip_backtrace());
     }
 
-    /// The model's record of the column `col` of `rows`.
-    fn column_info(rows: &Rows, col: &Col) -> Column {
+    /// The model's record of the column `col`, which the range variables `vars` hold, of the
+    /// type that `schema` gives it.
+    fn column_info(col: &Col, vars: &[RangeVar], schema: Option<&DFSchema>) -> Column {
         Column {
             name: col.name.clone(),
-            qualifiers: (rows.vars.iter())
+            qualifiers: (vars.iter())
                 .filter(|var| var.columns.iter().any(|c| c.column == col.column))
                 .map(|var| var.name.clone())
                 .collect(),
             definition: col.definition,
-            ty: rows.ty(col),
+            ty: schema
+                .and_then(|schema| schema.field_from_column(&col.column).ok())
+                .map(|field| field.data_type().clone()),
         }
     }
 
     fn columns_info(rows: &Rows) -> Vec<Column> {
         (rows.columns.iter())
-            .map(|col| Self::column_info(rows, col))
+            .map(|col| Self::column_info(col, &rows.vars, rows.schema()))
             .collect()
     }
 
@@ -173,7 +179,7 @@ impl Pass<'_> {
                     columns: (var.columns.iter())
                         .map(|col| Column {
                             qualifiers: vec![var.name.clone()],
-                            ..Self::column_info(scope_rows, col)
+                            ..Self::column_info(col, &scope_rows.vars, scope_rows.schema())
                         })
                         .collect(),
                 })

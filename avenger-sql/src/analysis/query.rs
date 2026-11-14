@@ -16,7 +16,7 @@ use datafusion::{
 };
 
 use super::{
-    expr::{inferred_name, Scope},
+    expr::{direction, inferred_name, Scope},
     model::Definition,
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
@@ -48,6 +48,18 @@ impl Kind {
 fn alias_name(alias: Option<ast::Alias>) -> Option<(String, TextRange)> {
     let name = alias?.name()?;
     Some((name.text()?, name.syntax().text_range()))
+}
+
+/// The name of an item with the alias `alias` of the expression `expr`, and the range of the text
+/// that defines it: the alias, or the expression without one.
+fn output_name(alias: Option<ast::Alias>, expr: Option<&ast::Expr>) -> (String, Option<TextRange>) {
+    match alias_name(alias) {
+        Some((name, range)) => (name, Some(range)),
+        None => (
+            expr.map(inferred_name).unwrap_or_default(),
+            expr.map(|expr| expr.syntax().text_range()),
+        ),
+    }
 }
 
 /// The sort of an item's suffix, `ASC` or `DESC` with `NULLS FIRST` or `NULLS LAST`, or `ASC` for
@@ -170,18 +182,7 @@ impl Pass<'_> {
         order: bool,
         range: TextRange,
     ) -> Rows {
-        let columns = (items.iter())
-            .map(|item| match item {
-                Item::Carry(col) => col.clone(),
-                Item::Compute {
-                    name, definition, ..
-                } => Col {
-                    name: name.clone(),
-                    column: Column::from_name(name),
-                    definition: *definition,
-                },
-            })
-            .collect();
+        let columns = items.iter().map(Item::col).collect();
         let fallback = match vars {
             true => rows.vars.clone(),
             false => Vec::new(),
@@ -415,7 +416,6 @@ impl Pass<'_> {
             self.error(natural.text_range(), "Natural join not supported");
             ok = false;
         }
-        let failed = |columns: Vec<Col>, vars: Vec<RangeVar>| Rows::failed(columns, vars);
         let schema = match (&left.plan, &right.plan) {
             (Some(l), Some(r)) => l.schema().join(r.schema()).ok(),
             _ => None,
@@ -423,12 +423,12 @@ impl Pass<'_> {
         match (kind, &condition) {
             (Kind::Cross, _) => {
                 let (Some(l), Some(r), true) = (left.plan, right.plan, ok) else {
-                    return failed(columns, vars);
+                    return Rows::failed(columns, vars);
                 };
                 let plan = LogicalPlanBuilder::from(l)
                     .cross_join(r)
                     .and_then(|b| b.build());
-                let fallback = failed(columns.clone(), vars.clone());
+                let fallback = Rows::failed(columns.clone(), vars.clone());
                 self.built(
                     plan.map(|plan| Rows::new(plan, columns, vars)),
                     range,
@@ -440,7 +440,7 @@ impl Pass<'_> {
                     range,
                     "A JOIN needs an ON or a USING clause, or is a CROSS JOIN",
                 );
-                failed(columns, vars)
+                Rows::failed(columns, vars)
             }
             (_, Some(ast::JoinCondition::OnCondition(on))) => {
                 let condition = {
@@ -461,12 +461,12 @@ impl Pass<'_> {
                 let (Some(l), Some(r), Some(condition), true) =
                     (left.plan, right.plan, condition, ok)
                 else {
-                    return failed(columns, vars);
+                    return Rows::failed(columns, vars);
                 };
                 let plan = LogicalPlanBuilder::from(l)
                     .join_on(r, kind.join_type(), [condition])
                     .and_then(|b| b.build());
-                let fallback = failed(columns.clone(), vars.clone());
+                let fallback = Rows::failed(columns.clone(), vars.clone());
                 self.built(
                     plan.map(|plan| Rows::new(plan, columns, vars)),
                     range,
@@ -509,7 +509,7 @@ impl Pass<'_> {
             let (l, r) = (side(&left), side(&right));
             match (l.as_slice(), r.as_slice()) {
                 ([l], [r]) => {
-                    let info = Self::column_info(&left, l);
+                    let info = Self::column_info(l, &left.vars, left.schema());
                     self.use_name(at, Definition::Column(info));
                     keys.push((l.clone(), r.clone(), at));
                 }
@@ -684,14 +684,7 @@ impl Pass<'_> {
             match entry {
                 ast::SelectEntry::SelectItem(item) => {
                     let expr = item.expr();
-                    let alias = alias_name(item.alias());
-                    let name = match &alias {
-                        Some((name, _)) => name.clone(),
-                        None => expr.as_ref().map(inferred_name).unwrap_or_default(),
-                    };
-                    let definition = alias
-                        .map(|(_, range)| range)
-                        .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
+                    let (name, definition) = output_name(item.alias(), expr.as_ref());
                     let planned = expr.and_then(|expr| self.expr(&expr, scope));
                     items.push(match planned {
                         Some(Expr::Column(column)) if column.name == name => Item::Carry(Col {
@@ -721,15 +714,11 @@ impl Pass<'_> {
             }
         }
         if !ok {
-            let rows = rows::project(
-                &mut self.qualifiers,
-                Rows::failed(Vec::new(), rows.vars.clone()),
-                items,
-                extend,
-                false,
-            )
-            .unwrap_or_else(|_| Rows::failed(Vec::new(), Vec::new()));
-            return rows;
+            let vars = match extend {
+                true => rows.vars,
+                false => Vec::new(),
+            };
+            return Rows::failed(items.iter().map(Item::col).collect(), vars);
         }
         self.projected(rows, items, extend, true, range)
     }
@@ -737,7 +726,6 @@ impl Pass<'_> {
     /// The items of a wildcard: `*`, or `t.*` of a range variable, without the columns of its
     /// `EXCEPT` and with the expressions of its `REPLACE`.
     fn wildcard(&mut self, wildcard: &ast::Wildcard, scope: Scope) -> Option<Vec<Item>> {
-        let range = wildcard.syntax().text_range();
         let mut columns: Vec<Col> = match wildcard.path() {
             None => scope.columns.to_vec(),
             Some(path) => {
@@ -822,7 +810,6 @@ impl Pass<'_> {
                 }
             }
         }
-        let _ = range;
         ok.then_some(items)
     }
 
@@ -840,7 +827,7 @@ impl Pass<'_> {
             .collect();
         match found.as_slice() {
             [index] => {
-                let info = Self::column_info(rows, &rows.columns[*index]);
+                let info = Self::column_info(&rows.columns[*index], &rows.vars, rows.schema());
                 self.use_name(at, Definition::Column(info));
                 Some(*index)
             }
@@ -916,7 +903,7 @@ impl Pass<'_> {
                 .collect();
             match found.first() {
                 Some(col) => {
-                    let info = Self::column_info(&rows, col);
+                    let info = Self::column_info(col, &rows.vars, rows.schema());
                     self.use_name(at, Definition::Column(info));
                     rows.columns
                         .retain(|col| !col.name.eq_ignore_ascii_case(&name));
@@ -1017,12 +1004,7 @@ impl Pass<'_> {
                 continue;
             };
             let at = expr.syntax().text_range();
-            let asc = key.desc_kw().is_none();
-            let nulls_first = match (key.first_kw(), key.last_kw()) {
-                (Some(_), _) => true,
-                (_, Some(_)) => false,
-                _ => asc,
-            };
+            let (asc, nulls_first) = direction(&key);
             let planned = match &expr {
                 ast::Expr::Literal(literal) if literal.kind() == Some(LiteralKind::Int) => {
                     let position = literal.int_value().unwrap_or(0) as usize;
@@ -1150,14 +1132,7 @@ impl Pass<'_> {
                     continue;
                 }
             }
-            let alias = alias_name(item.alias());
-            let name = match &alias {
-                Some((name, _)) => name.clone(),
-                None => expr.as_ref().map(inferred_name).unwrap_or_default(),
-            };
-            let definition = alias
-                .map(|(_, range)| range)
-                .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
+            let (name, definition) = output_name(item.alias(), expr.as_ref());
             let planned = expr.and_then(|expr| self.expr(&expr, Scope::of(&rows, "GROUP BY")));
             groups.push(Output {
                 expr: planned,
@@ -1171,14 +1146,7 @@ impl Pass<'_> {
         for item in op.aggregate_items() {
             let item_range = item.syntax().text_range();
             let expr = item.expr();
-            let alias = alias_name(item.alias());
-            let name = match &alias {
-                Some((name, _)) => name.clone(),
-                None => expr.as_ref().map(inferred_name).unwrap_or_default(),
-            };
-            let definition = alias
-                .map(|(_, range)| range)
-                .or_else(|| expr.as_ref().map(|expr| expr.syntax().text_range()));
+            let (name, definition) = output_name(item.alias(), expr.as_ref());
             let scope = Scope::of(&rows, "pipe AGGREGATE").aggregates();
             let planned = expr.and_then(|expr| self.expr(&expr, scope));
             items.push(Output {

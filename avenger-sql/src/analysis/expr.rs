@@ -17,7 +17,7 @@ use avenger_sql_syntax::{
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field},
-    common::{DFSchema, ExprSchema, ScalarValue},
+    common::{DFSchema, ScalarValue},
     functions::core::expr_fn as core,
     functions_nested::expr_fn::make_array,
     logical_expr::{
@@ -28,14 +28,14 @@ use datafusion::{
 };
 
 use super::{
-    model::{CallForm, Column, Definition},
+    model::{CallForm, Definition},
     rows::{Col, RangeVar, Rows},
     Pass,
 };
 use crate::{
     library::{
-        self, form::supertype, Arg, CallError, DatePart, ErrorAt, Need, Over, PlanContext, Planned,
-        Subscript, Ty,
+        self, form::supertype, operator, Arg, CallError, DatePart, ErrorAt, Function, Need, Over,
+        PlanContext, Planned, Subscript, Ty,
     },
     types,
 };
@@ -93,41 +93,11 @@ impl<'r> Scope<'r> {
 /// The clause of the arguments of an aggregate or a window function.
 const ARGUMENT: &str = "an aggregate's argument";
 
-/// The text of the operator `name` in messages.
-fn operator_text(name: &str) -> &str {
-    match name {
-        "$add" => "+",
-        "$subtract" => "-",
-        "$multiply" => "*",
-        "$divide" => "/",
-        "$unary_minus" => "unary -",
-        "$equal" => "=",
-        "$not_equal" => "!=",
-        "$less" => "<",
-        "$less_or_equal" => "<=",
-        "$greater" => ">",
-        "$greater_or_equal" => ">=",
-        "$and" => "AND",
-        "$or" => "OR",
-        "$not" => "NOT",
-        "$like" => "LIKE",
-        "$like_any" => "LIKE ANY",
-        "$like_all" => "LIKE ALL",
-        "$between" => "BETWEEN",
-        "$in" => "IN",
-        "$in_array" => "IN UNNEST",
-        "$is_null" => "IS NULL",
-        "$is_true" => "IS TRUE",
-        "$is_false" => "IS FALSE",
-        "$is_distinct_from" => "IS DISTINCT FROM",
-        "$is_not_distinct_from" => "IS NOT DISTINCT FROM",
-        "$bitwise_and" => "&",
-        "$bitwise_or" => "|",
-        "$bitwise_xor" => "^",
-        "$bitwise_left_shift" => "<<",
-        "$bitwise_right_shift" => ">>",
-        "$bitwise_not" => "~",
-        other => other,
+/// The range of the error `error` of a call at `range` whose arguments are at `ranges`.
+fn error_range(error: &CallError, ranges: &[TextRange], range: TextRange) -> TextRange {
+    match error.at {
+        ErrorAt::Arg(index) => ranges.get(index).copied().unwrap_or(range),
+        ErrorAt::Call => range,
     }
 }
 
@@ -292,7 +262,7 @@ impl Pass<'_> {
                 let values: Vec<Expr> = values.into_iter().collect::<Option<_>>()?;
                 let args = (values.into_iter().enumerate())
                     .flat_map(|(index, value)| {
-                        [string_lit(&format!("_field_{}", index + 1)), value]
+                        [self.string_literal(&format!("_field_{}", index + 1)), value]
                     })
                     .collect();
                 Some(core::named_struct(args))
@@ -346,50 +316,27 @@ impl Pass<'_> {
         range: TextRange,
         scope: Scope,
     ) -> Option<Expr> {
-        if let Some(text) = library::Library::rejects_null(name) {
+        if let Some(text) = operator::rejects_null(name) {
             if operands.iter().any(|(expr, _)| is_null_literal(expr)) {
                 self.error(range, format!("Operands of {text} cannot be literal NULL"));
                 return None;
             }
         }
-        let schema = scope.schema?;
-        let function = self
-            .library
-            .operator(name)
-            .expect("an operator of the library");
+        let library = self.library;
+        let function = library.operator(name).expect("an operator of the library");
         let types: Vec<String> = (operands.iter())
             .map(|(expr, _)| self.type_name(expr, scope))
             .collect();
-        let ranges: Vec<TextRange> = operands.iter().map(|(_, range)| *range).collect();
-        let args = (operands.into_iter())
-            .map(|(expr, _)| (None, Arg::Value(expr)))
-            .collect();
-        match function.plan_resolved(args, false, false, self.context(schema)) {
-            Ok((Planned::Scalar(expr), resolved)) => {
-                self.model.calls.push(CallForm {
-                    range,
-                    form: resolved.render(name),
-                });
-                Some(expr)
+        self.resolve(function, operands, range, scope, |error| {
+            match error.no_form {
+                true => format!(
+                    "No matching signature for operator {} for argument types: {}",
+                    operator::text(name),
+                    types.join(", ")
+                ),
+                false => error.message,
             }
-            Ok(_) => unreachable!("an operator is scalar"),
-            Err(error) => {
-                let message = match error.message.starts_with("no form of") {
-                    true => format!(
-                        "No matching signature for operator {} for argument types: {}",
-                        operator_text(name),
-                        types.join(", ")
-                    ),
-                    false => error.message,
-                };
-                let at = match error.at {
-                    ErrorAt::Arg(index) => ranges.get(index).copied().unwrap_or(range),
-                    ErrorAt::Call => range,
-                };
-                self.error(at, message);
-                None
-            }
-        }
+        })
     }
 
     fn literal(&mut self, literal: &ast::Literal) -> Option<Expr> {
@@ -485,21 +432,7 @@ impl Pass<'_> {
             self.error(range, "avenger-sql doesn't plan INTERVAL ... TO ... yet");
             return None;
         }
-        let part = DatePart::parse(&part_text, None).filter(|part| {
-            matches!(
-                part,
-                DatePart::Year
-                    | DatePart::Quarter
-                    | DatePart::Month
-                    | DatePart::Week(library::Weekday::Sunday)
-                    | DatePart::Day
-                    | DatePart::Hour
-                    | DatePart::Minute
-                    | DatePart::Second
-                    | DatePart::Millisecond
-                    | DatePart::Microsecond
-            )
-        });
+        let part = DatePart::parse(&part_text, None).filter(|&part| library::interval::takes(part));
         let Some(part) = part else {
             self.error(
                 part_name.syntax().text_range(),
@@ -546,22 +479,6 @@ impl Pass<'_> {
         Some(Expr::Placeholder(Placeholder::new_with_field(id, None)))
     }
 
-    /// The model's record of the column `col` in `scope`.
-    fn col_info(&self, col: &Col, scope: Scope) -> Column {
-        Column {
-            name: col.name.clone(),
-            qualifiers: (scope.vars.iter())
-                .filter(|var| var.columns.iter().any(|c| c.column == col.column))
-                .map(|var| var.name.clone())
-                .collect(),
-            definition: col.definition,
-            ty: scope
-                .schema
-                .and_then(|schema| schema.field_from_column(&col.column).ok())
-                .map(|field| field.data_type().clone()),
-        }
-    }
-
     /// The plan of a path: a range variable and its column, a column, and the fields of a struct.
     fn path(&mut self, path: &ast::Path, scope: Scope) -> Option<Expr> {
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
@@ -597,7 +514,7 @@ impl Pass<'_> {
                         .collect();
                     match found.as_slice() {
                         [col] => {
-                            let info = self.col_info(col, scope);
+                            let info = Self::column_info(col, scope.vars, scope.schema);
                             self.use_name(range(1), Definition::Column(info));
                             (Some(Expr::Column(col.column.clone())), 2)
                         }
@@ -619,7 +536,7 @@ impl Pass<'_> {
                 .collect();
             match found.as_slice() {
                 [col] => {
-                    let info = self.col_info(col, scope);
+                    let info = Self::column_info(col, scope.vars, scope.schema);
                     self.use_name(range(0), Definition::Column(info));
                     (Some(Expr::Column(col.column.clone())), 1)
                 }
@@ -858,8 +775,23 @@ impl Pass<'_> {
         range: TextRange,
         scope: Scope,
     ) -> Option<Expr> {
+        let library = self.library;
+        let function = library.get(name).expect("a function of the library");
+        self.resolve(function, operands, range, scope, |error| error.message)
+    }
+
+    /// The plan of the scalar `function` of `operands`, each with its range, at `range`, which
+    /// records the form that resolution picked, or reports the error that `message` writes at
+    /// its argument or at `range`.
+    fn resolve(
+        &mut self,
+        function: &Function,
+        operands: Vec<(Expr, TextRange)>,
+        range: TextRange,
+        scope: Scope,
+        message: impl FnOnce(CallError) -> String,
+    ) -> Option<Expr> {
         let schema = scope.schema?;
-        let function = self.library.get(name).expect("a function of the library");
         let ranges: Vec<TextRange> = operands.iter().map(|(_, range)| *range).collect();
         let args = (operands.into_iter())
             .map(|(expr, _)| (None, Arg::Value(expr)))
@@ -874,18 +806,11 @@ impl Pass<'_> {
             }
             Ok(_) => unreachable!("a scalar function"),
             Err(error) => {
-                self.call_error(error, &ranges, range);
+                let at = error_range(&error, &ranges, range);
+                self.error(at, message(error));
                 None
             }
         }
-    }
-
-    fn call_error(&mut self, error: CallError, ranges: &[TextRange], range: TextRange) {
-        let at = match error.at {
-            ErrorAt::Arg(index) => ranges.get(index).copied().unwrap_or(range),
-            ErrorAt::Call => range,
-        };
-        self.error(at, error.message);
     }
 
     fn in_expr(&mut self, in_expr: &ast::InExpr, scope: Scope) -> Option<Expr> {
@@ -1220,12 +1145,7 @@ impl Pass<'_> {
             .order_keys()
             .map(|key| {
                 let expr = self.child(key.expr(), scope)?;
-                let asc = key.desc_kw().is_none();
-                let nulls_first = match (key.first_kw(), key.last_kw()) {
-                    (Some(_), _) => true,
-                    (_, Some(_)) => false,
-                    _ => asc,
-                };
+                let (asc, nulls_first) = direction(&key);
                 Some(SortExpr::new(expr, asc, nulls_first))
             })
             .collect();
@@ -1251,7 +1171,8 @@ impl Pass<'_> {
                 return None;
             }
         };
-        let Some(function) = self.library.get(&name) else {
+        let library = self.library;
+        let Some(function) = library.get(&name) else {
             self.error(name_range, format!("Function not found: {name}"));
             return None;
         };
@@ -1261,8 +1182,7 @@ impl Pass<'_> {
                 name: function.name.clone(),
             },
         );
-        let fname = function.name.clone();
-        let clauses = function.clauses;
+        let (fname, clauses) = (&function.name, function.clauses);
         let list = call.arg_list();
         let over = call.over_clause();
         let aggregate = matches!(function.kind, library::FunctionKind::Aggregate);
@@ -1350,7 +1270,6 @@ impl Pass<'_> {
                 ok = false;
                 continue;
             };
-            let function = self.library.get(&name).expect("the function");
             if function.takes_date_part(position, named.as_deref()) {
                 match date_part(&value) {
                     Some(part) => args.push((named, Arg::DatePart(part))),
@@ -1378,7 +1297,7 @@ impl Pass<'_> {
         };
         let over = match &over {
             Some(over) => self
-                .over(over, &fname, clauses.over, scope.arguments())
+                .over(over, fname, clauses.over, scope.arguments())
                 .map(Some),
             None => Some(None),
         };
@@ -1387,18 +1306,17 @@ impl Pass<'_> {
             return None;
         }
         let schema = scope.schema?;
-        let function = self.library.get(&name).expect("the function");
         let (planned, resolved) =
             match function.plan_resolved(args, star, safe, self.context(schema)) {
                 Ok(planned) => planned,
                 Err(error) => {
-                    self.call_error(error, &ranges, name_range);
+                    self.error(error_range(&error, &ranges, name_range), error.message);
                     return None;
                 }
             };
         self.model.calls.push(CallForm {
             range,
-            form: resolved.render(&fname),
+            form: resolved.render(fname),
         });
         let typed = |expr: Expr, result: Option<DataType>| match result {
             Some(ty) => cast(expr, ty),
@@ -1537,26 +1455,20 @@ impl Pass<'_> {
             Some(_) => WindowFrameUnits::Rows,
             None => WindowFrameUnits::Range,
         };
-        let start = self.frame_bound(frame.start()?, true, scope)?;
+        let start = self.frame_bound(frame.start()?, scope)?;
         let end = match frame.end() {
-            Some(end) => self.frame_bound(end, false, scope)?,
+            Some(end) => self.frame_bound(end, scope)?,
             None => WindowFrameBound::CurrentRow,
         };
         Some(WindowFrame::new_bounds(units, start, end))
     }
 
-    fn frame_bound(
-        &mut self,
-        bound: ast::FrameBound,
-        start: bool,
-        scope: Scope,
-    ) -> Option<WindowFrameBound> {
+    fn frame_bound(&mut self, bound: ast::FrameBound, scope: Scope) -> Option<WindowFrameBound> {
         let preceding = bound.preceding_kw().is_some();
         if bound.current_kw().is_some() {
             return Some(WindowFrameBound::CurrentRow);
         }
         if bound.unbounded_kw().is_some() {
-            let _ = start;
             return Some(match preceding {
                 true => WindowFrameBound::Preceding(ScalarValue::UInt64(None)),
                 false => WindowFrameBound::Following(ScalarValue::UInt64(None)),
@@ -1607,10 +1519,6 @@ impl Window {
     }
 }
 
-fn string_lit(value: &str) -> Expr {
-    Expr::Literal(ScalarValue::Utf8(Some(value.to_string())), None)
-}
-
 /// The text of a `TIMESTAMP` literal as Arrow parses it, and whether it has a time zone: a `T`
 /// between the date and the time, an offset `+HH` as `+HH:00`, and `UTC` as `+00:00`.
 fn timestamp_text(text: &str) -> (String, bool) {
@@ -1643,6 +1551,18 @@ fn timestamp_text(text: &str) -> (String, bool) {
         Some(offset) => (format!("{civil}{offset}"), true),
         None => (civil, false),
     }
+}
+
+/// Whether the key `key` of an `ORDER BY` sorts ascending, and whether its `NULL`s come first,
+/// which they do in an ascending order unless it says `NULLS LAST`.
+pub(crate) fn direction(key: &ast::OrderKey) -> (bool, bool) {
+    let asc = key.desc_kw().is_none();
+    let nulls_first = match (key.first_kw(), key.last_kw()) {
+        (Some(_), _) => true,
+        (_, Some(_)) => false,
+        _ => asc,
+    };
+    (asc, nulls_first)
 }
 
 /// The name of a select item without an alias: the last name of a path, the name of a field, or
