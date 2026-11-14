@@ -28,6 +28,7 @@ mod array;
 mod avenger;
 mod conditional;
 mod datetime;
+mod error;
 pub mod form;
 pub(crate) mod interval;
 mod math;
@@ -262,6 +263,14 @@ impl<'a> Call<'a> {
         }
     }
 
+    /// The date part of the optional argument at `index`, when the call gives it.
+    pub(crate) fn optional_date_part(&self, index: usize) -> Option<DatePart> {
+        match self.slots.get(index) {
+            Some(Some((_, Arg::DatePart(part)))) => Some(*part),
+            _ => None,
+        }
+    }
+
     /// The values of the repeated argument.
     pub(crate) fn rest(&self) -> Vec<Expr> {
         self.rest
@@ -403,6 +412,13 @@ impl Function {
             name: name.to_string(),
             doc: doc.to_string(),
         });
+        self
+    }
+
+    /// An aggregate that takes no `OVER` clause and no `HAVING MAX` or `HAVING MIN`.
+    pub(crate) fn without_window(mut self) -> Self {
+        self.clauses.over = Over::Forbidden;
+        self.clauses.having = false;
         self
     }
 

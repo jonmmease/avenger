@@ -5,7 +5,7 @@ use datafusion::{
     logical_expr::{lit, Expr, Operator},
 };
 
-use super::{lit_f64, null_if_any_null, null_when, Call, Function, Ty};
+use super::{error::guard, lit_f64, null_if_any_null, null_when, Call, Function, Ty};
 
 /// The numbers that a function of floats takes, in GoogleSQL's order of preference for an
 /// `INT64`, which becomes a `FLOAT64`.
@@ -75,13 +75,18 @@ pub(super) fn functions() -> Vec<Function> {
             .param("x", "The number.")
             .form(&format!("(x: T) -> T where T: {FLOATS}"), |call| {
                 let x = call.arg(0);
-                Ok(guard(call, x.clone().lt(lit_f64(0.0)), f::sqrt(x)))
+                let message = domain_message(
+                    call,
+                    &x,
+                    "Argument to SQRT cannot be negative: {}",
+                    "SQRT is undefined for negative value: SQRT({})",
+                );
+                let invalid = x.clone().lt(lit_f64(0.0));
+                // DataFusion's sqrt fails on its own, so it reads `NULL` where GoogleSQL fails.
+                let value = f::sqrt(null_when(invalid.clone(), x.clone()));
+                Ok(guard(call, invalid, value, message, vec![x]))
             })
             .safe()
-            .note(
-                "The square root of a negative number is `NaN`, where GoogleSQL fails. \
-                 `SAFE.SQRT` returns `NULL` for it, as in GoogleSQL.",
-            )
             .example("SQRT(16)", "4.0")
             .example("SAFE.SQRT(-1)", "NULL"),
         float_unary("EXP", "Returns e raised to the power of a number.", f::exp)
@@ -91,13 +96,9 @@ pub(super) fn functions() -> Vec<Function> {
             .param("x", "The number, which is positive.")
             .form(&format!("(x: T) -> T where T: {FLOATS}"), |call| {
                 let x = call.arg(0);
-                Ok(guard(call, x.clone().lt_eq(lit_f64(0.0)), f::ln(x)))
+                Ok(ln(call, x))
             })
             .safe()
-            .note(
-                "The logarithm of zero is `-inf`, and of a negative number `NaN`, where \
-                 GoogleSQL fails. `SAFE.LN` returns `NULL` for them.",
-            )
             .example("LN(1)", "0.0")
             .example("LN(10)", "2.302585092994046"),
         Function::scalar(
@@ -115,21 +116,24 @@ pub(super) fn functions() -> Vec<Function> {
             |call| {
                 let x = call.arg(0);
                 let Some(base) = call.value(1).cloned() else {
-                    return Ok(guard(call, x.clone().lt_eq(lit_f64(0.0)), f::ln(x)));
+                    return Ok(ln(call, x));
                 };
                 let invalid = x
                     .clone()
                     .lt_eq(lit_f64(0.0))
                     .or(base.clone().lt_eq(lit_f64(0.0)))
                     .or(base.clone().eq(lit_f64(1.0)));
-                Ok(guard(call, invalid, f::log(base, x)))
+                let message = domain_message(
+                    call,
+                    &x,
+                    "Floating point error in function: LOG({}, {})",
+                    "LOG is undefined for zero or negative value, or when base equals 1: LOG({}, {})",
+                );
+                let value = f::log(base.clone(), x.clone());
+                Ok(guard(call, invalid, value, message, vec![x, base]))
             },
         )
         .safe()
-        .note(
-            "A number or a base out of range returns `NaN` or infinity, where GoogleSQL fails. \
-             `SAFE.LOG` returns `NULL` for them.",
-        )
         .example("LOG(100, 10)", "2.0")
         .example("LOG(8, 2)", "3.0")
         .example("LOG(100)", "4.605170185988092"),
@@ -137,13 +141,16 @@ pub(super) fn functions() -> Vec<Function> {
             .param("x", "The number, which is positive.")
             .form(&format!("(x: T) -> T where T: {FLOATS}"), |call| {
                 let x = call.arg(0);
-                Ok(guard(call, x.clone().lt_eq(lit_f64(0.0)), f::log10(x)))
+                let message = domain_message(
+                    call,
+                    &x,
+                    "Floating point error in function: LOG10({})",
+                    "LOG10 is undefined for zero or negative value: LOG10({})",
+                );
+                let invalid = x.clone().lt_eq(lit_f64(0.0));
+                Ok(guard(call, invalid, f::log10(x.clone()), message, vec![x]))
             })
             .safe()
-            .note(
-                "The logarithm of zero is `-inf`, and of a negative number `NaN`, where \
-                 GoogleSQL fails. `SAFE.LOG10` returns `NULL` for them.",
-            )
             .example("LOG10(1000)", "3.0"),
         power("POW", "Returns a number raised to a power.")
             .example("POW(2, 10)", "1024.0")
@@ -223,11 +230,29 @@ pub(super) fn functions() -> Vec<Function> {
     ]
 }
 
-/// The value of `value`, or for `SAFE.`, `NULL` where `invalid` holds and GoogleSQL fails.
-fn guard(call: &Call, invalid: Expr, value: Expr) -> Expr {
-    match call.safe {
-        true => null_when(invalid, value),
-        false => value,
+/// `LN(x)`, as `LN` and `LOG` without a base compute it.
+fn ln(call: &Call, x: Expr) -> Expr {
+    let message = domain_message(
+        call,
+        &x,
+        "Floating point error in function: LN({})",
+        "LN is undefined for zero or negative value: LN({})",
+    );
+    let invalid = x.clone().lt_eq(lit_f64(0.0));
+    guard(call, invalid, f::ln(x.clone()), message, vec![x])
+}
+
+/// GoogleSQL's message for an argument out of a function's domain: `float` for floats, and
+/// `decimal` for decimals.
+fn domain_message(
+    call: &Call,
+    x: &Expr,
+    float: &'static str,
+    decimal: &'static str,
+) -> &'static str {
+    match call.type_of(x).is_ok_and(|ty| ty.is_decimal()) {
+        true => decimal,
+        false => float,
     }
 }
 
@@ -277,15 +302,30 @@ fn power(name: &str, summary: &str) -> Function {
             // GoogleSQL fails for a negative base and a fractional power, and for zero to a
             // negative power.
             let fractional = f::trunc(vec![y.clone()]).not_eq(y.clone());
-            let invalid = (x.clone().lt(lit_f64(0.0)).and(fractional))
-                .or(x.clone().eq(lit_f64(0.0)).and(y.clone().lt(lit_f64(0.0))));
-            Ok(guard(call, invalid, f::power(x, y)))
+            let negative = x.clone().lt(lit_f64(0.0)).and(fractional);
+            let by_zero = x.clone().eq(lit_f64(0.0)).and(y.clone().lt(lit_f64(0.0)));
+            // DataFusion's power of decimals fails on its own, so it reads `NULL` where GoogleSQL
+            // fails.
+            let base = null_when(negative.clone().or(by_zero.clone()), x.clone());
+            let value = f::power(base, y.clone());
+            let args = vec![x.clone(), y.clone()];
+            if !call.type_of(&x).is_ok_and(|ty| ty.is_decimal()) {
+                let message = "Floating point error in function: POW({}, {})";
+                return Ok(guard(call, negative.or(by_zero), value, message, args));
+            }
+            // A decimal has a message of its own for each.
+            let message =
+                "Negative NUMERIC value cannot be raised to a fractional power: POW({}, {})";
+            let value = guard(call, negative, value, message, args.clone());
+            Ok(guard(
+                call,
+                by_zero,
+                value,
+                "division by zero: POW({}, {})",
+                args,
+            ))
         })
         .safe()
-        .note(
-            "A negative base with a fractional power is `NaN`, where GoogleSQL fails. \
-             `SAFE.POW` returns `NULL` for it.",
-        )
 }
 
 /// `x op y`, where `op` divides, and for `SAFE.`, `NULL` for a divisor of zero.

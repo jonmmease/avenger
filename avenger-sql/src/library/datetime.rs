@@ -348,6 +348,29 @@ pub(super) fn functions() -> Vec<Function> {
             "DATE '2024-05-13'",
         ),
         Function::scalar(
+            "LAST_DAY",
+            "Returns the last day of the part of the date, such as its month.",
+        )
+        .param("value", "The `DATE`, or a `DATETIME`, whose date it reads.")
+        .param(
+            "part",
+            "The part: `WEEK`, which ends on Saturday, `WEEK(day)`, which starts on the day, \
+                 `ISOWEEK`, `MONTH`, `QUARTER`, `YEAR` or `ISOYEAR`. When omitted, `MONTH`.",
+        )
+        .form("(value: DATE[, part: PART(DATE)]) -> DATE", |call| {
+            last_day(call, call.arg(0))
+        })
+        .form("(value: DATETIME[, part: PART(DATE)]) -> DATE", |call| {
+            last_day(call, cast(call.arg(0), DataType::Date32))
+        })
+        .safe()
+        .example("LAST_DAY(DATE '2024-02-10')", "DATE '2024-02-29'")
+        .example("LAST_DAY(DATE '2024-02-10', QUARTER)", "DATE '2024-03-31'")
+        .example(
+            "LAST_DAY(DATE '2024-02-14', WEEK(MONDAY))",
+            "DATE '2024-02-18'",
+        ),
+        Function::scalar(
             "DATETIME_TRUNC",
             "Truncates a date and time to the start of a part.",
         )
@@ -861,6 +884,42 @@ fn iso_year_start(days_of: Expr) -> Expr {
         cast(lit_i64(4), DataType::Int32),
     );
     week_start(days(january_4), Weekday::Monday)
+}
+
+/// The last day of the part of `date` that the argument at 1 names, `MONTH` when omitted.
+fn last_day(call: &Call, date: Expr) -> Result<Expr, CallError> {
+    let part = call.optional_date_part(1).unwrap_or(DatePart::Month);
+    let day = days(date.clone());
+    let last = match part {
+        DatePart::Week(start) => week_start(day, start) + lit_i64(6),
+        DatePart::IsoWeek => week_start(day, Weekday::Monday) + lit_i64(6),
+        // The next ISO year starts within 371 days of this one's start.
+        DatePart::IsoYear => iso_year_start(iso_year_start(day) + lit_i64(371)) - lit_i64(1),
+        DatePart::Month | DatePart::Quarter | DatePart::Year => {
+            let months = match part {
+                DatePart::Month => 1,
+                DatePart::Quarter => 3,
+                _ => 12,
+            };
+            let start = date_trunc(call, date, part)?;
+            let next = Expr::BinaryExpr(datafusion::logical_expr::BinaryExpr::new(
+                Box::new(start),
+                Operator::Plus,
+                Box::new(Expr::Literal(
+                    datafusion::common::ScalarValue::new_interval_mdn(months, 0, 0),
+                    None,
+                )),
+            ));
+            days(next) - lit_i64(1)
+        }
+        _ => {
+            return Err(call.error_at(
+                1,
+                format!("LAST_DAY does not support the {} date part", part.name()),
+            ))
+        }
+    };
+    Ok(date_of_days(last))
 }
 
 fn date_trunc(call: &Call, date: Expr, part: DatePart) -> Result<Expr, CallError> {

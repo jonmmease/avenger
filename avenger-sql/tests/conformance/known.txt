@@ -1,10 +1,3 @@
 # Differences from GoogleSQL's results that the planner's conformance check explains: the label of a
 # query of queries.txt, a tab, and the reason.
-missing-initcap	the library doesn't map INITCAP yet
-missing-repeat	the library doesn't map REPEAT yet
-missing-lpad	the library doesn't map LPAD yet
-missing-reverse	the library doesn't map REVERSE yet
-missing-last-day	the library doesn't map LAST_DAY yet
-missing-array-to-string	the library doesn't map ARRAY_TO_STRING yet
 error-function-signature	avenger names the missing argument of a call, where GoogleSQL lists the signatures
-missing-left-right	the library doesn't map LEFT and RIGHT yet

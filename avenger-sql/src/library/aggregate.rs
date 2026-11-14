@@ -82,8 +82,18 @@ pub(super) fn functions() -> Vec<Function> {
             .null_treatment()
             .order_by()
             .limit()
-            .note("A `NULL` value is an element of the array, where GoogleSQL fails unless the call ignores `NULL`s.")
             .example(&format!("{NUMBERS} |> AGGREGATE ARRAY_AGG(x IGNORE NULLS ORDER BY x DESC) AS values"), "values\n[3, 2, 2, 1]"),
+        Function::aggregate("GROUPING", "Returns whether a group expression is aggregated over in a row of grouping sets.")
+            .description("In an aggregate with `ROLLUP`, `CUBE` or `GROUPING SETS`, returns 1 for a row whose grouping set leaves the expression out, so its value is `NULL` for all its values, and 0 for a row grouped by it.")
+            .param("groupby_expression", "An expression of the `GROUP BY`.")
+            .form("(groupby_expression: T) -> INT64 where T: ANY", |call| {
+                Ok(aggregate(
+                    datafusion::functions_aggregate::grouping::grouping_udaf(),
+                    vec![call.arg(0)],
+                ))
+            })
+            .example(&format!("{NUMBERS} |> AGGREGATE COUNT(*) AS n, GROUPING(x) AS g GROUP BY ROLLUP(x) |> WHERE g = 1"), "x | n | g\nNULL | 5 | 1")
+            .without_window(),
         unary("LOGICAL_AND", "Returns whether every value that is not `NULL` is `TRUE`.", "(value: BOOL) -> BOOL", bool_and_udaf)
             .example(&format!("{NUMBERS} |> AGGREGATE LOGICAL_AND(x > 0) AS all_positive"), "all_positive\nTRUE"),
         unary("LOGICAL_OR", "Returns whether any value is `TRUE`.", "(value: BOOL) -> BOOL", bool_or_udaf)
