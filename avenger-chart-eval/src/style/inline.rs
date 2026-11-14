@@ -756,7 +756,7 @@ fn axis_fields(
         vertical_align(fields.label_baseline),
     );
     if let Some(ticks) = fields.ticks {
-        if let Some(proto::ticks::At::Count(count)) = ticks.at {
+        if let Some(proto::ticks::Placement::Count(count)) = ticks.placement {
             set(tree, axis, Property::TickCount, &count.to_string());
         }
         px(tree, tick, Property::TickSize, ticks.length);
