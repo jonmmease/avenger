@@ -97,7 +97,7 @@ async fn a_map_of_earthquakes() {
 |> AGGREGATE geo_symbol(
      longitude => longitude,
      latitude => latitude,
-     size => scaled(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
+     size => scaled(magnitude, scale => scale(domain => [6, 9.5], range_ => [2, 120])),
      color => depth_km,
      coord => geo(surface => spherical(
        projection => 'equal_earth',

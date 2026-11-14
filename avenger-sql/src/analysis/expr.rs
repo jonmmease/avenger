@@ -91,7 +91,7 @@ impl<'r> Scope<'r> {
     }
 
     /// The scope of the arguments of an aggregate or a window function, which call neither.
-    fn arguments(self) -> Self {
+    pub(crate) fn arguments(self) -> Self {
         Self {
             clause: ARGUMENT,
             aggregates: false,
@@ -1590,15 +1590,25 @@ impl Pass<'_> {
                 name: function.name.clone(),
             },
         );
+        if function.name == "lump" {
+            return self.lump(call, scope, range);
+        }
         let fname = function.name.clone();
         let clauses = function.clauses;
         let list = call.arg_list();
         let over = call.over_clause();
         let aggregate = matches!(function.kind, library::FunctionKind::Aggregate);
         let window = over.is_some() || matches!(function.kind, library::FunctionKind::Window);
-        let arg_scope = match aggregate || window {
-            true => scope.arguments(),
-            false => scope,
+        // In the `keep` of a lump, a window runs over the categories, so its arguments and its
+        // keys read the aggregates of each category's rows.
+        let window_scope = match self.categories.is_some() && over.is_some() {
+            true => scope.arguments().aggregates(),
+            false => scope.arguments(),
+        };
+        let arg_scope = match (aggregate || window, over.is_some()) {
+            (true, true) => window_scope,
+            (true, false) => scope.arguments(),
+            (false, _) => scope,
         };
         let star = list.as_ref().is_some_and(|list| list.star_arg().is_some());
         let distinct = list
@@ -1723,7 +1733,7 @@ impl Pass<'_> {
         };
         let over = match &over {
             Some(over) => self
-                .over(over, &fname, clauses.over, scope.arguments())
+                .over(over, &fname, clauses.over, window_scope)
                 .map(Some),
             None => Some(None),
         };
@@ -1843,7 +1853,7 @@ impl Pass<'_> {
     }
 
     /// The `OVER` clause of a call of the function `name`.
-    fn over(
+    pub(super) fn over(
         &mut self,
         over: &ast::OverClause,
         name: &str,
@@ -1851,14 +1861,29 @@ impl Pass<'_> {
         scope: Scope,
     ) -> Option<Window> {
         let range = over.syntax().text_range();
-        let spec = self.window_syntax(over)?;
+        let (spec, ranked) = match self.categories.clone() {
+            Some(ranked) => {
+                let (spec, named) = self.category_window(over)?;
+                (spec, named.then_some(ranked))
+            }
+            None => (self.window_syntax(over)?, None),
+        };
+        if self.categories.is_some() && spec.partition.is_some() {
+            self.error(
+                range,
+                "A window in the keep of lump runs over the categories of the lump's partition, \
+                 so it takes no PARTITION BY",
+            );
+            return None;
+        }
         let partition: Vec<Option<Expr>> = (spec.partition.iter())
             .flat_map(|partition| partition.exprs().collect::<Vec<_>>())
             .map(|expr| self.expr(&expr, scope))
             .collect();
-        let order = match &spec.order {
-            Some(order) => self.sort_keys(order, scope),
-            None => Some(Vec::new()),
+        let order = match (&spec.order, ranked) {
+            (_, Some(ranked)) => Some(ranked),
+            (Some(order), None) => self.sort_keys(order, scope),
+            (None, None) => Some(Vec::new()),
         };
         let (order_need, frame_allowed) = match clause {
             Over::Required { order_by, frame } => (order_by, frame),
@@ -1900,6 +1925,57 @@ impl Pass<'_> {
             order,
             frame,
         })
+    }
+
+    /// The window of an `OVER` clause in the `keep` of a lump, and whether it is or adds to the
+    /// window `ranked`, the only named window there.
+    fn category_window(&mut self, over: &ast::OverClause) -> Option<(WindowSyntax, bool)> {
+        let unknown = |pass: &mut Self, name: &ast::NameRef| {
+            let text = name.text().unwrap_or_default();
+            pass.error(
+                name.syntax().text_range(),
+                format!("Unrecognized window alias {text}; the keep of lump has the window ranked"),
+            );
+        };
+        let ranked = |name: &ast::NameRef| {
+            name.text()
+                .is_some_and(|t| t.eq_ignore_ascii_case("ranked"))
+        };
+        if let Some(name) = over.name_ref() {
+            if !ranked(&name) {
+                unknown(self, &name);
+                return None;
+            }
+            let none = WindowSyntax {
+                partition: None,
+                order: None,
+                frame: None,
+            };
+            return Some((none, true));
+        }
+        let spec = over.window_spec()?;
+        let own = WindowSyntax {
+            partition: spec.partition_by(),
+            order: spec.order_by(),
+            frame: spec.frame(),
+        };
+        match spec.name_ref() {
+            Some(name) if ranked(&name) => {
+                if own.order.is_some() {
+                    self.error(
+                        spec.syntax().text_range(),
+                        "ORDER BY cannot be specified when the named window ranked has one",
+                    );
+                    return None;
+                }
+                Some((own, true))
+            }
+            Some(name) => {
+                unknown(self, &name);
+                None
+            }
+            None => Some((own, false)),
+        }
     }
 
     /// The window of an `OVER` clause: its own specification, a named window of the `WINDOW`
@@ -2122,8 +2198,8 @@ fn outer_reference(expr: Expr, schema: Option<&DFSchema>) -> Option<Expr> {
 }
 
 /// The `OVER` clause of a window call.
-struct Window {
-    partition: Vec<Expr>,
+pub(crate) struct Window {
+    pub partition: Vec<Expr>,
     order: Vec<SortExpr>,
     frame: WindowFrame,
 }

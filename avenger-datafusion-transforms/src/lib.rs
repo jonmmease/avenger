@@ -1,24 +1,18 @@
-//! Data transforms as DataFusion functions: the Vega-style `bin`, `stack`, `timeunit`, and
-//! `impute`, and `lump`, which keeps the top categories and lumps the rest into an Other
-//! group. [`register`] adds all of them and their optimizer rules to a session.
+//! Data transforms for DataFusion: the Vega-style `bin`, `stack`, `timeunit`, and `impute`, and
+//! `lump`, which keeps the top categories and lumps the rest into an Other group. [`register`]
+//! adds the window functions and the optimizer rules to a session.
 //!
-//! ```sql
-//! SELECT *, bin(x, 'maxbins', 30) OVER (PARTITION BY g) AS binned FROM t
-//! SELECT *, stack(v, 'offset', 'center') OVER (PARTITION BY x ORDER BY series) AS y FROM t
-//! SELECT *, timeunit(t, 'maxbins', 20) OVER (PARTITION BY g) AS u FROM events
-//! SELECT *, lump(port, 'n', 3, 'weight', 'sum(tons)') OVER (PARTITION BY region) AS l FROM catches
-//! SELECT * FROM impute(sales, month, [region], units, value => 0)
-//! ```
-//!
-//! The options of the window functions are pairs of a name and a constant after the first
-//! argument, in any order, because DataFusion's named arguments can omit only the last
-//! parameters. A function of a whole window partition (`bin`, `timeunit`, and `lump`) takes
-//! no ORDER BY or frame in its OVER clause.
+//! `bin`, `stack` and `timeunit` are window functions, whose options are pairs of a name and a
+//! constant after the first argument, in any order. A function of a whole window partition
+//! (`bin` and `timeunit`) takes no ORDER BY or frame in its OVER clause. `impute` is a table
+//! function over an input relation, and `lump` a plan over its input, which a front end builds
+//! with [`impute::plan`] and [`lump::plan`] from its planned arguments, or for a lump in a
+//! projection, with [`lump::window`] and [`lump::plan_windows`].
 //!
 //! Each module describes its transform: [`bin`], [`stack`], [`timeunit`], [`impute`], and
-//! [`lump`]. [`table_function`] holds the machinery of table functions over an input
-//! relation, such as `impute`. [`StructGroupSplit`] groups an aggregate by the fields of a
-//! struct key, such as a bin, then makes the struct again above the aggregate.
+//! [`lump`]. [`table_function`] holds the machinery of table functions over an input relation,
+//! such as `impute`. [`StructGroupSplit`] groups an aggregate by the fields of a struct key, such
+//! as a bin, then makes the struct again above the aggregate.
 
 pub mod bin;
 pub mod impute;
@@ -59,10 +53,9 @@ use crate::stack::StackWindow;
 // Registration
 // ---------------------------------------------------------------------------------------
 
-/// Adds the transforms to a session: the window functions `bin`, `stack`, `timeunit`, and
-/// `lump`, the function `bin_params`, the table function `impute`, the aggregate states that
-/// the fusion of lumps uses, and the optimizer rules that plan the window functions as
-/// aggregates and joins.
+/// Adds the transforms to a session: the window functions `bin`, `stack`, and `timeunit`, the
+/// function `bin_params`, the optimizer rules that plan the window functions as aggregates and
+/// joins, and the query planner of the table functions, such as `impute`.
 ///
 /// The rules run right after the first simplification of expressions, which folds the options
 /// of a call to constants, so `register` rebuilds the session's state with them in that place;
@@ -82,8 +75,6 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
     let ours: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
         Arc::new(timeunit::TimeUnitWindowRewrite::default()),
         Arc::new(BinWindowRewrite::default()),
-        Arc::new(lump::LumpAggregateFusion),
-        Arc::new(lump::LumpRewrite),
         Arc::new(StructGroupSplit),
     ];
     let mut rules = state.optimizers().to_vec();
@@ -108,12 +99,5 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
     state.register_udwf(Arc::new(WindowUDF::new_from_impl(
         timeunit::TimeUnitWindow::default(),
     )))?;
-    let catalogs = state.catalog_list().clone();
-    state.register_relation_planner(Arc::new(table_function::TableFunctionPlanner::new(
-        vec![Arc::new(impute::Impute)],
-        catalogs,
-    )))?;
-    state.register_udwf(Arc::new(lump::lump_udwf()))?;
-    avenger_datafusion_aggregate_state::register_all(&mut *state)?;
     Ok(())
 }

@@ -49,6 +49,8 @@ pub enum Ty {
     Any,
     /// The type of `NULL`, of an argument.
     Null,
+    /// A table, the result of a table function.
+    Table,
 }
 
 impl Ty {
@@ -103,7 +105,7 @@ impl Ty {
     /// The Arrow type of the type, which has no variables.
     pub fn arrow(&self, options: TypeOptions) -> DataType {
         match self {
-            Ty::Int64 | Ty::Null | Ty::Any | Ty::Var(_) => DataType::Int64,
+            Ty::Int64 | Ty::Null | Ty::Any | Ty::Var(_) | Ty::Table => DataType::Int64,
             Ty::Float64 => DataType::Float64,
             Ty::Numeric => DataType::Decimal128(38, 9),
             Ty::BigNumeric => DataType::Decimal256(76, 38),
@@ -170,6 +172,7 @@ impl fmt::Display for Ty {
             Ty::Var(name) => f.write_str(name),
             Ty::Any => f.write_str("ANY"),
             Ty::Null => f.write_str("NULL"),
+            Ty::Table => f.write_str("TABLE"),
         }
     }
 }
@@ -735,6 +738,7 @@ impl<'a> Parser<'a> {
             "TIMESTAMP" => Ty::Timestamp,
             "INTERVAL" => Ty::Interval,
             "ANY" => Ty::Any,
+            "TABLE" => Ty::Table,
             "ARRAY" => {
                 self.expect("<")?;
                 let element = self.ty()?;

@@ -34,30 +34,7 @@ pub(crate) mod declaration;
 mod instance;
 pub(crate) mod kind;
 
-use std::sync::Arc;
-
-use datafusion::{logical_expr::AggregateUDF, logical_expr::ScalarUDF, prelude::SessionContext};
-
-use avenger_chart::functions::{constructors, marks, Arg, Kind};
-
-/// Registers the mark functions, the constructors, `scaled`, and `direct` in `ctx`.
-pub(crate) fn register(ctx: &SessionContext) {
-    for mark in marks() {
-        ctx.register_udaf(AggregateUDF::new_from_impl(
-            declaration::MarkDeclaration::new(mark),
-        ));
-    }
-    for constructor in constructors() {
-        ctx.register_udf(ScalarUDF::new_from_impl(
-            constructor::ConstructorFunction::new(constructor),
-        ));
-    }
-    for kind in [Kind::Scaled, Kind::Direct] {
-        ctx.register_udf(ScalarUDF::new_from_shared_impl(Arc::new(
-            kind::KindFunction::new(kind),
-        )));
-    }
-}
+use avenger_chart::functions::Arg;
 
 /// The argument of the constant `value`, or `None` for `NULL`.
 fn arg(value: &datafusion::common::ScalarValue) -> datafusion::common::Result<Option<Arg>> {

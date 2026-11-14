@@ -873,7 +873,13 @@ impl Pass<'_> {
         let Some(names) = path.names() else {
             return failed;
         };
-        let Some(function) = self.temp_function(&names).filter(|f| f.kind == Kind::Table) else {
+        let function = self.temp_function(&names).filter(|f| f.kind == Kind::Table);
+        if function.is_none()
+            && matches!(names.as_slice(), [name] if name.eq_ignore_ascii_case("impute"))
+        {
+            return self.impute_source(source, path.syntax().text_range());
+        }
+        let Some(function) = function else {
             self.error(
                 path.syntax().text_range(),
                 format!("Table-valued function not found: {}", names.join(".")),
@@ -1013,7 +1019,7 @@ impl Pass<'_> {
 
     /// The rows of the table at `names` as a source: a pipe `WITH` name, a temporary table, or a
     /// table of the catalog.
-    fn table_rows(&mut self, names: &[String], range: TextRange) -> Rows {
+    pub(super) fn table_rows(&mut self, names: &[String], range: TextRange) -> Rows {
         if let Some(table) = self.temp_table(names, range) {
             let alias = Some((names.last().cloned().unwrap_or_default(), range));
             return self.close(table.rows, alias, false, range);

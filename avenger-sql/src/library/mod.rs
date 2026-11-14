@@ -64,6 +64,8 @@ pub enum FunctionKind {
     Aggregate,
     /// A value of each row over a window, with `OVER`.
     Window,
+    /// The rows of a table, of a pipe `CALL` or of `FROM`.
+    Table,
 }
 
 /// A parameter of a function, which the forms of the function take by its name.
@@ -379,6 +381,11 @@ impl Function {
             ..Clauses::NONE
         };
         Self::new(name, FunctionKind::Window, summary, clauses)
+    }
+
+    /// A table function, which a pipe `CALL` and `FROM` call.
+    pub(crate) fn table(name: &str, summary: &str) -> Self {
+        Self::new(name, FunctionKind::Table, summary, Clauses::NONE)
     }
 
     pub(crate) fn description(mut self, description: &str) -> Self {
@@ -883,10 +890,16 @@ fn coerce(expr: Expr, ty: Option<Ty>, context: &PlanContext) -> Result<Expr, Cal
 }
 
 /// Whether a value of the Arrow type `current` has the type `ty` as the library maps it to Arrow:
-/// a scalar type exactly, as an `INT32` column isn't an `INT64` until a cast, and an array, a
-/// struct or an interval as its GoogleSQL type.
+/// a scalar type exactly, as an `INT32` column isn't an `INT64` until a cast, bytes of any layout,
+/// and an array, a struct or an interval as its GoogleSQL type.
 pub(crate) fn exact(current: &DataType, ty: &Ty, options: TypeOptions) -> bool {
     match ty {
+        // A view of bytes is a `BYTES` as it is, as the charts and fragments of avenger's
+        // functions are, with the extension of their fields.
+        Ty::Bytes => matches!(
+            current,
+            DataType::Binary | DataType::BinaryView | DataType::LargeBinary
+        ),
         Ty::Array(_) | Ty::Struct(_) | Ty::Interval | Ty::Any | Ty::Var(_) | Ty::Null => {
             Ty::of_arrow(current).as_ref() == Some(ty)
         }

@@ -1,4 +1,4 @@
-//! A session with the marks, the penguins, and the earthquakes, and the charts of a query.
+//! A session with the transforms, the penguins, and the earthquakes, and the charts of a query.
 
 use std::{io::Cursor, sync::Arc};
 
@@ -72,11 +72,21 @@ pub fn earthquakes() -> RecordBatch {
     .unwrap()
 }
 
-/// A session with the marks and the tables `penguins` and `earthquakes`.
+/// The table `one`, of one row and the column `one`, for queries of constants.
+pub fn one() -> RecordBatch {
+    let one: ArrayRef = Arc::new(arrow::array::Int64Array::from(vec![1]));
+    RecordBatch::try_from_iter([("one", one)]).unwrap()
+}
+
+/// A session with the transforms and the tables `penguins`, `earthquakes`, and `one`.
 pub fn session() -> SessionContext {
     let ctx = SessionContext::new();
     avenger_sql::register(&ctx).unwrap();
-    for (name, table) in [("penguins", penguins()), ("earthquakes", earthquakes())] {
+    for (name, table) in [
+        ("penguins", penguins()),
+        ("earthquakes", earthquakes()),
+        ("one", one()),
+    ] {
         let table = MemTable::try_new(table.schema(), vec![vec![table]]).unwrap();
         ctx.register_table(name, Arc::new(table)).unwrap();
     }

@@ -7,8 +7,7 @@ description = "Vega-style bin, stack, impute, and time unit transforms, and lump
 readme = "README.md"
 
 [dependencies]
-datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
-avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
+datafusion = { workspace = true, features = ["nested_expressions"] }
 async-trait = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
@@ -19,4 +18,6 @@ libm = { workspace = true }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
+# The tests compare the transforms with reference queries in DataFusion's SQL.
+datafusion = { workspace = true, features = ["sql", "nested_expressions"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

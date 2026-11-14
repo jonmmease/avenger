@@ -1,4 +1,4 @@
-//! The lumped genres from DataFusion, a click on the Other bar, which selects every genre outside
+//! The lumped genres from avenger-sql, a click on the Other bar, which selects every genre outside
 //! the kept ones and NULL and grays the movies of the kept genres and of no genre, and a click on
 //! the NULL bar, which selects the movies without a genre.
 
@@ -17,7 +17,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 
 use super::*;
 
-/// The tables of the chart, through DataFusion.
+/// The tables of the chart, through avenger-sql.
 fn lumped() -> Tables {
     tokio::runtime::Runtime::new()
         .unwrap()
