@@ -608,3 +608,117 @@ async fn functions_fail_where_googlesql_fails_and_safe_gives_null() {
     assert!(text.contains("|   | 0.0 |"), "{text}");
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
+
+/// The forms that GoogleSQL plans and the pass planned only in part: windows in a pipe `WHERE`,
+/// `DISTINCT` windows, `LIKE ANY UNNEST`, array paths in `FROM`, `LEFT JOIN UNNEST ... ON`,
+/// `STRICT` unnests, `HAVING MAX` with grouping sets, `BYTES` bitwise operators, pipe `CALL` of
+/// a temporary table function, `.*` of an expression, and `SELECT AS STRUCT` and `AS VALUE`.
+#[tokio::test]
+async fn the_pass_plans_googlesqls_forms() {
+    let cases = [
+        (
+            "FROM t |> WHERE ROW_NUMBER() OVER (ORDER BY x DESC) = 1 |> SELECT x",
+            "| x |\n| 3 |",
+        ),
+        (
+            "FROM t |> EXTEND COUNT(DISTINCT s) OVER () AS n |> SELECT x, n",
+            "| x | n |\n| 1 | 2 |\n| 2 | 2 |\n| 3 | 2 |",
+        ),
+        (
+            "FROM t |> SELECT x, s LIKE ANY UNNEST(['a%', 'b']) AS any_, s NOT LIKE ALL UNNEST(['a', 'c']) AS all_",
+            "| x | any_ | all_  |\n| 1 | true | false |\n| 2 | true | true  |\n| 3 |      |       |",
+        ),
+        (
+            "FROM arrays, arrays.xs AS v WITH OFFSET AS o |> SELECT k, v, o",
+            "| k | v | o |\n| 1 | 1 | 0 |\n| 1 | 2 | 1 |",
+        ),
+        (
+            "FROM arrays LEFT JOIN UNNEST(arrays.xs) AS v ON v > 1 |> SELECT k, v",
+            "| k | v |\n| 1 | 2 |\n| 2 |   |\n| 3 |   |",
+        ),
+        (
+            "FROM UNNEST([1, 2] AS a, [3, 4] AS b, mode => 'STRICT') |> SELECT a, b",
+            "| a | b |\n| 1 | 3 |\n| 2 | 4 |",
+        ),
+        (
+            "FROM sales |> AGGREGATE ANY_VALUE(isl HAVING MAX m) AS top, SUM(m) AS total, GROUPING(sp) AS g GROUP BY ROLLUP(sp)",
+            "| sp | top | total | g |\n|    | x   | 11    | 1 |\n| A  | y   | 3     | 0 |\n| B  | x   | 8     | 0 |",
+        ),
+        (
+            r"FROM one |> SELECT b'\x0f' & b'\x3c' AS a, ~b'\x0f' AS n, b'\x01\x00' >> 1 AS r, -8 >> 60 AS i",
+            "| a  | n  | r    | i  |\n| 0c | f0 | 0080 | 15 |",
+        ),
+        (
+            "CREATE TEMP TABLE FUNCTION top_n(src ANY TABLE, k INT64) AS (FROM src |> ORDER BY x DESC |> LIMIT k); FROM t |> CALL top_n(2) |> SELECT x",
+            "| x |\n| 2 |\n| 3 |",
+        ),
+        (
+            "FROM t |> SELECT STRUCT(x AS a, s AS b, x * 2 AS c).* EXCEPT (b) REPLACE (x AS c)",
+            "| a | c |\n| 1 | 1 |\n| 2 | 2 |\n| 3 | 3 |",
+        ),
+        (
+            "FROM t |> AGGREGATE ARRAY_AGG(STRUCT(x AS a, s AS b) ORDER BY x DESC LIMIT 1)[OFFSET(0)].*",
+            "| a | b |\n| 3 |   |",
+        ),
+        (
+            "FROM t |> SELECT AS STRUCT x, s |> WHERE x > 1 |> SELECT *",
+            "| x | s |\n| 2 | b |\n| 3 |   |",
+        ),
+        (
+            "FROM t |> SELECT AS VALUE x |> SELECT *",
+            "| $col_1 |\n| 1      |\n| 2      |\n| 3      |",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (query, expected) in cases {
+        let found: Vec<String> = (rows(query).await.into_iter())
+            .filter(|line| line.starts_with('|'))
+            .collect();
+        let mut expected: Vec<String> = expected.lines().map(String::from).collect();
+        expected.sort();
+        if found != expected {
+            failures.push(format!("{query}\n{}", found.join("\n")));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n\n"));
+}
+
+/// The errors of those forms, as GoogleSQL's.
+#[tokio::test]
+async fn the_forms_fail_where_googlesql_fails() {
+    let cases = [
+        (
+            "FROM UNNEST([1, 2] AS a, [3] AS b, mode => 'STRICT')",
+            "Unnested arrays under STRICT mode must have equal lengths",
+        ),
+        (
+            r"FROM one |> SELECT b'\x0f' | b'\x3c\x00' AS a",
+            "Bitwise binary operator for BYTES requires equal length of the inputs. Got 1 bytes on the left hand side and 2 bytes on the right hand side.",
+        ),
+        (
+            "FROM one |> SELECT 8 >> -1 AS a",
+            "Bitwise shift by negative offset.",
+        ),
+        (
+            "CREATE TEMP TABLE FUNCTION f(k INT64) AS (FROM t |> LIMIT k); FROM t |> CALL f(2)",
+            "Table-valued function cannot be called with pipe CALL syntax because its signature does not include a table-typed argument",
+        ),
+        (
+            "FROM t |> EXTEND COUNT(DISTINCT s) OVER (ORDER BY x) AS n",
+            "Window ORDER BY is not allowed if DISTINCT is specified",
+        ),
+        (
+            "FROM t |> SELECT AS VALUE x, s",
+            "SELECT AS VALUE query must have exactly one column",
+        ),
+        ("FROM t WITH OFFSET", "WITH OFFSET can only be used with array scans"),
+    ];
+    let mut failures = Vec::new();
+    for (query, message) in cases {
+        match run(query).await {
+            Err(errors) if errors[0].contains(message) => {}
+            other => failures.push(format!("{query}: {other:?}")),
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}

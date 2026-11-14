@@ -107,6 +107,7 @@ fn same_name(a: &str, b: &str) -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct SessionCatalog {
     tables: Vec<Table>,
+    modules: Vec<(Vec<String>, String)>,
     type_options: TypeOptions,
 }
 
@@ -123,6 +124,7 @@ impl SessionCatalog {
         };
         let mut catalog = SessionCatalog {
             tables: Vec::new(),
+            modules: Vec::new(),
             type_options,
         };
         for reference in &references.tables {
@@ -173,9 +175,45 @@ fn find(names: Vec<String>, name: &str) -> Option<String> {
         .find(|candidate| same_name(candidate, name))
 }
 
+impl SessionCatalog {
+    /// The catalog with the modules that `modules` gives for the paths that `references` imports,
+    /// and for the paths that those modules import in turn. `modules` returns the text of the
+    /// module at a path, or `None` when it has none.
+    pub fn with_modules(
+        mut self,
+        references: &References,
+        modules: &dyn Fn(&[String]) -> Option<String>,
+    ) -> Self {
+        let mut pending: Vec<Vec<String>> = (references.modules.iter())
+            .map(|reference| reference.names.clone())
+            .collect();
+        while let Some(names) = pending.pop() {
+            if self.module(&names).is_some() {
+                continue;
+            }
+            let Some(text) = modules(&names) else {
+                continue;
+            };
+            let parse = avenger_sql_syntax::parse_module(&text);
+            let imports = self::references(&parse.syntax()).modules;
+            pending.extend(imports.into_iter().map(|reference| reference.names));
+            self.modules.push((names, text));
+        }
+        self
+    }
+}
+
 impl Catalog for SessionCatalog {
     fn table(&self, names: &[String]) -> Option<Table> {
         lookup(&self.tables, names)
+    }
+
+    fn module(&self, names: &[String]) -> Option<String> {
+        (self.modules.iter())
+            .find(|(path, _)| {
+                path.len() == names.len() && path.iter().zip(names).all(|(a, b)| same_name(a, b))
+            })
+            .map(|(_, text)| text.clone())
     }
 
     fn type_options(&self) -> TypeOptions {

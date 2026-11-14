@@ -297,6 +297,8 @@ pub const QUERIES: &[&str] = &[
     "CREATE TEMP FUNCTION f(x INT64) AS (x + 1) OPTIONS (hash = 1, proto = 2)",
     "CREATE TEMP TABLE FUNCTION g(n INT64) AS (FROM t) |> LIMIT n",
     "CREATE TEMP TABLE `function` (x INT64)",
+    "FROM t |> SELECT DISTINCT AS STRUCT a, b + 1 |> SELECT AS VALUE v",
+    "FROM t |> SELECT f(x).*, (s).* EXCEPT (a) |> AGGREGATE ANY_VALUE(s).* REPLACE (1 AS b), COUNT(*) AS n",
     "CREATE TEMP TABLE my-proj.ds.t AS FROM u",
     "DECLARE k DEFAULT 2; IMPORT MODULE charts.scales AS s; IMPORT MODULE geo OPTIONS (a = 1); IMPORT MODULE module.`all`; FROM t |> EXTEND s.scaled(v, k) AS w; IMPORT MODULE late",
 ];
@@ -312,7 +314,11 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> WHERE a > > 1", "expected an expression", ">"),
     ("SELECT a FROM t", "expected `FROM`", "SELECT"),
     ("FROM t |> WHERE a < b < c", "comparisons don't chain", "<"),
-    ("FROM t |> SELECT AS STRUCT a", "no value tables", "AS"),
+    (
+        "FROM t |> SELECT AS mytype a",
+        "no protocol buffer types",
+        "AS mytype",
+    ),
     ("FROM t |> SELECT 5abc", "can't start with a digit", "abc"),
     ("FROM t |> SELECT 'a\nb'", "has no closing quote", "'a"),
     (
@@ -521,7 +527,10 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "CREATE TEMP TABLE function (x INT64)",
         "expected a name",
         "(",
-    ),
+    ), // `.*` follows only the whole expression of a select or aggregate item.
+    ("FROM t |> EXTEND 1 + s.*", "expected a name", "*"),
+    ("FROM t |> EXTEND SUM(s.*) OVER ()", "expected a name", "*"),
+    ("FROM t |> AGGREGATE GROUP BY s.*", "expected a name", "*"),
 ];
 
 /// Modules that GoogleSQL rejects, as [`REJECTED`].

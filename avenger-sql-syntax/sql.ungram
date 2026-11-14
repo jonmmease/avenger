@@ -381,7 +381,11 @@ PipeOperator =
 
 /// `|> SELECT [DISTINCT | ALL] items [WINDOW ...]`
 PipeSelect =
-  '|>' 'select' ('distinct' | 'all')? SelectEntry (',' SelectEntry)* ','? WindowClause?
+  '|>' 'select' ('distinct' | 'all')? SelectAs? SelectEntry (',' SelectEntry)* ','? WindowClause?
+
+/// `AS STRUCT` or `AS VALUE`, which make the rows a value table
+SelectAs =
+  'as' ('struct' | 'value')
 
 // As in GoogleSQL, a pipe `EXTEND` takes no `*`, and takes `t.*`.
 /// `|> EXTEND items [WINDOW ...]`
@@ -463,9 +467,10 @@ SelectEntry =
 SelectItem =
   Expr Alias?
 
-/// `[path.]* [EXCEPT (columns)] [REPLACE (expression AS name, ...)]`
+/// `[path.]* [EXCEPT (columns)] [REPLACE (expression AS name, ...)]`, or `expression.*` of a
+/// struct
 Wildcard =
-  (Path '.')? '*' ExceptList? ReplaceList?
+  ((Path | Expr) '.')? '*' ExceptList? ReplaceList?
 
 /// `EXCEPT (columns)`
 ExceptList =
@@ -497,7 +502,7 @@ RenameItem =
 
 /// `expression [[AS] alias] [{ASC | DESC} [NULLS {FIRST | LAST}]]`
 AggregateItem =
-  Expr Alias? OrderSuffix?
+  Expr Alias? OrderSuffix? Wildcard?
 
 /// `{ASC | DESC} [NULLS {FIRST | LAST}]`, or for a group item `NULLS {FIRST | LAST}` alone.
 OrderSuffix =

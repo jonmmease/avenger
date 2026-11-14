@@ -94,6 +94,9 @@ pub(crate) struct Parser<'a> {
     paren_depth: u32,
     depth: u32,
     in_module: bool,
+    /// The position of the start of a select or aggregate item, whose expression can end before
+    /// `.*`, as GoogleSQL's grammar lets a whole item that is a postfix expression take one.
+    dot_star_at: Option<usize>,
     cursor: Option<TextSize>,
     expected: RefCell<Vec<Expected>>,
 }
@@ -185,6 +188,7 @@ impl<'a> Parser<'a> {
             paren_depth: 0,
             depth: 0,
             in_module: false,
+            dot_star_at: None,
             cursor,
             expected: RefCell::new(Vec::new()),
         }
