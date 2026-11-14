@@ -372,7 +372,7 @@ impl Pass<'_> {
     }
 
     /// A `STRING` literal, of the Arrow type of the session's strings.
-    fn string_literal(&self, value: &str) -> Expr {
+    pub(crate) fn string_literal(&self, value: &str) -> Expr {
         let value = match self.type_options.utf8_view {
             true => ScalarValue::Utf8View(Some(value.to_string())),
             false => ScalarValue::Utf8(Some(value.to_string())),
@@ -1044,7 +1044,14 @@ impl Pass<'_> {
             let (Some(from_ty), Some(to_ty)) = (Ty::of_arrow(&from), Ty::of_arrow(&target)) else {
                 return None;
             };
-            return match library::cast_format(value, &from_ty, &to_ty, &format, &zone) {
+            return match library::cast_format(
+                value,
+                &from_ty,
+                &to_ty,
+                &format,
+                &zone,
+                self.type_options,
+            ) {
                 Ok(expr) => Some(match cast_expr.safe_cast_kw() {
                     Some(_) => Expr::TryCast(TryCast::new(Box::new(expr), target)),
                     None => expr,

@@ -31,6 +31,7 @@ use datafusion::{
 
 use super::{
     expr::Scope,
+    model::Definition,
     rows::{self, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -324,9 +325,13 @@ impl Pass<'_> {
             }
             let label = match item.literal() {
                 Some(literal) => match literal.kind() {
-                    Some(LiteralKind::String) => {
-                        Expr::Literal(ScalarValue::Utf8(literal.string_value()), None)
-                    }
+                    Some(LiteralKind::String) => match literal.string_value() {
+                        Some(text) => self.string_literal(&text),
+                        None => {
+                            ok = false;
+                            continue;
+                        }
+                    },
                     Some(LiteralKind::Int) => Expr::Literal(
                         ScalarValue::Int64(literal.int_value().and_then(|v| i64::try_from(v).ok())),
                         None,
@@ -337,7 +342,7 @@ impl Pass<'_> {
                         continue;
                     }
                 },
-                None => Expr::Literal(ScalarValue::Utf8(Some(names.join("_"))), None),
+                None => self.string_literal(&names.join("_")),
             };
             groups.push((columns, label, at));
         }
@@ -491,7 +496,11 @@ impl Pass<'_> {
             .filter(|col| col.name.eq_ignore_ascii_case(name))
             .collect();
         match found.as_slice() {
-            [col] => Some(Expr::Column(col.column.clone())),
+            [col] => {
+                let info = Self::column_info(col, &rows.vars, rows.schema());
+                self.use_name(path.syntax().text_range(), Definition::Column(info));
+                Some(Expr::Column(col.column.clone()))
+            }
             [] => {
                 self.error(
                     path.syntax().text_range(),

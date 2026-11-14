@@ -996,7 +996,7 @@ pub(crate) fn extract(part: DatePart, value: Expr, ty: &super::Ty, zone: &str) -
 }
 
 /// The strftime pattern of a GoogleSQL format of `CAST ... FORMAT`, such as `YYYY-MM-DD HH24:MI`,
-/// or the element that avenger-sql doesn't take. The elements are those of numbers: `YYYY`, `YY`,
+/// or the element that avenger-sql doesn't take. The elements are those of dates and times: `YYYY`, `YY`,
 /// `RRRR`, `RR`, `MM`, `DD`, `DDD`, `HH24`, `HH12`, `HH`, `MI`, `SS`, `FF3`, `FF6`, `FF9`, and
 /// `AM` or `PM`, without regard to case, with the separators `- . / , ' ; :` and spaces, and text
 /// in double quotes.
@@ -1065,14 +1065,15 @@ pub(crate) fn strftime(format: &str) -> Result<String, String> {
 }
 
 /// `CAST(value AS to FORMAT format)` of a value of the type `from`: a date or a time as a string,
-/// or a string as a date or a time, with `format`, a pattern of [`strftime`]. A `TIMESTAMP` takes
-/// the time zone `zone`.
+/// or a string as a date or a time, with `format`, a pattern of [`strftime`], as the Arrow type of
+/// `to` under `options`. A `TIMESTAMP` takes the time zone `zone`.
 pub(crate) fn cast_format(
     value: Expr,
     from: &super::Ty,
     to: &super::Ty,
     format: &str,
     zone: &str,
+    options: types::TypeOptions,
 ) -> Result<Expr, String> {
     use super::Ty;
     let pattern = lit_str(&strftime(format)?);
@@ -1100,5 +1101,5 @@ pub(crate) fn cast_format(
         ))
         }
     };
-    Ok(cast(cast_expr, to.arrow(Default::default())))
+    Ok(cast(cast_expr, to.arrow(options)))
 }

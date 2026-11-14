@@ -118,17 +118,33 @@ impl Pass<'_> {
             .collect();
         let failed = || Rows::failed(columns.clone(), Vec::new());
         // The common type of each column of the result.
+        if inputs.iter().any(|(rows, _, _)| rows.plan.is_none()) {
+            return failed();
+        }
         let mut types = Vec::new();
         for (position, (name, _)) in layout.names.iter().enumerate() {
-            let observed: Option<Vec<(Ty, bool)>> = (inputs.iter().zip(&layout.columns))
-                .map(|((rows, _, _), columns)| match columns[position] {
-                    Some(index) => Some((Ty::of_arrow(&rows.ty(&rows.columns[index])?)?, false)),
-                    None => Some((Ty::Null, true)),
-                })
-                .collect();
-            let Some(observed) = observed else {
-                return failed();
+            let what = match names {
+                Names::Position => format!("Column {}", position + 1),
+                _ => format!("Column {name}"),
             };
+            let mut observed = Vec::new();
+            for ((rows, _, _), columns) in inputs.iter().zip(&layout.columns) {
+                let Some(index) = columns[position] else {
+                    observed.push((Ty::Null, true));
+                    continue;
+                };
+                let arrow = rows.ty(&rows.columns[index]).expect("a column of the plan");
+                match Ty::of_arrow(&arrow) {
+                    Some(ty) => observed.push((ty, false)),
+                    None => {
+                        self.error(
+                            range,
+                            format!("{what} in {text} has the type {arrow}, which avenger-sql doesn't take"),
+                        );
+                        return failed();
+                    }
+                }
+            }
             match supertype(&observed) {
                 Some(ty) => types.push(ty),
                 None => {
@@ -136,10 +152,6 @@ impl Pass<'_> {
                         .filter(|(ty, _)| *ty != Ty::Null)
                         .map(|(ty, _)| ty.to_string())
                         .collect();
-                    let what = match names {
-                        Names::Position => format!("Column {}", position + 1),
-                        _ => format!("Column {name}"),
-                    };
                     self.error(
                         range,
                         format!(
