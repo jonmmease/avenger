@@ -24,7 +24,7 @@ use datafusion::{
     logical_expr::{AggregateUDF, Expr, WindowFunctionDefinition, WindowUDF},
 };
 
-use super::{lit_i64, lit_str, CallError, Function, Need, Planned};
+use super::{lit_i64, lit_str, Function, Need, Planned};
 
 /// The example table of the aggregates, `x` of `[1, 2, 2, 3, NULL]`.
 const NUMBERS: &str = "FROM UNNEST([1, 2, 2, 3, NULL]) AS x";
@@ -35,13 +35,13 @@ pub(super) fn functions() -> Vec<Function> {
             .description("`COUNT(*)` counts every row of the group, and `COUNT(value)` the rows whose value is not `NULL`. With `DISTINCT`, it counts the distinct values.")
             .param("value", "The value whose rows to count.")
             .form("(value: T) -> INT64 where T: ANY", |call| {
-                let arg = match (call.star, call.value(0)) {
-                    (true, _) => lit_i64(1),
-                    (false, Some(value)) => value.clone(),
-                    (false, None) => return Err(CallError::call("COUNT takes a value or `*`")),
+                let arg = match call.star {
+                    true => lit_i64(1),
+                    false => call.arg(0),
                 };
                 Ok(aggregate(count_udaf(), vec![arg]))
             })
+            .star()
             .distinct()
             .example(&format!("{NUMBERS} |> AGGREGATE COUNT(*) AS row_count, COUNT(x) AS value_count, COUNT(DISTINCT x) AS distinct_count"), "row_count | value_count | distinct_count\n5 | 4 | 3"),
         Function::aggregate("COUNTIF", "Returns the number of rows whose condition is `TRUE`.")

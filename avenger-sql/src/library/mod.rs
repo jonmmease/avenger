@@ -103,6 +103,8 @@ pub enum Over {
 /// The clauses that a call of a function takes in its parentheses, and its `OVER`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Clauses {
+    /// `*` in place of the arguments, as `COUNT(*)` takes.
+    pub star: bool,
     pub distinct: bool,
     /// `IGNORE NULLS` and `RESPECT NULLS`.
     pub null_treatment: bool,
@@ -112,6 +114,7 @@ pub struct Clauses {
 
 impl Clauses {
     const NONE: Clauses = Clauses {
+        star: false,
         distinct: false,
         null_treatment: false,
         order_by: false,
@@ -180,15 +183,17 @@ pub enum Planned {
         /// The rows of the group that the aggregate reads, as `COUNTIF` reads the rows of its
         /// condition.
         filter: Option<Expr>,
-        /// The type of the form's result, when it differs from the aggregate's, as `STRING_AGG`
-        /// returns a `STRING`. The pass casts the aggregate's column to it after the aggregate.
+        /// The type of the form's result, when it differs from the aggregate's, as `COUNT`
+        /// returns an `INT64`. A mapping leaves it `None`, and [`Function::plan`] sets it from
+        /// the form. The pass casts the aggregate's column to it after the aggregate.
         result: Option<DataType>,
     },
     Window {
         func: WindowFunctionDefinition,
         args: Vec<Expr>,
         /// The type of the form's result, when it differs from the function's, as `ROW_NUMBER`
-        /// returns an `INT64`. The pass casts the window's column to it after the window.
+        /// returns an `INT64`. A mapping leaves it `None`, and [`Function::plan`] sets it from
+        /// the form. The pass casts the window's column to it after the window.
         result: Option<DataType>,
     },
 }
@@ -387,6 +392,12 @@ impl Function {
         self
     }
 
+    /// Lets calls write `*` in place of the arguments, which fills the first argument.
+    pub(crate) fn star(mut self) -> Self {
+        self.clauses.star = true;
+        self
+    }
+
     pub(crate) fn distinct(mut self) -> Self {
         self.clauses.distinct = true;
         self
@@ -462,10 +473,7 @@ impl Function {
             let args = &form.signature.args;
             let arg = match name {
                 Some(name) => args.iter().find(|arg| arg.param.eq_ignore_ascii_case(name)),
-                None => args
-                    .iter()
-                    .filter(|arg| !arg.named_only && arg.arity != Arity::Repeated)
-                    .nth(position),
+                None => (form.signature.positional().nth(position)).map(|index| &args[index]),
             };
             matches!(
                 arg,
@@ -493,7 +501,7 @@ impl Function {
                 self.name
             )));
         }
-        if star && self.name != "COUNT" {
+        if star && !self.clauses.star {
             return Err(CallError::call(format!("{} takes no `*`", self.name)));
         }
         self.check_names(&args)?;
@@ -502,8 +510,9 @@ impl Function {
             .map(|(_, arg)| observe(arg, context.schema))
             .collect::<Result<Vec<_>, _>>()?;
         // The cheapest form that the arguments fit, or the reasons that none fits.
-        let mut best: Option<(usize, Vec<Option<usize>>, Resolution)> = None;
+        let mut best: Option<(usize, Vec<usize>, Resolution)> = None;
         let mut failures = Vec::new();
+        let mut unresolved = 0;
         for (index, form) in self.forms.iter().enumerate() {
             let binding = match bind(&self.name, &form.signature, &args, star) {
                 Ok(binding) => binding,
@@ -513,7 +522,7 @@ impl Function {
                 }
             };
             let bound: Vec<(usize, Observed)> = (binding.iter().enumerate())
-                .filter_map(|(at, slot)| slot.map(|arg| (arg, observed[at].clone())))
+                .map(|(at, &arg)| (arg, observed[at].clone()))
                 .collect();
             match form.signature.resolve(&bound) {
                 Some(resolution) => {
@@ -524,11 +533,11 @@ impl Function {
                         best = Some((index, binding, resolution));
                     }
                 }
-                None => failures.push(CallError::call(String::new())),
+                None => unresolved += 1,
             }
         }
         let Some((index, binding, resolution)) = best else {
-            return Err(self.no_form(failures, &observed));
+            return Err(self.no_form(failures, unresolved, &observed));
         };
         let form = &self.forms[index];
         let call = self.call(form, args, &binding, resolution, star, safe, context)?;
@@ -564,15 +573,16 @@ impl Function {
     }
 
     /// The error of a call that fits no form: the error of binding, when every form fails at it
-    /// the same way, or the forms and the types of the arguments.
-    fn no_form(&self, failures: Vec<CallError>, observed: &[Observed]) -> CallError {
-        let binding: Vec<&CallError> = failures
-            .iter()
-            .filter(|error| !error.message.is_empty())
-            .collect();
-        if binding.len() == failures.len() && !binding.is_empty() {
-            let first = binding[0];
-            if binding.iter().all(|error| *error == first) || self.forms.len() == 1 {
+    /// the same way, or the forms and the types of the arguments. `failures` are the errors of
+    /// binding, and `unresolved` the number of forms whose types the arguments don't fit.
+    fn no_form(
+        &self,
+        failures: Vec<CallError>,
+        unresolved: usize,
+        observed: &[Observed],
+    ) -> CallError {
+        if let (0, Some(first)) = (unresolved, failures.first()) {
+            if failures.iter().all(|error| error == first) || self.forms.len() == 1 {
                 return first.clone();
             }
         }
@@ -598,22 +608,18 @@ impl Function {
         &self,
         form: &Form,
         args: Vec<(Option<String>, Arg)>,
-        binding: &[Option<usize>],
+        binding: &[usize],
         resolution: Resolution,
         star: bool,
         safe: bool,
         context: PlanContext<'a>,
     ) -> Result<Call<'a>, CallError> {
         let signature = &form.signature;
-        let repeated = signature
-            .args
-            .last()
-            .is_some_and(|arg| arg.arity == Arity::Repeated);
-        let fixed = signature.args.len() - usize::from(repeated);
+        let fixed = signature.fixed();
         let mut slots: Vec<Option<(usize, Arg)>> = vec![None; fixed];
         let mut rest = Vec::new();
         for (at, ((_, arg), slot)) in args.into_iter().zip(binding).enumerate() {
-            let index = slot.expect("a bound argument");
+            let index = *slot;
             let form_arg = &signature.args[index];
             let arg = match arg {
                 Arg::DatePart(part) => {
@@ -702,13 +708,10 @@ impl Function {
                 }
             }
             Planned::Aggregate {
-                func,
-                args,
-                filter,
-                result,
+                func, args, filter, ..
             } => {
                 let ty = func.return_field(&fields(&args)?)?.data_type().clone();
-                let result = result.or_else(|| differs(&ty).then(|| want.arrow(options)));
+                let result = differs(&ty).then(|| want.arrow(options));
                 Planned::Aggregate {
                     func,
                     args,
@@ -716,7 +719,7 @@ impl Function {
                     result,
                 }
             }
-            Planned::Window { func, args, result } => {
+            Planned::Window { func, args, .. } => {
                 let inputs = fields(&args)?;
                 let ty = match &func {
                     WindowFunctionDefinition::WindowUDF(udwf) => udwf
@@ -727,7 +730,7 @@ impl Function {
                         udaf.return_field(&inputs)?.data_type().clone()
                     }
                 };
-                let result = result.or_else(|| differs(&ty).then(|| want.arrow(options)));
+                let result = differs(&ty).then(|| want.arrow(options));
                 Planned::Window { func, args, result }
             }
         })
@@ -756,15 +759,11 @@ fn bind(
     signature: &Signature,
     args: &[(Option<String>, Arg)],
     star: bool,
-) -> Result<Vec<Option<usize>>, CallError> {
+) -> Result<Vec<usize>, CallError> {
     let form_args = &signature.args;
-    let repeated = form_args
-        .last()
-        .is_some_and(|arg| arg.arity == Arity::Repeated);
-    let fixed = form_args.len() - usize::from(repeated);
-    let positional: Vec<usize> = (0..fixed)
-        .filter(|&index| !form_args[index].named_only)
-        .collect();
+    let fixed = signature.fixed();
+    let repeated = fixed < form_args.len();
+    let positional: Vec<usize> = signature.positional().collect();
     let mut filled = vec![false; form_args.len()];
     let mut binding = Vec::with_capacity(args.len());
     let mut next = 0;
@@ -809,7 +808,7 @@ fn bind(
             }
         };
         filled[index] = true;
-        binding.push(Some(index));
+        binding.push(index);
     }
     let star_fills = star && fixed > 0;
     for (index, arg) in form_args.iter().enumerate().take(fixed) {

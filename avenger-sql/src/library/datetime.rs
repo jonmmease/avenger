@@ -338,11 +338,11 @@ pub(super) fn functions() -> Vec<Function> {
         )
         .param("time_zone", ZONE)
         .form("(value: DATE, part: PART(DATE)) -> DATE", |call| {
-            date_trunc(call, call.arg(0), call.date_part(1))
+            Ok(date_trunc(call.arg(0), call.date_part(1)))
         })
         .form(
             "(value: DATETIME, part: PART(DATETIME)) -> DATETIME",
-            |call| datetime_trunc(call, call.arg(0), call.date_part(1)),
+            |call| Ok(datetime_trunc(call.arg(0), call.date_part(1))),
         )
         .form(
             "(value: TIMESTAMP, part: PART(DATETIME)[, time_zone: CONST STRING]) -> TIMESTAMP",
@@ -370,7 +370,7 @@ pub(super) fn functions() -> Vec<Function> {
         .param("time_zone", ZONE)
         .form(
             "(value: DATETIME, part: PART(DATETIME)) -> DATETIME",
-            |call| datetime_trunc(call, call.arg(0), call.date_part(1)),
+            |call| Ok(datetime_trunc(call.arg(0), call.date_part(1))),
         )
         .form(
             "(value: TIMESTAMP, part: PART(DATETIME)[, time_zone: CONST STRING]) -> TIMESTAMP",
@@ -397,7 +397,7 @@ pub(super) fn functions() -> Vec<Function> {
         )
         .form(
             "(value: DATETIME, part: PART(DATETIME)) -> DATETIME",
-            |call| datetime_trunc(call, call.arg(0), call.date_part(1)),
+            |call| Ok(datetime_trunc(call.arg(0), call.date_part(1))),
         )
         .safe()
         .example(
@@ -493,7 +493,7 @@ pub(super) fn functions() -> Vec<Function> {
             |call| {
                 let end = cast(call.arg(0), DataType::Date32);
                 let start = cast(call.arg(1), DataType::Date32);
-                date_diff(call, end, start, call.date_part(2))
+                Ok(date_diff(end, start, call.date_part(2)))
             },
         )
         .safe()
@@ -865,8 +865,9 @@ fn iso_year_start(days_of: Expr) -> Expr {
     week_start(days(january_4), Weekday::Monday)
 }
 
-fn date_trunc(call: &Call, date: Expr, part: DatePart) -> Result<Expr, CallError> {
-    let truncated = match part {
+/// The date `date` truncated to `part`. Binding checks that `part` is a part of a date.
+fn date_trunc(date: Expr, part: DatePart) -> Expr {
+    match part {
         DatePart::Day => date,
         DatePart::Week(_) | DatePart::IsoWeek => {
             let start = part.week_start().expect("a week");
@@ -880,28 +881,22 @@ fn date_trunc(call: &Call, date: Expr, part: DatePart) -> Result<Expr, CallError
                 DataType::Date32,
             )
         }
-        _ => {
-            return Err(call.error_at(
-                1,
-                format!(
-                    "DATE_TRUNC truncates a date to a DAY, WEEK, ISOWEEK, MONTH, QUARTER, YEAR or ISOYEAR, not {}",
-                    part.name()
-                ),
-            ))
-        }
-    };
-    Ok(truncated)
+        _ => unreachable!("a part of a date"),
+    }
 }
 
-fn datetime_trunc(call: &Call, value: Expr, part: DatePart) -> Result<Expr, CallError> {
+/// The civil time `value` truncated to `part`.
+fn datetime_trunc(value: Expr, part: DatePart) -> Expr {
     if let Some(granularity) = part.granularity() {
-        return Ok(cast(
+        return cast(
             f::date_trunc(lit_str(granularity), value),
             types::datetime(),
-        ));
+        );
     }
-    let date = date_trunc(call, cast(value, DataType::Date32), part)?;
-    Ok(cast(date, types::datetime()))
+    cast(
+        date_trunc(cast(value, DataType::Date32), part),
+        types::datetime(),
+    )
 }
 
 /// The instant `value` truncated to `part` in the time zone of the parameter at `zone_index`.
@@ -912,16 +907,17 @@ fn timestamp_trunc(
     zone_index: usize,
 ) -> Result<Expr, CallError> {
     let zone = time_zone(call, zone_index)?;
-    let truncated = datetime_trunc(call, local(value, &zone), part)?;
+    let truncated = datetime_trunc(local(value, &zone), part);
     Ok(instant(truncated, &zone))
 }
 
-/// The number of boundaries of `part` from the date `start` to the date `end`.
-fn date_diff(call: &Call, end: Expr, start: Expr, part: DatePart) -> Result<Expr, CallError> {
+/// The number of boundaries of `part` from the date `start` to the date `end`. Binding checks
+/// that `part` is a part of a date.
+fn date_diff(end: Expr, start: Expr, part: DatePart) -> Expr {
     let months = |date: Expr| year(date.clone()) * lit_i64(12) + month(date);
     let quarters =
         |date: Expr| year(date.clone()) * lit_i64(4) + (month(date) - lit_i64(1)) / lit_i64(3);
-    let difference = match part {
+    match part {
         DatePart::Day => days(end) - days(start),
         DatePart::Week(_) | DatePart::IsoWeek => {
             let day = part.week_start().expect("a week");
@@ -931,15 +927,6 @@ fn date_diff(call: &Call, end: Expr, start: Expr, part: DatePart) -> Result<Expr
         DatePart::Quarter => quarters(end) - quarters(start),
         DatePart::Year => year(end) - year(start),
         DatePart::IsoYear => iso_year(days(end)) - iso_year(days(start)),
-        _ => {
-            return Err(call.error_at(
-                2,
-                format!(
-                    "DATE_DIFF counts DAY, WEEK, ISOWEEK, MONTH, QUARTER, YEAR or ISOYEAR, not {}",
-                    part.name()
-                ),
-            ))
-        }
-    };
-    Ok(difference)
+        _ => unreachable!("a part of a date"),
+    }
 }

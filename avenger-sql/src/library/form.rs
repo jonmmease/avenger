@@ -128,10 +128,20 @@ impl Ty {
         }
     }
 
-    /// The type with each variable replaced by its type in `vars`.
+    /// The first variable of the type that `vars` doesn't declare.
+    fn undeclared(&self, vars: &[(String, Vec<Ty>)]) -> Option<&str> {
+        match self {
+            Ty::Var(name) => (!vars.iter().any(|(var, _)| var == name)).then_some(name.as_str()),
+            Ty::Array(element) => element.undeclared(vars),
+            Ty::Struct(fields) => fields.iter().find_map(|(_, ty)| ty.undeclared(vars)),
+            _ => None,
+        }
+    }
+
+    /// The type with the variables of `vars` replaced, and other variables kept.
     fn substitute(&self, vars: &BTreeMap<String, Ty>) -> Ty {
         match self {
-            Ty::Var(name) => vars.get(name).cloned().unwrap_or(Ty::Any),
+            Ty::Var(name) => vars.get(name).cloned().unwrap_or_else(|| self.clone()),
             Ty::Array(element) => Ty::Array(Box::new(element.substitute(vars))),
             Ty::Struct(fields) => Ty::Struct(
                 fields
@@ -278,20 +288,18 @@ pub struct Signature {
     pub vars: Vec<(String, Vec<Ty>)>,
 }
 
-impl Ty {
-    /// The type that `text` writes, as a form writes a type, without type variables.
-    pub fn parse(text: &str) -> Result<Ty, String> {
-        let mut parser = Parser::new(text);
-        let ty = parser.ty()?;
-        parser.skip_space();
-        match parser.rest().is_empty() {
-            true => Ok(ty),
-            false => Err(format!("unexpected `{}` in `{text}`", parser.rest())),
-        }
-    }
-}
-
 impl Signature {
+    /// The number of the arguments before a repeated last one.
+    pub fn fixed(&self) -> usize {
+        let repeated = (self.args.last()).is_some_and(|arg| arg.arity == Arity::Repeated);
+        self.args.len() - usize::from(repeated)
+    }
+
+    /// The indices of the fixed arguments that a call gives by position, in order.
+    pub fn positional(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.fixed()).filter(|&index| !self.args[index].named_only)
+    }
+
     /// The signature of the declaration `text`, as the module describes it.
     pub fn parse(text: &str) -> Result<Signature, String> {
         Parser::new(text).signature()
@@ -306,8 +314,8 @@ impl Signature {
             .map(|(var, set)| (var.clone(), set[0].clone()))
             .collect();
         let accept = |accept: &Accept| match accept {
-            Accept::Value(ty) => ty.substitute_keep(&single).to_string(),
-            Accept::Const(ty) => format!("CONST {}", ty.substitute_keep(&single)),
+            Accept::Value(ty) => ty.substitute(&single).to_string(),
+            Accept::Const(ty) => format!("CONST {}", ty.substitute(&single)),
             Accept::OneOf(values) => {
                 let values: Vec<String> = values.iter().map(|v| format!("'{v}'")).collect();
                 values.join(" | ")
@@ -329,7 +337,7 @@ impl Signature {
                 Arity::Repeated => out.push_str(&format!("{sep}{core}, ...")),
             }
         }
-        out.push_str(&format!(") -> {}", self.result.substitute_keep(&single)));
+        out.push_str(&format!(") -> {}", self.result.substitute(&single)));
         let multi: Vec<String> = (self.vars.iter())
             .filter(|(_, set)| set.len() != 1)
             .map(|(var, set)| match set.is_empty() {
@@ -347,26 +355,9 @@ impl Signature {
     }
 }
 
-impl Ty {
-    /// The type with the variables of `vars` replaced, and other variables kept.
-    fn substitute_keep(&self, vars: &BTreeMap<String, Ty>) -> Ty {
-        match self {
-            Ty::Var(name) => vars.get(name).cloned().unwrap_or_else(|| self.clone()),
-            Ty::Array(element) => Ty::Array(Box::new(element.substitute_keep(vars))),
-            Ty::Struct(fields) => Ty::Struct(
-                fields
-                    .iter()
-                    .map(|(name, ty)| (name.clone(), ty.substitute_keep(vars)))
-                    .collect(),
-            ),
-            other => other.clone(),
-        }
-    }
-}
-
 /// What resolution knows of an argument of a call.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Observed {
+pub(crate) enum Observed {
     /// A value of the type, which is a literal when `literal` holds.
     Value { ty: Ty, literal: bool },
     /// A date part.
@@ -400,7 +391,7 @@ pub fn coercion(from: &Ty, literal: bool, to: &Ty) -> Option<u32> {
 /// The resolution of a call to a form: its cost, the type of each variable, and the type to
 /// which each value argument coerces.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Resolution {
+pub(crate) struct Resolution {
     pub cost: u32,
     pub vars: BTreeMap<String, Ty>,
 }
@@ -409,7 +400,7 @@ impl Signature {
     /// The resolution of the arguments `args`, each bound to the argument of the form at its
     /// index, or `None` when they don't fit. A repeated argument binds every argument at and
     /// after its index.
-    pub fn resolve(&self, args: &[(usize, Observed)]) -> Option<Resolution> {
+    pub(crate) fn resolve(&self, args: &[(usize, Observed)]) -> Option<Resolution> {
         // The observed types of each variable, from the arguments that take it.
         let mut by_var: BTreeMap<String, Vec<(Ty, bool)>> = BTreeMap::new();
         let mut cost = 0;
@@ -460,7 +451,7 @@ impl Signature {
     }
 
     /// The type that the argument at `index` coerces to under `resolution`.
-    pub fn arg_type(&self, index: usize, resolution: &Resolution) -> Option<Ty> {
+    pub(crate) fn arg_type(&self, index: usize, resolution: &Resolution) -> Option<Ty> {
         match &self.args[index].accept {
             Accept::Value(ty) | Accept::Const(ty) => Some(ty.substitute(&resolution.vars)),
             Accept::OneOf(_) => Some(Ty::String),
@@ -469,7 +460,7 @@ impl Signature {
     }
 
     /// The type of the result under `resolution`.
-    pub fn result_type(&self, resolution: &Resolution) -> Ty {
+    pub(crate) fn result_type(&self, resolution: &Resolution) -> Ty {
         self.result.substitute(&resolution.vars)
     }
 }
@@ -504,27 +495,11 @@ fn collect(
 struct Parser<'a> {
     text: &'a str,
     position: usize,
-    vars: Vec<String>,
 }
 
 impl<'a> Parser<'a> {
     fn new(text: &'a str) -> Self {
-        // The variables are the names that the `where` clause declares.
-        let vars = match text.split_once(" where ") {
-            Some((_, clause)) => clause
-                .split(',')
-                .filter_map(|part| {
-                    part.split_once(':')
-                        .map(|(name, _)| name.trim().to_string())
-                })
-                .collect(),
-            None => Vec::new(),
-        };
-        Self {
-            text,
-            position: 0,
-            vars,
-        }
+        Self { text, position: 0 }
     }
 
     fn rest(&self) -> &'a str {
@@ -628,7 +603,20 @@ impl<'a> Parser<'a> {
         if !self.rest().is_empty() {
             return Err(format!("unexpected `{}` in `{}`", self.rest(), self.text));
         }
-        Ok(Signature { args, result, vars })
+        let signature = Signature { args, result, vars };
+        let types = (signature.args.iter())
+            .filter_map(|arg| match &arg.accept {
+                Accept::Value(ty) | Accept::Const(ty) => Some(ty),
+                _ => None,
+            })
+            .chain([&signature.result])
+            .chain(signature.vars.iter().flat_map(|(_, set)| set));
+        for ty in types {
+            if let Some(name) = ty.undeclared(&signature.vars) {
+                return Err(format!("`{name}` is not a type in `{}`", self.text));
+            }
+        }
+        Ok(signature)
     }
 
     fn arg(&mut self) -> Result<FormArg, String> {
@@ -717,8 +705,8 @@ impl<'a> Parser<'a> {
                 self.expect(">")?;
                 Ty::Struct(fields)
             }
-            name if self.vars.iter().any(|var| var == name) => Ty::Var(name.to_string()),
-            other => return Err(format!("`{other}` is not a type in `{}`", self.text)),
+            // Another name is a variable, which the `where` clause declares.
+            name => Ty::Var(name.to_string()),
         };
         Ok(ty)
     }

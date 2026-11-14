@@ -5,8 +5,8 @@
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! constructor returns the fragment of its message. The transforms take their options as named
 //! arguments, as in `bin(x, maxbins => 30)`, which their window functions take as pairs of a name
-//! and a value. The docs of the marks and the constructors are avenger-chart's, and the options of
-//! the transforms are the transforms crate's.
+//! and a value. The docs of the marks and the constructors are avenger-chart's, and the forms of
+//! the transforms declare their options, with their docs.
 //!
 //! A function or a parameter whose name is a reserved word of GoogleSQL takes the name with a
 //! trailing underscore, as the constructor `select` is `select_` and the parameter `range` of
@@ -19,9 +19,7 @@ use std::sync::Arc;
 use avenger_chart::functions::{
     constructors, encoding_options, marks, Accept as ChartAccept, Kind, Shape, COORD,
 };
-use avenger_datafusion_transforms::{
-    bin::BinWindow, stack::StackWindow, timeunit::TimeUnitWindow, OptionSpec,
-};
+use avenger_datafusion_transforms::{bin::BinWindow, stack::StackWindow, timeunit::TimeUnitWindow};
 use datafusion::logical_expr::{
     AggregateUDF, Expr, ScalarUDF, WindowFunctionDefinition, WindowUDF,
 };
@@ -270,10 +268,41 @@ fn bin() -> Function {
         .param(
             "value",
             "The number of each row. A `NULL`, `NaN` or infinite value has no bin.",
-        ),
-        "(value: T) -> STRUCT<start FLOAT64, end FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC \
-         | FLOAT64",
-        avenger_datafusion_transforms::bin::OPTIONS,
+        )
+        .param("maxbins", "The greatest number of bins. When omitted, 20.")
+        .param("base", "The number base of the steps. When omitted, 10.")
+        .param(
+            "divide",
+            "The factors by which a step can be divided to give more bins. When omitted, `[5, 2]`.",
+        )
+        .param(
+            "extent",
+            "The range to bin, as `[low, high]`. A value outside it has no bin. When omitted, the \
+             range of the finite values of the partition.",
+        )
+        .param(
+            "span",
+            "The length of the range that chooses the step, in place of the length of the extent.",
+        )
+        .param(
+            "step",
+            "The step of the bins, in place of the step that `bin` chooses.",
+        )
+        .param(
+            "steps",
+            "The steps that `bin` chooses from: the smallest that gives at most `maxbins` bins.",
+        )
+        .param("minstep", "The smallest step. When omitted, 0.")
+        .param(
+            "nice",
+            "Whether the first bin starts at a whole multiple of the step. When omitted, `TRUE`. \
+             With `FALSE`, the first bin starts at the low end of the range.",
+        )
+        .param("anchor", "A value at which a bin starts."),
+        "(value: T[, maxbins => FLOAT64][, base => FLOAT64][, divide => ARRAY<FLOAT64>][, extent \
+         => ARRAY<FLOAT64>][, span => FLOAT64][, step => FLOAT64][, steps => ARRAY<FLOAT64>][, \
+         minstep => FLOAT64][, nice => BOOL][, anchor => FLOAT64]) -> STRUCT<start FLOAT64, end \
+         FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC | FLOAT64",
         || WindowUDF::new_from_impl(BinWindow::default()),
     )
     .example(
@@ -308,10 +337,16 @@ fn stack() -> Function {
             "value",
             "The number of each row. A `NULL` or `NaN` value has no layer and adds nothing to \
              its stack.",
+        )
+        .param(
+            "offset",
+            "Where each stack starts: `'zero'`, where positive values stack up from zero and \
+             negative values down from zero, `'normalize'`, where the absolute values stack from 0 \
+             to 1 as fractions of their stack's total, or `'center'`, where the absolute values \
+             stack centered on zero. When omitted, `'zero'`.",
         ),
-        "(value: T) -> STRUCT<start FLOAT64, end FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC \
-         | FLOAT64",
-        avenger_datafusion_transforms::stack::OPTIONS,
+        "(value: T[, offset => ONEOF('zero', 'normalize', 'center')]) -> STRUCT<start FLOAT64, end \
+         FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC | FLOAT64",
         || WindowUDF::new_from_impl(StackWindow::default()),
     )
     .example(
@@ -345,9 +380,38 @@ fn timeunit() -> Function {
             "value",
             "The `DATE`, `DATETIME` or `TIMESTAMP` of each row. A `TIMESTAMP` takes its units in \
              the civil time of its time zone.",
+        )
+        .param(
+            "unit",
+            "The unit, such as `'month'`, which holds a span of time and takes a count and a \
+             plural, as in `'15 minutes'` or `'3 months'`, or a collapsing unit, such as \
+             `'month_of_year'`, which maps each value into one reference year. The fiscal units \
+             `'fiscal_year'` and `'fiscal_quarter'` need `fiscal_year_start`. When omitted, \
+             `timeunit` chooses one unit for each partition.",
+        )
+        .param(
+            "min_unit",
+            "The shortest unit that `timeunit` can choose. When omitted, the shortest is the \
+             resolution of the data, such as `'month'` for values that are all first days of \
+             months.",
+        )
+        .param(
+            "maxbins",
+            "The greatest number of units that a chosen unit gives the partition. When omitted, \
+             20.",
+        )
+        .param(
+            "week_start",
+            "The first day of a week. When omitted, `'monday'`.",
+        )
+        .param(
+            "fiscal_year_start",
+            "The number of the month, from 1 to 12, in which a fiscal year starts, such as 10 for \
+             October.",
         ),
-        "(value: T) -> STRUCT<start T, end T, unit STRING> where T: DATE | DATETIME | TIMESTAMP",
-        avenger_datafusion_transforms::timeunit::OPTIONS,
+        "(value: T[, unit => STRING][, min_unit => STRING][, maxbins => INT64][, week_start => \
+         ONEOF('monday', 'sunday')][, fiscal_year_start => INT64]) -> STRUCT<start T, end T, unit \
+         STRING> where T: DATE | DATETIME | TIMESTAMP",
         || WindowUDF::new_from_impl(TimeUnitWindow::default()),
     )
     .example(
@@ -360,33 +424,19 @@ fn timeunit() -> Function {
     )
 }
 
-/// The window transform `function` of the form `declaration`, after whose value come its
-/// options `options` as named arguments, which its window function takes as pairs of a name and
-/// a value.
-fn transform(
-    mut function: Function,
-    declaration: &str,
-    options: &'static [OptionSpec],
-    udwf: fn() -> WindowUDF,
-) -> Function {
-    let mut signature = Signature::parse(declaration).expect("the form of a transform");
-    for option in options {
-        function = function.param(&sql_name(option.name), option.doc);
-        let accept = match option.values {
-            [] => Accept::Value(Ty::parse(option.ty).expect("the type of an option")),
-            values => Accept::OneOf(values.iter().map(|value| value.to_string()).collect()),
-        };
-        signature.args.push(FormArg {
-            named_only: true,
-            ..arg(option.name, accept, false)
-        });
-    }
+/// The window transform `function` of the form `declaration`, whose options are named arguments
+/// after its value, which its window function takes as pairs of a name and a value.
+fn transform(function: Function, declaration: &str, udwf: fn() -> WindowUDF) -> Function {
+    let signature = Signature::parse(declaration).expect("the form of a transform");
+    let options: Vec<String> = (signature.args[1..].iter())
+        .map(|arg| arg.param.clone())
+        .collect();
     let udwf = Arc::new(udwf());
     function.with_signature(signature, move |call| {
         let mut args = vec![call.arg(0)];
         for (index, option) in options.iter().enumerate() {
             if let Some(value) = call.value(index + 1) {
-                args.extend([lit_str(option.name), value.clone()]);
+                args.extend([lit_str(option), value.clone()]);
             }
         }
         Ok(Planned::Window {
