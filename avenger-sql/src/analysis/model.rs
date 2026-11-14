@@ -76,10 +76,20 @@ pub enum Definition {
     Table {
         names: Vec<String>,
     },
-    /// A name of a pipe `WITH`, and the range of its definition.
+    /// A name of a pipe `WITH` or a temporary table, and the range of its definition.
     Query {
         name: String,
         definition: Option<TextRange>,
+    },
+    /// A script variable.
+    Variable {
+        name: String,
+        definition: Option<TextRange>,
+        ty: Option<DataType>,
+    },
+    /// A module of an `IMPORT MODULE`, by its path.
+    Module {
+        names: Vec<String>,
     },
     /// A function of the library.
     Function {

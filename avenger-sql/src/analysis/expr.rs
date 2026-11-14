@@ -663,6 +663,14 @@ impl Pass<'_> {
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names: Vec<String> = refs.iter().map(|name| name.text()).collect::<Option<_>>()?;
         let first = names.first()?.clone();
+        // A parameter of the body of a function that the pass inlines.
+        if let Some(arg) = self.param_arg(&first) {
+            let mut expr = arg;
+            for (name, name_ref) in names.iter().zip(&refs).skip(1) {
+                expr = self.field(expr, name, name_ref.syntax().text_range(), scope)?;
+            }
+            return Some(expr);
+        }
         // The scopes of the enclosing queries, which the lookups borrow from the pass.
         let outers = std::mem::take(&mut self.outers);
         let levels = std::iter::once(scope).chain(outers.iter().rev().map(|outer| Scope {
@@ -687,16 +695,31 @@ impl Pass<'_> {
             }
         }
         self.outers = outers;
-        let (mut expr, rest) = match found {
-            Lookup::Found(expr, rest) => (expr, rest),
+        let mut found = match found {
+            Lookup::Found(expr, rest) => Some((expr, rest)),
             Lookup::Failed => return None,
-            Lookup::Missing => {
-                self.error(
-                    refs[0].syntax().text_range(),
-                    format!("Unrecognized name: {first}"),
-                );
-                return None;
+            Lookup::Missing => None,
+        };
+        // A script variable, which a column hides, then a constant of a module.
+        if found.is_none() {
+            if let Some(variable) = self.variable(&first, refs[0].syntax().text_range()) {
+                found = Some((variable, 1));
             }
+        }
+        if found.is_none() {
+            for count in (1..=names.len()).rev() {
+                if let Some(constant) = self.module_constant(&names[..count]) {
+                    found = Some((constant, count));
+                    break;
+                }
+            }
+        }
+        let Some((mut expr, rest)) = found else {
+            self.error(
+                refs[0].syntax().text_range(),
+                format!("Unrecognized name: {first}"),
+            );
+            return None;
         };
         for (name, name_ref) in names.iter().zip(&refs).skip(rest) {
             expr = self.field(expr, name, name_ref.syntax().text_range(), scope)?;
@@ -1459,6 +1482,10 @@ impl Pass<'_> {
         let path = call.path()?;
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names = path.names()?;
+        // A temporary function, or a function of a module.
+        if let Some(function) = self.temp_function(&names) {
+            return self.call_temp(function, call, scope, path.syntax().text_range());
+        }
         let (safe, name, name_range) = match names.as_slice() {
             [name] => (false, name.clone(), refs[0].syntax().text_range()),
             [safe, name] if safe.eq_ignore_ascii_case("SAFE") => {

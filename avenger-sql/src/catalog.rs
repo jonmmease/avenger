@@ -87,6 +87,11 @@ pub trait Catalog {
     /// The table at the path `names`, matched without regard to case.
     fn table(&self, names: &[String]) -> Option<Table>;
 
+    /// The text of the module at the path `names` of an `IMPORT MODULE`, a `.sqlm` file.
+    fn module(&self, _names: &[String]) -> Option<String> {
+        None
+    }
+
     /// How GoogleSQL's types map to Arrow types.
     fn type_options(&self) -> TypeOptions {
         TypeOptions::default()
@@ -189,10 +194,11 @@ fn lookup(tables: &[Table], names: &[String]) -> Option<Table> {
         .cloned()
 }
 
-/// A catalog of tables that a test adds.
+/// A catalog of tables and modules that a test adds.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryCatalog {
     tables: Vec<Table>,
+    modules: Vec<(Vec<String>, String)>,
 }
 
 impl MemoryCatalog {
@@ -214,10 +220,23 @@ impl MemoryCatalog {
     pub fn with_schema(self, names: &[&str], schema: SchemaRef) -> Self {
         self.with_table(names, Arc::new(EmptyTable::new(schema)))
     }
+
+    /// Adds the module of the text `text` at the path `names`.
+    pub fn with_module(mut self, names: &[&str], text: &str) -> Self {
+        let names = names.iter().map(|name| name.to_string()).collect();
+        self.modules.push((names, text.to_string()));
+        self
+    }
 }
 
 impl Catalog for MemoryCatalog {
     fn table(&self, names: &[String]) -> Option<Table> {
         lookup(&self.tables, names)
+    }
+
+    fn module(&self, names: &[String]) -> Option<String> {
+        (self.modules.iter())
+            .find(|(path, _)| same_path(path, names))
+            .map(|(_, text)| text.clone())
     }
 }
