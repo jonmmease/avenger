@@ -96,10 +96,13 @@ fn broken_text_keeps_its_classes() {
 }
 
 #[test]
-fn the_classes_of_every_operator() {
+fn the_names_of_every_operator() {
+    // The roles of the names, which the parser's nodes give them. The classes of the other
+    // tokens follow from their kinds.
     let ranges = highlight(&parse(OPERATORS).syntax());
     let dump: String = ranges
         .iter()
+        .filter(|range| matches!(range.highlight, Highlight::Name(_)))
         .map(|range| {
             let mark = if range.definition { " definition" } else { "" };
             format!(

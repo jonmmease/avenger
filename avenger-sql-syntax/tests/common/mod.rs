@@ -6,6 +6,43 @@ use std::path::PathBuf;
 
 use avenger_sql_syntax::{parse, parse_module, Diagnostic, Parse, SyntaxKind, SyntaxNode};
 
+/// `shape`: the kinds of the children and the tokens that `sql.ungram` gives each node kind.
+mod grammar {
+    use avenger_sql_syntax::SyntaxKind;
+
+    include!(concat!(env!("OUT_DIR"), "/shape.rs"));
+}
+
+/// The places where the tree `root` differs from `sql.ungram`: each child node and each token,
+/// other than trivia and `ERROR` nodes, that the grammar doesn't give its parent, as
+/// `PARENT: CHILD`.
+pub fn grammar_violations(root: &SyntaxNode) -> Vec<String> {
+    let mut violations = Vec::new();
+    for node in root.descendants() {
+        let kind = node.kind();
+        if kind == SyntaxKind::ERROR {
+            continue;
+        }
+        let Some((nodes, tokens)) = grammar::shape(kind) else {
+            violations.push(format!("{kind:?}: no rule"));
+            continue;
+        };
+        for child in node.children_with_tokens() {
+            let child_kind = child.kind();
+            let allowed = match child.as_node() {
+                Some(_) => child_kind == SyntaxKind::ERROR || nodes.contains(&child_kind),
+                None => child_kind.is_trivia() || tokens.contains(&child_kind),
+            };
+            if !allowed {
+                violations.push(format!("{kind:?}: {child_kind:?}"));
+            }
+        }
+    }
+    violations.sort();
+    violations.dedup();
+    violations
+}
+
 /// Parses `text` as a script, and checks that it has no diagnostics and that its tree holds the
 /// text.
 pub fn accepts(text: &str) -> SyntaxNode {
@@ -258,6 +295,7 @@ pub const EXPRESSIONS: &[&str] = &[
 
 /// Queries of the forms that GoogleSQL accepts.
 pub const QUERIES: &[&str] = &[
+    "FROM t |> EXTEND a, t.*",
     "FROM t # a comment to the line end",
     "(FROM t) AS q |> WHERE true",
     "(FROM t) |> WHERE x",
@@ -452,6 +490,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
         "-",
     ),
     ("FROM t |> EXTEND *", "takes no `*`", "*"),
+    ("FROM t |> EXTEND a, *", "takes no `*`", "*"),
     (
         "FROM t |> SELECT * REPLACE (a AS b,)",
         "expected an expression",

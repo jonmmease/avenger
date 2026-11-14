@@ -202,7 +202,13 @@ impl Parser<'_> {
         } else {
             self.record_name(NameRole::Table);
             if !self.table_path() {
-                marker.abandon(self);
+                // A `LATERAL` without its source stays in the tree as an error.
+                match lateral {
+                    true => {
+                        marker.complete(self, ERROR);
+                    }
+                    false => marker.abandon(self),
+                }
                 self.error_recover_source();
                 return None;
             }

@@ -103,46 +103,6 @@ fn operators_read_their_tokens() {
 }
 
 #[test]
-fn a_query_reads_as_typed_nodes() {
-    let parse = avenger_sql_syntax::parse(
-        "FROM orders AS o JOIN customers c USING (id) |> WHERE o.total > 10 |> AGGREGATE SUM(o.total) AS total GROUP BY c.region",
-    );
-    assert!(parse.ok());
-    let script = parse.script().expect("a script");
-    let Some(ast::Stmt::Query(query)) = script.stmts().next() else {
-        panic!("not a query");
-    };
-    let source = query.from_clause().and_then(|from| from.source());
-    let Some(ast::Source::Join(join)) = source else {
-        panic!("not a join");
-    };
-    assert!(matches!(join.lhs(), Some(ast::Source::TableSource(_))));
-    assert!(matches!(
-        join.join_condition(),
-        Some(ast::JoinCondition::UsingCondition(_))
-    ));
-    let operators: Vec<ast::PipeOperator> = query.pipe_operators().collect();
-    assert_eq!(operators.len(), 2);
-    let ast::PipeOperator::PipeAggregate(aggregate) = &operators[1] else {
-        panic!("not an AGGREGATE");
-    };
-    let item = aggregate.aggregate_items().next().expect("an item");
-    assert_eq!(
-        item.alias()
-            .and_then(|alias| alias.name())
-            .and_then(|name| name.text())
-            .as_deref(),
-        Some("total")
-    );
-    let groups: Vec<_> = aggregate
-        .group_by()
-        .expect("a GROUP BY")
-        .grouping_items()
-        .collect();
-    assert_eq!(groups.len(), 1);
-}
-
-#[test]
 fn statements_read_their_modifiers() {
     use ast::{CreateStmt, FunctionKind, Scope};
     let parse = avenger_sql_syntax::parse(

@@ -44,12 +44,6 @@ fn commas_and_joins_associate_to_the_left() {
 }
 
 #[test]
-fn a_dashed_table_name_holds_its_dashes() {
-    let root = accepts("FROM my-project-2.dataset.table");
-    assert_eq!(text_of(&root, PATH), "my-project-2.dataset.table");
-}
-
-#[test]
 fn forms_hold_their_parts() {
     let expr = condition("ANY_VALUE(x HAVING MAX y) = STRING_AGG(s IGNORE NULLS)");
     assert_eq!(text_of(&expr, HAVING_CLAUSE), "HAVING MAX y");

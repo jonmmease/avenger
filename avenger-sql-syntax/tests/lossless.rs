@@ -1,5 +1,5 @@
-//! Every text parses into a tree that holds it, without a panic, and a node starts and ends at
-//! a significant token.
+//! Every text parses into a tree that holds it, without a panic, whose nodes start and end at
+//! significant tokens and have the children that `sql.ungram` gives them.
 
 mod common;
 
@@ -87,6 +87,8 @@ fn every_input_round_trips() {
             assert_eq!(root.text().to_string(), text);
             check_edges(&root);
             check_highlights(&root);
+            let violations = grammar_violations(&root);
+            assert!(violations.is_empty(), "{text:?}: {violations:?}");
             for diagnostic in parse.diagnostics() {
                 assert!(usize::from(diagnostic.range.end()) <= text.len());
             }
