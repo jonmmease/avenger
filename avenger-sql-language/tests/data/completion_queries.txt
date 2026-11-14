@@ -1,0 +1,239 @@
+# The queries of the completion evaluation, each its source and its text, ended by U+001E.
+charts
+FROM penguins
+|> AGGREGATE count(*) AS n GROUP BY species
+|> AGGREGATE bar(x => species, y => n ORDER BY species) AS chart
+charts
+FROM penguins
+|> AGGREGATE symbol(
+     x => scaled(flipper_length_mm, scale => interval_fit(zero => FALSE)),
+     y => scaled(body_mass_g, scale => interval_fit(zero => FALSE)),
+     color => island) AS chart GROUP BY species
+|> ORDER BY species
+marks
+FROM t |> AGGREGATE symbol(x => 1, y => 2)
+transforms
+FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> EXTEND bin(body_mass_g) OVER () AS b
+|> AGGREGATE COUNT(*) AS n GROUP BY b
+|> AGGREGATE bar(x => b, y => n) AS chart
+transforms
+FROM penguins
+|> EXTEND lump(island, n => 1) OVER (PARTITION BY species) AS l
+|> AGGREGATE COUNT(*) AS c, MAX(l.category_count) AS k GROUP BY species, l.value AS kept, l.other AS other
+transforms
+FROM penguins |> WHERE lump(island, n => 1) OVER ().value IS NOT NULL |> AGGREGATE COUNT(*) AS n
+transforms
+FROM penguins
+|> EXTEND lump(island, n => 1) OVER () AS a, lump(island, n => 2) OVER () AS b, COUNT(*) OVER () AS total
+|> AGGREGATE COUNT(*) AS c GROUP BY a.value AS a, b.value AS b, total
+transforms
+FROM penguins
+|> EXTEND lump(sex, n => 1, null_category => 'drop') OVER () AS l
+|> WHERE l IS NULL
+|> AGGREGATE COUNT(*) AS c
+transforms
+FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species, island
+transforms
+FROM penguins |> WHERE sex IS NOT NULL
+|> AGGREGATE COUNT(*) AS n GROUP BY sex, species, island
+|> CALL impute(island, [species], n, value => 0, partition_by => [sex]) AS i
+|> AGGREGATE COUNT(*) AS c GROUP BY i.sex
+transforms
+FROM penguins
+|> EXTEND lump(island, n => 1, weight => SUM(body_mass_g)) OVER (PARTITION BY species) AS l
+constructors
+FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart
+constructors
+FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart
+constructors
+FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart
+constructors
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart
+constructors
+FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)
+constructors
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm)
+constructors
+FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
+constructors
+FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))
+constructors
+FROM one |> SELECT axis(title => 'Mass') AS a
+constructors
+FROM one |> SELECT axis() AS a
+scripts
+CREATE TEMP TABLE w (a INT64, b STRING); FROM w |> AGGREGATE COUNT(*) AS n
+scripts
+CREATE TEMP TABLE w AS (FROM t); CREATE OR REPLACE TEMP TABLE w AS (FROM t |> SELECT 9 AS y); FROM w |> AGGREGATE SUM(y) AS s
+scripts
+CREATE TEMP TABLE w AS (FROM t |> SELECT 1 AS y); CREATE TEMP TABLE IF NOT EXISTS w AS (FROM t |> SELECT 9 AS y); FROM w |> AGGREGATE SUM(y) AS s
+scripts
+CREATE TEMP TABLE w (k INT64) AS (FROM t |> SELECT CAST(x AS FLOAT64) AS f); FROM w |> AGGREGATE SUM(k) AS s
+scripts
+CREATE TEMP TABLE u AS (FROM t |> WHERE x = 1); FROM u |> AGGREGATE COUNT(*) AS n
+scripts
+CREATE TEMP FUNCTION f(x INT64) AS (x + 1); CREATE TEMP FUNCTION f2(x INT64) AS (f(x) * 2); FROM t |> SELECT f2(x) AS y |> ORDER BY y
+scripts
+CREATE TEMP TABLE FUNCTION tf(n INT64) AS (FROM UNNEST(GENERATE_ARRAY(1, n)) AS v); FROM tf(3) |> AGGREGATE SUM(v) AS s
+scripts
+CREATE TEMP TABLE FUNCTION tf2(src ANY TABLE, k INT64) AS (FROM src |> WHERE x >= k); FROM tf2(TABLE t, 2) |> AGGREGATE COUNT(*) AS n
+scripts
+DECLARE k INT64 DEFAULT 2; SET k = k + 1; FROM t |> WHERE x >= k
+highlight
+DECLARE lo FLOAT64 DEFAULT 3000;
+SET lo = lo + 1;
+CREATE TEMP FUNCTION half(v FLOAT64) AS (v / 2);
+CREATE TEMP TABLE FUNCTION evens(k INT64) AS (FROM t |> WHERE MOD(x, k) = 0);
+CREATE TEMP FUNCTION heavy(v FLOAT64) AS (v > lo);
+FROM penguins AS p
+|> WHERE p.body_mass_g > lo
+|> EXTEND half(p.body_mass_g) AS half_mass, UPPER(island) AS isle,
+ROW_NUMBER() OVER (ORDER BY body_mass_g) AS place, STRUCT(island AS home) AS info
+|> EXTEND info.home AS home
+|> AGGREGATE COUNT(*) AS n GROUP BY species;
+FROM evens(2);
+FROM t |> MATCH_RECOGNIZE(ORDER BY x MEASURES FIRST(a.s) AS first_s PATTERN (a+) DEFINE a AS x > 0)
+highlight
+FROM penguins
+|> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share,
+lump(island, n => 2, null_category => 'drop', other => 'Rest') OVER () AS isle
+|> AGGREGATE bar(x => species, y => scaled(share.end, title => 'Share'), orient => 'vertical') AS chart;
+FROM sales |> CALL impute(isl, [sp], m, method => 'avg')
+googlesql_pipe_5a
+FROM t |> UNION ALL (FROM u)
+googlesql_pipe_5a
+FROM t |> UNION DISTINCT (FROM u), (FROM u)
+googlesql_pipe_5a
+FROM t |> EXCEPT DISTINCT (FROM u)
+googlesql_pipe_5a
+FROM t |> UNION ALL (FROM t) |> EXCEPT ALL (FROM t |> WHERE x = 1)
+googlesql_pipe_5a
+FROM t |> UNION ALL (FROM u |> SELECT x * 1.5 AS y, s)
+googlesql_pipe_5a
+FROM t |> FULL UNION ALL BY NAME (FROM u |> SELECT s, x AS w)
+googlesql_pipe_5a
+FROM t |> INNER UNION ALL BY NAME (FROM u |> SELECT s, x AS w)
+googlesql_pipe_5a
+FROM t |> UNION ALL CORRESPONDING (FROM u |> SELECT s, x AS w)
+googlesql_pipe_5a
+FROM t |> UNION ALL CORRESPONDING BY (s) (FROM u)
+googlesql_pipe_5a
+FROM sales |> AGGREGATE SUM(m) AS total GROUP BY ROLLUP (sp, isl)
+googlesql_pipe_5a
+FROM sales |> AGGREGATE SUM(m) AS total GROUP BY CUBE (sp, isl)
+googlesql_pipe_5a
+FROM sales |> AGGREGATE SUM(m) AS total GROUP BY sp, ROLLUP (isl)
+googlesql_pipe_5a
+FROM sales |> EXTEND SUM(m) OVER w AS run WINDOW w AS (PARTITION BY sp ORDER BY isl)
+googlesql_pipe_5a
+FROM sales |> SELECT sp, m, RANK() OVER (w ORDER BY m DESC) AS r WINDOW w AS (PARTITION BY sp)
+googlesql_pipe_5a
+FROM sales |> PIVOT (SUM(m) FOR sp IN ('A', 'B'))
+googlesql_pipe_5a
+FROM sales |> PIVOT (SUM(m) FOR isl IN ('x', 'z')) AS p |> SELECT p.sp, p.x
+googlesql_pipe_5a
+FROM sales PIVOT (MAX(m) FOR sp IN ('A', 'B'))
+googlesql_pipe_5a
+FROM wide |> UNPIVOT INCLUDE NULLS (v FOR col IN (a AS 'first', b AS 'second'))
+googlesql_pipe_5a
+FROM wide |> UNPIVOT ((v1, v2) FOR g IN ((a, b) AS 1, (c, d) AS 2)) AS w |> SELECT w.g, w.v1
+googlesql_pipe_5a
+FROM wide UNPIVOT (v FOR col IN (c, d))
+googlesql_pipe_5a
+FROM sales |> TABLESAMPLE BERNOULLI (0 PERCENT)
+googlesql_pipe_5a
+FROM sales |> TABLESAMPLE RESERVOIR (1 ROWS PARTITION BY sp) WITH WEIGHT |> SELECT sp, weight
+googlesql_pipe_5a
+FROM sales |> TABLESAMPLE SYSTEM (100 PERCENT) WITH WEIGHT AS w |> SELECT w
+googlesql_pipe_5a
+FROM sales TABLESAMPLE RESERVOIR (3 ROWS) |> AGGREGATE COUNT(*) AS n
+googlesql_pipe_5a
+FROM t |> WHERE s NOT LIKE ALL ('a%', 'x%')
+googlesql_pipe_5a
+FROM one |> SELECT CAST(DATE '2024-01-05' AS STRING FORMAT 'YYYY/MM/DD') AS v
+googlesql_pipe_5a
+FROM one |> SELECT CAST(DATETIME '2024-01-05 13:04:05' AS STRING FORMAT 'HH12:MI:SS PM') AS v
+googlesql_pipe_5a
+FROM sales |> AGGREGATE SUM(m HAVING MAX m) AS a, ANY_VALUE(isl HAVING MIN m) AS b GROUP BY sp
+googlesql_pipe_5a
+FROM sales |> AGGREGATE COUNT(* HAVING MAX m) AS n
+googlesql_pipe_5a
+FROM (FROM t |> SELECT STRUCT(x AS a, s AS b) AS st) |> SELECT st.* EXCEPT (b)
+googlesql_pipe_5a
+FROM one |> SELECT INTERVAL '-1-2 3 4:5:6' YEAR TO SECOND AS v
+googlesql_pipe_5a
+FROM one |> SELECT INTERVAL '-3 -4:5:6.25' DAY TO SECOND AS v
+googlesql_pipe_5a
+FROM one |> SELECT INTERVAL '5:6.5' MINUTE TO SECOND AS v
+googlesql_pipe_5b
+FROM t |> SELECT x, (FROM u |> AGGREGATE MAX(x) AS m) AS biggest
+googlesql_pipe_5b
+FROM t |> SELECT x, (FROM u |> WHERE u.x = t.x |> SELECT s) AS other
+googlesql_pipe_5b
+FROM t |> SELECT (FROM u |> WHERE x > 10 |> SELECT s) AS v
+googlesql_pipe_5b
+FROM t |> WHERE NOT EXISTS (FROM u |> WHERE u.x = t.x)
+googlesql_pipe_5b
+FROM t |> WHERE x NOT IN (FROM u |> WHERE x > 2 |> SELECT x)
+googlesql_pipe_5b
+FROM t |> WHERE x IN (FROM u |> SELECT x * 1.0)
+googlesql_pipe_5b
+FROM t |> SELECT ARRAY(FROM u |> WHERE FALSE |> SELECT x) AS xs
+googlesql_pipe_5b
+FROM UNNEST([3, 1, 2]) AS v
+googlesql_pipe_5b
+FROM UNNEST([3, 1, 2]) AS v WITH OFFSET
+googlesql_pipe_5b
+FROM UNNEST([1, 2])
+googlesql_pipe_5b
+FROM UNNEST([STRUCT(1 AS a, 'p' AS b), STRUCT(2, 'q')]) |> SELECT a, b
+googlesql_pipe_5b
+FROM UNNEST([1, 2, 3] AS n, ['a'] AS c)
+googlesql_pipe_5b
+FROM arrays, UNNEST(arrays.xs) AS x |> SELECT k, x
+googlesql_pipe_5b
+FROM arrays |> LEFT JOIN UNNEST(xs) AS x |> SELECT k, x
+googlesql_pipe_5b
+FROM arrays |> JOIN UNNEST(xs) AS x ON x > 1 |> SELECT k, x
+googlesql_pipe_5b
+FROM arrays |> SELECT k, (FROM UNNEST(xs) AS x |> AGGREGATE SUM(x)) AS total
+googlesql_pipe_5b
+FROM t, LATERAL (FROM u |> WHERE u.x <= t.x |> AGGREGATE COUNT(*) AS n) |> SELECT x, n
+googlesql_pipe_5b
+FROM t |> JOIN LATERAL (FROM u |> WHERE u.x < t.x |> SELECT x AS y) ON TRUE |> SELECT x, y
+googlesql_pipe_5b
+FROM t |> WITH w AS (FROM u |> WHERE x = 2) |> WHERE x IN (FROM w |> SELECT x)
+googlesql_pipe_5b
+FROM t |> WITH w AS (FROM t |> SELECT x AS y) |> CROSS JOIN w |> AGGREGATE COUNT(*) AS n
+googlesql_pipe_5b
+FROM t |> SELECT x, ARRAY(FROM u |> WHERE u.x = t.x |> SELECT s) AS xs
+googlesql_pipe_5b
+FROM t |> JOIN LATERAL (FROM u |> WHERE u.x = t.x |> SELECT s AS y) ON TRUE |> SELECT x, y
+googlesql_pipe_5c
+DECLARE x INT64 DEFAULT 5; FROM t |> SELECT x
+googlesql_pipe_5c
+DECLARE y DEFAULT 'q'; FROM t |> SELECT x, y
+googlesql_pipe_5c
+DECLARE a, b INT64 DEFAULT 1; SET a = 7; FROM t |> SELECT a, b
+googlesql_pipe_5c
+DECLARE a INT64 DEFAULT 2; FROM t |> ORDER BY x |> LIMIT a
+googlesql_pipe_5c
+DECLARE a, b INT64; SET (a, b) = (3, 4); FROM t |> SELECT a + b AS c
+googlesql_pipe_5c
+DECLARE f FLOAT64 DEFAULT 1; FROM t |> SELECT f
+googlesql_pipe_5c
+CREATE TEMP TABLE w AS (FROM t |> WHERE x > 1); FROM w
+googlesql_pipe_5c
+CREATE TEMP TABLE w AS (FROM t |> WHERE x > 1); FROM u |> JOIN w USING (x) |> SELECT x, w.s
+googlesql_pipe_5c
+CREATE TEMP FUNCTION f(x INT64) RETURNS FLOAT64 AS (x / 2); FROM t |> SELECT f(x) AS y
+googlesql_pipe_5c
+CREATE TEMP FUNCTION f(x INT64) AS (x + 1); FROM t |> SELECT f(x => 3) AS y
+googlesql_pipe_5c
+CREATE TEMP AGGREGATE FUNCTION h(v INT64, k INT64 NOT AGGREGATE) AS (SUM(v) * k); FROM t |> AGGREGATE h(x, 10) AS total
+googlesql_pipe_5c
+DECLARE lo INT64 DEFAULT 0; CREATE TEMP FUNCTION f(a INT64) AS (a + lo); SET lo = 5; FROM t |> SELECT f(x) AS y
+googlesql_pipe_5c
+DECLARE k INT64 DEFAULT 10; CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v) + k); FROM t |> AGGREGATE h(x) AS total
