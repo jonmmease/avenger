@@ -10,7 +10,7 @@ use datafusion::{
         compute::cast,
         datatypes::{DataType, Int64Type},
     },
-    common::{exec_err, Result, ScalarValue},
+    common::{exec_err, Result},
     logical_expr::{
         ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
     },
@@ -75,7 +75,6 @@ impl ScalarUDFImpl for BytesBitwise {
             return exec_err!("the operator of $bytes_bitwise is a literal");
         };
         let op = op.try_as_str().flatten().unwrap_or_default().to_string();
-        let scalar = (args.args[1..].iter()).all(|arg| matches!(arg, ColumnarValue::Scalar(_)));
         let x = cast(&args.args[1].clone().into_array(rows)?, &DataType::Binary)?;
         let x = x.as_binary::<i32>();
         let y = args
@@ -83,6 +82,15 @@ impl ScalarUDFImpl for BytesBitwise {
             .get(2)
             .map(|y| y.clone().into_array(rows))
             .transpose()?;
+        // The second operand, cast once: an offset of a shift, or the bytes of the others.
+        let offsets = match (op.as_str(), &y) {
+            ("<<" | ">>", Some(y)) => Some(cast(y, &DataType::Int64)?),
+            _ => None,
+        };
+        let bytes = match (op.as_str(), &y) {
+            ("<<" | ">>" | "~", _) | (_, None) => None,
+            (_, Some(y)) => Some(cast(y, &DataType::Binary)?),
+        };
         let mut out: Vec<Option<Vec<u8>>> = Vec::with_capacity(x.len());
         for row in 0..x.len() {
             let pick = |array: &ArrayRef| if array.len() == 1 { 0 } else { row };
@@ -94,17 +102,16 @@ impl ScalarUDFImpl for BytesBitwise {
             let value = match op.as_str() {
                 "~" => a.iter().map(|byte| !byte).collect(),
                 "<<" | ">>" => {
-                    let y = y.as_ref().expect("an offset");
-                    let y = cast(y, &DataType::Int64)?;
-                    let offset = y.as_primitive::<Int64Type>().value(pick(&y));
+                    let y = offsets.as_ref().expect("an offset");
+                    let offset = y.as_primitive::<Int64Type>().value(pick(y));
                     if offset < 0 {
                         return exec_err!("Bitwise shift by negative offset.");
                     }
                     shifted(a, offset as usize, op == "<<")
                 }
                 _ => {
-                    let y = cast(y.as_ref().expect("a value"), &DataType::Binary)?;
-                    let b = y.as_binary::<i32>().value(pick(&y));
+                    let y = bytes.as_ref().expect("a value");
+                    let b = y.as_binary::<i32>().value(pick(y));
                     if a.len() != b.len() {
                         return exec_err!(
                             "Bitwise binary operator for BYTES requires equal length of the inputs. Got {} bytes on the left hand side and {} bytes on the right hand side.",
@@ -123,9 +130,6 @@ impl ScalarUDFImpl for BytesBitwise {
             out.push(Some(value));
         }
         let out: ArrayRef = Arc::new(BinaryArray::from_iter(out));
-        match scalar {
-            true => Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?)),
-            false => Ok(ColumnarValue::Array(out)),
-        }
+        super::columnar(out, &args.args)
     }
 }

@@ -168,19 +168,7 @@ impl SessionCatalog {
         }
         Ok(catalog)
     }
-}
 
-/// The name in `names` that is `name` without regard to case, preferring the one with its case.
-fn find(names: Vec<String>, name: &str) -> Option<String> {
-    if names.iter().any(|candidate| candidate == name) {
-        return Some(name.to_string());
-    }
-    names
-        .into_iter()
-        .find(|candidate| same_name(candidate, name))
-}
-
-impl SessionCatalog {
     /// The catalog with the modules that `modules` gives for the paths that `references` imports,
     /// and for the paths that those modules import in turn. `modules` returns the text of the
     /// module at a path, or `None` when it has none.
@@ -208,6 +196,16 @@ impl SessionCatalog {
     }
 }
 
+/// The name in `names` that is `name` without regard to case, preferring the one with its case.
+fn find(names: Vec<String>, name: &str) -> Option<String> {
+    if names.iter().any(|candidate| candidate == name) {
+        return Some(name.to_string());
+    }
+    names
+        .into_iter()
+        .find(|candidate| same_name(candidate, name))
+}
+
 impl Catalog for SessionCatalog {
     fn table(&self, names: &[String]) -> Option<Table> {
         lookup(&self.tables, names)
@@ -215,9 +213,7 @@ impl Catalog for SessionCatalog {
 
     fn module(&self, names: &[String]) -> Option<String> {
         (self.modules.iter())
-            .find(|(path, _)| {
-                path.len() == names.len() && path.iter().zip(names).all(|(a, b)| same_name(a, b))
-            })
+            .find(|(path, _)| same_path(path, names))
             .map(|(_, text)| text.clone())
     }
 

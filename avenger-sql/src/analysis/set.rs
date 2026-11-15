@@ -408,8 +408,7 @@ impl Pass<'_> {
 /// `plan` with the column `$copy`, the number of each row among the rows of its values, from 1.
 fn numbered(plan: LogicalPlan) -> datafusion::common::Result<LogicalPlan> {
     use datafusion::{
-        functions_window::row_number::row_number_udwf,
-        logical_expr::{expr::WindowFunction, WindowFunctionDefinition},
+        functions_window::row_number::row_number_udwf, logical_expr::WindowFunctionDefinition,
     };
     let columns: Vec<Expr> = plan
         .schema()
@@ -417,12 +416,12 @@ fn numbered(plan: LogicalPlan) -> datafusion::common::Result<LogicalPlan> {
         .into_iter()
         .map(Expr::Column)
         .collect();
-    let mut window = WindowFunction::new(
+    let window = super::build::window(
         WindowFunctionDefinition::WindowUDF(row_number_udwf()),
         Vec::new(),
+        columns.clone(),
+        Vec::new(),
     );
-    window.params.partition_by = columns.clone();
-    let window = Expr::from(window);
     let name = window.schema_name().to_string();
     let plan = LogicalPlanBuilder::window_plan(plan, vec![window])?;
     let mut exprs = columns;

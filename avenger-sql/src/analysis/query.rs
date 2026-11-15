@@ -10,6 +10,7 @@ use avenger_sql_syntax::{
 use datafusion::{
     common::{Column, DFSchema, ExprSchema, JoinType, Result, ScalarValue},
     datasource::provider_as_source,
+    functions::core::expr_fn::{get_field, named_struct},
     logical_expr::{
         utils::{find_aggregate_exprs, find_window_exprs, grouping_set_to_exprlist},
         Aggregate, Expr, ExprSchemable, GroupingSet, LogicalPlan, LogicalPlanBuilder, SortExpr,
@@ -17,7 +18,7 @@ use datafusion::{
 };
 
 use super::{
-    build::cast,
+    build::{cast, int},
     expr::{direction, inferred_name, Scope},
     model::Definition,
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
@@ -209,7 +210,7 @@ impl Pass<'_> {
                         ]
                     })
                     .collect();
-                let value = datafusion::functions::core::expr_fn::named_struct(args);
+                let value = named_struct(args);
                 (value, columns.clone())
             }
             None => {
@@ -260,10 +261,7 @@ impl Pass<'_> {
         for field in fields.iter() {
             items.push(Item::Compute {
                 name: field.name().clone(),
-                expr: datafusion::functions::core::expr_fn::get_field(
-                    Expr::Column(value.column.clone()),
-                    field.name().as_str(),
-                ),
+                expr: get_field(Expr::Column(value.column.clone()), field.name().as_str()),
                 definition: value.definition,
             });
         }
@@ -637,11 +635,8 @@ impl Pass<'_> {
                         windows: false,
                         groups: Some(&[]),
                     };
-                    on.expr().and_then(|expr| {
-                        let at = expr.syntax().text_range();
-                        let planned = self.expr(&expr, scope)?;
-                        self.boolean(planned, at, "JOIN ON clause", scope)
-                    })
+                    on.expr()
+                        .and_then(|expr| self.condition(&expr, scope, "JOIN ON clause"))
                 };
                 let (Some(l), Some(r), Some(condition), true) =
                     (left.plan, right.plan, condition, ok)
@@ -814,11 +809,8 @@ impl Pass<'_> {
         };
         let at = condition.syntax().text_range();
         // A condition can call window functions, which compute over the rows before the filter.
-        let predicate = {
-            let scope = Scope::of(&rows, "pipe WHERE clause").windows();
-            self.expr(&condition, scope)
-                .and_then(|expr| self.boolean(expr, at, "WHERE clause", scope))
-        };
+        let scope = Scope::of(&rows, "pipe WHERE clause").windows();
+        let predicate = self.condition(&condition, scope, "WHERE clause");
         let (Some(predicate), true) = (predicate, rows.plan.is_some()) else {
             return rows.fail();
         };
@@ -987,10 +979,7 @@ impl Pass<'_> {
         let items = (fields.iter())
             .map(|field| Item::Compute {
                 name: field.name().clone(),
-                expr: datafusion::functions::core::expr_fn::get_field(
-                    base.clone(),
-                    field.name().as_str(),
-                ),
+                expr: get_field(base.clone(), field.name().as_str()),
                 definition: Some(range),
             })
             .collect();
@@ -1368,7 +1357,7 @@ impl Pass<'_> {
         let Some(plan) = rows.plan.clone() else {
             return Ok((rows, None));
         };
-        let number = |n: usize| Expr::Literal(ScalarValue::Int64(Some(n as i64)), None);
+        let number = |n: usize| int(n as i64);
         let qualifier = self.qualifiers.fresh("$set");
         let numbers =
             LogicalPlanBuilder::values((0..sets.len()).map(|n| vec![number(n)]).collect())?
@@ -1390,7 +1379,7 @@ impl Pass<'_> {
                 .collect();
             let name = format!("$group{}", index + 1);
             let masked = match within.is_empty() {
-                true => datafusion::logical_expr::cast(
+                true => cast(
                     Expr::Literal(ScalarValue::Null, None),
                     group.get_type(crossed.schema())?,
                 ),
@@ -1532,19 +1521,20 @@ impl Pass<'_> {
             },
             false => (rows, None),
         };
+        // The group keys over which `HAVING MAX` and `HAVING MIN` find their extremes.
+        let item_keys = match &expanded {
+            Some(expanded) => Some(expanded.keys.as_slice()),
+            None => (!grouping).then_some(group_keys.as_slice()),
+        };
         let mut items = Vec::new();
         for item in op.aggregate_items() {
             let item_range = item.syntax().text_range();
             let expr = item.expr();
             // `expression.*` of an aggregate's struct: an item for each field.
             if let Some(wildcard) = item.wildcard() {
-                let keys = match &expanded {
-                    Some(expanded) => Some(expanded.keys.as_slice()),
-                    None => (!grouping).then_some(group_keys.as_slice()),
-                };
                 let scope = Scope::of(&rows, "pipe AGGREGATE")
                     .aggregates()
-                    .grouped(keys);
+                    .grouped(item_keys);
                 let fields = expr
                     .as_ref()
                     .and_then(|expr| self.expr(expr, scope))
@@ -1574,13 +1564,9 @@ impl Pass<'_> {
                 continue;
             }
             let (name, definition) = output_name(item.alias(), expr.as_ref());
-            let keys = match &expanded {
-                Some(expanded) => Some(expanded.keys.as_slice()),
-                None => (!grouping).then_some(group_keys.as_slice()),
-            };
             let scope = Scope::of(&rows, "pipe AGGREGATE")
                 .aggregates()
-                .grouped(keys);
+                .grouped(item_keys);
             let planned = expr.and_then(|expr| self.expr(&expr, scope));
             items.push(Output {
                 expr: planned,
