@@ -2,47 +2,8 @@ use crate::{
     parser::{parse_datetime_spec, Pattern, PatternToken},
     DateTimeFormatError,
 };
-use serde::{Deserialize, Serialize};
+use avenger_format_locales_d3::{DateTimeLocaleSpec, LocaleId};
 use std::sync::Arc;
-
-/// A named locale in an Avenger formatting context.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct LocaleId(pub String);
-impl LocaleId {
-    /// Construct a locale identifier without resolving it.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-}
-impl AsRef<str> for LocaleId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-impl std::fmt::Display for LocaleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// D3 time locale JSON. Array lengths are enforced during deserialization.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DateTimeLocaleSpec {
-    pub date_time: String,
-    pub date: String,
-    pub time: String,
-    pub periods: [String; 2],
-    pub days: [String; 7],
-    pub short_days: [String; 7],
-    pub months: [String; 12],
-    pub short_months: [String; 12],
-}
-impl Default for DateTimeLocaleSpec {
-    fn default() -> Self {
-        serde_json::from_str(include_str!("../locales/en-US.json")).expect("bundled D3 time locale")
-    }
-}
 
 /// A validated locale shared by prepared datetime formatters.
 #[derive(Debug, Clone, PartialEq, Eq)]

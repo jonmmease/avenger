@@ -1197,7 +1197,7 @@ fn datetime_cache_tracks_request_configuration_and_input_type() {
     let provider = D3DateTimeFormatProvider::new().with_custom_locale(
         "fr-FR",
         serde_json::from_str(include_str!(
-            "../../avenger-format-datetime-d3/locales/fr-FR.json"
+            "../../avenger-format-locales-d3/locales/fr-FR.json"
         ))
         .unwrap(),
     );

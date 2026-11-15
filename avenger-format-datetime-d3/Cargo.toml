@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-all-locales = []
+all-locales = ["avenger-format-locales-d3/all-locales"]
 
 [dependencies]
 avenger-format = { path = "../avenger-format" }
+avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
 chrono = { workspace = true }
 chrono-tz = { workspace = true, features = ["serde"] }
 serde = { workspace = true }
+
+[dev-dependencies]
 serde_json = { workspace = true }
