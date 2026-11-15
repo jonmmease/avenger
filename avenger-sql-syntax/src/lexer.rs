@@ -456,6 +456,7 @@ impl Lexer<'_> {
             (b'~', _) => (TILDE, 1),
             (b'?', _) => (POSITIONAL, 1),
             (b':', _) => (COLON, 1),
+            (b'$', _) => (DOLLAR, 1),
             (b'{', _) => (L_BRACE, 1),
             (b'}', _) => (R_BRACE, 1),
             _ => {

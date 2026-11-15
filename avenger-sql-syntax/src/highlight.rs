@@ -67,7 +67,24 @@ pub fn highlight(root: &SyntaxNode) -> Vec<HighlightRange> {
             }
             continue;
         }
-        if let Some(highlight) = token_class(&token) {
+        // The operators of a pattern of `MATCH_RECOGNIZE`, where `?` is a quantifier, not a
+        // query parameter.
+        let in_pattern = (token.parent()).is_some_and(|node| {
+            matches!(
+                node.kind(),
+                QUANTIFIER | PATTERN_ANCHOR | PATTERN_ALTERNATION
+            )
+        });
+        let pattern_operator = in_pattern
+            && matches!(
+                token.kind(),
+                POSITIONAL | STAR | PLUS | BIT_OR | CONCAT | CARET | DOLLAR
+            );
+        let class = match pattern_operator {
+            true => Some(Highlight::Operator),
+            false => token_class(&token),
+        };
+        if let Some(highlight) = class {
             ranges.push(HighlightRange {
                 range: token.text_range(),
                 highlight,
@@ -114,6 +131,8 @@ fn name_role(name: &SyntaxNode) -> (NameRole, bool) {
             PARAMETER => NameRole::Parameter,
             DECLARE_STMT => NameRole::Variable,
             OPTION_ENTRY => NameRole::Option,
+            MEASURE => NameRole::Alias,
+            PATTERN_DEFINITION => NameRole::PatternVariable,
             _ => NameRole::Other,
         };
         return (role, true);
@@ -131,6 +150,7 @@ fn name_role(name: &SyntaxNode) -> (NameRole, bool) {
         NAMED_ARG | NAMED_TABLE_ARG => NameRole::Parameter,
         OVER_CLAUSE | WINDOW_SPEC | NAMED_WINDOW => NameRole::Window,
         INTERVAL_EXPR => NameRole::DatePart,
+        PATTERN_VARIABLE => NameRole::PatternVariable,
         _ => NameRole::Other,
     };
     (role, false)
