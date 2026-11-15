@@ -61,9 +61,7 @@ impl Format {
         };
         // A `TIME` has no date, so its `%J` is text.
         if kind != Kind::Time && tokens.contains(&iso_day) {
-            return Err(Error::Unsupported(
-                "Format element %J not supported yet".into(),
-            ));
+            return Err(Error("Format element %J not supported yet".into()));
         }
         // The `%J` of a `TIME` prints as written.
         let tokens = tokens
