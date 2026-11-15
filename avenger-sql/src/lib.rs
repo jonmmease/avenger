@@ -19,7 +19,7 @@
 //! diagnostics, each at its range.
 //!
 //! [`register`] adds what the plans of the transforms need to run to a session: the query planner
-//! of the table function `impute`, and the optimizer rules of the window transforms.
+//! of the table function `impute`, and the optimizer rule that groups by the fields of a struct.
 //!
 //! The parts of planning GoogleSQL with [`avenger_sql_syntax`]: [`library`] maps GoogleSQL's
 //! functions and avenger's onto DataFusion, [`types`] maps GoogleSQL's types to Arrow types, and
@@ -38,8 +38,28 @@ pub use analysis::analyze;
 pub use pipeline::{sql, sql_with_modules, ScriptError};
 
 /// Registers in `ctx` what the plans of the transforms of avenger-datafusion-transforms need to
-/// run: the query planner of `impute`, so `ctx` must have DataFusion's default query planner, and
-/// the optimizer rules of the window transforms. Registering two times adds the rules once.
+/// run: the query planner of the table function `impute`, so `ctx` must have DataFusion's default
+/// query planner, and the optimizer rule that groups by the fields of a struct, such as a bin.
+/// Registering two times adds the rule once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
-    avenger_datafusion_transforms::register(ctx)
+    use avenger_datafusion_transforms::{table_function::TransformsQueryPlanner, StructGroupSplit};
+    use datafusion::{common::plan_err, execution::SessionStateBuilder, optimizer::OptimizerRule};
+    use std::sync::Arc;
+
+    let state = ctx.state_ref();
+    let mut state = state.write();
+    let planner = format!("{:?}", state.query_planner());
+    // DataFusion's default planner is not public, so only its name identifies it.
+    if planner != "DefaultQueryPlanner" && planner != "TransformsQueryPlanner" {
+        return plan_err!(
+            "avenger-sql plans its extension nodes with a query planner of its own, but the session has the query planner {planner}"
+        );
+    }
+    let mut builder = SessionStateBuilder::new_from_existing(state.clone())
+        .with_query_planner(Arc::new(TransformsQueryPlanner));
+    if !(state.optimizers().iter()).any(|rule| rule.name() == StructGroupSplit.name()) {
+        builder = builder.with_optimizer_rule(Arc::new(StructGroupSplit));
+    }
+    *state = builder.build();
+    Ok(())
 }

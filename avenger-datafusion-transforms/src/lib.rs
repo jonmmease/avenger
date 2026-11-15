@@ -1,13 +1,19 @@
 //! Data transforms for DataFusion: the Vega-style `bin`, `stack`, `timeunit`, and `impute`, and
-//! `lump`, which keeps the top categories and lumps the rest into an Other group. [`register`]
-//! adds the window functions and the optimizer rules to a session.
+//! `lump`, which keeps the top categories and lumps the rest into an Other group. A front end,
+//! such as avenger-sql, builds a typed call of a transform from its planned arguments, and the
+//! crate plans the call.
 //!
-//! `bin`, `stack` and `timeunit` are window functions, whose options are pairs of a name and a
-//! constant after the first argument, in any order. A function of a whole window partition
-//! (`bin` and `timeunit`) takes no ORDER BY or frame in its OVER clause. `impute` is a table
-//! function over an input relation, and `lump` a plan over its input, which a front end builds
-//! with [`impute::plan`] and [`lump::plan`] from its planned arguments, or for a lump in a
-//! projection, with [`lump::window`] and [`lump::plan_windows`].
+//! - `bin`, `timeunit`, and `lump` are expressions of a projection, over the window partitions
+//!   of their `OVER` clause. A front end writes each call as a placeholder window, from
+//!   [`bin::window`], [`timeunit::window`], or [`lump::window`], and plans the windows of the
+//!   projection through [`plan_windows`], which plans each placeholder onto the input. `bin` and
+//!   `timeunit` plan as an aggregate of each partition, joined back to its rows, and `lump` as
+//!   a grouped plan of the categories.
+//! - `stack` is the window function of [`stack::window`].
+//! - `impute` is a table function over an input relation, which [`impute::plan`] plans.
+//!
+//! The options of a call are Rust values, which their `check` methods check: an
+//! [`OptionError`] names the option, so the front end places the error at its argument.
 //!
 //! Each module describes its transform: [`bin`], [`stack`], [`timeunit`], [`impute`], and
 //! [`lump`]. [`table_function`] holds the machinery of table functions over an input relation,
@@ -21,70 +27,43 @@ pub mod stack;
 pub mod table_function;
 pub mod timeunit;
 mod utils;
+mod window;
 
 pub use utils::StructGroupSplit;
+pub use window::plan_windows;
 
-use std::sync::Arc;
+use std::fmt;
 
-use datafusion::common::{Result, plan_err};
-use datafusion::execution::SessionStateBuilder;
-use datafusion::logical_expr::registry::FunctionRegistry;
-use datafusion::logical_expr::{ScalarUDF, WindowUDF};
-use datafusion::optimizer::OptimizerRule;
-use datafusion::prelude::SessionContext;
+use datafusion::common::DataFusionError;
 
-use crate::bin::{BinParamsUdf, BinWindow, BinWindowRewrite};
-use crate::stack::StackWindow;
+/// An error of the value of an option of a call, such as a `maxbins` of 0.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OptionError {
+    /// The name of the option, such as `maxbins`.
+    pub option: &'static str,
+    /// The error, as a sentence.
+    pub message: String,
+}
 
-// ---------------------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------------------
-
-/// Adds the transforms to a session: the window functions `bin`, `stack`, and `timeunit`, the
-/// function `bin_params`, the optimizer rules that plan the window functions as aggregates and
-/// joins, and the query planner of the table functions, such as `impute`.
-///
-/// The rules run right after the first simplification of expressions, which folds the options
-/// of a call to constants, so `register` rebuilds the session's state with them in that place;
-/// the session keeps its tables, functions, and configuration. The table functions plan their
-/// operator with a query planner of their own, so the session must have DataFusion's default
-/// query planner. Registering two times adds the rules once.
-pub fn register(ctx: &SessionContext) -> Result<()> {
-    let state = ctx.state_ref();
-    let mut state = state.write();
-    let planner = format!("{:?}", state.query_planner());
-    // DataFusion's default planner is not public, so only its name identifies it.
-    if planner != "DefaultQueryPlanner" && planner != "TransformsQueryPlanner" {
-        return plan_err!(
-            "the table functions plan their operator with a query planner of their own, but the session has the query planner {planner}; add table_function::TableFunctionExtensionPlanner to it"
-        );
+impl OptionError {
+    pub(crate) fn new(option: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            option,
+            message: message.into(),
+        }
     }
-    let ours: Vec<Arc<dyn OptimizerRule + Send + Sync>> = vec![
-        Arc::new(timeunit::TimeUnitWindowRewrite::default()),
-        Arc::new(BinWindowRewrite::default()),
-        Arc::new(StructGroupSplit),
-    ];
-    let mut rules = state.optimizers().to_vec();
-    if !rules.iter().any(|r| r.name() == ours[0].name()) {
-        let Some(at) = rules
-            .iter()
-            .position(|r| r.name() == "simplify_expressions")
-        else {
-            return plan_err!(
-                "the transforms need the optimizer rule simplify_expressions, which the session does not have"
-            );
-        };
-        rules.splice(at + 1..at + 1, ours);
+}
+
+impl fmt::Display for OptionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.message)
     }
-    *state = SessionStateBuilder::new_from_existing(state.clone())
-        .with_optimizer_rules(rules)
-        .with_query_planner(Arc::new(table_function::TransformsQueryPlanner))
-        .build();
-    state.register_udwf(Arc::new(WindowUDF::new_from_impl(BinWindow::default())))?;
-    state.register_udf(Arc::new(ScalarUDF::new_from_impl(BinParamsUdf::default())))?;
-    state.register_udwf(Arc::new(WindowUDF::new_from_impl(StackWindow::default())))?;
-    state.register_udwf(Arc::new(WindowUDF::new_from_impl(
-        timeunit::TimeUnitWindow::default(),
-    )))?;
-    Ok(())
+}
+
+impl std::error::Error for OptionError {}
+
+impl From<OptionError> for DataFusionError {
+    fn from(error: OptionError) -> Self {
+        DataFusionError::Plan(error.message)
+    }
 }

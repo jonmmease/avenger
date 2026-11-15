@@ -401,7 +401,7 @@ impl Calendar {
             DataType::Timestamp(u, tz) => (Kind::Ts(*u), Zone::parse(tz.as_deref())?),
             other => return plan_err!("timeunit takes a DATE or a TIMESTAMP, not {other}"),
         };
-        o.check(dt)?;
+        o.check_type(dt)?;
         let name = match dt {
             DataType::Timestamp(_, Some(tz)) => Some(tz.as_ref()),
             _ => None,
@@ -410,7 +410,8 @@ impl Calendar {
             kind,
             clock: Clock::new(zone, name),
             week_start: o.week_start,
-            fiscal: o.fiscal_year_start,
+            // `check` keeps the month from 1 to 12.
+            fiscal: o.fiscal_year_start.map(|m| m as u32),
         })
     }
 

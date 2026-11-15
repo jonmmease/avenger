@@ -214,6 +214,82 @@ fn the_errors_of_lump_are_at_their_text() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
+#[tokio::test]
+async fn bins_of_one_value_with_other_options_have_columns_of_their_own() {
+    // Two calls of one value differ in their options, and a partition can be an expression: the
+    // mass of 4000 is in the last bin of the lighter partition.
+    let found = lines(
+        "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> EXTEND bin(body_mass_g, maxbins => 2) OVER () AS a, bin(body_mass_g, step => 1000) OVER (PARTITION BY body_mass_g > 4000) AS b
+|> AGGREGATE COUNT(*) AS c GROUP BY a.start AS a, b.start AS b",
+    )
+    .await;
+    assert_eq!(
+        found,
+        [
+            "2000.0 | 2000.0 | 9",
+            "2000.0 | 3000.0 | 156",
+            "4000.0 | 3000.0 | 5",
+            "4000.0 | 4000.0 | 105",
+            "4000.0 | 5000.0 | 63",
+            "6000.0 | 6000.0 | 4",
+            "a | b | c",
+        ]
+    );
+}
+
+#[test]
+fn the_errors_of_the_options_of_window_transforms_are_at_their_text() {
+    let cases = [
+        (
+            "bin(body_mass_g, maxbins => 0) OVER ()",
+            "The maxbins of bin must be a positive number, not 0",
+            "maxbins => 0",
+        ),
+        (
+            "bin(body_mass_g, maxbins => body_mass_g) OVER ()",
+            "`maxbins` takes a constant",
+            "maxbins => body_mass_g",
+        ),
+        (
+            "bin(body_mass_g, extent => [1, 2, 3]) OVER ()",
+            "`extent` takes two numbers, as `[low, high]`",
+            "extent => [1, 2, 3]",
+        ),
+        (
+            "timeunit(DATE '2024-01-01', unit => '0 months') OVER ()",
+            "The count of the unit '0 months' must be a positive integer",
+            "unit => '0 months'",
+        ),
+        (
+            "timeunit(DATE '2024-01-01', unit => 'hour') OVER ()",
+            "The unit 'hour' is shorter than one day, so it does not apply to a DATE",
+            "unit => 'hour'",
+        ),
+        (
+            "timeunit(DATE '2024-01-01', unit => 'month', maxbins => 10) OVER ()",
+            "timeunit takes unit or maxbins, not both: an explicit unit has no automatic choice",
+            "maxbins => 10",
+        ),
+        (
+            "stack(body_mass_g, offset => 'up') OVER (ORDER BY species)",
+            "`offset` takes one of 'zero', 'normalize', 'center'",
+            "offset => 'up'",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (call, message, at) in cases {
+        let text = format!("FROM penguins |> EXTEND {call} AS t");
+        let found = errors(&text);
+        let want = vec![(message.to_string(), at.to_string())];
+        if found != want {
+            failures.push(format!("{call}:\n  found {found:?}\n  want  {want:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
 /// The counts of the penguins of each species and island.
 const COUNTS: &str = "FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species, island";
 
