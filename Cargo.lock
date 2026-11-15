@@ -740,6 +740,7 @@ name = "avenger-format-datetime-d3"
 version = "0.1.0"
 dependencies = [
  "avenger-format",
+ "avenger-format-locales-d3",
  "chrono",
  "chrono-tz",
  "serde",
@@ -761,6 +762,15 @@ dependencies = [
  "serde",
  "serde_json",
  "writeable 0.6.4",
+]
+
+[[package]]
+name = "avenger-format-locales-d3"
+version = "0.1.0"
+dependencies = [
+ "avenger-format",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

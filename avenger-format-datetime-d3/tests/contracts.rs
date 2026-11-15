@@ -91,7 +91,10 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
         cfg!(feature = "all-locales")
     );
     registry
-        .register_custom_locale_json("fr-FR", include_str!("../locales/fr-FR.json"))
+        .register_custom_locale_json(
+            "fr-FR",
+            include_str!("../../avenger-format-locales-d3/locales/fr-FR.json"),
+        )
         .unwrap();
     let locale = registry.resolve("fr-FR").unwrap();
     let prepare = |locale: &ResolvedDateTimeLocale| {
@@ -330,7 +333,12 @@ fn bundled_locales_match_vendored_definitions() {
         .and_hms_opt(13, 5, 6)
         .unwrap();
     let pattern = "%c | %x | %X | %a %A %b %B %p";
-    for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/locales")).unwrap() {
+    for entry in std::fs::read_dir(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../avenger-format-locales-d3/locales"
+    ))
+    .unwrap()
+    {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|ext| ext != "json") {
             continue;

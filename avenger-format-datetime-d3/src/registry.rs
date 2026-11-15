@@ -10,7 +10,7 @@ impl DateTimeLocaleRegistry {
     /// Load U.S. English, or all D3 locales with the `all-locales` feature.
     pub fn with_builtins() -> Self {
         let mut registry = Self::default();
-        for &(id, json) in crate::bundled::LOCALES {
+        for &(id, json) in avenger_format_locales_d3::BUNDLED {
             registry
                 .register_custom_locale_json(id, json)
                 .expect("bundled D3 time locale");
@@ -35,10 +35,7 @@ impl DateTimeLocaleRegistry {
         json: &str,
     ) -> Result<(), DateTimeFormatError> {
         let id = id.into();
-        let spec =
-            serde_json::from_str(json).map_err(|error| DateTimeFormatError::InvalidLocaleData {
-                message: format!("locale `{id}`: {error}"),
-            })?;
+        let spec = DateTimeLocaleSpec::from_json(&id, json)?;
         self.register_custom_locale(id, spec)
     }
     /// Resolve a name, sharing the validated definition with the caller.
