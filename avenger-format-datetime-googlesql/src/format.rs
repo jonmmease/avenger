@@ -2,36 +2,12 @@
 
 use chrono::{
     DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike, Utc,
+    Weekday,
 };
 use chrono_tz::Tz;
 
 use crate::element::{escape_absent, tokens, Kind, Pad, Token};
-use crate::Error;
-
-const DAYS: [&str; 7] = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
-
-const MONTHS: [&str; 12] = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-];
+use crate::{week_number, Error, DAYS, MONTHS};
 
 /// A format string, prepared for values of one [`Kind`]: the elements that the kind lacks print as
 /// written, as in GoogleSQL's `FORMAT_DATE`, `FORMAT_TIME`, `FORMAT_DATETIME`, and
@@ -53,24 +29,20 @@ impl Format {
     /// The format `format` for values of `kind`, or GoogleSQL's error for `%J`, which GoogleSQL
     /// documents but does not format.
     pub fn new(format: &str, kind: Kind) -> Result<Format, Error> {
-        let tokens = tokens(&escape_absent(format, kind.absent()));
-        let iso_day = Token::Element {
-            letter: b'J',
-            pad: Pad::Default,
-            modifier: false,
-        };
-        // A `TIME` has no date, so its `%J` is text.
-        if kind != Kind::Time && tokens.contains(&iso_day) {
-            return Err(Error("Format element %J not supported yet".into()));
+        let mut tokens = Vec::new();
+        for token in self::tokens(&escape_absent(format, kind.absent())) {
+            match token {
+                Token::Element { letter: b'J', .. } if kind != Kind::Time => {
+                    return Err(Error("Format element %J not supported yet".into()));
+                }
+                // A `TIME` has no date, so its `%J` prints as written.
+                Token::Element { letter: b'J', .. } => tokens.push(Token::Text("%J".into())),
+                Token::Element { letter, .. } if composite(letter).is_some() => {
+                    tokens.extend(self::tokens(composite(letter).expect("a composite")));
+                }
+                token => tokens.push(token),
+            }
         }
-        // The `%J` of a `TIME` prints as written.
-        let tokens = tokens
-            .into_iter()
-            .map(|token| match token {
-                Token::Element { letter: b'J', .. } => Token::Text("%J".into()),
-                token => token,
-            })
-            .collect();
         Ok(Format { tokens })
     }
 
@@ -116,17 +88,26 @@ impl Format {
                 } => element(&mut out, *letter, *pad, *modifier, fields),
                 Token::Seconds(digits) => seconds(&mut out, fields, Some(*digits)),
                 Token::SecondsTrimmed => seconds(&mut out, fields, None),
-                Token::Year4 => {
-                    let year = fields.local.year();
-                    let sign = if year < 0 { "-" } else { "" };
-                    out.push_str(&format!("{sign}{:04}", year.unsigned_abs()));
-                }
                 Token::OffsetColon => offset(&mut out, fields.offset, ":", false),
                 Token::OffsetSeconds => offset(&mut out, fields.offset, ":", true),
             }
         }
         out
     }
+}
+
+/// The elements that a composite element stands for, as GoogleSQL's C library writes them, with
+/// the year of `%c` in at least four digits.
+fn composite(letter: u8) -> Option<&'static str> {
+    Some(match letter {
+        b'c' => "%a %b %e %H:%M:%S %EY",
+        b'D' | b'x' => "%m/%d/%y",
+        b'F' => "%Y-%m-%d",
+        b'R' => "%H:%M",
+        b'r' => "%I:%M:%S %p",
+        b'T' | b'X' => "%H:%M:%S",
+        _ => return None,
+    })
 }
 
 /// The number `value` padded to `width` by `pad`, or by `default` when `pad` is the element's own.
@@ -191,29 +172,14 @@ fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fiel
     let weekday = local.weekday().num_days_from_sunday() as usize;
     let hour12 = (local.hour() + 11) % 12 + 1;
     let am = local.hour() < 12;
-    let composite = |out: &mut String, format: &str| {
-        for token in tokens(format) {
-            match token {
-                Token::Text(text) => out.push_str(&text),
-                Token::Element {
-                    letter, modifier, ..
-                } => element(out, letter, Pad::Default, modifier, fields),
-                _ => unreachable!("composites have letters only"),
-            }
-        }
-    };
     match letter {
         b'A' => out.push_str(DAYS[weekday]),
         b'a' => out.push_str(&DAYS[weekday][..3]),
         b'B' => out.push_str(MONTHS[local.month0() as usize]),
         b'b' | b'h' => out.push_str(&MONTHS[local.month0() as usize][..3]),
         b'C' => number(out, i64::from(local.year()).div_euclid(100), 2, '0', pad),
-        // The C library writes the year of `%c` in at least four digits.
-        b'c' => composite(out, "%a %b %e %H:%M:%S %EY"),
-        b'D' | b'x' => composite(out, "%m/%d/%y"),
         b'd' => number(out, i64::from(local.day()), 2, '0', pad),
         b'e' => number(out, i64::from(local.day()), 2, ' ', pad),
-        b'F' => composite(out, "%Y-%m-%d"),
         b'G' => number(out, i64::from(local.iso_week().year()), 4, '0', pad),
         b'g' => number(
             out,
@@ -233,16 +199,10 @@ fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fiel
         b'P' => out.push_str(if am { "am" } else { "pm" }),
         b'p' => out.push_str(if am { "AM" } else { "PM" }),
         b'Q' => number(out, i64::from(local.month0() / 3 + 1), 1, '0', pad),
-        b'R' => composite(out, "%H:%M"),
-        b'r' => composite(out, "%I:%M:%S %p"),
         b'S' => number(out, i64::from(local.second()), 2, '0', pad),
         b's' => number(out, fields.epoch, 1, '0', pad),
-        b'T' | b'X' => composite(out, "%H:%M:%S"),
         b't' => out.push('\t'),
-        b'U' => {
-            let week = (local.ordinal0() + 7 - local.weekday().num_days_from_sunday()) / 7;
-            number(out, i64::from(week), 2, '0', pad)
-        }
+        b'U' => number(out, week_number(local.date(), Weekday::Sun), 2, '0', pad),
         b'u' => number(
             out,
             i64::from(local.weekday().number_from_monday()),
@@ -251,10 +211,7 @@ fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fiel
             pad,
         ),
         b'V' => number(out, i64::from(local.iso_week().week()), 2, '0', pad),
-        b'W' => {
-            let week = (local.ordinal0() + 7 - local.weekday().num_days_from_monday()) / 7;
-            number(out, i64::from(week), 2, '0', pad)
-        }
+        b'W' => number(out, week_number(local.date(), Weekday::Mon), 2, '0', pad),
         b'w' => number(out, weekday as i64, 1, '0', pad),
         // `%Y` writes as many digits as the year has, and its forms with a flag or a modifier
         // four or more, as the C library writes them.
@@ -276,6 +233,6 @@ fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fiel
             }
         }
         b'z' => offset(out, fields.offset, "", false),
-        _ => unreachable!("the tokenizer takes documented letters only"),
+        _ => unreachable!("a documented letter, with composites expanded"),
     }
 }

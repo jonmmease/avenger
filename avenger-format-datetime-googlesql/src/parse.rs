@@ -12,46 +12,21 @@ use chrono::{
 use chrono_tz::Tz;
 
 use crate::element::Kind;
-use crate::Error;
-
-const DAYS: [&str; 7] = [
-    "sunday",
-    "monday",
-    "tuesday",
-    "wednesday",
-    "thursday",
-    "friday",
-    "saturday",
-];
-
-const MONTHS: [&str; 12] = [
-    "january",
-    "february",
-    "march",
-    "april",
-    "may",
-    "june",
-    "july",
-    "august",
-    "september",
-    "october",
-    "november",
-    "december",
-];
+use crate::{week_number, Error, DAYS, MONTHS};
 
 /// The date `input` in the format `format`, as GoogleSQL's `PARSE_DATE` gives it.
 pub fn parse_date(format: &str, input: &str) -> Result<NaiveDate, Error> {
-    Ok(parse(format, input, Kind::Date, Zone::Utc)?.date_naive())
+    Ok(parse(format, input, Kind::Date, Zone::Fixed(0))?.date_naive())
 }
 
 /// The time of day `input` in the format `format`, as GoogleSQL's `PARSE_TIME` gives it.
 pub fn parse_time(format: &str, input: &str) -> Result<NaiveTime, Error> {
-    Ok(parse(format, input, Kind::Time, Zone::Utc)?.time())
+    Ok(parse(format, input, Kind::Time, Zone::Fixed(0))?.time())
 }
 
 /// The date and time `input` in the format `format`, as GoogleSQL's `PARSE_DATETIME` gives it.
 pub fn parse_datetime(format: &str, input: &str) -> Result<NaiveDateTime, Error> {
-    Ok(parse(format, input, Kind::Datetime, Zone::Utc)?.naive_utc())
+    Ok(parse(format, input, Kind::Datetime, Zone::Fixed(0))?.naive_utc())
 }
 
 /// The instant `input` in the format `format`, as GoogleSQL's `PARSE_TIMESTAMP` gives it: a time
@@ -63,7 +38,6 @@ pub fn parse_timestamp(format: &str, input: &str, zone: Tz) -> Result<DateTime<U
 /// A time zone of a parse: a name, or a fixed offset in seconds, as `%Z` reads either.
 #[derive(Clone, Copy, Debug)]
 enum Zone {
-    Utc,
     Named(Tz),
     Fixed(i32),
 }
@@ -76,7 +50,7 @@ impl Zone {
         }
         let offset = name.strip_prefix("UTC").unwrap_or(name);
         if offset.is_empty() {
-            return Some(Zone::Utc);
+            return Some(Zone::Fixed(0));
         }
         let (sign, digits) = match offset.as_bytes()[0] {
             b'+' => (1, &offset[1..]),
@@ -101,7 +75,6 @@ impl Zone {
     /// offset before the transition, and a time that it repeats takes the earlier instant.
     fn instant(self, local: NaiveDateTime) -> DateTime<Utc> {
         match self {
-            Zone::Utc => local.and_utc(),
             Zone::Fixed(offset) => (local - Duration::seconds(offset.into())).and_utc(),
             Zone::Named(tz) => match tz.from_local_datetime(&local) {
                 chrono::LocalResult::Single(t) => t.with_timezone(&Utc),
@@ -117,8 +90,8 @@ impl Zone {
     }
 }
 
-/// An element that resolves the date after the loop: a week, a weekday, a day of the year, or an
-/// ISO year, with its letter, its place among the elements, and its number.
+/// An element that resolves the date after the loop: a week, a day of the year, or an ISO year,
+/// with its letter, its place among the elements, and its number.
 #[derive(Clone, Copy, Debug)]
 struct DateElement {
     letter: u8,
@@ -135,7 +108,8 @@ struct Fields {
     minute: i64,
     second: i64,
     micros: i64,
-    weekday: i64,
+    /// Whether the format has a weekday, which GoogleSQL reads but does not check.
+    weekday: bool,
     century: i64,
     use_century: bool,
     explicit_century: bool,
@@ -378,7 +352,7 @@ fn parse(format: &str, input: &str, kind: Kind, default: Zone) -> Result<DateTim
         minute: 0,
         second: 0,
         micros: 0,
-        weekday: 4,
+        weekday: false,
         century: 0,
         use_century: false,
         explicit_century: false,
@@ -527,19 +501,12 @@ fn parse(format: &str, input: &str, kind: Kind, default: Zone) -> Result<DateTim
             }
             b'g' => date_element(&mut data, &mut f, b'g', position, 2, 0, 99),
             b'G' => date_element(&mut data, &mut f, b'G', position, 20, 0, 99_999),
-            b'u' => date_element(&mut data, &mut f, b'u', position, 1, 1, 7),
-            b'w' => date_element(&mut data, &mut f, b'w', position, 1, 0, 6),
-            b'A' | b'a' => match data.name(&DAYS) {
-                Some(day) => {
-                    f.elements.push(DateElement {
-                        letter,
-                        position,
-                        value: day as i64,
-                    });
-                    true
-                }
-                None => false,
-            },
+            b'u' => weekday(&mut data, &mut f, 1, 7),
+            b'w' => weekday(&mut data, &mut f, 0, 6),
+            b'A' | b'a' => {
+                f.weekday = true;
+                data.name(&DAYS).is_some()
+            }
             b't' | b'n' => {
                 data.skip_space();
                 true
@@ -742,6 +709,12 @@ fn date_element(
     }
 }
 
+/// `%u` or `%w`: a weekday number in `min..=max`, which GoogleSQL reads but does not check.
+fn weekday(data: &mut Input, f: &mut Fields, min: i64, max: i64) -> bool {
+    f.weekday = true;
+    data.int(1, min, max).is_some()
+}
+
 /// `%E` and its extensions: `%Ez`, `%EY`, `%Ey`, `%EC`, `%E*S`, `%E4Y`, `%E#S` up to 6 digits,
 /// and the C library's `%Ec`, `%Ex`, and `%EX`.
 fn extension(
@@ -860,8 +833,8 @@ fn modifier(fmt: &[u8], at: &mut usize, data: &mut Input, f: &mut Fields, positi
             library(b'H', data, f)
         }
         b'I' => twelve_hour(data, f),
-        b'u' => date_element(data, f, b'u', position, 1, 1, 7),
-        b'w' => date_element(data, f, b'w', position, 1, 0, 6),
+        b'u' => weekday(data, f, 1, 7),
+        b'w' => weekday(data, f, 0, 6),
         b'U' | b'W' => {
             f.non_iso = true;
             date_element(data, f, letter, position, 2, 0, 53)
@@ -900,7 +873,8 @@ fn library(letter: u8, data: &mut Input, f: &mut Fields) -> bool {
         b'y' => number(data, 2, 0, 99)
             .map(|y| f.year = if y < 69 { 2000 + y } else { 1900 + y })
             .is_some(),
-        b'a' => data.name(&DAYS).map(|d| f.weekday = d as i64).is_some(),
+        // The weekday of `%c` is read and not checked.
+        b'a' => data.name(&DAYS).is_some(),
         b'c' => pattern(data, f, b"a b e H:M:S Y"),
         b'D' | b'x' => pattern(data, f, b"m/d/y"),
         b'F' => pattern(data, f, b"Y-m-d"),
@@ -911,25 +885,29 @@ fn library(letter: u8, data: &mut Input, f: &mut Fields) -> bool {
     }
 }
 
-/// The days of an ISO year: 371 or 364.
-fn iso_year_days(year: i64) -> i64 {
-    let p = |y: i64| (y + y / 4 - y / 100 + y / 400) % 7;
-    let weeks = 52 + i64::from(p(year) == 4 || p(year - 1) == 3);
-    weeks * 7
+/// The weeks of the ISO year `year`: 52 or 53.
+fn iso_weeks(year: i64) -> i64 {
+    let has_53 = i32::try_from(year)
+        .ok()
+        .and_then(|y| NaiveDate::from_isoywd_opt(y, 53, Weekday::Mon))
+        .is_some();
+    if has_53 {
+        53
+    } else {
+        52
+    }
 }
 
-/// The year, month, and day after the elements of weeks, weekdays, and days of the year, as
-/// GoogleSQL resolves them.
+/// The year, month, and day after the elements of weeks and days of the year, as GoogleSQL
+/// resolves them.
 fn resolve_date(year: &mut i64, month: &mut i64, day: &mut i64, f: &Fields) -> Result<(), Error> {
     if f.elements.is_empty() {
         return Ok(());
     }
     let last = |letters: &[u8]| (f.elements.iter()).rposition(|e| letters.contains(&e.letter));
-    let weekday = last(b"Aauw");
-    let iso_year = last(b"Gg").filter(|_| !f.non_iso);
     let date = |y: i64, m: u32, d: u32| NaiveDate::from_ymd_opt(i32::try_from(y).ok()?, m, d);
-    let invalid_date = || Error("Out-of-range datetime field in parsing function".into());
-    if let Some(iso_year) = iso_year {
+    let out_of_range = || Error("Out-of-range datetime field in parsing function".into());
+    if let Some(iso_year) = last(b"Gg").filter(|_| !f.non_iso) {
         let year_element = f.elements[iso_year];
         let iso = match year_element.letter {
             b'g' if year_element.value <= 68 => 2000 + year_element.value,
@@ -939,32 +917,31 @@ fn resolve_date(year: &mut i64, month: &mut i64, day: &mut i64, f: &Fields) -> R
         let mut week = last(b"V");
         let mut day_of_year = last(b"J");
         if let Some(j) = day_of_year {
-            if week.is_none_or(|w| j > w) || weekday.is_none() {
+            if week.is_none_or(|w| j > w) || !f.weekday {
                 week = None;
             } else {
                 day_of_year = None;
             }
         }
         if let Some(week) = week {
-            if f.elements[week].value == 53 && iso_year_days(iso) < 371 {
+            if f.elements[week].value == 53 && iso_weeks(iso) < 53 {
                 return Err(Error(format!(
                     "Invalid ISO week 53 specified for ISO year {iso}"
                 )));
             }
             return Err(Error("ISO parse elements are not supported yet".into()));
         }
-        let jan5 = date(iso, 1, 5).ok_or_else(invalid_date)?;
-        let mut first = jan5 - Duration::days(1);
-        while first.weekday() != Weekday::Mon {
-            first -= Duration::days(1);
-        }
-        let mut result = first;
+        // The Monday of the ISO year's first week.
+        let mut result = i32::try_from(iso)
+            .ok()
+            .and_then(|y| NaiveDate::from_isoywd_opt(y, 1, Weekday::Mon))
+            .ok_or_else(out_of_range)?;
         if let Some(j) = day_of_year {
             let j = f.elements[j].value;
-            if j > 364 && j > iso_year_days(iso) {
+            let days = iso_weeks(iso) * 7;
+            if j > days {
                 return Err(Error(format!(
-                    "ISO Year {iso} has {} days, but the specified day of year was {j}",
-                    iso_year_days(iso)
+                    "ISO Year {iso} has {days} days, but the specified day of year was {j}"
                 )));
             }
             result += Duration::days(j - 1);
@@ -976,16 +953,14 @@ fn resolve_date(year: &mut i64, month: &mut i64, day: &mut i64, f: &Fields) -> R
     }
     let mut week = last(b"UW");
     let mut day_of_year = last(b"j");
-    let mut weekday = weekday;
+    let mut weekday = f.weekday;
     if let Some(j) = day_of_year {
-        if week.is_none_or(|w| j > w) || weekday.is_none() {
-            weekday = None;
+        if week.is_none_or(|w| j > w) || !weekday {
+            weekday = false;
             week = None;
         } else {
             day_of_year = None;
         }
-    } else if week.is_none() {
-        weekday = None;
     }
     let (result, element) = if let Some(w) = week {
         let element = f.elements[w];
@@ -994,39 +969,21 @@ fn resolve_date(year: &mut i64, month: &mut i64, day: &mut i64, f: &Fields) -> R
         } else {
             Weekday::Mon
         };
-        let jan1 = date(*year, 1, 1).ok_or_else(invalid_date)?;
-        let first_week = i64::from(jan1.weekday() == start);
-        let leap = date(*year, 2, 29).is_some();
-        let days = if leap { 366 } else { 365 };
-        let jan1_number = jan1.weekday().num_days_from_sunday() as i64 + 1;
-        let (first_day, jan1_number) = match element.letter {
-            b'U' => (8, if jan1_number == 1 { 8 } else { jan1_number }),
-            _ => (
-                9,
-                if jan1_number <= 2 {
-                    jan1_number + 7
-                } else {
-                    jan1_number
-                },
-            ),
-        };
-        let last_week = if days - (first_day - jan1_number) > 364 {
-            53
-        } else {
-            52
-        };
-        if element.value < first_week || element.value > last_week {
+        let jan1 = date(*year, 1, 1).ok_or_else(out_of_range)?;
+        let dec31 = date(*year, 12, 31).ok_or_else(out_of_range)?;
+        if !(week_number(jan1, start)..=week_number(dec31, start)).contains(&element.value) {
             return Err(Error(format!(
                 "Week number {} is invalid for year {}",
                 element.value, *year
             )));
         }
+        if weekday {
+            return Err(Error("Weekday parse elements are not supported yet".into()));
+        }
+        // The first day of week 1, and week 0 the days before it.
         let mut first = jan1;
         while first.weekday() != start {
             first += Duration::days(1);
-        }
-        if weekday.is_some() {
-            return Err(Error("Weekday parse elements are not supported yet".into()));
         }
         (first + Duration::days(7 * (element.value - 1)), element)
     } else if let Some(j) = day_of_year {
@@ -1037,7 +994,7 @@ fn resolve_date(year: &mut i64, month: &mut i64, day: &mut i64, f: &Fields) -> R
                 *year
             )));
         }
-        let jan1 = date(*year, 1, 1).ok_or_else(invalid_date)?;
+        let jan1 = date(*year, 1, 1).ok_or_else(out_of_range)?;
         (jan1 + Duration::days(element.value - 1), element)
     } else {
         return Ok(());

@@ -126,8 +126,6 @@ pub(crate) enum Token {
     Seconds(usize),
     /// `%E*S`: the seconds with the digits of their fraction, without trailing zeros.
     SecondsTrimmed,
-    /// `%E4Y`: the year in four digits.
-    Year4,
     /// `%Ez`: the offset as `+hh:mm`.
     OffsetColon,
     /// `%E*z`: the offset as `+hh:mm:ss`.
@@ -137,35 +135,70 @@ pub(crate) enum Token {
 /// The letters of the elements that GoogleSQL documents, which print a part of the value.
 pub(crate) const LETTERS: &[u8] = b"AaBbCcDdeFGgHhIJjklMmnPpQRrSsTtUuVWwXxYyZz";
 
+/// A part of a format string as written: text, or a `%` element with its byte offset, its text,
+/// and its token, which is `None` for an element that prints as written.
+pub(crate) enum Scanned<'a> {
+    Text(&'a str),
+    Element {
+        start: usize,
+        written: &'a str,
+        token: Option<Token>,
+    },
+}
+
+/// The parts of `format`. `%%` and a `%` at the end are the text `%`.
+pub(crate) fn scan(format: &str) -> Vec<Scanned<'_>> {
+    let mut parts = Vec::new();
+    let mut at = 0;
+    while let Some(offset) = format[at..].find('%') {
+        let start = at + offset;
+        if offset > 0 {
+            parts.push(Scanned::Text(&format[at..start]));
+        }
+        let rest = &format[start + 1..];
+        if rest.is_empty() || rest.starts_with('%') {
+            parts.push(Scanned::Text("%"));
+            at = (start + 2).min(format.len());
+            continue;
+        }
+        let (token, length) = element(rest);
+        let written = &format[start..start + 1 + length];
+        parts.push(Scanned::Element {
+            start,
+            written,
+            token,
+        });
+        at = start + 1 + length;
+    }
+    if at < format.len() {
+        parts.push(Scanned::Text(&format[at..]));
+    }
+    parts
+}
+
 /// The tokens of `format`, after escaping. An element outside GoogleSQL's documented list, or with
 /// a width, such as `%10d`, is text as written.
 pub(crate) fn tokens(format: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut text = String::new();
-    let mut at = 0;
-    while let Some(offset) = format[at..].find('%') {
-        text.push_str(&format[at..at + offset]);
-        let start = at + offset;
-        let rest = &format[start + 1..];
-        if rest.is_empty() || rest.starts_with('%') {
-            // `%%` is a `%`, and so is a `%` at the end.
-            text.push('%');
-            at = (start + 2).min(format.len());
-            continue;
-        }
-        let (token, length) = element(rest);
-        match token {
-            Some(token) => {
+    for part in scan(format) {
+        match part {
+            Scanned::Text(written)
+            | Scanned::Element {
+                written,
+                token: None,
+                ..
+            } => text.push_str(written),
+            Scanned::Element {
+                token: Some(token), ..
+            } => {
                 if !text.is_empty() {
                     tokens.push(Token::Text(std::mem::take(&mut text)));
                 }
                 tokens.push(token);
             }
-            None => text.push_str(&format[start..start + 1 + length]),
         }
-        at = start + 1 + length;
     }
-    text.push_str(&format[at..]);
     if !text.is_empty() {
         tokens.push(Token::Text(text));
     }
@@ -210,7 +243,8 @@ fn element(rest: &str) -> (Option<Token>, usize) {
                 [b'z', ..] => (Some(Token::OffsetColon), 1),
                 [b'*', b'z', ..] => (Some(Token::OffsetSeconds), 2),
                 [b'*', b'S', ..] => (Some(Token::SecondsTrimmed), 2),
-                [b'4', b'Y', ..] => (Some(Token::Year4), 2),
+                // `%E4Y` writes the year as `%EY` does, in four digits.
+                [b'4', b'Y', ..] => (letter(b'Y', true).filter(|_| pad == Pad::Default), 2),
                 _ if n > 0 && ext.get(n) == Some(&b'S') => {
                     let digits = rest[at + 1..at + 1 + n].parse().unwrap_or(usize::MAX);
                     ((digits <= 12).then_some(Token::Seconds(digits)), n + 1)
@@ -247,35 +281,33 @@ pub(crate) enum Rejection {
 /// Checks that each element of `format` is one that GoogleSQL documents and that a value of `kind`
 /// has, as a chart's formats need, where GoogleSQL's functions print the others as written.
 pub(crate) fn check(format: &str, kind: Kind) -> Result<(), Rejection> {
-    let absent = kind.absent();
-    let mut at = 0;
-    while let Some(offset) = format[at..].find('%') {
-        let start = at + offset;
-        let rest = &format[start + 1..];
-        if rest.is_empty() || rest.starts_with('%') {
-            at = (start + 2).min(format.len());
+    for part in scan(format) {
+        let Scanned::Element {
+            start,
+            written,
+            token,
+        } = part
+        else {
             continue;
-        }
-        let (token, length) = element(rest);
-        let written = format[start..start + 1 + length].to_string();
-        let letter = match &token {
+        };
+        let letter = match token {
             None => {
                 return Err(Rejection::Unknown {
-                    element: written,
+                    element: written.to_string(),
                     position: start,
                 })
             }
             Some(Token::Element { letter: b'J', .. }) => return Err(Rejection::Unsupported),
-            Some(Token::Element { letter, .. }) => *letter,
+            Some(Token::Element { letter, .. }) => letter,
             Some(Token::Seconds(_) | Token::SecondsTrimmed) => b'S',
-            Some(Token::Year4) => b'Y',
             Some(Token::OffsetColon | Token::OffsetSeconds) => b'z',
             Some(Token::Text(_)) => unreachable!("an element is not text"),
         };
-        if absent.contains(&letter) {
-            return Err(Rejection::Absent { element: written });
+        if kind.absent().contains(&letter) {
+            return Err(Rejection::Absent {
+                element: written.to_string(),
+            });
         }
-        at = start + 1 + length;
     }
     Ok(())
 }
