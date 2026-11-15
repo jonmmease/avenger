@@ -42,6 +42,20 @@ const CASES: &[(&str, &str)] = &[
     ("SAFE.LOG(-1)", "null"),
     ("SAFE.POW(-8, 0.5)", "null"),
     ("SAFE.UPPER('a')", "\"A\""),
+    // A format reads the type of its value, whatever the function.
+    ("FORMAT_DATE('%Y %H %Z', DATETIME '2024-05-07 13:00:00')", "\"2024 13 %Z\""),
+    ("FORMAT_DATETIME('%Y %H %Z', TIMESTAMP '2024-05-07 23:00:00+00', 'Asia/Kolkata')", "\"2024 04 UTC+0530\""),
+    ("FORMAT_TIMESTAMP('%c', DATETIME '2024-05-07 13:00:00')", "\"Tue May  7 13:00:00 2024\""),
+    ("FORMAT_DATE('%P %H', DATE '2024-05-07')", "\"%P %H\""),
+    // A time zone is a name in any case or an offset.
+    ("FORMAT_TIMESTAMP('%H:%M %Z', TIMESTAMP '2024-01-01 00:00:00+00', '+05:30')", "\"05:30 UTC+0530\""),
+    ("FORMAT_TIMESTAMP('%H:%M %Z', TIMESTAMP '2024-01-01 00:00:00+00', 'america/new_york')", "\"19:00 UTC-5\""),
+    ("PARSE_TIMESTAMP('%Y-%m-%d %H:%M', '2024-03-10 02:30', 'America/New_York')", "\"1710055800000000\""),
+    ("PARSE_DATETIME('%E4Y-%m-%dT%H:%M:%E*S', '2024-05-17T13:45:10.25')", "\"142450723775565968\""),
+    ("PARSE_TIME('%H:%M:%E*S', '13:04:05.123456')", "\"56108376640\""),
+    ("SAFE.FORMAT_DATE('%J', DATE '2024-05-07')", "null"),
+    ("SAFE.PARSE_DATE('%Y', 'x')", "null"),
+    ("FORMAT_DATE(NULL, DATE '2024-05-07')", "null"),
     ("DATE_TRUNC(DATE '2024-05-17', WEEK(SATURDAY))", "19854"),
     ("DATE_DIFF(DATE '2024-01-14', DATE '2024-01-06', WEEK(MONDAY))", "\"1\""),
     ("DATE_DIFF(DATE '2024-01-14', DATE '2024-01-06', ISOWEEK)", "\"1\""),
@@ -179,13 +193,53 @@ fn calls_bind_their_arguments_as_googlesql_does() {
     }
 }
 
+#[tokio::test]
+async fn formats_and_parses_fail_with_googlesqls_errors() {
+    // GoogleSQL's errors of these calls, from `execute_query`.
+    let cases = [
+        (
+            "FORMAT_DATE('%J', DATE '2024-05-07')",
+            "Format element %J not supported yet",
+        ),
+        (
+            "PARSE_DATE('%Y', 'x')",
+            "Failed to parse input string \"x\"",
+        ),
+        (
+            "PARSE_TIME('%H:%M:%E3S', '13:04:05.123456')",
+            "Failed to parse input string \"13:04:05.123456\"",
+        ),
+        (
+            "FORMAT_TIMESTAMP('%H', TIMESTAMP '2024-01-01 00:00:00+00', 'xyz')",
+            "Invalid time zone: xyz",
+        ),
+    ];
+    for (text, message) in cases {
+        let errors = pass::value(text).await.expect_err(text);
+        assert!(
+            errors.iter().any(|error| error.contains(message)),
+            "{text}: {errors:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_format_from_a_column_prepares_each_row() {
+    let catalog = table(&[], &["%Y", "%m", "%Q"]);
+    let query = "FROM cases |> SELECT FORMAT_DATE(s, DATE '2024-05-07') AS v";
+    assert_eq!(
+        values(&catalog, query).await,
+        ["\"2024\"", "\"05\"", "\"2\""]
+    );
+}
+
 #[test]
 fn a_cast_with_a_format_is_unsupported() {
     let found = pass::errors("FROM t |> SELECT CAST(x AS STRING FORMAT '999') AS v");
     let message =
         "avenger-sql doesn't take CAST ... FORMAT: format and parse dates and times with \
-                   FORMAT_DATE, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, PARSE_DATETIME and \
-                   PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides";
+                   FORMAT_DATE, FORMAT_TIME, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, \
+                   PARSE_TIME, PARSE_DATETIME and PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides";
     assert_eq!(found, [(message.to_string(), "FORMAT '999'".to_string())]);
 }
 

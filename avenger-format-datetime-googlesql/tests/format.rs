@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use avenger_format_datetime_googlesql::{Format, Kind, Locale};
+use avenger_format_datetime_googlesql::{Format, Kind, Locale, Zone};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 /// A recorded case: the function, the SQL of the value, the time zone, the format, and the result.
@@ -72,7 +72,7 @@ fn ours(case: &Case) -> String {
                 DateTime::parse_from_str(&format!("{text}:00"), "%Y-%m-%d %H:%M:%S%.f%:z")
                     .unwrap()
                     .with_timezone(&Utc);
-            format.format_timestamp(instant, case.zone.parse().unwrap())
+            format.format_timestamp(instant, Zone::parse(case.zone).unwrap())
         }
     };
     format!("ok:{output}")

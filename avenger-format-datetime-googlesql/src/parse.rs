@@ -7,31 +7,29 @@
 //! rejects a weekday together with a week number, and an ISO week, as "not supported yet".
 
 use chrono::{
-    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Utc,
-    Weekday,
+    DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc, Weekday,
 };
-use chrono_tz::Tz;
 
 use crate::element::Kind;
 use crate::format::composite;
-use crate::{week_number, Error, Locale};
+use crate::{week_number, Error, Locale, Zone};
 
 /// The date `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_DATE` gives it.
 pub fn parse_date(format: &str, input: &str, locale: &Locale) -> Result<NaiveDate, Error> {
-    Ok(parse(format, input, Kind::Date, Zone::Fixed(0), locale)?.date_naive())
+    Ok(parse(format, input, Kind::Date, Zone::UTC, locale)?.date_naive())
 }
 
 /// The time of day `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_TIME` gives it.
 pub fn parse_time(format: &str, input: &str, locale: &Locale) -> Result<NaiveTime, Error> {
-    Ok(parse(format, input, Kind::Time, Zone::Fixed(0), locale)?.time())
+    Ok(parse(format, input, Kind::Time, Zone::UTC, locale)?.time())
 }
 
 /// The date and time `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_DATETIME` gives it.
 pub fn parse_datetime(format: &str, input: &str, locale: &Locale) -> Result<NaiveDateTime, Error> {
-    Ok(parse(format, input, Kind::Datetime, Zone::Fixed(0), locale)?.naive_utc())
+    Ok(parse(format, input, Kind::Datetime, Zone::UTC, locale)?.naive_utc())
 }
 
 /// The instant `input` in the format `format`, with the names of `locale`, as GoogleSQL's
@@ -40,65 +38,10 @@ pub fn parse_datetime(format: &str, input: &str, locale: &Locale) -> Result<Naiv
 pub fn parse_timestamp(
     format: &str,
     input: &str,
-    zone: Tz,
+    zone: Zone,
     locale: &Locale,
 ) -> Result<DateTime<Utc>, Error> {
-    parse(format, input, Kind::Timestamp, Zone::Named(zone), locale)
-}
-
-/// A time zone of a parse: a name, or a fixed offset in seconds, as `%Z` reads either.
-#[derive(Clone, Copy, Debug)]
-enum Zone {
-    Named(Tz),
-    Fixed(i32),
-}
-
-impl Zone {
-    /// The zone of the text of `%Z`: a name, `UTC`, or an offset such as `+05:30` or `UTC+5`.
-    fn of(name: &str) -> Option<Zone> {
-        if let Ok(tz) = name.parse::<Tz>() {
-            return Some(Zone::Named(tz));
-        }
-        let offset = name.strip_prefix("UTC").unwrap_or(name);
-        if offset.is_empty() {
-            return Some(Zone::Fixed(0));
-        }
-        let (sign, digits) = match offset.as_bytes()[0] {
-            b'+' => (1, &offset[1..]),
-            b'-' => (-1, &offset[1..]),
-            _ => return None,
-        };
-        let (hours, minutes) = match digits.split_once(':') {
-            Some((hours, minutes)) => (hours, minutes),
-            None if digits.len() > 2 => digits.split_at(digits.len() - 2),
-            None => (digits, "0"),
-        };
-        let all_digits =
-            |s: &str| !s.is_empty() && s.len() <= 2 && s.bytes().all(|b| b.is_ascii_digit());
-        if !all_digits(hours) || !all_digits(minutes) {
-            return None;
-        }
-        let (hours, minutes): (i32, i32) = (hours.parse().ok()?, minutes.parse().ok()?);
-        (hours <= 14 && minutes < 60).then_some(Zone::Fixed(sign * (hours * 3600 + minutes * 60)))
-    }
-
-    /// The instant of the civil time `local` in the zone. A time that a transition skips takes the
-    /// offset before the transition, and a time that it repeats takes the earlier instant.
-    fn instant(self, local: NaiveDateTime) -> DateTime<Utc> {
-        match self {
-            Zone::Fixed(offset) => (local - Duration::seconds(offset.into())).and_utc(),
-            Zone::Named(tz) => match tz.from_local_datetime(&local) {
-                chrono::LocalResult::Single(t) => t.with_timezone(&Utc),
-                chrono::LocalResult::Ambiguous(earlier, _) => earlier.with_timezone(&Utc),
-                chrono::LocalResult::None => {
-                    let before = tz
-                        .offset_from_utc_datetime(&(local - Duration::days(1)))
-                        .fix();
-                    (local - Duration::seconds(before.local_minus_utc().into())).and_utc()
-                }
-            },
-        }
-    }
+    parse(format, input, Kind::Timestamp, zone, locale)
 }
 
 /// An element that resolves the date after the loop: a week, a day of the year, or an ISO year,
@@ -126,7 +69,7 @@ struct Fields {
     explicit_century: bool,
     twelve_hour: bool,
     afternoon: bool,
-    offset: Option<i32>,
+    offset: Option<FixedOffset>,
     zone: Zone,
     epoch: Option<i64>,
     last_year: Option<usize>,
@@ -495,8 +438,7 @@ fn parse(
             }
             b'z' => match data.offset(None) {
                 Some(minutes) => {
-                    check_offset(minutes)?;
-                    f.offset = Some(minutes as i32 * 60);
+                    f.offset = Some(offset(minutes)?);
                     true
                 }
                 None => false,
@@ -514,7 +456,7 @@ fn parse(
                 if name.is_empty() {
                     false
                 } else {
-                    f.zone = Zone::of(name)
+                    f.zone = Zone::parse(name)
                         .ok_or_else(|| Error(format!("Invalid time zone: {name}")))?;
                     f.offset = None;
                     true
@@ -660,7 +602,8 @@ fn literal(data: &mut Input, byte: u8) -> bool {
     }
 }
 
-fn check_offset(minutes: i64) -> Result<(), Error> {
+/// The offset of `minutes` minutes, or GoogleSQL's error for one beyond 14 hours.
+fn offset(minutes: i64) -> Result<FixedOffset, Error> {
     if minutes.abs() > 14 * 60 {
         let sign = if minutes < 0 { '-' } else { '+' };
         return Err(Error(format!(
@@ -669,7 +612,7 @@ fn check_offset(minutes: i64) -> Result<(), Error> {
             minutes.abs() % 60
         )));
     }
-    Ok(())
+    Ok(FixedOffset::east_opt(minutes as i32 * 60).expect("an offset within 14 hours"))
 }
 
 /// `%Y`: four digits before another element, else five, in 0..=10000.
@@ -774,13 +717,12 @@ fn extension(
             *at += 1;
             if data.rest().first() == Some(&b'Z') {
                 data.at += 1;
-                f.offset = Some(0);
+                f.offset = Some(offset(0)?);
                 return Ok(true);
             }
             Ok(match data.offset(Some(b':')) {
                 Some(minutes) => {
-                    check_offset(minutes)?;
-                    f.offset = Some(minutes as i32 * 60);
+                    f.offset = Some(offset(minutes)?);
                     true
                 }
                 None => false,

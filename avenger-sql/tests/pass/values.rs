@@ -9,7 +9,7 @@ use datafusion::arrow::{
     array::{Array, ArrayRef, AsArray},
     datatypes::{
         DataType, Date32Type, Float64Type, Int32Type, Int64Type, IntervalMonthDayNanoType,
-        TimestampMicrosecondType, UInt64Type,
+        Time64MicrosecondType, TimestampMicrosecondType, UInt64Type,
     },
 };
 
@@ -34,6 +34,10 @@ pub fn json(array: &ArrayRef, index: usize) -> String {
         DataType::LargeUtf8 => string(array.as_string::<i64>().value(index)),
         DataType::Utf8View => string(array.as_string_view().value(index)),
         DataType::Date32 => array.as_primitive::<Date32Type>().value(index).to_string(),
+        DataType::Time64(_) => {
+            let micros = array.as_primitive::<Time64MicrosecondType>().value(index);
+            format!("\"{}\"", packed_time(micros))
+        }
         DataType::Timestamp(_, Some(_)) => {
             let micros =
                 datafusion::arrow::compute::cast(&array.slice(index, 1), &types::timestamp())
@@ -140,6 +144,18 @@ pub fn packed_datetime(micros: i64) -> i64 {
         | micro
 }
 
+/// The microseconds since midnight of a time of day in GoogleSQL's packed form of a TIME, whose
+/// bits hold its hour, minute, second and microsecond.
+pub fn packed_time(micros: i64) -> i64 {
+    let (hour, minute, second, micro) = (
+        micros / 3_600_000_000,
+        micros / 60_000_000 % 60,
+        micros / 1_000_000 % 60,
+        micros % 1_000_000,
+    );
+    (hour << 32) | (minute << 26) | (second << 20) | micro
+}
+
 /// The value at `index` of `array`, as a GoogleSQL literal writes it: `3`, `3.0`, `'pple'`,
 /// `TRUE`, `NULL`, `DATE '2024-05-17'`, `[1, 2]`, or `STRUCT(0.0 AS start, 10.0 AS end)`.
 pub fn literal(array: &ArrayRef, index: usize) -> String {
@@ -174,6 +190,7 @@ pub fn literal(array: &ArrayRef, index: usize) -> String {
             format!("b'{}'", String::from_utf8_lossy(&bytes))
         }
         DataType::Date32 => format!("DATE '{}'", display()),
+        DataType::Time64(_) => format!("TIME '{}'", display()),
         DataType::Timestamp(_, None) => format!("DATETIME '{}'", display().replace('T', " ")),
         DataType::Timestamp(_, Some(_)) => {
             let utc = datafusion::arrow::compute::cast(&array.slice(index, 1), &types::datetime())

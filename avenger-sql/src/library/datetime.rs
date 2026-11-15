@@ -14,7 +14,9 @@ use datafusion::{
     logical_expr::{Expr, Operator},
 };
 
-use super::{cast, lit_i64, lit_str, Call, CallError, Function};
+use avenger_format_datetime_googlesql::{Kind, Zone};
+
+use super::{cast, datetime_format, lit_i64, lit_str, Call, CallError, Function};
 use crate::types;
 
 /// A day of the week, which starts a `WEEK(day)`.
@@ -159,7 +161,14 @@ impl DatePart {
 const ZONE: &str =
     "The time zone, a string literal such as `'America/Los_Angeles'`. When omitted, \
                     UTC, the session's default.";
-const FORMAT: &str = "The format, whose elements, such as `%Y` and `%m`, are those of `strftime`.";
+const FORMAT: &str = "The format, whose elements, such as `%Y`, `%m`, and `%Q`, are GoogleSQL's.";
+/// The note of the format functions that take several types.
+const FORMAT_TYPE: &str = "A value formats as its own type, whatever the function: the elements \
+                           of a time print as written for a `DATE`, and the elements of a time \
+                           zone for a `DATETIME`.";
+/// The description of the parse functions.
+const PARSE: &str = "The string matches the whole format. A field that the format does not have \
+                     takes its value from 1970-01-01 00:00:00.";
 
 pub(super) fn functions() -> Vec<Function> {
     vec![
@@ -573,45 +582,46 @@ pub(super) fn functions() -> Vec<Function> {
             .param("format", FORMAT)
             .param(
                 "value",
-                "The `DATE`, or a `DATETIME` or a `TIMESTAMP`, whose date it formats.",
+                "The `DATE`, or a `DATETIME` or a `TIMESTAMP`, which formats as its own type.",
             )
             .param("time_zone", ZONE)
-            .form("(format: STRING, value: DATE) -> STRING", |call| {
-                Ok(f::to_char(call.arg(1), call.arg(0)))
-            })
-            .form("(format: STRING, value: DATETIME) -> STRING", |call| {
-                Ok(f::to_char(call.arg(1), call.arg(0)))
-            })
+            .form("(format: STRING, value: DATE) -> STRING", format_utc)
+            .form("(format: STRING, value: DATETIME) -> STRING", format_utc)
             .form(
                 "(format: STRING, value: TIMESTAMP[, time_zone: CONST STRING]) -> STRING",
-                |call| {
-                    let zone = time_zone(call, 2)?;
-                    Ok(f::to_char(local(call.arg(1), &zone), call.arg(0)))
-                },
+                format_zoned,
             )
-            .note(
-                "The format follows `strftime`, as DataFusion's `to_char` does, so GoogleSQL's \
-                 own elements, such as `%Q`, are not elements of it.",
-            )
+            .note(FORMAT_TYPE)
+            .safe()
             .example("FORMAT_DATE('%Y/%m/%d', DATE '2024-05-07')", "'2024/05/07'")
-            .example("FORMAT_DATE('%b %e', DATE '2024-05-07')", "'May  7'"),
+            .example("FORMAT_DATE('%b %e', DATE '2024-05-07')", "'May  7'")
+            .example(
+                "FORMAT_DATE('%A, %B %e, Q%Q', DATE '2024-05-07')",
+                "'Tuesday, May  7, Q2'",
+            ),
+        Function::scalar("FORMAT_TIME", "Formats a time of day as a string.")
+            .param("format", FORMAT)
+            .param("value", "The `TIME`.")
+            .form("(format: STRING, value: TIME) -> STRING", format_utc)
+            .safe()
+            .example(
+                "FORMAT_TIME('%H:%M:%E3S %p', TIME '13:04:05.123456')",
+                "'13:04:05.123 PM'",
+            ),
         Function::scalar("FORMAT_DATETIME", "Formats a date and time as a string.")
             .param("format", FORMAT)
             .param(
                 "value",
-                "The `DATETIME`, or a `TIMESTAMP` in the time zone.",
+                "The `DATETIME`, or a `TIMESTAMP`, which formats as its own type.",
             )
             .param("time_zone", ZONE)
-            .form("(format: STRING, value: DATETIME) -> STRING", |call| {
-                Ok(f::to_char(call.arg(1), call.arg(0)))
-            })
+            .form("(format: STRING, value: DATETIME) -> STRING", format_utc)
             .form(
                 "(format: STRING, value: TIMESTAMP[, time_zone: CONST STRING]) -> STRING",
-                |call| {
-                    let zone = time_zone(call, 2)?;
-                    Ok(f::to_char(local(call.arg(1), &zone), call.arg(0)))
-                },
+                format_zoned,
             )
+            .note(FORMAT_TYPE)
+            .safe()
             .example(
                 "FORMAT_DATETIME('%Y-%m-%d %H:%M', DATETIME '2024-05-17 13:45:10')",
                 "'2024-05-17 13:45'",
@@ -621,18 +631,18 @@ pub(super) fn functions() -> Vec<Function> {
             "Formats an instant as a string, in a time zone.",
         )
         .param("format", FORMAT)
-        .param("value", "The `TIMESTAMP`, or a `DATETIME`.")
+        .param(
+            "value",
+            "The `TIMESTAMP`, or a `DATETIME`, which formats as its own type.",
+        )
         .param("time_zone", ZONE)
         .form(
             "(format: STRING, value: TIMESTAMP[, time_zone: CONST STRING]) -> STRING",
-            |call| {
-                let zone = time_zone(call, 2)?;
-                Ok(f::to_char(local(call.arg(1), &zone), call.arg(0)))
-            },
+            format_zoned,
         )
-        .form("(format: STRING, value: DATETIME) -> STRING", |call| {
-            Ok(f::to_char(call.arg(1), call.arg(0)))
-        })
+        .form("(format: STRING, value: DATETIME) -> STRING", format_utc)
+        .note(FORMAT_TYPE)
+        .safe()
         .example(
             "FORMAT_TIMESTAMP('%Y-%m-%d %H:%M:%S', TIMESTAMP '2024-05-17 13:45:10+00')",
             "'2024-05-17 13:45:10'",
@@ -643,25 +653,37 @@ pub(super) fn functions() -> Vec<Function> {
             "'06:45'",
         ),
         Function::scalar("PARSE_DATE", "Parses a date from a string in a format.")
-            .description("The string matches the whole format.")
+            .description(PARSE)
             .param("format", FORMAT)
             .param("value", "The string.")
             .form("(format: STRING, value: STRING) -> DATE", |call| {
-                Ok(f::to_date(vec![call.arg(1), call.arg(0)]))
+                parse_utc(call, Kind::Date)
             })
+            .safe()
             .example("PARSE_DATE('%Y%m%d', '20240517')", "DATE '2024-05-17'"),
+        Function::scalar(
+            "PARSE_TIME",
+            "Parses a time of day from a string in a format.",
+        )
+        .description(PARSE)
+        .param("format", FORMAT)
+        .param("value", "The string.")
+        .form("(format: STRING, value: STRING) -> TIME", |call| {
+            parse_utc(call, Kind::Time)
+        })
+        .safe()
+        .example("PARSE_TIME('%I:%M %p', '1:04 pm')", "TIME '13:04:00'"),
         Function::scalar(
             "PARSE_DATETIME",
             "Parses a date and time from a string in a format.",
         )
+        .description(PARSE)
         .param("format", FORMAT)
         .param("value", "The string.")
         .form("(format: STRING, value: STRING) -> DATETIME", |call| {
-            Ok(cast(
-                f::to_timestamp(vec![call.arg(1), call.arg(0)]),
-                types::datetime(),
-            ))
+            parse_utc(call, Kind::Datetime)
         })
+        .safe()
         .example(
             "PARSE_DATETIME('%Y-%m-%d %H:%M', '2024-05-17 13:45')",
             "DATETIME '2024-05-17 13:45:00'",
@@ -670,22 +692,28 @@ pub(super) fn functions() -> Vec<Function> {
             "PARSE_TIMESTAMP",
             "Parses an instant from a string in a format and a time zone.",
         )
+        .description(PARSE)
         .param("format", FORMAT)
         .param(
             "value",
-            "The string. An offset in it, such as `+02:00`, takes the place of the time zone.",
+            "The string. An offset or a time zone in it, such as `+02:00` or `Asia/Kolkata`, \
+             takes the place of the time zone.",
         )
         .param("time_zone", ZONE)
         .form(
             "(format: STRING, value: STRING[, time_zone: CONST STRING]) -> TIMESTAMP",
             |call| {
-                let zone = time_zone(call, 2)?;
-                Ok(instant(
-                    f::to_timestamp(vec![call.arg(1), call.arg(0)]),
-                    &zone,
+                let zone = zone(call, 2)?;
+                Ok(datetime_format::parse(
+                    Kind::Timestamp,
+                    zone,
+                    call.safe,
+                    call.arg(0),
+                    call.arg(1),
                 ))
             },
         )
+        .safe()
         .example(
             "PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', '2024-05-17 13:45:10')",
             "TIMESTAMP '2024-05-17 13:45:10+00'",
@@ -693,6 +721,10 @@ pub(super) fn functions() -> Vec<Function> {
         .example(
             "PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', '2024-05-17 13:45:10', 'America/Los_Angeles')",
             "TIMESTAMP '2024-05-17 20:45:10+00'",
+        )
+        .example(
+            "PARSE_TIMESTAMP('%Y-%m-%d %H:%M %Z', '2024-05-17 13:45 Asia/Kolkata')",
+            "TIMESTAMP '2024-05-17 08:15:00+00'",
         ),
         epoch(
             "UNIX_SECONDS",
@@ -814,6 +846,45 @@ fn time_zone(call: &Call, index: usize) -> Result<String, CallError> {
             "avenger-sql takes a time zone as a string literal, such as 'America/New_York'",
         )),
     }
+}
+
+/// The time zone of the parameter at `index`, as GoogleSQL reads it: a name in any case, or an
+/// offset such as `+05:30`.
+fn zone(call: &Call, index: usize) -> Result<Zone, CallError> {
+    let name = time_zone(call, index)?;
+    Zone::parse(&name).ok_or_else(|| call.error_at(index, format!("Invalid time zone: {name}")))
+}
+
+/// `FORMAT_*` of a value without a time zone, or a `DATETIME` as a `TIMESTAMP`.
+fn format_utc(call: &Call) -> Result<Expr, CallError> {
+    Ok(datetime_format::format(
+        Zone::UTC,
+        call.safe,
+        call.arg(0),
+        call.arg(1),
+    ))
+}
+
+/// `FORMAT_*` of a `TIMESTAMP` in the time zone of the call.
+fn format_zoned(call: &Call) -> Result<Expr, CallError> {
+    let zone = zone(call, 2)?;
+    Ok(datetime_format::format(
+        zone,
+        call.safe,
+        call.arg(0),
+        call.arg(1),
+    ))
+}
+
+/// `PARSE_*` of a value of `kind` without a time zone.
+fn parse_utc(call: &Call, kind: Kind) -> Result<Expr, CallError> {
+    Ok(datetime_format::parse(
+        kind,
+        Zone::UTC,
+        call.safe,
+        call.arg(0),
+        call.arg(1),
+    ))
 }
 
 /// The civil date and time in the time zone `zone` of the instant `value`.

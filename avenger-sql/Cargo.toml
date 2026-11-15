@@ -10,6 +10,7 @@ async-trait = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
+avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true, features = [
     "nested_expressions",
@@ -19,6 +20,7 @@ datafusion = { workspace = true, features = [
     "string_expressions",
     "unicode_expressions",
 ] }
+chrono = { workspace = true }
 prost = { workspace = true }
 regex = { workspace = true }
 
