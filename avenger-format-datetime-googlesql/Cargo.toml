@@ -8,11 +8,12 @@ description = "GoogleSQL's date and time formats: FORMAT_DATE and its siblings, 
 avenger-format = { path = "../avenger-format" }
 avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
 chrono = { workspace = true }
-chrono-tz = { workspace = true }
+chrono-tz = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [features]
-# All of d3's locales for `Locale::bundled`, where the default build bundles U.S. English.
+# All of d3's locales, where the default build bundles U.S. English.
 all-locales = ["avenger-format-locales-d3/all-locales"]
 
 [dev-dependencies]

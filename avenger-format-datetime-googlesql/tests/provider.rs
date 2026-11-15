@@ -3,6 +3,7 @@
 
 use avenger_format::{DateTimeFormatError, DateTimeFormatProvider};
 use avenger_format_datetime_googlesql::{Format, GoogleSqlDateTimeFormatProvider, Kind, Locale};
+use avenger_format_locales_d3::DateTimeLocaleSpec;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::America::New_York;
 
@@ -98,9 +99,32 @@ fn the_default_calendar_patterns_prepare() {
 
 #[test]
 fn a_provider_formats_with_its_locale() {
-    let provider =
-        GoogleSqlDateTimeFormatProvider::new().with_locale(Locale::bundled("fr").unwrap());
     let date = NaiveDate::from_ymd_opt(2024, 3, 5).unwrap();
-    let text = provider.prepare_date("%A %e %B %Y").unwrap().format(date);
-    assert_eq!(text.unwrap(), "mardi  5 mars 2024");
+    let text = |provider: GoogleSqlDateTimeFormatProvider| {
+        provider
+            .prepare_date("%A %e %B %Y %x")
+            .map(|f| f.format(date).unwrap())
+    };
+    let provider = GoogleSqlDateTimeFormatProvider::new();
+    assert_eq!(
+        text(provider.clone()).unwrap(),
+        "Tuesday  5 March 2024 03/05/24"
+    );
+    assert_eq!(
+        text(provider.clone().with_locale("fr_FR")).unwrap(),
+        "mardi  5 mars 2024 05/03/2024"
+    );
+    let custom = DateTimeLocaleSpec {
+        date: "%Y.%m.%d".into(),
+        ..DateTimeLocaleSpec::default()
+    };
+    let provider = provider.with_custom_locale("en_custom", custom);
+    assert_eq!(
+        text(provider.clone().with_locale("en-custom")).unwrap(),
+        "Tuesday  5 March 2024 2024.03.05"
+    );
+    assert!(matches!(
+        text(provider.with_locale("fr")),
+        Err(DateTimeFormatError::LocaleUnavailable { locale, .. }) if locale == "fr"
+    ));
 }

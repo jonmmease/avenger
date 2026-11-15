@@ -80,7 +80,7 @@ fn names_and_composites_parse_back_in_every_bundled_locale() {
 
 #[test]
 fn a_name_reads_its_longest_form_and_a_short_name_reads_without_its_period() {
-    let french = Locale::bundled("fr").unwrap();
+    let french = Locale::bundled("fr-FR").unwrap();
     let date = |text: &str| parse_datetime("%b %Y", text, &french).map(|d| d.date());
     let july = NaiveDate::from_ymd_opt(2024, 7, 1).unwrap();
     assert_eq!(date("juil. 2024"), Ok(july));
@@ -116,14 +116,6 @@ fn only_the_default_locale_writes_googlesqls_composites() {
 }
 
 #[test]
-fn a_tag_selects_its_region_or_its_languages_likely_region() {
-    assert_eq!(Locale::bundled("pt"), Locale::bundled("pt-BR"));
-    assert_eq!(Locale::bundled("fr_be"), Locale::bundled("fr-FR"));
-    let error = Locale::bundled("xx").unwrap_err().to_string();
-    assert!(error.starts_with("Locale 'xx' is not available. The locales are ar-EG, "));
-}
-
-#[test]
 fn a_locales_composites_are_googlesql_formats() {
     let error = |spec: DateTimeLocaleSpec| Locale::new(&spec).unwrap_err().to_string();
     let english = DateTimeLocaleSpec::default;
@@ -132,20 +124,20 @@ fn a_locales_composites_are_googlesql_formats() {
             date_time: "%A %c".into(),
             ..english()
         }),
-        "The locale's dateTime has `%c`, which refers to itself"
+        "invalid locale data: field `dateTime` has `%c`, which refers to itself"
     );
     assert_eq!(
         error(DateTimeLocaleSpec {
             date: "%d %H".into(),
             ..english()
         }),
-        "The locale's date has `%H`, which needs a part that the value does not have"
+        "invalid locale data: field `date` has `%H`, which needs a part that the value does not have"
     );
     assert_eq!(
         error(DateTimeLocaleSpec {
             time: "%L".into(),
             ..english()
         }),
-        "The locale's time has `%L`, which is not an element of GoogleSQL's formats"
+        "invalid locale data: field `time` has `%L`, which is not an element of GoogleSQL's formats"
     );
 }

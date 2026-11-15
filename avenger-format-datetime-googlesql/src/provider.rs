@@ -1,47 +1,66 @@
 //! The datetime format provider of GoogleSQL's formats, for the labels of charts.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use avenger_format::{
     CalendarPatterns, DateTimeFormatError, DateTimeFormatProvider, DateTimeInputKind,
     PreparedDateFormatter, PreparedNaiveDateTimeFormatter, PreparedZonedDateTimeFormatter,
 };
+use avenger_format_locales_d3::DateTimeLocaleSpec;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
+use serde::{Deserialize, Serialize};
 
 use crate::element::{check, Kind, Rejection};
 use crate::{Format, Locale};
 
-/// Prepares GoogleSQL's format strings, with the syntax name `googlesql`, with the names of a
-/// locale, and displays zoned datetimes in a time zone. The provider is stricter than GoogleSQL's functions: it rejects an
-/// element that GoogleSQL does not document and an element of a part that the value lacks, such
-/// as the hour of a date, which GoogleSQL prints as written.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Prepares GoogleSQL's format strings, with the syntax name `googlesql`, with the names and the
+/// composites of a locale, and displays zoned datetimes in a time zone. The provider is stricter
+/// than GoogleSQL's functions: it rejects an element that GoogleSQL does not document and an
+/// element of a part that the value lacks, such as the hour of a date, which GoogleSQL prints as
+/// written.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct GoogleSqlDateTimeFormatProvider {
+    /// Locale name. An omitted name selects GoogleSQL's names and composites, which differ from the
+    /// composites of the d3 locale `en-US`.
+    pub locale: Option<String>,
+    /// Custom d3 definitions, keyed by locale name.
+    pub locales: BTreeMap<String, DateTimeLocaleSpec>,
     /// The time zone that zoned datetimes display in. Defaults to UTC.
     pub timezone: Tz,
-    /// The names and the composites of the formats. Defaults to GoogleSQL's.
-    pub locale: Locale,
 }
 
 impl Default for GoogleSqlDateTimeFormatProvider {
     fn default() -> Self {
         Self {
+            locale: None,
+            locales: BTreeMap::new(),
             timezone: Tz::UTC,
-            locale: Locale::default(),
         }
     }
 }
 
 impl GoogleSqlDateTimeFormatProvider {
-    /// A provider with GoogleSQL's names that displays zoned datetimes in UTC.
+    /// Use GoogleSQL's names and composites, and UTC for zoned formatting.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Formats with the names and the composites of `locale`.
-    pub fn with_locale(mut self, locale: Locale) -> Self {
-        self.locale = locale;
+    /// Select a locale, accepting hyphens or underscores in its name.
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = Some(locale.into());
+        self
+    }
+
+    /// Add or replace a custom definition without selecting it.
+    pub fn with_custom_locale(
+        mut self,
+        name: impl Into<String>,
+        definition: DateTimeLocaleSpec,
+    ) -> Self {
+        self.locales.insert(name.into(), definition);
         self
     }
 
@@ -49,6 +68,23 @@ impl GoogleSqlDateTimeFormatProvider {
     pub fn with_timezone(mut self, timezone: Tz) -> Self {
         self.timezone = timezone;
         self
+    }
+
+    /// The selected locale: a custom definition, by its name with hyphens or underscores, or a
+    /// bundled one.
+    fn resolve_locale(&self) -> Result<Locale, DateTimeFormatError> {
+        let Some(id) = self.locale.as_deref() else {
+            return Ok(Locale::default());
+        };
+        let normalized = id.replace('_', "-");
+        let custom = self.locales.get(id).or_else(|| {
+            (self.locales.iter())
+                .find_map(|(name, spec)| (name.replace('_', "-") == normalized).then_some(spec))
+        });
+        match custom {
+            Some(spec) => Locale::new(spec),
+            None => Locale::bundled(&normalized),
+        }
     }
 }
 
@@ -103,7 +139,12 @@ impl DateTimeFormatProvider for GoogleSqlDateTimeFormatProvider {
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(prepare(spec, Kind::Date, &self.locale, Tz::UTC)?))
+        Ok(Arc::new(prepare(
+            spec,
+            Kind::Date,
+            &self.resolve_locale()?,
+            Tz::UTC,
+        )?))
     }
 
     fn prepare_naive(
@@ -113,7 +154,7 @@ impl DateTimeFormatProvider for GoogleSqlDateTimeFormatProvider {
         Ok(Arc::new(prepare(
             spec,
             Kind::Datetime,
-            &self.locale,
+            &self.resolve_locale()?,
             Tz::UTC,
         )?))
     }
@@ -125,7 +166,7 @@ impl DateTimeFormatProvider for GoogleSqlDateTimeFormatProvider {
         Ok(Arc::new(prepare(
             spec,
             Kind::Timestamp,
-            &self.locale,
+            &self.resolve_locale()?,
             self.timezone,
         )?))
     }

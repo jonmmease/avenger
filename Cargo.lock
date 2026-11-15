@@ -756,6 +756,7 @@ dependencies = [
  "avenger-format-locales-d3",
  "chrono",
  "chrono-tz",
+ "serde",
  "thiserror 2.0.21",
 ]
 

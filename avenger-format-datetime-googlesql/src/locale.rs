@@ -1,10 +1,10 @@
 //! Locales: the names of days, months, and periods of the day, and the formats of `%c`, `%x`, and
 //! `%X`, from a d3 time locale.
 
-use avenger_format_locales_d3::{bundled, resolve_tag, DateTimeLocaleSpec, BUNDLED};
+use avenger_format::DateTimeFormatError;
+use avenger_format_locales_d3::{bundled, DateTimeLocaleSpec};
 
 use crate::element::{check, tokens, Kind, Rejection, Token};
-use crate::Error;
 
 /// The names and the composites that a format writes and a parse reads. The default is
 /// GoogleSQL's: its en-US names, `AM` and `PM`, and the composites of its C library, `%c` as
@@ -66,14 +66,16 @@ impl Default for Locale {
 impl Locale {
     /// The locale of the d3 time locale `spec`. Its composites are GoogleSQL formats: `dateTime`
     /// of a datetime's elements, without `%c`, `date` of a date's, and `time` of a time's.
-    pub fn new(spec: &DateTimeLocaleSpec) -> Result<Locale, Error> {
+    pub fn new(spec: &DateTimeLocaleSpec) -> Result<Locale, DateTimeFormatError> {
         let composites = [
             ("dateTime", &spec.date_time, Kind::Datetime),
             ("date", &spec.date, Kind::Date),
             ("time", &spec.time, Kind::Time),
         ];
         for (field, format, kind) in composites {
-            let invalid = |message: String| Error(format!("The locale's {field} {message}"));
+            let invalid = |message: String| DateTimeFormatError::InvalidLocaleData {
+                message: format!("field `{field}` {message}"),
+            };
             check(format, kind).map_err(|rejection| {
                 invalid(match rejection {
                     Rejection::Unknown { element, .. } => {
@@ -103,17 +105,13 @@ impl Locale {
         })
     }
 
-    /// The bundled locale that the BCP 47 tag `tag` selects, such as `fr-FR`, or `fr` for its
-    /// likely region: U.S. English, or all of d3's locales with the `all-locales` feature.
-    pub fn bundled(tag: &str) -> Result<Locale, Error> {
-        let names = BUNDLED.iter().map(|(name, _)| *name);
-        let name = resolve_tag(tag, names.clone()).ok_or_else(|| {
-            let names: Vec<&str> = names.collect();
-            Error(format!(
-                "Locale '{tag}' is not available. The locales are {}",
-                names.join(", ")
-            ))
+    /// The bundled locale named `id`, with hyphens or underscores, such as `fr-FR`: U.S.
+    /// English, or all of d3's locales with the `all-locales` feature.
+    pub fn bundled(id: &str) -> Result<Locale, DateTimeFormatError> {
+        let spec = bundled(id).ok_or_else(|| DateTimeFormatError::LocaleUnavailable {
+            locale: id.into(),
+            message: "no bundled D3 definition is available in this build".into(),
         })?;
-        Locale::new(&bundled(name).expect("a bundled locale"))
+        Locale::new(&spec)
     }
 }
