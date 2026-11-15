@@ -1,7 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-use std::collections::BTreeMap;
-
 use avenger_format::DateTimeFormatError;
 use serde::{Deserialize, Serialize};
 
@@ -103,7 +101,7 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("zh-TW", include_str!("../locales/zh-TW.json")),
 ];
 
-/// The bundled definition named `id`, with hyphens or underscores, without resolving the tag.
+/// The bundled definition named `id`, with hyphens or underscores, such as `fr-FR` or `fr_FR`.
 pub fn bundled(id: &str) -> Option<DateTimeLocaleSpec> {
     let id = id.replace('_', "-");
     BUNDLED
@@ -112,152 +110,4 @@ pub fn bundled(id: &str) -> Option<DateTimeLocaleSpec> {
         .map(|(name, json)| {
             DateTimeLocaleSpec::from_json(name, json).expect("bundled D3 time locale")
         })
-}
-
-/// The region of each language of the bundled locales that CLDR's likely subtags give it, such as
-/// `pt` to `BR`: the region of the language's entry in `supplemental/likelySubtags.json` of
-/// CLDR 49, such as `pt-Latn-BR`. A new bundled language takes its region from the same file.
-const LIKELY_REGIONS: &[(&str, &str)] = &[
-    ("ar", "EG"),
-    ("ca", "ES"),
-    ("cs", "CZ"),
-    ("da", "DK"),
-    ("de", "DE"),
-    ("en", "US"),
-    ("es", "ES"),
-    ("fa", "IR"),
-    ("fi", "FI"),
-    ("fr", "FR"),
-    ("he", "IL"),
-    ("hr", "HR"),
-    ("hu", "HU"),
-    ("it", "IT"),
-    ("ja", "JP"),
-    ("ko", "KR"),
-    ("mk", "MK"),
-    ("nb", "NO"),
-    ("nl", "NL"),
-    ("pl", "PL"),
-    ("pt", "BR"),
-    ("ru", "RU"),
-    ("sv", "SE"),
-    ("tr", "TR"),
-    ("uk", "UA"),
-    ("zh", "CN"),
-];
-
-/// The name among `available` that the BCP 47 tag `tag` selects: the name with the same language
-/// and region, without regard to case, or the language's likely region, or the first name of the
-/// language. A tag may write `_` for `-`. `None` when no name has the tag's language.
-pub fn resolve_tag<'a>(tag: &str, available: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
-    let tag = tag.replace('_', "-");
-    let available: Vec<&str> = available.into_iter().collect();
-    if let Some(exact) = available
-        .iter()
-        .find(|name| name.replace('_', "-").eq_ignore_ascii_case(&tag))
-    {
-        return Some(exact);
-    }
-    let language = tag.split('-').next()?.to_ascii_lowercase();
-    let of_language = |name: &&&str| {
-        name.split(['-', '_'])
-            .next()
-            .is_some_and(|l| l.eq_ignore_ascii_case(&language))
-    };
-    let likely = (LIKELY_REGIONS.iter())
-        .find(|(l, _)| *l == language)
-        .map(|(l, region)| format!("{l}-{region}"));
-    if let Some(likely) = likely {
-        if let Some(name) = available
-            .iter()
-            .find(|name| name.replace('_', "-").eq_ignore_ascii_case(&likely))
-        {
-            return Some(name);
-        }
-    }
-    let mut candidates: Vec<&&str> = available.iter().filter(of_language).collect();
-    candidates.sort();
-    candidates.first().map(|name| **name)
-}
-
-/// Named definitions of d3 time locales: the bundled ones and the ones that a host registers.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DateTimeLocales {
-    locales: BTreeMap<String, DateTimeLocaleSpec>,
-}
-
-impl DateTimeLocales {
-    /// The bundled locales.
-    pub fn with_bundled() -> Self {
-        let locales = (BUNDLED.iter())
-            .map(|(id, json)| {
-                let spec = DateTimeLocaleSpec::from_json(id, json).expect("bundled D3 time locale");
-                (id.to_string(), spec)
-            })
-            .collect();
-        Self { locales }
-    }
-
-    /// Adds or replaces the definition named `id`.
-    pub fn register(&mut self, id: impl Into<String>, spec: DateTimeLocaleSpec) {
-        self.locales.insert(id.into(), spec);
-    }
-
-    /// Adds or replaces the definition named `id` from d3 time locale JSON.
-    pub fn register_json(
-        &mut self,
-        id: impl Into<String>,
-        json: &str,
-    ) -> Result<(), DateTimeFormatError> {
-        let id = id.into();
-        let spec = DateTimeLocaleSpec::from_json(&id, json)?;
-        self.register(id, spec);
-        Ok(())
-    }
-
-    /// The names of the definitions.
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.locales.keys().map(String::as_str)
-    }
-
-    /// The definition named exactly `id`.
-    pub fn get(&self, id: &str) -> Option<&DateTimeLocaleSpec> {
-        self.locales.get(id)
-    }
-
-    /// The name and the definition that the BCP 47 tag `tag` selects, by [`resolve_tag`], or an
-    /// error that lists the names.
-    pub fn resolve(&self, tag: &str) -> Result<(&str, &DateTimeLocaleSpec), DateTimeFormatError> {
-        let name = resolve_tag(tag, self.names()).ok_or_else(|| {
-            let names: Vec<&str> = self.names().collect();
-            DateTimeFormatError::LocaleUnavailable {
-                locale: tag.to_string(),
-                message: format!("the locales are {}", names.join(", ")),
-            }
-        })?;
-        let (name, spec) = self.locales.get_key_value(name).expect("a resolved name");
-        Ok((name.as_str(), spec))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const NAMES: &[&str] = &["en-GB", "en-US", "fr-CA", "fr-FR", "pt-BR", "de_CH"];
-
-    #[test]
-    fn tags_resolve_to_their_region_or_their_languages_likely_region() {
-        let resolve = |tag: &str| resolve_tag(tag, NAMES.iter().copied());
-        assert_eq!(resolve("fr-CA"), Some("fr-CA"));
-        assert_eq!(resolve("FR_ca"), Some("fr-CA"));
-        assert_eq!(resolve("fr"), Some("fr-FR"));
-        assert_eq!(resolve("fr-BE"), Some("fr-FR"));
-        assert_eq!(resolve("pt-PT"), Some("pt-BR"));
-        assert_eq!(resolve("en"), Some("en-US"));
-        assert_eq!(resolve("de-CH"), Some("de_CH"));
-        // No likely region among the names: the first name of the language.
-        assert_eq!(resolve("de"), Some("de_CH"));
-        assert_eq!(resolve("xx"), None);
-    }
 }
