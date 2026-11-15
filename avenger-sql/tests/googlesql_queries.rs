@@ -45,6 +45,22 @@ const DIFFERENCES: &[(&str, &str)] = &[
         "FROM arrays |> SELECT k, (FROM UNNEST(xs) AS x |> AGGREGATE SUM(x)) AS total",
         "DataFusion 55 doesn't decorrelate an outer reference outside a filter, as in UNNEST",
     ),
+    (
+        "FROM one |> SELECT CAST(DATE '2024-01-05' AS STRING FORMAT 'YYYY/MM/DD') AS v",
+        "avenger-sql doesn't take CAST ... FORMAT, whose format models differ from the formats of FORMAT_DATE and of a chart's guides",
+    ),
+    (
+        "FROM one |> SELECT CAST('05.01.2024' AS DATE FORMAT 'DD.MM.YYYY') AS v",
+        "avenger-sql doesn't take CAST ... FORMAT, whose format models differ from the formats of FORMAT_DATE and of a chart's guides",
+    ),
+    (
+        "FROM one |> SELECT CAST(DATETIME '2024-01-05 13:04:05' AS STRING FORMAT 'HH12:MI:SS PM') AS v",
+        "avenger-sql doesn't take CAST ... FORMAT, whose format models differ from the formats of FORMAT_DATE and of a chart's guides",
+    ),
+    (
+        "FROM one |> SELECT CAST('2024-01-05 13:04' AS DATETIME FORMAT 'YYYY-MM-DD HH24:MI') AS v",
+        "avenger-sql doesn't take CAST ... FORMAT, whose format models differ from the formats of FORMAT_DATE and of a chart's guides",
+    ),
 ];
 
 #[tokio::test]
