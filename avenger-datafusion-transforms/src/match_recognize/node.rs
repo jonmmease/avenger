@@ -17,7 +17,9 @@ use datafusion::arrow::array::{
 };
 use datafusion::arrow::compute::{cast, sort_to_indices, take};
 use datafusion::arrow::datatypes::{DataType, Field, SchemaRef};
-use datafusion::common::{Column, DFSchema, DFSchemaRef, ExprSchema, Result, plan_err};
+use datafusion::common::{
+    Column, DFSchema, DFSchemaRef, DataFusionError, ExprSchema, Result, plan_err,
+};
 use datafusion::logical_expr::{Extension, LogicalPlan};
 
 use super::matcher::{Skip, matches};
@@ -60,9 +62,17 @@ struct MatchRecognizeTransform {
 /// variables' columns, the match number and the row's variable. An error where the pattern's
 /// program is over the cap, or a column is missing or of another type.
 pub fn plan(input: LogicalPlan, call: MatchRecognizeCall) -> Result<LogicalPlan> {
-    Program::compile(&call.pattern).map_err(datafusion::common::DataFusionError::Plan)?;
+    Program::compile(&call.pattern).map_err(DataFusionError::Plan)?;
     if call.names.len() != call.variables.len() {
         return plan_err!("MATCH_RECOGNIZE names each of its variables");
+    }
+    if let Some(variable) = call.pattern.max_variable()
+        && variable >= call.variables.len()
+    {
+        return plan_err!(
+            "the pattern of MATCH_RECOGNIZE reads the variable {variable}, of {} variables",
+            call.variables.len()
+        );
     }
     let schema = input.schema();
     if !schema
@@ -143,8 +153,7 @@ impl TableTransform for MatchRecognizeTransform {
     }
 
     fn partition_transform(&self, input: &DFSchema) -> Result<Arc<dyn PartitionTransform>> {
-        let program =
-            Program::compile(&self.pattern).map_err(datafusion::common::DataFusionError::Plan)?;
+        let program = Program::compile(&self.pattern).map_err(DataFusionError::Plan)?;
         Ok(Arc::new(PartitionMatch {
             position: input.index_of_column(&self.position)?,
             variables: self.variable_indices(input)?,
@@ -161,8 +170,8 @@ impl TableTransform for MatchRecognizeTransform {
             .collect();
         write!(
             f,
-            "pattern={:?}, variables=[{}], position={}, skip={:?}, longest={}",
-            self.pattern,
+            "pattern={}, variables=[{}], position={}, skip={:?}, longest={}",
+            self.pattern.text(&self.names),
             variables.join(", "),
             self.position,
             self.skip,

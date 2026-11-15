@@ -418,7 +418,7 @@ async fn the_output_is_the_input_and_the_match_columns() -> Result<()> {
     let explain = node.display_indent().to_string();
     assert!(
         explain.starts_with(
-            "MatchRecognize: pattern=Variable(0), variables=[u=u], position=pos, skip=PastLastRow, longest=false"
+            "MatchRecognize: pattern=u, variables=[u=u], position=pos, skip=PastLastRow, longest=false"
         ),
         "{explain}"
     );
@@ -440,6 +440,24 @@ async fn a_pattern_over_the_limit_is_a_plan_error() -> Result<()> {
         error
             .to_string()
             .contains("compiles to more than 100000 instructions"),
+        "{error}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_pattern_reads_only_the_calls_variables() -> Result<()> {
+    let ctx = session();
+    flags(&ctx)?;
+    let input = (ctx
+        .sql("SELECT id, f, ROW_NUMBER() OVER (ORDER BY id) AS pos, f = 1 AS u FROM flags"))
+    .await?
+    .into_unoptimized_plan();
+    let error = plan(input, call(&[], &["u"], cat(vec![var(0), var(1)]))).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("reads the variable 1, of 1 variables"),
         "{error}"
     );
     Ok(())
