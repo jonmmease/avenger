@@ -43,7 +43,8 @@ pub use pipeline::{sql, sql_with_modules, ScriptError};
 /// computes cheap shared inputs again in place of sharing them, and the rule that groups by the
 /// fields of a struct, such as a bin. Registering two times adds the rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
-    use avenger_datafusion_transforms::{shared::InlineShared, StructGroupSplit};
+    use avenger_datafusion_shared::InlineShared;
+    use avenger_datafusion_transforms::StructGroupSplit;
     use datafusion::{common::plan_err, execution::SessionStateBuilder, optimizer::OptimizerRule};
     use std::sync::Arc;
 
@@ -92,9 +93,8 @@ impl datafusion::execution::context::QueryPlanner for QueryPlanner {
         plan: &datafusion::logical_expr::LogicalPlan,
         session: &dyn datafusion::catalog::Session,
     ) -> Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
-        use avenger_datafusion_transforms::{
-            shared::SharedExtensionPlanner, table_function::TableFunctionExtensionPlanner,
-        };
+        use avenger_datafusion_shared::SharedExtensionPlanner;
+        use avenger_datafusion_transforms::table_function::TableFunctionExtensionPlanner;
         use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
         use std::sync::Arc;
 
