@@ -232,6 +232,8 @@ pub struct PlanContext<'a> {
     pub schema: &'a DFSchema,
     /// The default time zone of the functions that take one.
     pub time_zone: &'a str,
+    /// The default locale of the format and parse functions.
+    pub locale: Option<&'a str>,
     /// How GoogleSQL's types map to Arrow types.
     pub type_options: TypeOptions,
 }

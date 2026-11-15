@@ -38,12 +38,16 @@ pub struct Options {
     /// The default time zone, of the functions that take one and of `TIMESTAMP` literals without
     /// one.
     pub time_zone: String,
+    /// The default locale of the format and parse functions, the full name of a bundled locale,
+    /// such as `fr-FR`. Without one, the functions use GoogleSQL's names.
+    pub locale: Option<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
             time_zone: crate::types::UTC.to_string(),
+            locale: None,
         }
     }
 }

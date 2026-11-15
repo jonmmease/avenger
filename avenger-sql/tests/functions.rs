@@ -267,6 +267,12 @@ fn ours(name: &str, form: &Form) -> Vec<Vec<String>> {
         let mut required = Vec::new();
         let mut optional = Vec::new();
         for arg in &signature.args {
+            if EXTENSIONS
+                .iter()
+                .any(|(f, param, _)| *f == name && *param == arg.param)
+            {
+                continue;
+            }
             let text = match &arg.accept {
                 Accept::Value(ty) | Accept::Const(ty) => show(ty),
                 Accept::OneOf(_) => "STRING".to_string(),
@@ -290,6 +296,23 @@ fn ours(name: &str, form: &Form) -> Vec<Vec<String>> {
     }
     lists
 }
+
+/// The parameters that avenger adds to functions of GoogleSQL, which their forms leave out of the
+/// comparison with GoogleSQL's, and why.
+const EXTENSIONS: &[(&str, &str, &str)] = &[
+    ("FORMAT_DATE", "locale", "the names of another language"),
+    ("FORMAT_TIME", "locale", "the names of another language"),
+    ("FORMAT_DATETIME", "locale", "the names of another language"),
+    (
+        "FORMAT_TIMESTAMP",
+        "locale",
+        "the names of another language",
+    ),
+    ("PARSE_DATE", "locale", "the names of another language"),
+    ("PARSE_TIME", "locale", "the names of another language"),
+    ("PARSE_DATETIME", "locale", "the names of another language"),
+    ("PARSE_TIMESTAMP", "locale", "the names of another language"),
+];
 
 /// The forms of GoogleSQL that the library doesn't map, by function, and why.
 #[rustfmt::skip]
@@ -378,6 +401,15 @@ fn the_forms_are_googlesqls() {
                     list.join(", ")
                 ));
             }
+        }
+    }
+    // An extension of a parameter that no form takes is stale.
+    for (name, param, _) in EXTENSIONS {
+        let takes = (library.get(name).into_iter())
+            .flat_map(|function| &function.forms)
+            .any(|form| form.signature.args.iter().any(|arg| arg.param == *param));
+        if !takes {
+            failures.push(format!("{name}({param}): an extension that no form takes"));
         }
     }
     // An omission that excuses no form is stale: the library maps the form now.

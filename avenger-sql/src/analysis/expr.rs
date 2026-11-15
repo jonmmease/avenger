@@ -136,6 +136,7 @@ impl Pass<'_> {
         PlanContext {
             schema,
             time_zone: &self.options.time_zone,
+            locale: self.options.locale.as_deref(),
             type_options: self.type_options,
         }
     }

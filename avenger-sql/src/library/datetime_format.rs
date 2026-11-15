@@ -32,10 +32,11 @@ use super::columnar;
 use crate::types;
 
 /// The text of `value`, a `DATE`, a `TIME`, a `DATETIME`, or a `TIMESTAMP` in the time zone
-/// `zone`, in `format`, or `NULL` where it fails when `safe`.
-pub(super) fn format(zone: Zone, safe: bool, format: Expr, value: Expr) -> Expr {
+/// `zone`, in `format` with the names of `locale`, or `NULL` where it fails when `safe`.
+pub(super) fn format(zone: Zone, locale: Locale, safe: bool, format: Expr, value: Expr) -> Expr {
     let udf = FormatDatetime {
         zone,
+        locale,
         safe,
         signature: Signature::any(2, Volatility::Immutable),
     };
@@ -43,11 +44,19 @@ pub(super) fn format(zone: Zone, safe: bool, format: Expr, value: Expr) -> Expr 
 }
 
 /// The value of `kind` that the string `value` holds in `format`, with the time zone `zone` for a
-/// time without one, or `NULL` where it fails when `safe`.
-pub(super) fn parse(kind: Kind, zone: Zone, safe: bool, format: Expr, value: Expr) -> Expr {
+/// time without one and the names of `locale`, or `NULL` where it fails when `safe`.
+pub(super) fn parse(
+    kind: Kind,
+    zone: Zone,
+    locale: Locale,
+    safe: bool,
+    format: Expr,
+    value: Expr,
+) -> Expr {
     let udf = ParseDatetime {
         kind,
         zone,
+        locale,
         safe,
         signature: Signature::any(2, Volatility::Immutable),
     };
@@ -57,6 +66,7 @@ pub(super) fn parse(kind: Kind, zone: Zone, safe: bool, format: Expr, value: Exp
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct FormatDatetime {
     zone: Zone,
+    locale: Locale,
     safe: bool,
     signature: Signature,
 }
@@ -65,6 +75,7 @@ struct FormatDatetime {
 struct ParseDatetime {
     kind: Kind,
     zone: Zone,
+    locale: Locale,
     safe: bool,
     signature: Signature,
 }
@@ -148,7 +159,7 @@ impl ScalarUDFImpl for FormatDatetime {
         let Some(kind) = kind_of(values.data_type()) else {
             return exec_err!("$format_datetime formats a date or a time");
         };
-        let locale = Locale::default();
+        let locale = &self.locale;
         let mut prepared = Prepared { last: None };
         let mut out = StringBuilder::new();
         for row in 0..values.len() {
@@ -157,7 +168,7 @@ impl ScalarUDFImpl for FormatDatetime {
                 out.append_null();
                 continue;
             }
-            let format = prepared.get(formats.value(at), kind, &locale);
+            let format = prepared.get(formats.value(at), kind, locale);
             let result = match format {
                 Ok(format) => text(format, &values, row, self.zone)
                     .ok_or_else(|| Error("Out-of-range datetime value".into())),
@@ -203,7 +214,7 @@ impl ScalarUDFImpl for ParseDatetime {
         let formats = formats.as_string::<i32>();
         let inputs = strings(&args.args[1], rows)?;
         let inputs = inputs.as_string::<i32>();
-        let locale = Locale::default();
+        let locale = &self.locale;
         // Each value as days since 1970-01-01 for a `DATE`, and as microseconds otherwise.
         let mut values: Vec<Option<i64>> = Vec::with_capacity(inputs.len());
         for row in 0..inputs.len() {
@@ -216,15 +227,15 @@ impl ScalarUDFImpl for ParseDatetime {
             let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01");
             let value = match self.kind {
                 Kind::Date => {
-                    parse_date(format, input, &locale).map(|date| (date - epoch).num_days())
+                    parse_date(format, input, locale).map(|date| (date - epoch).num_days())
                 }
-                Kind::Time => parse_time(format, input, &locale).map(|time| {
+                Kind::Time => parse_time(format, input, locale).map(|time| {
                     i64::from(time.num_seconds_from_midnight()) * 1_000_000
                         + i64::from(time.nanosecond() / 1_000)
                 }),
-                Kind::Datetime => parse_datetime(format, input, &locale)
+                Kind::Datetime => parse_datetime(format, input, locale)
                     .map(|datetime| datetime.and_utc().timestamp_micros()),
-                Kind::Timestamp => parse_timestamp(format, input, self.zone, &locale)
+                Kind::Timestamp => parse_timestamp(format, input, self.zone, locale)
                     .map(|instant| instant.timestamp_micros()),
             };
             match value {

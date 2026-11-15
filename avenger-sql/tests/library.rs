@@ -6,7 +6,11 @@ mod pass;
 
 use std::sync::Arc;
 
-use avenger_sql::{catalog::MemoryCatalog, library::Library};
+use avenger_sql::{
+    analysis::{analyze, Options},
+    catalog::MemoryCatalog,
+    library::Library,
+};
 use datafusion::{
     arrow::{
         array::{Int64Array, RecordBatch, StringArray},
@@ -221,6 +225,87 @@ async fn formats_and_parses_fail_with_googlesqls_errors() {
             "{text}: {errors:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_locale_gives_its_names_and_composites() {
+    // The names of avenger-format-locales-d3's locales, which GoogleSQL doesn't have.
+    let cases = [
+        (
+            "FORMAT_DATE('%A %e %B %Y', DATE '2024-03-05', locale => 'fr-FR')",
+            "\"mardi  5 mars 2024\"",
+        ),
+        (
+            "FORMAT_DATE('%x', DATE '2024-03-05', locale => 'en_US')",
+            "\"3/5/2024\"",
+        ),
+        (
+            "FORMAT_TIMESTAMP('%c', TIMESTAMP '2024-03-05 14:08:09+00', 'UTC', locale => 'de-DE')",
+            "\"Dienstag, der  5. März 2024, 14:08:09\"",
+        ),
+        (
+            "FORMAT_TIMESTAMP('%H %p', TIMESTAMP '2024-03-05 14:08:09+00', locale => 'zh-CN')",
+            "\"14 下午\"",
+        ),
+        (
+            "PARSE_DATE('%d %B %Y', '05 MARS 2024', locale => 'fr-FR')",
+            "19787",
+        ),
+        (
+            "PARSE_TIME('%I:%M %p', '2:08 下午', locale => 'zh-CN')",
+            "\"60666413056\"",
+        ),
+        (
+            "PARSE_TIMESTAMP('%d %b %Y', '05 janv 2024', 'UTC', locale => 'fr-FR')",
+            "\"1704412800000000\"",
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (text, expected) in cases {
+        let found = match pass::value(text).await {
+            Ok(array) => pass::values::json(&array, 0),
+            Err(errors) => format!("{errors:?}"),
+        };
+        if found != expected {
+            failures.push(format!("{text}: expected {expected}, found {found}"));
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}
+
+#[tokio::test]
+async fn a_locale_is_the_full_name_of_a_bundled_locale_in_a_literal() {
+    let errors = pass::value("FORMAT_DATE('%B', DATE '2024-03-05', locale => 'fr')")
+        .await
+        .expect_err("a language without a region");
+    assert!(
+        errors[0].starts_with("Locale 'fr' is not available. The locales are ar-EG, "),
+        "{errors:?}"
+    );
+    let errors = pass::value("FORMAT_DATE('%B', DATE '2024-03-05', locale => UPPER('fr-FR'))")
+        .await
+        .expect_err("a locale of an expression");
+    assert_eq!(errors, ["`locale` takes a literal"]);
+}
+
+#[tokio::test]
+async fn the_sessions_locale_is_the_default_of_a_call() {
+    let text = "FROM one |> SELECT FORMAT_DATE('%B', DATE '2024-03-05') AS a, \
+                FORMAT_DATE('%B', DATE '2024-03-05', locale => 'de-DE') AS b";
+    let parse = avenger_sql_syntax::parse(text);
+    let options = Options {
+        locale: Some("fr-FR".into()),
+        ..Options::default()
+    };
+    let analysis = analyze(&parse.syntax(), &pass::catalog(), &Library::new(), &options);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let batches = analysis.run(&pass::session()).await.expect("rows");
+    let texts = [0, 1].map(|column| pass::values::json(batches[0].column(column), 0));
+    assert_eq!(texts, ["\"mars\"", "\"März\""]);
 }
 
 #[tokio::test]
