@@ -207,6 +207,8 @@ FROM sales |> SELECT AS VALUE units |> SELECT *
 FROM sales |> SELECT AS VALUE units, price
 ## star-anonymous
 FROM (FROM sales |> SELECT units + 1, region) |> SELECT *
+## cast-to-string
+FROM events |> SELECT id, CAST(score AS STRING) AS s, CAST(score / 3 AS STRING) AS third, CAST(CAST(score AS NUMERIC) AS STRING) AS n, CAST(DATETIME(ts, 'UTC') AS STRING) AS dt, CONCAT('#', CAST(id * 1.5 AS STRING)) AS label
 ## intervals
 FROM UNNEST([1]) |> SELECT INTERVAL 2 DAY AS d, INTERVAL '1-2' YEAR TO MONTH AS ym, DATE '2024-01-31' + INTERVAL 1 MONTH AS feb
 ## error-unknown-column
