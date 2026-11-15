@@ -6,7 +6,9 @@
 //! name first. A locale gives the names, the periods of the day, and the composites. GoogleSQL
 //! rejects a weekday together with a week number, and an ISO week, as "not supported yet".
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc, Weekday};
+use chrono::{
+    DateTime, Datelike, Duration, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc, Weekday,
+};
 
 use crate::element::Kind;
 use crate::format::composite;
@@ -15,19 +17,19 @@ use crate::{week_number, Error, Locale, Zone};
 /// The date `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_DATE` gives it.
 pub fn parse_date(format: &str, input: &str, locale: &Locale) -> Result<NaiveDate, Error> {
-    Ok(parse(format, input, Kind::Date, Zone::Fixed(0), locale)?.date_naive())
+    Ok(parse(format, input, Kind::Date, Zone::UTC, locale)?.date_naive())
 }
 
 /// The time of day `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_TIME` gives it.
 pub fn parse_time(format: &str, input: &str, locale: &Locale) -> Result<NaiveTime, Error> {
-    Ok(parse(format, input, Kind::Time, Zone::Fixed(0), locale)?.time())
+    Ok(parse(format, input, Kind::Time, Zone::UTC, locale)?.time())
 }
 
 /// The date and time `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_DATETIME` gives it.
 pub fn parse_datetime(format: &str, input: &str, locale: &Locale) -> Result<NaiveDateTime, Error> {
-    Ok(parse(format, input, Kind::Datetime, Zone::Fixed(0), locale)?.naive_utc())
+    Ok(parse(format, input, Kind::Datetime, Zone::UTC, locale)?.naive_utc())
 }
 
 /// The instant `input` in the format `format`, with the names of `locale`, as GoogleSQL's
@@ -67,7 +69,7 @@ struct Fields {
     explicit_century: bool,
     twelve_hour: bool,
     afternoon: bool,
-    offset: Option<i32>,
+    offset: Option<FixedOffset>,
     zone: Zone,
     epoch: Option<i64>,
     last_year: Option<usize>,
@@ -436,8 +438,7 @@ fn parse(
             }
             b'z' => match data.offset(None) {
                 Some(minutes) => {
-                    check_offset(minutes)?;
-                    f.offset = Some(minutes as i32 * 60);
+                    f.offset = Some(offset(minutes)?);
                     true
                 }
                 None => false,
@@ -601,7 +602,8 @@ fn literal(data: &mut Input, byte: u8) -> bool {
     }
 }
 
-fn check_offset(minutes: i64) -> Result<(), Error> {
+/// The offset of `minutes` minutes, or GoogleSQL's error for one beyond 14 hours.
+fn offset(minutes: i64) -> Result<FixedOffset, Error> {
     if minutes.abs() > 14 * 60 {
         let sign = if minutes < 0 { '-' } else { '+' };
         return Err(Error(format!(
@@ -610,7 +612,7 @@ fn check_offset(minutes: i64) -> Result<(), Error> {
             minutes.abs() % 60
         )));
     }
-    Ok(())
+    Ok(FixedOffset::east_opt(minutes as i32 * 60).expect("an offset within 14 hours"))
 }
 
 /// `%Y`: four digits before another element, else five, in 0..=10000.
@@ -715,13 +717,12 @@ fn extension(
             *at += 1;
             if data.rest().first() == Some(&b'Z') {
                 data.at += 1;
-                f.offset = Some(0);
+                f.offset = Some(offset(0)?);
                 return Ok(true);
             }
             Ok(match data.offset(Some(b':')) {
                 Some(minutes) => {
-                    check_offset(minutes)?;
-                    f.offset = Some(minutes as i32 * 60);
+                    f.offset = Some(offset(minutes)?);
                     true
                 }
                 None => false,

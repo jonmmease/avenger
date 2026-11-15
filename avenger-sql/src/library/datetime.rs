@@ -858,7 +858,7 @@ fn zone(call: &Call, index: usize) -> Result<Zone, CallError> {
 /// `FORMAT_*` of a value without a time zone, or a `DATETIME` as a `TIMESTAMP`.
 fn format_utc(call: &Call) -> Result<Expr, CallError> {
     Ok(datetime_format::format(
-        Zone::Fixed(0),
+        Zone::UTC,
         call.safe,
         call.arg(0),
         call.arg(1),
@@ -880,7 +880,7 @@ fn format_zoned(call: &Call) -> Result<Expr, CallError> {
 fn parse_utc(call: &Call, kind: Kind) -> Result<Expr, CallError> {
     Ok(datetime_format::parse(
         kind,
-        Zone::Fixed(0),
+        Zone::UTC,
         call.safe,
         call.arg(0),
         call.arg(1),

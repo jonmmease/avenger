@@ -1,13 +1,14 @@
 //! Time zones, as GoogleSQL's functions and `%Z` read them.
 
-use chrono::{DateTime, Duration, NaiveDateTime, Offset, TimeZone, Utc};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, Offset, TimeZone, Utc};
 use chrono_tz::Tz;
 
-/// A time zone: a zone of the tz database, or a fixed offset from UTC in seconds.
+/// A time zone: a zone of the tz database, or a fixed offset from UTC, which the tz database does
+/// not hold, such as `+05:30`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Zone {
     Named(Tz),
-    Fixed(i32),
+    Fixed(FixedOffset),
 }
 
 impl From<Tz> for Zone {
@@ -17,6 +18,9 @@ impl From<Tz> for Zone {
 }
 
 impl Zone {
+    /// UTC, as an offset of zero.
+    pub const UTC: Zone = Zone::Fixed(FixedOffset::east_opt(0).expect("UTC"));
+
     /// The zone that GoogleSQL reads from `name`: a name of the tz database in any case, such as
     /// `America/New_York` or `utc`, or an offset such as `+05:30`, `+0530`, `-08`, or `UTC+5`.
     pub fn parse(name: &str) -> Option<Zone> {
@@ -30,7 +34,7 @@ impl Zone {
         }
         let offset = name.strip_prefix("UTC").unwrap_or(name);
         if offset.is_empty() {
-            return Some(Zone::Fixed(0));
+            return Some(Zone::UTC);
         }
         let (sign, digits) = match offset.as_bytes()[0] {
             b'+' => (1, &offset[1..]),
@@ -48,13 +52,16 @@ impl Zone {
             return None;
         }
         let (hours, minutes): (i32, i32) = (hours.parse().ok()?, minutes.parse().ok()?);
-        (hours <= 14 && minutes < 60).then_some(Zone::Fixed(sign * (hours * 3600 + minutes * 60)))
+        if hours > 14 || minutes >= 60 {
+            return None;
+        }
+        FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60)).map(Zone::Fixed)
     }
 
     /// The seconds of the zone's offset from UTC at the instant `instant`.
     pub(crate) fn offset(self, instant: DateTime<Utc>) -> i32 {
         match self {
-            Zone::Fixed(offset) => offset,
+            Zone::Fixed(offset) => offset.local_minus_utc(),
             Zone::Named(tz) => tz
                 .offset_from_utc_datetime(&instant.naive_utc())
                 .fix()
@@ -71,7 +78,9 @@ impl Zone {
     /// offset before the transition, and a time that it repeats takes the earlier instant.
     pub(crate) fn instant(self, local: NaiveDateTime) -> DateTime<Utc> {
         match self {
-            Zone::Fixed(offset) => (local - Duration::seconds(offset.into())).and_utc(),
+            Zone::Fixed(offset) => {
+                (local - Duration::seconds(offset.local_minus_utc().into())).and_utc()
+            }
             Zone::Named(tz) => match tz.from_local_datetime(&local) {
                 chrono::LocalResult::Single(t) => t.with_timezone(&Utc),
                 chrono::LocalResult::Ambiguous(earlier, _) => earlier.with_timezone(&Utc),
