@@ -28,8 +28,7 @@ impl std::fmt::Display for LocaleId {
     }
 }
 
-/// D3 time locale JSON, with optional fields that GoogleSQL's formats read and the d3 provider
-/// ignores. Array lengths are enforced during deserialization.
+/// D3 time locale JSON. Array lengths are enforced during deserialization.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DateTimeLocaleSpec {
@@ -42,15 +41,8 @@ pub struct DateTimeLocaleSpec {
     pub periods: [String; 2],
     pub days: [String; 7],
     pub short_days: [String; 7],
-    /// The month names in a date, which some languages decline, such as Russian `марта`.
     pub months: [String; 12],
     pub short_months: [String; 12],
-    /// The month names that stand alone, such as Russian `март`, when they differ from `months`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub standalone_months: Option<[String; 12]>,
-    /// The short month names that stand alone, when they differ from `short_months`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub standalone_short_months: Option<[String; 12]>,
 }
 
 impl Default for DateTimeLocaleSpec {
@@ -65,16 +57,6 @@ impl DateTimeLocaleSpec {
         serde_json::from_str(json).map_err(|error| DateTimeFormatError::InvalidLocaleData {
             message: format!("locale `{id}`: {error}"),
         })
-    }
-
-    /// The month names that stand alone, or the month names in a date without them.
-    pub fn standalone_months(&self) -> &[String; 12] {
-        self.standalone_months.as_ref().unwrap_or(&self.months)
-    }
-
-    /// The short month names that stand alone, or the short month names without them.
-    pub fn standalone_short_months(&self) -> &[String; 12] {
-        (self.standalone_short_months.as_ref()).unwrap_or(&self.short_months)
     }
 }
 
@@ -277,16 +259,5 @@ mod tests {
         // No likely region among the names: the first name of the language.
         assert_eq!(resolve("de"), Some("de_CH"));
         assert_eq!(resolve("xx"), None);
-    }
-
-    #[test]
-    fn standalone_months_default_to_the_months_of_a_date() {
-        let mut spec = DateTimeLocaleSpec::default();
-        assert_eq!(spec.standalone_months(), &spec.months);
-        let standalone = spec.months.clone().map(|month| month.to_uppercase());
-        spec.standalone_months = Some(standalone.clone());
-        assert_eq!(spec.standalone_months(), &standalone);
-        let json = serde_json::to_string(&DateTimeLocaleSpec::default()).unwrap();
-        assert!(!json.contains("standalone"), "{json}");
     }
 }
