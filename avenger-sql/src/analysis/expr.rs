@@ -1252,40 +1252,15 @@ impl Pass<'_> {
         let range = cast_expr.syntax().text_range();
         let value = self.child(cast_expr.expr(), scope);
         let target = cast_expr.ty()?;
-        let format = match cast_expr.format_clause() {
-            Some(clause) => {
-                let format = self.child(clause.expr(), scope);
-                let zone = match clause.time_zone() {
-                    Some(zone) => match self.child(zone.expr(), scope) {
-                        Some(Expr::Literal(value, _)) => value.try_as_str().flatten().map(String::from),
-                        _ => None,
-                    }
-                    .or_else(|| {
-                        self.error(range, "avenger-sql takes the time zone of CAST ... FORMAT as a string literal");
-                        None
-                    })?,
-                    None => self.options.time_zone.clone(),
-                };
-                match format {
-                    Some(Expr::Literal(value, _)) => match value.try_as_str() {
-                        Some(Some(format)) => Some((format.to_string(), zone)),
-                        _ => {
-                            self.error(range, "The FORMAT of CAST is a string literal");
-                            return None;
-                        }
-                    },
-                    Some(_) => {
-                        self.error(
-                            range,
-                            "avenger-sql takes the FORMAT of CAST as a string literal",
-                        );
-                        return None;
-                    }
-                    None => return None,
-                }
-            }
-            None => None,
-        };
+        if let Some(clause) = cast_expr.format_clause() {
+            self.error(
+                clause.syntax().text_range(),
+                "avenger-sql doesn't take CAST ... FORMAT: format and parse dates and times with \
+                 FORMAT_DATE, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, PARSE_DATETIME and \
+                 PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides",
+            );
+            return None;
+        }
         let target = match types::arrow_type(&target, self.type_options) {
             Ok(target) => target,
             Err(error) => {
@@ -1295,28 +1270,6 @@ impl Pass<'_> {
         };
         let value = value?;
         let from = self.type_of(&value, scope)?;
-        if let Some((format, zone)) = format {
-            let (Some(from_ty), Some(to_ty)) = (Ty::of_arrow(&from), Ty::of_arrow(&target)) else {
-                return None;
-            };
-            return match library::cast_format(
-                value,
-                &from_ty,
-                &to_ty,
-                &format,
-                &zone,
-                self.type_options,
-            ) {
-                Ok(expr) => Some(match cast_expr.safe_cast_kw() {
-                    Some(_) => Expr::TryCast(TryCast::new(Box::new(expr), target)),
-                    None => expr,
-                }),
-                Err(message) => {
-                    self.error(range, message);
-                    None
-                }
-            };
-        }
         let castable = match (Ty::of_arrow(&from), Ty::of_arrow(&target)) {
             (Some(from), Some(to)) => castable(&from, &to),
             _ => false,

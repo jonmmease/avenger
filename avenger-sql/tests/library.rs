@@ -180,6 +180,16 @@ fn calls_bind_their_arguments_as_googlesql_does() {
 }
 
 #[test]
+fn a_cast_with_a_format_is_unsupported() {
+    let found = pass::errors("FROM t |> SELECT CAST(x AS STRING FORMAT '999') AS v");
+    let message =
+        "avenger-sql doesn't take CAST ... FORMAT: format and parse dates and times with \
+                   FORMAT_DATE, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, PARSE_DATETIME and \
+                   PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides";
+    assert_eq!(found, [(message.to_string(), "FORMAT '999'".to_string())]);
+}
+
+#[test]
 fn the_library_names_functions_without_regard_to_case() {
     let library = Library::new();
     assert_eq!(library.get("sum").expect("SUM").name, "SUM");

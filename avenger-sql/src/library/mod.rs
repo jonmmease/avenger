@@ -50,7 +50,7 @@ use datafusion::{
 };
 
 pub use array::Subscript;
-pub(crate) use datetime::{cast_format, extract};
+pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
 pub use reference::reference;
