@@ -117,7 +117,7 @@ impl<'r> Scope<'r> {
 }
 
 /// The clause of the arguments of an aggregate or a window function.
-const ARGUMENT: &str = "an aggregate's argument";
+pub(crate) const ARGUMENT: &str = "an aggregate's argument";
 
 /// The range of the error `error` of a call at `range` whose arguments are at `ranges`.
 fn error_range(error: &CallError, ranges: &[TextRange], range: TextRange) -> TextRange {
@@ -570,7 +570,9 @@ impl Pass<'_> {
     /// reads the columns of `scope` as outer references.
     fn subquery_rows(&mut self, paren: ast::ParenQuery, scope: Scope) -> Option<Rows> {
         let query = paren.query()?;
-        self.outers.push(Outer::of(scope));
+        let mut outer = Outer::of(scope);
+        outer.match_recognize = self.mr_correlated_clause();
+        self.outers.push(outer);
         let rows = self.query(&query);
         self.outers.pop();
         Some(rows)
@@ -680,6 +682,12 @@ impl Pass<'_> {
             }
             return Some(expr);
         }
+        // A pattern variable of a `MATCH_RECOGNIZE`.
+        if let Some(handled) =
+            self.pattern_variable_path(&names, &refs, path.syntax().text_range(), scope)
+        {
+            return handled;
+        }
         // The scopes of the enclosing queries, which the lookups borrow from the pass.
         let outers = std::mem::take(&mut self.outers);
         let levels = std::iter::once(scope).chain(outers.iter().rev().map(|outer| Scope {
@@ -688,10 +696,10 @@ impl Pass<'_> {
             schema: outer.schema.as_ref(),
             ..scope
         }));
-        let mut found = Lookup::Missing;
-        for (depth, level) in levels.enumerate() {
+        let (mut found, mut depth, mut correlated) = (Lookup::Missing, 0, None);
+        for (level_depth, level) in levels.enumerate() {
             found = match self.lookup(&names, &refs, level) {
-                Lookup::Found(expr, rest) if depth > 0 => {
+                Lookup::Found(expr, rest) if level_depth > 0 => {
                     match outer_reference(expr, level.schema) {
                         Some(expr) => Lookup::Found(expr, rest),
                         None => Lookup::Failed,
@@ -700,12 +708,37 @@ impl Pass<'_> {
                 lookup => lookup,
             };
             if !matches!(found, Lookup::Missing) {
+                depth = level_depth;
+                correlated = (level_depth > 0)
+                    .then(|| outers[outers.len() - level_depth].match_recognize)
+                    .flatten();
                 break;
             }
         }
         self.outers = outers;
         let mut found = match found {
-            Lookup::Found(expr, rest) => Some((expr, rest)),
+            Lookup::Found(expr, rest) => {
+                // A column of `MATCH_RECOGNIZE`'s input in `MEASURES` is grouped or aggregated,
+                // and a subquery of its clauses reads none of its columns.
+                if depth == 0 {
+                    if let Some(message) = self.mr_unaggregated(&expr, &names[..rest], scope) {
+                        self.error(path.syntax().text_range(), message);
+                        return None;
+                    }
+                }
+                if let Some(clause) = correlated {
+                    let clause = match clause {
+                        super::match_recognize::Clause::Define => "DEFINE",
+                        _ => "MEASURES",
+                    };
+                    self.error(
+                        path.syntax().text_range(),
+                        format!("Correlated access to MATCH_RECOGNIZE columns in the {clause} clause is not allowed"),
+                    );
+                    return None;
+                }
+                Some((expr, rest))
+            }
             Lookup::Failed => return None,
             Lookup::Missing => None,
         };
@@ -813,7 +846,13 @@ impl Pass<'_> {
     }
 
     /// The field `name` of the struct `base`, without regard to case.
-    fn field(&mut self, base: Expr, name: &str, range: TextRange, scope: Scope) -> Option<Expr> {
+    pub(crate) fn field(
+        &mut self,
+        base: Expr,
+        name: &str,
+        range: TextRange,
+        scope: Scope,
+    ) -> Option<Expr> {
         let ty = self.type_of(&base, scope)?;
         let DataType::Struct(fields) = &ty else {
             self.error(
@@ -1505,6 +1544,9 @@ impl Pass<'_> {
             return self.lump(call, scope, range);
         }
         let (fname, clauses) = (&function.name, function.clauses);
+        if !self.mr_call_allowed(fname, call, scope, safe) {
+            return None;
+        }
         let list = call.arg_list();
         let over = call.over_clause();
         let aggregate = matches!(function.kind, library::FunctionKind::Aggregate);
@@ -1741,6 +1783,13 @@ impl Pass<'_> {
                             None => condition,
                         });
                     }
+                    let (order_by, null_treatment) = self.mr_aggregate_order(
+                        fname,
+                        clauses.order_by,
+                        distinct,
+                        order_by,
+                        null_treatment,
+                    );
                     let aggregate = AggregateFunction::new_udf(
                         func,
                         args,
@@ -2077,6 +2126,9 @@ pub(crate) struct Outer {
     pub columns: Vec<Col>,
     pub vars: Vec<RangeVar>,
     pub schema: Option<DFSchema>,
+    /// The clause of a `MATCH_RECOGNIZE` whose expression holds the subquery, `DEFINE` or
+    /// `MEASURES`, whose columns the subquery can't read.
+    pub match_recognize: Option<super::match_recognize::Clause>,
 }
 
 impl Outer {
@@ -2085,6 +2137,7 @@ impl Outer {
             columns: scope.columns.to_vec(),
             vars: scope.vars.to_vec(),
             schema: scope.schema.cloned(),
+            match_recognize: None,
         }
     }
 }

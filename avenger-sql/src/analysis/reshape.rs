@@ -56,7 +56,7 @@ fn alias_text(aliased: &ast::AliasedExpr) -> Option<String> {
 }
 
 /// The range variable of the alias of a `PIVOT` or an `UNPIVOT`, over its output.
-fn alias_var(alias: Option<ast::Alias>, columns: &[Col]) -> Vec<RangeVar> {
+pub(super) fn alias_var(alias: Option<ast::Alias>, columns: &[Col]) -> Vec<RangeVar> {
     let Some(name) = alias.and_then(|alias| alias.name()) else {
         return Vec::new();
     };
@@ -233,7 +233,7 @@ impl Pass<'_> {
     }
 
     /// A column without a plan, for the model after an error.
-    fn syntax_col(&self, name: &str) -> Col {
+    pub(super) fn syntax_col(&self, name: &str) -> Col {
         Col {
             name: name.to_string(),
             column: Column::from_name(name),

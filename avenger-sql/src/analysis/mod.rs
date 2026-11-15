@@ -12,6 +12,7 @@
 
 mod build;
 mod expr;
+mod match_recognize;
 mod model;
 mod nested;
 mod query;
@@ -185,6 +186,7 @@ pub fn analyze(
         module_context: Vec::new(),
         call_depth: 0,
         categories: None,
+        match_recognize: Vec::new(),
     };
     let mut plan = None;
     let mut statements = Vec::new();
@@ -259,6 +261,8 @@ pub(crate) struct Pass<'a> {
     /// While the pass plans the `keep` of a `lump`, whose windows run over the categories, the
     /// order of its window `ranked`.
     categories: Option<Vec<datafusion::logical_expr::SortExpr>>,
+    /// The clauses of the `MATCH_RECOGNIZE`s whose expressions the pass plans, innermost last.
+    match_recognize: Vec<match_recognize::Frame>,
 }
 
 /// A name of a pipe `WITH`, and the rows of its query.

@@ -65,7 +65,8 @@ async fn examples_return_their_results_and_googlesqls() {
     // Each example of a scalar function, as `FROM one |> SELECT <example> AS v`, returns the
     // result that its docs give, and a function of GoogleSQL returns GoogleSQL's value too. The
     // examples of avenger's constructors build fragments of messages, which the tests of the
-    // constructors check.
+    // constructors check, and the examples of `MATCH_RECOGNIZE`'s functions are queries, which
+    // `query_examples_return_their_rows` runs.
     let library = Library::new();
     let googlesql: BTreeMap<String, String> = include_str!("data/googlesql_examples.tsv")
         .lines()
@@ -116,16 +117,14 @@ async fn examples_return_their_results_and_googlesqls() {
 }
 
 #[tokio::test]
-async fn aggregate_and_window_examples_return_their_rows() {
-    // An example of an aggregate or a window function is the query it is, whose rows the docs
-    // write as lines of values separated by ` | `, after a line of the column names.
+async fn query_examples_return_their_rows() {
+    // An example that is a query, of an aggregate, a window function, or a function of
+    // `MATCH_RECOGNIZE`, is the query it is, whose rows the docs write as lines of values
+    // separated by ` | `, after a line of the column names.
     let library = Library::new();
     let mut failures = Vec::new();
     let mut checked = 0;
     for function in library.functions() {
-        if function.kind == FunctionKind::Scalar {
-            continue;
-        }
         for example in &function.examples {
             if !example.query.starts_with("FROM UNNEST") {
                 continue;
