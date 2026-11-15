@@ -9,14 +9,18 @@ use crate::{diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
 
 /// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
 /// statements and blocks, DDL, DML, transactions and the rest.
+#[rustfmt::skip]
 const UNSUPPORTED_STATEMENTS: &[&str] = &[
     // Procedural statements and blocks.
     "BEGIN", "IF", "LOOP", "REPEAT", "WHILE", "FOR", "BREAK", "LEAVE", "CONTINUE", "ITERATE",
-    "RETURN", "RAISE", "EXECUTE", "CALL", "CASE", // Transactions and batches.
-    "START", "COMMIT", "ROLLBACK", "RUN", "ABORT", // DDL.
+    "RETURN", "RAISE", "EXECUTE", "CALL", "CASE",
+    // Transactions and batches.
+    "START", "COMMIT", "ROLLBACK", "RUN", "ABORT",
+    // DDL.
     "ALTER", "DROP", "UNDROP", "RENAME", "TRUNCATE", "GRANT", "REVOKE", "DEFINE", "CLONE",
     // DML.
-    "INSERT", "UPDATE", "DELETE", "MERGE", // The rest.
+    "INSERT", "UPDATE", "DELETE", "MERGE",
+    // The rest.
     "EXPORT", "LOAD", "ASSERT", "DESCRIBE", "DESC", "SHOW", "EXPLAIN", "ANALYZE", "GRAPH",
 ];
 
@@ -172,7 +176,7 @@ impl Parser<'_> {
 
     /// Skips a statement into an `ERROR` node, through its `;` or the end, and through the `END`
     /// of each block that it opens, so the statements of a block skip with it.
-    pub(super) fn skip_statement(&mut self) {
+    fn skip_statement(&mut self) {
         let marker = self.start();
         let saved = self.paren_depth;
         self.paren_depth = 0;
@@ -200,9 +204,7 @@ impl Parser<'_> {
             } else if self.keyword_at(0, "END") && depth > 0 {
                 depth -= 1;
                 // The keyword of an `END IF` or `END LOOP` is part of the `END`.
-                if (["IF", "LOOP", "WHILE", "FOR", "REPEAT", "CASE"].iter())
-                    .any(|word| self.keyword_at(1, word))
-                {
+                if (BLOCKS.iter()).any(|word| *word != "BEGIN" && self.keyword_at(1, word)) {
                     self.bump();
                 }
             }
@@ -437,20 +439,26 @@ impl Parser<'_> {
         marker.complete(self, kind)
     }
 
+    /// Whether GoogleSQL's table that copies another's schema or data, with `LIKE`, `CLONE` or
+    /// `COPY`, is at the current token, which it reports, skipping the rest of the statement.
+    fn copied_table(&mut self) -> bool {
+        let Some(word) = (["LIKE", "CLONE", "COPY"].iter()).find(|word| self.keyword_at(0, word))
+        else {
+            return false;
+        };
+        let range = self.range();
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            format!("avenger-sql's tables take no {word}"),
+        );
+        self.skip_statement();
+        true
+    }
+
     /// The rest of `CREATE TABLE`, after its name.
     fn create_table(&mut self) {
-        // GoogleSQL's tables that copy another's schema or data.
-        if let Some(word) = ["LIKE", "CLONE", "COPY"]
-            .iter()
-            .find(|word| self.keyword_at(0, word))
-        {
-            let range = self.range();
-            self.error(
-                DiagnosticCode::Unsupported,
-                range,
-                format!("avenger-sql's tables take no {word}"),
-            );
-            self.skip_statement();
+        if self.copied_table() {
             return;
         }
         if self.current() == L_PAREN {
@@ -460,17 +468,7 @@ impl Parser<'_> {
             });
             list.complete(self, COLUMN_LIST);
         }
-        if let Some(word) = ["LIKE", "CLONE", "COPY"]
-            .iter()
-            .find(|word| self.keyword_at(0, word))
-        {
-            let range = self.range();
-            self.error(
-                DiagnosticCode::Unsupported,
-                range,
-                format!("avenger-sql's tables take no {word}"),
-            );
-            self.skip_statement();
+        if self.copied_table() {
             return;
         }
         for clause in [
@@ -541,15 +539,7 @@ impl Parser<'_> {
                 }
                 // GoogleSQL's `+=` and `-=` of an ALTER's options.
                 if matches!(p.current(), PLUS | MINUS) && p.nth(1) == EQ {
-                    let range = p.range();
-                    p.error(
-                        DiagnosticCode::Unsupported,
-                        range,
-                        "avenger-sql's OPTIONS set each option with `=`",
-                    );
-                    let error = p.start();
-                    p.bump();
-                    error.complete(p, ERROR);
+                    p.unsupported_tokens(1, "avenger-sql's OPTIONS set each option with `=`");
                 }
                 p.expect(EQ, "`=`");
                 p.expr();

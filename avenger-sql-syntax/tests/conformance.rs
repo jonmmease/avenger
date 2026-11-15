@@ -228,14 +228,17 @@ fn conformance() {
     let mut used = vec![false; known.len()];
     for (input, theirs) in inputs.iter().zip(verdicts) {
         let ours = ours(&input.text);
-        // A construct outside the subset agrees with GoogleSQL's acceptance, and where GoogleSQL
-        // rejects the input, avenger reports an error too, so neither is a difference.
+        // A construct outside the subset agrees with GoogleSQL's acceptance. Where GoogleSQL
+        // rejects the input, it agrees when avenger reports it at or before GoogleSQL's error, so
+        // that avenger misses no earlier error.
         match (&ours, &theirs) {
             (Verdict::Unsupported { .. }, Verdict::Accepts) => {
                 unsupported += 1;
                 continue;
             }
-            (Verdict::Unsupported { .. }, Verdict::Rejects { .. }) => {
+            (Verdict::Unsupported { line, column }, Verdict::Rejects { line: l, column: c })
+                if (line, column) <= (l, c) =>
+            {
                 rejected_unsupported += 1;
                 continue;
             }
@@ -268,7 +271,7 @@ fn conformance() {
     let mut report = String::from("# Conformance with GoogleSQL's parser\n\n");
     let _ = writeln!(
         report,
-        "{} inputs: {same} with the same verdict, {unsupported} that GoogleSQL accepts and avenger reports as unsupported, {rejected_unsupported} that GoogleSQL rejects and avenger reports as unsupported, {} explained differences, {} unexplained.\n",
+        "{} inputs: {same} with the same verdict, {unsupported} that GoogleSQL accepts and avenger reports as unsupported, {rejected_unsupported} that GoogleSQL rejects and avenger reports as unsupported at or before its error, {} explained differences, {} unexplained.\n",
         inputs.len(),
         explained.len(),
         unexplained.len()

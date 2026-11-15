@@ -97,7 +97,7 @@ impl Parser<'_> {
     /// A `NAME` or a `NAME_REF` in `role`.
     fn name_node(&mut self, kind: SyntaxKind, role: NameRole) -> bool {
         self.record_name(role);
-        if self.unpack() {
+        if self.unpack().is_some() {
             return false;
         }
         if !self.at_ident() {
@@ -425,12 +425,11 @@ impl Parser<'_> {
         self.field_name_ref();
     }
 
-    /// A literal, a name, a call, or a form in parentheses or brackets.
-    /// Whether GoogleSQL's unpack, `**x` of a struct's or a proto's fields, is at the current
-    /// token, which it reports and skips with the expression after it.
-    pub(super) fn unpack(&mut self) -> bool {
+    /// GoogleSQL's unpack, `**x` of a struct's or a proto's fields, at the current token, which
+    /// it reports and skips with the expression after it, in an `ERROR` node; `None` without one.
+    pub(super) fn unpack(&mut self) -> Option<CompletedMarker> {
         if !(self.current() == STAR && self.nth(1) == STAR) {
-            return false;
+            return None;
         }
         let marker = self.start();
         let range = self.range().cover(self.nth_range(1));
@@ -442,15 +441,13 @@ impl Parser<'_> {
         self.bump();
         self.bump();
         self.primary();
-        marker.complete(self, ERROR);
-        true
+        Some(marker.complete(self, ERROR))
     }
 
+    /// A literal, a name, a call, or a form in parentheses or brackets.
     pub(super) fn primary(&mut self) -> Option<CompletedMarker> {
-        if self.current() == STAR && self.nth(1) == STAR {
-            let marker = self.start();
-            self.unpack();
-            return Some(marker.complete(self, ERROR));
+        if let Some(unpack) = self.unpack() {
+            return Some(unpack);
         }
         match self.current() {
             INTEGER | FLOAT => {

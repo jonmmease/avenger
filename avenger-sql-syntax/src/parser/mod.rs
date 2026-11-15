@@ -461,6 +461,22 @@ impl<'a> Parser<'a> {
 
     // --- Errors and recovery ---
 
+    /// Reports the next `n` tokens as GoogleSQL's syntax outside the subset, with `message`, and
+    /// holds them in an `ERROR` node.
+    pub(crate) fn unsupported_tokens(
+        &mut self,
+        n: usize,
+        message: impl Into<String>,
+    ) -> &mut Diagnostic {
+        let range = self.range().cover(self.nth_range(n - 1));
+        let error = self.start();
+        for _ in 0..n {
+            self.bump_keyword();
+        }
+        error.complete(self, ERROR);
+        self.error(DiagnosticCode::Unsupported, range, message)
+    }
+
     pub(crate) fn error(
         &mut self,
         code: DiagnosticCode,

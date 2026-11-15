@@ -284,15 +284,10 @@ impl Parser<'_> {
             _ => {}
         }
         if self.at_keyword("HASH") || self.at_keyword("LOOKUP") {
-            let range = self.range();
-            self.error(
-                DiagnosticCode::Unsupported,
-                range,
+            self.unsupported_tokens(
+                1,
                 "avenger-sql's joins take no HASH or LOOKUP; its planner chooses how to join",
             );
-            let error = self.start();
-            self.bump_keyword();
-            error.complete(self, ERROR);
         }
         self.expect_keyword("JOIN");
         marker.complete(self, JOIN_OP);
@@ -389,15 +384,7 @@ impl Parser<'_> {
             UNNEST_SOURCE
         } else if matches!(self.current(), STRING) {
             // GoogleSQL's table named by a string, as in `FROM 'a.csv'`.
-            let range = self.range();
-            self.error(
-                DiagnosticCode::Unsupported,
-                range,
-                "avenger-sql names tables with names, not strings",
-            );
-            let error = self.start();
-            self.bump();
-            error.complete(self, ERROR);
+            self.unsupported_tokens(1, "avenger-sql names tables with names, not strings");
             self.table_alias();
             TABLE_SOURCE
         } else {
@@ -442,16 +429,10 @@ impl Parser<'_> {
         if !(self.at_keyword("FOR") && self.keyword_at(1, "UPDATE")) {
             return;
         }
-        let range = self.range().cover(self.nth_range(1));
-        self.error(
-            DiagnosticCode::Unsupported,
-            range,
+        self.unsupported_tokens(
+            2,
             "avenger-sql reads tables without locking them, so no FOR UPDATE",
         );
-        let error = self.start();
-        self.bump_keyword();
-        self.bump_keyword();
-        error.complete(self, ERROR);
     }
 
     /// Reports that no source is at the current token, and skips it when it is not a token
@@ -782,15 +763,10 @@ impl Parser<'_> {
             "LIMIT" => {
                 self.bump_keyword();
                 if self.at_keyword("ALL") {
-                    let range = self.range();
-                    self.error(
-                        DiagnosticCode::Unsupported,
-                        range,
+                    self.unsupported_tokens(
+                        1,
                         "avenger-sql's LIMIT takes a count; without one, leave the LIMIT out",
                     );
-                    let error = self.start();
-                    self.bump_keyword();
-                    error.complete(self, ERROR);
                 } else {
                     self.expr();
                 }
@@ -1293,7 +1269,7 @@ impl Parser<'_> {
 
     /// A path, or paths in parentheses, in a `PATH_LIST` node.
     fn path_or_paths(&mut self) {
-        if self.unpack() {
+        if self.unpack().is_some() {
             return;
         }
         let marker = self.start();
@@ -1304,7 +1280,7 @@ impl Parser<'_> {
         }
         self.paren_list(
             |p| {
-                if !p.unpack() {
+                if p.unpack().is_none() {
                     p.path(NameRole::Column);
                 }
             },

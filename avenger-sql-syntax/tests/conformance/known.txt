@@ -28,3 +28,12 @@ crate:QUERIES:28	GRAPH_TABLE is reserved only with GoogleSQL's graph feature, wh
 crate:QUERIES:34	avenger accepts a script without statements
 create_sql_function.test:23	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
 create_template_function.test:4:3	avenger checks ANY TABLE against the kind of the function as it parses, and GoogleSQL as it analyzes
+
+# Reports of syntax outside the subset after the place of GoogleSQL's error.
+create_live_table.test:1	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
+create_live_table.test:14	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
+create_live_table.test:15	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
+create_live_table.test:20	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
+lock_mode_ddl.test:1	GoogleSQL rejects the `(` of a CREATE TABLE AS (query), and avenger reports the standard query in it
+create_function.test:70	GoogleSQL rejects the input without a place, and avenger reports PUBLIC outside a module
+exception_handler.test:4	GoogleSQL rejects the input without a place, and avenger reports the BEGIN block as unsupported
