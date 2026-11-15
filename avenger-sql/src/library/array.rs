@@ -1,7 +1,9 @@
 //! The array functions, and the subscripts of arrays.
 
 use datafusion::{
-    arrow::datatypes::DataType, functions_nested::expr_fn as nested, logical_expr::Expr,
+    arrow::datatypes::DataType,
+    functions_nested::expr_fn as nested,
+    logical_expr::{expr::ScalarFunction, Expr},
 };
 
 use super::{cast, lit_i64, Function};
@@ -30,6 +32,21 @@ pub(super) fn functions() -> Vec<Function> {
             })
             .safe()
             .example("ARRAY_REVERSE([1, 2, 3])", "[3, 2, 1]"),
+        Function::scalar("ARRAY_TO_STRING", "Joins the strings of an array into one, with a delimiter between them.")
+            .param("array_expression", "The array of strings.")
+            .param("delimiter", "The string between two elements.")
+            .param("null_text", "The string in the place of a `NULL` element. When omitted, a `NULL` element is left out.")
+            .form("(array_expression: ARRAY<STRING>, delimiter: STRING[, null_text: STRING]) -> STRING", |call| {
+                let mut args = vec![call.arg(0), call.arg(1)];
+                args.extend(call.value(2).cloned());
+                Ok(Expr::ScalarFunction(ScalarFunction::new_udf(
+                    datafusion::functions_nested::string::array_to_string_udf(),
+                    args,
+                )))
+            })
+            .safe()
+            .example("ARRAY_TO_STRING(['a', NULL, 'c'], ',')", "'a,c'")
+            .example("ARRAY_TO_STRING(['a', NULL, 'c'], ',', 'N')", "'a,N,c'"),
         Function::scalar("GENERATE_ARRAY", "Returns an array of the numbers from a start to an end in steps.")
             .description("The array holds the end when a whole number of steps reaches it, and is empty when the steps lead away from the end.")
             .param("start_value", "The first number.")
@@ -47,8 +64,8 @@ pub(super) fn functions() -> Vec<Function> {
 }
 
 /// How a subscript counts the elements of an array: `array[OFFSET(i)]` from 0, and
-/// `array[ORDINAL(i)]` from 1. An index out of the array is `NULL` for the `SAFE_` forms, and
-/// for the others too, where GoogleSQL fails.
+/// `array[ORDINAL(i)]` from 1. An index out of the array is `NULL` for the `SAFE_` forms, and an
+/// error for the others, as in GoogleSQL.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Subscript {
     Offset,
@@ -73,9 +90,20 @@ impl Subscript {
     /// The element of `array` at `index`. `array[i]` is `array[OFFSET(i)]`.
     pub fn element(self, array: Expr, index: Expr) -> Expr {
         let ordinal = match self {
-            Self::Offset | Self::SafeOffset => cast(index, DataType::Int64) + lit_i64(1),
-            Self::Ordinal | Self::SafeOrdinal => cast(index, DataType::Int64),
+            Self::Offset | Self::SafeOffset => cast(index.clone(), DataType::Int64) + lit_i64(1),
+            Self::Ordinal | Self::SafeOrdinal => cast(index.clone(), DataType::Int64),
         };
-        nested::array_element(array, ordinal)
+        let element = nested::array_element(array.clone(), ordinal.clone());
+        if matches!(self, Self::SafeOffset | Self::SafeOrdinal) {
+            return element;
+        }
+        let length = cast(nested::cardinality(array), DataType::Int64);
+        let outside = ordinal.clone().lt(lit_i64(1)).or(ordinal.gt(length));
+        super::error::error_when(
+            outside,
+            element,
+            "Array index {} is out of bounds",
+            vec![index],
+        )
     }
 }
