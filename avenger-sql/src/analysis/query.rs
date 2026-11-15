@@ -175,7 +175,7 @@ impl Pass<'_> {
                 Some(clause) => self.sample(rows, &clause, range),
                 None => rows.fail(),
             },
-            // Phase 4 of the MATCH_RECOGNIZE plan plans the clause.
+            // The pass doesn't plan the clause yet.
             ast::PipeOperator::PipeMatchRecognize(_) => {
                 self.error(range, "avenger-sql doesn't plan MATCH_RECOGNIZE yet");
                 rows.fail()

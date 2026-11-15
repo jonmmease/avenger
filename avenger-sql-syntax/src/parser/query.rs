@@ -342,7 +342,7 @@ impl Parser<'_> {
         // As in GoogleSQL, `TABLESAMPLE` and `MATCH_RECOGNIZE` follow a source in any order.
         loop {
             let sample = self.at_keyword("TABLESAMPLE");
-            if !sample && !self.match_recognize_ahead() {
+            if !sample && !self.at_keyword("MATCH_RECOGNIZE") {
                 break;
             }
             let marker = item.precede(self);
@@ -623,11 +623,6 @@ impl Parser<'_> {
             return;
         }
         self.alias(NameRole::Alias);
-    }
-
-    /// Whether `MATCH_RECOGNIZE`, a reserved word, starts a clause here.
-    fn match_recognize_ahead(&self) -> bool {
-        self.at_keyword("MATCH_RECOGNIZE")
     }
 
     /// `MATCH_RECOGNIZE ([PARTITION BY ...] ORDER BY ... MEASURES ... [AFTER MATCH SKIP ...]
