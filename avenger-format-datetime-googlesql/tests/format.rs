@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use avenger_format_datetime_googlesql::{Format, Kind};
+use avenger_format_datetime_googlesql::{Format, Kind, Locale};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 
 /// A recorded case: the function, the SQL of the value, the time zone, the format, and the result.
@@ -57,7 +57,7 @@ fn ours(case: &Case) -> String {
         "FORMAT_DATETIME" => Kind::Datetime,
         _ => Kind::Timestamp,
     };
-    let format = match Format::new(&case.format, kind) {
+    let format = match Format::new(&case.format, kind, &Locale::default()) {
         Ok(format) => format,
         Err(error) => return format!("error:{error}"),
     };

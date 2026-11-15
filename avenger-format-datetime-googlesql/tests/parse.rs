@@ -2,7 +2,7 @@
 //! `execute_query` recorded, parsed by the crate.
 
 use avenger_format_datetime_googlesql::{
-    parse_date, parse_datetime, parse_time, parse_timestamp, Error,
+    parse_date, parse_datetime, parse_time, parse_timestamp, Error, Locale,
 };
 
 fn unescape(text: &str) -> String {
@@ -24,17 +24,18 @@ fn unescape(text: &str) -> String {
 
 /// The crate's result, as the data file writes GoogleSQL's.
 fn ours(function: &str, format: &str, input: &str, zone: &str) -> String {
+    let locale = Locale::default();
     let result: Result<String, Error> = match function {
-        "PARSE_DATE" => parse_date(format, input).map(|date| {
+        "PARSE_DATE" => parse_date(format, input, &locale).map(|date| {
             let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
             (date - epoch).num_days().to_string()
         }),
         "PARSE_TIME" => {
-            parse_time(format, input).map(|time| time.format("%H:%M:%S%.6f").to_string())
+            parse_time(format, input, &locale).map(|time| time.format("%H:%M:%S%.6f").to_string())
         }
-        "PARSE_DATETIME" => parse_datetime(format, input)
+        "PARSE_DATETIME" => parse_datetime(format, input, &locale)
             .map(|datetime| datetime.format("%Y-%m-%d %H:%M:%S%.6f").to_string()),
-        _ => parse_timestamp(format, input, zone.parse().unwrap())
+        _ => parse_timestamp(format, input, zone.parse().unwrap(), &locale)
             .map(|instant| instant.timestamp_micros().to_string()),
     };
     match result {

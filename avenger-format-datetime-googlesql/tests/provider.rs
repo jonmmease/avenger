@@ -2,7 +2,8 @@
 //! where GoogleSQL's functions print an element as written.
 
 use avenger_format::{DateTimeFormatError, DateTimeFormatProvider};
-use avenger_format_datetime_googlesql::{Format, GoogleSqlDateTimeFormatProvider, Kind};
+use avenger_format_datetime_googlesql::{Format, GoogleSqlDateTimeFormatProvider, Kind, Locale};
+use avenger_format_locales_d3::DateTimeLocaleSpec;
 use chrono::{DateTime, NaiveDate};
 use chrono_tz::America::New_York;
 
@@ -16,7 +17,7 @@ fn the_provider_gives_the_text_of_googlesqls_functions() {
         .unwrap()
         .format(instant)
         .unwrap();
-    let sql = Format::new(pattern, Kind::Timestamp).unwrap();
+    let sql = Format::new(pattern, Kind::Timestamp, &Locale::default()).unwrap();
     assert_eq!(text, sql.format_timestamp(instant, New_York));
     assert_eq!(text, "Tue Mar  5 2024 02:08 AM UTC-5 (Q1, week 10)");
 }
@@ -94,4 +95,36 @@ fn the_default_calendar_patterns_prepare() {
         labels,
         ["2024", "March", "Mar 05", "Tue 05", "07 AM", "07:08", ":09", "09.123"]
     );
+}
+
+#[test]
+fn a_provider_formats_with_its_locale() {
+    let date = NaiveDate::from_ymd_opt(2024, 3, 5).unwrap();
+    let text = |provider: GoogleSqlDateTimeFormatProvider| {
+        provider
+            .prepare_date("%A %e %B %Y %x")
+            .map(|f| f.format(date).unwrap())
+    };
+    let provider = GoogleSqlDateTimeFormatProvider::new();
+    assert_eq!(
+        text(provider.clone()).unwrap(),
+        "Tuesday  5 March 2024 03/05/24"
+    );
+    assert_eq!(
+        text(provider.clone().with_locale("fr_FR")).unwrap(),
+        "mardi  5 mars 2024 05/03/2024"
+    );
+    let custom = DateTimeLocaleSpec {
+        date: "%Y.%m.%d".into(),
+        ..DateTimeLocaleSpec::default()
+    };
+    let provider = provider.with_custom_locale("en_custom", custom);
+    assert_eq!(
+        text(provider.clone().with_locale("en-custom")).unwrap(),
+        "Tuesday  5 March 2024 2024.03.05"
+    );
+    assert!(matches!(
+        text(provider.with_locale("fr")),
+        Err(DateTimeFormatError::LocaleUnavailable { locale, .. }) if locale == "fr"
+    ));
 }

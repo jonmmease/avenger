@@ -2,7 +2,8 @@
 //!
 //! A string parses element by element. A field that the format does not have takes the value of
 //! 1970-01-01 00:00:00. Whitespace in the format matches any amount of whitespace, numbers read up
-//! to their width without padding, and names match full or abbreviated, in any case. GoogleSQL
+//! to their width without padding, and names match full or abbreviated, in any case, the longest
+//! name first. A locale gives the names, the periods of the day, and the composites. GoogleSQL
 //! rejects a weekday together with a week number, and an ISO week, as "not supported yet".
 
 use chrono::{
@@ -12,27 +13,37 @@ use chrono::{
 use chrono_tz::Tz;
 
 use crate::element::Kind;
-use crate::{week_number, Error, DAYS, MONTHS};
+use crate::format::composite;
+use crate::{week_number, Error, Locale};
 
-/// The date `input` in the format `format`, as GoogleSQL's `PARSE_DATE` gives it.
-pub fn parse_date(format: &str, input: &str) -> Result<NaiveDate, Error> {
-    Ok(parse(format, input, Kind::Date, Zone::Fixed(0))?.date_naive())
+/// The date `input` in the format `format`, with the names of `locale`, as GoogleSQL's
+/// `PARSE_DATE` gives it.
+pub fn parse_date(format: &str, input: &str, locale: &Locale) -> Result<NaiveDate, Error> {
+    Ok(parse(format, input, Kind::Date, Zone::Fixed(0), locale)?.date_naive())
 }
 
-/// The time of day `input` in the format `format`, as GoogleSQL's `PARSE_TIME` gives it.
-pub fn parse_time(format: &str, input: &str) -> Result<NaiveTime, Error> {
-    Ok(parse(format, input, Kind::Time, Zone::Fixed(0))?.time())
+/// The time of day `input` in the format `format`, with the names of `locale`, as GoogleSQL's
+/// `PARSE_TIME` gives it.
+pub fn parse_time(format: &str, input: &str, locale: &Locale) -> Result<NaiveTime, Error> {
+    Ok(parse(format, input, Kind::Time, Zone::Fixed(0), locale)?.time())
 }
 
-/// The date and time `input` in the format `format`, as GoogleSQL's `PARSE_DATETIME` gives it.
-pub fn parse_datetime(format: &str, input: &str) -> Result<NaiveDateTime, Error> {
-    Ok(parse(format, input, Kind::Datetime, Zone::Fixed(0))?.naive_utc())
+/// The date and time `input` in the format `format`, with the names of `locale`, as GoogleSQL's
+/// `PARSE_DATETIME` gives it.
+pub fn parse_datetime(format: &str, input: &str, locale: &Locale) -> Result<NaiveDateTime, Error> {
+    Ok(parse(format, input, Kind::Datetime, Zone::Fixed(0), locale)?.naive_utc())
 }
 
-/// The instant `input` in the format `format`, as GoogleSQL's `PARSE_TIMESTAMP` gives it: a time
-/// without an offset or a zone in the string is a civil time in `zone`.
-pub fn parse_timestamp(format: &str, input: &str, zone: Tz) -> Result<DateTime<Utc>, Error> {
-    parse(format, input, Kind::Timestamp, Zone::Named(zone))
+/// The instant `input` in the format `format`, with the names of `locale`, as GoogleSQL's
+/// `PARSE_TIMESTAMP` gives it: a time without an offset or a zone in the string is a civil time in
+/// `zone`.
+pub fn parse_timestamp(
+    format: &str,
+    input: &str,
+    zone: Tz,
+    locale: &Locale,
+) -> Result<DateTime<Utc>, Error> {
+    parse(format, input, Kind::Timestamp, Zone::Named(zone), locale)
 }
 
 /// A time zone of a parse: a name, or a fixed offset in seconds, as `%Z` reads either.
@@ -125,10 +136,11 @@ struct Fields {
     elements: Vec<DateElement>,
 }
 
-/// The input and the place of the next byte to read.
+/// The input, the place of the next byte to read, and the locale of its names.
 struct Input<'a> {
     text: &'a str,
     at: usize,
+    locale: &'a Locale,
 }
 
 impl Input<'_> {
@@ -198,34 +210,50 @@ impl Input<'_> {
         Some(Some(micros))
     }
 
-    /// Reads one of `names`, in full or by its first three letters, without regard to case, and
-    /// returns its index.
-    fn name(&mut self, names: &[&str]) -> Option<usize> {
-        let rest = self.rest();
-        let starts = |name: &str| {
-            rest.len() >= name.len() && rest[..name.len()].eq_ignore_ascii_case(name.as_bytes())
-        };
-        for (index, name) in names.iter().enumerate() {
-            for name in [*name, &name[..3]] {
-                if starts(name) {
-                    self.at += name.len();
-                    return Some(index);
+    /// Reads the longest of `names` at the start of the input, without regard to case, and
+    /// returns its index. Turkish's dotted and dotless `i` read as one letter, so `MAYIS` reads as
+    /// `Mayıs`. A name that ends with `.` also reads without it, and an empty name reads nothing.
+    fn name<'n>(&mut self, names: impl IntoIterator<Item = &'n String>) -> Option<usize> {
+        let rest = self.text.get(self.at..)?;
+        let mut longest: Option<(usize, usize)> = None;
+        for (index, name) in names.into_iter().enumerate() {
+            for name in [name.as_str(), name.strip_suffix('.').unwrap_or(name)] {
+                let chars = name.chars().count();
+                let end = rest
+                    .char_indices()
+                    .nth(chars)
+                    .map_or(rest.len(), |(i, _)| i);
+                let read = !name.is_empty()
+                    && rest[..end].chars().count() == chars
+                    && caseless(&rest[..end]) == caseless(name);
+                if read && longest.is_none_or(|(length, _)| end > length) {
+                    longest = Some((end, index));
                 }
             }
         }
-        None
+        let (length, index) = longest?;
+        self.at += length;
+        Some(index)
     }
 
-    /// Reads `AM` or `PM` in any case, and returns whether it is `PM`.
+    /// Reads the name of a day, in full or short, and returns its number from Sunday.
+    fn day(&mut self) -> Option<usize> {
+        let locale = self.locale;
+        let names = locale.days.iter().chain(&locale.short_days);
+        self.name(names).map(|index| index % 7)
+    }
+
+    /// Reads the name of a month, in full or short, and returns its number from January, from 0.
+    fn month(&mut self) -> Option<usize> {
+        let locale = self.locale;
+        let names = locale.months.iter().chain(&locale.short_months);
+        self.name(names).map(|index| index % 12)
+    }
+
+    /// Reads a period of the day, and returns whether it is the afternoon.
     fn meridian(&mut self) -> Option<bool> {
-        let rest = self.rest();
-        let pm = match rest.get(..2)?.to_ascii_lowercase().as_slice() {
-            b"am" => false,
-            b"pm" => true,
-            _ => return None,
-        };
-        self.at += 2;
-        Some(pm)
+        let locale = self.locale;
+        self.name(&locale.periods).map(|index| index == 1)
     }
 
     /// Reads an offset: a sign, two digits of hours, `separator` if any, and two digits of
@@ -261,6 +289,11 @@ impl Input<'_> {
         self.at += length;
         Some(sign * (hours * 60 + minutes))
     }
+}
+
+/// `text` in lower case, with Turkish's dotless `ı` and the dot of `İ` as `i`.
+fn caseless(text: &str) -> String {
+    text.to_lowercase().replace('ı', "i").replace('\u{307}', "")
 }
 
 /// The text of `input` as GoogleSQL's messages quote a string.
@@ -338,11 +371,21 @@ fn validate(format: &str, kind: Kind) -> Result<(), Error> {
 }
 
 /// The instant of `input` in `format` for a value of `kind`, as GoogleSQL's parsing functions give
-/// it, with `default` for a time without an offset or a zone.
-fn parse(format: &str, input: &str, kind: Kind, default: Zone) -> Result<DateTime<Utc>, Error> {
+/// it, with `default` for a time without an offset or a zone, and the names of `locale`.
+fn parse(
+    format: &str,
+    input: &str,
+    kind: Kind,
+    default: Zone,
+    locale: &Locale,
+) -> Result<DateTime<Utc>, Error> {
     validate(format, kind)?;
     let failed = || Error(format!("Failed to parse input string {}", quoted(input)));
-    let mut data = Input { text: input, at: 0 };
+    let mut data = Input {
+        text: input,
+        at: 0,
+        locale,
+    };
     data.skip_space();
     let mut f = Fields {
         year: 1970,
@@ -505,7 +548,7 @@ fn parse(format: &str, input: &str, kind: Kind, default: Zone) -> Result<DateTim
             b'w' => weekday(&mut data, &mut f, 0, 6),
             b'A' | b'a' => {
                 f.weekday = true;
-                data.name(&DAYS).is_some()
+                data.day().is_some()
             }
             b't' | b'n' => {
                 data.skip_space();
@@ -845,44 +888,65 @@ fn modifier(fmt: &[u8], at: &mut usize, data: &mut Input, f: &mut Fields, positi
     }
 }
 
-/// An element that GoogleSQL reads with the C library's `strptime` in its C locale: the names,
-/// the composites, and `%e`. Numbers skip leading whitespace.
+/// An element that GoogleSQL reads with the C library's `strptime`: the names, the composites, and
+/// `%e`. Numbers skip leading whitespace.
 fn library(letter: u8, data: &mut Input, f: &mut Fields) -> bool {
     let number = |data: &mut Input, width: usize, min: i64, max: i64| {
         data.skip_space();
         data.int(width, min, max)
     };
-    let pattern = |data: &mut Input, f: &mut Fields, pattern: &[u8]| {
-        pattern.iter().all(|&c| match c {
-            b' ' => {
-                data.skip_space();
-                true
-            }
-            b'/' | b'-' | b':' => literal(data, c),
-            letter => library(letter, data, f),
-        })
-    };
+    let locale = data.locale;
     match letter {
-        b'B' | b'b' | b'h' => data.name(&MONTHS).map(|m| f.month = m as i64 + 1).is_some(),
+        b'B' | b'b' | b'h' => data.month().map(|m| f.month = m as i64 + 1).is_some(),
         b'd' | b'e' => number(data, 2, 1, 31).map(|d| f.day = d).is_some(),
         b'm' => number(data, 2, 1, 12).map(|m| f.month = m).is_some(),
         b'H' | b'k' => number(data, 2, 0, 23).map(|h| f.hour = h).is_some(),
+        b'I' => twelve_hour(data, f),
         b'M' => number(data, 2, 0, 59).map(|m| f.minute = m).is_some(),
         b'S' => number(data, 2, 0, 60).map(|s| f.second = s).is_some(),
         b'Y' => number(data, 4, 0, 9999).map(|y| f.year = y).is_some(),
         b'y' => number(data, 2, 0, 99)
             .map(|y| f.year = if y < 69 { 2000 + y } else { 1900 + y })
             .is_some(),
-        // The weekday of `%c` is read and not checked.
-        b'a' => data.name(&DAYS).is_some(),
-        b'c' => pattern(data, f, b"a b e H:M:S Y"),
-        b'D' | b'x' => pattern(data, f, b"m/d/y"),
-        b'F' => pattern(data, f, b"Y-m-d"),
-        b'R' => pattern(data, f, b"H:M"),
-        b'T' | b'X' => pattern(data, f, b"H:M:S"),
+        // The weekday of a composite is read and not checked.
+        b'A' | b'a' => data.day().is_some(),
+        b'p' => data.meridian().map(|pm| f.afternoon = pm).is_some(),
         b'%' => literal(data, b'%'),
-        _ => false,
+        letter => match composite(letter, locale) {
+            Some(elements) => composite_elements(elements, data, f),
+            None => false,
+        },
     }
+}
+
+/// The elements of a composite, read as the C library reads them: whitespace reads any amount of
+/// whitespace, an element reads without its flag or modifier, and other text reads as written.
+fn composite_elements(elements: &str, data: &mut Input, f: &mut Fields) -> bool {
+    let b = elements.as_bytes();
+    let mut at = 0;
+    while at < b.len() {
+        if b[at].is_ascii_whitespace() {
+            data.skip_space();
+            at += 1;
+        } else if b[at] == b'%' {
+            at += 1;
+            while b.get(at).is_some_and(|c| b"-_0EO".contains(c)) {
+                at += 1;
+            }
+            let Some(&letter) = b.get(at) else {
+                return false;
+            };
+            at += 1;
+            if !library(letter, data, f) {
+                return false;
+            }
+        } else if literal(data, b[at]) {
+            at += 1;
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 /// The weeks of the ISO year `year`: 52 or 53.
