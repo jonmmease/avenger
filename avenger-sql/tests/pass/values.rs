@@ -105,7 +105,11 @@ pub fn json(array: &ArrayRef, index: usize) -> String {
             };
             format!("\"{text}\"")
         }
-        DataType::Binary => format!("\"{}\"", base64(array.as_binary::<i32>().value(index))),
+        DataType::Binary | DataType::BinaryView | DataType::LargeBinary => {
+            let bytes = datafusion::arrow::compute::cast(&array.slice(index, 1), &DataType::Binary)
+                .expect("bytes");
+            format!("\"{}\"", base64(bytes.as_binary::<i32>().value(0)))
+        }
         other => panic!("the tests show no {other}"),
     }
 }
@@ -187,7 +191,15 @@ pub fn literal(array: &ArrayRef, index: usize) -> String {
                 DataType::LargeBinary => array.as_binary::<i64>().value(index).to_vec(),
                 _ => array.as_binary_view().value(index).to_vec(),
             };
-            format!("b'{}'", String::from_utf8_lossy(&bytes))
+            // Printable ASCII as itself, and every other byte as `\xNN`.
+            let text: String = (bytes.iter())
+                .map(|byte| match byte {
+                    b'\'' | b'\\' => format!("\\{}", *byte as char),
+                    0x20..=0x7e => (*byte as char).to_string(),
+                    _ => format!("\\x{byte:02x}"),
+                })
+                .collect();
+            format!("b'{text}'")
         }
         DataType::Date32 => format!("DATE '{}'", display()),
         DataType::Time64(_) => format!("TIME '{}'", display()),
