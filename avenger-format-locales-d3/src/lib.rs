@@ -133,7 +133,8 @@ pub fn bundled(id: &str) -> Option<DateTimeLocaleSpec> {
 }
 
 /// The region of each language of the bundled locales that CLDR's likely subtags give it, such as
-/// `pt` to `BR`.
+/// `pt` to `BR`: the region of the language's entry in `supplemental/likelySubtags.json` of
+/// CLDR 49, such as `pt-Latn-BR`. A new bundled language takes its region from the same file.
 const LIKELY_REGIONS: &[(&str, &str)] = &[
     ("ar", "EG"),
     ("ca", "ES"),
