@@ -27,6 +27,7 @@ mod aggregate;
 mod array;
 mod avenger;
 mod bytes;
+mod cast_string;
 mod conditional;
 mod datetime;
 mod datetime_format;
@@ -51,6 +52,7 @@ use datafusion::{
 };
 
 pub use array::Subscript;
+pub(crate) use cast_string::cast_to_string;
 pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, PartSet, Signature, Ty};
