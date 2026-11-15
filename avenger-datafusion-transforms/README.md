@@ -23,6 +23,8 @@ let plan = bin::plan(input, call, Column::from_name("binned"))?;
 
 A table function such as `impute` reads the plan of an input relation. Every table function takes `partition_by`, which transforms partitions separately and in parallel. The module `table_function` holds this machinery for new table functions, its extension planner, and `ArgError`, which places the error of an argument at the argument.
 
+An aggregate grouped by a lump, and by the lump's partition keys, plans through the analyzer rule `lump::LumpAggregateFusion` without the join of the lump to its rows: the categories hold the states of their rows' aggregates, and each value of the lump merges them, for the aggregates that merge from states, such as `SUM` and `AVG`.
+
 ## Tests
 
 The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, `impute` and `lump` against equivalent SQL, and the gaps and partitions of `impute`. The tests build the calls in Rust, plan the inputs and the reference queries in DataFusion's SQL, which only the tests enable, and compare the results.

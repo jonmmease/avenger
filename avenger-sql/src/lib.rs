@@ -40,12 +40,17 @@ pub use pipeline::{sql, sql_with_modules, ScriptError};
 
 /// Registers in `ctx` what the plans of avenger-sql need to run: [`QueryPlanner`], which plans the
 /// extension nodes of avenger, so `ctx` must have DataFusion's default query planner, the rule that
-/// computes cheap shared inputs again in place of sharing them, and the rule that groups by the
-/// fields of a struct, such as a bin. Registering two times adds the rules once.
+/// computes cheap shared inputs again in place of sharing them, the rule that groups by the
+/// fields of a struct, such as a bin, and the rule that plans an aggregate grouped by a lump
+/// without joining the lump to its rows. Registering two times adds the rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
     use avenger_datafusion_shared::InlineShared;
-    use avenger_datafusion_transforms::StructGroupSplit;
-    use datafusion::{common::plan_err, execution::SessionStateBuilder, optimizer::OptimizerRule};
+    use avenger_datafusion_transforms::{lump::LumpAggregateFusion, StructGroupSplit};
+    use datafusion::{
+        common::plan_err,
+        execution::SessionStateBuilder,
+        optimizer::{AnalyzerRule, OptimizerRule},
+    };
     use std::sync::Arc;
 
     let state = ctx.state_ref();
@@ -73,8 +78,14 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
         };
         rules.insert(at + 1, Arc::new(StructGroupSplit));
     }
+    let mut analyzers = state.analyzer().rules.clone();
+    if !(analyzers.iter()).any(|rule| rule.name() == LumpAggregateFusion.name()) {
+        // After DataFusion's rules, which inline views and coerce the types of the plan.
+        analyzers.push(Arc::new(LumpAggregateFusion));
+    }
     *state = SessionStateBuilder::new_from_existing(state.clone())
         .with_query_planner(Arc::new(QueryPlanner))
+        .with_analyzer_rules(analyzers)
         .with_optimizer_rules(rules)
         .build();
     Ok(())

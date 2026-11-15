@@ -685,6 +685,7 @@ name = "avenger-datafusion-transforms"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-datafusion-aggregate-state",
  "avenger-datafusion-shared",
  "chrono",
  "datafusion",
