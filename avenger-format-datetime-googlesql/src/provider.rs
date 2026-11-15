@@ -10,28 +10,39 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 
 use crate::element::{check, Kind, Rejection};
-use crate::Format;
+use crate::{Format, Locale};
 
-/// Prepares GoogleSQL's format strings, with the syntax name `googlesql`, and displays zoned
-/// datetimes in a time zone. The provider is stricter than GoogleSQL's functions: it rejects an
+/// Prepares GoogleSQL's format strings, with the syntax name `googlesql`, with the names of a
+/// locale, and displays zoned datetimes in a time zone. The provider is stricter than GoogleSQL's functions: it rejects an
 /// element that GoogleSQL does not document and an element of a part that the value lacks, such
 /// as the hour of a date, which GoogleSQL prints as written.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GoogleSqlDateTimeFormatProvider {
     /// The time zone that zoned datetimes display in. Defaults to UTC.
     pub timezone: Tz,
+    /// The names and the composites of the formats. Defaults to GoogleSQL's.
+    pub locale: Locale,
 }
 
 impl Default for GoogleSqlDateTimeFormatProvider {
     fn default() -> Self {
-        Self { timezone: Tz::UTC }
+        Self {
+            timezone: Tz::UTC,
+            locale: Locale::default(),
+        }
     }
 }
 
 impl GoogleSqlDateTimeFormatProvider {
-    /// A provider that displays zoned datetimes in UTC.
+    /// A provider with GoogleSQL's names that displays zoned datetimes in UTC.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Formats with the names and the composites of `locale`.
+    pub fn with_locale(mut self, locale: Locale) -> Self {
+        self.locale = locale;
+        self
     }
 
     /// Displays zoned datetimes in `timezone`.
@@ -48,8 +59,13 @@ struct Prepared {
     timezone: Tz,
 }
 
-/// `pattern` prepared for values of `kind`, after the strict check.
-fn prepare(pattern: &str, kind: Kind, timezone: Tz) -> Result<Prepared, DateTimeFormatError> {
+/// `pattern` prepared for values of `kind` with the names of `locale`, after the strict check.
+fn prepare(
+    pattern: &str,
+    kind: Kind,
+    locale: &Locale,
+    timezone: Tz,
+) -> Result<Prepared, DateTimeFormatError> {
     let input = match kind {
         Kind::Date => DateTimeInputKind::Date,
         Kind::Datetime | Kind::Time => DateTimeInputKind::Naive,
@@ -69,11 +85,12 @@ fn prepare(pattern: &str, kind: Kind, timezone: Tz) -> Result<Prepared, DateTime
             message: "GoogleSQL does not format `%J`".to_string(),
         },
     })?;
-    let format =
-        Format::new(pattern, kind).map_err(|error| DateTimeFormatError::UnsupportedPattern {
+    let format = Format::new(pattern, kind, locale).map_err(|error| {
+        DateTimeFormatError::UnsupportedPattern {
             input,
             message: error.to_string(),
-        })?;
+        }
+    })?;
     Ok(Prepared { format, timezone })
 }
 
@@ -86,21 +103,31 @@ impl DateTimeFormatProvider for GoogleSqlDateTimeFormatProvider {
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedDateFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(prepare(spec, Kind::Date, Tz::UTC)?))
+        Ok(Arc::new(prepare(spec, Kind::Date, &self.locale, Tz::UTC)?))
     }
 
     fn prepare_naive(
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedNaiveDateTimeFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(prepare(spec, Kind::Datetime, Tz::UTC)?))
+        Ok(Arc::new(prepare(
+            spec,
+            Kind::Datetime,
+            &self.locale,
+            Tz::UTC,
+        )?))
     }
 
     fn prepare_zoned(
         &self,
         spec: &str,
     ) -> Result<Arc<dyn PreparedZonedDateTimeFormatter>, DateTimeFormatError> {
-        Ok(Arc::new(prepare(spec, Kind::Timestamp, self.timezone)?))
+        Ok(Arc::new(prepare(
+            spec,
+            Kind::Timestamp,
+            &self.locale,
+            self.timezone,
+        )?))
     }
 
     fn timezone(&self) -> Tz {

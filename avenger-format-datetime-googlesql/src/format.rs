@@ -7,7 +7,7 @@ use chrono::{
 use chrono_tz::Tz;
 
 use crate::element::{escape_absent, tokens, Kind, Pad, Token};
-use crate::{week_number, Error, DAYS, MONTHS};
+use crate::{week_number, Error, Locale};
 
 /// A format string, prepared for values of one [`Kind`]: the elements that the kind lacks print as
 /// written, as in GoogleSQL's `FORMAT_DATE`, `FORMAT_TIME`, `FORMAT_DATETIME`, and
@@ -15,6 +15,7 @@ use crate::{week_number, Error, DAYS, MONTHS};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Format {
     tokens: Vec<Token>,
+    locale: Locale,
 }
 
 /// The fields of a value: its civil date and time, the seconds of its offset from UTC, and the
@@ -26,9 +27,9 @@ struct Fields {
 }
 
 impl Format {
-    /// The format `format` for values of `kind`, or GoogleSQL's error for `%J`, which GoogleSQL
-    /// documents but does not format.
-    pub fn new(format: &str, kind: Kind) -> Result<Format, Error> {
+    /// The format `format` for values of `kind`, with the names and the composites of `locale`, or
+    /// GoogleSQL's error for `%J`, which GoogleSQL documents but does not format.
+    pub fn new(format: &str, kind: Kind, locale: &Locale) -> Result<Format, Error> {
         let mut tokens = Vec::new();
         for token in self::tokens(&escape_absent(format, kind.absent())) {
             match token {
@@ -37,13 +38,13 @@ impl Format {
                 }
                 // A `TIME` has no date, so its `%J` prints as written.
                 Token::Element { letter: b'J', .. } => tokens.push(Token::Text("%J".into())),
-                Token::Element { letter, .. } if composite(letter).is_some() => {
-                    tokens.extend(self::tokens(composite(letter).expect("a composite")));
-                }
-                token => tokens.push(token),
+                token => expand(token, locale, &mut tokens),
             }
         }
-        Ok(Format { tokens })
+        Ok(Format {
+            tokens,
+            locale: locale.clone(),
+        })
     }
 
     /// The text of the date `date`.
@@ -85,7 +86,7 @@ impl Format {
                     letter,
                     pad,
                     modifier,
-                } => element(&mut out, *letter, *pad, *modifier, fields),
+                } => element(&mut out, *letter, *pad, *modifier, fields, &self.locale),
                 Token::Seconds(digits) => seconds(&mut out, fields, Some(*digits)),
                 Token::SecondsTrimmed => seconds(&mut out, fields, None),
                 Token::OffsetColon => offset(&mut out, fields.offset, ":", false),
@@ -96,18 +97,34 @@ impl Format {
     }
 }
 
-/// The elements that a composite element stands for, as GoogleSQL's C library writes them, with
-/// the year of `%c` in at least four digits.
-fn composite(letter: u8) -> Option<&'static str> {
+/// The elements that a composite element stands for: the locale's `%c`, `%x`, and `%X`, and the
+/// others as GoogleSQL's C library writes them.
+pub(crate) fn composite(letter: u8, locale: &Locale) -> Option<&str> {
     Some(match letter {
-        b'c' => "%a %b %e %H:%M:%S %EY",
-        b'D' | b'x' => "%m/%d/%y",
+        b'c' => &locale.date_time,
+        b'x' => &locale.date,
+        b'X' => &locale.time,
+        b'D' => "%m/%d/%y",
         b'F' => "%Y-%m-%d",
         b'R' => "%H:%M",
         b'r' => "%I:%M:%S %p",
-        b'T' | b'X' => "%H:%M:%S",
+        b'T' => "%H:%M:%S",
         _ => return None,
     })
+}
+
+/// `token`, with a composite expanded to its elements. A locale's `%c` expands to `%x` and `%X`
+/// at most, which expand to the other composites at most.
+fn expand(token: Token, locale: &Locale, out: &mut Vec<Token>) {
+    match token {
+        Token::Element { letter, .. } if composite(letter, locale).is_some() => {
+            let elements = composite(letter, locale).expect("a composite");
+            for token in tokens(elements) {
+                expand(token, locale, out);
+            }
+        }
+        token => out.push(token),
+    }
 }
 
 /// The number `value` padded to `width` by `pad`, or by `default` when `pad` is the element's own.
@@ -165,18 +182,25 @@ fn seconds(out: &mut String, fields: &Fields, digits: Option<usize>) {
     }
 }
 
-/// The element `letter`, with the `E` or `O` modifier when `modifier`, as GoogleSQL formats it in
-/// its en-US locale.
-fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fields) {
+/// The element `letter`, with the `E` or `O` modifier when `modifier`, as GoogleSQL formats it,
+/// with the names of `locale`.
+fn element(
+    out: &mut String,
+    letter: u8,
+    pad: Pad,
+    modifier: bool,
+    fields: &Fields,
+    locale: &Locale,
+) {
     let local = fields.local;
     let weekday = local.weekday().num_days_from_sunday() as usize;
     let hour12 = (local.hour() + 11) % 12 + 1;
     let am = local.hour() < 12;
     match letter {
-        b'A' => out.push_str(DAYS[weekday]),
-        b'a' => out.push_str(&DAYS[weekday][..3]),
-        b'B' => out.push_str(MONTHS[local.month0() as usize]),
-        b'b' | b'h' => out.push_str(&MONTHS[local.month0() as usize][..3]),
+        b'A' => out.push_str(&locale.days[weekday]),
+        b'a' => out.push_str(&locale.short_days[weekday]),
+        b'B' => out.push_str(&locale.months[local.month0() as usize]),
+        b'b' | b'h' => out.push_str(&locale.short_months[local.month0() as usize]),
         b'C' => number(out, i64::from(local.year()).div_euclid(100), 2, '0', pad),
         b'd' => number(out, i64::from(local.day()), 2, '0', pad),
         b'e' => number(out, i64::from(local.day()), 2, ' ', pad),
@@ -196,8 +220,8 @@ fn element(out: &mut String, letter: u8, pad: Pad, modifier: bool, fields: &Fiel
         b'M' => number(out, i64::from(local.minute()), 2, '0', pad),
         b'm' => number(out, i64::from(local.month()), 2, '0', pad),
         b'n' => out.push('\n'),
-        b'P' => out.push_str(if am { "am" } else { "pm" }),
-        b'p' => out.push_str(if am { "AM" } else { "PM" }),
+        b'P' => out.push_str(&locale.periods[usize::from(!am)].to_lowercase()),
+        b'p' => out.push_str(&locale.periods[usize::from(!am)]),
         b'Q' => number(out, i64::from(local.month0() / 3 + 1), 1, '0', pad),
         b'S' => number(out, i64::from(local.second()), 2, '0', pad),
         b's' => number(out, fields.epoch, 1, '0', pad),

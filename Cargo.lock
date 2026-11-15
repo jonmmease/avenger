@@ -752,6 +752,8 @@ name = "avenger-format-datetime-googlesql"
 version = "0.1.0"
 dependencies = [
  "avenger-format",
+ "avenger-format-datetime-d3",
+ "avenger-format-locales-d3",
  "chrono",
  "chrono-tz",
  "thiserror 2.0.21",
