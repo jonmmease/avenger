@@ -89,7 +89,7 @@ struct Vm<'a> {
     rows: usize,
     meets: &'a dyn Fn(usize, usize) -> bool,
     longest: bool,
-    /// The arena of paths: each node a row's variable and the node of the rows before it.
+    /// The arena of paths: each node the node of the rows before it, and a row's variable.
     paths: Vec<(Option<u32>, usize)>,
     /// The instructions that a step's threads reached.
     seen: Vec<bool>,
