@@ -5,7 +5,10 @@ use std::sync::Arc;
 use datafusion::{
     arrow::datatypes::DataType,
     common::ScalarValue,
-    logical_expr::{Cast, Expr, LogicalPlan, Subquery},
+    logical_expr::{
+        expr::WindowFunction, Cast, Expr, LogicalPlan, SortExpr, Subquery, WindowFrame,
+        WindowFunctionDefinition,
+    },
 };
 
 /// `expr` cast to `ty`.
@@ -30,4 +33,19 @@ pub(crate) fn subquery(plan: LogicalPlan) -> Subquery {
         subquery: Arc::new(plan),
         spans: Default::default(),
     }
+}
+
+/// `func` of `args` over the window of `partition` in the order of `order`, whose frame runs to
+/// the current row's peers when it has an order, and over the whole partition otherwise.
+pub(crate) fn window(
+    func: WindowFunctionDefinition,
+    args: Vec<Expr>,
+    partition: Vec<Expr>,
+    order: Vec<SortExpr>,
+) -> Expr {
+    let mut window = WindowFunction::new(func, args);
+    window.params.partition_by = partition;
+    window.params.window_frame = WindowFrame::new((!order.is_empty()).then_some(false));
+    window.params.order_by = order;
+    Expr::from(window)
 }

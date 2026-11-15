@@ -24,34 +24,19 @@ use datafusion::{
     functions_aggregate::count::count_udaf,
     functions_window::row_number::row_number_udwf,
     logical_expr::{
-        binary_expr, expr::WindowFunction, utils::find_aggregate_exprs, Expr, LogicalPlanBuilder,
-        Operator, SortExpr, WindowFunctionDefinition,
+        binary_expr, utils::find_aggregate_exprs, Expr, LogicalPlanBuilder, Operator, SortExpr,
+        WindowFunctionDefinition,
     },
 };
 
 use super::{
-    build::{cast, float, int},
+    build::{cast, float, int, window},
     expr::Scope,
     model::Definition,
     rows::{self, Col, Item, RangeVar, Rows},
     Pass,
 };
 use crate::library::{form::coercion, random, Ty};
-
-/// `func` over the window of `partition` in the order of `order`.
-fn window(
-    func: WindowFunctionDefinition,
-    args: Vec<Expr>,
-    partition: Vec<Expr>,
-    order: Vec<SortExpr>,
-) -> Expr {
-    let mut window = WindowFunction::new(func, args);
-    window.params.partition_by = partition;
-    window.params.window_frame =
-        datafusion::logical_expr::WindowFrame::new((!order.is_empty()).then_some(false));
-    window.params.order_by = order;
-    Expr::from(window)
-}
 
 /// The name of a column of a `PIVOT` for the value `value`: its string, `NULL`, or `_` and its
 /// number.

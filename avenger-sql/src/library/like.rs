@@ -62,10 +62,6 @@ impl ScalarUDFImpl for LikeUnnest {
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let rows = args.number_rows;
         let (all, not) = (flag(&args, 2), flag(&args, 3));
-        let scalar = matches!(
-            (&args.args[0], &args.args[1]),
-            (ColumnarValue::Scalar(_), ColumnarValue::Scalar(_))
-        );
         let values = cast(&args.args[0].clone().into_array(rows)?, &DataType::Utf8)?;
         let values = values.as_string::<i32>();
         let lists = args.args[1].clone().into_array(rows)?;
@@ -104,9 +100,6 @@ impl ScalarUDFImpl for LikeUnnest {
             });
         }
         let out: ArrayRef = Arc::new(BooleanArray::from(out));
-        match scalar {
-            true => Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?)),
-            false => Ok(ColumnarValue::Array(out)),
-        }
+        super::columnar(out, &args.args)
     }
 }

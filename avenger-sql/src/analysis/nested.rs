@@ -20,14 +20,11 @@ use datafusion::{
     functions_aggregate::bool_and_or::bool_or_udaf,
     functions_nested::expr_fn as nested,
     functions_window::row_number::row_number_udwf,
-    logical_expr::{
-        expr::WindowFunction, when, Expr, LogicalPlan, LogicalPlanBuilder, WindowFrame,
-        WindowFunctionDefinition,
-    },
+    logical_expr::{when, Expr, LogicalPlan, LogicalPlanBuilder, WindowFunctionDefinition},
 };
 
 use super::{
-    build::{self, cast, int},
+    build::{self, cast, int, window},
     expr::{Outer, Scope},
     query::alias_name,
     rows::{Col, Item, RangeVar, Rows},
@@ -158,10 +155,12 @@ impl Pass<'_> {
             return left.fail();
         };
         let row_id = self.qualifiers.fresh("$row");
-        let number = Expr::from(WindowFunction::new(
+        let number = window(
             WindowFunctionDefinition::WindowUDF(row_number_udwf()),
             Vec::new(),
-        ));
+            Vec::new(),
+            Vec::new(),
+        );
         let mut exprs: Vec<Expr> = plan
             .schema()
             .columns()
@@ -207,11 +206,7 @@ impl Pass<'_> {
             rows.columns.remove(visible);
         }
         let at = on.syntax().text_range();
-        let matched = {
-            let scope = Scope::of(&rows, "JOIN ON clause");
-            self.expr(&on, scope)
-                .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
-        };
+        let matched = self.condition(&on, Scope::of(&rows, "JOIN ON clause"), "JOIN ON clause");
         let (Some(matched), Some(plan)) = (matched, rows.plan.clone()) else {
             return rows.fail();
         };
@@ -220,10 +215,7 @@ impl Pass<'_> {
             Expr::Literal(ScalarValue::Boolean(Some(false)), None),
         ]);
         let over_row = |function: WindowFunctionDefinition, args: Vec<Expr>| {
-            let mut window = WindowFunction::new(function, args);
-            window.params.partition_by = vec![row.clone()];
-            window.params.window_frame = WindowFrame::new(None);
-            Expr::from(window)
+            window(function, args, vec![row.clone()], Vec::new())
         };
         let any = over_row(
             WindowFunctionDefinition::AggregateUDF(bool_or_udaf()),
@@ -278,11 +270,7 @@ impl Pass<'_> {
     /// The rows of `rows` that the condition `on` keeps, as the `ON` of an inner join.
     fn on_filter(&mut self, rows: Rows, on: &ast::Expr) -> Rows {
         let at = on.syntax().text_range();
-        let predicate = {
-            let scope = Scope::of(&rows, "JOIN ON clause");
-            self.expr(on, scope)
-                .and_then(|planned| self.boolean(planned, at, "JOIN ON clause", scope))
-        };
+        let predicate = self.condition(on, Scope::of(&rows, "JOIN ON clause"), "JOIN ON clause");
         let (Some(predicate), Some(plan)) = (predicate, rows.plan.clone()) else {
             return rows.fail();
         };

@@ -208,6 +208,14 @@ impl Pass<'_> {
         Some((values, ty))
     }
 
+    /// The plan of the condition `expr` in `scope`, a `BOOL`, or `None` with an error, as `what`
+    /// names it, such as `JOIN ON clause`.
+    pub(crate) fn condition(&mut self, expr: &ast::Expr, scope: Scope, what: &str) -> Option<Expr> {
+        let at = expr.syntax().text_range();
+        let planned = self.expr(expr, scope)?;
+        self.boolean(planned, at, what, scope)
+    }
+
     /// `expr` as a `BOOL`, for a place that takes one, such as `WHERE`, or `None` with an error at
     /// `range`. `NULL` is a `BOOL`.
     pub(crate) fn boolean(
