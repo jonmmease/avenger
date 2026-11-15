@@ -1256,8 +1256,8 @@ impl Pass<'_> {
             self.error(
                 clause.syntax().text_range(),
                 "avenger-sql doesn't take CAST ... FORMAT: format and parse dates and times with \
-                 FORMAT_DATE, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, PARSE_DATETIME and \
-                 PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides",
+                 FORMAT_DATE, FORMAT_TIME, FORMAT_DATETIME, FORMAT_TIMESTAMP, PARSE_DATE, \
+                 PARSE_TIME, PARSE_DATETIME and PARSE_TIMESTAMP, and format the numbers and dates of a chart in its guides",
             );
             return None;
         }

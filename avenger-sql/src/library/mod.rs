@@ -29,6 +29,7 @@ mod avenger;
 mod bytes;
 mod conditional;
 mod datetime;
+mod datetime_format;
 pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
