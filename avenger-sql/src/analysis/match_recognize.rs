@@ -30,14 +30,15 @@ use datafusion::{
     arrow::datatypes::DataType,
     common::{
         tree_node::{Transformed, TreeNode, TreeNodeRecursion},
-        Column, DFSchema, ScalarValue,
+        Column, DFSchema, Result, ScalarValue,
     },
+    functions::expr_fn::coalesce,
     functions_window::{
         lead_lag::{lag_udwf, lead_udwf},
         row_number::row_number_udwf,
     },
     logical_expr::{
-        expr::AggregateFunction,
+        expr::{AggregateFunction, NullTreatment},
         utils::{find_aggregate_exprs, find_window_exprs},
         Case, Cast, Expr, LogicalPlan, LogicalPlanBuilder, SortExpr, WindowFunctionDefinition,
     },
@@ -99,6 +100,52 @@ enum Range {
 
 fn string(value: &str) -> Expr {
     Expr::Literal(ScalarValue::Utf8(Some(value.to_string())), None)
+}
+
+/// GoogleSQL's error for a column `name` that a measure reads outside aggregates.
+fn unaggregated(name: &str) -> String {
+    format!(
+        "MATCH_RECOGNIZE MEASURES clause expression references column {name} which is neither grouped nor aggregated"
+    )
+}
+
+/// The columns of the node's output that tell each row's match: its number, the row's position,
+/// and the row's variable.
+struct MatchColumns {
+    number: Column,
+    position: Column,
+    classifier: Column,
+}
+
+impl MatchColumns {
+    fn contains(&self, column: &Column) -> bool {
+        [&self.number, &self.position, &self.classifier].contains(&column)
+    }
+}
+
+/// The input of the node, step 1: its plan, and its columns of the partition, of the position and
+/// of each pattern variable.
+struct Defined {
+    plan: LogicalPlan,
+    partition: Vec<Column>,
+    position: Column,
+    variables: Vec<Column>,
+}
+
+/// What the measures of a `MATCH_RECOGNIZE`, step 4, read of the clauses before them.
+struct Matched<'a> {
+    /// The depth of the clause's frame.
+    depth: usize,
+    variables: &'a [(String, TextRange)],
+    /// The copies of the input's columns for each variable, step 3.
+    copies: Vec<RangeVar>,
+    /// The planned partition expressions, their columns in the node's output, and their syntax.
+    partition: &'a [Expr],
+    partition_columns: Vec<Column>,
+    partition_syntax: &'a [ast::Expr],
+    columns: MatchColumns,
+    /// The columns of the output, with the names that the syntax gives them.
+    output_names: &'a [Col],
 }
 
 impl Pass<'_> {
@@ -203,10 +250,9 @@ impl Pass<'_> {
             return None;
         }
         match expr {
-            Expr::Column(column) if !frame.groups.contains(column) => Some(format!(
-                "MATCH_RECOGNIZE MEASURES clause expression references column {} which is neither grouped nor aggregated",
-                names.join(".")
-            )),
+            Expr::Column(column) if !frame.groups.contains(column) => {
+                Some(unaggregated(&names.join(".")))
+            }
             _ => None,
         }
     }
@@ -347,11 +393,8 @@ impl Pass<'_> {
         takes_order: bool,
         distinct: bool,
         order_by: Vec<SortExpr>,
-        nulls: Option<datafusion::logical_expr::expr::NullTreatment>,
-    ) -> (
-        Vec<SortExpr>,
-        Option<datafusion::logical_expr::expr::NullTreatment>,
-    ) {
+        nulls: Option<NullTreatment>,
+    ) -> (Vec<SortExpr>, Option<NullTreatment>) {
         let Some(position) = (self.mr_frame())
             .filter(|frame| frame.clause == Clause::Measures)
             .and_then(|frame| frame.position.clone())
@@ -360,10 +403,7 @@ impl Pass<'_> {
         };
         let in_order = vec![SortExpr::new(Expr::Column(position), true, true)];
         match name {
-            "FIRST" | "LAST" => (
-                in_order,
-                Some(datafusion::logical_expr::expr::NullTreatment::IgnoreNulls),
-            ),
+            "FIRST" | "LAST" => (in_order, Some(NullTreatment::IgnoreNulls)),
             _ if takes_order && order_by.is_empty() && !distinct => (in_order, nulls),
             _ => (order_by, nulls),
         }
@@ -377,61 +417,15 @@ impl Pass<'_> {
         range: TextRange,
     ) -> Rows {
         let rows = rows.unordered();
-        let mut ok = true;
-        // The pattern variables of `DEFINE`, each once.
-        let mut variables: Vec<(String, TextRange)> = Vec::new();
-        let mut conditions: Vec<Option<ast::Expr>> = Vec::new();
-        for definition in clause
-            .define()
-            .iter()
-            .flat_map(|define| define.pattern_definitions())
-        {
-            let Some(name) = definition.name() else {
-                ok = false;
-                continue;
-            };
-            let Some(text) = name.text() else {
-                ok = false;
-                continue;
-            };
-            let at = name.syntax().text_range();
-            if variables
-                .iter()
-                .any(|(other, _)| other.eq_ignore_ascii_case(&text))
-            {
-                self.error(
-                    at,
-                    format!("Pattern variable `{text}` is defined multiple times"),
-                );
-                ok = false;
-                continue;
-            }
-            variables.push((text, at));
-            conditions.push(definition.expr());
-        }
-        // The names of the output, for the model after an error.
+        let (variables, conditions, mut ok) = self.mr_variables(clause);
         let partition_syntax: Vec<ast::Expr> = (clause.partition_by().into_iter())
             .flat_map(|p| p.exprs().collect::<Vec<_>>())
             .collect();
         let measures: Vec<ast::Measure> = (clause.measures().into_iter())
             .flat_map(|m| m.measures().collect::<Vec<_>>())
             .collect();
-        let mut output_names: Vec<Col> = Vec::new();
-        for expr in &partition_syntax {
-            let name = match expr {
-                ast::Expr::PathExpr(path) => (path.path().and_then(|p| p.names()))
-                    .and_then(|names| names.last().cloned())
-                    .unwrap_or_default(),
-                _ => String::new(),
-            };
-            output_names.push(self.syntax_col(&name));
-        }
-        for measure in &measures {
-            let name = (measure.name().and_then(|n| n.text())).unwrap_or_default();
-            let mut col = self.syntax_col(&name);
-            col.definition = measure.name().map(|n| n.syntax().text_range());
-            output_names.push(col);
-        }
+        // The names of the output, for the model after an error.
+        let output_names = self.mr_output_names(&partition_syntax, &measures);
         let failed = |columns: &[Col]| {
             let vars = super::reshape::alias_var(clause.alias(), columns);
             Rows::failed(columns.to_vec(), vars)
@@ -467,7 +461,7 @@ impl Pass<'_> {
             _ => Skip::PastLastRow,
         };
         let longest = self.mr_options(clause.options());
-        // The partition and the order.
+        // The partition, the order and `DEFINE`, over the rows of the input.
         let depth = self.outers.len();
         self.match_recognize.push(Frame {
             depth,
@@ -479,19 +473,167 @@ impl Pass<'_> {
             position: None,
             value_fields: Vec::new(),
         });
-        let mut partition = Vec::new();
-        for expr in &partition_syntax {
-            if let ast::Expr::Literal(literal) = expr {
-                if literal.kind() == Some(LiteralKind::Int) {
-                    self.error(
-                        expr.syntax().text_range(),
-                        "Ordinals are not allowed in MATCH_RECOGNIZE PARTITION BY clause",
-                    );
-                    ok = false;
-                    continue;
-                }
+        let (partition, order, keys_ok) = self.mr_keys(&rows, clause, &partition_syntax);
+        let (conditions, conditions_ok) =
+            self.mr_conditions(&rows, &conditions, &partition, &order);
+        let frame = self.match_recognize.pop().expect("the frame");
+        ok = ok && keys_ok && conditions_ok;
+        if rows.plan.is_none() || !ok {
+            // The measures, for the model of their names.
+            self.mr_measures_names(&rows, &measures, frame);
+            return failed(&output_names);
+        }
+        // 1. The position and the variables of each row.
+        let Some(defined) = self.mr_defined(&rows, &partition, &order, conditions, range) else {
+            return failed(&output_names);
+        };
+        // 2. The matches.
+        let call = MatchRecognizeCall {
+            partition_by: defined.partition.clone(),
+            position: defined.position.clone(),
+            variables: defined.variables,
+            names: variables.iter().map(|(name, _)| name.clone()).collect(),
+            pattern,
+            skip,
+            longest,
+            match_number: MATCH_NUMBER.to_string(),
+            classifier: CLASSIFIER.to_string(),
+        };
+        let plan = match node::plan(defined.plan, call) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return failed(&output_names);
             }
-            match self.expr(expr, Scope::of(&rows, PARTITION_CLAUSE)) {
+        };
+        // 3. The copies of the input's columns for each variable.
+        let (plan, copies) = match self.mr_copies(plan, &rows, &variables) {
+            Ok(copied) => copied,
+            Err(error) => {
+                self.datafusion_error(range, error);
+                return failed(&output_names);
+            }
+        };
+        // 4. The measures, grouped by the partition and the match.
+        let matched = Matched {
+            depth,
+            variables: &variables,
+            copies,
+            partition: &partition,
+            partition_columns: defined.partition,
+            partition_syntax: &partition_syntax,
+            columns: MatchColumns {
+                number: Column::from_name(MATCH_NUMBER),
+                position: defined.position,
+                classifier: Column::from_name(CLASSIFIER),
+            },
+            output_names: &output_names,
+        };
+        match self.mr_measures(&rows, plan, &measures, &matched, range) {
+            Some(rows) => {
+                let vars = super::reshape::alias_var(clause.alias(), &rows.columns);
+                Rows { vars, ..rows }
+            }
+            None => failed(&output_names),
+        }
+    }
+
+    /// The pattern variables of `DEFINE`, each once, with their conditions, and whether they have
+    /// no errors.
+    fn mr_variables(
+        &mut self,
+        clause: &ast::MatchRecognizeClause,
+    ) -> (Vec<(String, TextRange)>, Vec<Option<ast::Expr>>, bool) {
+        let mut ok = true;
+        let mut variables: Vec<(String, TextRange)> = Vec::new();
+        let mut conditions: Vec<Option<ast::Expr>> = Vec::new();
+        for definition in clause
+            .define()
+            .iter()
+            .flat_map(|define| define.pattern_definitions())
+        {
+            let Some(name) = definition.name() else {
+                ok = false;
+                continue;
+            };
+            let Some(text) = name.text() else {
+                ok = false;
+                continue;
+            };
+            let at = name.syntax().text_range();
+            if variables
+                .iter()
+                .any(|(other, _)| other.eq_ignore_ascii_case(&text))
+            {
+                self.error(
+                    at,
+                    format!("Pattern variable `{text}` is defined multiple times"),
+                );
+                ok = false;
+                continue;
+            }
+            variables.push((text, at));
+            conditions.push(definition.expr());
+        }
+        (variables, conditions, ok)
+    }
+
+    /// The columns of the output, the partition's and the measures', with the names that the
+    /// syntax gives them.
+    fn mr_output_names(
+        &self,
+        partition_syntax: &[ast::Expr],
+        measures: &[ast::Measure],
+    ) -> Vec<Col> {
+        let mut output_names: Vec<Col> = Vec::new();
+        for expr in partition_syntax {
+            let name = match expr {
+                ast::Expr::PathExpr(path) => (path.path().and_then(|p| p.names()))
+                    .and_then(|names| names.last().cloned())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            };
+            output_names.push(self.syntax_col(&name));
+        }
+        for measure in measures {
+            let name = (measure.name().and_then(|n| n.text())).unwrap_or_default();
+            let mut col = self.syntax_col(&name);
+            col.definition = measure.name().map(|n| n.syntax().text_range());
+            output_names.push(col);
+        }
+        output_names
+    }
+
+    /// Whether `expr`, a key of `PARTITION BY` or `ORDER BY`, is an ordinal, which GoogleSQL
+    /// rejects, after its error.
+    fn mr_ordinal(&mut self, expr: &ast::Expr, clause: &str) -> bool {
+        let ordinal =
+            matches!(expr, ast::Expr::Literal(literal) if literal.kind() == Some(LiteralKind::Int));
+        if ordinal {
+            self.error(
+                expr.syntax().text_range(),
+                format!("Ordinals are not allowed in {clause}"),
+            );
+        }
+        ordinal
+    }
+
+    /// The keys of `PARTITION BY` and `ORDER BY` over `rows`, in the frame of the clause, and
+    /// whether they have no errors.
+    fn mr_keys(
+        &mut self,
+        rows: &Rows,
+        clause: &ast::MatchRecognizeClause,
+        partition_syntax: &[ast::Expr],
+    ) -> (Vec<Expr>, Vec<SortExpr>, bool) {
+        let mut ok = true;
+        let mut partition = Vec::new();
+        for expr in partition_syntax {
+            if self.mr_ordinal(expr, PARTITION_CLAUSE) {
+                ok = false;
+                continue;
+            }
+            match self.expr(expr, Scope::of(rows, PARTITION_CLAUSE)) {
                 Some(planned) => partition.push(planned),
                 None => ok = false,
             }
@@ -507,98 +649,104 @@ impl Pass<'_> {
                 ok = false;
                 continue;
             };
-            let at = expr.syntax().text_range();
-            if let ast::Expr::Literal(literal) = &expr {
-                if literal.kind() == Some(LiteralKind::Int) {
-                    self.error(
-                        at,
-                        "Ordinals are not allowed in MATCH_RECOGNIZE ORDER BY clause",
-                    );
-                    ok = false;
-                    continue;
-                }
+            if self.mr_ordinal(&expr, ORDER_CLAUSE) {
+                ok = false;
+                continue;
             }
-            let scope = Scope::of(&rows, ORDER_CLAUSE);
+            let scope = Scope::of(rows, ORDER_CLAUSE);
             let Some(planned) = self.expr(&expr, scope) else {
                 ok = false;
                 continue;
             };
             if let Some(DataType::Struct(_)) = self.type_of(&planned, scope) {
-                self.error(at, "Ordering by expressions of type STRUCT is not allowed");
+                self.error(
+                    expr.syntax().text_range(),
+                    "Ordering by expressions of type STRUCT is not allowed",
+                );
                 ok = false;
                 continue;
             }
             let (asc, nulls_first) = direction(&key);
             order.push(SortExpr::new(planned, asc, nulls_first));
         }
-        // `DEFINE`, over the rows of the input.
-        {
-            let frame = self.match_recognize.last_mut().expect("the frame");
-            frame.clause = Clause::Define;
-            frame.name = DEFINE_CLAUSE;
-        }
+        (partition, order, ok)
+    }
+
+    /// The conditions of `DEFINE` over `rows`, in the frame of the clause, with `PREV` and `NEXT`
+    /// over `partition` in `order`, and whether they have no errors.
+    fn mr_conditions(
+        &mut self,
+        rows: &Rows,
+        conditions: &[Option<ast::Expr>],
+        partition: &[Expr],
+        order: &[SortExpr],
+    ) -> (Vec<Expr>, bool) {
+        let frame = self.match_recognize.last_mut().expect("the frame");
+        frame.clause = Clause::Define;
+        frame.name = DEFINE_CLAUSE;
+        let mut ok = true;
         let mut planned_conditions = Vec::new();
-        for condition in &conditions {
+        for condition in conditions {
             let Some(condition) = condition else {
                 ok = false;
                 continue;
             };
             let at = condition.syntax().text_range();
-            let scope = Scope::of(&rows, DEFINE_CLAUSE);
+            let scope = Scope::of(rows, DEFINE_CLAUSE);
             let planned = self
                 .expr(condition, scope)
                 .and_then(|planned| self.boolean(planned, at, DEFINE_CLAUSE, scope))
-                .and_then(|planned| self.navigated(planned, &partition, &order, at));
+                .and_then(|planned| self.navigated(planned, partition, order, at));
             match planned {
                 Some(planned) => planned_conditions.push(planned),
                 None => ok = false,
             }
         }
-        let frame = self.match_recognize.pop().expect("the frame");
-        if rows.plan.is_none() || !ok {
-            // The measures, for the model of their names.
-            self.mr_measures_names(&rows, &measures, frame);
-            return failed(&output_names);
-        }
-        // 1. The position and the variables of each row.
+        (planned_conditions, ok)
+    }
+
+    /// Step 1: the rows of `rows` with their partition's keys, their position in the partition,
+    /// and the value of each condition, or `None` after an error.
+    fn mr_defined(
+        &mut self,
+        rows: &Rows,
+        partition: &[Expr],
+        order: &[SortExpr],
+        conditions: Vec<Expr>,
+        range: TextRange,
+    ) -> Option<Defined> {
         let visible = rows.columns.len();
         let mut items: Vec<Item> = rows.columns.iter().cloned().map(Item::Carry).collect();
-        let mut partition_items = Vec::new();
         for (index, expr) in partition.iter().enumerate() {
-            match expr {
-                Expr::Column(column) => match rows.columns.iter().find(|col| col.column == *column)
-                {
-                    Some(col) => partition_items.push(Item::Carry(col.clone())),
-                    None => partition_items.push(Item::Compute {
-                        name: format!("$partition_by_col{}", index + 1),
-                        expr: expr.clone(),
-                        definition: None,
-                    }),
-                },
-                _ => partition_items.push(Item::Compute {
+            let carried = match expr {
+                Expr::Column(column) => rows.columns.iter().find(|col| col.column == *column),
+                _ => None,
+            };
+            items.push(match carried {
+                Some(col) => Item::Carry(col.clone()),
+                None => Item::Compute {
                     name: format!("$partition_by_col{}", index + 1),
                     expr: expr.clone(),
                     definition: None,
-                }),
-            }
+                },
+            });
         }
-        let partitions = partition_items.len();
-        items.extend(partition_items);
         let row_number = super::build::window(
             WindowFunctionDefinition::WindowUDF(row_number_udwf()),
             Vec::new(),
-            partition.clone(),
-            order.clone(),
+            partition.to_vec(),
+            order.to_vec(),
         );
         items.push(Item::Compute {
             name: "$position".to_string(),
             expr: Expr::Cast(Cast::new(Box::new(row_number), DataType::Int64)),
             definition: None,
         });
-        for (index, condition) in planned_conditions.into_iter().enumerate() {
+        let variables = conditions.len();
+        for (index, condition) in conditions.into_iter().enumerate() {
             items.push(Item::Compute {
                 name: format!("$define{}", index + 1),
-                expr: datafusion::functions::expr_fn::coalesce(vec![
+                expr: coalesce(vec![
                     condition,
                     Expr::Literal(ScalarValue::Boolean(Some(false)), None),
                 ]),
@@ -606,38 +754,27 @@ impl Pass<'_> {
             });
         }
         let defined = self.projected(rows.clone(), items, true, false, range);
-        let Some(plan) = defined.plan.clone() else {
-            return failed(&output_names);
-        };
+        let plan = defined.plan.clone()?;
         let column_at = |index: usize| defined.columns[index].column.clone();
-        let partition_columns: Vec<Column> =
-            (visible..visible + partitions).map(column_at).collect();
-        let position = column_at(visible + partitions);
-        let variable_columns: Vec<Column> = (0..variables.len())
-            .map(|index| column_at(visible + partitions + 1 + index))
-            .collect();
-        // 2. The matches.
-        let call = MatchRecognizeCall {
-            partition_by: partition_columns.clone(),
-            position: position.clone(),
-            variables: variable_columns,
-            names: variables.iter().map(|(name, _)| name.clone()).collect(),
-            pattern,
-            skip,
-            longest,
-            match_number: MATCH_NUMBER.to_string(),
-            classifier: CLASSIFIER.to_string(),
-        };
-        let plan = match node::plan(plan, call) {
-            Ok(plan) => plan,
-            Err(error) => {
-                self.datafusion_error(range, error);
-                return failed(&output_names);
-            }
-        };
-        let match_number = Column::from_name(MATCH_NUMBER);
-        let classifier = Column::from_name(CLASSIFIER);
-        // 3. The copies of the input's columns for each variable.
+        let partitions = partition.len();
+        Some(Defined {
+            plan,
+            partition: (visible..visible + partitions).map(column_at).collect(),
+            position: column_at(visible + partitions),
+            variables: (0..variables)
+                .map(|index| column_at(visible + partitions + 1 + index))
+                .collect(),
+        })
+    }
+
+    /// Step 3: `plan`, the output of the node, with a copy of the columns of `rows` for each of
+    /// `variables`, under a qualifier of its own, and the copies.
+    fn mr_copies(
+        &mut self,
+        plan: LogicalPlan,
+        rows: &Rows,
+        variables: &[(String, TextRange)],
+    ) -> Result<(LogicalPlan, Vec<RangeVar>)> {
         let mut exprs: Vec<Expr> = plan
             .schema()
             .columns()
@@ -645,7 +782,7 @@ impl Pass<'_> {
             .map(Expr::Column)
             .collect();
         let mut copies = Vec::new();
-        for (name, definition) in &variables {
+        for (name, definition) in variables {
             let qualifier = self.qualifiers.fresh("_");
             let mut columns = Vec::new();
             for (index, col) in rows.columns.iter().enumerate() {
@@ -667,64 +804,66 @@ impl Pass<'_> {
                 value: None,
             });
         }
-        let plan = match LogicalPlanBuilder::from(plan)
-            .project(exprs)
-            .and_then(|b| b.build())
-        {
-            Ok(plan) => plan,
-            Err(error) => {
-                self.datafusion_error(range, error);
-                return failed(&output_names);
-            }
-        };
-        // 4. The measures, grouped by the partition and the match.
+        let plan = LogicalPlanBuilder::from(plan).project(exprs)?.build()?;
+        Ok((plan, copies))
+    }
+
+    /// Step 4: the measures over `plan`, the matched rows with their copies, grouped by the
+    /// partition and the match, as the rows of the clause, or `None` after an error.
+    fn mr_measures(
+        &mut self,
+        rows: &Rows,
+        plan: LogicalPlan,
+        measures: &[ast::Measure],
+        matched: &Matched,
+        range: TextRange,
+    ) -> Option<Rows> {
+        let columns = &matched.columns;
         let shadowed = |var: &RangeVar| {
-            (variables.iter()).any(|(name, _)| name.eq_ignore_ascii_case(&var.name))
+            (matched.variables.iter()).any(|(name, _)| name.eq_ignore_ascii_case(&var.name))
         };
-        let matched = Rows {
+        let input = Rows {
             plan: Some(plan),
             columns: rows.columns.clone(),
-            vars: rows
-                .vars
-                .iter()
+            vars: (rows.vars.iter())
                 .filter(|var| !shadowed(var))
                 .cloned()
                 .collect(),
             order: Vec::new(),
         };
-        let mut groups: Vec<Expr> = partition_columns
-            .iter()
+        let mut groups: Vec<Expr> = (matched.partition_columns.iter())
             .cloned()
             .map(Expr::Column)
             .collect();
-        groups.push(Expr::Column(match_number.clone()));
-        let mut group_columns = partition_columns.clone();
+        groups.push(Expr::Column(columns.number.clone()));
+        let mut group_columns = matched.partition_columns.clone();
         // A partition expression that is a column of the input reads as that column.
-        for expr in &partition {
+        for expr in matched.partition {
             if let Expr::Column(column) = expr {
                 group_columns.push(column.clone());
             }
         }
         self.match_recognize.push(Frame {
-            depth,
+            depth: matched.depth,
             clause: Clause::Measures,
             name: MEASURES_CLAUSE,
-            variables: variables.clone(),
-            copies: copies.clone(),
+            variables: matched.variables.to_vec(),
+            copies: matched.copies.clone(),
             groups: group_columns,
-            position: Some(position.clone()),
+            position: Some(columns.position.clone()),
             value_fields: (rows.vars.iter())
                 .filter(|var| var.value.is_some())
                 .flat_map(|var| var.columns.iter().map(|col| col.name.clone()))
                 .collect(),
         });
+        let mut ok = true;
         let mut planned_measures = Vec::new();
-        for measure in &measures {
+        for measure in measures {
             let Some(expr) = measure.expr() else {
                 ok = false;
                 continue;
             };
-            let scope = Scope::of(&matched, MEASURES_CLAUSE)
+            let scope = Scope::of(&input, MEASURES_CLAUSE)
                 .aggregates()
                 .grouped(Some(&groups));
             match self.expr(&expr, scope) {
@@ -734,44 +873,34 @@ impl Pass<'_> {
         }
         self.match_recognize.pop();
         if !ok {
-            return failed(&output_names);
+            return None;
         }
         let mut items_exprs = Vec::new();
         for (expr, at) in planned_measures {
-            let expr = of_match(expr, &match_number, &position, &classifier);
-            match self.ranged(
-                expr,
-                &copies,
-                &variables,
-                &classifier,
-                &position,
-                &match_number,
-                at,
-            ) {
+            let expr = of_match(expr, columns);
+            match self.ranged(expr, &matched.copies, matched.variables, columns, at) {
                 Some(expr) => items_exprs.push((expr, at)),
                 None => ok = false,
             }
         }
         if !ok {
-            return failed(&output_names);
+            return None;
         }
-        let Some(plan) = matched.plan.clone() else {
-            return failed(&output_names);
-        };
+        let plan = input.plan.clone()?;
         // The windows of `HAVING MAX` and `HAVING MIN`, before the aggregate.
         let windows = find_window_exprs(items_exprs.iter().map(|(expr, _)| expr));
         let plan = match windows.is_empty() {
             true => Ok(plan),
             false => LogicalPlanBuilder::window_plan(plan, windows.clone()),
         };
-        let rebased: datafusion::common::Result<Vec<Expr>> = (items_exprs.iter())
+        let rebased: Result<Vec<Expr>> = (items_exprs.iter())
             .map(|(expr, _)| rows::rebase(expr.clone(), &windows))
             .collect();
         let (plan, measure_exprs) = match (plan, rebased) {
             (Ok(plan), Ok(exprs)) => (plan, exprs),
             (Err(error), _) | (_, Err(error)) => {
                 self.datafusion_error(range, error);
-                return failed(&output_names);
+                return None;
             }
         };
         let aggregates = find_aggregate_exprs(&measure_exprs);
@@ -782,30 +911,31 @@ impl Pass<'_> {
             Ok(plan) => plan,
             Err(error) => {
                 self.datafusion_error(range, error);
-                return failed(&output_names);
+                return None;
             }
         };
         let output = plan.schema().columns();
         let mut grouped: Vec<(Expr, Column)> =
             groups.iter().cloned().zip(output.iter().cloned()).collect();
-        for (expr, column) in partition.iter().zip(&output) {
+        for (expr, column) in matched.partition.iter().zip(&output) {
             if let Expr::Column(_) = expr {
                 grouped.push((expr.clone(), column.clone()));
             }
         }
+        let partitions = matched.partition.len();
         let mut projection = Vec::new();
-        for (index, col) in output_names.iter().take(partitions).enumerate() {
+        for (index, col) in matched.output_names.iter().take(partitions).enumerate() {
             projection.push(Item::Compute {
                 name: col.name.clone(),
                 expr: Expr::Column(output[index].clone()),
-                definition: partition_syntax.get(index).map(|e| e.syntax().text_range()),
+                definition: (matched.partition_syntax.get(index)).map(|e| e.syntax().text_range()),
             });
         }
         for ((expr, at), col) in measure_exprs
             .into_iter()
             .zip(&items_exprs)
             .map(|(e, (_, at))| (e, *at))
-            .zip(output_names.iter().skip(partitions))
+            .zip(matched.output_names.iter().skip(partitions))
         {
             let rebased = rows::rebase(expr, &aggregates)
                 .and_then(|expr| super::query::regroup(expr, &grouped));
@@ -813,16 +943,13 @@ impl Pass<'_> {
                 Ok(expr) => expr,
                 Err(error) => {
                     self.datafusion_error(at, error);
-                    return failed(&output_names);
+                    return None;
                 }
             };
             if let Some(column) = (rebased.column_refs().into_iter()).find(|c| !output.contains(c))
             {
-                self.error(
-                    at,
-                    format!("MATCH_RECOGNIZE MEASURES clause expression references column {} which is neither grouped nor aggregated", column.name),
-                );
-                return failed(&output_names);
+                self.error(at, unaggregated(&column.name));
+                return None;
             }
             projection.push(Item::Compute {
                 name: col.name.clone(),
@@ -830,15 +957,13 @@ impl Pass<'_> {
                 definition: col.definition,
             });
         }
-        let rows = self.projected(
+        Some(self.projected(
             Rows::new(plan, Vec::new(), Vec::new()),
             projection,
             false,
             false,
             range,
-        );
-        let vars = super::reshape::alias_var(clause.alias(), &rows.columns);
-        Rows { vars, ..rows }
+        ))
     }
 
     /// Plans the measures after an error in the clauses before them, so the model resolves their
@@ -1185,19 +1310,17 @@ impl Pass<'_> {
     /// `expr`, a measure, with each aggregate reading the rows of its range: the rows of one
     /// variable when it reads that variable's columns, and the rows of the match otherwise, or
     /// `None` after GoogleSQL's error for an aggregate of two ranges.
-    #[allow(clippy::too_many_arguments)]
     fn ranged(
         &mut self,
         expr: Expr,
         copies: &[RangeVar],
         variables: &[(String, TextRange)],
-        classifier: &Column,
-        position: &Column,
-        match_number: &Column,
+        columns: &MatchColumns,
         at: TextRange,
     ) -> Option<Expr> {
+        let classifier = &columns.classifier;
         let range_of = |column: &Column| -> Option<Range> {
-            if column == classifier || column == position || column == match_number {
+            if columns.contains(column) {
                 return None;
             }
             match copies
@@ -1277,7 +1400,7 @@ impl Pass<'_> {
 
 /// `filter`, the filter of an aggregate, with the windows of its `HAVING MAX` or `HAVING MIN`
 /// over the rows of `condition` only.
-fn scoped(filter: Expr, condition: &Expr) -> datafusion::common::Result<Expr> {
+fn scoped(filter: Expr, condition: &Expr) -> Result<Expr> {
     filter
         .transform_up(|e| match e {
             Expr::WindowFunction(mut window) => {
@@ -1302,12 +1425,12 @@ fn scoped(filter: Expr, condition: &Expr) -> datafusion::common::Result<Expr> {
 }
 
 /// `expr` with `MATCH_NUMBER()`, `MATCH_ROW_NUMBER()` and `CLASSIFIER()` as their columns.
-fn of_match(expr: Expr, match_number: &Column, position: &Column, classifier: &Column) -> Expr {
+fn of_match(expr: Expr, columns: &MatchColumns) -> Expr {
     expr.transform_up(|e| {
         for (name, column) in [
-            ("MATCH_NUMBER", match_number),
-            ("MATCH_ROW_NUMBER", position),
-            ("CLASSIFIER", classifier),
+            ("MATCH_NUMBER", &columns.number),
+            ("MATCH_ROW_NUMBER", &columns.position),
+            ("CLASSIFIER", &columns.classifier),
         ] {
             if marker_args(&e, name).is_some() {
                 return Ok(Transformed::yes(Expr::Column(column.clone())));

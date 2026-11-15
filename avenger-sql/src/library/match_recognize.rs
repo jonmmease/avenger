@@ -13,7 +13,8 @@ use datafusion::{
     common::{plan_err, Result, ScalarValue},
     functions_aggregate::first_last::{first_value_udaf, last_value_udaf},
     logical_expr::{
-        ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
+        AggregateUDF, ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
+        Volatility,
     },
 };
 
@@ -74,11 +75,7 @@ fn navigation(name: &str, side: &str, window: &str) -> Function {
 }
 
 /// `FIRST` or `LAST`, the value of the `position` row of the match that isn't `NULL`.
-fn end(
-    name: &str,
-    position: &str,
-    udaf: fn() -> Arc<datafusion::logical_expr::AggregateUDF>,
-) -> Function {
+fn end(name: &str, position: &str, udaf: fn() -> Arc<AggregateUDF>) -> Function {
     Function::aggregate(name, &format!("Returns the value of the {position} row of the match, or of a pattern variable's rows, in a `MEASURES` of `MATCH_RECOGNIZE`."))
         .description("Reads the rows in the order of `MATCH_RECOGNIZE`, and leaves out the `NULL` values, as GoogleSQL's `execute_query` does. Returns `NULL` when no row has a value that isn't `NULL`, as for a variable without rows.")
         .param("value", &format!("The value of each row: of the match's rows, or of a pattern variable's rows, as `{name}(v.price)`."))
