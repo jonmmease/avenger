@@ -1,326 +1,290 @@
-//! `bin` and `bin_params`: the bins of values and options, the rules against the window
-//! evaluator, non-finite values, and errors.
+//! `bin`: the bins of values and options, the window partitions of a call, the placeholder
+//! windows of a projection, non-finite values, a volatile input, histograms of bins, and the
+//! checks of the options. A test registers the plan of [`bin::plan`] as a view and reads the
+//! view with DataFusion's SQL. The test of placeholder windows plans the windows of
+//! [`bin::window`] through [`plan_windows`].
 
 mod common;
 
 use std::sync::Arc;
 
-use common::{error, register, session};
-use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float64Array, Int64Array};
-use datafusion::arrow::datatypes::Float64Type;
-use datafusion::common::Result;
-use datafusion::prelude::SessionContext;
+use avenger_datafusion_transforms::bin::{self, BinCall, BinOptions};
+use avenger_datafusion_transforms::{OptionError, StructGroupSplit, plan_windows};
+use common::{exec, rows, session, view};
+use datafusion::common::{Column, Result};
+use datafusion::functions_window::expr_fn::row_number;
+use datafusion::logical_expr::{Expr, ExprFunctionExt, LogicalPlanBuilder};
+use datafusion::prelude::{SessionContext, col};
 
-/// The bins of values, and the parameters of `bin_params`, for the options of each case.
-/// A bin: its start and its end, or None.
-type Bin = Option<(f64, f64)>;
+/// The table `v` of the values that `expected_bins` and `histogram` bin, the last one NULL.
+const V: &str = "CREATE TABLE v AS SELECT * FROM (VALUES (0, 0.0), (1, 10.0), (2, 20.0), \
+    (3, 42.0), (4, 55.0), (5, 60.0), (6, 80.0), (7, 100.0), (8, NULL)) AS v(i, x)";
 
+/// The table `t` of the partitions of `g`, with a NULL key and a NULL value.
+const T: &str = "CREATE TABLE t AS SELECT * FROM (VALUES (0, 1, 0.0), (1, 1, 10.0), \
+    (2, 1, 20.0), (3, 2, 100.0), (4, 2, 150.0), (5, 2, 200.0), (6, NULL, 3.0), \
+    (7, NULL, 7.0), (8, 1, NULL)) AS t(i, g, x)";
+
+/// The bins of each window partition of `t` by `g`, with at most 10 bins: the NULL key is a
+/// partition of its own.
+const BY_G: &str = "0 2, 10 12, 18 20, 100 110, 150 160, 190 200, 3 3.5, 6.5 7, -";
+
+/// The bins of the column `b` of the view `view`, in the order of `i`: `start end`, or `-` for
+/// no bin, with numbers as Rust prints them.
+async fn bins(ctx: &SessionContext, view: &str, b: &str) -> Result<String> {
+    let sql = format!(
+        "SELECT i, CASE WHEN {b} IS NULL THEN '-' \
+         ELSE concat({b}['start'], ' ', {b}['end']) END FROM {view}"
+    );
+    // A number, such as `5.0`, as Rust prints it, such as `5`.
+    let short = |v: &str| v.parse::<f64>().map_or(v.to_string(), |v| v.to_string());
+    let bins = rows(ctx, &sql).await?.into_iter();
+    let bins = bins.map(|r| r[1].split(' ').map(short).collect::<Vec<_>>().join(" "));
+    Ok(bins.collect::<Vec<_>>().join(", "))
+}
+
+/// A change of the default options.
+type Change = fn(&mut BinOptions);
+
+/// The default options with the change `f`.
+fn options(f: Change) -> BinOptions {
+    let mut o = BinOptions::default();
+    f(&mut o);
+    o
+}
+
+/// The bins of values for the options of each case, and the parameters of a fractional step.
 #[tokio::test]
 async fn expected_bins() -> Result<()> {
-    let ctx = session(true);
-    register(
-        &ctx,
-        "v",
-        vec![
-            (
-                "i",
-                Arc::new(Int64Array::from_iter_values(0..8)) as ArrayRef,
-            ),
-            (
-                "x",
-                Arc::new(Float64Array::from(vec![
-                    0.0, 10.0, 20.0, 42.0, 55.0, 60.0, 80.0, 100.0,
-                ])),
-            ),
-        ],
-    )?;
-    // The options, then the bin of each value of `x`, in order.
-    let cases: [(&str, [Bin; 8]); 4] = [
+    let ctx = session();
+    exec(&ctx, V).await?;
+    let cases: [(Change, &str); 6] = [
         // 20 bins at most: bins of 5 from 0, and the greatest value in the last bin.
         (
-            "",
-            [
-                Some((0.0, 5.0)),
-                Some((10.0, 15.0)),
-                Some((20.0, 25.0)),
-                Some((40.0, 45.0)),
-                Some((55.0, 60.0)),
-                Some((60.0, 65.0)),
-                Some((80.0, 85.0)),
-                Some((95.0, 100.0)),
-            ],
+            |_| {},
+            "0 5, 10 15, 20 25, 40 45, 55 60, 60 65, 80 85, 95 100, -",
         ),
         // 10 bins at most: bins of 10.
         (
-            ", 'maxbins', 10",
-            [
-                Some((0.0, 10.0)),
-                Some((10.0, 20.0)),
-                Some((20.0, 30.0)),
-                Some((40.0, 50.0)),
-                Some((50.0, 60.0)),
-                Some((60.0, 70.0)),
-                Some((80.0, 90.0)),
-                Some((90.0, 100.0)),
-            ],
+            |o| o.maxbins = 10.0,
+            "0 10, 10 20, 20 30, 40 50, 50 60, 60 70, 80 90, 90 100, -",
         ),
         // An explicit step.
         (
-            ", 'step', 25",
-            [
-                Some((0.0, 25.0)),
-                Some((0.0, 25.0)),
-                Some((0.0, 25.0)),
-                Some((25.0, 50.0)),
-                Some((50.0, 75.0)),
-                Some((50.0, 75.0)),
-                Some((75.0, 100.0)),
-                Some((75.0, 100.0)),
-            ],
+            |o| o.step = Some(25.0),
+            "0 25, 0 25, 0 25, 25 50, 50 75, 50 75, 75 100, 75 100, -",
         ),
         // An explicit extent: values outside it have no bin.
         (
-            ", 'extent', [20, 80], 'maxbins', 6",
-            [
-                None,
-                None,
-                Some((20.0, 30.0)),
-                Some((40.0, 50.0)),
-                Some((50.0, 60.0)),
-                Some((60.0, 70.0)),
-                Some((70.0, 80.0)),
-                None,
-            ],
+            |o| (o.extent, o.maxbins) = (Some([20.0, 80.0]), 6.0),
+            "-, -, 20 30, 40 50, 50 60, 60 70, 70 80, -, -",
+        ),
+        // An extent that is not nice: bins of 10 from its start, to whole steps past its end.
+        (
+            |o| (o.extent, o.maxbins, o.nice) = (Some([3.0, 97.0]), 10.0, false),
+            "-, 3 13, 13 23, 33 43, 53 63, 53 63, 73 83, 93 103, -",
+        ),
+        // An anchor moves the bins up to it, so 0 falls below the first bin.
+        (
+            |o| o.anchor = Some(2.5),
+            "-, 7.5 12.5, 17.5 22.5, 37.5 42.5, 52.5 57.5, 57.5 62.5, 77.5 82.5, 97.5 102.5, -",
         ),
     ];
-    for (options, want) in cases {
-        let got = bins(
-            &ctx,
-            &format!("SELECT i, bin(x{options}) OVER () AS b FROM v"),
-        )
-        .await?;
-        let got: Vec<Option<(f64, f64)>> = got.into_iter().map(|(_, b)| b).collect();
-        assert_eq!(got, want, "bin(x{options})");
+    for (f, want) in cases {
+        let options = options(f);
+        common::bins(&ctx, "binned", "SELECT * FROM v", "x", &[], options.clone()).await?;
+        assert_eq!(bins(&ctx, "binned", "b").await?, want, "{options:?}");
     }
 
-    // The parameters of an extent: the start, the end of the last bin, and the step.
-    for (call, want) in [
-        ("bin_params(0, 100)", (0.0, 100.0, 5.0)),
-        ("bin_params(0, 100, 'maxbins', 10)", (0.0, 100.0, 10.0)),
-        ("bin_params(0.5, 9.7)", (0.5, 10.0, 0.5)),
-        ("bin_params(0, 1, 'step', 0.25)", (0.0, 1.0, 0.25)),
-    ] {
-        let batches = ctx
-            .sql(&format!("SELECT {call} AS p"))
-            .await?
-            .collect()
-            .await?;
-        let p = batches[0].column(0).as_struct();
-        let f = |k: usize| p.column(k).as_primitive::<Float64Type>().value(0);
-        assert_eq!((f(0), f(1), f(2)), want, "{call}");
-    }
+    // A fractional step: the start stays at the minimum, and the end is a whole step past the
+    // maximum.
+    let p = bin::bin_params(0.5, 9.7, &BinOptions::default());
+    assert_eq!((p.start, p.end, p.step), (0.5, 10.0, 0.5));
     Ok(())
 }
 
-/// The bins of a query as sorted rows of (i, start, end), None for NULL.
-async fn bins(ctx: &SessionContext, sql: &str) -> Result<Vec<(i64, Option<(f64, f64)>)>> {
-    let mut out = Vec::new();
-    for b in ctx.sql(sql).await?.collect().await? {
-        let i = b
-            .column(0)
-            .as_primitive::<datafusion::arrow::datatypes::Int64Type>();
-        let s = b.column(1).as_struct();
-        let (lo, hi) = (
-            s.column(0).as_primitive::<Float64Type>(),
-            s.column(1).as_primitive::<Float64Type>(),
-        );
-        for j in 0..b.num_rows() {
-            out.push((
-                i.value(j),
-                s.is_valid(j).then(|| (lo.value(j), hi.value(j))),
-            ));
-        }
-    }
-    out.sort_by_key(|r| r.0);
-    Ok(out)
-}
-
-/// The rule gives the window evaluator's bins: partitions with NULL keys, NULL values, an
-/// explicit extent, and several calls in one window.
+/// The extent of each window partition: partitions of a column with a NULL key, and of an
+/// expression that is not a column.
 #[tokio::test]
-async fn rules_match_the_evaluator() -> Result<()> {
-    let (rules, plain) = (session(true), session(false));
-    let n = 200;
-    let g: Vec<Option<i64>> = (0..n)
-        .map(|i| if i % 7 == 0 { None } else { Some(i % 3) })
-        .collect();
-    let x: Vec<Option<f64>> = (0..n)
-        .map(|i| {
-            if i % 11 == 0 {
-                None
-            } else {
-                Some((i * 37 % 101) as f64 * (1.0 + (i % 3) as f64))
-            }
-        })
-        .collect();
-    for ctx in [&rules, &plain] {
-        register(
-            ctx,
-            "t",
-            vec![
-                ("i", Arc::new(Int64Array::from_iter_values(0..n))),
-                ("g", Arc::new(Int64Array::from(g.clone()))),
-                ("x", Arc::new(Float64Array::from(x.clone()))),
-            ],
-        )?;
-    }
-    for sql in [
-        "SELECT i, bin(x) OVER () AS b FROM t",
-        "SELECT i, bin(x, 'maxbins', 7) OVER (PARTITION BY g) AS b FROM t",
-        "SELECT i, bin(x, 'extent', [0, 50], 'maxbins', 5) OVER (PARTITION BY g) AS b FROM t",
-        "SELECT i, bin(x, 'maxbins', 30) OVER (PARTITION BY g) AS b, bin(x, 'maxbins', 4) OVER (PARTITION BY g) AS c FROM t",
-        "SELECT i, b FROM (SELECT i, bin(x) OVER (PARTITION BY g) AS b FROM t) WHERE b IS NOT NULL",
-    ] {
-        assert_eq!(bins(&rules, sql).await?, bins(&plain, sql).await?, "{sql}");
-    }
-
-    // A histogram, through StructGroupSplit, which groups by whether a bin is NULL and by its
-    // fields, then makes the bin again.
-    let explain = rules
-        .sql("EXPLAIN SELECT b, count(*) FROM (SELECT bin(x) OVER () AS b FROM t) GROUP BY b")
-        .await?
-        .collect()
-        .await?;
-    let explain = datafusion::arrow::util::pretty::pretty_format_batches(&explain)?.to_string();
-    assert!(explain.contains("__make_nullable_struct"), "{explain}");
-    let sql = "SELECT b, count(*) AS n FROM (SELECT bin(x) OVER (PARTITION BY g) AS b FROM t WHERE x IS NOT NULL) GROUP BY b ORDER BY b['start'], b['end']";
-    let a = rules.sql(sql).await?.collect().await?;
-    let b = plain.sql(sql).await?.collect().await?;
-    assert_eq!(
-        datafusion::arrow::util::pretty::pretty_format_batches(&a)?.to_string(),
-        datafusion::arrow::util::pretty::pretty_format_batches(&b)?.to_string()
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn errors() -> Result<()> {
-    let ctx = session(true);
-    register(
+async fn partitions() -> Result<()> {
+    let ctx = session();
+    exec(&ctx, T).await?;
+    let options = options(|o| o.maxbins = 10.0);
+    common::bins(
         &ctx,
-        "t",
-        vec![("x", Arc::new(Float64Array::from(vec![1.0, 2.0])))],
-    )?;
-    for (args, message) in [
-        ("x, 'maxbins'", "pairs of a name and a value"),
-        ("x, 'bins', 3", "unknown bin option 'bins'"),
-        ("x, 'maxbins', 'many'", "maxbins"),
-        ("x, 'base', 1", "'base' must be a number greater than 1"),
-        ("x, 'base', 0.5", "'base' must be a number greater than 1"),
-        ("x, 'maxbins', -3", "'maxbins' must be a positive number"),
-        ("x, 'maxbins', 0", "'maxbins' must be a positive number"),
-        ("x, 'base', 0", "'base' must be a number greater than 1"),
-        ("x, 'step', 0", "'step' must be a positive number"),
-        ("x, 'divide', [0]", "'divide' must be a positive number"),
-        ("x, 'step', -1", "'step' must be a positive number"),
-        ("x, 'steps', [5, 1]", "'steps' must be in increasing order"),
-        (
-            "x, 'extent', [1, 'NaN'::double]",
-            "'extent' must be two finite numbers",
-        ),
-    ] {
-        let sql = format!("SELECT bin({args}) OVER () FROM t");
-        let e = error(&ctx, &sql)
-            .await
-            .unwrap_or_else(|| panic!("no error: {sql}"));
-        assert!(e.contains(message), "{sql}: {e}");
-    }
-    for (sql, message) in [
-        (
-            "SELECT bin(x) OVER (ORDER BY x) FROM t",
-            "the window of bin cannot have an ORDER BY",
-        ),
-        (
-            "SELECT bin(x) OVER (ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) FROM t",
-            "it cannot have a frame",
-        ),
-        (
-            "SELECT bin_params(0, 1, 'extent', [0, 1]) FROM t",
-            "bin_params takes the extent as its first two arguments",
-        ),
-    ] {
-        let e = error(&ctx, sql)
-            .await
-            .unwrap_or_else(|| panic!("no error: {sql}"));
-        assert!(e.contains(message), "{sql}: {e}");
-    }
+        "binned",
+        "SELECT * FROM t",
+        "x",
+        &["g"],
+        options.clone(),
+    )
+    .await?;
+    assert_eq!(bins(&ctx, "binned", "b").await?, BY_G);
+
+    // `coalesce(g, 1)` puts the values of the NULL key, 3 and 7, in the partition of 1, whose
+    // bins are bins of 2 from 0.
+    let partition = common::expr(&ctx, "SELECT * FROM t", "coalesce(g, 1)").await?;
+    let call = BinCall {
+        value: col("x"),
+        partition: vec![partition],
+        options,
+    };
+    view(&ctx, "binned", "SELECT * FROM t", |plan| {
+        bin::plan(plan, call, Column::from_name("b"))
+    })
+    .await?;
+    let want = BY_G.replace("3 3.5, 6.5 7", "2 4, 6 8");
+    assert_eq!(bins(&ctx, "binned", "b").await?, want);
+    Ok(())
+}
+
+/// The placeholder windows of a projection: two calls over one partition, which one aggregate
+/// serves, among another window function, which `plan_windows` leaves to a window node.
+#[tokio::test]
+async fn placeholder_windows() -> Result<()> {
+    let ctx = session();
+    exec(&ctx, T).await?;
+    let placeholder = |maxbins: f64| {
+        let options = BinOptions {
+            maxbins,
+            ..Default::default()
+        };
+        let window = bin::window(options).call(vec![col("x")]);
+        window.partition_by(vec![col("g")]).build()
+    };
+    let (b, c) = (placeholder(10.0)?, placeholder(4.0)?);
+    let n = row_number()
+        .order_by(vec![col("i").sort(true, false)])
+        .build()?;
+    let column = |e: &Expr| Expr::Column(Column::from_name(e.schema_name().to_string()));
+    view(&ctx, "windows", "SELECT * FROM t", |plan| {
+        let (plan, rest) = plan_windows(plan, vec![b.clone(), c.clone(), n.clone()])?;
+        assert_eq!(rest, vec![n.clone()]);
+        // The window node adds the column of `row_number` last.
+        let plan = LogicalPlanBuilder::window_plan(plan, rest)?;
+        let n = plan.schema().columns().pop().expect("a column");
+        LogicalPlanBuilder::from(plan)
+            .project(vec![
+                col("i"),
+                column(&b).alias("b"),
+                column(&c).alias("c"),
+                Expr::Column(n).alias("n"),
+            ])?
+            .build()
+    })
+    .await?;
+    assert_eq!(bins(&ctx, "windows", "b").await?, BY_G);
+    // At most 4 bins: bins of 5 from 0, of 50 from 100, and of 1 from 3.
+    let want = "0 5, 10 15, 15 20, 100 150, 150 200, 150 200, 3 4, 6 7, -";
+    assert_eq!(bins(&ctx, "windows", "c").await?, want);
+    let n = rows(&ctx, "SELECT i, n - i FROM windows").await?;
+    assert_eq!(
+        n,
+        (0..9)
+            .map(|i| vec![i.to_string(), "1".into()])
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }
 
 /// The extent is that of the finite values, and NULL, NaN, and infinite values have no bin.
 #[tokio::test]
 async fn non_finite_values() -> Result<()> {
-    for rules in [true, false] {
-        let ctx = session(rules);
-        let x = vec![
-            Some(0.0),
-            Some(10.0),
-            Some(f64::NAN),
-            Some(f64::INFINITY),
-            None,
-        ];
-        register(
-            &ctx,
-            "t",
-            vec![
-                ("i", Arc::new(Int64Array::from_iter_values(0..5))),
-                ("x", Arc::new(Float64Array::from(x))),
-            ],
-        )?;
-        let got = bins(&ctx, "SELECT i, bin(x) OVER () AS b FROM t").await?;
-        assert_eq!(got[0].1, Some((0.0, 0.5)), "rules {rules}");
-        assert_eq!(got[1].1, Some((9.5, 10.0)), "rules {rules}");
-        assert_eq!(got[2].1, None, "rules {rules}");
-        assert_eq!(got[3].1, None, "rules {rules}");
-        assert_eq!(got[4].1, None, "rules {rules}");
-    }
+    let ctx = session();
+    let input = "SELECT * FROM (VALUES (0, 0.0), (1, 10.0), (2, 'NaN'::double), \
+        (3, 'Infinity'::double), (4, NULL)) AS t(i, x)";
+    common::bins(&ctx, "binned", input, "x", &[], BinOptions::default()).await?;
+    assert_eq!(bins(&ctx, "binned", "b").await?, "0 0.5, 9.5 10, -, -, -");
     Ok(())
 }
 
-/// A window node with bin and other functions, and a volatile input, which the rule leaves
-/// to the window evaluator rather than read two times.
+/// A histogram of bins: [`StructGroupSplit`] groups by whether a bin is NULL and by its fields,
+/// then makes the bin again.
 #[tokio::test]
-async fn mixed_and_volatile() -> Result<()> {
-    let (rules, plain) = (session(true), session(false));
-    for ctx in [&rules, &plain] {
-        register(
-            ctx,
-            "t",
-            vec![
-                ("i", Arc::new(Int64Array::from_iter_values(0..50))),
-                (
-                    "x",
-                    Arc::new(Float64Array::from_iter_values(
-                        (0..50).map(|i| (i * 7 % 50) as f64),
-                    )),
-                ),
-            ],
-        )?;
-    }
-    let sql = "SELECT i, bin(x) OVER () AS b, count(*) OVER () AS n FROM t";
-    assert_eq!(bins(&rules, sql).await?, bins(&plain, sql).await?);
-    let plan = rules
-        .sql(&format!("EXPLAIN {sql}"))
-        .await?
-        .collect()
-        .await?;
-    let plan = datafusion::arrow::util::pretty::pretty_format_batches(&plan)?.to_string();
-    assert!(plan.contains("__bin_apply"), "{plan}");
+async fn histogram() -> Result<()> {
+    let ctx = session();
+    ctx.add_optimizer_rule(Arc::new(StructGroupSplit));
+    exec(&ctx, V).await?;
+    let options = options(|o| o.step = Some(25.0));
+    common::bins(&ctx, "binned", "SELECT * FROM v", "x", &[], options).await?;
+    let sql = "SELECT b, count(*) FROM binned GROUP BY b";
+    let explain = rows(&ctx, &format!("EXPLAIN {sql}")).await?;
+    assert!(
+        explain
+            .concat()
+            .iter()
+            .any(|r| r.contains("__make_nullable_struct")),
+        "{explain:?}"
+    );
+    let want = [
+        ["NULL", "1"],
+        ["{start: 0.0, end: 25.0}", "3"],
+        ["{start: 25.0, end: 50.0}", "1"],
+        ["{start: 50.0, end: 75.0}", "2"],
+        ["{start: 75.0, end: 100.0}", "2"],
+    ];
+    assert_eq!(rows(&ctx, sql).await?, want);
+    Ok(())
+}
 
-    // Each row's bin contains its own value, which a second read of random() would not give.
-    let sql = "SELECT b['start'] <= r AND r <= b['end'] AS ok FROM (SELECT r, bin(r) OVER () AS b FROM (SELECT random() * 100 AS r FROM t))";
-    for batch in rules.sql(sql).await?.collect().await? {
-        assert_eq!(batch.column(0).as_boolean().false_count(), 0);
+/// The checks of the options name the option, and `bin::plan` fails with the check's message.
+#[tokio::test]
+async fn option_errors() -> Result<()> {
+    // The changes of the options, the option, and the message after "The {option} of bin must be".
+    let cases: [(Change, &str, &str); 10] = [
+        (|o| o.base = 1.0, "base", "a number greater than 1, not 1"),
+        (|o| o.base = 0.5, "base", "a number greater than 1, not 0.5"),
+        (|o| o.base = 0.0, "base", "a number greater than 1, not 0"),
+        (|o| o.maxbins = -3.0, "maxbins", "a positive number, not -3"),
+        (|o| o.maxbins = 0.0, "maxbins", "a positive number, not 0"),
+        (|o| o.step = Some(0.0), "step", "a positive number, not 0"),
+        (|o| o.step = Some(-1.0), "step", "a positive number, not -1"),
+        (
+            |o| o.divide = vec![0.0],
+            "divide",
+            "a positive number, not 0",
+        ),
+        (
+            |o| o.steps = Some(vec![5.0, 1.0]),
+            "steps",
+            "in increasing order",
+        ),
+        (
+            |o| o.extent = Some([1.0, f64::NAN]),
+            "extent",
+            "two finite numbers, not [1, NaN]",
+        ),
+    ];
+    for (f, option, message) in cases {
+        let message = format!("The {option} of bin must be {message}");
+        let options = options(f);
+        assert_eq!(
+            options.check(),
+            Err(OptionError { option, message }),
+            "{options:?}"
+        );
     }
+
+    let ctx = session();
+    exec(&ctx, V).await?;
+    let options = options(|o| o.maxbins = 0.0);
+    let e = common::bins(&ctx, "binned", "SELECT * FROM v", "x", &[], options)
+        .await
+        .expect_err("a maxbins of 0");
+    let message = "The maxbins of bin must be a positive number, not 0";
+    assert!(e.to_string().contains(message), "{e}");
+    Ok(())
+}
+
+/// The bin of each row of a volatile input contains the row's value: the extent and the rows
+/// are of one read of the input.
+#[tokio::test]
+async fn volatile_input() -> Result<()> {
+    let ctx = session();
+    let input = "SELECT i, random() * 100 AS x FROM (VALUES (0), (1), (2)) AS t(i)";
+    common::bins(&ctx, "binned", input, "x", &[], BinOptions::default()).await?;
+    let sql =
+        "SELECT count(*) FROM binned WHERE b IS NULL OR NOT (b['start'] <= x AND x <= b['end'])";
+    assert_eq!(rows(&ctx, sql).await?, [["0"]]);
     Ok(())
 }

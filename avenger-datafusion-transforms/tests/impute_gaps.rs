@@ -1,56 +1,54 @@
 //! `impute` with `fill_gaps` and `partition_by`: the keys of a sequence that no row has, for
 //! time units, bins, dates, intervals, and numbers, in partitions that impute separately.
+//!
+//! Each case builds an `ImputeCall` with `common::impute_call` from the names of its columns and
+//! the SQL of its named arguments over the schema of its input query, plans it with
+//! `impute::plan`, and registers the plan as a view, which DataFusion's SQL reads. The keys of
+//! time units and bins come from views of `timeunit::plan` and `bin::plan`.
 
 mod common;
 
-use common::session;
-
-use datafusion::arrow::array::Array;
-use datafusion::arrow::util::display::array_value_to_string;
+use avenger_datafusion_transforms::bin::{self, BinOptions};
+use avenger_datafusion_transforms::stack::{self, StackOffset};
+use avenger_datafusion_transforms::table_function::ArgAt;
+use avenger_datafusion_transforms::timeunit::{TimeUnitOptions, WeekStart};
+use common::{exec, impute_call, impute_error, imputed, rows, session, time_units, unit};
 use datafusion::common::Result;
 use datafusion::prelude::SessionContext;
 
-/// The rows of a query as strings, sorted.
-async fn rows(ctx: &SessionContext, sql: &str) -> Result<Vec<Vec<String>>> {
-    let mut out = Vec::new();
-    for b in common::calls::sql(ctx, sql).await?.collect().await? {
-        for i in 0..b.num_rows() {
-            out.push(
-                b.columns()
-                    .iter()
-                    .map(|c| {
-                        if c.is_null(i) {
-                            "NULL".to_string()
-                        } else {
-                            array_value_to_string(c, i).unwrap()
-                        }
-                    })
-                    .collect(),
-            );
-        }
-    }
-    out.sort();
-    Ok(out)
+/// The key, group, and value columns of a call.
+type Columns<'a> = (&'a str, &'a [&'a str], &'a str);
+
+/// Named arguments: their names and their SQL.
+type Named<'a> = &'a [(&'a str, &'a str)];
+
+/// The named argument `value => 0`.
+const VALUE: (&str, &str) = ("value", "0");
+
+/// The named arguments `value => 0` and `fill_gaps => sql`.
+fn gaps(sql: &str) -> [(&str, &str); 2] {
+    [VALUE, ("fill_gaps", sql)]
 }
 
-/// The values of the first column of a query, sorted.
-async fn column(ctx: &SessionContext, sql: &str) -> Result<Vec<String>> {
-    Ok(rows(ctx, sql)
-        .await?
-        .into_iter()
-        .map(|r| r[0].clone())
-        .collect())
+/// The rows that `sql` reads from the view `imputed` of the call of `impute` over the query
+/// `input`, or the error of running the call. A call that does not plan panics.
+async fn read(
+    ctx: &SessionContext,
+    input: &str,
+    cols: Columns<'_>,
+    named: Named<'_>,
+    sql: &str,
+) -> Result<Vec<Vec<String>>> {
+    let call = impute_call(ctx, input, cols.0, cols.1, cols.2, named).await;
+    imputed(ctx, "imputed", input, call.unwrap()).await.unwrap();
+    rows(ctx, sql).await
 }
 
-async fn error(ctx: &SessionContext, sql: &str) -> String {
-    common::error(ctx, sql)
-        .await
-        .unwrap_or_else(|| panic!("no error: {sql}"))
-}
-
+/// The tables `sales` and `obs`, and the view `sales_months` of `sales` with the column `u`,
+/// the month of `t`.
 async fn context() -> Result<SessionContext> {
-    let ctx = session(true);
-    common::calls::sql(
+    let ctx = session();
+    exec(
         &ctx,
         "CREATE TABLE sales (t TIMESTAMP, d DATE, series VARCHAR, units DOUBLE) AS VALUES
          (TIMESTAMP '2024-01-05 10:00:00', DATE '2024-01-01', 'A', 5.0),
@@ -59,19 +57,17 @@ async fn context() -> Result<SessionContext> {
          (TIMESTAMP '2024-01-07 10:00:00', DATE '2024-01-01', 'B', 7.0),
          (TIMESTAMP '2024-04-02 10:00:00', DATE '2024-04-01', 'B', 3.0)",
     )
-    .await?
-    .collect()
     .await?;
-    common::calls::sql(
+    exec(
         &ctx,
         "CREATE TABLE obs (g BIGINT, x DOUBLE) AS VALUES
          (1, 0.0), (1, 10.0), (1, 100.0),
          (2, 0.0), (2, 0.5), (2, 3.0),
          (NULL, 0.0), (NULL, 40.0)",
     )
-    .await?
-    .collect()
     .await?;
+    let input = "SELECT series, t, units FROM sales";
+    time_units(&ctx, "sales_months", input, "t", &[], unit("month")).await?;
     Ok(ctx)
 }
 
@@ -80,32 +76,14 @@ async fn context() -> Result<SessionContext> {
 #[tokio::test]
 async fn unit_types() -> Result<()> {
     let ctx = context().await?;
-    let keys = [
-        (
-            "timeunit(t, 'unit', 'month') OVER ()",
-            "Dictionary(Int32, Utf8)",
-        ),
-        (
-            "named_struct('start', date_trunc('month', t), 'end', date_trunc('month', t) + INTERVAL '1 month', 'unit', 'month')",
-            "Utf8",
-        ),
-    ];
-    for (key, unit_type) in keys {
-        let got = rows(&ctx, &format!(
-            "SELECT u['start'], u['unit'], arrow_typeof(u['unit']) FROM impute((SELECT {key} AS u, units FROM sales WHERE series = 'A'), u, [], units, value => 0, fill_gaps => true)"
-        ))
-        .await?;
-        let want: Vec<Vec<String>> = ["01", "02", "03", "04"]
-            .iter()
-            .map(|m| {
-                vec![
-                    format!("2024-{m}-01T00:00:00"),
-                    "month".into(),
-                    unit_type.into(),
-                ]
-            })
-            .collect();
-        assert_eq!(got, want, "{key}");
+    let months = "SELECT u, units FROM sales_months WHERE series = 'A'";
+    let built = "SELECT named_struct('start', date_trunc('month', t), 'end', date_trunc('month', t) + INTERVAL '1 month', 'unit', 'month') AS u, units FROM sales WHERE series = 'A'";
+    let sql = "SELECT u['start'], u['unit'], arrow_typeof(u['unit']) FROM imputed";
+    for (input, ty) in [(months, "Dictionary(Int32, Utf8)"), (built, "Utf8")] {
+        let got = read(&ctx, input, ("u", &[], "units"), &gaps("true"), sql).await?;
+        let got: Vec<String> = got.iter().map(|r| r.join(" ")).collect();
+        let want = ["01", "02", "03", "04"].map(|m| format!("2024-{m}-01T00:00:00 month {ty}"));
+        assert_eq!(got, want, "{input}");
     }
     Ok(())
 }
@@ -115,12 +93,10 @@ async fn unit_types() -> Result<()> {
 #[tokio::test]
 async fn time_unit_months() -> Result<()> {
     let ctx = context().await?;
-    let monthly = "(SELECT series, u, sum(units) AS units FROM
-         (SELECT series, timeunit(t, 'unit', 'month') OVER () AS u, units FROM sales) GROUP BY series, u)";
-    let got = rows(&ctx, &format!(
-        "SELECT series, u['start'] AS month, units FROM impute({monthly}, u, [series], units, value => 0, fill_gaps => true)"
-    ))
-    .await?;
+    let monthly = "SELECT series, u, sum(units) AS units FROM sales_months GROUP BY series, u";
+    let cols = ("u", &["series"][..], "units");
+    let sql = "SELECT series, u['start'] AS month, units FROM imputed";
+    let got = read(&ctx, monthly, cols, &gaps("true"), sql).await?;
     let want = [
         ["A", "2024-01-01T00:00:00", "5.0"],
         ["A", "2024-02-01T00:00:00", "10.0"],
@@ -131,34 +107,25 @@ async fn time_unit_months() -> Result<()> {
         ["B", "2024-03-01T00:00:00", "0.0"],
         ["B", "2024-04-01T00:00:00", "3.0"],
     ];
-    assert_eq!(got, want.map(|r| r.map(String::from).to_vec()));
+    assert_eq!(got, want);
 
     // The added keys are whole time units: the end of March and the unit name.
-    let ends = column(&ctx, &format!(
-        "SELECT u['end'] || ' ' || u['unit'] FROM impute({monthly}, u, [series], units, value => 0, fill_gaps => true) WHERE u['start'] = TIMESTAMP '2024-03-01'"
-    ))
-    .await?;
-    assert_eq!(
-        ends,
-        ["2024-04-01T00:00:00 month", "2024-04-01T00:00:00 month"]
-    );
+    let sql = "SELECT u['end'] || ' ' || u['unit'] FROM imputed WHERE u['start'] = TIMESTAMP '2024-03-01'";
+    let end = "2024-04-01T00:00:00 month";
+    assert_eq!(rows(&ctx, sql).await?.concat(), [end, end]);
 
     // Stacked: each month has a layer of each series.
-    let stacked = rows(&ctx, &format!(
-        "SELECT u['start'] AS month, count(*) FROM (SELECT u, stack(units) OVER (PARTITION BY u ORDER BY series) AS y
-         FROM impute({monthly}, u, [series], units, value => 0, fill_gaps => true)) GROUP BY u ORDER BY 1"
-    ))
-    .await?;
+    ctx.register_udwf(stack::window(StackOffset::Zero).as_ref().clone());
+    let sql = "SELECT u['start'] AS month, count(*) FROM (SELECT u, stack(units) OVER (PARTITION BY u ORDER BY series) AS y
+         FROM imputed) GROUP BY u ORDER BY 1";
+    let stacked = rows(&ctx, sql).await?;
     assert_eq!(stacked.len(), 4);
     assert!(stacked.iter().all(|r| r[1] == "2"));
 
     // A sequence: all of 2024's first half, by the key's own unit.
-    let half = column(&ctx, &format!(
-        "SELECT DISTINCT u['start'] FROM impute({monthly}, u, [series], units, value => 0,
-            fill_gaps => named_struct('start', TIMESTAMP '2024-01-01', 'end', TIMESTAMP '2024-07-01'))"
-    ))
-    .await?;
-    assert_eq!(half.len(), 6);
+    let half = gaps("named_struct('start', TIMESTAMP '2024-01-01', 'end', TIMESTAMP '2024-07-01')");
+    let sql = "SELECT DISTINCT u['start'] FROM imputed";
+    assert_eq!(read(&ctx, monthly, cols, &half, sql).await?.len(), 6);
     Ok(())
 }
 
@@ -166,79 +133,74 @@ async fn time_unit_months() -> Result<()> {
 #[tokio::test]
 async fn date_keys() -> Result<()> {
     let ctx = context().await?;
-    let input = "(SELECT d, series, sum(units) AS units FROM sales GROUP BY d, series)";
-    let got = column(&ctx, &format!(
-        "SELECT DISTINCT d FROM impute({input}, d, [series], units, value => 0, fill_gaps => 'month')"
-    ))
-    .await?;
-    assert_eq!(
-        got,
-        ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"]
-    );
+    let input = "SELECT d, series, sum(units) AS units FROM sales GROUP BY d, series";
+    let cols = ("d", &["series"][..], "units");
+    let sql = "SELECT DISTINCT d FROM imputed";
+    let got = read(&ctx, input, cols, &gaps("'month'"), sql).await?;
+    let want = ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"];
+    assert_eq!(got.concat(), want);
 
     // With the end of the year, half-open: 2024-12-31 ends with December.
-    let got = column(
-        &ctx,
-        &format!(
-            "SELECT DISTINCT d FROM impute({input}, d, [series], units, value => 0,
-            fill_gaps => named_struct('end', DATE '2024-12-31', 'step', 'month'))"
-        ),
-    )
-    .await?;
+    let year = gaps("named_struct('end', DATE '2024-12-31', 'step', 'month')");
+    let got = read(&ctx, input, cols, &year, sql).await?.concat();
     assert_eq!(got.len(), 12);
     assert_eq!(got.last().unwrap(), "2024-12-01");
 
     // Two series of four months each, and the added rows are flagged.
-    let n = rows(&ctx, &format!(
-        "SELECT imputed, count(*) FROM impute({input}, d, [series], units, value => 0, fill_gaps => 'month', flag => imputed) GROUP BY imputed"
-    ))
-    .await?;
-    assert_eq!(
-        n,
-        [["false", "5"], ["true", "3"]].map(|r| r.map(String::from).to_vec())
-    );
+    let named = [VALUE, ("fill_gaps", "'month'"), ("flag", "imputed")];
+    let sql = "SELECT imputed, count(*) FROM imputed GROUP BY imputed";
+    let n = read(&ctx, input, cols, &named, sql).await?;
+    assert_eq!(n, [["false", "5"], ["true", "3"]]);
     Ok(())
 }
 
-/// Bins: the empty bins between the bins of the rows, and with `bin_params`, the empty bins
-/// at the ends of the mesh, with the keys that `bin` gives values in them.
+/// Bins: the empty bins between the bins of the rows, and with the bins of `bin_params`, the
+/// empty bins at the ends of the mesh, with the keys that `bin` gives values in them.
 #[tokio::test]
 async fn bins() -> Result<()> {
-    let ctx = session(true);
-    common::calls::sql(
-        &ctx,
-        "CREATE TABLE v (x DOUBLE) AS VALUES (5.0), (25.0), (26.0), (55.0)",
-    )
-    .await?
-    .collect()
-    .await?;
-    let hist = "(SELECT b, count(*) AS n FROM (SELECT bin(x, 'extent', [0, 100], 'maxbins', 10) OVER () AS b FROM v) GROUP BY b)";
-    let starts = |fill: &str| {
-        format!(
-            "SELECT b['start'] FROM impute({hist}, b, [], n, value => 0, fill_gaps => {fill}) ORDER BY 1"
-        )
+    let ctx = session();
+    let sql = "CREATE TABLE v (x DOUBLE) AS VALUES (5.0), (25.0), (26.0), (55.0)";
+    exec(&ctx, sql).await?;
+    let options = BinOptions {
+        extent: Some([0.0, 100.0]),
+        maxbins: 10.0,
+        ..Default::default()
     };
-    let between: Vec<String> = column(&ctx, &starts("true")).await?;
+    common::bins(&ctx, "v_bins", "SELECT x FROM v", "x", &[], options.clone()).await?;
+    let hist = "SELECT b, count(*) AS n FROM v_bins GROUP BY b";
+    let b = ("b", &[][..], "n");
+    let starts = async |fill: &str| {
+        let sql = "SELECT b['start'] FROM imputed ORDER BY 1";
+        read(&ctx, hist, b, &gaps(fill), sql)
+            .await
+            .map(|r| r.concat())
+    };
+    let between = starts("true").await?;
     assert_eq!(between, ["0.0", "10.0", "20.0", "30.0", "40.0", "50.0"]);
 
     // The complete mesh, and the bits of each key are those of `bin`.
-    let mesh = rows(&ctx, &format!(
-        "SELECT b['start'], b['end'] FROM impute({hist}, b, [], n, value => 0, fill_gaps => bin_params(0, 100, 'maxbins', 10))"
-    ))
-    .await?;
-    let binned = rows(&ctx,
-        "SELECT DISTINCT b['start'], b['end'] FROM (SELECT bin(x, 'extent', [0, 100], 'maxbins', 10) OVER () AS b
-         FROM (SELECT CAST(value AS DOUBLE) * 10 + 5 AS x FROM generate_series(0, 9)))",
-    )
-    .await?;
+    let tens = BinOptions {
+        maxbins: 10.0,
+        ..Default::default()
+    };
+    let p = bin::bin_params(0.0, 100.0, &tens);
+    let mesh = format!(
+        "named_struct('start', {:?}, 'end', {:?}, 'step', {:?})",
+        p.start, p.end, p.step
+    );
+    let sql = "SELECT b['start'], b['end'] FROM imputed";
+    let mesh = read(&ctx, hist, b, &gaps(&mesh), sql).await?;
+    let input = "SELECT CAST(value AS DOUBLE) * 10 + 5 AS x FROM generate_series(0, 9)";
+    common::bins(&ctx, "mesh_bins", input, "x", &[], options).await?;
+    let binned = rows(&ctx, "SELECT DISTINCT b['start'], b['end'] FROM mesh_bins").await?;
     assert_eq!(mesh, binned);
     assert_eq!(mesh.len(), 10);
 
     // A range narrower than the data: keys outside it stay, and no gaps are filled there.
-    let narrow = column(&ctx, &starts("named_struct('start', 20.0, 'end', 40.0)")).await?;
+    let narrow = starts("named_struct('start', 20.0, 'end', 40.0)").await?;
     assert_eq!(narrow, ["0.0", "20.0", "30.0", "50.0"]);
     // Only an end: from the least key.
-    let to = column(&ctx, &starts("named_struct('end', 80.0)")).await?;
+    let to = starts("named_struct('end', 80.0)").await?;
     assert_eq!(to.len(), 8);
     Ok(())
 }
@@ -248,52 +210,46 @@ async fn bins() -> Result<()> {
 #[tokio::test]
 async fn partitions() -> Result<()> {
     let ctx = context().await?;
-    common::calls::sql(&ctx, "SET datafusion.execution.target_partitions = 4")
-        .await?
-        .collect()
-        .await?;
-    let hist = "(SELECT g, b, count(*) AS n FROM (SELECT g, bin(x, 'maxbins', 10) OVER (PARTITION BY g) AS b FROM obs) GROUP BY g, b)";
-    let got = rows(&ctx, &format!(
-        "SELECT g, count(*), sum(n), min(b['end'] - b['start']) FROM impute({hist}, b, [], n, value => 0, fill_gaps => true, partition_by => g) GROUP BY g"
-    ))
-    .await?;
+    exec(&ctx, "SET datafusion.execution.target_partitions = 4").await?;
+    let options = BinOptions {
+        maxbins: 10.0,
+        ..Default::default()
+    };
+    let obs = "SELECT g, x FROM obs";
+    common::bins(&ctx, "obs_bins", obs, "x", &["g"], options).await?;
+    let hist = "SELECT g, b, count(*) AS n FROM obs_bins GROUP BY g, b";
+    let b = ("b", &[][..], "n");
+    let by_g = [VALUE, ("fill_gaps", "true"), ("partition_by", "g")];
+    let sql = "SELECT g, count(*), sum(n), min(b['end'] - b['start']) FROM imputed GROUP BY g";
+    let got = read(&ctx, hist, b, &by_g, sql).await?;
     // g = 1: bins 0 to 90 by 10; g = 2: bins 0 to 2.5 by 0.5; NULL: bins 0 to 35 by 5.
     let want = [
         ["1", "10", "3", "10.0"],
         ["2", "6", "3", "0.5"],
         ["NULL", "8", "2", "5.0"],
     ];
-    assert_eq!(got, want.map(|r| r.map(String::from).to_vec()));
+    assert_eq!(got, want);
 
     // The partitions run apart: the input is hash partitioned on the partition column.
-    let plan = rows(&ctx, &format!("EXPLAIN SELECT * FROM impute({hist}, b, [], n, value => 0, fill_gaps => true, partition_by => g)")).await?;
+    let plan = rows(&ctx, "EXPLAIN SELECT * FROM imputed").await?;
     let plan: String = plan.iter().map(|r| r.join(" ")).collect();
-    assert!(
-        plan.contains("RepartitionExec: partitioning=Hash([g@"),
-        "{plan}"
-    );
+    let hash = "RepartitionExec: partitioning=Hash([g@";
+    assert!(plan.contains(hash), "{plan}");
 
     // Without the partitions, the bins of the partitions differ in width.
-    let e = error(
-        &ctx,
-        &format!("SELECT * FROM impute({hist}, b, [], n, value => 0, fill_gaps => true)"),
-    )
-    .await;
+    let e = read(&ctx, hist, b, &gaps("true"), "SELECT * FROM imputed").await;
+    let e = e.unwrap_err().to_string();
     assert!(
         e.contains("intervals of one width") && e.contains("partition_by"),
         "{e}"
     );
 
     // A series that does not occur in a partition gets no rows in it.
-    let input = "(SELECT d, series, sum(units) AS units, CASE WHEN series = 'A' THEN 'left' ELSE 'right' END AS facet FROM sales GROUP BY d, series)";
-    let got = rows(&ctx, &format!(
-        "SELECT facet, series, count(*) FROM impute({input}, d, [series], units, value => 0, fill_gaps => 'month', partition_by => facet) GROUP BY facet, series"
-    ))
-    .await?;
-    assert_eq!(
-        got,
-        [["left", "A", "4"], ["right", "B", "4"]].map(|r| r.map(String::from).to_vec())
-    );
+    let input = "SELECT d, series, sum(units) AS units, CASE WHEN series = 'A' THEN 'left' ELSE 'right' END AS facet FROM sales GROUP BY d, series";
+    let named = [VALUE, ("fill_gaps", "'month'"), ("partition_by", "facet")];
+    let sql = "SELECT facet, series, count(*) FROM imputed GROUP BY facet, series";
+    let got = read(&ctx, input, ("d", &["series"], "units"), &named, sql).await?;
+    assert_eq!(got, [["left", "A", "4"], ["right", "B", "4"]]);
     Ok(())
 }
 
@@ -301,161 +257,176 @@ async fn partitions() -> Result<()> {
 /// quarters from the options of `timeunit`.
 #[tokio::test]
 async fn calendars() -> Result<()> {
-    let ctx = session(true);
-    common::calls::sql(&ctx,
+    let ctx = session();
+    exec(&ctx,
         "CREATE TABLE ts AS SELECT arrow_cast(column1, 'Timestamp(Millisecond, Some(\"America/New_York\"))') AS t FROM (VALUES
          (TIMESTAMP '2024-11-03 04:30:00'), (TIMESTAMP '2024-11-04 04:30:00'))",
     )
-    .await?
-    .collect()
     .await?;
-    let hours = column(&ctx,
-        "SELECT u['start'] FROM impute((SELECT timeunit(t, 'unit', 'hour') OVER () AS u, 1 AS n FROM ts), u, [], n, value => 0, fill_gaps => true)",
-    )
-    .await?;
+    let starts = async |view: &str| {
+        let input = format!("SELECT u, 1 AS n FROM {view}");
+        let sql = "SELECT u['start'] FROM imputed";
+        read(&ctx, &input, ("u", &[], "n"), &gaps("true"), sql)
+            .await
+            .map(|r| r.concat())
+    };
+    time_units(&ctx, "ts_hours", "SELECT t FROM ts", "t", &[], unit("hour")).await?;
     // 00:00 to 23:00 local, with 01:00 two times.
-    assert_eq!(hours.len(), 25);
+    assert_eq!(starts("ts_hours").await?.len(), 25);
 
-    common::calls::sql(&ctx,
+    exec(
+        &ctx,
         "CREATE TABLE days (t TIMESTAMP) AS VALUES (TIMESTAMP '2024-03-05'), (TIMESTAMP '2024-03-26'),
          (TIMESTAMP '2024-10-15'), (TIMESTAMP '2025-06-01')",
     )
-    .await?
-    .collect()
     .await?;
-    let weeks = column(&ctx,
-        "SELECT u['start'] FROM impute((SELECT timeunit(t, 'unit', 'week', 'week_start', 'sunday') OVER () AS u, 1 AS n FROM days WHERE t < TIMESTAMP '2024-04-01'),
-            u, [], n, value => 0, fill_gaps => true)",
-    )
-    .await?;
-    assert_eq!(
-        weeks,
-        [
-            "2024-03-03T00:00:00",
-            "2024-03-10T00:00:00",
-            "2024-03-17T00:00:00",
-            "2024-03-24T00:00:00"
-        ]
-    );
-    let quarters = column(&ctx,
-        "SELECT u['start'] FROM impute((SELECT timeunit(t, 'unit', 'fiscal_quarter', 'fiscal_year_start', 10) OVER () AS u, 1 AS n FROM days WHERE t >= TIMESTAMP '2024-10-01'),
-            u, [], n, value => 0, fill_gaps => true)",
-    )
-    .await?;
-    assert_eq!(
-        quarters,
-        [
-            "2024-10-01T00:00:00",
-            "2025-01-01T00:00:00",
-            "2025-04-01T00:00:00"
-        ]
-    );
+    let input = "SELECT t FROM days WHERE t < TIMESTAMP '2024-04-01'";
+    let sundays = TimeUnitOptions {
+        week_start: WeekStart::Sunday,
+        ..unit("week")
+    };
+    time_units(&ctx, "days_weeks", input, "t", &[], sundays).await?;
+    let weeks = ["03", "10", "17", "24"].map(|d| format!("2024-03-{d}T00:00:00"));
+    assert_eq!(starts("days_weeks").await?, weeks);
+    let input = "SELECT t FROM days WHERE t >= TIMESTAMP '2024-10-01'";
+    let fiscal = TimeUnitOptions {
+        fiscal_year_start: Some(10),
+        ..unit("fiscal_quarter")
+    };
+    time_units(&ctx, "days_quarters", input, "t", &[], fiscal).await?;
+    let quarters = ["2024-10", "2025-01", "2025-04"].map(|m| format!("{m}-01T00:00:00"));
+    assert_eq!(starts("days_quarters").await?, quarters);
     Ok(())
 }
 
 /// Intervals of dates that a query builds, and numbers with a step.
 #[tokio::test]
 async fn intervals_and_numbers() -> Result<()> {
-    let ctx = session(true);
-    common::calls::sql(&ctx, "CREATE TABLE e (t TIMESTAMP, year BIGINT) AS VALUES (TIMESTAMP '2024-01-01 05:00:00', 2001), (TIMESTAMP '2024-01-04 07:00:00', 2004)")
-        .await?
-        .collect()
+    let ctx = session();
+    exec(&ctx, "CREATE TABLE e (t TIMESTAMP, year BIGINT) AS VALUES (TIMESTAMP '2024-01-01 05:00:00', 2001), (TIMESTAMP '2024-01-04 07:00:00', 2004)")
         .await?;
-    let days = "(SELECT named_struct('start', date_bin(INTERVAL '1 day', t), 'end', date_bin(INTERVAL '1 day', t) + INTERVAL '1 day') AS k, 1 AS n FROM e)";
-    let got = column(
-        &ctx,
-        &format!("SELECT k['start'] FROM impute({days}, k, [], n, value => 0, fill_gaps => true)"),
-    )
-    .await?;
+    let days = "SELECT named_struct('start', date_bin(INTERVAL '1 day', t), 'end', date_bin(INTERVAL '1 day', t) + INTERVAL '1 day') AS k, 1 AS n FROM e";
+    let starts = "SELECT k['start'] FROM imputed";
+    let got = read(&ctx, days, ("k", &[], "n"), &gaps("true"), starts).await?;
     assert_eq!(got.len(), 4);
-    let got = column(&ctx, &format!(
-        "SELECT k['start'] FROM impute({days}, k, [], n, value => 0, fill_gaps => named_struct('end', TIMESTAMP '2024-01-08', 'step', INTERVAL '1 day'))"
-    ))
-    .await?;
+    let week = gaps("named_struct('end', TIMESTAMP '2024-01-08', 'step', INTERVAL '1 day')");
+    let got = read(&ctx, days, ("k", &[], "n"), &week, starts).await?;
     assert_eq!(got.len(), 7);
-    let years = column(&ctx,
-        "SELECT year FROM impute((SELECT year, 1 AS n FROM e), year, [], n, value => 0, fill_gaps => named_struct('step', 1))",
-    )
-    .await?;
-    assert_eq!(years, ["2001", "2002", "2003", "2004"]);
+    let (input, sql) = ("SELECT year, 1 AS n FROM e", "SELECT year FROM imputed");
+    let named = gaps("named_struct('step', 1)");
+    let years = read(&ctx, input, ("year", &[], "n"), &named, sql).await?;
+    assert_eq!(years.concat(), ["2001", "2002", "2003", "2004"]);
     Ok(())
 }
 
+/// The errors of `fill_gaps` and `partition_by`: those of the arguments, at their arguments,
+/// then those of the keys of a partition, as the call runs.
 #[tokio::test]
 async fn errors() -> Result<()> {
     let ctx = context().await?;
-    common::calls::sql(&ctx, "CREATE TABLE mid (d DATE, n BIGINT) AS VALUES (DATE '2024-03-15', 1), (DATE '2024-05-01', 2)").await?.collect().await?;
-    let monthly = "(SELECT timeunit(t, 'unit', 'month') OVER () AS u, units FROM sales)";
-    for (sql, message) in [
+    exec(&ctx, "CREATE TABLE mid (d DATE, n BIGINT) AS VALUES (DATE '2024-03-15', 1), (DATE '2024-05-01', 2)").await?;
+    let mid = "SELECT * FROM mid";
+    let d = ("d", &[][..], "n");
+    // The input, the columns, and the named arguments of a call, and a part of the message of
+    // its error, at its second named argument.
+    let plan_errors: [(&str, Columns, Named, &str); 9] = [
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => 'month')",
-            "is not the start of a 'month'",
-        ),
-        (
-            "SELECT * FROM impute((SELECT named_struct('start', TIMESTAMP '2024-03-03', 'end', TIMESTAMP '2024-03-10', 'unit', 'week') AS k, 1 AS n), k, [], n, value => 0, fill_gaps => true)",
-            "is not a unit 'week' of its calendar options",
-        ),
-        (
-            &format!(
-                "SELECT * FROM impute({monthly}, u, [], units, value => 0, fill_gaps => 'day')"
-            ),
-            "differs from the unit 'month'",
-        ),
-        (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => 'fiscal_quarter')",
+            mid,
+            d,
+            &gaps("'fiscal_quarter'"),
             "needs a fiscal year start",
         ),
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => 'month_of_year')",
+            mid,
+            d,
+            &gaps("'month_of_year'"),
             "does not apply to a date key",
         ),
+        (mid, d, &gaps("'hour'"), "shorter than one day"),
+        (mid, d, &gaps("true"), "needs a unit"),
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => 'hour')",
-            "shorter than one day",
-        ),
-        (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => true)",
-            "needs a unit",
-        ),
-        (
-            "SELECT * FROM impute((SELECT * FROM mid), n, [], d, value => DATE '2024-01-01', fill_gaps => true)",
+            mid,
+            ("n", &[], "d"),
+            &[("value", "DATE '2024-01-01'"), ("fill_gaps", "true")],
             "needs a step",
         ),
         (
-            "SELECT * FROM impute((SELECT series, units FROM sales), series, [], units, value => 0, fill_gaps => true)",
+            "SELECT series, units FROM sales",
+            ("series", &[], "units"),
+            &gaps("true"),
             "fills the gaps of bins",
         ),
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => 'month', keys => [DATE '2024-03-01'])",
+            mid,
+            d,
+            &[
+                VALUE,
+                ("fill_gaps", "'month'"),
+                ("keys", "[DATE '2024-03-01']"),
+            ],
             "`keys` replaces",
         ),
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => named_struct('stop', DATE '2024-12-01', 'step', 'month'))",
+            mid,
+            d,
+            &gaps("named_struct('stop', DATE '2024-12-01', 'step', 'month')"),
             "Unknown field `stop`",
         ),
         (
-            "SELECT * FROM impute((SELECT * FROM sales), d, [series], units, value => 0, partition_by => series)",
+            "SELECT * FROM sales",
+            ("d", &["series"], "units"),
+            &[VALUE, ("partition_by", "series")],
             "is also a column of another argument",
         ),
+    ];
+    for (input, (key, groups, value), named, message) in plan_errors {
+        let call = impute_call(&ctx, input, key, groups, value, named).await?;
+        let e = impute_error(&ctx, input, call).await?;
+        assert!(
+            e.at == ArgAt::Named(1) && e.message.contains(message),
+            "{message}: {e:?}"
+        );
+    }
+
+    let sales = "SELECT t FROM sales";
+    time_units(&ctx, "sales_days", sales, "t", &[], unit("day")).await?;
+    exec(&ctx, "CREATE TABLE far (t TIMESTAMP, n BIGINT) AS VALUES (TIMESTAMP '2020-01-01', 1), (TIMESTAMP '2024-01-01', 1)").await?;
+    let far = "SELECT * FROM far";
+    // The input, the columns, and the fill of the gaps of a call, and a part of the message of
+    // the error of running it.
+    let run_errors: [(&str, Columns, &str, &str); 6] = [
+        (mid, d, "'month'", "is not the start of a 'month'"),
         (
-            "SELECT * FROM impute((SELECT timeunit(t, 'unit', 'month') OVER () AS u, 1 AS n FROM sales UNION ALL SELECT timeunit(t, 'unit', 'day') OVER () AS u, 1 AS n FROM sales), u, [], n, value => 0, fill_gaps => true)",
+            "SELECT named_struct('start', TIMESTAMP '2024-03-03', 'end', TIMESTAMP '2024-03-10', 'unit', 'week') AS k, 1 AS n",
+            ("k", &[], "n"),
+            "true",
+            "is not a unit 'week' of its calendar options",
+        ),
+        (
+            "SELECT u, units FROM sales_months",
+            ("u", &[], "units"),
+            "'day'",
+            "differs from the unit 'month'",
+        ),
+        (
+            "SELECT u, 1 AS n FROM sales_months UNION ALL SELECT u, 1 AS n FROM sales_days",
+            ("u", &[], "n"),
+            "true",
             "the keys have the units",
         ),
         (
-            "SELECT * FROM impute((SELECT * FROM mid), d, [], n, value => 0, fill_gaps => named_struct('start', DATE '2024-01-01', 'end', DATE '2026-01-01', 'step', 'month'))",
+            mid,
+            d,
+            "named_struct('start', DATE '2024-01-01', 'end', DATE '2026-01-01', 'step', 'month')",
             "is not the start of a 'month'",
         ),
-    ] {
-        let e = error(&ctx, sql).await;
-        assert!(e.contains(message), "{sql}: {e}");
+        // The limit of positions.
+        (far, ("t", &[], "n"), "'second'", "more than 1000000"),
+    ];
+    for (input, cols, fill, message) in run_errors {
+        let e = read(&ctx, input, cols, &gaps(fill), "SELECT * FROM imputed").await;
+        let e = e.expect_err(input).to_string();
+        assert!(e.contains(message), "{input}: {e}");
     }
-    // The limit of positions.
-    common::calls::sql(&ctx, "CREATE TABLE far (t TIMESTAMP, n BIGINT) AS VALUES (TIMESTAMP '2020-01-01', 1), (TIMESTAMP '2024-01-01', 1)").await?.collect().await?;
-    let e = error(
-        &ctx,
-        "SELECT * FROM impute((SELECT * FROM far), t, [], n, value => 0, fill_gaps => 'second')",
-    )
-    .await;
-    assert!(e.contains("more than 1000000"), "{e}");
     Ok(())
 }

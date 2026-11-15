@@ -18,8 +18,9 @@
 //! `timeunit`, `lump`, and `impute`. The errors of a script are a [`ScriptError`] of its
 //! diagnostics, each at its range.
 //!
-//! [`register`] adds what the plans of the transforms need to run to a session: the query planner
-//! of the table function `impute`, and the optimizer rules of the window transforms.
+//! [`register`] adds what the plans of the transforms need to run to a session: [`QueryPlanner`],
+//! which plans `impute` and the inputs that a plan shares, and the optimizer rules of shared inputs
+//! and of groups by a struct.
 //!
 //! The parts of planning GoogleSQL with [`avenger_sql_syntax`]: [`library`] maps GoogleSQL's
 //! functions and avenger's onto DataFusion, [`types`] maps GoogleSQL's types to Arrow types, and
@@ -35,11 +36,73 @@ pub mod types;
 use datafusion::{common::Result, prelude::SessionContext};
 
 pub use analysis::analyze;
-pub use pipeline::{sql, ScriptError};
+pub use pipeline::{sql, sql_with_modules, ScriptError};
 
-/// Registers in `ctx` what the plans of the transforms of avenger-datafusion-transforms need to
-/// run: the query planner of `impute`, so `ctx` must have DataFusion's default query planner, and
-/// the optimizer rules of the window transforms. Registering two times adds the rules once.
+/// Registers in `ctx` what the plans of avenger-sql need to run: [`QueryPlanner`], which plans the
+/// extension nodes of avenger, so `ctx` must have DataFusion's default query planner, the rule that
+/// computes cheap shared inputs again in place of sharing them, and the rule that groups by the
+/// fields of a struct, such as a bin. Registering two times adds the rules once.
 pub fn register(ctx: &SessionContext) -> Result<()> {
-    avenger_datafusion_transforms::register(ctx)
+    use avenger_datafusion_shared::InlineShared;
+    use avenger_datafusion_transforms::StructGroupSplit;
+    use datafusion::{common::plan_err, execution::SessionStateBuilder, optimizer::OptimizerRule};
+    use std::sync::Arc;
+
+    let state = ctx.state_ref();
+    let mut state = state.write();
+    let planner = format!("{:?}", state.query_planner());
+    // DataFusion's default planner is not public, so only its name identifies it.
+    if planner != "DefaultQueryPlanner" && planner != "QueryPlanner" {
+        return plan_err!(
+            "avenger-sql plans its extension nodes with a query planner of its own, but the session has the query planner {planner}"
+        );
+    }
+    let mut rules = state.optimizers().to_vec();
+    if !rules.iter().any(|rule| rule.name() == InlineShared.name()) {
+        // Before the rules that push filters and projections, which then reach an inlined input.
+        rules.insert(0, Arc::new(InlineShared));
+    }
+    if !rules
+        .iter()
+        .any(|rule| rule.name() == StructGroupSplit.name())
+    {
+        // Early in each pass, so that the later rules merge and prune the projection that it adds
+        // above an aggregate.
+        let Some(at) = (rules.iter()).position(|rule| rule.name() == "simplify_expressions") else {
+            return plan_err!("the session has no optimizer rule simplify_expressions");
+        };
+        rules.insert(at + 1, Arc::new(StructGroupSplit));
+    }
+    *state = SessionStateBuilder::new_from_existing(state.clone())
+        .with_query_planner(Arc::new(QueryPlanner))
+        .with_optimizer_rules(rules)
+        .build();
+    Ok(())
+}
+
+/// The query planner of avenger's extension nodes: DataFusion's default planner, with the
+/// extension planners of `impute` and of shared inputs. A session has one query planner, so it
+/// plans every extension node of avenger.
+#[derive(Debug)]
+pub struct QueryPlanner;
+
+#[async_trait::async_trait]
+impl datafusion::execution::context::QueryPlanner for QueryPlanner {
+    async fn create_physical_plan(
+        &self,
+        plan: &datafusion::logical_expr::LogicalPlan,
+        session: &dyn datafusion::catalog::Session,
+    ) -> Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        use avenger_datafusion_shared::SharedExtensionPlanner;
+        use avenger_datafusion_transforms::table_function::TableFunctionExtensionPlanner;
+        use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
+        use std::sync::Arc;
+
+        DefaultPhysicalPlanner::with_extension_planners(vec![
+            Arc::new(TableFunctionExtensionPlanner),
+            Arc::new(SharedExtensionPlanner::default()),
+        ])
+        .create_physical_plan(plan, session)
+        .await
+    }
 }

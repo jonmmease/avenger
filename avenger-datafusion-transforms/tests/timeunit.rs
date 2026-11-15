@@ -1,25 +1,113 @@
-//! `timeunit`: units that tile time across changes of the UTC offset, expected units, fiscal
-//! units, DATE and civil values, the choice of automatic units, the rule against the window
-//! evaluator, and errors.
+//! `timeunit`: calls that `timeunit::plan` adds to an input, read with DataFusion's SQL over a
+//! view of the plan. The tests cover units that tile time across changes of the UTC offset,
+//! expected units, fiscal units, DATE and civil values, the metadata of the result, the choice
+//! of automatic units over the window partitions, and errors.
 
 mod common;
 
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDate, TimeZone};
-use common::{register, session};
+use avenger_datafusion_transforms::timeunit::{self, TimeUnitOptions, Unit, WeekStart};
+use chrono::{DateTime, NaiveDateTime, TimeZone};
+use common::{register, rows, session, time_units, unit};
+use datafusion::arrow::array::timezone::Tz;
 use datafusion::arrow::array::{
     Array, ArrayRef, AsArray, Date32Array, Int64Array, TimestampMillisecondArray,
+    TimestampNanosecondArray, TimestampSecondArray,
 };
 use datafusion::arrow::compute::cast;
-use datafusion::arrow::datatypes::{DataType, Date32Type, Int64Type};
+use datafusion::arrow::datatypes::{DataType, Int64Type};
 use datafusion::common::Result;
 use datafusion::prelude::SessionContext;
 
+const M: i64 = 60_000;
+const H: i64 = 60 * M;
+const D: i64 = 24 * H;
+const Y: i64 = 365 * D;
+const NY: Option<&str> = Some("America/New_York");
+const KTM: Option<&str> = Some("Asia/Kathmandu");
+
+/// The query of the table `c`, the input of the calls.
+const INPUT: &str = "SELECT * FROM c";
+
+/// A time unit: (start, end, unit).
+type Span = (i64, i64, String);
+
+/// Timestamps in milliseconds in the time zone `tz`.
 fn ts(values: Vec<i64>, tz: Option<&str>) -> ArrayRef {
     Arc::new(TimestampMillisecondArray::from(values).with_timezone_opt(tz.map(Arc::from)))
 }
 
+/// The milliseconds of the UTC time `s`, such as `2024-03-10T12:30`.
+fn ms(s: &str) -> i64 {
+    let t = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M").unwrap();
+    t.and_utc().timestamp_millis()
+}
+
+/// The UTC time of the milliseconds `ms`, for messages.
+fn iso(ms: i64) -> String {
+    let t = DateTime::from_timestamp_millis(ms).unwrap();
+    t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+}
+
+/// `n` values from the UTC time `start`, `step` milliseconds apart.
+fn series(start: &str, step: i64, n: i64) -> Vec<i64> {
+    (0..n).map(|i| ms(start) + i * step).collect()
+}
+
+/// The first days of `n` months from January of `year`, `every` months apart.
+fn months(year: i32, n: i32, every: i32) -> Vec<i64> {
+    let month = |m: i32| format!("{}-{:02}-01T00:00", year + m / 12, m % 12 + 1);
+    (0..n).map(|i| ms(&month(i * every))).collect()
+}
+
+/// `n` values of a fixed pseudo-random sequence from the UTC time `start` over `span`
+/// milliseconds.
+fn scattered(start: &str, span: i64, n: i64) -> Vec<i64> {
+    let mut s: u64 = 42;
+    (0..n)
+        .map(|_| {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ms(start) + ((s >> 11) as f64 / (1u64 << 53) as f64 * span as f64) as i64
+        })
+        .collect()
+}
+
+/// The options of an automatic unit with at most `n` units.
+fn maxbins(n: i64) -> TimeUnitOptions {
+    TimeUnitOptions {
+        maxbins: Some(n),
+        ..Default::default()
+    }
+}
+
+/// The options of an automatic unit no shorter than the unit `text`.
+fn min_unit(text: &str) -> TimeUnitOptions {
+    TimeUnitOptions {
+        min_unit: unit(text).unit,
+        ..Default::default()
+    }
+}
+
+/// `options` with weeks that start on Sunday.
+fn sunday(options: TimeUnitOptions) -> TimeUnitOptions {
+    TimeUnitOptions {
+        week_start: WeekStart::Sunday,
+        ..options
+    }
+}
+
+/// `options` with fiscal years that start in the month `month`.
+fn fiscal(month: i64, options: TimeUnitOptions) -> TimeUnitOptions {
+    TimeUnitOptions {
+        fiscal_year_start: Some(month),
+        ..options
+    }
+}
+
+/// The integers of dates or timestamps.
 fn i64s(a: &ArrayRef) -> Vec<i64> {
     let a = match a.data_type() {
         DataType::Date32 => cast(&cast(a, &DataType::Int32).unwrap(), &DataType::Int64).unwrap(),
@@ -28,46 +116,51 @@ fn i64s(a: &ArrayRef) -> Vec<i64> {
     a.as_primitive::<Int64Type>().values().to_vec()
 }
 
-type Unit = (i64, i64, String);
-
-/// The rows of a query whose column `u` is a time unit: (start, end, unit), None for NULL.
-async fn units(ctx: &SessionContext, sql: &str) -> Result<Vec<Option<Unit>>> {
+/// The units of the column `u` of the query `sql`, none of them NULL.
+async fn units(ctx: &SessionContext, sql: &str) -> Result<Vec<Span>> {
     let mut out = Vec::new();
     for b in ctx.sql(sql).await?.collect().await? {
         let u = b.column_by_name("u").expect("a column u").as_struct();
-        let (s, e) = (i64s(u.column(0)), i64s(u.column(1)));
+        assert_eq!(u.null_count(), 0, "a NULL unit");
         let names = cast(u.column(2), &DataType::Utf8)?;
-        let names = names.as_string::<i32>();
-        for i in 0..b.num_rows() {
-            out.push(
-                u.is_valid(i)
-                    .then(|| (s[i], e[i], names.value(i).to_string())),
-            );
-        }
+        let names = names
+            .as_string::<i32>()
+            .iter()
+            .map(|n| n.unwrap().to_string());
+        let spans = i64s(u.column(0)).into_iter().zip(i64s(u.column(1)));
+        out.extend(spans.zip(names).map(|((s, e), n)| (s, e, n)));
     }
     Ok(out)
 }
 
-fn iso(ms: i64) -> String {
-    DateTime::from_timestamp_millis(ms)
-        .unwrap()
-        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-        .to_string()
+/// The time units of the column `t` of the table `c` by `options`, in the order of `t`.
+async fn units_of(ctx: &SessionContext, options: TimeUnitOptions) -> Result<Vec<Span>> {
+    time_units(ctx, "units", INPUT, "t", &[], options).await?;
+    units(ctx, "SELECT u FROM units ORDER BY t").await
 }
 
-fn ms(s: &str) -> i64 {
-    DateTime::parse_from_rfc3339(s).unwrap().timestamp_millis()
+/// The time unit by `options` of the UTC time `value` in the time zone `tz`.
+async fn unit_of(
+    ctx: &SessionContext,
+    value: &str,
+    tz: Option<&str>,
+    options: TimeUnitOptions,
+) -> Result<Span> {
+    register(ctx, "c", vec![("t", ts(vec![ms(value)], tz))])?;
+    Ok(units_of(ctx, options).await?.remove(0))
 }
 
-fn days(y: i32, m: u32, d: u32) -> i32 {
-    (NaiveDate::from_ymd_opt(y, m, d).unwrap() - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
-        .num_days() as i32
+/// The error of planning or running the time units of the expression `value` over the table
+/// `c` by `options`.
+async fn error(ctx: &SessionContext, value: &str, options: TimeUnitOptions) -> String {
+    let case = format!("{value} ({options:?})");
+    let run = async {
+        time_units(ctx, "units", INPUT, value, &[], options).await?;
+        common::exec(ctx, "SELECT u FROM units").await
+    };
+    let e = run.await.expect_err(&format!("no error: {case}"));
+    e.to_string()
 }
-
-const H: i64 = 3_600_000;
-const D: i64 = 24 * H;
-const NY: Option<&str> = Some("America/New_York");
-const KTM: Option<&str> = Some("Asia/Kathmandu");
 
 /// The units of a zone contain their values and tile time: in New York, Kathmandu (+05:45),
 /// Lord Howe Island (a change of offset of 30 minutes), and UTC, around each change of offset
@@ -75,71 +168,32 @@ const KTM: Option<&str> = Some("Asia/Kathmandu");
 /// has its 23, 23.5, 24.5, or 25 hours.
 #[tokio::test]
 async fn units_tile_time() -> Result<()> {
-    let ctx = session(true);
+    let ctx = session();
     let mut values = Vec::new();
-    for day in [
-        "2024-03-09T00:00:00Z",
-        "2024-11-02T00:00:00Z",
-        "2024-04-06T00:00:00Z",
-        "2024-10-05T00:00:00Z",
-    ] {
-        values.extend(series(day, 7 * 60_000, 3 * 24 * 60 / 7));
+    for day in ["03-09", "11-02", "04-06", "10-05"] {
+        values.extend(series(&format!("2024-{day}T00:00"), 7 * M, 3 * 24 * 60 / 7));
     }
     values.sort();
+    let texts = "15 minutes,45 minutes,hour,3 hours,5 hours,36 hours,day,2 days,week,month";
     for tz in [NY, KTM, Some("Australia/Lord_Howe"), Some("UTC")] {
-        register(
-            &ctx,
-            "c",
-            vec![
-                (
-                    "i",
-                    Arc::new(Int64Array::from_iter_values(0..values.len() as i64)),
-                ),
-                ("t", ts(values.clone(), tz)),
-            ],
-        )?;
-        for unit in [
-            "15 minutes",
-            "45 minutes",
-            "hour",
-            "3 hours",
-            "5 hours",
-            "36 hours",
-            "day",
-            "2 days",
-            "week",
-            "month",
-        ] {
-            let got = units(
-                &ctx,
-                &format!("SELECT i, timeunit(t, 'unit', '{unit}') OVER () AS u FROM c ORDER BY i"),
-            )
-            .await?;
-            let mut tiles: Vec<(i64, i64)> = Vec::new();
-            for (v, u) in values.iter().zip(&got) {
-                let (s, e, _) = u.clone().unwrap();
-                assert!(
-                    s <= *v && *v < e,
-                    "{tz:?} '{unit}' {}: [{}, {})",
-                    iso(*v),
-                    iso(s),
-                    iso(e)
-                );
+        register(&ctx, "c", vec![("t", ts(values.clone(), tz))])?;
+        for text in texts.split(',') {
+            let mut tiles = Vec::new();
+            for (v, (s, e, _)) in values.iter().zip(units_of(&ctx, unit(text)).await?) {
+                let case = format!("{tz:?} '{text}' {}", iso(*v));
+                assert!(s <= *v && *v < e, "{case}: [{}, {})", iso(s), iso(e));
                 tiles.push((s, e));
             }
             tiles.sort();
             tiles.dedup();
             // Units meet, or no value lies between them.
             for w in tiles.windows(2) {
-                let (a, b) = (w[0], w[1]);
-                let between = values.iter().any(|v| a.1 <= *v && *v < b.0);
+                let ((s0, e0), (s1, e1)) = (w[0], w[1]);
+                let between = values.iter().any(|v| e0 <= *v && *v < s1);
+                let (a, b) = ((iso(s0), iso(e0)), (iso(s1), iso(e1)));
                 assert!(
-                    a.1 == b.0 || (a.1 < b.0 && !between),
-                    "{tz:?} '{unit}': [{}, {}) then [{}, {})",
-                    iso(a.0),
-                    iso(a.1),
-                    iso(b.0),
-                    iso(b.1)
+                    e0 == s1 || (e0 < s1 && !between),
+                    "{tz:?} '{text}': {a:?} then {b:?}"
                 );
             }
         }
@@ -148,40 +202,19 @@ async fn units_tile_time() -> Result<()> {
 }
 
 /// Arrow's time zones: a fixed offset, such as `+05:45`, has one offset, and a time zone that
-/// Arrow does not read is an error.
+/// Arrow does not read fails the plan.
 #[tokio::test]
 async fn zones() -> Result<()> {
-    let ctx = session(true);
+    let ctx = session();
     for tz in ["+05:45", "+0545"] {
-        register(
-            &ctx,
-            "c",
-            vec![("t", ts(vec![ms("2024-03-10T12:30:00Z")], Some(tz)))],
-        )?;
-        let got = units(
-            &ctx,
-            "SELECT timeunit(t, 'unit', 'hour') OVER () AS u FROM c",
-        )
-        .await?;
-        let (s, e, _) = got[0].clone().unwrap();
-        assert_eq!(
-            (iso(s), iso(e)),
-            (
-                iso(ms("2024-03-10T12:15:00Z")),
-                iso(ms("2024-03-10T13:15:00Z"))
-            ),
-            "{tz}"
-        );
+        let (s, e, _) = unit_of(&ctx, "2024-03-10T12:30", Some(tz), unit("hour")).await?;
+        let expected = (ms("2024-03-10T12:15"), ms("2024-03-10T13:15"));
+        assert_eq!((iso(s), iso(e)), (iso(expected.0), iso(expected.1)), "{tz}");
     }
     for tz in ["Z", "+5:45", "Mars/Olympus_Mons"] {
-        register(
-            &ctx,
-            "c",
-            vec![("t", ts(vec![ms("2024-03-10T12:30:00Z")], Some(tz)))],
-        )?;
-        let e = common::error(&ctx, "SELECT timeunit(t, 'unit', 'hour') OVER () FROM c")
-            .await
-            .unwrap_or_else(|| panic!("no error: {tz}"));
+        register(&ctx, "c", vec![("t", ts(vec![0], Some(tz)))])?;
+        let e = time_units(&ctx, "units", INPUT, "t", &[], unit("hour")).await;
+        let e = e.expect_err(tz).to_string();
         assert!(
             e.contains(&format!("unknown time zone '{tz}'")),
             "{tz}: {e}"
@@ -190,686 +223,630 @@ async fn zones() -> Result<()> {
     Ok(())
 }
 
-/// One expected unit: (value, time zone, options, start, end, unit).
-type Expect = (
-    &'static str,
-    Option<&'static str>,
-    &'static str,
-    &'static str,
-    &'static str,
-    &'static str,
-);
-
+/// Units of UTC times, from their start to their end in UTC.
 #[tokio::test]
 async fn expected_units() -> Result<()> {
-    let cases: [Expect; 42] = [
+    // Weeks that start on Monday or Sunday, and fiscal years that start in October or February.
+    let mon = TimeUnitOptions::default();
+    let sun = sunday(mon.clone());
+    let (oct, feb) = (fiscal(10, mon.clone()), fiscal(2, mon.clone()));
+    // (value, time zone, unit, other options, start, end)
+    let cases: [(_, _, _, &TimeUnitOptions, _, _); 42] = [
         // New York, fall back on 2024-11-03 at 06:00Z: 01:00 to 01:59 occur two times.
         (
-            "2024-11-03T05:30:00Z",
+            "2024-11-03T05:30",
             NY,
-            "'unit', 'hour'",
-            "2024-11-03T05:00:00Z",
-            "2024-11-03T06:00:00Z",
             "hour",
+            &mon,
+            "2024-11-03T05:00",
+            "2024-11-03T06:00",
         ),
         (
-            "2024-11-03T06:30:00Z",
+            "2024-11-03T06:30",
             NY,
-            "'unit', 'hour'",
-            "2024-11-03T06:00:00Z",
-            "2024-11-03T07:00:00Z",
             "hour",
+            &mon,
+            "2024-11-03T06:00",
+            "2024-11-03T07:00",
         ),
         (
-            "2024-11-03T06:30:00Z",
+            "2024-11-03T06:30",
             NY,
-            "'unit', '3 hours'",
-            "2024-11-03T04:00:00Z",
-            "2024-11-03T08:00:00Z",
             "3 hours",
+            &mon,
+            "2024-11-03T04:00",
+            "2024-11-03T08:00",
         ),
         (
-            "2024-11-03T05:59:00Z",
+            "2024-11-03T05:59",
             NY,
-            "'unit', '15 minutes'",
-            "2024-11-03T05:45:00Z",
-            "2024-11-03T06:00:00Z",
             "15 minutes",
+            &mon,
+            "2024-11-03T05:45",
+            "2024-11-03T06:00",
         ),
         (
-            "2024-11-03T06:05:00Z",
+            "2024-11-03T06:05",
             NY,
-            "'unit', '15 minutes'",
-            "2024-11-03T06:00:00Z",
-            "2024-11-03T06:15:00Z",
             "15 minutes",
+            &mon,
+            "2024-11-03T06:00",
+            "2024-11-03T06:15",
         ),
         (
-            "2024-11-03T12:00:00Z",
+            "2024-11-03T12:00",
             NY,
-            "'unit', 'day'",
-            "2024-11-03T04:00:00Z",
-            "2024-11-04T05:00:00Z",
             "day",
+            &mon,
+            "2024-11-03T04:00",
+            "2024-11-04T05:00",
         ),
         // New York, spring forward on 2024-03-10 at 07:00Z: 02:00 to 02:59 do not occur.
         (
-            "2024-03-10T06:30:00Z",
+            "2024-03-10T06:30",
             NY,
-            "'unit', 'hour'",
-            "2024-03-10T06:00:00Z",
-            "2024-03-10T07:00:00Z",
             "hour",
+            &mon,
+            "2024-03-10T06:00",
+            "2024-03-10T07:00",
         ),
         (
-            "2024-03-10T07:30:00Z",
+            "2024-03-10T07:30",
             NY,
-            "'unit', 'hour'",
-            "2024-03-10T07:00:00Z",
-            "2024-03-10T08:00:00Z",
             "hour",
+            &mon,
+            "2024-03-10T07:00",
+            "2024-03-10T08:00",
         ),
         (
-            "2024-03-10T06:30:00Z",
+            "2024-03-10T06:30",
             NY,
-            "'unit', '3 hours'",
-            "2024-03-10T05:00:00Z",
-            "2024-03-10T07:00:00Z",
             "3 hours",
+            &mon,
+            "2024-03-10T05:00",
+            "2024-03-10T07:00",
         ),
         (
-            "2024-03-10T07:30:00Z",
+            "2024-03-10T07:30",
             NY,
-            "'unit', '3 hours'",
-            "2024-03-10T07:00:00Z",
-            "2024-03-10T10:00:00Z",
             "3 hours",
+            &mon,
+            "2024-03-10T07:00",
+            "2024-03-10T10:00",
         ),
         (
-            "2024-03-10T06:30:00Z",
+            "2024-03-10T06:30",
             NY,
-            "'unit', '2 hours'",
-            "2024-03-10T05:00:00Z",
-            "2024-03-10T07:00:00Z",
             "2 hours",
+            &mon,
+            "2024-03-10T05:00",
+            "2024-03-10T07:00",
         ),
         (
-            "2024-03-10T07:30:00Z",
+            "2024-03-10T07:30",
             NY,
-            "'unit', '2 hours'",
-            "2024-03-10T07:00:00Z",
-            "2024-03-10T08:00:00Z",
             "2 hours",
+            &mon,
+            "2024-03-10T07:00",
+            "2024-03-10T08:00",
         ),
         (
-            "2024-03-10T12:00:00Z",
+            "2024-03-10T12:00",
             NY,
-            "'unit', 'day'",
-            "2024-03-10T05:00:00Z",
-            "2024-03-11T04:00:00Z",
             "day",
+            &mon,
+            "2024-03-10T05:00",
+            "2024-03-11T04:00",
         ),
         (
-            "2024-03-10T12:00:00Z",
+            "2024-03-10T12:00",
             NY,
-            "'unit', 'month'",
-            "2024-03-01T05:00:00Z",
-            "2024-04-01T04:00:00Z",
             "month",
+            &mon,
+            "2024-03-01T05:00",
+            "2024-04-01T04:00",
         ),
         // Kathmandu, UTC+05:45.
         (
-            "2024-03-10T12:30:00Z",
+            "2024-03-10T12:30",
             KTM,
-            "'unit', 'hour'",
-            "2024-03-10T12:15:00Z",
-            "2024-03-10T13:15:00Z",
             "hour",
+            &mon,
+            "2024-03-10T12:15",
+            "2024-03-10T13:15",
         ),
         (
-            "2024-03-10T12:30:00Z",
+            "2024-03-10T12:30",
             KTM,
-            "'unit', '30 minutes'",
-            "2024-03-10T12:15:00Z",
-            "2024-03-10T12:45:00Z",
             "30 minutes",
+            &mon,
+            "2024-03-10T12:15",
+            "2024-03-10T12:45",
         ),
         (
-            "2024-03-10T12:30:00Z",
+            "2024-03-10T12:30",
             KTM,
-            "'unit', 'day'",
-            "2024-03-09T18:15:00Z",
-            "2024-03-10T18:15:00Z",
             "day",
+            &mon,
+            "2024-03-09T18:15",
+            "2024-03-10T18:15",
         ),
         // Civil time: no zone, no changes of offset.
         (
-            "2024-03-10T02:30:00Z",
+            "2024-03-10T02:30",
             None,
-            "'unit', 'hour'",
-            "2024-03-10T02:00:00Z",
-            "2024-03-10T03:00:00Z",
             "hour",
+            &mon,
+            "2024-03-10T02:00",
+            "2024-03-10T03:00",
         ),
         // Weeks, and weeks with a count from the reference years.
         (
-            "2024-03-13T12:00:00Z",
+            "2024-03-13T12:00",
             None,
-            "'unit', 'week'",
-            "2024-03-11T00:00:00Z",
-            "2024-03-18T00:00:00Z",
             "week",
+            &mon,
+            "2024-03-11T00:00",
+            "2024-03-18T00:00",
         ),
         (
-            "2024-03-13T12:00:00Z",
+            "2024-03-13T12:00",
             None,
-            "'unit', 'week', 'week_start', 'sunday'",
-            "2024-03-10T00:00:00Z",
-            "2024-03-17T00:00:00Z",
             "week",
+            &sun,
+            "2024-03-10T00:00",
+            "2024-03-17T00:00",
         ),
         (
-            "2024-01-10T12:00:00Z",
+            "2024-01-10T12:00",
             None,
-            "'unit', '2 weeks'",
-            "2024-01-01T00:00:00Z",
-            "2024-01-15T00:00:00Z",
             "2 weeks",
+            &mon,
+            "2024-01-01T00:00",
+            "2024-01-15T00:00",
         ),
         // A count steps on across its parent units: days and units shorter than a day from
         // the first day of a week of the reference year, months from January of year 0.
         (
-            "2024-01-31T12:00:00Z",
+            "2024-01-31T12:00",
             None,
-            "'unit', '2 days'",
-            "2024-01-31T00:00:00Z",
-            "2024-02-02T00:00:00Z",
             "2 days",
+            &mon,
+            "2024-01-31T00:00",
+            "2024-02-02T00:00",
         ),
         (
-            "2024-01-31T12:00:00Z",
+            "2024-01-31T12:00",
             None,
-            "'unit', '7 days'",
-            "2024-01-29T00:00:00Z",
-            "2024-02-05T00:00:00Z",
             "7 days",
+            &mon,
+            "2024-01-29T00:00",
+            "2024-02-05T00:00",
         ),
         (
-            "2024-01-31T12:00:00Z",
+            "2024-01-31T12:00",
             None,
-            "'unit', '7 days', 'week_start', 'sunday'",
-            "2024-01-28T00:00:00Z",
-            "2024-02-04T00:00:00Z",
             "7 days",
+            &sun,
+            "2024-01-28T00:00",
+            "2024-02-04T00:00",
         ),
         (
-            "2024-01-01T01:10:00Z",
+            "2024-01-01T01:10",
             None,
-            "'unit', '45 minutes'",
-            "2024-01-01T00:45:00Z",
-            "2024-01-01T01:30:00Z",
             "45 minutes",
+            &mon,
+            "2024-01-01T00:45",
+            "2024-01-01T01:30",
         ),
         (
-            "2024-03-10T02:30:00Z",
+            "2024-03-10T02:30",
             None,
-            "'unit', '90 minutes'",
-            "2024-03-10T01:30:00Z",
-            "2024-03-10T03:00:00Z",
             "90 minutes",
+            &mon,
+            "2024-03-10T01:30",
+            "2024-03-10T03:00",
         ),
         (
-            "2024-11-15T12:00:00Z",
+            "2024-11-15T12:00",
             None,
-            "'unit', '5 months'",
-            "2024-08-01T00:00:00Z",
-            "2025-01-01T00:00:00Z",
             "5 months",
+            &mon,
+            "2024-08-01T00:00",
+            "2025-01-01T00:00",
         ),
         // Fiscal units.
         (
-            "2024-11-15T12:00:00Z",
+            "2024-11-15T12:00",
             None,
-            "'unit', 'fiscal_quarter', 'fiscal_year_start', 10",
-            "2024-10-01T00:00:00Z",
-            "2025-01-01T00:00:00Z",
             "fiscal_quarter",
+            &oct,
+            "2024-10-01T00:00",
+            "2025-01-01T00:00",
         ),
         (
-            "2024-09-15T12:00:00Z",
+            "2024-09-15T12:00",
             None,
-            "'unit', 'fiscal_quarter', 'fiscal_year_start', 10",
-            "2024-07-01T00:00:00Z",
-            "2024-10-01T00:00:00Z",
             "fiscal_quarter",
+            &oct,
+            "2024-07-01T00:00",
+            "2024-10-01T00:00",
         ),
         (
-            "2024-11-15T12:00:00Z",
+            "2024-11-15T12:00",
             None,
-            "'unit', 'fiscal_year', 'fiscal_year_start', 10",
-            "2024-10-01T00:00:00Z",
-            "2025-10-01T00:00:00Z",
             "fiscal_year",
+            &oct,
+            "2024-10-01T00:00",
+            "2025-10-01T00:00",
         ),
         (
-            "2024-03-15T12:00:00Z",
+            "2024-03-15T12:00",
             None,
-            "'unit', 'fiscal_quarter', 'fiscal_year_start', 2",
-            "2024-02-01T00:00:00Z",
-            "2024-05-01T00:00:00Z",
             "fiscal_quarter",
+            &feb,
+            "2024-02-01T00:00",
+            "2024-05-01T00:00",
         ),
         (
-            "2024-01-15T12:00:00Z",
+            "2024-01-15T12:00",
             None,
-            "'unit', '2 fiscal_quarters', 'fiscal_year_start', 2",
-            "2023-08-01T00:00:00Z",
-            "2024-02-01T00:00:00Z",
             "2 fiscal_quarters",
+            &feb,
+            "2023-08-01T00:00",
+            "2024-02-01T00:00",
         ),
         // FY2024 of a February year is 2023-02 to 2024-01; two fiscal years start at even ones.
         (
-            "2024-01-15T12:00:00Z",
+            "2024-01-15T12:00",
             None,
-            "'unit', '2 fiscal_years', 'fiscal_year_start', 2",
-            "2023-02-01T00:00:00Z",
-            "2025-02-01T00:00:00Z",
             "2 fiscal_years",
+            &feb,
+            "2023-02-01T00:00",
+            "2025-02-01T00:00",
         ),
         // Collapsing units on the reference years: 2024 for Monday weeks, 2012 for Sunday.
         (
-            "2023-07-04T15:00:00Z",
+            "2023-07-04T15:00",
             None,
-            "'unit', 'month_of_year'",
-            "2024-07-01T00:00:00Z",
-            "2024-08-01T00:00:00Z",
             "month_of_year",
+            &mon,
+            "2024-07-01T00:00",
+            "2024-08-01T00:00",
         ),
         (
-            "2023-07-04T15:00:00Z",
+            "2023-07-04T15:00",
             None,
-            "'unit', 'month_of_year', 'week_start', 'sunday'",
-            "2012-07-01T00:00:00Z",
-            "2012-08-01T00:00:00Z",
             "month_of_year",
+            &sun,
+            "2012-07-01T00:00",
+            "2012-08-01T00:00",
         ),
         (
-            "2023-01-01T15:00:00Z",
+            "2023-01-01T15:00",
             None,
-            "'unit', 'week_of_year'",
-            "2023-12-25T00:00:00Z",
-            "2024-01-01T00:00:00Z",
             "week_of_year",
+            &mon,
+            "2023-12-25T00:00",
+            "2024-01-01T00:00",
         ),
         (
-            "2023-01-02T15:00:00Z",
+            "2023-01-02T15:00",
             None,
-            "'unit', 'week_of_year'",
-            "2024-01-01T00:00:00Z",
-            "2024-01-08T00:00:00Z",
             "week_of_year",
+            &mon,
+            "2024-01-01T00:00",
+            "2024-01-08T00:00",
         ),
         (
-            "2023-07-04T15:00:00Z",
+            "2023-07-04T15:00",
             None,
-            "'unit', 'day_of_week'",
-            "2024-01-02T00:00:00Z",
-            "2024-01-03T00:00:00Z",
             "day_of_week",
+            &mon,
+            "2024-01-02T00:00",
+            "2024-01-03T00:00",
         ),
         (
-            "2023-03-01T15:00:00Z",
+            "2023-03-01T15:00",
             None,
-            "'unit', 'day_of_year'",
-            "2024-02-29T00:00:00Z",
-            "2024-03-01T00:00:00Z",
             "day_of_year",
+            &mon,
+            "2024-02-29T00:00",
+            "2024-03-01T00:00",
         ),
         // The same value by month and day: March 1, not the 60th day of a leap year.
         (
-            "2023-03-01T15:00:00Z",
+            "2023-03-01T15:00",
             None,
-            "'unit', 'month_day'",
-            "2024-03-01T00:00:00Z",
-            "2024-03-02T00:00:00Z",
             "month_day",
+            &mon,
+            "2024-03-01T00:00",
+            "2024-03-02T00:00",
         ),
         (
-            "2023-11-15T15:00:00Z",
+            "2023-11-15T15:00",
             None,
-            "'unit', 'fiscal_quarter_of_year', 'fiscal_year_start', 10",
-            "2024-10-01T00:00:00Z",
-            "2025-01-01T00:00:00Z",
             "fiscal_quarter_of_year",
+            &oct,
+            "2024-10-01T00:00",
+            "2025-01-01T00:00",
         ),
         (
-            "2024-11-03T06:30:00Z",
+            "2024-11-03T06:30",
             NY,
-            "'unit', 'hour_of_day'",
-            "2024-01-01T06:00:00Z",
-            "2024-01-01T07:00:00Z",
             "hour_of_day",
+            &mon,
+            "2024-01-01T06:00",
+            "2024-01-01T07:00",
         ),
     ];
-    let ctx = session(true);
-    for (value, tz, options, start, end, unit) in cases {
-        register(&ctx, "c", vec![("t", ts(vec![ms(value)], tz))])?;
-        let got = units(
-            &ctx,
-            &format!("SELECT timeunit(t, {options}) OVER () AS u FROM c"),
-        )
-        .await?;
-        let (s, e, u) = got[0].clone().unwrap();
+    let ctx = session();
+    for (value, tz, text, other, start, end) in cases {
+        let options = TimeUnitOptions {
+            unit: unit(text).unit,
+            ..other.clone()
+        };
+        let (s, e, u) = unit_of(&ctx, value, tz, options).await?;
         assert_eq!(
             (iso(s), iso(e), u.as_str()),
-            (iso(ms(start)), iso(ms(end)), unit),
-            "{value} {tz:?} ({options})"
+            (iso(ms(start)), iso(ms(end)), text),
+            "{value} {tz:?} '{text}' ({other:?})"
         );
     }
     Ok(())
 }
 
+/// The unit of a DATE is a pair of DATEs.
 #[tokio::test]
 async fn dates_stay_dates() -> Result<()> {
-    let ctx = session(true);
-    register(
-        &ctx,
-        "c",
-        vec![("t", Arc::new(Date32Array::from(vec![days(2024, 3, 13)])))],
-    )?;
-    let b = &ctx
-        .sql("SELECT timeunit(t, 'unit', 'quarter') OVER () AS u FROM c")
-        .await?
-        .collect()
-        .await?[0];
-    let u = b.column(0).as_struct();
-    assert_eq!(u.column(0).data_type(), &DataType::Date32);
+    let ctx = session();
+    let input = "SELECT DATE '2024-03-13' AS t";
+    time_units(&ctx, "units", input, "t", &[], unit("quarter")).await?;
+    let sql = "SELECT arrow_typeof(u['start']), u['start'], u['end'] FROM units";
     assert_eq!(
-        u.column(0).as_primitive::<Date32Type>().value(0),
-        days(2024, 1, 1)
-    );
-    assert_eq!(
-        u.column(1).as_primitive::<Date32Type>().value(0),
-        days(2024, 4, 1)
+        rows(&ctx, sql).await?,
+        [["Date32", "2024-01-01", "2024-04-01"]]
     );
     Ok(())
 }
 
-/// The field's metadata names the options that the unit needs to be read. The planned schema
-/// of the window form has `{}`: a window function cannot see its constant arguments when it
-/// computes its field.
+/// The field's metadata names the options that the unit needs to be read, in the planned
+/// schema and in the batches, through a query that groups by the unit.
 #[tokio::test]
 async fn metadata() -> Result<()> {
-    let ctx = session(true);
+    let ctx = session();
     register(
         &ctx,
         "c",
-        vec![("t", ts(vec![ms("2024-03-13T00:00:00Z")], None))],
+        vec![("t", ts(vec![ms("2024-03-13T00:00")], None))],
     )?;
-    let tag = r#"{"week_start":"monday"}"#;
-    for (sql, planned) in [
+    for (options, tag) in [
+        (unit("quarter"), r#"{"week_start":"monday"}"#),
         (
-            "SELECT u, count(*) AS n FROM (SELECT timeunit(t, 'unit', 'quarter') OVER () AS u FROM c) GROUP BY u",
-            "{}",
-        ),
-        (
-            "SELECT u, count(*) AS n FROM (SELECT timeunit(t, 'maxbins', 10) OVER () AS u FROM c) GROUP BY u",
-            "{}",
+            sunday(fiscal(10, maxbins(10))),
+            r#"{"week_start":"sunday","fiscal_year_start":10}"#,
         ),
     ] {
-        let df = ctx.sql(sql).await?;
-        let key =
-            |m: &std::collections::HashMap<String, String>| m.get("avenger.time_unit").cloned();
-        assert_eq!(
-            key(df.schema().field(0).metadata()).as_deref(),
-            Some(planned),
-            "{sql}"
-        );
+        time_units(&ctx, "units", INPUT, "t", &[], options.clone()).await?;
+        let df = ctx
+            .sql("SELECT u, count(*) AS n FROM units GROUP BY u")
+            .await?;
+        let key = |m: &std::collections::HashMap<String, String>| m.get(timeunit::TAG).cloned();
+        let planned = key(df.schema().field(0).metadata());
         let batches = df.collect().await?;
-        assert_eq!(
-            key(batches[0].schema().field(0).metadata()).as_deref(),
-            Some(tag),
-            "{sql}"
-        );
+        let run = key(batches[0].schema().field(0).metadata());
+        assert_eq!(planned.as_deref(), Some(tag), "{options:?}");
+        assert_eq!(run.as_deref(), Some(tag), "{options:?}");
     }
     Ok(())
 }
 
-fn series(start: &str, step_ms: i64, n: i64) -> Vec<i64> {
-    (0..n).map(|i| ms(start) + i * step_ms).collect()
-}
-
-fn months(start_year: i32, n: i32, every: u32) -> Vec<i64> {
-    (0..n)
-        .map(|i| {
-            let m = (i as u32) * every;
-            let d = NaiveDate::from_ymd_opt(start_year + (m / 12) as i32, m % 12 + 1, 1).unwrap();
-            d.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis()
-        })
-        .collect()
-}
-
-fn scattered(start: &str, span_ms: i64, n: i64) -> Vec<i64> {
-    let mut s: u64 = 42;
-    (0..n)
-        .map(|_| {
-            s = s
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            ms(start) + ((s >> 11) as f64 / (1u64 << 53) as f64 * span_ms as f64) as i64
-        })
-        .collect()
-}
-
-fn sorted(mut v: Vec<Option<Unit>>) -> Vec<Option<Unit>> {
-    v.sort();
-    v
-}
-
+/// Automatic units: by the span and the spacing of the values and by the options, of DATE
+/// values, and in each window partition.
 #[tokio::test]
 async fn automatic_units() -> Result<()> {
-    let (rules, plain) = (session(true), session(false));
+    let ctx = session();
     // New York local midnights for two months: 23- and 25-hour days in between.
-    let tz: datafusion::arrow::array::timezone::Tz = "America/New_York".parse().unwrap();
-    let ny_days: Vec<i64> = (0..60)
-        .map(|i| {
-            let d = NaiveDate::from_ymd_opt(2024, 10, 1).unwrap() + chrono::Duration::days(i);
-            tz.from_local_datetime(&d.and_hms_opt(0, 0, 0).unwrap())
-                .earliest()
-                .unwrap()
-                .timestamp_millis()
-        })
+    let tz: Tz = "America/New_York".parse().unwrap();
+    let start = NaiveDateTime::parse_from_str("2024-10-01T00:00", "%Y-%m-%dT%H:%M").unwrap();
+    let ny_days = (0..60)
+        .map(|i| tz.from_local_datetime(&(start + chrono::Duration::days(i))))
+        .map(|t| t.earliest().unwrap().timestamp_millis())
         .collect();
-    type Case<'a> = (&'a str, Vec<i64>, Option<&'a str>, &'a str, &'a str);
-    let cases: Vec<Case> = vec![
+    let auto = TimeUnitOptions::default;
+    let cases = [
+        // Monthly, quarterly, and annual values.
+        (months(2023, 24, 1), None, maxbins(100), "month"),
+        (months(2020, 20, 3), None, maxbins(100), "quarter"),
+        (months(2000, 20, 12), None, maxbins(100), "year"),
+        // Daily values at noon, and weekly values on Wednesdays.
+        (series("2024-01-01T12:00", D, 10), None, auto(), "day"),
         (
-            "monthly, 2 years, maxbins 100",
-            months(2023, 24, 1),
+            series("2024-01-03T00:00", 7 * D, 52),
             None,
-            "'maxbins', 100",
-            "month",
-        ),
-        (
-            "quarterly, 5 years, maxbins 100",
-            months(2020, 20, 3),
-            None,
-            "'maxbins', 100",
-            "quarter",
-        ),
-        (
-            "annual, 20 years, maxbins 100",
-            months(2000, 20, 12),
-            None,
-            "'maxbins', 100",
-            "year",
-        ),
-        (
-            "daily at noon, 10 days",
-            series("2024-01-01T12:00:00Z", D, 10),
-            None,
-            "",
-            "day",
-        ),
-        (
-            "weekly Wednesdays, 1 year, maxbins 365",
-            series("2024-01-03T00:00:00Z", 7 * D, 52),
-            None,
-            "'maxbins', 365",
+            maxbins(365),
             "week",
         ),
         (
-            "every 15 minutes, 1 day, maxbins 200",
-            series("2024-01-01T00:00:00Z", 15 * 60_000, 96),
+            series("2024-01-01T00:00", 15 * M, 96),
             None,
-            "'maxbins', 200",
+            maxbins(200),
             "15 minutes",
         ),
         (
-            "every 10 minutes, 1 day, maxbins 200",
-            series("2024-01-01T00:00:00Z", 10 * 60_000, 144),
+            series("2024-01-01T00:00", 10 * M, 144),
             None,
-            "'maxbins', 200",
+            maxbins(200),
             "30 minutes",
         ),
         (
-            "every 2 hours, 2 days, maxbins 100",
-            series("2024-01-01T00:00:00Z", 2 * H, 24),
+            series("2024-01-01T00:00", 2 * H, 24),
             None,
-            "'maxbins', 100",
+            maxbins(100),
             "6 hours",
         ),
+        (series("2024-01-01T00:00", H, 100), None, auto(), "6 hours"),
         (
-            "scattered, 4 years",
-            scattered("2020-01-01T00:00:00Z", 4 * 365 * D, 1000),
+            scattered("2020-01-01T00:00", 4 * Y, 1000),
             None,
-            "",
+            auto(),
             "quarter",
         ),
         (
-            "scattered, 4 years, fiscal October",
-            scattered("2020-01-01T00:00:00Z", 4 * 365 * D, 1000),
+            scattered("2020-01-01T00:00", 4 * Y, 1000),
             None,
-            "'fiscal_year_start', 10",
+            fiscal(10, auto()),
             "fiscal_quarter",
         ),
         (
-            "scattered, 40 years",
-            scattered("1980-01-01T00:00:00Z", 40 * 365 * D, 1000),
+            scattered("1980-01-01T00:00", 40 * Y, 1000),
             None,
-            "",
+            auto(),
             "2 years",
         ),
         (
-            "scattered, 1000 years",
-            scattered("1500-01-01T00:00:00Z", 1000 * 365 * D, 1000),
+            scattered("1500-01-01T00:00", 1000 * Y, 1000),
             None,
-            "",
+            auto(),
             "50 years",
         ),
         (
-            "scattered, 10 days, min_unit day",
-            scattered("2024-01-01T00:00:00Z", 10 * D, 1000),
+            scattered("2024-01-01T00:00", 10 * D, 1000),
             None,
-            "'min_unit', 'day'",
+            min_unit("day"),
             "day",
         ),
         (
-            "scattered, 10 days",
-            scattered("2024-01-01T00:00:00Z", 10 * D, 1000),
+            scattered("2024-01-01T00:00", 10 * D, 1000),
             None,
-            "",
+            auto(),
             "12 hours",
         ),
         (
-            "scattered, 2 seconds",
-            scattered("2024-01-01T00:00:00Z", 2000, 1000),
+            scattered("2024-01-01T00:00", 2000, 1000),
             None,
-            "",
+            auto(),
             "100 milliseconds",
         ),
-        (
-            "one value at noon",
-            vec![ms("2024-05-05T12:00:00Z")],
-            None,
-            "",
-            "day",
-        ),
-        (
-            "one value on January 1",
-            vec![ms("2024-01-01T00:00:00Z")],
-            None,
-            "",
-            "year",
-        ),
-        (
-            "New York local midnights, 60 days, maxbins 1000",
-            ny_days,
-            NY,
-            "'maxbins', 1000",
-            "day",
-        ),
+        // One value at noon, and one value on January 1.
+        (vec![ms("2024-05-05T12:00")], None, auto(), "day"),
+        (vec![ms("2024-01-01T00:00")], None, auto(), "year"),
+        (ny_days, NY, maxbins(1000), "day"),
     ];
-    for (name, values, tz, options, expected) in cases {
-        let comma = if options.is_empty() { "" } else { ", " };
-        let sql = format!("SELECT timeunit(t{comma}{options}) OVER () AS u FROM c");
-        register(&rules, "c", vec![("t", ts(values.clone(), tz))])?;
-        register(&plain, "c", vec![("t", ts(values, tz))])?;
-        let a = units(&rules, &sql).await?;
-        let b = units(&plain, &sql).await?;
-        assert_eq!(a[0].as_ref().unwrap().2, expected, "{name}");
-        assert_eq!(
-            sorted(a),
-            sorted(b),
-            "{name}: the rule and the window evaluator differ"
-        );
+    for (values, tz, options, expected) in cases {
+        let case = format!("{} values from {} {tz:?}", values.len(), iso(values[0]));
+        register(&ctx, "c", vec![("t", ts(values, tz))])?;
+        let got = units_of(&ctx, options.clone()).await?;
+        let wrong = got.iter().find(|u| u.2 != expected);
+        assert!(wrong.is_none(), "{case} ({options:?}): {wrong:?}");
     }
 
     // DATE values: daily dates over 10 days choose days, not hours.
-    let d0 = days(2024, 1, 1);
-    register(
-        &rules,
-        "c",
-        vec![(
-            "t",
-            Arc::new(Date32Array::from(
-                (0..10).map(|i| d0 + i).collect::<Vec<_>>(),
-            )),
-        )],
-    )?;
-    let a = units(
-        &rules,
-        "SELECT timeunit(t, 'maxbins', 100) OVER () AS u FROM c",
-    )
-    .await?;
-    assert_eq!(a[0].as_ref().unwrap().2, "day");
+    let dates = "SELECT unnest(range(DATE '2024-01-01', DATE '2024-01-11', INTERVAL '1 day')) AS t";
+    time_units(&ctx, "units", dates, "t", &[], maxbins(100)).await?;
+    let sql = "SELECT arrow_typeof(t), u['unit'], count(*) FROM units GROUP BY 1, 2";
+    assert_eq!(rows(&ctx, sql).await?, [["Date32", "day", "10"]]);
 
-    // PARTITION BY: a monthly and an hourly partition, and a partition with a NULL key.
-    let mut values = months(2023, 24, 1);
-    let mut g: Vec<Option<i64>> = vec![Some(1); values.len()];
-    let hourly = series("2024-01-01T00:00:00Z", H, 48);
-    g.extend(vec![None; hourly.len()]);
-    values.extend(hourly);
-    for ctx in [&rules, &plain] {
-        register(
-            ctx,
-            "c",
-            vec![
-                ("g", Arc::new(Int64Array::from(g.clone()))),
-                ("t", ts(values.clone(), None)),
-            ],
-        )?;
-    }
-    let sql = "SELECT g, timeunit(t, 'maxbins', 100) OVER (PARTITION BY g) AS u FROM c ORDER BY g NULLS LAST, t";
-    let a = units(&rules, sql).await?;
-    assert_eq!(a, units(&plain, sql).await?);
-    assert_eq!(a[0].as_ref().unwrap().2, "month");
-    assert_eq!(a[24].as_ref().unwrap().2, "hour");
+    // Window partitions: a monthly partition, and an hourly partition with a NULL key.
+    let g = [Some(1); 24]
+        .into_iter()
+        .chain([None; 48])
+        .collect::<Vec<_>>();
+    let t = [months(2023, 24, 1), series("2024-01-01T00:00", H, 48)].concat();
+    register(
+        &ctx,
+        "c",
+        vec![("g", Arc::new(Int64Array::from(g))), ("t", ts(t, None))],
+    )?;
+    time_units(&ctx, "units", INPUT, "t", &["g"], maxbins(100)).await?;
+    let sql = "SELECT g, u['unit'], count(*) FROM units GROUP BY g, u['unit']";
+    assert_eq!(
+        rows(&ctx, sql).await?,
+        [["1", "month", "24"], ["NULL", "hour", "48"]]
+    );
     Ok(())
 }
 
+/// Options that contradict each other or are out of range, and units that do not apply to the
+/// type of the value: `check` or `check_type` names the option, and planning fails with the
+/// same message.
 #[tokio::test]
-async fn errors() -> Result<()> {
-    let ctx = session(true);
+async fn option_errors() -> Result<()> {
+    let ctx = session();
+    // Timestamps in milliseconds, DATEs, and timestamps in seconds.
+    register(
+        &ctx,
+        "c",
+        vec![
+            ("t", ts(vec![0], None)),
+            ("d", Arc::new(Date32Array::from(vec![0]))),
+            ("s", Arc::new(TimestampSecondArray::from(vec![0]))),
+        ],
+    )?;
+    let schema = ctx.table("c").await?.schema().clone();
+    let both = TimeUnitOptions {
+        maxbins: Some(20),
+        ..unit("month")
+    };
+    let month = "must be the number of a month from 1 to 12, such as 10 for October, not 13";
+    let date = "shorter than one day, so it does not apply to a DATE";
+    // (column, options, option, message)
+    let cases = [
+        ("t", both, "maxbins", "takes unit or maxbins, not both"),
+        (
+            "t",
+            unit("fiscal_quarter"),
+            "unit",
+            "needs fiscal_year_start; without it, use 'quarter'",
+        ),
+        ("t", fiscal(13, unit("quarter")), "fiscal_year_start", month),
+        (
+            "t",
+            maxbins(0),
+            "maxbins",
+            "must be a positive integer, not 0",
+        ),
+        ("d", unit("hour"), "unit", date),
+        ("d", min_unit("15 minutes"), "min_unit", date),
+        (
+            "s",
+            unit("500 milliseconds"),
+            "unit",
+            "shorter than one second",
+        ),
+    ];
+    for (value, options, option, message) in cases {
+        let dt = schema.field_with_unqualified_name(value)?.data_type();
+        let e = options.check().and_then(|()| options.check_type(dt));
+        let e = e.expect_err(&format!("no error: {options:?}"));
+        assert_eq!(e.option, option, "{options:?}");
+        assert!(e.message.contains(message), "{options:?}: {}", e.message);
+        let e = error(&ctx, value, options.clone()).await;
+        assert!(e.contains(message), "{options:?}: {e}");
+    }
+    Ok(())
+}
+
+/// Unit texts that `Unit::parse` rejects.
+#[test]
+fn unit_errors() {
+    for (text, message) in [
+        ("fortnight", "unknown time unit 'fortnight'"),
+        ("3 month_of_year", "'month_of_year' takes no count"),
+        (
+            "0 hours",
+            "the count of the unit '0 hours' must be a positive integer",
+        ),
+    ] {
+        let e = Unit::parse(text).expect_err(text).to_string();
+        assert!(e.contains(message), "{text}: {e}");
+    }
+}
+
+/// Units and values too close to the limits of the dates that a type can represent.
+#[tokio::test]
+async fn limits() -> Result<()> {
+    let ctx = session();
     register(
         &ctx,
         "c",
@@ -878,90 +855,21 @@ async fn errors() -> Result<()> {
             ("d", Arc::new(Date32Array::from(vec![0]))),
         ],
     )?;
-    for (sql, message) in [
+    for (value, text) in [
+        ("t", "4000000 months"),
+        ("t", "300000 years"),
+        ("d", "200000000 weeks"),
+        ("arrow_cast(100000000, 'Date32')", "month"),
         (
-            "SELECT timeunit(t, 'unit', 'month', 'maxbins', 20) OVER () FROM c",
-            "takes 'unit' or 'maxbins', not both",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', 'fiscal_quarter') OVER () FROM c",
-            "needs 'fiscal_year_start'; without it, use 'quarter'",
-        ),
-        (
-            "SELECT timeunit(d, 'unit', 'hour') OVER () FROM c",
-            "shorter than one day, so it does not apply to a DATE",
-        ),
-        (
-            "SELECT timeunit(d, 'min_unit', '15 minutes') OVER () FROM c",
-            "shorter than one day, so it does not apply to a DATE",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', 'fortnight') OVER () FROM c",
-            "unknown time unit 'fortnight'",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', '3 month_of_year') OVER () FROM c",
-            "'month_of_year' takes no count",
-        ),
-        // DataFusion's error for a window function without OVER.
-        ("SELECT timeunit(t) FROM c", "Invalid function 'timeunit'"),
-        (
-            "SELECT timeunit(t, 'unit', 'week', 'week_start', 'friday') OVER () FROM c",
-            "must be 'monday' or 'sunday', not 'friday'",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', 'quarter', 'fiscal_year_start', 13) OVER () FROM c",
-            "must be the number of a month from 1 to 12, such as 10 for October, not 13",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', 'quarter', 'fiscal_year_start', 'october') OVER () FROM c",
-            "must be the number of a month from 1 to 12, such as 10 for October, not october",
-        ),
-        (
-            "SELECT timeunit(t, 'maxbins', 0) OVER () FROM c",
-            "must be a positive integer, not 0",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', '0 hours') OVER () FROM c",
-            "the count of the unit '0 hours' must be a positive integer",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', '4000000 months') OVER () FROM c",
-            "too close to the limits",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', '300000 years') OVER () FROM c",
-            "too close to the limits",
-        ),
-        (
-            "SELECT timeunit(d, 'unit', '200000000 weeks') OVER () FROM c",
-            "too close to the limits",
-        ),
-        (
-            "SELECT timeunit(arrow_cast(t, 'Timestamp(Second, None)'), 'unit', '500 milliseconds') OVER () FROM c",
-            "shorter than one second",
-        ),
-        (
-            "SELECT timeunit(arrow_cast(100000000, 'Date32'), 'unit', 'month') OVER () FROM c",
-            "too close to the limits",
-        ),
-        (
-            "SELECT timeunit(arrow_cast(9223372036854775000, 'Timestamp(Nanosecond, None)'), 'unit', 'year') OVER () FROM c",
-            "too close to the limits",
-        ),
-        (
-            "SELECT timeunit(t, 'unit', 'month') OVER (ORDER BY t) FROM c",
-            "the window of timeunit cannot have an ORDER BY",
+            "arrow_cast(9223372036854775000, 'Timestamp(Nanosecond, None)')",
+            "year",
         ),
     ] {
-        let error = match ctx.sql(sql).await {
-            Ok(df) => df.collect().await.err(),
-            Err(e) => Some(e),
-        };
-        let error = error
-            .unwrap_or_else(|| panic!("no error: {sql}"))
-            .to_string();
-        assert!(error.contains(message), "{sql}: {error}");
+        let e = error(&ctx, value, unit(text)).await;
+        assert!(
+            e.contains("too close to the limits"),
+            "{value} '{text}': {e}"
+        );
     }
     Ok(())
 }
@@ -970,31 +878,16 @@ async fn errors() -> Result<()> {
 /// values before 1970.
 #[tokio::test]
 async fn long_spans() -> Result<()> {
-    let ctx = session(true);
-    let ns = |s: &str| {
-        DateTime::parse_from_rfc3339(s)
-            .unwrap()
-            .timestamp_nanos_opt()
-            .unwrap()
-    };
-    let values = vec![
-        ns("1700-03-01T00:00:00Z"),
-        ns("1850-07-01T00:00:00Z"),
-        ns("2020-01-01T00:00:00Z"),
-    ];
-    let t: ArrayRef = Arc::new(datafusion::arrow::array::TimestampNanosecondArray::from(
-        values,
-    ));
-    register(&ctx, "c", vec![("t", t)])?;
-    let a = units(&ctx, "SELECT timeunit(t) OVER () AS u FROM c").await?;
-    assert_eq!(a[0].as_ref().unwrap().2, "20 years");
-    let a = units(
-        &ctx,
-        "SELECT timeunit(t, 'unit', 'month') OVER () AS u FROM c",
-    )
-    .await?;
-    assert_eq!(a[0].as_ref().unwrap().0, ns("1700-03-01T00:00:00Z"));
-    assert_eq!(a[1].as_ref().unwrap().1, ns("1850-08-01T00:00:00Z"));
+    let ctx = session();
+    let ns = |s: &str| ms(s) * 1_000_000;
+    let values = ["1700-03-01T00:00", "1850-07-01T00:00", "2020-01-01T00:00"].map(ns);
+    let t = TimestampNanosecondArray::from(values.to_vec());
+    register(&ctx, "c", vec![("t", Arc::new(t))])?;
+    let a = units_of(&ctx, TimeUnitOptions::default()).await?;
+    assert_eq!(a[0].2, "20 years");
+    let a = units_of(&ctx, unit("month")).await?;
+    assert_eq!(a[0].0, ns("1700-03-01T00:00"));
+    assert_eq!(a[1].1, ns("1850-08-01T00:00"));
     Ok(())
 }
 
@@ -1002,53 +895,33 @@ async fn long_spans() -> Result<()> {
 /// time ended at noon on 1883-11-18): the units do not overlap.
 #[tokio::test]
 async fn local_mean_time() -> Result<()> {
-    let ctx = session(true);
-    let values = series("1883-11-18T16:58:00Z", 1000, 240);
-    register(
-        &ctx,
-        "c",
-        vec![
-            ("i", Arc::new(Int64Array::from_iter_values(0..240))),
-            ("t", ts(values.clone(), NY)),
-        ],
-    )?;
-    let a = units(
-        &ctx,
-        "SELECT i, timeunit(t, 'unit', '15 seconds') OVER () AS u FROM c ORDER BY i",
-    )
-    .await?;
-    for (v, u) in values.iter().zip(&a) {
-        let (s, e, _) = u.clone().unwrap();
-        assert!(s <= *v && *v < e, "{}: [{}, {})", iso(*v), iso(s), iso(e));
+    let ctx = session();
+    let values = series("1883-11-18T16:58", 1000, 240);
+    register(&ctx, "c", vec![("t", ts(values.clone(), NY))])?;
+    let a = units_of(&ctx, unit("15 seconds")).await?;
+    for (v, (s, e, _)) in values.iter().zip(&a) {
+        assert!(s <= v && v < e, "{}: [{}, {})", iso(*v), iso(*s), iso(*e));
     }
     for w in a.windows(2) {
-        let (s0, e0, _) = w[0].clone().unwrap();
-        let (s1, _, _) = w[1].clone().unwrap();
-        assert!(
-            s1 == s0 || s1 >= e0,
-            "[{}, {}) overlaps [{}, ...)",
-            iso(s0),
-            iso(e0),
-            iso(s1)
-        );
+        let ((s0, e0, _), (s1, ..)) = (&w[0], &w[1]);
+        let case = format!("[{}, {}) then [{}, ...)", iso(*s0), iso(*e0), iso(*s1));
+        assert!(s1 == s0 || s1 >= e0, "{case}");
     }
     Ok(())
 }
 
-/// A window node with timeunit and other functions, and a volatile input.
+/// A volatile input: the unit of each row contains the row's value.
 #[tokio::test]
-async fn mixed_and_volatile() -> Result<()> {
-    let ctx = session(true);
+async fn volatile_input() -> Result<()> {
+    let ctx = session();
     register(
         &ctx,
         "c",
-        vec![("t", ts(series("2024-01-01T00:00:00Z", H, 100), None))],
+        vec![("t", ts(series("2024-01-01T00:00", H, 100), None))],
     )?;
-    let sql = "SELECT timeunit(t) OVER () AS u, count(*) OVER () AS n FROM c";
-    let a = units(&ctx, sql).await?;
-    assert_eq!(a.len(), 100);
-    assert_eq!(a[0].as_ref().unwrap().2, "6 hours");
-    let sql = "SELECT u['start'] <= t AND t < u['end'] AS ok FROM (SELECT t, timeunit(t) OVER () AS u FROM (SELECT arrow_cast(arrow_cast(t, 'Int64') + arrow_cast(random() * 1e12, 'Int64'), 'Timestamp(Millisecond, None)') AS t FROM c))";
+    let input = "SELECT arrow_cast(arrow_cast(t, 'Int64') + arrow_cast(random() * 1e12, 'Int64'), 'Timestamp(Millisecond, None)') AS t FROM c";
+    time_units(&ctx, "units", input, "t", &[], TimeUnitOptions::default()).await?;
+    let sql = "SELECT u['start'] <= t AND t < u['end'] AS ok FROM units";
     for batch in ctx.sql(sql).await?.collect().await? {
         assert_eq!(batch.column(0).as_boolean().false_count(), 0);
     }

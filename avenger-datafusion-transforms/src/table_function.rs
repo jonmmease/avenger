@@ -26,7 +26,6 @@ use datafusion::arrow::row::{RowConverter, SortField};
 use datafusion::catalog::Session;
 use datafusion::common::tree_node::TreeNodeRecursion;
 use datafusion::common::{Column, DFSchema, DFSchemaRef, DataFusionError, Result, ScalarValue};
-use datafusion::execution::context::QueryPlanner;
 use datafusion::execution::memory_pool::MemoryConsumer;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::logical_expr::execution_props::ExecutionProps;
@@ -43,7 +42,7 @@ use datafusion::physical_plan::{
     ChildrenPropertiesMode, DisplayAs, DisplayFormatType, Distribution, ExecutionPlan,
     InputDistributionRequirements, Partitioning, PlanProperties, ReplaceChildrenOptions,
 };
-use datafusion::physical_planner::{DefaultPhysicalPlanner, ExtensionPlanner, PhysicalPlanner};
+use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use futures::StreamExt;
 
 // ---------------------------------------------------------------------------------------
@@ -527,24 +526,5 @@ impl ExtensionPlanner for TableFunctionExtensionPlanner {
             partitions,
             Arc::new(n.schema.as_arrow().clone()),
         ))))
-    }
-}
-
-/// DataFusion's default query planner, with [`TableFunctionExtensionPlanner`].
-#[derive(Debug)]
-pub struct TransformsQueryPlanner;
-
-#[async_trait]
-impl QueryPlanner for TransformsQueryPlanner {
-    async fn create_physical_plan(
-        &self,
-        logical_plan: &LogicalPlan,
-        session: &dyn Session,
-    ) -> Result<Arc<dyn ExecutionPlan>> {
-        DefaultPhysicalPlanner::with_extension_planners(vec![Arc::new(
-            TableFunctionExtensionPlanner,
-        )])
-        .create_physical_plan(logical_plan, session)
-        .await
     }
 }

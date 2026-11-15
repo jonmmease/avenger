@@ -3,7 +3,8 @@
 //! and the table function `impute`, of a pipe `CALL` and of `FROM`.
 //!
 //! A call of `lump` plans as the placeholder window of [`lump::window`], whose type is the lump's
-//! struct, and the window node of its projection plans it through [`lump::plan_windows`].
+//! struct, and the window node of its projection plans it through
+//! [`avenger_datafusion_transforms::plan_windows`].
 
 use avenger_datafusion_transforms::{
     impute::{self, ImputeCall, Named},
@@ -320,12 +321,29 @@ impl Pass<'_> {
             return rows.fail();
         };
         let path_range = path.syntax().text_range();
+        // A temporary or module table function takes the pipe input as its first argument.
+        let function = (self.temp_function(&names))
+            .filter(|function| function.kind == super::script::Kind::Table);
+        if let Some(function) = function {
+            let arguments = op
+                .arg_list()
+                .into_iter()
+                .flat_map(|list| list.arguments())
+                .collect();
+            return self.call_table_function(
+                function,
+                &path,
+                Some(rows),
+                arguments,
+                op.alias(),
+                range,
+            );
+        }
         if !matches!(names.as_slice(), [name] if name.eq_ignore_ascii_case("impute")) {
-            let message = match self.temp_function(&names) {
-                Some(_) => "avenger-sql doesn't plan a pipe CALL of a temporary table function yet; call it in FROM, with TABLE arguments".to_string(),
-                None => format!("Table-valued function not found: {}", names.join(".")),
-            };
-            self.error(path_range, message);
+            self.error(
+                path_range,
+                format!("Table-valued function not found: {}", names.join(".")),
+            );
             return rows.fail();
         }
         let alias = alias_name(op.alias());

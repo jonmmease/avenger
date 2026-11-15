@@ -26,13 +26,6 @@ pipe_query.test:38	the pipe DESCRIBE isn't in the subset
 
 # Expressions and clauses outside the subset.
 unpack_expression_*	`**` unpack expressions aren't in the subset
-pipe_aggregate.test:14:from	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_aggregate.test:15:*	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_aggregate.test:18:from	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_aggregate_with_order.test:19:*	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_query.test:24:from	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_query.test:25:from	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
-pipe_query.test:27:from	a `.*` in AGGREGATE, or of an expression other than a path, isn't in the subset
 pipe_aggregate.test:4:from	hints, `@{...}`, aren't in the subset
 pipe_call_tvf.test:2:from	hints, `@{...}`, aren't in the subset
 pipe_call_tvf.test:10:from	hints, `@{...}`, aren't in the subset
@@ -40,8 +33,8 @@ pipe_order_by.test:0:from	hints, `@{...}`, aren't in the subset
 pipe_set_operation.test:1:from	hints, `@{...}`, aren't in the subset
 pipe_from_query.test:28	hints, `@{...}`, and FOR SYSTEM TIME aren't in the subset
 pipe_join.test:0:from	hints, HASH and LOOKUP joins, and standard queries aren't in the subset
-pipe_query.test:12:from	SELECT AS STRUCT, SELECT AS VALUE, hints and anonymization aren't in the subset
-crate:REJECTED:4	SELECT AS STRUCT isn't in the subset
+pipe_query.test:12:from	SELECT AS a named type, hints and anonymization aren't in the subset
+crate:REJECTED:4	SELECT AS a named type isn't in the subset
 pipe_query.test:35:from	LIMIT ALL isn't in the subset
 pipe_call_tvf.test:0:from	DESCRIPTOR, MODEL and CONNECTION arguments and standard queries aren't in the subset
 pipe_call_tvf.test:1:from	MODEL and CONNECTION arguments aren't in the subset

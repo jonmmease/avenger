@@ -1,27 +1,28 @@
 # avenger-datafusion-transforms
 
-Data transforms for Apache DataFusion: the Vega-style `bin`, `stack`, `timeunit`, and `impute`, and `lump`, which keeps the top categories and lumps the rest into an Other group. `bin`, `stack`, and `timeunit` are window functions, which optimizer rules plan as aggregates and joins:
+Data transforms for Apache DataFusion: the Vega-style `bin`, `stack`, `timeunit`, and `impute`, and `lump`, which keeps the top categories and lumps the rest into an Other group. A front end, such as avenger-sql, builds a typed call of a transform from its planned arguments, and the crate plans the call:
 
-```sql
-SELECT *, bin(x, 'maxbins', 30) OVER (PARTITION BY g) AS binned FROM t
-SELECT *, stack(v, 'offset', 'center') OVER (PARTITION BY x ORDER BY series) AS y FROM t
-SELECT *, timeunit(t, 'maxbins', 20) OVER (PARTITION BY g) AS u FROM events
+```rust
+let call = BinCall {
+    value: col("x"),
+    partition: vec![col("g")],
+    options: BinOptions { maxbins: 30.0, ..Default::default() },
+};
+let plan = bin::plan(input, call, Column::from_name("binned"))?;
 ```
 
-`impute` and `lump` are plans over an input, which a front end builds from its planned arguments: `impute::plan` takes the input's plan, its key, group, and value columns, and its named arguments, and `lump::plan` the category, the partition, and the expressions of `weight` and `keep`. avenger-sql plans both from GoogleSQL, as `|> CALL impute(...)` and `lump(...) OVER (...)`. `register` adds the window functions, the rules, and the query planner of the table functions to a `SessionContext`.
+`bin::plan`, `timeunit::plan`, `lump::plan`, and `impute::plan` add the transform to the plan of an input. `bin` and `timeunit` plan as an aggregate of each window partition, joined back to its rows, and `lump` as a grouped plan of its categories. Among the windows of a projection, a front end writes a call of `bin`, `timeunit`, or `lump` as the placeholder window of `bin::window`, `timeunit::window`, or `lump::window`, and `plan_windows` plans each placeholder onto the input. `stack::window` is the window function of `stack`. The options of a call are Rust values, and their `check` methods return an `OptionError` that names the option, so a front end places the error at its argument.
 
 | Transform | Result | Notes |
 |---|---|---|
-| `bin` | `struct<start, end>` | Bins of a nice step, for at most `maxbins` bins, over the extent of each window partition or an explicit `extent`. `bin_params(lo, hi, ...)` gives the bins of an extent. |
+| `bin` | `struct<start, end>` | Bins of a nice step, for at most `maxbins` bins, over the extent of each window partition or an explicit `extent`. `bin::bin_params` gives the bins of an extent. |
 | `stack` | `struct<start, end>` | The layers of each stack, with the offsets `zero`, `normalize`, and `center`, which centers each stack on zero. |
-| `timeunit` | `struct<start, end, unit>` | A calendar unit in the time zone of the value's type, chosen for each window partition or given with `'unit'`. Units include fiscal quarters and years, and collapsing units such as `'month_of_year'`. |
+| `timeunit` | `struct<start, end, unit>` | A calendar unit in the time zone of the value's type, chosen for each window partition or given with `unit`. Units include fiscal quarters and years, and collapsing units such as `'month_of_year'`. |
 | `lump` | `struct<value, other, weight, category_count>` | Keeps the top categories, or the categories that a condition keeps, and lumps the rest into an Other group, with the number of categories that it holds. `weight` is an aggregate of the rows of each category, and `keep` a condition of aggregates of its rows and windows over the categories, which take no `PARTITION BY`. `null_category` keeps the NULL category apart from the ranking, puts it in the Other group, or gives its rows a NULL lump. |
 | `impute` | the input's rows, then the added rows | Adds the rows that each group lacks, with a constant or a statistic over a frame. `fill_gaps` adds the bins, time units, or dates that no row has, and `partition_by` imputes partitions separately. |
 
-A table function such as `impute` reads the plan of an input relation. Every table function takes `partition_by`, which transforms partitions separately and in parallel. The module `table_function` holds this machinery for new table functions, and `ArgError` places the error of an argument at the argument. A front end that plans `lump` as an expression of a projection writes it as the placeholder window of `lump::window`, and `lump::plan_windows` plans each lump of a window node onto its input.
-
-The options of the window functions are pairs of a name and a constant after the first argument, because DataFusion 55's named arguments can omit only the last parameters. A `timeunit` call with a `'unit'` takes `OVER ()`: DataFusion plans a scalar function before a window function of the same name, so the scalar form is internal.
+A table function such as `impute` reads the plan of an input relation. Every table function takes `partition_by`, which transforms partitions separately and in parallel. The module `table_function` holds this machinery for new table functions, its extension planner, and `ArgError`, which places the error of an argument at the argument.
 
 ## Tests
 
-The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, the rules against the window evaluators, `impute` and `lump` against equivalent SQL, and the gaps and partitions of `impute`. The tests write the calls of `impute` and `lump` in their queries, which an adapter of the tests plans through `impute::plan` and `lump::plan`, and compare the results with reference queries in DataFusion's SQL, which only the tests enable.
+The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, `impute` and `lump` against equivalent SQL, and the gaps and partitions of `impute`. The tests build the calls in Rust, plan the inputs and the reference queries in DataFusion's SQL, which only the tests enable, and compare the results.

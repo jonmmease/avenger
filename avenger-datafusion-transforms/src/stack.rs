@@ -3,7 +3,8 @@
 //! each layer. The one option is `offset`: `zero` (the default) stacks positive values up and
 //! negative values down from zero, `normalize` stacks absolute values from 0 to 1, and
 //! `center` centers each stack of absolute values on zero (d3's silhouette offset). A NULL or
-//! NaN value has no layer: its result is NULL, and it adds nothing to its stack.
+//! NaN value has no layer: its result is NULL, and it adds nothing to its stack. [`window`] is
+//! the window function of an offset.
 
 use std::sync::Arc;
 
@@ -11,18 +12,20 @@ use datafusion::arrow::array::{ArrayRef, AsArray, Float64Array, StructArray};
 use datafusion::arrow::buffer::NullBuffer;
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Float64Type};
-use datafusion::common::{Result, ScalarValue, plan_err};
+use datafusion::common::{Result, plan_err};
 use datafusion::logical_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
-use datafusion::logical_expr::{PartitionEvaluator, Signature, Volatility, WindowUDFImpl};
+use datafusion::logical_expr::{
+    PartitionEvaluator, Signature, Volatility, WindowUDF, WindowUDFImpl,
+};
 
-use crate::utils::{interval_fields, physical_literals};
+use crate::utils::interval_fields;
 
 // ---------------------------------------------------------------------------------------
 // stack(v, ..options) OVER (PARTITION BY .. ORDER BY ..)
 // ---------------------------------------------------------------------------------------
 
 /// The stack offset.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StackOffset {
     /// Positive values stack up from 0, negative values down from 0.
     Zero,
@@ -33,36 +36,14 @@ pub enum StackOffset {
 }
 
 impl StackOffset {
-    pub fn parse(pairs: &[ScalarValue]) -> Result<Self> {
-        if !pairs.len().is_multiple_of(2) {
-            return plan_err!(
-                "stack options must be pairs of a name and a value, but the last name has no value"
-            );
+    /// The offset of the name `zero`, `center`, or `normalize`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "zero" => Some(Self::Zero),
+            "center" => Some(Self::Center),
+            "normalize" => Some(Self::Normalize),
+            _ => None,
         }
-        let mut offset = None;
-        for pair in pairs.chunks(2) {
-            let Some(Some(name)) = pair[0].try_as_str() else {
-                return plan_err!("a stack option name must be a string, not {}", pair[0]);
-            };
-            if name != "offset" {
-                return plan_err!("unknown stack option '{name}': the option is offset");
-            }
-            if offset.is_some() {
-                return plan_err!("the stack option 'offset' is given twice");
-            }
-            offset = Some(match pair[1].try_as_str() {
-                Some(Some("zero")) => Self::Zero,
-                Some(Some("center")) => Self::Center,
-                Some(Some("normalize")) => Self::Normalize,
-                _ => {
-                    return plan_err!(
-                        "the stack option 'offset' must be 'zero', 'center', or 'normalize', not {}",
-                        pair[1]
-                    );
-                }
-            });
-        }
-        Ok(offset.unwrap_or(Self::Zero))
     }
 }
 
@@ -111,31 +92,38 @@ pub fn stack_values(values: &[Option<f64>], offset: StackOffset) -> Vec<Option<(
 /// `stack(v, ..options) OVER (..)`.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct StackWindow {
+    offset: StackOffset,
     signature: Signature,
 }
 
-impl Default for StackWindow {
-    fn default() -> Self {
-        Self {
-            signature: Signature::variadic_any(Volatility::Immutable),
-        }
-    }
+/// The window function `stack` with `offset`, whose argument is the value to stack, whose
+/// `PARTITION BY` gives the stacks, and whose `ORDER BY` gives the order of the layers.
+pub fn window(offset: StackOffset) -> Arc<WindowUDF> {
+    Arc::new(WindowUDF::new_from_impl(StackWindow {
+        offset,
+        signature: Signature::any(1, Volatility::Immutable),
+    }))
 }
 
 impl WindowUDFImpl for StackWindow {
     fn name(&self) -> &str {
-        "stack"
+        // The name tells apart the stacks of one value with different offsets, as a window node
+        // names its columns by their calls.
+        match self.offset {
+            StackOffset::Zero => "stack",
+            StackOffset::Center => "stack[offset => center]",
+            StackOffset::Normalize => "stack[offset => normalize]",
+        }
     }
     fn signature(&self) -> &Signature {
         &self.signature
     }
     fn partition_evaluator(
         &self,
-        args: PartitionEvaluatorArgs,
+        _args: PartitionEvaluatorArgs,
     ) -> Result<Box<dyn PartitionEvaluator>> {
-        let options = physical_literals("stack", &args.input_exprs()[1..])?;
         Ok(Box::new(StackEvaluator {
-            offset: StackOffset::parse(&options)?,
+            offset: self.offset,
         }))
     }
     fn field(&self, args: WindowUDFFieldArgs) -> Result<FieldRef> {

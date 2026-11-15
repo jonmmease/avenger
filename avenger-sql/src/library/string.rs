@@ -292,10 +292,6 @@ impl ScalarUDFImpl for Initcap {
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
         let rows = args.number_rows;
-        let scalar = args
-            .args
-            .iter()
-            .all(|arg| matches!(arg, ColumnarValue::Scalar(_)));
         let strings = |arg: &ColumnarValue| -> Result<ArrayRef> {
             datafusion::arrow::compute::cast(&arg.clone().into_array(rows)?, &DataType::Utf8)
                 .map_err(Into::into)
@@ -315,10 +311,7 @@ impl ScalarUDFImpl for Initcap {
             })
             .collect();
         let out: ArrayRef = Arc::new(out);
-        match scalar {
-            true => Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?)),
-            false => Ok(ColumnarValue::Array(out)),
-        }
+        super::columnar(out, &args.args)
     }
 }
 

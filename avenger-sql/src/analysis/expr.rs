@@ -208,6 +208,14 @@ impl Pass<'_> {
         Some((values, ty))
     }
 
+    /// The plan of the condition `expr` in `scope`, a `BOOL`, or `None` with an error, as `what`
+    /// names it, such as `JOIN ON clause`.
+    pub(crate) fn condition(&mut self, expr: &ast::Expr, scope: Scope, what: &str) -> Option<Expr> {
+        let at = expr.syntax().text_range();
+        let planned = self.expr(expr, scope)?;
+        self.boolean(planned, at, what, scope)
+    }
+
     /// `expr` as a `BOOL`, for a place that takes one, such as `WHERE`, or `None` with an error at
     /// `range`. `NULL` is a `BOOL`.
     pub(crate) fn boolean(
@@ -1137,12 +1145,25 @@ impl Pass<'_> {
                     (true, false) => "$not_like_any",
                     (true, true) => "$not_like_all",
                 };
-                let ast::InSet::InList(list) = quantified.in_set()? else {
-                    self.error(
-                        range,
-                        "avenger-sql takes the patterns of LIKE ANY and LIKE ALL as a list",
-                    );
-                    return None;
+                let list = match quantified.in_set()? {
+                    ast::InSet::InList(list) => list,
+                    // The patterns of an array.
+                    ast::InSet::InUnnest(unnest) => {
+                        let array = unnest.expr()?;
+                        let at = array.syntax().text_range();
+                        let patterns = self.expr(&array, scope)?;
+                        let mut operands = value?;
+                        operands.push((patterns, at));
+                        let name = format!("{name}_unnest");
+                        return self.operator(&name, operands, range, scope);
+                    }
+                    ast::InSet::InQuery(_) => {
+                        self.error(
+                            range,
+                            "LIKE ANY and LIKE ALL take a list of patterns or UNNEST of an array, not a query",
+                        );
+                        return None;
+                    }
                 };
                 let patterns: Vec<Option<(Expr, TextRange)>> = list
                     .exprs()
@@ -1697,15 +1718,24 @@ impl Pass<'_> {
                         );
                         return None;
                     }
-                    if filter.is_some() || distinct {
-                        self.error(range, format!("avenger-sql doesn't compute {fname} with DISTINCT over a window yet"));
-                        return None;
-                    }
-                    let window = over.window(
+                    // DataFusion's windows take an aggregate's `DISTINCT` and its filter, as of
+                    // `COUNTIF`.
+                    let mut window = over.window(
                         WindowFunctionDefinition::AggregateUDF(func),
                         args,
                         null_treatment,
                     );
+                    if let Expr::WindowFunction(function) = &mut window {
+                        if distinct && !function.params.order_by.is_empty() {
+                            self.error(
+                                range,
+                                "Window ORDER BY is not allowed if DISTINCT is specified",
+                            );
+                            return None;
+                        }
+                        function.params.distinct = distinct;
+                        function.params.filter = filter.map(Box::new);
+                    }
                     Some(typed(window, result))
                 }
                 None => {
@@ -1721,7 +1751,10 @@ impl Pass<'_> {
                     if let Some((max, value)) = having {
                         let value = value?;
                         let Some(groups) = scope.groups else {
-                            self.error(range, "avenger-sql doesn't compute HAVING MAX or HAVING MIN with grouping sets yet");
+                            self.error(
+                                range,
+                                "The keep of lump doesn't take HAVING MAX or HAVING MIN",
+                            );
                             return None;
                         };
                         // The rows of the greatest or the least value of the group.

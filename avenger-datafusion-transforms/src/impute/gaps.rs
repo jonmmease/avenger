@@ -277,7 +277,7 @@ impl Gaps {
                         unit: Some(unit),
                         ..Default::default()
                     };
-                    o.check(key).map_err(|e| e.strip_backtrace())?;
+                    o.check_type(key).map_err(|e| e.message)?;
                 }
                 Ok(Step::Unit(text.to_string()))
             }

@@ -15,7 +15,7 @@ use datafusion::arrow::datatypes::{
     TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
     TimestampSecondType,
 };
-use datafusion::common::{Result, ScalarValue, plan_err};
+use datafusion::common::{Result, plan_err};
 
 pub(crate) fn ticks_of(a: &ArrayRef) -> Result<Vec<i64>> {
     Ok(match a.data_type() {
@@ -233,16 +233,20 @@ pub(crate) fn options_of_tag(tag: Option<&str>) -> Result<TimeUnitOptions> {
         let at = tag.find(&format!("\"{key}\":"))? + key.len() + 3;
         tag[at..].split([',', '}']).next()
     };
-    let mut pairs = Vec::new();
-    if let Some(v) = value("week_start") {
-        pairs.push(ScalarValue::from("week_start"));
-        pairs.push(ScalarValue::from(v.trim_matches('"')));
-    }
-    if let Some(v) = value("fiscal_year_start") {
-        pairs.push(ScalarValue::from("fiscal_year_start"));
-        pairs.push(ScalarValue::Int64(v.parse().ok()));
-    }
-    TimeUnitOptions::parse(&pairs)
+    let week_start = match value("week_start").map(|v| v.trim_matches('"')) {
+        Some(name) => match WeekStart::from_name(name) {
+            Some(week_start) => week_start,
+            None => return plan_err!("the time unit tag has the week start '{name}'"),
+        },
+        None => WeekStart::default(),
+    };
+    let options = TimeUnitOptions {
+        week_start,
+        fiscal_year_start: value("fiscal_year_start").and_then(|v| v.parse().ok()),
+        ..Default::default()
+    };
+    options.check()?;
+    Ok(options)
 }
 
 pub(super) fn apply_unit(

@@ -4,11 +4,11 @@
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! constructor returns the fragment of its message. The transforms take their options as named
-//! arguments, as in `bin(x, maxbins => 30)`, which their window functions take as pairs of a name
-//! and a value. The docs of the marks and the constructors are avenger-chart's, and the forms of
-//! the transforms declare their options, with their docs. The pass plans the calls of `lump` and
-//! `impute` itself, since their arguments read other scopes than a row: the library holds their
-//! docs and forms.
+//! arguments, as in `bin(x, maxbins => 30)`, which must be constants: the form of each builds the
+//! typed options of its call and checks them, so an error of an option is at its argument. The
+//! docs of the marks and the constructors are avenger-chart's, and the forms of the transforms
+//! declare their options, with their docs. The pass plans the calls of `lump` and `impute` itself,
+//! since their arguments read other scopes than a row: the library holds their docs and forms.
 //!
 //! A function or a parameter whose name is a reserved word of GoogleSQL takes the name with a
 //! trailing underscore, as the constructor `select` is `select_` and the parameter `range` of
@@ -21,14 +21,25 @@ use std::sync::Arc;
 use avenger_chart::functions::{
     constructors, encoding_options, marks, Accept as ChartAccept, Kind, Shape, COORD,
 };
-use avenger_datafusion_transforms::{bin::BinWindow, stack::StackWindow, timeunit::TimeUnitWindow};
-use datafusion::logical_expr::{
-    AggregateUDF, Expr, ScalarUDF, WindowFunctionDefinition, WindowUDF,
+use avenger_datafusion_transforms::{
+    bin::{self, BinOptions},
+    stack::{self, StackOffset},
+    table_function::constant,
+    timeunit::{self, TimeUnitOptions, Unit, WeekStart},
+    OptionError,
+};
+use datafusion::{
+    arrow::{
+        array::{Array, AsArray},
+        datatypes::Float64Type,
+    },
+    common::{DataFusionError, ScalarValue},
+    logical_expr::{AggregateUDF, Expr, ScalarUDF, WindowFunctionDefinition, WindowUDF},
 };
 
 use super::{
     form::{Accept, Arity, FormArg, Signature, Ty},
-    lit_str, null, Function, Need, Planned,
+    null, Function, Need, Planned,
 };
 use crate::functions::{
     constructor::ConstructorFunction, declaration::MarkDeclaration, kind::KindFunction,
@@ -308,7 +319,7 @@ fn bin() -> Function {
          => ARRAY<FLOAT64>][, span => FLOAT64][, step => FLOAT64][, steps => ARRAY<FLOAT64>][, \
          minstep => FLOAT64][, nice => BOOL][, anchor => FLOAT64]) -> STRUCT<start FLOAT64, end \
          FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC | FLOAT64",
-        || WindowUDF::new_from_impl(BinWindow::default()),
+        bin_window,
     )
     .example(
         "FROM UNNEST([1.0, 7.0, 12.0, 18.0, 25.0]) AS x |> EXTEND bin(x, maxbins => 3) OVER () \
@@ -352,7 +363,7 @@ fn stack() -> Function {
         ),
         "(value: T[, offset => ONEOF('zero', 'normalize', 'center')]) -> STRUCT<start FLOAT64, end \
          FLOAT64> where T: INT64 | NUMERIC | BIGNUMERIC | FLOAT64",
-        || WindowUDF::new_from_impl(StackWindow::default()),
+        stack_window,
     )
     .example(
         "FROM sales |> EXTEND stack(units) OVER (PARTITION BY region ORDER BY product) AS s |> \
@@ -417,7 +428,7 @@ fn timeunit() -> Function {
         "(value: T[, unit => STRING][, min_unit => STRING][, maxbins => INT64][, week_start => \
          ONEOF('monday', 'sunday')][, fiscal_year_start => INT64]) -> STRUCT<start T, end T, unit \
          STRING> where T: DATE | DATETIME | TIMESTAMP",
-        || WindowUDF::new_from_impl(TimeUnitWindow::default()),
+        timeunit_window,
     )
     .example(
         "FROM UNNEST([DATE '2024-01-15', DATE '2024-02-03', DATE '2024-02-28']) AS day |> \
@@ -590,24 +601,189 @@ fn impute() -> Function {
 }
 
 /// The window transform `function` of the form `declaration`, whose options are named arguments
-/// after its value, which its window function takes as pairs of a name and a value.
-fn transform(function: Function, declaration: &str, udwf: fn() -> WindowUDF) -> Function {
+/// after its value. `window` builds the window function of a call from its options.
+fn transform(
+    function: Function,
+    declaration: &str,
+    window: fn(&Options) -> Result<Arc<WindowUDF>, super::CallError>,
+) -> Function {
     let signature = Signature::parse(declaration).expect("the form of a transform");
-    let options: Vec<String> = (signature.args[1..].iter())
+    let names: Vec<String> = (signature.args.iter())
         .map(|arg| arg.param.clone())
         .collect();
-    let udwf = Arc::new(udwf());
     function.with_signature(signature, move |call| {
-        let mut args = vec![call.arg(0)];
-        for (index, option) in options.iter().enumerate() {
-            if let Some(value) = call.value(index + 1) {
-                args.extend([lit_str(option), value.clone()]);
-            }
-        }
+        let options = Options {
+            call,
+            names: &names,
+        };
         Ok(Planned::Window {
-            func: WindowFunctionDefinition::WindowUDF(udwf.clone()),
-            args,
+            func: WindowFunctionDefinition::WindowUDF(window(&options)?),
+            args: vec![call.arg(0)],
             result: None,
         })
     })
+}
+
+/// The options of a call of a window transform, the constants of its named arguments.
+struct Options<'c, 'a> {
+    call: &'c super::Call<'a>,
+    /// The names of the parameters of the form, the value's first.
+    names: &'c [String],
+}
+
+impl Options<'_, '_> {
+    fn index(&self, name: &str) -> usize {
+        (self.names.iter())
+            .position(|param| param == name)
+            .expect("an option of the form")
+    }
+
+    /// The constant of the option `name`, when the call gives it.
+    fn value(&self, name: &str) -> Result<Option<ScalarValue>, super::CallError> {
+        let index = self.index(name);
+        let Some(expr) = self.call.value(index) else {
+            return Ok(None);
+        };
+        match constant(expr) {
+            Ok(value) if value.is_null() => Err(self
+                .call
+                .error_at(index, format!("`{name}` takes a value, not NULL"))),
+            Ok(value) => Ok(Some(value)),
+            Err(_) => Err(self
+                .call
+                .error_at(index, format!("`{name}` takes a constant"))),
+        }
+    }
+
+    fn number(&self, name: &str) -> Result<Option<f64>, super::CallError> {
+        Ok(self.value(name)?.and_then(|value| match value {
+            ScalarValue::Float64(number) => number,
+            _ => None,
+        }))
+    }
+
+    fn integer(&self, name: &str) -> Result<Option<i64>, super::CallError> {
+        Ok(self.value(name)?.and_then(|value| match value {
+            ScalarValue::Int64(number) => number,
+            _ => None,
+        }))
+    }
+
+    fn text(&self, name: &str) -> Result<Option<String>, super::CallError> {
+        Ok(self
+            .value(name)?
+            .and_then(|value| value.try_as_str().flatten().map(str::to_string)))
+    }
+
+    fn boolean(&self, name: &str) -> Result<Option<bool>, super::CallError> {
+        Ok(self.value(name)?.and_then(|value| match value {
+            ScalarValue::Boolean(value) => value,
+            _ => None,
+        }))
+    }
+
+    fn numbers(&self, name: &str) -> Result<Option<Vec<f64>>, super::CallError> {
+        let Some(ScalarValue::List(list)) = self.value(name)? else {
+            return Ok(None);
+        };
+        let numbers = list.value(0);
+        if numbers.null_count() > 0 {
+            return Err(self.call.error_at(
+                self.index(name),
+                format!("`{name}` takes numbers, not NULL"),
+            ));
+        }
+        Ok(Some(
+            numbers.as_primitive::<Float64Type>().values().to_vec(),
+        ))
+    }
+
+    /// The unit of the option `name`, when the call gives it.
+    fn unit(&self, name: &str) -> Result<Option<Unit>, super::CallError> {
+        let Some(text) = self.text(name)? else {
+            return Ok(None);
+        };
+        match Unit::parse(&text) {
+            Ok(unit) => Ok(Some(unit)),
+            Err(DataFusionError::Plan(message)) => {
+                let mut chars = message.chars();
+                let message: String = (chars.next().into_iter())
+                    .flat_map(char::to_uppercase)
+                    .chain(chars)
+                    .collect();
+                Err(self.call.error_at(self.index(name), message))
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// An error of an option, at its argument.
+    fn error(&self, error: OptionError) -> super::CallError {
+        self.call.error_at(self.index(error.option), error.message)
+    }
+}
+
+/// The window of a call of `bin`.
+fn bin_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
+    let mut options = BinOptions::default();
+    if let Some(maxbins) = o.number("maxbins")? {
+        options.maxbins = maxbins;
+    }
+    if let Some(base) = o.number("base")? {
+        options.base = base;
+    }
+    if let Some(divide) = o.numbers("divide")? {
+        options.divide = divide;
+    }
+    if let Some(extent) = o.numbers("extent")? {
+        let [low, high] = extent[..] else {
+            return Err(o.call.error_at(
+                o.index("extent"),
+                "`extent` takes two numbers, as `[low, high]`",
+            ));
+        };
+        options.extent = Some([low, high]);
+    }
+    options.span = o.number("span")?;
+    options.step = o.number("step")?;
+    options.steps = o.numbers("steps")?;
+    if let Some(minstep) = o.number("minstep")? {
+        options.minstep = minstep;
+    }
+    if let Some(nice) = o.boolean("nice")? {
+        options.nice = nice;
+    }
+    options.anchor = o.number("anchor")?;
+    options.check().map_err(|error| o.error(error))?;
+    Ok(bin::window(options))
+}
+
+/// The window of a call of `stack`.
+fn stack_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
+    let offset = match o.text("offset")? {
+        // The form takes only the names of offsets.
+        Some(name) => StackOffset::from_name(&name).expect("an offset of the form"),
+        None => StackOffset::Zero,
+    };
+    Ok(stack::window(offset))
+}
+
+/// The window of a call of `timeunit`.
+fn timeunit_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
+    let week_start = match o.text("week_start")? {
+        // The form takes only the names of days.
+        Some(name) => WeekStart::from_name(&name).expect("a week start of the form"),
+        None => WeekStart::default(),
+    };
+    let options = TimeUnitOptions {
+        unit: o.unit("unit")?,
+        maxbins: o.integer("maxbins")?,
+        min_unit: o.unit("min_unit")?,
+        week_start,
+        fiscal_year_start: o.integer("fiscal_year_start")?,
+    };
+    options.check().map_err(|error| o.error(error))?;
+    let value = o.call.type_of(&o.call.arg(0))?;
+    options.check_type(&value).map_err(|error| o.error(error))?;
+    Ok(timeunit::window(options))
 }

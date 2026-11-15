@@ -32,8 +32,8 @@
 //! - A unit, such as `'month'`, for a DATE or a timestamp key. Weeks start on Monday, and a
 //!   fiscal unit needs a key from `timeunit`, which carries the fiscal year start.
 //! - A struct with any of `start`, `end`, and `step`; a field that it leaves out comes from
-//!   the keys. The struct of `bin_params(...)` is a sequence of the bins of one mesh. A number
-//!   key needs a `step`.
+//!   the keys. The struct of [`crate::bin::BinParams`] is a sequence of the bins of one mesh. A
+//!   number key needs a `step`.
 //!
 //! The range is half-open, `[start, end)`. Keys outside it stay key values, and impute fills no
 //! gaps outside it. The intervals of a partition must have one width and one alignment, and the

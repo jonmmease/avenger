@@ -1,46 +1,48 @@
 //! `bin` is a Vega-style bin transform: bins of a nice step, for at most `maxbins` bins. Its
-//! options, with their defaults, are `maxbins` (20), `base` (10), `divide` ([5, 2]),
-//! `extent`, `span`, `step`, `steps`, `minstep` (0), `nice` (true), and `anchor`. Without
-//! `extent`, the extent is that of the finite values of `x` in each window partition. The
+//! options, [`BinOptions`], with their defaults, are `maxbins` (20), `base` (10), `divide`
+//! ([5, 2]), `extent`, `span`, `step`, `steps`, `minstep` (0), `nice` (true), and `anchor`.
+//! Without `extent`, the extent is that of the finite values in each window partition. The
 //! result is `struct<start, end>`, the bounds of the bin of each value, or NULL for a value
-//! outside the bins: NULL, NaN, an infinite value, or a value outside an explicit `extent`.
+//! outside the bins: NULL, NaN, an infinite value, a value outside an explicit `extent`, or a
+//! value before the first bin, where an `anchor` moves the bins past the least value.
 //!
-//! - `bin(x, ..options) OVER (..)`: the window function that users call.
-//! - `bin_params(lo, hi, ..options)`: the `start`, `end`, and `step` of the bins of an extent,
-//!   for axes, scale domains, and empty bins.
-//! - `__bin_apply(x, params)`: internal; bins each value by the result of `bin_params`.
-//!
-//! [`BinWindowRewrite`] replaces `bin(..) OVER (..)` with `__bin_apply`, which gets its
-//! parameters from constants (with `extent`), from a scalar subquery (no `PARTITION BY`), or
-//! from a join with the parameters of each partition. [`crate::StructGroupSplit`] groups by the
-//! fields of a non-null struct key, such as a bin, then makes the struct again above the
-//! aggregate.
+//! A call is a [`BinCall`], which [`plan`] adds to its input, or among the windows of a
+//! projection, the placeholder window of [`window`], which [`crate::plan_windows`] plans. With
+//! `extent`, the bins are constants. Without it, the plan reads the `MIN` and the `MAX` of the
+//! finite values of each partition, from a join of an aggregate by the partition, or without a
+//! partition, a scalar subquery. [`crate::StructGroupSplit`] groups by the fields of a non-null
+//! struct key, such as a bin, then makes the struct again above the aggregate.
 
-use std::sync::Arc;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, LazyLock};
 
 use datafusion::arrow::array::{Array, ArrayRef, AsArray, Float64Array, StructArray};
 use datafusion::arrow::buffer::NullBuffer;
 use datafusion::arrow::compute::cast;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields, Float64Type};
 use datafusion::common::scalar::ScalarStructBuilder;
-use datafusion::common::tree_node::Transformed;
 use datafusion::common::{Column, Result, ScalarValue, plan_err};
 use datafusion::functions_aggregate::expr_fn::{max as max_expr, min as min_expr};
-use datafusion::logical_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
 use datafusion::logical_expr::{
-    ColumnarValue, Expr, LogicalPlan, PartitionEvaluator, ReturnFieldArgs, ScalarFunctionArgs,
-    ScalarUDF, ScalarUDFImpl, Signature, Volatility, WindowUDFImpl, lit,
-};
-use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
-
-use crate::utils::{
-    PartitionCalls, PartitionValue, interval_fields, is_call, literals, partition_calls,
-    partition_values, physical_literals, scalar_args, split_window,
+    ColumnarValue, Expr, LogicalPlan, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF,
+    ScalarUDFImpl, Signature, Volatility, WindowUDF, lit,
 };
 
+use crate::OptionError;
+use crate::utils::{PartitionValue, interval_fields};
+use crate::window::{Output, PartitionedCall, Transform, placeholder, plan_partitioned};
+
 // ---------------------------------------------------------------------------------------
-// Options
+// Calls and options
 // ---------------------------------------------------------------------------------------
+
+/// A call of `bin`: the value to bin, the window partitions, and the options.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BinCall {
+    pub value: Expr,
+    pub partition: Vec<Expr>,
+    pub options: BinOptions,
+}
 
 /// The options of `bin`.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,90 +76,44 @@ impl Default for BinOptions {
     }
 }
 
-impl BinOptions {
-    /// Reads options from pairs of a name and a value. `allow_extent` is false for
-    /// `bin_params`, which takes the extent as arguments.
-    pub fn parse(pairs: &[ScalarValue], allow_extent: bool) -> Result<Self> {
-        if !pairs.len().is_multiple_of(2) {
-            return plan_err!(
-                "bin options must be pairs of a name and a value, but the last name has no value"
-            );
-        }
-        let mut o = Self::default();
-        let mut seen: Vec<&str> = Vec::new();
-        for pair in pairs.chunks(2) {
-            let Some(Some(name)) = pair[0].try_as_str() else {
-                return plan_err!("a bin option name must be a string, not {}", pair[0]);
-            };
-            if seen.contains(&name) {
-                return plan_err!("the bin option '{name}' is given twice");
-            }
-            seen.push(name);
-            let v = &pair[1];
-            // A zero maxbins, base, step, span, or minstep means the default.
-            match name {
-                "maxbins" => o.maxbins = number(name, v)?,
-                "base" => o.base = number(name, v)?,
-                "divide" => o.divide = numbers(name, v)?,
-                "extent" if allow_extent => {
-                    let e = numbers(name, v)?;
-                    let [lo, hi] = e[..] else {
-                        return plan_err!("the bin option 'extent' must have 2 numbers");
-                    };
-                    o.extent = Some([lo, hi]);
-                }
-                "span" => o.span = Some(number(name, v)?),
-                "step" => o.step = Some(number(name, v)?),
-                "steps" => {
-                    let s = numbers(name, v)?;
-                    if s.is_empty() {
-                        return plan_err!("the bin option 'steps' must have at least one step");
-                    }
-                    o.steps = Some(s);
-                }
-                "minstep" => o.minstep = number(name, v)?,
-                "nice" => {
-                    let ScalarValue::Boolean(Some(b)) = v else {
-                        return plan_err!("the bin option 'nice' must be true or false, not {v}");
-                    };
-                    o.nice = *b;
-                }
-                "anchor" => o.anchor = Some(number(name, v)?),
-                _ => {
-                    let names = "maxbins, base, divide, span, step, steps, minstep, nice, anchor";
-                    let names = if allow_extent {
-                        format!("{names}, extent")
-                    } else {
-                        names.to_string()
-                    };
-                    if name == "extent" {
-                        return plan_err!(
-                            "bin_params takes the extent as its first two arguments, not as the option 'extent'"
-                        );
-                    }
-                    return plan_err!("unknown bin option '{name}': the options are {names}");
-                }
-            }
-        }
-        o.check()?;
-        Ok(o)
-    }
+// Checked options hold no NaN, so the equality of their numbers is an equivalence.
+impl Eq for BinOptions {}
 
+impl Hash for BinOptions {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let bits = |v: &f64| v.to_bits();
+        bits(&self.maxbins).hash(state);
+        bits(&self.base).hash(state);
+        self.divide.iter().map(bits).for_each(|b| b.hash(state));
+        self.extent.map(|e| e.map(|v| v.to_bits())).hash(state);
+        self.span.as_ref().map(bits).hash(state);
+        self.step.as_ref().map(bits).hash(state);
+        (self.steps.iter().flatten()).for_each(|v| v.to_bits().hash(state));
+        bits(&self.minstep).hash(state);
+        self.nice.hash(state);
+        self.anchor.as_ref().map(bits).hash(state);
+    }
+}
+
+impl BinOptions {
     /// Rejects the options with which the algorithm does not end or gives no bins.
-    fn check(&self) -> Result<()> {
-        let positive = |name: &str, v: f64| -> Result<()> {
-            if v.is_finite() && v > 0.0 {
-                Ok(())
-            } else {
-                plan_err!("the bin option '{name}' must be a positive number, not {v}")
-            }
+    pub fn check(&self) -> std::result::Result<(), OptionError> {
+        let positive = |name: &'static str, v: f64| match v.is_finite() && v > 0.0 {
+            true => Ok(()),
+            false => Err(OptionError::new(
+                name,
+                format!("The {name} of bin must be a positive number, not {v}"),
+            )),
         };
         positive("maxbins", self.maxbins)?;
         if !(self.base.is_finite() && self.base > 1.0) {
-            return plan_err!(
-                "the bin option 'base' must be a number greater than 1, not {}",
-                self.base
-            );
+            return Err(OptionError::new(
+                "base",
+                format!(
+                    "The base of bin must be a number greater than 1, not {}",
+                    self.base
+                ),
+            ));
         }
         for d in &self.divide {
             positive("divide", *d)?;
@@ -169,55 +125,148 @@ impl BinOptions {
             positive("step", v)?;
         }
         if let Some(steps) = &self.steps {
+            if steps.is_empty() {
+                return Err(OptionError::new(
+                    "steps",
+                    "The steps of bin must have at least one step",
+                ));
+            }
             for v in steps {
                 positive("steps", *v)?;
             }
             if steps.windows(2).any(|w| w[0] >= w[1]) {
-                return plan_err!("the bin option 'steps' must be in increasing order");
+                return Err(OptionError::new(
+                    "steps",
+                    "The steps of bin must be in increasing order",
+                ));
             }
         }
         if !(self.minstep.is_finite() && self.minstep >= 0.0) {
-            return plan_err!(
-                "the bin option 'minstep' must be a number of at least 0, not {}",
-                self.minstep
-            );
+            return Err(OptionError::new(
+                "minstep",
+                format!(
+                    "The minstep of bin must be a number of at least 0, not {}",
+                    self.minstep
+                ),
+            ));
         }
         if let Some([lo, hi]) = self.extent
             && !(lo.is_finite() && hi.is_finite())
         {
-            return plan_err!(
-                "the bin option 'extent' must be two finite numbers, not [{lo}, {hi}]"
-            );
+            return Err(OptionError::new(
+                "extent",
+                format!("The extent of bin must be two finite numbers, not [{lo}, {hi}]"),
+            ));
         }
         if let Some(a) = self.anchor.filter(|a| !a.is_finite()) {
-            return plan_err!("the bin option 'anchor' must be a finite number, not {a}");
+            return Err(OptionError::new(
+                "anchor",
+                format!("The anchor of bin must be a finite number, not {a}"),
+            ));
         }
         Ok(())
     }
+
+    /// The options that differ from the defaults, as named arguments, such as
+    /// `maxbins => 30, nice => false`.
+    fn text(&self) -> String {
+        let default = Self::default();
+        let list = |v: &[f64]| {
+            let v: Vec<String> = v.iter().map(f64::to_string).collect();
+            format!("[{}]", v.join(", "))
+        };
+        let mut parts = Vec::new();
+        let mut number = |name: &str, v: Option<f64>, default: Option<f64>| {
+            if let Some(v) = v.filter(|v| Some(*v) != default) {
+                parts.push(format!("{name} => {v}"));
+            }
+        };
+        number("maxbins", Some(self.maxbins), Some(default.maxbins));
+        number("base", Some(self.base), Some(default.base));
+        number("span", self.span, None);
+        number("step", self.step, None);
+        number("minstep", Some(self.minstep), Some(default.minstep));
+        number("anchor", self.anchor, None);
+        if self.divide != default.divide {
+            parts.push(format!("divide => {}", list(&self.divide)));
+        }
+        if let Some(extent) = self.extent {
+            parts.push(format!("extent => {}", list(&extent)));
+        }
+        if let Some(steps) = &self.steps {
+            parts.push(format!("steps => {}", list(steps)));
+        }
+        if !self.nice {
+            parts.push("nice => false".to_string());
+        }
+        parts.join(", ")
+    }
 }
 
-fn number(name: &str, v: &ScalarValue) -> Result<f64> {
-    if v.is_null() || !v.data_type().is_numeric() {
-        return plan_err!("the bin option '{name}' must be a number, not {v}");
-    }
-    match v.cast_to(&DataType::Float64)? {
-        ScalarValue::Float64(Some(f)) => Ok(f),
-        _ => plan_err!("the bin option '{name}' must be a number, not {v}"),
-    }
-}
-
-fn numbers(name: &str, v: &ScalarValue) -> Result<Vec<f64>> {
-    let array = match v {
-        ScalarValue::List(a) if !a.is_null(0) => a.value(0),
-        ScalarValue::LargeList(a) if !a.is_null(0) => a.value(0),
-        ScalarValue::FixedSizeList(a) if !a.is_null(0) => a.value(0),
-        _ => return plan_err!("the bin option '{name}' must be a list of numbers, not {v}"),
+/// The placeholder window of a call of `bin` with `options`, whose argument is the value and
+/// whose `PARTITION BY` gives the window partitions. [`crate::plan_windows`] plans it.
+pub fn window(options: BinOptions) -> Arc<WindowUDF> {
+    let name = match options.text() {
+        text if text.is_empty() => "bin".to_string(),
+        text => format!("bin[{text}]"),
     };
-    if !array.data_type().is_numeric() || array.null_count() > 0 {
-        return plan_err!("the bin option '{name}' must be a list of numbers, not {v}");
+    placeholder(name, Transform::Bin(options))
+}
+
+/// The plan of `input` with the column `output`, the bin of each row by `call`, after the
+/// columns of `input`.
+pub fn plan(input: LogicalPlan, call: BinCall, output: Column) -> Result<LogicalPlan> {
+    let BinCall {
+        value,
+        partition,
+        options,
+    } = call;
+    let call = PartitionedCall::Bin { value, options };
+    plan_partitioned(input, &partition, vec![(call, output)])
+}
+
+/// The field `name` of the bins of the values of `input`.
+pub(crate) fn result_field(name: &str, input: &Field) -> Result<FieldRef> {
+    if !input.data_type().is_numeric() && !input.data_type().is_null() {
+        return plan_err!("bin bins numbers, not {}", input.data_type());
     }
-    let array = cast(&array, &DataType::Float64)?;
-    Ok(array.as_primitive::<Float64Type>().values().to_vec())
+    // NULL, NaN, infinite values, and values outside an explicit extent have no bin.
+    Ok(Arc::new(Field::new(
+        name,
+        DataType::Struct(interval_fields()),
+        true,
+    )))
+}
+
+/// The bins of `value` by `options`, the call at index `i` of its partitions.
+pub(crate) fn output(value: Expr, options: BinOptions, i: usize) -> Result<Output> {
+    options.check()?;
+    if let Some([lo, hi]) = options.extent {
+        let p = bin_params(lo, hi, &options);
+        let fields = params_fields();
+        let params = ScalarStructBuilder::new()
+            .with_scalar(fields[0].clone(), ScalarValue::from(p.start))
+            .with_scalar(fields[1].clone(), ScalarValue::from(p.end))
+            .with_scalar(fields[2].clone(), ScalarValue::from(p.step))
+            .build()?;
+        return Ok(Output::Row(BIN_APPLY.call(vec![value, lit(params)])));
+    }
+    let (lo, hi) = (format!("__bin_lo_{i}"), format!("__bin_hi_{i}"));
+    let params = params_udf(options).call(vec![
+        Expr::Column(Column::from_name(&lo)),
+        Expr::Column(Column::from_name(&hi)),
+    ]);
+    let extent = PartitionValue {
+        aggregates: vec![
+            min_expr(finite(&value)).alias(lo),
+            max_expr(finite(&value)).alias(hi),
+        ],
+        value: params,
+    };
+    Ok(Output::Partition(
+        extent,
+        Box::new(move |params| BIN_APPLY.call(vec![value, params])),
+    ))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -365,84 +414,8 @@ fn bin_array(xs: &Float64Array, mut params: impl FnMut(usize) -> Option<BinParam
     ))
 }
 
-/// `bin(x, ..options) OVER (..)`.
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct BinWindow {
-    signature: Signature,
-}
-
-impl Default for BinWindow {
-    fn default() -> Self {
-        Self {
-            signature: Signature::variadic_any(Volatility::Immutable),
-        }
-    }
-}
-
-impl WindowUDFImpl for BinWindow {
-    fn name(&self) -> &str {
-        "bin"
-    }
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-    fn partition_evaluator(
-        &self,
-        args: PartitionEvaluatorArgs,
-    ) -> Result<Box<dyn PartitionEvaluator>> {
-        let options = physical_literals("bin", &args.input_exprs()[1..])?;
-        Ok(Box::new(BinEvaluator {
-            options: BinOptions::parse(&options, true)?,
-        }))
-    }
-    fn field(&self, args: WindowUDFFieldArgs) -> Result<FieldRef> {
-        let Some(x) = args.input_fields().first() else {
-            return plan_err!("bin needs a value to bin");
-        };
-        if !x.data_type().is_numeric() {
-            return plan_err!("bin bins numbers, not {}", x.data_type());
-        }
-        Ok(Arc::new(Field::new(
-            args.name(),
-            DataType::Struct(interval_fields()),
-            // NULL, NaN, infinite values, and values outside an explicit extent have no bin.
-            true,
-        )))
-    }
-}
-
-#[derive(Debug)]
-struct BinEvaluator {
-    options: BinOptions,
-}
-
-impl PartitionEvaluator for BinEvaluator {
-    fn evaluate_all(&mut self, values: &[ArrayRef], _num_rows: usize) -> Result<ArrayRef> {
-        let x = cast(&values[0], &DataType::Float64)?;
-        let x = x.as_primitive::<Float64Type>();
-        let extent = match self.options.extent {
-            Some([lo, hi]) => Some((lo, hi)),
-            None => finite_extent(x),
-        };
-        let params = extent.map(|(lo, hi)| bin_params(lo, hi, &self.options));
-        Ok(bin_array(x, |_| params))
-    }
-}
-
-/// The least and the greatest finite value. NaN and the infinities take no part, and have
-/// no bin.
-fn finite_extent(x: &Float64Array) -> Option<(f64, f64)> {
-    x.iter()
-        .flatten()
-        .filter(|v| v.is_finite())
-        .fold(None, |e, v| match e {
-            None => Some((v, v)),
-            Some((lo, hi)) => Some((lo.min(v), hi.max(v))),
-        })
-}
-
-/// `x` as a double, where it is finite, for the extents of the rule, which must agree with
-/// [`finite_extent`].
+/// `x` as a double, where it is finite, for the extent of a partition: NaN and the infinities
+/// take no part, and have no bin.
 fn finite(x: &Expr) -> Expr {
     let x = Expr::Cast(datafusion::logical_expr::Cast::new(
         Box::new(x.clone()),
@@ -458,23 +431,23 @@ fn finite(x: &Expr) -> Expr {
     .expect("a CASE with one branch")
 }
 
-/// `bin_params(lo, hi, ..options)`.
+/// `__bin_params(lo, hi)`: internal; the bins of the extent from `lo` to `hi` by its options.
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct BinParamsUdf {
+struct BinParamsUdf {
+    options: BinOptions,
     signature: Signature,
 }
 
-impl Default for BinParamsUdf {
-    fn default() -> Self {
-        Self {
-            signature: Signature::variadic_any(Volatility::Immutable),
-        }
-    }
+fn params_udf(options: BinOptions) -> ScalarUDF {
+    ScalarUDF::new_from_impl(BinParamsUdf {
+        options,
+        signature: Signature::any(2, Volatility::Immutable),
+    })
 }
 
 impl ScalarUDFImpl for BinParamsUdf {
     fn name(&self) -> &str {
-        "bin_params"
+        "__bin_params"
     }
     fn signature(&self) -> &Signature {
         &self.signature
@@ -483,20 +456,7 @@ impl ScalarUDFImpl for BinParamsUdf {
         Ok(DataType::Struct(params_fields()))
     }
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
-        if args.arg_fields.len() < 2 {
-            return plan_err!("bin_params needs the low and the high ends of an extent");
-        }
-        // Options such as `[1, 5]` are not folded to constants until the plan is simplified,
-        // so check them here only when they are all constants already. The execution
-        // checks them again.
-        let options: Option<Vec<ScalarValue>> = args.scalar_arguments[2..]
-            .iter()
-            .map(|v| v.cloned())
-            .collect();
-        if let Some(options) = options {
-            BinOptions::parse(&options, false)?;
-        }
-        let nullable = args.arg_fields[..2].iter().any(|f| f.is_nullable());
+        let nullable = args.arg_fields.iter().any(|f| f.is_nullable());
         Ok(Arc::new(Field::new(
             self.name(),
             DataType::Struct(params_fields()),
@@ -504,8 +464,6 @@ impl ScalarUDFImpl for BinParamsUdf {
         )))
     }
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let options = scalar_args("bin_params", &args.args[2..])?;
-        let o = BinOptions::parse(&options, false)?;
         let n = args.number_rows;
         let lo = to_f64(&args.args[0], n)?;
         let hi = to_f64(&args.args[1], n)?;
@@ -521,14 +479,13 @@ impl ScalarUDFImpl for BinParamsUdf {
         let mut valid = Vec::with_capacity(n);
         for i in 0..n {
             let ok = lo.is_valid(i) && hi.is_valid(i);
-            let p = if ok {
-                bin_params(lo.value(i), hi.value(i), &o)
-            } else {
-                BinParams {
+            let p = match ok {
+                true => bin_params(lo.value(i), hi.value(i), &self.options),
+                false => BinParams {
                     start: 0.0,
                     end: 0.0,
                     step: 0.0,
-                }
+                },
             };
             cols[0].push(p.start);
             cols[1].push(p.end);
@@ -549,18 +506,17 @@ impl ScalarUDFImpl for BinParamsUdf {
     }
 }
 
-/// `__bin_apply(x, params)`: internal; `params` is the result of `bin_params`.
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct BinApply {
-    signature: Signature,
-}
+static BIN_APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
+    ScalarUDF::new_from_impl(BinApply {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+});
 
-impl Default for BinApply {
-    fn default() -> Self {
-        Self {
-            signature: Signature::any(2, Volatility::Immutable),
-        }
-    }
+/// `__bin_apply(x, params)`: internal; the bin of each value by the bins `params`, a result of
+/// `__bin_params` or a constant.
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct BinApply {
+    signature: Signature,
 }
 
 fn params_of(p: &StructArray, i: usize) -> Option<BinParams> {
@@ -609,132 +565,5 @@ impl ScalarUDFImpl for BinApply {
             other => return plan_err!("__bin_apply needs bin parameters, not {other:?}"),
         };
         Ok(ColumnarValue::Array(array))
-    }
-}
-
-// ---------------------------------------------------------------------------------------
-// Rule 1: bin(x, ..options) OVER (..) -> __bin_apply(x, params)
-// ---------------------------------------------------------------------------------------
-
-#[derive(Debug)]
-pub struct BinWindowRewrite {
-    params: Arc<ScalarUDF>,
-    apply: Arc<ScalarUDF>,
-}
-
-impl Default for BinWindowRewrite {
-    fn default() -> Self {
-        Self {
-            params: Arc::new(ScalarUDF::new_from_impl(BinParamsUdf::default())),
-            apply: Arc::new(ScalarUDF::new_from_impl(BinApply::default())),
-        }
-    }
-}
-
-impl OptimizerRule for BinWindowRewrite {
-    fn name(&self) -> &str {
-        "bin_window_rewrite"
-    }
-
-    fn apply_order(&self) -> Option<ApplyOrder> {
-        Some(ApplyOrder::BottomUp)
-    }
-
-    fn rewrite(
-        &self,
-        plan: LogicalPlan,
-        _config: &dyn OptimizerConfig,
-    ) -> Result<Transformed<LogicalPlan>> {
-        let LogicalPlan::Window(window) = &plan else {
-            return Ok(Transformed::no(plan));
-        };
-        if let Some(split) = split_window(window, |_, e| is_call::<BinWindow>(e))? {
-            let lower = self.rewrite(split.lower.clone(), _config)?.data;
-            return Ok(Transformed::yes(split.rebuild(lower, Ok)?));
-        }
-        let Some(PartitionCalls { calls, keys }) = partition_calls::<BinWindow>(window, "bin")?
-        else {
-            return Ok(Transformed::no(plan));
-        };
-        // The options, checked here so that a bad option fails when the query is planned.
-        let mut options = Vec::new();
-        for call in &calls {
-            let exprs = &call.params.args[1..];
-            options.push((
-                exprs.to_vec(),
-                BinOptions::parse(&literals("bin", exprs)?, true)?,
-            ));
-        }
-
-        let input = window.input.as_ref().clone();
-        let n_in = input.schema().fields().len();
-        let mut exprs: Vec<Expr> = input
-            .schema()
-            .columns()
-            .into_iter()
-            .map(Expr::Column)
-            .collect();
-        let out = |i: usize| window.schema.qualified_field(n_in + i);
-        // The options of bin_params: all but `extent`.
-        let params_options = |exprs: &[Expr]| -> Vec<Expr> {
-            exprs
-                .chunks(2)
-                .filter(|p| !matches!(&p[0], Expr::Literal(v, _) if v.try_as_str() == Some(Some("extent"))))
-                .flatten()
-                .cloned()
-                .collect()
-        };
-
-        // The parameters of each call: constants with `extent`, else from the extent of the
-        // finite values of each partition.
-        let mut params: Vec<Option<Expr>> = vec![None; calls.len()];
-        let mut need_extent = Vec::new();
-        let mut values = Vec::new();
-        for (i, (exprs, o)) in options.iter().enumerate() {
-            match o.extent {
-                Some([lo, hi]) => {
-                    let p = bin_params(lo, hi, o);
-                    let fields = params_fields();
-                    let value = ScalarStructBuilder::new()
-                        .with_scalar(fields[0].clone(), ScalarValue::from(p.start))
-                        .with_scalar(fields[1].clone(), ScalarValue::from(p.end))
-                        .with_scalar(fields[2].clone(), ScalarValue::from(p.step))
-                        .build()?;
-                    params[i] = Some(lit(value));
-                }
-                None => {
-                    let x = &calls[i].params.args[0];
-                    let (lo, hi) = (format!("__bin_lo_{i}"), format!("__bin_hi_{i}"));
-                    let mut args = vec![
-                        Expr::Column(Column::from_name(&lo)),
-                        Expr::Column(Column::from_name(&hi)),
-                    ];
-                    args.extend(params_options(exprs));
-                    values.push(PartitionValue {
-                        aggregates: vec![
-                            min_expr(finite(x)).alias(lo),
-                            max_expr(finite(x)).alias(hi),
-                        ],
-                        value: self.params.call(args),
-                    });
-                    need_extent.push(i);
-                }
-            }
-        }
-        let (builder, extents) = partition_values(input, &keys, values, "bin")?;
-        for (i, e) in need_extent.into_iter().zip(extents) {
-            params[i] = Some(e);
-        }
-
-        for (i, call) in calls.iter().enumerate() {
-            let (q, f) = out(i);
-            let p = params[i].take().expect("parameters of each call");
-            exprs.push(
-                self.apply
-                    .call(vec![call.params.args[0].clone(), p])
-                    .alias_qualified(q.cloned(), f.name()),
-            );
-        }
-        Ok(Transformed::yes(builder.project(exprs)?.build()?))
     }
 }

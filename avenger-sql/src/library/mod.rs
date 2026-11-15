@@ -26,11 +26,13 @@
 mod aggregate;
 mod array;
 mod avenger;
+mod bytes;
 mod conditional;
 mod datetime;
-mod error;
+pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
+mod like;
 mod math;
 pub(crate) mod operator;
 pub(crate) mod random;
@@ -825,6 +827,22 @@ fn observe(arg: &Arg, schema: &DFSchema) -> Result<Observed, CallError> {
                 literal: matches!(expr, Expr::Literal(..)),
             })
         }
+    }
+}
+
+/// The result `out` of an internal function of the arguments `args`: a scalar when every argument
+/// is a scalar, and otherwise the array.
+pub(crate) fn columnar(
+    out: datafusion::arrow::array::ArrayRef,
+    args: &[datafusion::logical_expr::ColumnarValue],
+) -> datafusion::common::Result<datafusion::logical_expr::ColumnarValue> {
+    use datafusion::logical_expr::ColumnarValue;
+    match args
+        .iter()
+        .all(|arg| matches!(arg, ColumnarValue::Scalar(_)))
+    {
+        true => Ok(ColumnarValue::Scalar(ScalarValue::try_from_array(&out, 0)?)),
+        false => Ok(ColumnarValue::Array(out)),
     }
 }
 
