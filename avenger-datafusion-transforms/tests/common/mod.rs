@@ -24,7 +24,7 @@ use datafusion::execution::context::QueryPlanner;
 use datafusion::logical_expr::{Expr, LogicalPlan};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
-use datafusion::prelude::SessionContext;
+use datafusion::prelude::{SessionConfig, SessionContext};
 
 /// The query planner of the tests, with the extension planners of the transforms' nodes.
 #[derive(Debug)]
@@ -48,7 +48,13 @@ impl QueryPlanner for Planner {
 
 /// A session that runs the plans of the transforms, and computes cheap shared inputs again.
 pub fn session() -> SessionContext {
+    session_with(SessionConfig::new())
+}
+
+/// [`session`] with the configuration `config`.
+pub fn session_with(config: SessionConfig) -> SessionContext {
     let state = SessionStateBuilder::new()
+        .with_config(config)
         .with_default_features()
         .with_query_planner(Arc::new(Planner))
         .build();

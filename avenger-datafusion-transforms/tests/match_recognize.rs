@@ -431,6 +431,34 @@ fn corpus() -> Vec<Case> {
     (0..1000).map(|_| Case::random(&mut random)).collect()
 }
 
+/// A pattern writes in GoogleSQL's syntax, with parentheses only where its structure needs them,
+/// and reads back as the same pattern.
+#[test]
+fn a_pattern_writes_as_googlesql_reads_it() {
+    let names: Vec<String> = ["a", "b", "c"].map(String::from).to_vec();
+    for (text, written) in [
+        ("a b+? (c | ^){2,3} $", "a b+? (c | ^){2,3} $"),
+        ("(a)*", "a*"),
+        ("((a b) | c){,2}?", "(a b | c){,2}?"),
+        ("a{0,1} b{1,} c{3}", "a? b+ c{3}"),
+        ("(a*)+", "(a*)+"),
+        ("(^)+ a $", "(^)+ a $"),
+        ("()", "()"),
+    ] {
+        assert_eq!(pattern(text, "abc").text(&names), written, "{text}");
+    }
+    for case in corpus() {
+        let parsed = pattern(&case.pattern, "abc");
+        let written = parsed.text(&names);
+        assert_eq!(
+            pattern(&written, "abc"),
+            parsed,
+            "{} wrote {written}",
+            case.pattern
+        );
+    }
+}
+
 #[test]
 fn the_matcher_finds_the_corpus_matches_of_googlesql() {
     let recorded: Vec<&str> = include_str!("data/googlesql_match_recognize.txt")

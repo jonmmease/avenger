@@ -11,7 +11,7 @@
 //! `(() | a){0,3}` match no rows, as in GoogleSQL.
 
 /// An anchor of a pattern, which matches no rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Anchor {
     /// `^`, the start of the partition.
     Start,
@@ -20,7 +20,7 @@ pub enum Anchor {
 }
 
 /// A pattern of `MATCH_RECOGNIZE`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Pattern {
     /// `()`, which matches no rows.
     Empty,
@@ -39,6 +39,96 @@ pub enum Pattern {
         max: Option<u32>,
         greedy: bool,
     },
+}
+
+impl Pattern {
+    /// The pattern in GoogleSQL's syntax, with each variable named by `names`, and parentheses
+    /// only where its structure needs them, as in `a b+? (c | ^){2,3} $`.
+    pub fn text(&self, names: &[String]) -> String {
+        let mut out = String::new();
+        self.write(names, 0, &mut out);
+        out
+    }
+
+    /// How tightly the pattern binds: an alternation least, then a concatenation, then a
+    /// quantified pattern or an anchor, which GoogleSQL quantifies only in parentheses, and a
+    /// variable or `()` most.
+    fn precedence(&self) -> u8 {
+        match self {
+            Pattern::Alternation(parts) if parts.len() > 1 => 0,
+            Pattern::Concat(parts) if parts.len() > 1 => 1,
+            Pattern::Repeat { .. } | Pattern::Anchor(_) => 2,
+            _ => 3,
+        }
+    }
+
+    /// Writes the pattern where its context binds at `context`, in parentheses where it binds
+    /// less tightly.
+    fn write(&self, names: &[String], context: u8, out: &mut String) {
+        let grouped = self.precedence() < context;
+        if grouped {
+            out.push('(');
+        }
+        let join = |parts: &[Pattern], separator: &str, context: u8, out: &mut String| {
+            for (index, part) in parts.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(separator);
+                }
+                part.write(names, context, out);
+            }
+        };
+        match self {
+            Pattern::Empty => out.push_str("()"),
+            Pattern::Variable(variable) => match names.get(*variable) {
+                Some(name) => out.push_str(name),
+                None => out.push_str(&format!("#{variable}")),
+            },
+            Pattern::Anchor(Anchor::Start) => out.push('^'),
+            Pattern::Anchor(Anchor::End) => out.push('$'),
+            Pattern::Concat(parts) | Pattern::Alternation(parts) if parts.is_empty() => {
+                out.push_str("()")
+            }
+            Pattern::Concat(parts) => join(parts, " ", 2, out),
+            Pattern::Alternation(parts) => join(parts, " | ", 1, out),
+            Pattern::Repeat {
+                body,
+                min,
+                max,
+                greedy,
+            } => {
+                body.write(names, 3, out);
+                let exact = *max == Some(*min);
+                match (min, max) {
+                    (0, None) => out.push('*'),
+                    (1, None) => out.push('+'),
+                    (0, Some(1)) => out.push('?'),
+                    (n, None) => out.push_str(&format!("{{{n},}}")),
+                    (_, Some(m)) if exact => out.push_str(&format!("{{{m}}}")),
+                    (0, Some(m)) => out.push_str(&format!("{{,{m}}}")),
+                    (n, Some(m)) => out.push_str(&format!("{{{n},{m}}}")),
+                }
+                // GoogleSQL's `{n}` has no reluctant form.
+                if !greedy && !exact {
+                    out.push('?');
+                }
+            }
+        }
+        if grouped {
+            out.push(')');
+        }
+    }
+
+    /// The greatest index of the pattern's variables, or `None` without variables.
+    pub(crate) fn max_variable(&self) -> Option<usize> {
+        match self {
+            Pattern::Variable(variable) => Some(*variable),
+            Pattern::Empty | Pattern::Anchor(_) => None,
+            Pattern::Concat(parts) | Pattern::Alternation(parts) => {
+                parts.iter().filter_map(Pattern::max_variable).max()
+            }
+            Pattern::Repeat { body, .. } => body.max_variable(),
+        }
+    }
 }
 
 /// An instruction of a program.
