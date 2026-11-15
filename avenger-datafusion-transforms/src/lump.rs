@@ -42,6 +42,7 @@ use std::sync::Arc;
 use avenger_datafusion_aggregate_state::{Family, merge, state};
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields};
 use datafusion::common::config::ConfigOptions;
+use datafusion::common::tree_node::{Transformed, TreeNode, TreeNodeRecursion};
 use datafusion::common::{Column, NullEquality, Result, ScalarValue, plan_err};
 use datafusion::functions::core::expr_fn::coalesce;
 use datafusion::functions_aggregate::count::count_udaf;
@@ -52,9 +53,9 @@ use datafusion::logical_expr::utils::{find_aggregate_exprs, find_window_exprs};
 use crate::window::{Transform, placeholder};
 use avenger_datafusion_shared::shared;
 use datafusion::logical_expr::{
-    Cast, ColumnarValue, Expr, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder,
-    ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, SortExpr, Volatility,
-    WindowFrame, WindowFunctionDefinition, when,
+    AggregateUDF, Cast, ColumnarValue, Expr, ExprSchemable, JoinType, LogicalPlan,
+    LogicalPlanBuilder, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
+    SortExpr, Volatility, WindowFrame, WindowFunctionDefinition, when,
 };
 use datafusion::optimizer::AnalyzerRule;
 
@@ -167,7 +168,6 @@ fn cast(expr: Expr, ty: DataType) -> Expr {
 /// `expr` with each of `bases`, aggregates or windows, written as its column of the node above
 /// them.
 fn rebase(expr: Expr, bases: &[Expr]) -> Result<Expr> {
-    use datafusion::common::tree_node::{Transformed, TreeNode};
     expr.transform_down(|e| match bases.contains(&e) {
         true => Ok(Transformed::yes(Expr::Column(Column::from_name(
             e.schema_name().to_string(),
@@ -248,7 +248,6 @@ fn decide(input: LogicalPlan, call: &LumpCall, extra: Vec<Expr>) -> Result<Decid
         .build()?;
     // The category of the grouped rows is its group column, so the expressions read it there.
     let category_of = |expr: Expr| -> Result<Expr> {
-        use datafusion::common::tree_node::{Transformed, TreeNode};
         let expr = rebase(expr, &aggregates)?;
         expr.transform_down(|e| match e == category {
             true => Ok(Transformed::yes(col(CAT))),
@@ -281,7 +280,6 @@ fn decide(input: LogicalPlan, call: &LumpCall, extra: Vec<Expr>) -> Result<Decid
         scoped.push(Expr::from(function));
     }
     let keep = {
-        use datafusion::common::tree_node::{Transformed, TreeNode};
         keep.transform_down(|e| match windows.iter().position(|w| *w == e) {
             Some(i) => Ok(Transformed::yes(Expr::Column(Column::from_name(
                 scoped[i].schema_name().to_string(),
@@ -496,7 +494,7 @@ pub fn window(call: LumpCall, id: &str) -> Expr {
 }
 
 // ---------------------------------------------------------------------------------------------
-// An aggregate grouped by a lump, in one read of the input.
+// An aggregate grouped by a lump, without the join of the lump to its rows.
 // ---------------------------------------------------------------------------------------------
 
 /// The lump `value` of the call `call` over `input`: `value` itself, through a function that
@@ -519,7 +517,7 @@ struct LumpMark {
 
 impl ScalarUDFImpl for LumpMark {
     fn name(&self) -> &str {
-        "lump"
+        "$lump_mark"
     }
     fn signature(&self) -> &Signature {
         &self.signature
@@ -545,7 +543,6 @@ fn resolve(
     plan: &LogicalPlan,
     exprs: Vec<Expr>,
 ) -> Result<Option<(Vec<Expr>, LumpCall, LogicalPlan)>> {
-    use datafusion::common::tree_node::{Transformed, TreeNode};
     let (input, columns): (&LogicalPlan, Vec<Expr>) = match plan {
         LogicalPlan::Projection(projection) => {
             let expr: Vec<Expr> = (projection.expr.iter())
@@ -585,7 +582,7 @@ fn resolve(
                                 false => found.clone(),
                             },
                             true,
-                            datafusion::common::tree_node::TreeNodeRecursion::Jump,
+                            TreeNodeRecursion::Jump,
                         ))
                     }
                     Err(_) => {
@@ -705,7 +702,6 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
         ..
     } = decide(input, &call, extra)?;
     let other_weight = {
-        use datafusion::common::tree_node::{Transformed, TreeNode};
         weight
             .transform_down(|e| match weight_aggregates.iter().position(|a| *a == e) {
                 Some(index) => Ok(Transformed::yes(merge(
@@ -718,26 +714,19 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     };
     // The weight and the number of the lumped categories of each partition, as windows over
     // the categories, so the categories are read once.
-    let lumped_window = |aggregate: Expr| -> Result<Expr> {
-        let Expr::AggregateFunction(function) = aggregate else {
-            return plan_err!("an aggregate");
-        };
-        let mut window = WindowFunction::new(
-            WindowFunctionDefinition::AggregateUDF(function.func.clone()),
-            function.params.args.clone(),
-        );
+    let lumped_window = |func: Arc<AggregateUDF>, args: Vec<Expr>| -> Expr {
+        let mut window = WindowFunction::new(WindowFunctionDefinition::AggregateUDF(func), args);
         window.params.partition_by = d_keys.iter().map(|k| col(k)).collect();
         window.params.filter = Some(Box::new(lumped()));
         window.params.window_frame = WindowFrame::new(None);
-        Ok(Expr::from(window))
+        Expr::from(window)
     };
     let mut windows = Vec::new();
     let other_weight = {
-        use datafusion::common::tree_node::{Transformed, TreeNode};
         other_weight
             .transform_up(|e| match e {
-                Expr::AggregateFunction(_) => {
-                    let window = lumped_window(e)?;
+                Expr::AggregateFunction(function) => {
+                    let window = lumped_window(function.func, function.params.args);
                     windows.push(window.clone());
                     Ok(Transformed::yes(Expr::Column(Column::from_name(
                         window.schema_name().to_string(),
@@ -747,7 +736,10 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
             })?
             .data
     };
-    let count = lumped_window(count_star())?;
+    let count = lumped_window(
+        count_udaf(),
+        vec![Expr::Literal(ScalarValue::Int64(Some(1)), None)],
+    );
     windows.push(count.clone());
     let windowed = LogicalPlanBuilder::window_plan(decided.clone(), windows)?;
     let mut exprs: Vec<Expr> = decided
@@ -789,7 +781,20 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     ))
 }
 
-/// An analyzer rule that plans each aggregate grouped by a lump through [`fuse`].
+/// `expr` without the marks of lumps, each its lump.
+fn unmarked(expr: Expr) -> Result<Transformed<Expr>> {
+    expr.transform_up(|e| match e {
+        Expr::ScalarFunction(mut function)
+            if (function.func.inner().as_ref() as &dyn Any).is::<LumpMark>() =>
+        {
+            Ok(Transformed::yes(function.args.remove(0)))
+        }
+        e => Ok(Transformed::no(e)),
+    })
+}
+
+/// An analyzer rule that plans each aggregate grouped by a lump through [`fuse`], and then removes
+/// the marks of the lumps that remain, which only the rule reads.
 #[derive(Debug, Default)]
 pub struct LumpAggregateFusion;
 
@@ -799,11 +804,10 @@ impl AnalyzerRule for LumpAggregateFusion {
     }
 
     fn analyze(&self, plan: LogicalPlan, config: &ConfigOptions) -> Result<LogicalPlan> {
-        use datafusion::common::tree_node::{Transformed, TreeNode};
         use datafusion::optimizer::analyzer::type_coercion::TypeCoercion;
         // The rule runs after DataFusion's coercion, so it coerces the plans that it builds. The
-        // fusion only saves reads, so where it fails, the aggregate plans as it does without it.
-        plan.transform_up(|plan| {
+        // fusion only saves the join, so where it fails, the aggregate plans as it does without it.
+        let fused = plan.transform_up(|plan| {
             let fused = fuse(&plan).and_then(|fused| {
                 fused
                     .map(|fused| TypeCoercion::new().analyze(fused, config))
@@ -813,7 +817,10 @@ impl AnalyzerRule for LumpAggregateFusion {
                 Ok(Some(fused)) => Ok(Transformed::yes(fused)),
                 _ => Ok(Transformed::no(plan)),
             }
-        })
-        .map(|t| t.data)
+        })?;
+        fused
+            .data
+            .transform_up(|plan| plan.map_expressions(unmarked))
+            .map(|t| t.data)
     }
 }

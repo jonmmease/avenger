@@ -340,7 +340,8 @@ fn joins(plan: &LogicalPlan) -> usize {
 
 /// An aggregate grouped by a lump, and by the lump's partition keys, merges the states of the
 /// categories without joining the lump to the rows, which `aggregates` checks against the
-/// hand-written SQL. An aggregate that doesn't merge from states, such as a median, joins.
+/// hand-written SQL. An aggregate that doesn't merge from states, such as a median, joins, and its
+/// lump keeps no mark.
 #[tokio::test]
 async fn an_aggregate_grouped_by_a_lump_merges_its_categories() -> Result<()> {
     let ctx = context().await?;
@@ -364,6 +365,11 @@ async fn an_aggregate_grouped_by_a_lump_merges_its_categories() -> Result<()> {
     let grouped = format!("SELECT l, median(tons) AS m FROM ({lump}) GROUP BY l");
     let plan = ctx.sql(&grouped).await?.into_optimized_plan()?;
     assert!(joins(&plan) > 0, "{plan}");
+    // The rule removes the marks of the lumps that it doesn't fuse.
+    assert!(
+        !plan.display_indent().to_string().contains("$lump_mark"),
+        "{plan}"
+    );
     Ok(())
 }
 
