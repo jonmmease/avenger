@@ -88,7 +88,7 @@ fn locale_registration_validates_and_preserves_prepared_formats() {
     let mut registry = DateTimeLocaleRegistry::with_builtins();
     assert_eq!(
         registry.resolve("fr-FR").is_ok(),
-        cfg!(feature = "all-locales")
+        avenger_format_locales_d3::bundled("fr-FR").is_some()
     );
     registry
         .register_custom_locale_json(
@@ -283,7 +283,7 @@ fn provider_uses_selected_custom_locale_and_reports_missing_locales() {
         let mut provider = D3DateTimeFormatProvider::new().with_locale(selected);
         assert_eq!(
             provider.prepare_date(spec).is_ok(),
-            cfg!(feature = "all-locales")
+            avenger_format_locales_d3::bundled("fr-FR").is_some()
         );
         provider.locales.insert(
             registered.into(),
