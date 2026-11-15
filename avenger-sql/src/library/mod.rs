@@ -31,6 +31,7 @@ mod cast_string;
 mod conditional;
 mod datetime;
 mod datetime_format;
+mod encoding;
 pub(crate) mod error;
 pub mod form;
 pub(crate) mod interval;
