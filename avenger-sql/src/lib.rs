@@ -65,7 +65,12 @@ pub fn register(ctx: &SessionContext) -> Result<()> {
         .iter()
         .any(|rule| rule.name() == StructGroupSplit.name())
     {
-        rules.push(Arc::new(StructGroupSplit));
+        // Early in each pass, so that the later rules merge and prune the projection that it adds
+        // above an aggregate.
+        let Some(at) = (rules.iter()).position(|rule| rule.name() == "simplify_expressions") else {
+            return plan_err!("the session has no optimizer rule simplify_expressions");
+        };
+        rules.insert(at + 1, Arc::new(StructGroupSplit));
     }
     *state = SessionStateBuilder::new_from_existing(state.clone())
         .with_query_planner(Arc::new(QueryPlanner))
