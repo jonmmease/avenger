@@ -5,13 +5,12 @@ mod common;
 
 use std::sync::Arc;
 
-use avenger_datafusion_transforms::bin::{self, BinCall, BinOptions};
+use avenger_datafusion_transforms::bin::BinOptions;
 use avenger_datafusion_transforms::lump::{self, Keep, LumpCall, Nulls};
-use common::{register, session, view};
+use common::{bins, register, session, view};
 use datafusion::arrow::array::{ArrayRef, Float64Array, Int64Array};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::{Column, Result};
-use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::{SessionContext, col};
 
 fn context() -> Result<SessionContext> {
@@ -41,23 +40,11 @@ async fn run(ctx: &SessionContext, sql: &str) -> Result<(String, String)> {
     Ok((explain, rows))
 }
 
-/// The plan of the bins of `x` by `options`, as the column `b`.
-fn bins(options: BinOptions) -> impl FnOnce(LogicalPlan) -> Result<LogicalPlan> {
-    move |input| {
-        let call = BinCall {
-            value: col("x"),
-            partition: vec![],
-            options,
-        };
-        bin::plan(input, call, Column::from_name("b"))
-    }
-}
-
 #[tokio::test]
 async fn an_aggregate_is_shared_by_its_readers() -> Result<()> {
     let ctx = context()?;
     let input = "SELECT g, sum(x) AS x FROM t GROUP BY g";
-    view(&ctx, "binned", input, bins(BinOptions::default())).await?;
+    bins(&ctx, "binned", input, "x", &[], BinOptions::default()).await?;
     let (explain, rows) = run(&ctx, "SELECT g, x, b FROM binned ORDER BY g").await?;
     assert!(explain.contains("SharedExec: id="), "{explain}");
     let want = [
@@ -78,7 +65,7 @@ async fn an_aggregate_is_shared_by_its_readers() -> Result<()> {
 async fn a_filtered_scan_of_a_memory_table_is_computed_again() -> Result<()> {
     let ctx = context()?;
     let input = "SELECT g, x FROM t WHERE x > 1";
-    view(&ctx, "binned", input, bins(BinOptions::default())).await?;
+    bins(&ctx, "binned", input, "x", &[], BinOptions::default()).await?;
     let (explain, rows) = run(&ctx, "SELECT count(b) AS n FROM binned").await?;
     assert!(!explain.contains("SharedExec"), "{explain}");
     assert!(rows.contains("| 4 |"), "{rows}");
