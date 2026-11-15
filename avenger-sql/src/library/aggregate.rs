@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use datafusion::{
+    arrow::datatypes::DataType,
     functions_aggregate::{
         any_value::any_value_udaf,
         array_agg::array_agg_udaf,
@@ -26,7 +27,7 @@ use datafusion::{
     logical_expr::{AggregateUDF, Expr, WindowFunctionDefinition, WindowUDF},
 };
 
-use super::{lit_i64, lit_str, Function, Need, Planned};
+use super::{cast, lit_i64, lit_str, Function, Need, Planned};
 
 /// The example table of the aggregates, `x` of `[1, 2, 2, 3, NULL]`.
 const NUMBERS: &str = "FROM UNNEST([1, 2, 2, 3, NULL]) AS x";
@@ -219,7 +220,6 @@ fn window(func: Arc<WindowUDF>, args: Vec<Expr>) -> Planned {
     }
 }
 
-/// An aggregate of one value, of the form `declaration`.
 /// An aggregate of the spread of the values of a group, a `FLOAT64` of numbers of any type, which
 /// takes `DISTINCT` and `OVER`.
 fn spread(name: &str, summary: &str, udaf: fn() -> Arc<AggregateUDF>) -> Function {
@@ -230,7 +230,7 @@ fn spread(name: &str, summary: &str, udaf: fn() -> Arc<AggregateUDF>) -> Functio
             move |call| {
                 Ok(aggregate(
                     udaf(),
-                    vec![super::cast(call.arg(0), datafusion::arrow::datatypes::DataType::Float64)],
+                    vec![cast(call.arg(0), DataType::Float64)],
                 ))
             },
         )
@@ -238,6 +238,7 @@ fn spread(name: &str, summary: &str, udaf: fn() -> Arc<AggregateUDF>) -> Functio
         .distinct()
 }
 
+/// An aggregate of one value, of the form `declaration`.
 fn unary(
     name: &str,
     summary: &str,
