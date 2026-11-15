@@ -1,13 +1,9 @@
 //! Formatting: GoogleSQL's text of a date, a time, a datetime, or an instant in a format.
 
-use chrono::{
-    DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Timelike, Utc,
-    Weekday,
-};
-use chrono_tz::Tz;
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Utc, Weekday};
 
 use crate::element::{escape_absent, tokens, Kind, Pad, Token};
-use crate::{week_number, Error, Locale};
+use crate::{week_number, Error, Locale, Zone};
 
 /// A format string, prepared for values of one [`Kind`]: the elements that the kind lacks print as
 /// written, as in GoogleSQL's `FORMAT_DATE`, `FORMAT_TIME`, `FORMAT_DATETIME`, and
@@ -68,11 +64,10 @@ impl Format {
     }
 
     /// The text of the instant `instant` in the time zone `zone`.
-    pub fn format_timestamp(&self, instant: DateTime<Utc>, zone: Tz) -> String {
-        let offset = zone.offset_from_utc_datetime(&instant.naive_utc()).fix();
+    pub fn format_timestamp(&self, instant: DateTime<Utc>, zone: Zone) -> String {
         self.render(&Fields {
-            local: instant.naive_utc() + offset,
-            offset: offset.local_minus_utc(),
+            local: zone.local(instant),
+            offset: zone.offset(instant),
             epoch: instant.timestamp(),
         })
     }

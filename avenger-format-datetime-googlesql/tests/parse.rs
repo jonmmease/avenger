@@ -2,7 +2,7 @@
 //! `execute_query` recorded, parsed by the crate.
 
 use avenger_format_datetime_googlesql::{
-    parse_date, parse_datetime, parse_time, parse_timestamp, Error, Locale,
+    parse_date, parse_datetime, parse_time, parse_timestamp, Error, Locale, Zone,
 };
 
 fn unescape(text: &str) -> String {
@@ -35,7 +35,7 @@ fn ours(function: &str, format: &str, input: &str, zone: &str) -> String {
         }
         "PARSE_DATETIME" => parse_datetime(format, input, &locale)
             .map(|datetime| datetime.format("%Y-%m-%d %H:%M:%S%.6f").to_string()),
-        _ => parse_timestamp(format, input, zone.parse().unwrap(), &locale)
+        _ => parse_timestamp(format, input, Zone::parse(zone).unwrap(), &locale)
             .map(|instant| instant.timestamp_micros().to_string()),
     };
     match result {

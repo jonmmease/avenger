@@ -6,15 +6,11 @@
 //! name first. A locale gives the names, the periods of the day, and the composites. GoogleSQL
 //! rejects a weekday together with a week number, and an ISO week, as "not supported yet".
 
-use chrono::{
-    DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Utc,
-    Weekday,
-};
-use chrono_tz::Tz;
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc, Weekday};
 
 use crate::element::Kind;
 use crate::format::composite;
-use crate::{week_number, Error, Locale};
+use crate::{week_number, Error, Locale, Zone};
 
 /// The date `input` in the format `format`, with the names of `locale`, as GoogleSQL's
 /// `PARSE_DATE` gives it.
@@ -40,65 +36,10 @@ pub fn parse_datetime(format: &str, input: &str, locale: &Locale) -> Result<Naiv
 pub fn parse_timestamp(
     format: &str,
     input: &str,
-    zone: Tz,
+    zone: Zone,
     locale: &Locale,
 ) -> Result<DateTime<Utc>, Error> {
-    parse(format, input, Kind::Timestamp, Zone::Named(zone), locale)
-}
-
-/// A time zone of a parse: a name, or a fixed offset in seconds, as `%Z` reads either.
-#[derive(Clone, Copy, Debug)]
-enum Zone {
-    Named(Tz),
-    Fixed(i32),
-}
-
-impl Zone {
-    /// The zone of the text of `%Z`: a name, `UTC`, or an offset such as `+05:30` or `UTC+5`.
-    fn of(name: &str) -> Option<Zone> {
-        if let Ok(tz) = name.parse::<Tz>() {
-            return Some(Zone::Named(tz));
-        }
-        let offset = name.strip_prefix("UTC").unwrap_or(name);
-        if offset.is_empty() {
-            return Some(Zone::Fixed(0));
-        }
-        let (sign, digits) = match offset.as_bytes()[0] {
-            b'+' => (1, &offset[1..]),
-            b'-' => (-1, &offset[1..]),
-            _ => return None,
-        };
-        let (hours, minutes) = match digits.split_once(':') {
-            Some((hours, minutes)) => (hours, minutes),
-            None if digits.len() > 2 => digits.split_at(digits.len() - 2),
-            None => (digits, "0"),
-        };
-        let all_digits =
-            |s: &str| !s.is_empty() && s.len() <= 2 && s.bytes().all(|b| b.is_ascii_digit());
-        if !all_digits(hours) || !all_digits(minutes) {
-            return None;
-        }
-        let (hours, minutes): (i32, i32) = (hours.parse().ok()?, minutes.parse().ok()?);
-        (hours <= 14 && minutes < 60).then_some(Zone::Fixed(sign * (hours * 3600 + minutes * 60)))
-    }
-
-    /// The instant of the civil time `local` in the zone. A time that a transition skips takes the
-    /// offset before the transition, and a time that it repeats takes the earlier instant.
-    fn instant(self, local: NaiveDateTime) -> DateTime<Utc> {
-        match self {
-            Zone::Fixed(offset) => (local - Duration::seconds(offset.into())).and_utc(),
-            Zone::Named(tz) => match tz.from_local_datetime(&local) {
-                chrono::LocalResult::Single(t) => t.with_timezone(&Utc),
-                chrono::LocalResult::Ambiguous(earlier, _) => earlier.with_timezone(&Utc),
-                chrono::LocalResult::None => {
-                    let before = tz
-                        .offset_from_utc_datetime(&(local - Duration::days(1)))
-                        .fix();
-                    (local - Duration::seconds(before.local_minus_utc().into())).and_utc()
-                }
-            },
-        }
-    }
+    parse(format, input, Kind::Timestamp, zone, locale)
 }
 
 /// An element that resolves the date after the loop: a week, a day of the year, or an ISO year,
@@ -514,7 +455,7 @@ fn parse(
                 if name.is_empty() {
                     false
                 } else {
-                    f.zone = Zone::of(name)
+                    f.zone = Zone::parse(name)
                         .ok_or_else(|| Error(format!("Invalid time zone: {name}")))?;
                     f.offset = None;
                     true

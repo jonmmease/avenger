@@ -206,7 +206,7 @@ impl PreparedNaiveDateTimeFormatter for Prepared {
 
 impl PreparedZonedDateTimeFormatter for Prepared {
     fn format(&self, value: DateTime<Utc>) -> Result<String, DateTimeFormatError> {
-        Ok(self.format.format_timestamp(value, self.timezone))
+        Ok(self.format.format_timestamp(value, self.timezone.into()))
     }
 
     fn timezone(&self) -> Tz {

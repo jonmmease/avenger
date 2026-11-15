@@ -18,7 +18,7 @@ fn the_provider_gives_the_text_of_googlesqls_functions() {
         .format(instant)
         .unwrap();
     let sql = Format::new(pattern, Kind::Timestamp, &Locale::default()).unwrap();
-    assert_eq!(text, sql.format_timestamp(instant, New_York));
+    assert_eq!(text, sql.format_timestamp(instant, New_York.into()));
     assert_eq!(text, "Tue Mar  5 2024 02:08 AM UTC-5 (Q1, week 10)");
 }
 
