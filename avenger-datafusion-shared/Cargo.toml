@@ -1,0 +1,16 @@
+[package]
+name = "avenger-datafusion-shared"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Shared inputs for Apache DataFusion: a plan that reads one input several times while the input runs once"
+readme = "README.md"
+
+[dependencies]
+datafusion = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+datafusion = { workspace = true, features = ["sql"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

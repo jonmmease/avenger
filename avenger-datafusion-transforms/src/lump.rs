@@ -41,8 +41,8 @@ use datafusion::functions_window::row_number::row_number_udwf;
 use datafusion::logical_expr::expr::{AggregateFunction, WindowFunction};
 use datafusion::logical_expr::utils::{find_aggregate_exprs, find_window_exprs};
 
-use crate::shared::shared;
 use crate::window::{Transform, placeholder};
+use avenger_datafusion_shared::shared;
 use datafusion::logical_expr::{
     Cast, Expr, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder, SortExpr, WindowFrame,
     WindowFunctionDefinition, when,

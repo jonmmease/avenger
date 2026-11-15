@@ -18,7 +18,7 @@ use datafusion::logical_expr::{
 };
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 
-use crate::shared::shared;
+use avenger_datafusion_shared::shared;
 
 // ---------------------------------------------------------------------------------------
 // Structs and options
