@@ -9,6 +9,7 @@ use std::sync::Arc;
 use avenger_datafusion_shared::{InlineShared, SharedExtensionPlanner};
 use avenger_datafusion_transforms::bin::{self, BinCall, BinOptions};
 use avenger_datafusion_transforms::impute::{self, ImputeCall, Named};
+use avenger_datafusion_transforms::lump::LumpAggregateFusion;
 use avenger_datafusion_transforms::table_function::{ArgError, TableFunctionExtensionPlanner};
 use avenger_datafusion_transforms::timeunit::{self, TimeUnitCall, TimeUnitOptions, Unit};
 use datafusion::arrow::array::{Array, ArrayRef, RecordBatch};
@@ -53,6 +54,7 @@ pub fn session() -> SessionContext {
         .build();
     let ctx = SessionContext::new_with_state(state);
     ctx.add_optimizer_rule(Arc::new(InlineShared));
+    ctx.add_analyzer_rule(Arc::new(LumpAggregateFusion));
     ctx
 }
 

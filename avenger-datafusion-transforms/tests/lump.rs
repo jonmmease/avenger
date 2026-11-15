@@ -326,6 +326,47 @@ async fn aggregates() -> Result<()> {
     Ok(())
 }
 
+/// The joins of `plan`.
+fn joins(plan: &LogicalPlan) -> usize {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    let mut n = 0;
+    plan.apply(|node| {
+        n += usize::from(matches!(node, LogicalPlan::Join(_)));
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .expect("a plan");
+    n
+}
+
+/// An aggregate grouped by a lump, and by the lump's partition keys, merges the states of the
+/// categories without joining the lump to the rows, which `aggregates` checks against the
+/// hand-written SQL. An aggregate that doesn't merge from states, such as a median, joins.
+#[tokio::test]
+async fn an_aggregate_grouped_by_a_lump_merges_its_categories() -> Result<()> {
+    let ctx = context().await?;
+    for case in &CASES {
+        for (keys, extra) in KEYS.into_iter().flat_map(|k| [(k, ""), (k, ", region")]) {
+            let lump = lumped(&ctx, call(&ctx, case, keys, Nulls::Keep).await?).await?;
+            let grouped = format!(
+                "SELECT l{extra}, count(*) AS n, sum(tons) AS s, avg(tons) AS a FROM ({lump}) GROUP BY l{extra}"
+            );
+            let plan = ctx.sql(&grouped).await?.into_optimized_plan()?;
+            let fused = extra.is_empty() || keys == "region";
+            assert_eq!(
+                joins(&plan) == 0,
+                fused,
+                "{} by '{keys}'{extra}\n{plan}",
+                case.0
+            );
+        }
+    }
+    let lump = lumped(&ctx, call(&ctx, &CASES[0], "", Nulls::Keep).await?).await?;
+    let grouped = format!("SELECT l, median(tons) AS m FROM ({lump}) GROUP BY l");
+    let plan = ctx.sql(&grouped).await?.into_optimized_plan()?;
+    assert!(joins(&plan) > 0, "{plan}");
+    Ok(())
+}
+
 /// The number of categories of each lump value: 1 for a kept category, and for the Other
 /// group the number of categories that the lump lumps in its window partition. In region N,
 /// the 2 largest of the ports a, b, c, and 'Other' are a and b, and the NULL port is a category

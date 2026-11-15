@@ -7,6 +7,7 @@ description = "Vega-style bin, stack, impute, and time unit transforms, and lump
 readme = "README.md"
 
 [dependencies]
+avenger-datafusion-aggregate-state = { path = "../avenger-datafusion-aggregate-state" }
 avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
 datafusion = { workspace = true, features = ["nested_expressions"] }
 async-trait = { workspace = true }
