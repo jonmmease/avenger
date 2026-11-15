@@ -1,5 +1,6 @@
 //! `MATCH_RECOGNIZE` through the pass against GoogleSQL: a corpus of seeded random cases, whose
-//! results GoogleSQL's `execute_query` recorded in `data/googlesql_match_recognize.txt`.
+//! results GoogleSQL's `execute_query` recorded in `data/googlesql_match_recognize.txt`, one line
+//! for each case, in the order of the corpus.
 //!
 //! A case is a table of at most 12 rows in at most 3 partitions, with a unique order key and a
 //! value that can be `NULL`, a random pattern of up to three variables whose conditions read the
@@ -162,8 +163,10 @@ impl Case {
         };
         let [x, y, z] = self.conditions.map(|index| CONDITIONS[index]);
         let p = if self.partitioned { "p, " } else { "" };
+        // GoogleSQL rejects a variable that the pattern does not use, so `x{0} y{0} z{0}` uses
+        // each variable without matching rows.
         format!(
-            "{data} |> SELECT * |> MATCH_RECOGNIZE({partition}ORDER BY id MEASURES MATCH_NUMBER() AS m, COUNT(*) AS n, ARRAY_TO_STRING(ARRAY_AGG(CLASSIFIER()), '') AS c, ARRAY_TO_STRING(ARRAY_AGG(CAST(MATCH_ROW_NUMBER() AS STRING)), ',') AS r AFTER MATCH SKIP {skip} PATTERN (({}) x{{0}} y{{0}} z{{0}}) DEFINE x AS {x}, y AS {y}, z AS {z} OPTIONS (use_longest_match = {})) |> AGGREGATE STRING_AGG(CONCAT({key}, '/', CAST(m AS STRING), ':', CAST(n AS STRING), ':', IFNULL(c, ''), ':', IFNULL(r, '')), ' ' ORDER BY {p}m) AS j",
+            "{data} |> MATCH_RECOGNIZE({partition}ORDER BY id MEASURES MATCH_NUMBER() AS m, COUNT(*) AS n, ARRAY_TO_STRING(ARRAY_AGG(CLASSIFIER()), '') AS c, ARRAY_TO_STRING(ARRAY_AGG(CAST(MATCH_ROW_NUMBER() AS STRING)), ',') AS r AFTER MATCH SKIP {skip} PATTERN (({}) x{{0}} y{{0}} z{{0}}) DEFINE x AS {x}, y AS {y}, z AS {z} OPTIONS (use_longest_match = {})) |> AGGREGATE STRING_AGG(CONCAT({key}, '/', CAST(m AS STRING), ':', CAST(n AS STRING), ':', IFNULL(c, ''), ':', IFNULL(r, '')), ' ' ORDER BY {p}m) AS j",
             self.pattern,
             self.longest
         )
@@ -188,13 +191,8 @@ async fn the_pass_finds_the_corpus_matches_of_googlesql() {
         "the corpus is recorded for its cases"
     );
     let mut failures = Vec::new();
-    for (case, line) in cases.iter().zip(recorded) {
+    for (case, expected) in cases.iter().zip(recorded) {
         let query = case.query();
-        let (recorded_query, expected) = line.split_once('\t').unwrap_or((line, ""));
-        assert_eq!(
-            recorded_query, query,
-            "the corpus is recorded for its cases"
-        );
         let found = match pass::run(&query).await {
             Ok(batches) => {
                 let column = cast(batches[0].column(0), &DataType::Utf8).unwrap();
@@ -267,8 +265,8 @@ fn record_the_corpus() {
             .flat_map(|handle| handle.join().unwrap())
             .collect()
     });
-    let text: String = (cases.iter().zip(results))
-        .map(|(case, result)| format!("{}\t{result}\n", case.query()))
+    let text: String = (results.iter())
+        .map(|result| format!("{result}\n"))
         .collect();
     let output = root.join("tests/output");
     std::fs::create_dir_all(&output).unwrap();
