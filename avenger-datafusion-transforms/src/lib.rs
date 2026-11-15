@@ -12,6 +12,12 @@
 //! - `stack` is the window function of [`stack::window`].
 //! - `impute` is a table function over an input relation, which [`impute::plan`] plans.
 //!
+//! `bin`, `timeunit`, and `lump` read their input more than once, so their plans read it through
+//! a [`shared::SharedNode`], which runs it once. A query planner plans these nodes with
+//! [`shared::SharedExtensionPlanner`] and `impute` with
+//! [`table_function::TableFunctionExtensionPlanner`], and a session runs
+//! [`shared::InlineShared`], which computes cheap inputs again in place of sharing them.
+//!
 //! The options of a call are Rust values, which their `check` methods check: an
 //! [`OptionError`] names the option, so the front end places the error at its argument.
 //!
@@ -23,6 +29,7 @@
 pub mod bin;
 pub mod impute;
 pub mod lump;
+pub mod shared;
 pub mod stack;
 pub mod table_function;
 pub mod timeunit;

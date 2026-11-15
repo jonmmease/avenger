@@ -18,6 +18,8 @@ use datafusion::logical_expr::{
 };
 use datafusion::optimizer::{ApplyOrder, OptimizerConfig, OptimizerRule};
 
+use crate::shared::shared;
+
 // ---------------------------------------------------------------------------------------
 // Structs and options
 // ---------------------------------------------------------------------------------------
@@ -44,7 +46,8 @@ pub(crate) struct PartitionValue {
 /// The input with each value of [`PartitionValue`] for each row: without keys, each value is a
 /// scalar subquery of the input; with keys, one aggregate of the input by the keys, joined back
 /// to the rows on the keys, where NULL keys match, as PARTITION BY puts them in one partition.
-/// `name` names the aliases. Returns the builder of the input or the join, and the expression
+/// The rows and the values read one run of the input, through a shared node. `name` names the
+/// aliases. Returns the builder of the input or the join, and the expression
 /// of each value.
 pub(crate) fn partition_values(
     input: LogicalPlan,
@@ -55,6 +58,8 @@ pub(crate) fn partition_values(
     if values.is_empty() {
         return Ok((LogicalPlanBuilder::from(input), vec![]));
     }
+    // The rows and the values of their partitions read one run of the input.
+    let input = shared(input);
     if keys.is_empty() {
         let mut exprs = Vec::with_capacity(values.len());
         for v in values {

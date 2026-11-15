@@ -8,7 +8,7 @@ FROM penguins
 |> AGGREGATE bar(x => species, y => n) AS chart
 ```
 
-`sql(ctx, text)` plans a script over the tables of a DataFusion session and returns the rows of its last query as a DataFrame. avenger-sql-syntax parses the script, and avenger-sql resolves its names and types by GoogleSQL's rules and plans each statement as a DataFusion logical plan. DataFusion's SQL planner takes no part, and the build of avenger-sql holds no sqlparser. `register(ctx)` adds what the plans of the transforms need to run: the query planner of `impute`, and the optimizer rule that groups by the fields of a struct, such as a bin.
+`sql(ctx, text)` plans a script over the tables of a DataFusion session and returns the rows of its last query as a DataFrame. avenger-sql-syntax parses the script, and avenger-sql resolves its names and types by GoogleSQL's rules and plans each statement as a DataFusion logical plan. DataFusion's SQL planner takes no part, and the build of avenger-sql holds no sqlparser. `register(ctx)` adds what the plans of the transforms need to run: avenger-sql's query planner, which plans `impute` and the inputs that a plan reads more than once and runs once, and the optimizer rules that compute cheap shared inputs again and group by the fields of a struct, such as a bin.
 
 ## The language
 

@@ -505,3 +505,22 @@ async fn option_errors() -> Result<()> {
     );
     Ok(())
 }
+
+/// The bin of each row of a volatile input contains the row's value: the extent and the rows
+/// are of one read of the input.
+#[tokio::test]
+async fn volatile_input() -> Result<()> {
+    let ctx = session();
+    register(
+        &ctx,
+        "t",
+        vec![("i", Arc::new(Int64Array::from_iter_values(0..3)))],
+    )?;
+    let input = "SELECT i, random() * 100 AS x FROM t";
+    binned(&ctx, "binned", input, call(BinOptions::default())).await?;
+    let sql =
+        "SELECT count(*) FROM binned WHERE b IS NULL OR NOT (b['start'] <= x AND x <= b['end'])";
+    let batches = ctx.sql(sql).await?.collect().await?;
+    assert_eq!(batches[0].column(0).as_primitive::<Int64Type>().value(0), 0);
+    Ok(())
+}
