@@ -71,12 +71,6 @@ impl Stats {
         self.rank = self.rank.min(o.rank);
     }
 
-    pub fn of(x: &ArrayRef, cal: &mut Calendar) -> Result<Stats> {
-        let mut s = Stats::default();
-        s.add_array(x, cal)?;
-        Ok(s)
-    }
-
     /// Adds the values of an array.
     pub(super) fn add_array(&mut self, x: &ArrayRef, cal: &mut Calendar) -> Result<()> {
         let ticks = ticks_of(x)?;

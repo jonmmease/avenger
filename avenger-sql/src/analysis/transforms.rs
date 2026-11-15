@@ -3,7 +3,8 @@
 //! and the table function `impute`, of a pipe `CALL` and of `FROM`.
 //!
 //! A call of `lump` plans as the placeholder window of [`lump::window`], whose type is the lump's
-//! struct, and the window node of its projection plans it through [`lump::plan_windows`].
+//! struct, and the window node of its projection plans it through
+//! [`avenger_datafusion_transforms::plan_windows`].
 
 use avenger_datafusion_transforms::{
     impute::{self, ImputeCall, Named},

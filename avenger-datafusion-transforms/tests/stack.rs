@@ -1,23 +1,27 @@
-//! `stack`: the stacks of each offset, and its errors.
+//! `stack`: the stacks of each offset, and the error of a value that is not a number. A test
+//! builds the window function of [`stack::window`] in Rust over a DataFrame of a table.
 
 mod common;
 
 use std::sync::Arc;
 
-use common::{error, register, session};
+use avenger_datafusion_transforms::stack::{self, StackOffset};
+use common::{register, session};
 use datafusion::arrow::array::{Array, AsArray, Float64Array, Int64Array};
 use datafusion::arrow::datatypes::Float64Type;
 use datafusion::common::Result;
+use datafusion::logical_expr::ExprFunctionExt;
+use datafusion::prelude::{col, lit};
+
+/// A layer: its start and its end, or None.
+type Layer = Option<(f64, f64)>;
 
 /// The stacks of each offset: layers in the order of `ORDER BY`, negative values stacked
 /// down from zero, no layer for NULL or NaN, and normalized and centered stacks of the
 /// absolute values.
-/// A layer: its start and its end, or None.
-type Layer = Option<(f64, f64)>;
-
 #[tokio::test]
 async fn offsets() -> Result<()> {
-    let ctx = session(true);
+    let ctx = session();
     register(
         &ctx,
         "c",
@@ -78,12 +82,22 @@ async fn offsets() -> Result<()> {
         ),
     ];
     for (offset, want) in cases {
-        let sql = format!(
-            "SELECT i, stack(v, 'offset', '{offset}') OVER (PARTITION BY x ORDER BY s) AS y FROM c ORDER BY i"
-        );
+        let window = stack::window(StackOffset::from_name(offset).expect("an offset"))
+            .call(vec![col("v")])
+            .partition_by(vec![col("x")])
+            .order_by(vec![col("s").sort(true, false)])
+            .build()?;
+        let batches = ctx
+            .table("c")
+            .await?
+            .window(vec![window.alias("y")])?
+            .sort(vec![col("i").sort(true, false)])?
+            .select_columns(&["y"])?
+            .collect()
+            .await?;
         let mut got = Vec::new();
-        for b in ctx.sql(&sql).await?.collect().await? {
-            let y = b.column(1).as_struct();
+        for b in batches {
+            let y = b.column(0).as_struct();
             let (y0, y1) = (
                 y.column(0).as_primitive::<Float64Type>(),
                 y.column(1).as_primitive::<Float64Type>(),
@@ -105,38 +119,24 @@ async fn offsets() -> Result<()> {
     Ok(())
 }
 
+/// `stack` stacks numbers only.
 #[tokio::test]
 async fn errors() -> Result<()> {
-    let ctx = session(true);
-    ctx.sql("CREATE TABLE e AS VALUES (1, 2.0)")
+    let ctx = session();
+    register(
+        &ctx,
+        "e",
+        vec![("v", Arc::new(Float64Array::from(vec![2.0])))],
+    )?;
+    let window = stack::window(StackOffset::Zero).call(vec![lit("a")]);
+    let e = ctx
+        .table("e")
         .await?
-        .collect()
-        .await?;
-    for (args, message) in [
-        (
-            "column2, 'offset', 'middle'",
-            "must be 'zero', 'center', or 'normalize', not middle",
-        ),
-        ("column2, 'offset'", "pairs of a name and a value"),
-        (
-            "column2, 'baseline', 'zero'",
-            "unknown stack option 'baseline'",
-        ),
-        (
-            "column2, 'offset', 'zero', 'offset', 'center'",
-            "the stack option 'offset' is given twice",
-        ),
-        (
-            "column2, 'offset', column1",
-            "stack options must be constants",
-        ),
-        ("'a'", "stack stacks numbers, not Utf8"),
-    ] {
-        let sql = format!("SELECT stack({args}) OVER () FROM e");
-        let e = error(&ctx, &sql)
-            .await
-            .unwrap_or_else(|| panic!("no error: {sql}"));
-        assert!(e.contains(message), "{sql}: {e}");
-    }
+        .window(vec![window.alias("y")])
+        .expect_err("a string value");
+    assert!(
+        e.to_string().contains("stack stacks numbers, not Utf8"),
+        "{e}"
+    );
     Ok(())
 }

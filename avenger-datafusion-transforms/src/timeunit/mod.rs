@@ -1,12 +1,9 @@
 //! `timeunit`: the calendar unit, such as the month or the quarter, that contains each date
 //! or timestamp.
 //!
-//! ```sql
-//! SELECT *, timeunit(t, 'maxbins', 20) OVER (PARTITION BY g) AS u FROM events
-//! SELECT *, timeunit(t, 'unit', 'month') OVER () AS u FROM events
-//! ```
-//!
-//! The options are pairs of a name and a constant value, after the value, as for `bin`:
+//! A call is a [`TimeUnitCall`], which [`plan`] adds to its input, or among the windows of a
+//! projection, the placeholder window of [`window`], which [`crate::plan_windows`] plans. The
+//! options, [`TimeUnitOptions`], are:
 //!
 //! - `unit`: a truncating unit, such as `'month'`, `'15 minutes'`, `'fiscal_quarter'`, or a
 //!   collapsing unit, such as `'month_of_year'`. Without it, `timeunit` chooses a unit for
@@ -47,18 +44,10 @@
 //! batches of a process share, holds each change of offset. It samples the offset once a day,
 //! so it misses two changes within one day that cancel out.
 //!
-//! The functions:
-//!
-//! - `timeunit(x, ..options) OVER (..)`: the window function that users call.
-//! - `__timeunit(x, ..options)`: internal; the unit of each value for a call with a `unit`.
-//!   It has a name of its own because DataFusion 55.2 plans a scalar function before a
-//!   window function of the same name and drops the `OVER` clause.
-//! - `__timeunit_choose(x, ..options)`: internal aggregate; the unit of a partition.
-//! - `__timeunit_apply(x, unit, ..options)`: internal; the unit of each value.
-//!
-//! The rule [`TimeUnitWindowRewrite`] plans `timeunit(..) OVER (..)` as `__timeunit` (with a
-//! `unit`) or as `__timeunit_apply` with the unit from a scalar subquery (no `PARTITION BY`)
-//! or from a join with the unit of each partition.
+//! The plan of a call with a `unit` is the internal function `__timeunit` of each row. Without
+//! a `unit`, the internal aggregate `__timeunit_choose` chooses the unit of each partition, from
+//! a join of an aggregate by the partition, or without a partition, a scalar subquery, and the
+//! internal function `__timeunit_apply` gives the unit of each row.
 
 /// The metadata key of a result's field, whose value is JSON of the calendar options of its
 /// units: `week_start` and `fiscal_year_start`.
@@ -69,7 +58,6 @@ mod calendar;
 mod choose;
 mod functions;
 mod options;
-mod rule;
 mod units;
 
 pub use apply::*;
@@ -77,5 +65,4 @@ pub(crate) use calendar::*;
 pub(crate) use choose::*;
 pub use functions::*;
 pub use options::*;
-pub use rule::*;
 pub use units::*;

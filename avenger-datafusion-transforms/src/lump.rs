@@ -29,22 +29,21 @@
 //!
 //! A front end that plans a lump as an expression of a projection, beside other windows, writes
 //! it as [`window`], a placeholder window function of the call, and plans the windows of the
-//! projection through [`plan_windows`], which plans each lump onto the input.
+//! projection through [`crate::plan_windows`], which plans each lump onto the input.
 
-use std::any::Any;
 use std::sync::Arc;
 
-use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields};
+use datafusion::arrow::datatypes::{DataType, Field, Fields};
 use datafusion::common::{Column, NullEquality, Result, ScalarValue, plan_err};
 use datafusion::functions_aggregate::count::count_udaf;
 use datafusion::functions_window::row_number::row_number_udwf;
 use datafusion::logical_expr::expr::{AggregateFunction, WindowFunction};
-use datafusion::logical_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
 use datafusion::logical_expr::utils::{find_aggregate_exprs, find_window_exprs};
+
+use crate::window::{Transform, placeholder};
 use datafusion::logical_expr::{
-    Cast, Expr, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder, PartitionEvaluator,
-    Signature, SortExpr, Volatility, WindowFrame, WindowFunctionDefinition, WindowUDF,
-    WindowUDFImpl, when,
+    Cast, Expr, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder, SortExpr, WindowFrame,
+    WindowFunctionDefinition, when,
 };
 
 /// What a lump does with the NULL category, which `keep` doesn't decide.
@@ -412,84 +411,15 @@ pub fn lump_field(category: &DataType) -> Arc<Field> {
     ))
 }
 
-/// The placeholder window function of a lump in a projection, which [`plan_windows`] plans.
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct LumpWindow {
-    id: String,
-    call: LumpCall,
-    signature: Signature,
-}
-
-impl WindowUDFImpl for LumpWindow {
-    fn name(&self) -> &str {
-        &self.id
-    }
-    fn signature(&self) -> &Signature {
-        &self.signature
-    }
-    fn partition_evaluator(
-        &self,
-        _: PartitionEvaluatorArgs,
-    ) -> Result<Box<dyn PartitionEvaluator>> {
-        plan_err!("a lump runs only in a projection whose windows plan through lump::plan_windows")
-    }
-    fn field(&self, args: WindowUDFFieldArgs) -> Result<FieldRef> {
-        let category = args.input_fields()[0].data_type();
-        Ok(Arc::new(Field::new(
-            args.name(),
-            DataType::Struct(lump_fields(category)),
-            true,
-        )))
-    }
-}
-
 /// The lump of `call` as a window expression over the rows, whose type is the lump's struct. The
-/// window is a placeholder, which [`plan_windows`] plans. `id` names its function, so that the
-/// windows of two calls over one category have different names.
+/// window is a placeholder, which [`crate::plan_windows`] plans. `id` names its function, so
+/// that the windows of two calls over one category have different names.
 pub fn window(call: LumpCall, id: &str) -> Expr {
     let category = call.category.clone();
     let partition = call.partition.clone();
-    let udwf = WindowUDF::new_from_impl(LumpWindow {
-        id: id.to_string(),
-        call,
-        signature: Signature::any(1, Volatility::Immutable),
-    });
-    let mut window = WindowFunction::new(
-        WindowFunctionDefinition::WindowUDF(Arc::new(udwf)),
-        vec![category],
-    );
+    let udwf = placeholder(id.to_string(), Transform::Lump(Box::new(call)));
+    let mut window = WindowFunction::new(WindowFunctionDefinition::WindowUDF(udwf), vec![category]);
     window.params.partition_by = partition;
     window.params.window_frame = WindowFrame::new(None);
     Expr::from(window)
-}
-
-/// The call of the lump `expr`, a window of [`window`].
-fn call_of(expr: &Expr) -> Option<&LumpCall> {
-    let Expr::WindowFunction(function) = expr else {
-        return None;
-    };
-    let WindowFunctionDefinition::WindowUDF(udwf) = &function.fun else {
-        return None;
-    };
-    let inner: &dyn Any = udwf.inner().as_ref();
-    inner.downcast_ref::<LumpWindow>().map(|lump| &lump.call)
-}
-
-/// `input` with the column of each lump of `windows`, and the other windows of `windows`, for a
-/// window node over the result. The column of a lump is named after the window, as a window
-/// node names its columns, so a projection over both reads each window as the column of its
-/// schema name.
-pub fn plan_windows(input: LogicalPlan, windows: Vec<Expr>) -> Result<(LogicalPlan, Vec<Expr>)> {
-    let mut plan = input;
-    let mut rest = Vec::new();
-    for window in windows {
-        match call_of(&window) {
-            Some(call) => {
-                let output = Column::from_name(window.schema_name().to_string());
-                plan = self::plan(plan, call.clone(), output)?;
-            }
-            None => rest.push(window),
-        }
-    }
-    Ok((plan, rest))
 }

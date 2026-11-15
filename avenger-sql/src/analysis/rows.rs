@@ -268,13 +268,13 @@ pub(crate) fn project(
     })
 }
 
-/// `plan` with the columns of `windows`: a column for each lump, and a window node of the other
-/// windows.
+/// `plan` with the columns of `windows`: a column for each placeholder of `bin`, `timeunit`, and
+/// `lump`, and a window node of the other windows.
 fn windowed(plan: LogicalPlan, windows: Vec<Expr>) -> Result<LogicalPlan> {
     if windows.is_empty() {
         return Ok(plan);
     }
-    let (plan, windows) = avenger_datafusion_transforms::lump::plan_windows(plan, windows)?;
+    let (plan, windows) = avenger_datafusion_transforms::plan_windows(plan, windows)?;
     match windows.is_empty() {
         true => Ok(plan),
         false => LogicalPlanBuilder::window_plan(plan, windows),

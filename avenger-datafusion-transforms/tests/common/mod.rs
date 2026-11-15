@@ -1,41 +1,27 @@
-//! Helpers that the tests share.
+//! Helpers that the tests share: a session that runs the plans of the transforms, tables, the
+//! views of planned calls, and expressions in DataFusion's SQL over a query's schema.
 
 #![allow(dead_code)]
 
-pub mod calls;
-
 use std::sync::Arc;
 
+use avenger_datafusion_transforms::table_function::TransformsQueryPlanner;
 use datafusion::arrow::array::{ArrayRef, RecordBatch};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::catalog::MemTable;
 use datafusion::common::Result;
+use datafusion::datasource::ViewTable;
+use datafusion::execution::SessionStateBuilder;
+use datafusion::logical_expr::{Expr, LogicalPlan};
 use datafusion::prelude::SessionContext;
 
-/// A session with the transforms, without the optimizer rules that `register` adds if not
-/// `rules`, so that the window functions run through their own evaluators.
-pub fn session(rules: bool) -> SessionContext {
-    let ctx = SessionContext::new();
-    let before: Vec<String> = ctx
-        .state()
-        .optimizers()
-        .iter()
-        .map(|r| r.name().to_string())
-        .collect();
-    avenger_datafusion_transforms::register(&ctx).expect("register the transforms");
-    if !rules {
-        let added: Vec<String> = ctx
-            .state()
-            .optimizers()
-            .iter()
-            .map(|r| r.name().to_string())
-            .filter(|n| !before.contains(n))
-            .collect();
-        for name in added {
-            ctx.remove_optimizer_rule(&name);
-        }
-    }
-    ctx
+/// A session that runs the plans of the transforms.
+pub fn session() -> SessionContext {
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_query_planner(Arc::new(TransformsQueryPlanner))
+        .build();
+    SessionContext::new_with_state(state)
 }
 
 /// Registers the columns as the table `name`, in place of any table of that name.
@@ -58,10 +44,28 @@ pub fn register(ctx: &SessionContext, name: &str, columns: Vec<(&str, ArrayRef)>
     Ok(())
 }
 
-/// The error of planning and running a query, or None.
-pub async fn error(ctx: &SessionContext, sql: &str) -> Option<String> {
-    match calls::sql(ctx, sql).await {
-        Ok(df) => df.collect().await.err().map(|e| e.to_string()),
-        Err(e) => Some(e.to_string()),
-    }
+/// The logical plan of the query `input`.
+pub async fn input(ctx: &SessionContext, input: &str) -> Result<LogicalPlan> {
+    Ok(ctx.sql(input).await?.into_unoptimized_plan())
+}
+
+/// The expression `sql` in DataFusion's SQL over the schema of the query `input`, for the
+/// arguments of a call, such as `sum(tons)`.
+pub async fn expr(ctx: &SessionContext, input: &str, sql: &str) -> Result<Expr> {
+    let plan = self::input(ctx, input).await?;
+    ctx.state().create_logical_expr(sql, plan.schema())
+}
+
+/// Registers as the view `name`, in place of any table of that name, the plan that `plan` makes
+/// of the plan of the query `input`.
+pub async fn view(
+    ctx: &SessionContext,
+    name: &str,
+    input: &str,
+    plan: impl FnOnce(LogicalPlan) -> Result<LogicalPlan>,
+) -> Result<()> {
+    let plan = plan(self::input(ctx, input).await?)?;
+    ctx.deregister_table(name)?;
+    ctx.register_table(name, Arc::new(ViewTable::new(plan, None)))?;
+    Ok(())
 }

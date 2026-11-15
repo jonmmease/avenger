@@ -1,19 +1,106 @@
-//! `impute` against reference SQL: the key values, the groups, the join of each group to the key values, an anti join to the input,
-//! the imputed value, and a `UNION ALL` with the input. Then its errors, at their places.
+//! `impute` against reference SQL: the key values, the groups, the join of each group to the
+//! key values, an anti join to the input, the imputed value, and a `UNION ALL` with the input.
+//! Then the errors of its arguments, at their arguments, and its edge cases.
+//!
+//! Each case builds an [`ImputeCall`] from the names of its columns and the SQL of its
+//! constants over the schema of its input query, plans it with [`impute::plan`], and registers
+//! the plan as a view, which DataFusion's SQL reads.
 
 mod common;
 
 use common::session;
 
+use avenger_datafusion_transforms::impute::{self, ImputeCall, Named};
+use avenger_datafusion_transforms::table_function::{ArgAt, ArgError};
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::util::display::array_value_to_string;
-use datafusion::common::Result;
+use datafusion::common::{Column, DFSchema, DataFusionError, Result};
 use datafusion::prelude::SessionContext;
 
+/// A named argument of a call, in DataFusion's SQL over the schema of the call's input.
+#[derive(Clone, Copy)]
+enum Arg<'a> {
+    /// A constant, such as `0` or `'avg'`.
+    Value(&'a str),
+    /// A list of constants, such as `[-1, 1]`.
+    List(&'a [&'a str]),
+    /// A column name, of `flag`.
+    Name(&'a str),
+}
+
+/// A call of `impute`: the names of its key, group, and value columns, and its named
+/// arguments.
+#[derive(Clone, Copy)]
+struct Call<'a> {
+    key: &'a str,
+    groups: &'a [&'a str],
+    value: &'a str,
+    named: &'a [(&'a str, Arg<'a>)],
+}
+
+/// The column `name` of `schema`, with its qualifier.
+fn column(schema: &DFSchema, name: &str) -> Result<Column> {
+    let (qualifier, field) = schema.qualified_field_with_unqualified_name(name)?;
+    Ok(Column::new(qualifier.cloned(), field.name()))
+}
+
+impl Call<'_> {
+    /// The call over the query `input`, with the columns of the input and the constants as
+    /// expressions over its schema.
+    async fn over(&self, ctx: &SessionContext, input: &str) -> Result<ImputeCall> {
+        let plan = common::input(ctx, input).await?;
+        let schema = plan.schema();
+        let columns = |names: &[&str]| {
+            (names.iter())
+                .map(|n| column(schema, n))
+                .collect::<Result<Vec<_>>>()
+        };
+        let mut named = Vec::new();
+        for (name, arg) in self.named {
+            let arg = match *arg {
+                Arg::Value(sql) => Named::Value(common::expr(ctx, input, sql).await?),
+                Arg::List(list) => {
+                    let mut exprs = Vec::new();
+                    for sql in list {
+                        exprs.push(common::expr(ctx, input, sql).await?);
+                    }
+                    Named::List(exprs)
+                }
+                Arg::Name(name) => Named::Name(name.to_string()),
+            };
+            named.push((name.to_string(), arg));
+        }
+        Ok(ImputeCall {
+            key: column(schema, self.key)?,
+            groups: columns(self.groups)?,
+            value: column(schema, self.value)?,
+            named,
+        })
+    }
+
+    /// Registers as the view `name` the plan of the call over the query `input`.
+    async fn view(&self, ctx: &SessionContext, name: &str, input: &str) -> Result<()> {
+        let call = self.over(ctx, input).await?;
+        common::view(ctx, name, input, |plan| {
+            impute::plan(plan, call).map_err(|e| DataFusionError::Plan(e.message))
+        })
+        .await
+    }
+
+    /// The error of the plan of the call over the query `input`.
+    async fn error(&self, ctx: &SessionContext, input: &str) -> Result<ArgError> {
+        let call = self.over(ctx, input).await?;
+        match impute::plan(common::input(ctx, input).await?, call) {
+            Ok(_) => panic!("no error: {input}"),
+            Err(e) => Ok(e),
+        }
+    }
+}
+
 async fn context() -> Result<SessionContext> {
-    let ctx = session(true);
-    common::calls::sql(&ctx,
+    let ctx = session();
+    ctx.sql(
         "CREATE TABLE s (month BIGINT, region VARCHAR, product VARCHAR, units DOUBLE, note VARCHAR, iunits BIGINT) AS VALUES
          (1, 'North', 'A', 10.0, 'a', 10),
          (2, 'North', 'A', 12.5, NULL, 12),
@@ -43,309 +130,230 @@ enum Fill {
 struct Case {
     name: &'static str,
     input: &'static str,
-    key: &'static str,
-    /// The groups argument as written, and its columns.
-    groups: (&'static str, &'static [&'static str]),
-    val: &'static str,
-    /// The named arguments as written.
-    named: &'static str,
+    call: Call<'static>,
     fill: Fill,
-    keys: Option<&'static str>,
-    extra: Option<&'static str>,
-    flag: Option<&'static str>,
 }
 
-const AGG: &str = "(SELECT month, region, sum(units) AS units FROM s WHERE month IS NOT NULL GROUP BY month, region)";
+impl Case {
+    /// The constants of the named list argument `name`, as the SQL of their list.
+    fn list(&self, name: &str) -> Option<String> {
+        self.call.named.iter().find_map(|(n, arg)| match arg {
+            Arg::List(list) if *n == name => Some(list.join(", ")),
+            _ => None,
+        })
+    }
+
+    fn flag(&self) -> Option<&'static str> {
+        self.call.named.iter().find_map(|(_, arg)| match arg {
+            Arg::Name(name) => Some(*name),
+            _ => None,
+        })
+    }
+}
+
+const ALL: &str = "SELECT * FROM s";
+const AGG: &str = "SELECT month, region, sum(units) AS units FROM s WHERE month IS NOT NULL GROUP BY month, region";
 
 fn cases() -> Vec<Case> {
-    let c = |name, input, key, groups, val, named, fill, keys, extra, flag| Case {
+    let c = |name, input, groups, value, named, fill| Case {
         name,
         input,
-        key,
-        groups,
-        val,
-        named,
+        call: Call {
+            key: "month",
+            groups,
+            value,
+            named,
+        },
         fill,
-        keys,
-        extra,
-        flag,
     };
+    use Arg::{List, Name, Value};
     vec![
         c(
             "value 0, groups [region]",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "value => 0",
+            &[("value", Value("0"))],
             Fill::Value("0"),
-            None,
-            None,
-            None,
         ),
         c(
             "two groups and a flag",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region, product]", &["region", "product"]),
+            ALL,
+            &["region", "product"],
             "units",
-            "value => 0, flag => imputed",
+            &[("value", Value("0")), ("flag", Name("imputed"))],
             Fill::Value("0"),
-            None,
-            None,
-            Some("imputed"),
         ),
         c(
             "no groups",
-            "(SELECT * FROM s)",
-            "month",
-            ("[]", &[]),
+            ALL,
+            &[],
             "units",
-            "value => -1",
+            &[("value", Value("-1"))],
             Fill::Value("-1"),
-            None,
-            None,
-            None,
-        ),
-        c(
-            "one group without brackets",
-            "(SELECT * FROM s)",
-            "month",
-            ("product", &["product"]),
-            "units",
-            "value => 0",
-            Fill::Value("0"),
-            None,
-            None,
-            None,
         ),
         c(
             "value NULL",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "value => NULL, flag => imputed",
+            &[("value", Value("NULL")), ("flag", Name("imputed"))],
             Fill::Value("NULL"),
-            None,
-            None,
-            Some("imputed"),
         ),
         c(
             "avg",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "method => 'avg'",
+            &[("method", Value("'avg'"))],
             Fill::Stat("avg", None),
-            None,
-            None,
-            None,
         ),
         c(
             "median",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region, product]", &["region", "product"]),
+            ALL,
+            &["region", "product"],
             "units",
-            "method => 'median'",
+            &[("method", Value("'median'"))],
             Fill::Stat("median", None),
-            None,
-            None,
-            None,
         ),
         c(
             "min",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "method => 'min'",
+            &[("method", Value("'min'"))],
             Fill::Stat("min", None),
-            None,
-            None,
-            None,
         ),
         c(
             "max",
-            "(SELECT * FROM s)",
-            "month",
-            ("[product]", &["product"]),
+            ALL,
+            &["product"],
             "units",
-            "method => 'max'",
+            &[("method", Value("'max'"))],
             Fill::Stat("max", None),
-            None,
-            None,
-            None,
         ),
         c(
             "keys",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "value => 0, keys => [1, 2, 3, 4]",
+            &[("value", Value("0")), ("keys", List(&["1", "2", "3", "4"]))],
             Fill::Value("0"),
-            Some("1, 2, 3, 4"),
-            None,
-            None,
         ),
         c(
             "extra keys",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "value => 0, extra_keys => [7, 2, 9]",
+            &[
+                ("value", Value("0")),
+                ("extra_keys", List(&["7", "2", "9"])),
+            ],
             Fill::Value("0"),
-            None,
-            Some("7, 2, 9"),
-            None,
         ),
         c(
             "keys and extra keys",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "units",
-            "value => 0, keys => [3, 1], extra_keys => [8, 1, 5]",
+            &[
+                ("value", Value("0")),
+                ("keys", List(&["3", "1"])),
+                ("extra_keys", List(&["8", "1", "5"])),
+            ],
             Fill::Value("0"),
-            Some("3, 1"),
-            Some("8, 1, 5"),
-            None,
         ),
         c(
             "integer value column",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "iunits",
-            "value => 0",
+            &[("value", Value("0"))],
             Fill::Value("0"),
-            None,
-            None,
-            None,
         ),
         c(
             "frame avg [-1, 1]",
             AGG,
-            "month",
-            ("[region]", &["region"]),
+            &["region"],
             "units",
-            "method => 'avg', frame => [-1, 1]",
+            &[("method", Value("'avg'")), ("frame", List(&["-1", "1"]))],
             Fill::Stat("avg", Some((Some(-1), Some(1)))),
-            None,
-            None,
-            None,
         ),
         c(
             "frame max [NULL, 0]",
             AGG,
-            "month",
-            ("[region]", &["region"]),
+            &["region"],
             "units",
-            "method => 'max', frame => [NULL, 0]",
+            &[("method", Value("'max'")), ("frame", List(&["NULL", "0"]))],
             Fill::Stat("max", Some((None, Some(0)))),
-            None,
-            None,
-            None,
         ),
         c(
             "frame median [-2, 2], keys",
             AGG,
-            "month",
-            ("[region]", &["region"]),
+            &["region"],
             "units",
-            "method => 'median', frame => [-2, 2], keys => [6, 5, 4, 3, 2, 1]",
+            &[
+                ("method", Value("'median'")),
+                ("frame", List(&["-2", "2"])),
+                ("keys", List(&["6", "5", "4", "3", "2", "1"])),
+            ],
             Fill::Stat("median", Some((Some(-2), Some(2)))),
-            Some("6, 5, 4, 3, 2, 1"),
-            None,
-            None,
         ),
         c(
             "frame min [1, NULL], no groups",
             AGG,
-            "month",
-            ("[]", &[]),
+            &[],
             "units",
-            "method => 'min', frame => [1, NULL]",
+            &[("method", Value("'min'")), ("frame", List(&["1", "NULL"]))],
             Fill::Stat("min", Some((Some(1), None))),
-            None,
-            None,
-            None,
         ),
         c(
             "avg of integers is a DOUBLE",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "iunits",
-            "method => 'avg'",
+            &[("method", Value("'avg'"))],
             Fill::Stat("avg", None),
-            None,
-            None,
-            None,
         ),
         c(
             "median of integers stays BIGINT",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "iunits",
-            "method => 'median'",
+            &[("method", Value("'median'"))],
             Fill::Stat("median", None),
-            None,
-            None,
-            None,
         ),
         c(
             "min of strings",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "note",
-            "method => 'min'",
+            &[("method", Value("'min'"))],
             Fill::Stat("min", None),
-            None,
-            None,
-            None,
         ),
         c(
             "frame avg of integers",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "iunits",
-            "method => 'avg', frame => [-1, 1]",
+            &[("method", Value("'avg'")), ("frame", List(&["-1", "1"]))],
             Fill::Stat("avg", Some((Some(-1), Some(1)))),
-            None,
-            None,
-            None,
         ),
         c(
             "value 0.5 widens integers to DOUBLE",
-            "(SELECT * FROM s)",
-            "month",
-            ("[region]", &["region"]),
+            ALL,
+            &["region"],
             "iunits",
-            "value => 0.5",
+            &[("value", Value("0.5"))],
             Fill::Value("0.5"),
-            None,
-            None,
-            None,
         ),
         c(
             "subquery input",
-            "(SELECT month, product, units FROM s WHERE region = 'North')",
-            "month",
-            ("product", &["product"]),
+            "SELECT month, product, units FROM s WHERE region = 'North'",
+            &["product"],
             "units",
-            "value => 0",
+            &[("value", Value("0"))],
             Fill::Value("0"),
-            None,
-            None,
-            None,
         ),
     ]
 }
@@ -365,10 +373,10 @@ fn frame_bound(b: Option<i64>, start: bool) -> String {
 /// the fill.
 fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
     let q = |n: &str| format!("\"{n}\"");
-    let key = q(c.key);
-    let val_type = &columns.iter().find(|(n, _)| n == c.val).unwrap().1;
-    let gs: Vec<String> = c.groups.1.iter().map(|g| q(g)).collect();
-    let keyvals = match (c.keys, c.extra) {
+    let key = q(c.call.key);
+    let val_type = &columns.iter().find(|(n, _)| n == c.call.value).unwrap().1;
+    let gs: Vec<String> = c.call.groups.iter().map(|g| q(g)).collect();
+    let keyvals = match (c.list("keys"), c.list("extra_keys")) {
         (Some(k), Some(e)) => format!(
             "SELECT DISTINCT __k FROM (SELECT unnest(make_array({k})) AS __k UNION ALL SELECT unnest(make_array({e})))"
         ),
@@ -392,7 +400,7 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
     };
     let present_groups: String = gs.iter().map(|g| format!("{g}, ")).collect();
     let mut sql = format!(
-        "WITH input AS (SELECT * FROM {input}),\n\
+        "WITH input AS (SELECT * FROM ({input})),\n\
          keyvals AS ({keyvals}),\n\
          grp AS ({grp}),\n\
          cand AS (SELECT grp.*, keyvals.__k FROM grp CROSS JOIN keyvals),\n\
@@ -412,7 +420,7 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
             };
             sql += &format!(
                 ",\nst AS (SELECT {present_groups}{agg}({v}) AS __imp FROM input{by})",
-                v = q(c.val)
+                v = q(c.call.value)
             );
             let join = if gs.is_empty() {
                 "added CROSS JOIN st".to_string()
@@ -423,7 +431,7 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
             (format!("arrow_cast(st.__imp, '{out}')"), join)
         }
         Fill::Stat(agg, Some((lo, hi))) => {
-            let order = match c.keys {
+            let order = match c.list("keys") {
                 Some(k) => format!("array_position(make_array({k}), __k) ASC NULLS LAST, __k"),
                 None => "__k".to_string(),
             };
@@ -438,7 +446,7 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
                 ",\ncombined AS (SELECT {gsel}i.{key} AS __k, i.{v} AS __v, false AS __added FROM input i JOIN keyvals k ON i.{key} = k.__k\n\
                    UNION ALL SELECT {gadd}__k, arrow_cast(NULL, '{val_type}'), true FROM added),\n\
                  framed AS (SELECT *, {agg}(__v) OVER ({part}ORDER BY {order} ROWS BETWEEN {lo} AND {hi}) AS __imp FROM combined)",
-                v = q(c.val),
+                v = q(c.call.value),
                 lo = frame_bound(*lo, true),
                 hi = frame_bound(*hi, false),
             );
@@ -448,12 +456,14 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
             )
         }
     };
-    let flag_in = c.flag.map_or(String::new(), |f| format!(", false AS {f}"));
-    let flag_add = c.flag.map_or(String::new(), |f| format!(", true AS {f}"));
+    let flag_in = c
+        .flag()
+        .map_or(String::new(), |f| format!(", false AS {f}"));
+    let flag_add = c.flag().map_or(String::new(), |f| format!(", true AS {f}"));
     let cols_in: Vec<String> = columns
         .iter()
         .map(|(n, _)| {
-            if n == c.val {
+            if n == c.call.value {
                 format!("arrow_cast({}, '{out}') AS {}", q(n), q(n))
             } else {
                 q(n)
@@ -463,9 +473,9 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
     let cols_add: Vec<String> = columns
         .iter()
         .map(|(n, t)| {
-            if n == c.key {
+            if n == c.call.key {
                 format!("__k AS {}", q(n))
-            } else if c.groups.1.contains(&n.as_str()) {
+            } else if c.call.groups.contains(&n.as_str()) {
                 let qualifier =
                     if from.starts_with("added LEFT JOIN") || from.starts_with("added CROSS") {
                         "added."
@@ -473,7 +483,7 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
                         ""
                     };
                 format!("{qualifier}{}", q(n))
-            } else if n == c.val {
+            } else if n == c.call.value {
                 format!("{imputed} AS {}", q(n))
             } else {
                 format!("arrow_cast(NULL, '{t}') AS {}", q(n))
@@ -488,16 +498,9 @@ fn reference(c: &Case, columns: &[(String, DataType)], out: &str) -> String {
     sql
 }
 
-fn ours(c: &Case) -> String {
-    format!(
-        "SELECT * FROM impute({}, {}, {}, {}, {})",
-        c.input, c.key, c.groups.0, c.val, c.named
-    )
-}
-
 /// The rows as sorted strings, and the column names and types.
 async fn rows(ctx: &SessionContext, sql: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {
-    let df = common::calls::sql(ctx, sql).await?;
+    let df = ctx.sql(sql).await?;
     let schema: Vec<String> = df
         .schema()
         .fields()
@@ -529,7 +532,9 @@ async fn rows(ctx: &SessionContext, sql: &str) -> Result<(Vec<String>, Vec<Vec<S
 async fn reference_sql() -> Result<()> {
     let ctx = context().await?;
     for c in cases() {
-        let probe = common::calls::sql(&ctx, &format!("SELECT * FROM {} LIMIT 0", c.input)).await?;
+        let probe = ctx
+            .sql(&format!("SELECT * FROM ({}) LIMIT 0", c.input))
+            .await?;
         let columns: Vec<(String, DataType)> = probe
             .schema()
             .fields()
@@ -539,191 +544,239 @@ async fn reference_sql() -> Result<()> {
         // The type of `COALESCE` of the value column and the fill.
         let fill = match &c.fill {
             Fill::Value(v) => v.to_string(),
-            Fill::Stat(agg, _) => format!("(SELECT {agg}({v}) FROM {})", c.input, v = c.val),
+            Fill::Stat(agg, _) => {
+                format!("(SELECT {agg}({v}) FROM ({}))", c.input, v = c.call.value)
+            }
         };
         let typed = rows(
             &ctx,
             &format!(
-                "SELECT arrow_typeof(coalesce({}, {fill})) FROM {} LIMIT 1",
-                c.val, c.input
+                "SELECT arrow_typeof(coalesce({}, {fill})) FROM ({}) LIMIT 1",
+                c.call.value, c.input
             ),
         )
         .await?;
         let reference_sql = reference(&c, &columns, &typed.1[0][0]);
-        let ours = rows(&ctx, &ours(&c)).await?;
+        c.call.view(&ctx, "imputed", c.input).await?;
+        let ours = rows(&ctx, "SELECT * FROM imputed").await?;
         let expected = rows(&ctx, &reference_sql).await?;
         assert_eq!(ours, expected, "{}", c.name);
     }
     Ok(())
 }
 
-/// The input of impute: a table by name, qualified or not, and a table that the query reads
-/// elsewhere, all as the subquery of the same rows.
-/// The table `s` of these tests is created after `register`.
-#[tokio::test]
-async fn inputs() -> Result<()> {
-    let ctx = context().await?;
-    common::calls::sql(
-        &ctx,
-        "CREATE TABLE x AS SELECT * FROM s WHERE region = 'North'",
-    )
-    .await?
-    .collect()
-    .await?;
-    let call =
-        |input: &str| format!("SELECT * FROM impute({input}, month, [region], units, value => 0)");
-    let want = rows(&ctx, &call("(SELECT * FROM s)")).await?;
-    for sql in [call("s"), call("public.s"), call("datafusion.public.s")] {
-        assert_eq!(rows(&ctx, &sql).await?, want, "{sql}");
-    }
-    let elsewhere = |input: &str| format!("{} WHERE month IN (SELECT month FROM s)", call(input));
-    assert_eq!(
-        rows(&ctx, &elsewhere("s")).await?,
-        rows(&ctx, &elsewhere("(SELECT * FROM s)")).await?
-    );
-    Ok(())
-}
-
 #[tokio::test]
 async fn errors() -> Result<()> {
     let ctx = context().await?;
-    // The arguments, the start of the message, and the column of the place in the arguments,
-    // or 0 for the name `impute`.
-    let errors = [
+    use Arg::{List, Name, Value};
+    let call = |groups, value, named| Call {
+        key: "month",
+        groups,
+        value,
+        named,
+    };
+    // The call, the place of the error, and the start of its message.
+    let errors: [(Call, ArgAt, &str); 14] = [
         (
-            "(SELECT * FROM s), month, [region], units",
+            call(&["region"], "units", &[]),
+            ArgAt::Call,
             "Impute needs exactly one of `value` and `method`; found neither",
-            0,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, method => 'avg'",
-            "found both",
-            66,
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("method", Value("'avg'"))],
+            ),
+            ArgAt::Named(1),
+            "Impute needs exactly one of `value` and `method`; found both",
         ),
         (
-            "(SELECT * FROM s), month, [region], units, method => 'linear'",
+            call(&["region"], "units", &[("method", Value("'linear'"))]),
+            ArgAt::Named(0),
             "`method` must be 'avg', 'median', 'min', or 'max'",
-            54,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, frame => [-1, 1]",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("frame", List(&["-1", "1"]))],
+            ),
+            ArgAt::Named(1),
             "`frame` needs a method",
-            67,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, method => 'avg', frame => [2, 1]",
+            call(
+                &["region"],
+                "units",
+                &[("method", Value("'avg'")), ("frame", List(&["2", "1"]))],
+            ),
+            ArgAt::Named(1),
             "The start of `frame`, 2, is after its end, 1",
-            71,
         ),
         (
-            "(SELECT * FROM s), month + 1, [region], units, value => 0",
-            "the key of impute must be a column of its input",
-            20,
-        ),
-        (
-            "(SELECT * FROM s), month, [region], units, value => 0, fill => 1",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("fill", Value("1"))],
+            ),
+            ArgAt::Named(1),
             "Unknown argument `fill` of impute",
-            56,
         ),
         (
-            "(SELECT * FROM s), month, units, value => 0",
-            "impute takes 4 positional arguments",
-            0,
-        ),
-        (
-            "(SELECT * FROM s), month, [region], units, value => 'zero'",
+            call(&["region"], "units", &[("value", Value("'zero'"))]),
+            ArgAt::Named(0),
             "`value` 'zero' does not coerce to the type of units",
-            53,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, extra_keys => ['a']",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("extra_keys", List(&["'a'"]))],
+            ),
+            ArgAt::NamedElement(1, 0),
             "The value 'a' of `extra_keys` does not coerce",
-            71,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, flag => note",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("flag", Name("note"))],
+            ),
+            ArgAt::Named(1),
             "The flag column `note` is already a column of the input",
-            64,
         ),
         (
-            "(SELECT * FROM s), month, [region], note, method => 'avg'",
+            call(&["region"], "note", &[("method", Value("'avg'"))]),
+            ArgAt::Named(0),
             "`method => 'avg'` does not apply to note",
-            53,
         ),
         (
-            "(SELECT * FROM s), month, [regoin], units, value => 0",
-            "the group of impute must be a column of its input",
-            28,
-        ),
-        (
-            "(SELECT * FROM s), month, [month], units, value => 0",
+            call(&["month"], "units", &[("value", Value("0"))]),
+            ArgAt::Element(1, 0),
             "The key month of impute is also a group column",
-            28,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, keys => [1, NULL]",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("keys", List(&["1", "NULL"]))],
+            ),
+            ArgAt::NamedElement(1, 1),
             "A value of `keys` cannot be NULL",
-            68,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, value => 0, keys => [1.5]",
+            call(
+                &["region"],
+                "units",
+                &[("value", Value("0")), ("keys", List(&["1.5"]))],
+            ),
+            ArgAt::NamedElement(1, 0),
             "The value 1.5 of `keys` does not coerce",
-            65,
         ),
         (
-            "(SELECT * FROM s), month, [region], units, method => 'avg', frame => [0, 18446744073709551615]",
+            call(
+                &["region"],
+                "units",
+                &[
+                    ("method", Value("'avg'")),
+                    ("frame", List(&["0", "18446744073709551615"])),
+                ],
+            ),
+            ArgAt::NamedElement(1, 1),
             "A bound of `frame` must fit in an INT64",
-            74,
         ),
     ];
-    let prefix = "SELECT * FROM impute(".len() as u64;
-    for (args, message, column) in errors {
-        let sql = format!("SELECT * FROM impute({args})");
-        let e = common::calls::sql(&ctx, &sql)
-            .await
-            .err()
-            .unwrap_or_else(|| panic!("no error: {args}"));
-        // The places of the errors are the SQL front end's, which avenger-sql's tests check.
-        let _ = (column, prefix);
-        assert!(e.to_string().contains(message), "{args}: {e}");
+    for (call, at, message) in errors {
+        let e = call.error(&ctx, ALL).await?;
+        assert!(
+            e.at == at && e.message.starts_with(message),
+            "{message}: {e:?}"
+        );
     }
     Ok(())
 }
 
-/// The rows of a query, sorted.
-async fn sorted(ctx: &SessionContext, sql: &str) -> Result<Vec<Vec<String>>> {
+/// The rows of the view of `call` over the query `input`, read by `sql`, sorted.
+async fn imputed(
+    ctx: &SessionContext,
+    input: &str,
+    call: Call<'_>,
+    sql: &str,
+) -> Result<Vec<Vec<String>>> {
+    call.view(ctx, "imputed", input).await?;
     Ok(rows(ctx, sql).await?.1)
 }
 
 #[tokio::test]
 async fn edge_cases() -> Result<()> {
     let ctx = context().await?;
+    use Arg::{List, Value};
+    fn call<'a>(named: &'a [(&'a str, Arg<'a>)]) -> Call<'a> {
+        Call {
+            key: "month",
+            groups: &["region"],
+            value: "units",
+            named,
+        }
+    }
+    let all = "SELECT * FROM imputed";
     // A constant that needs type coercion.
-    let a = sorted(
-        &ctx,
-        "SELECT * FROM impute((SELECT * FROM s), month, [region], units, value => 1 + 0.5)",
-    )
-    .await?;
+    let a = imputed(&ctx, ALL, call(&[("value", Value("1 + 0.5"))]), all).await?;
     assert!(a.iter().any(|r| r[3] == "1.5"));
     // A frame of the whole group is no frame.
-    let no_frame = sorted(&ctx, "SELECT * FROM impute((SELECT * FROM s), month, [region], units, method => 'avg', keys => [1, 2, 3])").await?;
-    let whole = sorted(&ctx, "SELECT * FROM impute((SELECT * FROM s), month, [region], units, method => 'avg', keys => [1, 2, 3], frame => [NULL, NULL])").await?;
+    let keys = ("keys", List(&["1", "2", "3"]));
+    let no_frame = imputed(&ctx, ALL, call(&[("method", Value("'avg'")), keys]), all).await?;
+    let whole = imputed(
+        &ctx,
+        ALL,
+        call(&[
+            ("method", Value("'avg'")),
+            keys,
+            ("frame", List(&["NULL", "NULL"])),
+        ]),
+        all,
+    )
+    .await?;
     assert_eq!(no_frame, whole);
     // A frame bound past the end of every group.
-    let wide = sorted(&ctx, "SELECT * FROM impute((SELECT * FROM s), month, [region], units, method => 'max', frame => [0, 9223372036854775807])").await?;
-    let open = sorted(&ctx, "SELECT * FROM impute((SELECT * FROM s), month, [region], units, method => 'max', frame => [0, NULL])").await?;
+    let wide = imputed(
+        &ctx,
+        ALL,
+        call(&[
+            ("method", Value("'max'")),
+            ("frame", List(&["0", "9223372036854775807"])),
+        ]),
+        all,
+    )
+    .await?;
+    let open = imputed(
+        &ctx,
+        ALL,
+        call(&[("method", Value("'max'")), ("frame", List(&["0", "NULL"]))]),
+        all,
+    )
+    .await?;
     assert_eq!(wide, open);
     // An empty input.
-    let empty = sorted(
+    let empty = imputed(
         &ctx,
-        "SELECT * FROM impute((SELECT * FROM s WHERE false), month, [region], units, value => 0)",
+        "SELECT * FROM s WHERE false",
+        call(&[("value", Value("0"))]),
+        all,
     )
     .await?;
     assert!(empty.is_empty());
     // A struct key, as the result of timeunit or bin, sorted in key order.
-    let sql = "SELECT k['m'] AS m, g, v FROM impute((SELECT named_struct('m', month) AS k, region AS g, units AS v FROM s WHERE month IS NOT NULL), k, [g], v, value => 0)";
+    let input = "SELECT named_struct('m', month) AS k, region AS g, units AS v FROM s WHERE month IS NOT NULL";
+    let call = Call {
+        key: "k",
+        groups: &["g"],
+        value: "v",
+        named: &[("value", Value("0"))],
+    };
     // 12 rows, and the missing months of 4 regions: 2, 2, 5, and 5.
-    let all = sorted(&ctx, sql).await?;
+    let all = imputed(&ctx, input, call, "SELECT k['m'] AS m, g, v FROM imputed").await?;
     assert_eq!(all.len(), 26);
     let east: Vec<&str> = all
         .iter()
@@ -732,39 +785,4 @@ async fn edge_cases() -> Result<()> {
         .collect();
     assert_eq!(east, ["1", "2", "3", "4", "5", "6"]);
     Ok(())
-}
-
-/// `impute` needs its own query planner, so `register` refuses a session with another one
-/// rather than replace it.
-#[tokio::test]
-async fn custom_query_planner() {
-    use std::sync::Arc;
-
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion::execution::context::QueryPlanner;
-    use datafusion::logical_expr::LogicalPlan;
-    use datafusion::physical_plan::ExecutionPlan;
-
-    #[derive(Debug)]
-    struct Mine;
-
-    #[async_trait::async_trait]
-    impl QueryPlanner for Mine {
-        async fn create_physical_plan(
-            &self,
-            _: &LogicalPlan,
-            _: &dyn datafusion::catalog::Session,
-        ) -> Result<Arc<dyn ExecutionPlan>> {
-            datafusion::common::not_impl_err!("mine")
-        }
-    }
-    let state = SessionStateBuilder::new()
-        .with_default_features()
-        .with_query_planner(Arc::new(Mine))
-        .build();
-    let ctx = SessionContext::new_with_state(state);
-    let e = avenger_datafusion_transforms::register(&ctx)
-        .unwrap_err()
-        .to_string();
-    assert!(e.contains("the session has the query planner Mine"), "{e}");
 }

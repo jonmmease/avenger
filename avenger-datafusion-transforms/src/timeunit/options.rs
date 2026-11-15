@@ -2,8 +2,8 @@
 
 use super::*;
 
+use crate::OptionError;
 use datafusion::arrow::datatypes::{DataType, TimeUnit as ArrowUnit};
-use datafusion::common::{Result, ScalarValue, plan_err};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum WeekStart {
@@ -22,6 +22,15 @@ impl WeekStart {
         }
     }
 
+    /// The day of the name `monday` or `sunday`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "monday" => Some(WeekStart::Monday),
+            "sunday" => Some(WeekStart::Sunday),
+            _ => None,
+        }
+    }
+
     pub(super) fn name(self) -> &'static str {
         match self {
             WeekStart::Monday => "monday",
@@ -30,139 +39,117 @@ impl WeekStart {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct TimeUnitOptions {
     pub unit: Option<Unit>,
-    pub maxbins: Option<u32>,
+    pub maxbins: Option<i64>,
     pub min_unit: Option<Unit>,
     pub week_start: WeekStart,
     /// The first month of the fiscal year, 1 to 12.
-    pub fiscal_year_start: Option<u32>,
+    pub fiscal_year_start: Option<i64>,
 }
 
 impl TimeUnitOptions {
-    pub fn parse(pairs: &[ScalarValue]) -> Result<Self> {
-        if !pairs.len().is_multiple_of(2) {
-            return plan_err!(
-                "timeunit options must be pairs of a name and a value, but the last name has no value"
-            );
+    /// Rejects options that contradict each other or are out of range.
+    pub fn check(&self) -> std::result::Result<(), OptionError> {
+        if let Some(n) = self.maxbins.filter(|n| !(1..=u32::MAX as i64).contains(n)) {
+            return Err(OptionError::new(
+                "maxbins",
+                format!("The maxbins of timeunit must be a positive integer, not {n}"),
+            ));
         }
-        let mut o = Self::default();
-        let mut seen: Vec<&str> = Vec::new();
-        for pair in pairs.chunks(2) {
-            let Some(Some(name)) = pair[0].try_as_str() else {
-                return plan_err!("a timeunit option name must be a string, not {}", pair[0]);
-            };
-            if seen.contains(&name) {
-                return plan_err!("the timeunit option '{name}' is given twice");
-            }
-            seen.push(name);
-            let v = &pair[1];
-            let text = || -> Result<&str> {
-                match v.try_as_str() {
-                    Some(Some(s)) => Ok(s),
-                    _ => plan_err!("the timeunit option '{name}' must be a string, not {v}"),
-                }
-            };
-            match name {
-                "unit" => o.unit = Some(Unit::parse(text()?)?),
-                "min_unit" => {
-                    let u = Unit::parse(text()?)?;
-                    if matches!(u, Unit::Collapse(_)) {
-                        return plan_err!(
-                            "'min_unit' must be a truncating unit, not '{}'",
-                            u.text()
-                        );
-                    }
-                    o.min_unit = Some(u);
-                }
-                "maxbins" => {
-                    let n = match v.cast_to(&DataType::Float64) {
-                        Ok(ScalarValue::Float64(Some(f))) if v.data_type().is_numeric() => f,
-                        _ => {
-                            return plan_err!(
-                                "the timeunit option 'maxbins' must be a number, not {v}"
-                            );
-                        }
-                    };
-                    if n < 1.0 || n.fract() != 0.0 || n > u32::MAX as f64 {
-                        return plan_err!(
-                            "the timeunit option 'maxbins' must be a positive integer, not {v}"
-                        );
-                    }
-                    o.maxbins = Some(n as u32);
-                }
-                "week_start" => {
-                    o.week_start = match text()?.to_ascii_lowercase().as_str() {
-                        "monday" => WeekStart::Monday,
-                        "sunday" => WeekStart::Sunday,
-                        other => {
-                            return plan_err!(
-                                "'week_start' must be 'monday' or 'sunday', not '{other}'"
-                            );
-                        }
-                    }
-                }
-                "fiscal_year_start" => {
-                    let m = match v.cast_to(&DataType::Float64) {
-                        Ok(ScalarValue::Float64(Some(m))) if v.data_type().is_numeric() => m,
-                        _ => f64::NAN,
-                    };
-                    if !(1.0..=12.0).contains(&m) || m.fract() != 0.0 {
-                        return plan_err!(
-                            "'fiscal_year_start' must be the number of a month from 1 to 12, such as 10 for October, not {v}"
-                        );
-                    }
-                    o.fiscal_year_start = Some(m as u32);
-                }
-                _ => {
-                    return plan_err!(
-                        "unknown timeunit option '{name}': the options are unit, maxbins, min_unit, week_start, fiscal_year_start"
-                    );
-                }
+        if let Some(m) = self.fiscal_year_start.filter(|m| !(1..=12).contains(m)) {
+            return Err(OptionError::new(
+                "fiscal_year_start",
+                format!(
+                    "The fiscal_year_start of timeunit must be the number of a month from 1 to 12, such as 10 for October, not {m}"
+                ),
+            ));
+        }
+        if let Some(u @ Unit::Collapse(_)) = self.min_unit {
+            return Err(OptionError::new(
+                "min_unit",
+                format!(
+                    "The min_unit of timeunit must be a truncating unit, not '{}'",
+                    u.text()
+                ),
+            ));
+        }
+        if self.unit.is_some() && self.maxbins.is_some() {
+            return Err(OptionError::new(
+                "maxbins",
+                "timeunit takes unit or maxbins, not both: an explicit unit has no automatic choice",
+            ));
+        }
+        if self.unit.is_some() && self.min_unit.is_some() {
+            return Err(OptionError::new(
+                "min_unit",
+                "timeunit takes unit or min_unit, not both: an explicit unit has no automatic choice",
+            ));
+        }
+        for (option, u) in [("unit", self.unit), ("min_unit", self.min_unit)] {
+            if let Some(u) = u.filter(|u| u.is_fiscal() && self.fiscal_year_start.is_none()) {
+                return Err(OptionError::new(
+                    option,
+                    format!(
+                        "The unit '{}' needs fiscal_year_start; without it, use '{}'",
+                        u.text(),
+                        u.text().replace("fiscal_", "")
+                    ),
+                ));
             }
         }
-        if o.unit.is_some() && o.maxbins.is_some() {
-            return plan_err!(
-                "timeunit takes 'unit' or 'maxbins', not both: an explicit unit has no automatic choice"
-            );
-        }
-        if o.unit.is_some() && o.min_unit.is_some() {
-            return plan_err!(
-                "timeunit takes 'unit' or 'min_unit', not both: an explicit unit has no automatic choice"
-            );
-        }
-        for u in o.unit.iter().chain(o.min_unit.iter()) {
-            if u.is_fiscal() && o.fiscal_year_start.is_none() {
-                return plan_err!(
-                    "the unit '{}' needs 'fiscal_year_start'; without it, use '{}'",
-                    u.text(),
-                    u.text().replace("fiscal_", "")
-                );
-            }
-        }
-        Ok(o)
+        Ok(())
     }
 
-    /// Checks the options against the type of the value.
-    pub fn check(&self, dt: &DataType) -> Result<()> {
-        for u in self.unit.iter().chain(self.min_unit.iter()) {
+    /// Rejects units that do not apply to values of the type `dt`.
+    pub fn check_type(&self, dt: &DataType) -> std::result::Result<(), OptionError> {
+        for (option, u) in [("unit", self.unit), ("min_unit", self.min_unit)] {
+            let Some(u) = u else { continue };
             if *dt == DataType::Date32 && u.is_subday() {
-                return plan_err!(
-                    "the unit '{}' is shorter than one day, so it does not apply to a DATE",
-                    u.text()
-                );
+                return Err(OptionError::new(
+                    option,
+                    format!(
+                        "The unit '{}' is shorter than one day, so it does not apply to a DATE",
+                        u.text()
+                    ),
+                ));
             }
             if matches!(dt, DataType::Timestamp(ArrowUnit::Second, _))
                 && matches!(u, Unit::Trunc(Trunc::Millisecond, _))
             {
-                return plan_err!(
-                    "the unit '{}' is shorter than one second, so it does not apply to a timestamp in seconds",
-                    u.text()
-                );
+                return Err(OptionError::new(
+                    option,
+                    format!(
+                        "The unit '{}' is shorter than one second, so it does not apply to a timestamp in seconds",
+                        u.text()
+                    ),
+                ));
             }
         }
         Ok(())
+    }
+
+    /// The options that differ from the defaults, as named arguments, such as
+    /// `unit => 'month'`.
+    pub(super) fn text(&self) -> String {
+        let mut parts = Vec::new();
+        if let Some(u) = self.unit {
+            parts.push(format!("unit => '{}'", u.text()));
+        }
+        if let Some(n) = self.maxbins {
+            parts.push(format!("maxbins => {n}"));
+        }
+        if let Some(u) = self.min_unit {
+            parts.push(format!("min_unit => '{}'", u.text()));
+        }
+        if self.week_start != WeekStart::default() {
+            parts.push(format!("week_start => '{}'", self.week_start.name()));
+        }
+        if let Some(m) = self.fiscal_year_start {
+            parts.push(format!("fiscal_year_start => {m}"));
+        }
+        parts.join(", ")
     }
 
     /// The value of the metadata key `avenger.time_unit`.
