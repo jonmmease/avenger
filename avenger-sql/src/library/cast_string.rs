@@ -1,49 +1,49 @@
 //! `CAST(x AS STRING)` of the types whose text GoogleSQL writes otherwise than Arrow's cast: a
 //! `FLOAT64` with 15 significant digits, or 17 where 15 don't give the value back, a `NUMERIC` or
 //! `BIGNUMERIC` without trailing zeros, a `DATETIME` with a space and its fraction in 3 or 6
-//! digits, and a `TIMESTAMP` as its civil time in the time zone, with its offset.
+//! digits, a `TIMESTAMP` as its civil time in the time zone, with its offset, and an `INTERVAL`
+//! as `Y-M D H:M:S`.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
+use avenger_format_datetime_googlesql::Zone;
+use chrono::NaiveDateTime;
 use datafusion::{
     arrow::{
         array::{Array, ArrayRef, AsArray, StringBuilder},
         datatypes::{
-            DataType, Decimal128Type, Decimal256Type, DecimalType, Float64Type, Int64Type,
+            DataType, Decimal128Type, Decimal256Type, DecimalType, Float64Type,
+            IntervalMonthDayNanoType, TimeUnit, TimestampMicrosecondType,
         },
     },
     common::{exec_err, Result},
-    functions::datetime::expr_fn::to_local_time,
     logical_expr::{
         ColumnarValue, Expr, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility,
     },
 };
 
-use super::{cast, columnar, form::Ty, lit_i64};
+use super::{cast, columnar, form::Ty};
 use crate::types;
 
 const MICROS_PER_SECOND: i64 = 1_000_000;
 
 /// `CAST(value AS STRING)` of a value of the type `from`, as GoogleSQL writes it, where Arrow's
-/// cast writes it otherwise: a `FLOAT64`, a `NUMERIC` or `BIGNUMERIC`, a `DATETIME`, or a
-/// `TIMESTAMP` in the time zone `zone`. `None` for another type, whose Arrow cast is GoogleSQL's.
+/// cast writes it otherwise: a `FLOAT64`, a `NUMERIC` or `BIGNUMERIC`, a `DATETIME`, a
+/// `TIMESTAMP` in the time zone `zone`, or an `INTERVAL`. `None` for another type, whose Arrow
+/// cast is GoogleSQL's, and for a time zone that GoogleSQL doesn't read.
 pub(crate) fn cast_to_string(value: Expr, from: &Ty, zone: &str) -> Option<Expr> {
-    Some(match from {
-        Ty::Float64 => TO_STRING.call(vec![cast(value, DataType::Float64)]),
-        Ty::Numeric | Ty::BigNumeric => TO_STRING.call(vec![value]),
-        Ty::Datetime => TO_STRING.call(vec![cast(value, DataType::Int64)]),
-        Ty::Timestamp => {
-            let zoned = cast(value.clone(), types::zoned(zone));
-            let local = cast(
-                cast(to_local_time(vec![zoned]), types::datetime()),
-                DataType::Int64,
-            );
-            let utc = cast(cast(value, types::timestamp()), DataType::Int64);
-            let offset = (local.clone() - utc) / lit_i64(MICROS_PER_SECOND);
-            TO_STRING.call(vec![local, offset])
-        }
+    let (value, zone) = match from {
+        Ty::Float64 => (cast(value, DataType::Float64), Zone::UTC),
+        Ty::Numeric | Ty::BigNumeric | Ty::Interval => (value, Zone::UTC),
+        Ty::Datetime => (cast(value, types::datetime()), Zone::UTC),
+        Ty::Timestamp => (cast(value, types::timestamp()), Zone::parse(zone)?),
         _ => return None,
-    })
+    };
+    let udf = CastToString {
+        zone,
+        signature: Signature::any(1, Volatility::Immutable),
+    };
+    Some(ScalarUDF::new_from_impl(udf).call(vec![value]))
 }
 
 /// `value` as C's `printf` writes it with `%.{precision}g`.
@@ -84,33 +84,51 @@ fn float_text(value: f64) -> String {
     }
 }
 
-/// The text of the date and time `micros`, civil microseconds, as GoogleSQL writes a `DATETIME`:
-/// its fraction in 3 digits, or 6 where 3 don't hold it, or none.
-fn datetime_text(micros: i64) -> Result<String> {
-    let Some(datetime) = chrono::DateTime::from_timestamp_micros(micros) else {
-        return exec_err!("a DATETIME out of range");
-    };
-    let fraction = micros.rem_euclid(MICROS_PER_SECOND);
-    let fraction = match fraction {
+/// The fraction of a second of `micros`, microseconds, as GoogleSQL writes it: in 3 digits, or 6
+/// where 3 don't hold it, or none.
+fn fraction_text(micros: i64) -> String {
+    match micros {
         0 => String::new(),
-        _ if fraction % 1000 == 0 => format!(".{:03}", fraction / 1000),
-        _ => format!(".{fraction:06}"),
-    };
-    Ok(format!(
-        "{}{fraction}",
-        datetime.naive_utc().format("%Y-%m-%d %H:%M:%S")
-    ))
+        _ if micros % 1000 == 0 => format!(".{:03}", micros / 1000),
+        _ => format!(".{micros:06}"),
+    }
 }
 
-/// The text of the value at `row` of `array` as GoogleSQL's `CAST(x AS STRING)` writes it: a
-/// float as [`float_text`], a decimal without trailing zeros, and a date and time with a space.
-/// A timestamp's array holds its civil microseconds, and `offset` its time zone's offset in
-/// seconds, which follows as `-08` or `+05:30`.
-fn text(array: &ArrayRef, row: usize, offset: Option<i64>) -> Result<String> {
+/// The text of the date and time `datetime` as GoogleSQL writes a `DATETIME`.
+fn datetime_text(datetime: NaiveDateTime) -> String {
+    let micros = i64::from(datetime.and_utc().timestamp_subsec_micros());
+    format!(
+        "{}{}",
+        datetime.format("%Y-%m-%d %H:%M:%S"),
+        fraction_text(micros)
+    )
+}
+
+/// The text of an interval of `months`, `days` and `nanoseconds` as GoogleSQL writes it:
+/// `Y-M D H:M:S`, with the fraction of its seconds.
+fn interval_text(months: i32, days: i32, nanoseconds: i64) -> String {
+    let sign = if months < 0 { "-" } else { "" };
+    let (years, months) = (months.abs() / 12, months.abs() % 12);
+    let micros = nanoseconds / 1_000;
+    let time_sign = if micros < 0 { "-" } else { "" };
+    let micros = micros.abs();
+    let (hours, minutes, seconds) = (
+        micros / 3_600_000_000,
+        micros / 60_000_000 % 60,
+        micros / MICROS_PER_SECOND % 60,
+    );
+    let fraction = fraction_text(micros % MICROS_PER_SECOND);
+    format!("{sign}{years}-{months} {days} {time_sign}{hours}:{minutes}:{seconds}{fraction}")
+}
+
+/// The text of the value at `row` of `array` as GoogleSQL's `CAST(x AS STRING)` writes it, with
+/// a timestamp's civil time and offset in the time zone `zone`, as `-08` or `+05:30`.
+fn text(array: &ArrayRef, row: usize, zone: Zone) -> Result<String> {
     let trimmed = |text: String| match text.contains('.') {
         true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
         false => text,
     };
+    let out_of_range = || exec_err!("a date and time out of range");
     Ok(match array.data_type() {
         DataType::Float64 => float_text(array.as_primitive::<Float64Type>().value(row)),
         DataType::Decimal128(precision, scale) => trimmed(Decimal128Type::format_decimal(
@@ -123,40 +141,46 @@ fn text(array: &ArrayRef, row: usize, offset: Option<i64>) -> Result<String> {
             *precision,
             *scale,
         )),
-        DataType::Int64 => {
-            let text = datetime_text(array.as_primitive::<Int64Type>().value(row))?;
-            match offset {
-                None => text,
-                Some(offset) => {
-                    let sign = if offset < 0 { '-' } else { '+' };
-                    let (hours, minutes) = (offset.abs() / 3600, offset.abs() / 60 % 60);
-                    match minutes {
-                        0 => format!("{text}{sign}{hours:02}"),
-                        _ => format!("{text}{sign}{hours:02}:{minutes:02}"),
-                    }
-                }
+        DataType::Timestamp(TimeUnit::Microsecond, None) => {
+            let values = array.as_primitive::<TimestampMicrosecondType>();
+            match values.value_as_datetime(row) {
+                Some(datetime) => datetime_text(datetime),
+                None => return out_of_range(),
             }
         }
-        other => return exec_err!("$to_string takes no {other}"),
+        DataType::Timestamp(TimeUnit::Microsecond, Some(_)) => {
+            let values = array.as_primitive::<TimestampMicrosecondType>();
+            let Some(instant) = values.value_as_datetime(row).map(|utc| utc.and_utc()) else {
+                return out_of_range();
+            };
+            let local = zone.local(instant);
+            let offset = (local - instant.naive_utc()).num_seconds();
+            let sign = if offset < 0 { '-' } else { '+' };
+            let (hours, minutes) = (offset.abs() / 3600, offset.abs() / 60 % 60);
+            match minutes {
+                0 => format!("{}{sign}{hours:02}", datetime_text(local)),
+                _ => format!("{}{sign}{hours:02}:{minutes:02}", datetime_text(local)),
+            }
+        }
+        DataType::Interval(_) => {
+            let value = array.as_primitive::<IntervalMonthDayNanoType>().value(row);
+            interval_text(value.months, value.days, value.nanoseconds)
+        }
+        other => return exec_err!("$cast_to_string takes no {other}"),
     })
 }
 
-static TO_STRING: LazyLock<Arc<ScalarUDF>> = LazyLock::new(|| {
-    Arc::new(ScalarUDF::new_from_impl(ToString {
-        signature: Signature::variadic_any(Volatility::Immutable),
-    }))
-});
-
-/// The text of a value, and of the offset of a timestamp's time zone, as GoogleSQL's
-/// `CAST(x AS STRING)` writes it.
+/// The text of a value as GoogleSQL's `CAST(x AS STRING)` writes it, with a timestamp in the time
+/// zone `zone`.
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct ToString {
+struct CastToString {
+    zone: Zone,
     signature: Signature,
 }
 
-impl ScalarUDFImpl for ToString {
+impl ScalarUDFImpl for CastToString {
     fn name(&self) -> &str {
-        "$to_string"
+        "$cast_to_string"
     }
 
     fn signature(&self) -> &Signature {
@@ -168,21 +192,12 @@ impl ScalarUDFImpl for ToString {
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let rows = args.number_rows;
-        let values = args.args[0].clone().into_array(rows)?;
-        let offsets = (args.args.get(1))
-            .map(|offset| offset.clone().into_array(rows))
-            .transpose()?;
-        let offset_at = |row: usize| -> Option<i64> {
-            let offsets = offsets.as_ref()?.as_primitive::<Int64Type>();
-            let at = if offsets.len() == 1 { 0 } else { row };
-            (!offsets.is_null(at)).then(|| offsets.value(at))
-        };
+        let values = args.args[0].clone().into_array(args.number_rows)?;
         let mut out = StringBuilder::new();
         for row in 0..values.len() {
             match values.is_null(row) {
                 true => out.append_null(),
-                false => out.append_value(text(&values, row, offset_at(row))?),
+                false => out.append_value(text(&values, row, self.zone)?),
             }
         }
         columnar(Arc::new(out.finish()), &args.args)
