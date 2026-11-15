@@ -151,13 +151,22 @@ impl Pass<'_> {
                 else {
                     return rows;
                 };
-                let columns = rows.columns.clone();
+                // The alias of a value table names its value, as a `FROM` alias does, and the
+                // value's fields stay names.
+                let (columns, value) = match rows.value_var() {
+                    Some(var) => (var.columns.clone(), var.value.clone()),
+                    None => (rows.columns.clone(), None),
+                };
+                let mut rows = rows;
+                if value.is_some() {
+                    rows.columns[0].name = name.clone();
+                }
                 Rows {
                     vars: vec![RangeVar {
                         name,
                         definition: Some(definition),
                         columns,
-                        value: None,
+                        value,
                     }],
                     ..rows
                 }
@@ -540,8 +549,11 @@ impl Pass<'_> {
         let qualifier = self.qualifiers.fresh(base);
         let mut names = HashSet::new();
         let mut exprs = Vec::new();
+        // The visible columns, and a value table's fields, which stay names of the source.
+        let value_fields = inner.value_var().map(|var| var.columns.clone());
+        let fields = value_fields.as_deref().unwrap_or_default();
         let mut columns = Vec::new();
-        for (index, col) in inner.columns.iter().enumerate() {
+        for (index, col) in inner.columns.iter().chain(fields).enumerate() {
             let field = plan_name(&col.name, index);
             let qualifier = match names.insert(field.clone()) {
                 true => qualifier.clone(),
@@ -556,14 +568,29 @@ impl Pass<'_> {
                 definition: col.definition,
             });
         }
-        let vars = match &alias {
-            Some((name, definition)) => vec![RangeVar {
+        let fields = columns.split_off(inner.columns.len());
+        let vars = match (&alias, value_fields) {
+            // The alias of a value table names its value, as a `FROM` alias does.
+            (alias, Some(_)) => {
+                if let Some((name, _)) = alias {
+                    columns[0].name = name.clone();
+                }
+                vec![RangeVar {
+                    name: alias
+                        .as_ref()
+                        .map_or(String::new(), |(name, _)| name.clone()),
+                    definition: alias.as_ref().map(|(_, definition)| *definition),
+                    columns: fields,
+                    value: Some(columns[0].column.clone()),
+                }]
+            }
+            (Some((name, definition)), None) => vec![RangeVar {
                 name: name.clone(),
                 definition: Some(*definition),
                 columns: columns.clone(),
                 value: None,
             }],
-            None => Vec::new(),
+            (None, None) => Vec::new(),
         };
         let order = match ordered {
             true => inner.order.clone(),

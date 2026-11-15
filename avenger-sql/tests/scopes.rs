@@ -64,6 +64,63 @@ const RULES: &[(&str, &str, Outcome)] = &[
         "FROM one_row AS t |> AS u |> SELECT t.x",
         Outcome::Error("Unrecognized name: t"),
     ),
+    // Over a value table, `|> AS u` names its value, whose fields stay names.
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT u.x",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT u.x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT x",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT u",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS u |> SELECT u",
+        Outcome::Row("| u            |", "| {x: 1, s: a} |"),
+    ),
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS l |> JOIN UNNEST([STRUCT(1 AS x, 'b' AS s)]) AS r ON l.x = r.x |> SELECT l.s, r.s",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS l |> JOIN UNNEST([STRUCT(1 AS x, 'b' AS s)]) AS r ON l.x = r.x |> SELECT l.s, r.s",
+        Outcome::Row("| s | s |", "| a | b |"),
+    ),
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS l |> JOIN UNNEST([STRUCT(1 AS x, 'b' AS s)]) AS r ON l.x = r.x |> SELECT x",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) |> AS l |> JOIN UNNEST([STRUCT(1 AS x, 'b' AS s)]) AS r ON l.x = r.x |> SELECT x",
+        Outcome::Error("Column name x is ambiguous"),
+    ),
+    (
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t |> AS u |> SELECT t.x",
+        "FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t |> AS u |> SELECT t.x",
+        Outcome::Error("Unrecognized name: t"),
+    ),
+    // A query in parentheses over a value table is a value table, whose alias names its value.
+    (
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT r.x",
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT r.x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    (
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT x",
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    (
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT r",
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)])) AS r |> SELECT r",
+        Outcome::Row("| r            |", "| {x: 1, s: a} |"),
+    ),
+    (
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t) |> SELECT t.x",
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t) |> SELECT t.x",
+        Outcome::Row("| x |", "| 1 |"),
+    ),
+    (
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t) AS r |> SELECT t.x",
+        "FROM (FROM UNNEST([STRUCT(1 AS x, 'a' AS s)]) AS t) AS r |> SELECT t.x",
+        Outcome::Error("Unrecognized name: t"),
+    ),
     // A column that EXTEND computes has no range variable.
     (
         "FROM (SELECT 1 AS x, 'a' AS s) AS t |> EXTEND x + 1 AS y |> SELECT t.y",

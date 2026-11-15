@@ -144,6 +144,15 @@ impl Rows {
         self
     }
 
+    /// The range variable of the value when the rows are a value table: the variable whose value
+    /// is the one visible column.
+    pub(crate) fn value_var(&self) -> Option<&RangeVar> {
+        let [col] = self.columns.as_slice() else {
+            return None;
+        };
+        (self.vars.iter()).find(|var| var.value.as_ref() == Some(&col.column))
+    }
+
     /// The rows without range variables, for an operator that ends them.
     pub(crate) fn without_vars(mut self) -> Self {
         self.vars.clear();

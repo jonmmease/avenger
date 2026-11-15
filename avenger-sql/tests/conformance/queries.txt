@@ -267,3 +267,5 @@ FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES MAX(a.units - b.units) AS 
 FROM sales |> SELECT PREV(units) AS p
 ## error-match-recognize-option
 FROM sales |> MATCH_RECOGNIZE(ORDER BY month MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE OPTIONS (use_longest_match = 1))
+## pipe-as-value-table
+FROM UNNEST([STRUCT(1 AS x, 'a' AS s), STRUCT(2, 'b')]) |> AS l |> JOIN (FROM UNNEST([STRUCT(1 AS x, 'c' AS s), STRUCT(2, 'd')])) AS r ON l.x = r.x |> SELECT l.x, l.s AS left_s, r.s AS right_s
