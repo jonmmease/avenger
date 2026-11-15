@@ -1,0 +1,193 @@
+# GoogleSQL's PARSE_* results, recorded with execute_query 2026.11.1 (macOS build) and
+# --enabled_language_features=MAXIMUM: the function, the format, the input, the time zone,
+# and `ok:` with days since the epoch of a DATE, microseconds since the epoch of a
+# TIMESTAMP, `%E4Y-%m-%d %H:%M:%E6S` of a DATETIME, or `%H:%M:%E6S` of a TIME, or `error:`
+# with the message. A backslash escapes a tab, a newline, and a backslash.
+PARSE_DATE	%Y-%m-%d	2024-03-05		ok:19787
+PARSE_DATE	%Y	2024		ok:19723
+PARSE_DATE	%m/%d	03/05		ok:63
+PARSE_DATE	%d	17		ok:16
+PARSE_DATE	%Y-%m	2024-02		ok:19754
+PARSE_DATE	%y	24		ok:19723
+PARSE_DATE	%y	69		ok:-365
+PARSE_DATE	%y	68		ok:35794
+PARSE_DATE	%C	20		ok:10957
+PARSE_DATE	%C%y	1999		ok:10592
+PARSE_DATE	%y%C	9919		ok:10592
+PARSE_DATE	%C %Y	19 2024		ok:19723
+PARSE_DATE	%Y %C	2024 19		ok:-25567
+PARSE_DATE	%E4Y	0099		ok:-683368
+PARSE_DATE	%E4Y	99		error:Failed to parse input string "99"
+PARSE_DATE	%EY	2024		ok:19723
+PARSE_DATE	%Ey	24		ok:19723
+PARSE_DATE	%EC	20		ok:10957
+PARSE_DATE	%Y%m%d	20240305		ok:19787
+PARSE_DATE	%Y	10000		error:Invalid result from parsing function
+PARSE_DATE	%Y	0		error:Invalid result from parsing function
+PARSE_DATE	%Y	-5		error:Failed to parse input string "-5"
+PARSE_DATE	%Y-%m-%d	2024-3-5		ok:19787
+PARSE_DATE	%Y-%m-%d	2024-02-30		error:Out-of-range datetime field in parsing function
+PARSE_DATE	%Y-%m-%d	2024-13-01		error:Failed to parse input string "2024-13-01"
+PARSE_DATE	%Y-%m-%d	2023-02-29		error:Out-of-range datetime field in parsing function
+PARSE_DATE	%Y-%m-%d	2024-02-29		ok:19782
+PARSE_DATE	%m	0		error:Failed to parse input string "0"
+PARSE_DATE	%Q %Y	2 2024		ok:19814
+PARSE_DATE	%Q	4		ok:273
+PARSE_DATE	%Q	5		error:Failed to parse input string "5"
+PARSE_DATE	%Y-%m-%d %Q	2024-08-09 1		ok:19723
+PARSE_DATE	%j %Y	065 2024		ok:19787
+PARSE_DATE	%Y %j	2024 366		ok:20088
+PARSE_DATE	%Y %j	2023 366		error:Year 2023 has 365 days, but the specified day of year was 366
+PARSE_DATE	%j	1		ok:0
+PARSE_DATE	%Y %j %m	2024 065 7		ok:19909
+PARSE_DATE	%m %Y %j	7 2024 065		ok:19787
+PARSE_DATE	%b %e %Y	mar 5 2024		ok:19787
+PARSE_DATE	%B %d %Y	MARCH 05 2024		ok:19787
+PARSE_DATE	%b %d %Y	March 05 2024		ok:19787
+PARSE_DATE	%B %d %Y	Mar 05 2024		ok:19787
+PARSE_DATE	%h %d	Sep 1		ok:243
+PARSE_DATE	%A %Y-%m-%d	Monday 2024-03-05		ok:19787
+PARSE_DATE	%a %Y-%m-%d	fri 2024-03-05		ok:19787
+PARSE_DATE	%a %Y-%m-%d	Xyz 2024-03-05		error:Failed to parse input string "Xyz 2024-03-05"
+PARSE_DATE	%e	 5		ok:4
+PARSE_DATE	%e	5		ok:4
+PARSE_DATE	%d	 5		ok:4
+PARSE_DATE	%e/%m	05/03		ok:63
+PARSE_DATE	%F	2024-03-05		ok:19787
+PARSE_DATE	%F	99-01-04		ok:-683365
+PARSE_DATE	%D	03/05/24		ok:19787
+PARSE_DATE	%x	03/05/24		ok:19787
+PARSE_DATE	%D	03/05/69		ok:-302
+PARSE_DATE	%F	2024-03-05x		error:Failed to parse input string "2024-03-05x"
+PARSE_TIMESTAMP	%c	Tue Mar  5 07:08:09 2024	UTC	ok:1709622489000000
+PARSE_TIMESTAMP	%c	Tue Mar 5 07:08:09 2024	UTC	ok:1709622489000000
+PARSE_TIME	%T	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%R	07:08		ok:07:08:00.000000
+PARSE_TIME	%X	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%r	07:08:09 PM		ok:19:08:09.000000
+PARSE_TIME	%r	12:00:00 am		ok:00:00:00.000000
+PARSE_DATE	%Y-%m-%d	 2024-03-05 		ok:19787
+PARSE_DATE	%Y %m %d	2024   03 05		ok:19787
+PARSE_DATE	%Y %m %d	2024-03-05		error:Failed to parse input string "2024-03-05"
+PARSE_DATE	%Y-%m-%d	2024 -03-05		error:Mismatch between format character '-' and string character ' ' at string index: 4 with format: '%Y-%m-%d'
+PARSE_DATE	%Y%n%m%t%d	2024 03\t05		ok:19787
+PARSE_DATE	%Y%n%m	202403		ok:19783
+PARSE_DATE	%Y-%m-%d%n	2024-03-05		ok:19787
+PARSE_DATE	%Y  %m	2024\t\n03		ok:19783
+PARSE_DATE	Y%Y	Y2024		ok:19723
+PARSE_DATE	Y%Y	X2024		error:Mismatch between format character 'Y' and string character 'X' at string index: 0 with format: 'Y%Y'
+PARSE_DATE	%%%Y	%2024		ok:19723
+PARSE_DATE	%Y%	2024		error:Format string cannot end with a single '%'
+PARSE_DATE	%Y			error:Failed to parse input string ""
+PARSE_DATE				ok:0
+PARSE_DATE	%Y-%m-%d			error:Failed to parse input string ""
+PARSE_DATE	abc	abc		ok:0
+PARSE_TIME	%H:%M:%S	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%H:%M:%S	7:8:9		ok:07:08:09.000000
+PARSE_TIME	%H	24		error:Failed to parse input string "24"
+PARSE_TIME	%M	60		error:Failed to parse input string "60"
+PARSE_TIME	%S	60		ok:00:01:00.000000
+PARSE_TIME	%H:%M:%S	23:59:60		ok:00:00:00.000000
+PARSE_TIME	%I %p	07 PM		ok:19:00:00.000000
+PARSE_TIME	%I %p	12 AM		ok:00:00:00.000000
+PARSE_TIME	%I %p	12 PM		ok:12:00:00.000000
+PARSE_TIME	%I	07		ok:07:00:00.000000
+PARSE_TIME	%p %I	pm 07		ok:19:00:00.000000
+PARSE_TIME	%l %P	 7 pm		ok:19:00:00.000000
+PARSE_TIME	%I %p	13 PM		error:Failed to parse input string "13 PM"
+PARSE_TIME	%I %p	07 XM		error:Failed to parse input string "07 XM"
+PARSE_TIME	%I%p	7pm		ok:19:00:00.000000
+PARSE_TIME	%H %p	07 PM		ok:07:00:00.000000
+PARSE_TIME	%I %H %p	07 19 PM		ok:19:00:00.000000
+PARSE_TIME	%OH:%OM:%OS	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%OI %p	07 pm		ok:19:00:00.000000
+PARSE_TIME	%k	 7		ok:07:00:00.000000
+PARSE_TIME	%k	7		ok:07:00:00.000000
+PARSE_TIME	%H:%M:%E*S	07:08:09.123456		ok:07:08:09.123456
+PARSE_TIME	%H:%M:%E*S	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%H:%M:%E*S	07:08:09.1234567891		ok:07:08:09.123456
+PARSE_TIME	%H:%M:%E3S	07:08:09.123		ok:07:08:09.123000
+PARSE_TIME	%H:%M:%E3S	07:08:09.1234		error:Failed to parse input string "07:08:09.1234"
+PARSE_TIME	%H:%M:%E3S	07:08:09.1		ok:07:08:09.100000
+PARSE_TIME	%H:%M:%E0S	07:08:09		ok:07:08:09.000000
+PARSE_TIME	%H:%M:%E6S	07:08:09.5		ok:07:08:09.500000
+PARSE_TIME	%H:%M:%E12S	07:08:09.123456789012		error:Failed to parse input string "07:08:09.123456789012"
+PARSE_TIME	%H:%M:%E13S	07:08:09.1		error:Failed to parse input string "07:08:09.1"
+PARSE_TIME	%H:%M:%S	07:08:09.5		error:Failed to parse input string "07:08:09.5"
+PARSE_TIME	%E*S	60.5		ok:00:01:00.000000
+PARSE_DATETIME	%Y-%m-%d %H:%M:%E*S	2024-03-05 07:08:09.123456		ok:2024-03-05 07:08:09.123456
+PARSE_DATETIME	%Y-%m-%d %H:%M	2024-03-05 07:08		ok:2024-03-05 07:08:00.000000
+PARSE_DATETIME	%Y-%m-%dT%H:%M:%S	2024-03-05T07:08:09		ok:2024-03-05 07:08:09.000000
+PARSE_DATETIME	%Y	2024		ok:2024-01-01 00:00:00.000000
+PARSE_DATETIME	%H	07		ok:1970-01-01 07:00:00.000000
+PARSE_DATETIME	%s	1709622489		ok:2024-03-05 07:08:09.000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M	2024-03-05 07:08	UTC	ok:1709622480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M	2024-03-05 07:08	America/New_York	ok:1709640480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Ez	2024-03-05 07:08 +05:30	UTC	ok:1709602680000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Ez	2024-03-05 07:08 Z	UTC	ok:1709622480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Ez	2024-03-05 07:08 +0530	UTC	ok:1709602680000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z	2024-03-05 07:08 +0530	America/New_York	ok:1709602680000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z	2024-03-05 07:08 -05	UTC	ok:1709640480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z	2024-03-05 07:08 +15:00	UTC	error:Timezone offset out of valid range -14:00 to +14:00: +15:00
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z	2024-03-05 07:08 +1500	UTC	error:Timezone offset out of valid range -14:00 to +14:00: +15:00
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z	2024-03-05 07:08 0530	UTC	error:Failed to parse input string "2024-03-05 07:08 0530"
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z	2024-03-05 07:08 America/New_York	UTC	ok:1709640480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z	2024-03-05 07:08 UTC	Asia/Kolkata	ok:1709622480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z	2024-03-05 07:08 UTC+5	UTC	ok:1709604480000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z	2024-03-05 07:08 +05:30	UTC	ok:1709602680000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z	2024-03-05 07:08 Mars/Olympus	UTC	error:Invalid time zone: Mars/Olympus
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %Z %z	2024-03-05 07:08 Asia/Tokyo +0100	UTC	ok:1709618880000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M %z %Z	2024-03-05 07:08 +0100 Asia/Tokyo	UTC	ok:1709590080000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M	2024-03-10 02:30	America/New_York	ok:1710055800000000
+PARSE_TIMESTAMP	%Y-%m-%d %H:%M	2024-11-03 01:30	America/New_York	ok:1730611800000000
+PARSE_TIMESTAMP	%s	1709622489	America/New_York	ok:1709622489000000
+PARSE_TIMESTAMP	%s	-1	UTC	ok:-1000000
+PARSE_TIMESTAMP	%s %Y	1709622489 1999	UTC	ok:1709622489000000
+PARSE_TIMESTAMP	%Y %s	1999 1709622489	UTC	ok:1709622489000000
+PARSE_TIMESTAMP	%s	253402300800	UTC	error:Invalid result from parsing function
+PARSE_TIMESTAMP	%Y-%m-%d	0001-01-01	America/New_York	ok:-62135579038000000
+PARSE_TIMESTAMP	%Y-%m-%d	10000-01-01	UTC	error:Invalid result from parsing function
+PARSE_TIMESTAMP	%Y-%m-%d %H	9999-12-31 23	Asia/Tokyo	ok:253402264800000000
+PARSE_DATE	%Y %U	2024 09		ok:19785
+PARSE_DATE	%Y %U %w	2024 09 2		error:Weekday parse elements are not supported yet
+PARSE_DATE	%Y %W %u	2024 10 2		error:Weekday parse elements are not supported yet
+PARSE_DATE	%Y %U %a	2024 09 Tue		error:Weekday parse elements are not supported yet
+PARSE_DATE	%Y %W	2024 00		error:Week number 0 is invalid for year 2024
+PARSE_DATE	%Y %U	2023 00		error:Week number 0 is invalid for year 2023
+PARSE_DATE	%Y %U	2024 53		error:Week number 53 is invalid for year 2024
+PARSE_DATE	%Y %W %A	2024 01 Sunday		error:Weekday parse elements are not supported yet
+PARSE_DATE	%U %w	09 2		error:Weekday parse elements are not supported yet
+PARSE_DATE	%Y %U %w %m	2024 09 2 7		error:Weekday parse elements are not supported yet
+PARSE_DATE	%m %Y %U %w	7 2024 09 2		error:Weekday parse elements are not supported yet
+PARSE_DATE	%G %V %u	2025 01 1		error:ISO parse elements are not supported yet
+PARSE_DATE	%G %V	2025 01		error:ISO parse elements are not supported yet
+PARSE_DATE	%G-W%V-%u	2020-W53-7		error:ISO parse elements are not supported yet
+PARSE_DATE	%G %V	2021 53		error:Invalid ISO week 53 specified for ISO year 2021
+PARSE_DATE	%g %V %u	25 01 1		error:ISO parse elements are not supported yet
+PARSE_DATE	%G %V %a	2024 10 tue		error:ISO parse elements are not supported yet
+PARSE_DATE	%G %V %u %Y	2025 01 1 2024		ok:19723
+PARSE_DATE	%G	2025		ok:20087
+PARSE_DATE	%G %j	2025 1		ok:0
+PARSE_DATE	%Y %V %u	2024 10 2		ok:19723
+PARSE_DATE	%u	3		ok:0
+PARSE_DATE	%w	7		error:Failed to parse input string "7"
+PARSE_DATE	%Ou %Y-%m-%d	3 2024-03-05		ok:19787
+PARSE_DATE	%Y %OU %Ow	2024 09 2		error:Weekday parse elements are not supported yet
+PARSE_DATE	%G %OV %u	2025 01 1		error:ISO parse elements are not supported yet
+PARSE_DATE	%J	1		ok:0
+PARSE_DATE	%G %J	2025 1		ok:20087
+PARSE_DATE	%G %J	2025 365		error:ISO Year 2025 has 364 days, but the specified day of year was 365
+PARSE_DATE	%G %J	2025 371		error:ISO Year 2025 has 364 days, but the specified day of year was 371
+PARSE_DATE	%Y-%m-%d %H	2024-03-05 07		error:Invalid format: %H is not allowed for the DATE type.
+PARSE_DATE	%Z	UTC		error:Invalid format: %Z is not allowed for the DATE type.
+PARSE_DATE	%s	0		error:Invalid format: %s is not allowed for the DATE type.
+PARSE_DATE	%E3S	09.1		error:Invalid format: %E3S is not allowed for the DATE type.
+PARSE_TIME	%Y	2024		error:Invalid format: %Y is not allowed for the TIME type.
+PARSE_TIME	%Q	1		ok:00:00:00.000000
+PARSE_DATETIME	%Z	UTC		error:Invalid format: %Z is not allowed for the DATETIME type.
+PARSE_DATETIME	%z	+0100		error:Invalid format: %z is not allowed for the DATETIME type.
+PARSE_DATE	%N	N		error:Failed to parse input string "N"
+PARSE_DATE	%v	 5-Mar-2024		error:Failed to parse input string " 5-Mar-2024"
+PARSE_DATE	%10d	5		error:Failed to parse input string "5"
+PARSE_DATE	%-d	5		error:Failed to parse input string "5"
+PARSE_DATE	%P	am		error:Invalid format: %P is not allowed for the DATE type.

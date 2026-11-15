@@ -1,0 +1,11 @@
+[package]
+name = "avenger-format-datetime-googlesql"
+version = "0.1.0"
+edition = "2021"
+description = "GoogleSQL's date and time formats: FORMAT_DATE and its siblings, and a datetime format provider"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+thiserror = { workspace = true }
