@@ -5,23 +5,50 @@
 
 use std::sync::Arc;
 
-use avenger_datafusion_transforms::table_function::TransformsQueryPlanner;
+use avenger_datafusion_transforms::shared::{InlineShared, SharedExtensionPlanner};
+use avenger_datafusion_transforms::table_function::TableFunctionExtensionPlanner;
 use datafusion::arrow::array::{ArrayRef, RecordBatch};
 use datafusion::arrow::datatypes::{Field, Schema};
 use datafusion::catalog::MemTable;
+use datafusion::catalog::Session;
 use datafusion::common::Result;
 use datafusion::datasource::ViewTable;
 use datafusion::execution::SessionStateBuilder;
+use datafusion::execution::context::QueryPlanner;
 use datafusion::logical_expr::{Expr, LogicalPlan};
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::prelude::SessionContext;
 
-/// A session that runs the plans of the transforms.
+/// The query planner of the tests, with the extension planners of the transforms' nodes.
+#[derive(Debug)]
+struct Planner;
+
+#[async_trait::async_trait]
+impl QueryPlanner for Planner {
+    async fn create_physical_plan(
+        &self,
+        plan: &LogicalPlan,
+        session: &dyn Session,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        DefaultPhysicalPlanner::with_extension_planners(vec![
+            Arc::new(TableFunctionExtensionPlanner),
+            Arc::new(SharedExtensionPlanner::default()),
+        ])
+        .create_physical_plan(plan, session)
+        .await
+    }
+}
+
+/// A session that runs the plans of the transforms, and computes cheap shared inputs again.
 pub fn session() -> SessionContext {
     let state = SessionStateBuilder::new()
         .with_default_features()
-        .with_query_planner(Arc::new(TransformsQueryPlanner))
+        .with_query_planner(Arc::new(Planner))
         .build();
-    SessionContext::new_with_state(state)
+    let ctx = SessionContext::new_with_state(state);
+    ctx.add_optimizer_rule(Arc::new(InlineShared));
+    ctx
 }
 
 /// Registers the columns as the table `name`, in place of any table of that name.

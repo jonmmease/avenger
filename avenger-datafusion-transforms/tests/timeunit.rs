@@ -1105,3 +1105,21 @@ async fn local_mean_time() -> Result<()> {
     }
     Ok(())
 }
+
+/// A volatile input: the unit of each row contains the row's value.
+#[tokio::test]
+async fn volatile_input() -> Result<()> {
+    let ctx = session();
+    register(
+        &ctx,
+        "c",
+        vec![("t", ts(series("2024-01-01T00:00:00Z", H, 100), None))],
+    )?;
+    let input = "SELECT arrow_cast(arrow_cast(t, 'Int64') + arrow_cast(random() * 1e12, 'Int64'), 'Timestamp(Millisecond, None)') AS t FROM c";
+    plan_units(&ctx, input, "t", vec![], TimeUnitOptions::default()).await?;
+    let sql = "SELECT u['start'] <= t AND t < u['end'] AS ok FROM units";
+    for batch in ctx.sql(sql).await?.collect().await? {
+        assert_eq!(batch.column(0).as_boolean().false_count(), 0);
+    }
+    Ok(())
+}

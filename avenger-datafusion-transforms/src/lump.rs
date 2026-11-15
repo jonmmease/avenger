@@ -25,7 +25,8 @@
 //! weight and the `category_count` of the Other group only with [`Nulls::Other`].
 //!
 //! The plan groups the rows by the partition and the category, decides each category, and
-//! joins the decisions to the rows, so it reads the input more than once.
+//! joins the decisions to the rows, so it reads the input more than once, through a shared node
+//! that runs it once.
 //!
 //! A front end that plans a lump as an expression of a projection, beside other windows, writes
 //! it as [`window`], a placeholder window function of the call, and plans the windows of the
@@ -40,6 +41,7 @@ use datafusion::functions_window::row_number::row_number_udwf;
 use datafusion::logical_expr::expr::{AggregateFunction, WindowFunction};
 use datafusion::logical_expr::utils::{find_aggregate_exprs, find_window_exprs};
 
+use crate::shared::shared;
 use crate::window::{Transform, placeholder};
 use datafusion::logical_expr::{
     Cast, Expr, ExprSchemable, JoinType, LogicalPlan, LogicalPlanBuilder, SortExpr, WindowFrame,
@@ -196,7 +198,8 @@ pub fn plan(input: LogicalPlan, call: LumpCall, output: Column) -> Result<Logica
     for (expr, key) in partition.iter().zip(&keys) {
         exprs.push(expr.clone().alias(key));
     }
-    let rows = LogicalPlanBuilder::from(input).project(exprs)?.build()?;
+    // The plan reads the rows three times, from one run of the input.
+    let rows = shared(LogicalPlanBuilder::from(input).project(exprs)?.build()?);
 
     // One row for each category of each partition, with the aggregates of the weight and of
     // the condition.
