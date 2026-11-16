@@ -218,3 +218,201 @@ async fn the_errors_of_a_lifted_call() {
         assert!(message.contains(expected), "{query}\n{message}");
     }
 }
+
+/// The names of the columns of the layer of `chart`, a plot of one layer.
+fn layer_columns(chart: &Chart) -> Vec<String> {
+    let Some(avenger_chart::proto::node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot")
+    };
+    let layer = avenger_chart::LayerRef::of(plot).remove(0);
+    let table = chart.table(layer.table().unwrap());
+    (table.schema().fields().iter())
+        .map(|field| field.name().clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn a_histogram_bins_the_whole_input() {
+    same(
+        &format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart"),
+        &format!(
+            "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY body_mass_g \
+             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_charts_of_the_groups_share_their_bins_or_take_their_own() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart \
+             GROUP BY island"
+        ),
+        &format!(
+            "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, body_mass_g \
+             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
+        ),
+    )
+    .await;
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER panel, y => COUNT(*)) AS chart \
+             GROUP BY island"
+        ),
+        &format!(
+            "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER (PARTITION BY island) \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, body_mass_g \
+             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_lumped_legend_and_a_weighted_lump() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => COUNT(*), color => lump(species, n => 1)) \
+             AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> SET species = lump(species, n => 1) OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
+             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+    // The weight of a lump aggregates the rows of each category, so the legend is still a key.
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => COUNT(*), \
+             color => lump(species, n => 1, weight => SUM(body_mass_g))) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> SET species = lump(species, n => 1, weight => SUM(body_mass_g)) OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
+             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_window_that_reads_only_rows_is_a_key() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => NTILE(4) OVER (ORDER BY body_mass_g), y => COUNT(*)) \
+             AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> EXTEND NTILE(4) OVER (ORDER BY body_mass_g) \
+             AS `NTILE(4) OVER (ORDER BY body_mass_g)` \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY `NTILE(4) OVER (ORDER BY body_mass_g)` \
+             |> AGGREGATE bar(x => `NTILE(4) OVER (ORDER BY body_mass_g)`, y => `COUNT(*)`) \
+             AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_window_on_the_rows_inside_an_aggregate() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => species, \
+             y => AVG(body_mass_g - AVG(body_mass_g) OVER ())) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> EXTEND body_mass_g - AVG(body_mass_g) OVER () AS d \
+             |> AGGREGATE AVG(d) AS `AVG(body_mass_g - AVG(body_mass_g) OVER ())` GROUP BY species \
+             |> AGGREGATE bar(x => species, y => `AVG(body_mass_g - AVG(body_mass_g) OVER ())`) \
+             AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_call_without_an_aggregate_takes_windows_on_its_rows() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE symbol(x => body_mass_g, \
+             y => RANK() OVER (ORDER BY body_mass_g)) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> EXTEND RANK() OVER (ORDER BY body_mass_g) \
+             AS `RANK() OVER (ORDER BY body_mass_g)` \
+             |> AGGREGATE symbol(x => body_mass_g, y => `RANK() OVER (ORDER BY body_mass_g)`) \
+             AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn timeunits_and_a_window_of_a_window() {
+    let dates = "FROM UNNEST([DATE '2024-01-05', DATE '2024-01-20', DATE '2024-02-03', \
+                 DATE '2024-03-15', DATE '2024-03-16', DATE '2024-03-17']) AS d";
+    same(
+        &format!(
+            "{dates} |> AGGREGATE bar(x => timeunit(d, unit => 'month'), y => COUNT(*)) AS chart"
+        ),
+        &format!(
+            "{dates} |> SET d = timeunit(d, unit => 'month') OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY d \
+             |> AGGREGATE bar(x => d, y => `COUNT(*)`) AS chart"
+        ),
+    )
+    .await;
+    same(
+        &format!(
+            "{dates} |> AGGREGATE bar(x => lump(timeunit(d, unit => 'month'), n => 1), \
+             y => COUNT(*)) AS chart"
+        ),
+        &format!(
+            "{dates} |> SET d = timeunit(d, unit => 'month') OVER () \
+             |> SET d = lump(d, n => 1) OVER () \
+             |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY d \
+             |> AGGREGATE bar(x => d, y => `COUNT(*)`) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_lifted_value_leaves_a_column_its_name() {
+    let charts = charts(&format!(
+        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*), \
+         color => body_mass_g) AS chart"
+    ))
+    .await;
+    assert_eq!(
+        layer_columns(&charts[0]),
+        ["bin(body_mass_g)", "COUNT(*)", "body_mass_g"]
+    );
+}
+
+#[tokio::test]
+async fn the_errors_of_windows_on_the_rows() {
+    for (query, expected) in [
+        (
+            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => ROW_NUMBER())"),
+            "Analytic function ROW_NUMBER cannot be called without an OVER clause",
+        ),
+        (
+            format!("{PENGUINS} |> EXTEND ROW_NUMBER() OVER panel AS n"),
+            "panel",
+        ),
+        (
+            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => SUM(COUNT(*)) OVER ())"),
+            "Aggregations of aggregations are not allowed",
+        ),
+    ] {
+        let message = error(&query).await;
+        assert!(message.contains(expected), "{query}\n{message}");
+    }
+}

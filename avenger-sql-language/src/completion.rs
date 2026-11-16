@@ -253,6 +253,14 @@ impl Document {
                 Expected::Name(NameRole::Window) => {
                     if let Some(before) = &before {
                         windows(before, &mut items);
+                        if self.in_mark_channel(before) {
+                            items.simple(
+                                "panel".to_string(),
+                                CompletionKind::Window,
+                                Some("PARTITION BY the groups of the AGGREGATE".to_string()),
+                                rank::VARIABLE,
+                            );
+                        }
                     }
                 }
                 Expected::Expression => expression = true,
@@ -720,6 +728,30 @@ impl Document {
                 .collect();
             args.len() <= positional && args.last().is_none_or(|arg| arg.arity != Arity::Repeated)
         })
+    }
+
+    /// Whether `before` is in the channels of a mark in an item of a pipe `AGGREGATE`, where a
+    /// window can name `panel`.
+    fn in_mark_channel(&self, before: &SyntaxToken) -> bool {
+        let ancestors: Vec<_> = before.parent_ancestors().collect();
+        let mark = ancestors.iter().position(|node| {
+            (node.kind() == SyntaxKind::CALL_EXPR)
+                .then(|| callee(node))
+                .flatten()
+                .and_then(|name| self.library.get(&name))
+                .is_some_and(|function| function.family == Family::Mark)
+        });
+        let aggregate =
+            (ancestors.iter()).position(|node| node.kind() == SyntaxKind::PIPE_AGGREGATE);
+        let query = ancestors
+            .iter()
+            .position(|node| node.kind() == SyntaxKind::QUERY);
+        match (mark, aggregate) {
+            (Some(mark), Some(aggregate)) => {
+                mark < aggregate && query.is_none_or(|query| aggregate < query)
+            }
+            _ => false,
+        }
     }
 
     /// Whether `before` is in the arguments of a mark or a composition, whose options the

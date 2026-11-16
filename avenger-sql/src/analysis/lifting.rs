@@ -32,12 +32,13 @@ use datafusion::{
     logical_expr::{
         expr::{AggregateFunction, ScalarFunction},
         lit,
-        utils::find_aggregate_exprs,
+        utils::{find_aggregate_exprs, find_window_exprs},
         Expr, LogicalPlan, LogicalPlanBuilder, SortExpr,
     },
 };
 
 use super::{query::regroup, rows, Pass};
+use crate::library::Library;
 
 /// A mark call whose channels compute statistics, which an `AGGREGATE` plans as a branch.
 #[derive(Clone, Debug)]
@@ -49,11 +50,12 @@ pub(crate) struct Lifting {
 }
 
 /// A channel value of a mark call as the user wrote it: the planned value inside `scaled` or
-/// `direct`, its range, and its text.
+/// `direct`, its range, the text that names its column, and its complete text.
 pub(crate) struct Written {
     pub value: Expr,
     pub range: TextRange,
     pub text: String,
+    pub full: String,
 }
 
 /// The value of a channel argument, inside `scaled` or `direct`.
@@ -66,6 +68,42 @@ pub(crate) fn channel_value(arg: &Expr) -> &Expr {
         }
         arg => arg,
     }
+}
+
+/// The text that names the column of the channel value `value`: the text inside `scaled` or
+/// `direct`, and inside each call of a function that `library` titles by its first argument, as
+/// `bin(body_mass_g)` is titled `body_mass_g`.
+pub(crate) fn channel_title(value: &ast::Expr, library: &Library) -> String {
+    let mut value = value.clone();
+    while let ast::Expr::CallExpr(call) = &value {
+        let titled = (call.path().and_then(|path| path.names())).is_some_and(|names| {
+            match names.as_slice() {
+                [name] => {
+                    Kind::of(&name.to_ascii_lowercase()).is_some()
+                        || library.get(name).is_some_and(|f| f.titled_by_argument)
+                }
+                _ => false,
+            }
+        });
+        let first =
+            (call.arg_list().and_then(|list| list.arguments().next())).and_then(|argument| {
+                match argument {
+                    ast::Argument::Arg(arg) => arg.expr(),
+                    _ => None,
+                }
+            });
+        match (titled, first) {
+            (true, Some(first)) => value = first,
+            _ => break,
+        }
+    }
+    collapsed(&value)
+}
+
+/// The text of `value` with its spaces collapsed.
+fn collapsed(value: &ast::Expr) -> String {
+    let text = value.syntax().text().to_string();
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The text of the channel value `value`, inside `scaled` or `direct`, with its spaces collapsed.
@@ -90,8 +128,7 @@ pub(crate) fn channel_text(value: &ast::Expr) -> String {
         }
         _ => value.clone(),
     };
-    let text = inner.syntax().text().to_string();
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    collapsed(&inner)
 }
 
 /// `expr` as an error names it: a column by its name, without its qualifier.
@@ -107,9 +144,49 @@ fn aggregates(expr: &Expr) -> bool {
     !find_aggregate_exprs([expr]).is_empty()
 }
 
+/// Whether `expr` holds a window function.
+fn windows(expr: &Expr) -> bool {
+    !find_window_exprs([expr]).is_empty()
+}
+
+/// The windows of `parts` whose arguments and keys hold no window, each once.
+fn innermost_windows(parts: &[Expr]) -> Vec<Expr> {
+    let mut found: Vec<Expr> = Vec::new();
+    for part in parts {
+        let _ = part.apply(|expr| {
+            if matches!(expr, Expr::WindowFunction(_))
+                && window_count(expr) == 1
+                && !found.contains(expr)
+            {
+                found.push(expr.clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+    found
+}
+
+/// The number of windows in `expr`, itself included.
+fn window_count(expr: &Expr) -> usize {
+    let mut count = 0;
+    let _ = expr.apply(|expr| {
+        if matches!(expr, Expr::WindowFunction(_)) {
+            count += 1;
+        }
+        Ok(TreeNodeRecursion::Continue)
+    });
+    count
+}
+
 /// Whether `expr` reads a column.
 fn reads_columns(expr: &Expr) -> bool {
     !expr.column_refs().is_empty()
+}
+
+/// Whether a channel value is a part of a branch rather than a constant: it reads a column, or
+/// holds an aggregate or a window.
+fn part(expr: &Expr) -> bool {
+    reads_columns(expr) || aggregates(expr) || windows(expr)
 }
 
 /// `expr` with each aggregate and each of `known` replaced by a constant, so the columns that
@@ -142,9 +219,11 @@ impl Pass<'_> {
         groups: Option<&[Expr]>,
         range: TextRange,
     ) -> bool {
-        let lifted = written.iter().any(|value| aggregates(&value.value))
+        let aggregating = written.iter().any(|value| aggregates(&value.value))
             || order.iter().any(|key| aggregates(&key.expr));
-        if !lifted {
+        let windowed = written.iter().any(|value| windows(&value.value))
+            || order.iter().any(|key| windows(&key.expr));
+        if !aggregating && !windowed {
             return true;
         }
         let Some(groups) = groups else {
@@ -159,7 +238,7 @@ impl Pass<'_> {
         };
         let keys: Vec<&Expr> = (written.iter())
             .map(|value| &value.value)
-            .filter(|value| !aggregates(value) && reads_columns(value))
+            .filter(|value| aggregating && !aggregates(value) && part(value))
             .collect();
         let known: Vec<&Expr> = keys.iter().copied().chain(groups).collect();
         let mut ok = true;
@@ -195,23 +274,38 @@ impl Pass<'_> {
         if !ok {
             return false;
         }
+        // A column takes its name, and a lifted value takes its text, or its complete text when
+        // another channel of the call takes the name. A column that meets a lifted value before
+        // it under its name keeps the name, and the lifted value takes its complete text.
         let mut names: Vec<(Expr, String)> = Vec::new();
+        let taken = |name: &str, names: &[(Expr, String)]| names.iter().any(|(_, n)| n == name);
         for value in written {
             if names.iter().any(|(expr, _)| expr == &value.value) {
                 continue;
             }
             let mut name = match &value.value {
-                Expr::Column(column) => column.name.clone(),
+                Expr::Column(column) => {
+                    let earlier = (names.iter()).position(|(expr, n)| {
+                        n == &column.name && !matches!(expr, Expr::Column(_))
+                    });
+                    if let Some(earlier) = earlier {
+                        let full = (written.iter())
+                            .find(|value| value.value == names[earlier].0)
+                            .map(|value| value.full.clone());
+                        if let Some(full) = full.filter(|full| !taken(full, &names)) {
+                            names[earlier].1 = full;
+                        }
+                    }
+                    column.name.clone()
+                }
+                _ if taken(&value.text, &names) => value.full.clone(),
                 _ => value.text.clone(),
             };
-            let taken = |name: &str, names: &[(Expr, String)]| names.iter().any(|(_, n)| n == name);
-            if taken(&name, &names) {
-                let base = name.clone();
-                let mut number = 2;
-                while taken(&name, &names) {
-                    name = format!("{base}_{number}");
-                    number += 1;
-                }
+            let base = name.clone();
+            let mut number = 2;
+            while taken(&name, &names) {
+                name = format!("{base}_{number}");
+                number += 1;
             }
             names.push((value.value.clone(), name));
         }
@@ -238,32 +332,68 @@ pub(crate) fn branch(
     // The values of the channels and the keys of the call's `ORDER BY`, without constants.
     let values: Vec<&Expr> = (mark.params.args.iter())
         .map(channel_value)
-        .filter(|value| reads_columns(value) || aggregates(value))
+        .filter(|value| part(value))
         .collect();
     let order: Vec<&Expr> = mark.params.order_by.iter().map(|key| &key.expr).collect();
-    let mut group_exprs: Vec<Expr> = groups.to_vec();
-    for value in &values {
-        if !aggregates(value) && !group_exprs.contains(value) {
-            group_exprs.push((*value).clone());
+    // The windows on the rows, innermost first, each stage over the columns of the one before.
+    let mut parts: Vec<Expr> = values
+        .iter()
+        .chain(&order)
+        .map(|&expr| expr.clone())
+        .collect();
+    let mut plan = input;
+    loop {
+        let windows = innermost_windows(&parts);
+        if windows.is_empty() {
+            break;
         }
+        plan = rows::windowed(plan, windows.clone())?;
+        parts = (parts.into_iter())
+            .map(|part| rows::rebase(part, &windows))
+            .collect::<Result<_>>()?;
     }
-    let measured: Vec<&Expr> = values.iter().chain(&order).copied().collect();
-    let aggregate_exprs = find_aggregate_exprs(measured.iter().copied());
-    let aggregated = LogicalPlanBuilder::from(input)
-        .aggregate(group_exprs.clone(), aggregate_exprs.clone())?
-        .build()?;
-    let output = aggregated.schema().columns();
-    let grouped: Vec<(Expr, Column)> = group_exprs.iter().cloned().zip(output).collect();
-    let staged = |expr: &Expr| -> Result<Expr> {
-        regroup(rows::rebase(expr.clone(), &aggregate_exprs)?, &grouped)
+    let (staged_values, staged_order) = parts.split_at(values.len());
+    let aggregating = staged_values.iter().chain(staged_order).any(aggregates);
+    // The aggregate by the groups and the keys, when the call aggregates.
+    let (plan, staged): (LogicalPlan, Vec<Expr>) = match aggregating {
+        true => {
+            let mut group_exprs: Vec<Expr> = groups.to_vec();
+            for value in staged_values {
+                if !aggregates(value) && !group_exprs.contains(value) {
+                    group_exprs.push(value.clone());
+                }
+            }
+            let aggregate_exprs = find_aggregate_exprs(staged_values.iter().chain(staged_order));
+            let aggregated = LogicalPlanBuilder::from(plan)
+                .aggregate(group_exprs.clone(), aggregate_exprs.clone())?
+                .build()?;
+            let grouped: Vec<(Expr, Column)> = (group_exprs.iter().cloned())
+                .zip(aggregated.schema().columns())
+                .collect();
+            let stage = |expr: &Expr| -> Result<Expr> {
+                regroup(rows::rebase(expr.clone(), &aggregate_exprs)?, &grouped)
+            };
+            let staged = (groups.iter().chain(staged_values).chain(staged_order))
+                .map(stage)
+                .collect::<Result<_>>()?;
+            (aggregated, staged)
+        }
+        false => {
+            let staged = (groups.iter().chain(staged_values).chain(staged_order))
+                .cloned()
+                .collect();
+            (plan, staged)
+        }
     };
+    let (staged_groups, rest) = staged.split_at(groups.len());
+    let (staged_values, staged_order) = rest.split_at(values.len());
     // The groups, each channel value under its name, and the keys of the `ORDER BY`.
     let mut projection = Vec::new();
-    for (index, group) in groups.iter().enumerate() {
-        projection.push(staged(group)?.alias(format!("__group_{index}")));
+    for (index, group) in staged_groups.iter().enumerate() {
+        projection.push(group.clone().alias(format!("__group_{index}")));
     }
     let mut named: Vec<(&Expr, String)> = Vec::new();
-    for value in &values {
+    for (value, staged) in values.iter().zip(staged_values) {
         if named.iter().any(|(expr, _)| expr == value) {
             continue;
         }
@@ -271,13 +401,13 @@ pub(crate) fn branch(
             .find(|(expr, _)| expr == *value)
             .map(|(_, name)| name.clone())
             .unwrap_or_else(|| value.human_display().to_string());
-        projection.push(staged(value)?.alias(name.clone()));
+        projection.push(staged.clone().alias(name.clone()));
         named.push((value, name));
     }
-    for (index, key) in order.iter().enumerate() {
-        projection.push(staged(key)?.alias(format!("__order_{index}")));
+    for (index, key) in staged_order.iter().enumerate() {
+        projection.push(key.clone().alias(format!("__order_{index}")));
     }
-    let projected = LogicalPlanBuilder::from(aggregated)
+    let projected = LogicalPlanBuilder::from(plan)
         .project(projection)?
         .build()?;
     // The call over the projection's columns.

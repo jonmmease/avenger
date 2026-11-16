@@ -505,3 +505,19 @@ fn a_mark_outside_an_aggregate_completes_no_aggregates_in_its_channels() {
     let (completions, _) = complete("FROM penguins |> SELECT bar(x => species, y => $0)");
     assert!(item(&completions, "COUNT").is_none());
 }
+
+#[test]
+fn a_mark_in_an_aggregate_completes_window_functions_in_its_channels() {
+    let (completions, _) = complete("FROM penguins |> AGGREGATE bar(x => $0, y => COUNT(*))");
+    assert!(item(&completions, "bin").is_some());
+    assert!(item(&completions, "NTILE").is_some());
+}
+
+#[test]
+fn a_window_in_a_mark_channel_completes_panel() {
+    let (completions, _) =
+        complete("FROM penguins |> AGGREGATE bar(x => bin(body_mass_g) OVER pa$0, y => COUNT(*))");
+    assert!(item(&completions, "panel").is_some());
+    let (completions, _) = complete("FROM penguins |> EXTEND ROW_NUMBER() OVER pa$0 AS n");
+    assert!(item(&completions, "panel").is_none());
+}

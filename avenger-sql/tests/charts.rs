@@ -147,3 +147,22 @@ async fn a_facet_of_layers_by_island() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "facet-col-layers");
 }
+
+#[tokio::test]
+async fn a_histogram_of_lifted_bins() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart";
+    let charts = charts(query).await;
+    render(&charts[0], "lifted-histogram");
+}
+
+#[tokio::test]
+async fn a_facet_of_histograms_with_shared_bins() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart";
+    let charts = charts(query).await;
+    render(&charts[0], "lifted-facet-histograms");
+}

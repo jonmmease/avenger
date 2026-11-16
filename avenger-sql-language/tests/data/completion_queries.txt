@@ -266,3 +266,10 @@ FROM penguins
      bar(x => species, y => AVG(body_mass_g), color => sex) AS chart
    GROUP BY island
 
+lifting
+FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE
+     bar(x => bin(body_mass_g) OVER panel, y => COUNT(*), color => lump(species, n => 2)) AS chart
+   GROUP BY island
+

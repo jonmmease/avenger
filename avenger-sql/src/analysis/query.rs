@@ -699,6 +699,7 @@ impl Pass<'_> {
                         aggregates: false,
                         windows: false,
                         groups: Some(&[]),
+                        marked: false,
                     };
                     self.place(on.syntax().text_range(), PlaceKind::Filter, &scope, None);
                     on.expr()

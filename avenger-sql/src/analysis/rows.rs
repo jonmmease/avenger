@@ -279,7 +279,7 @@ pub(crate) fn project(
 
 /// `plan` with the columns of `windows`: a column for each placeholder of `bin`, `timeunit`, and
 /// `lump`, and a window node of the other windows.
-fn windowed(plan: LogicalPlan, windows: Vec<Expr>) -> Result<LogicalPlan> {
+pub(crate) fn windowed(plan: LogicalPlan, windows: Vec<Expr>) -> Result<LogicalPlan> {
     if windows.is_empty() {
         return Ok(plan);
     }

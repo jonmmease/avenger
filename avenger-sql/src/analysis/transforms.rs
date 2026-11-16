@@ -218,13 +218,15 @@ impl Pass<'_> {
                 return None;
             }
         }
-        let Some(over) = call.over_clause() else {
+        // In a mark's channel, a lump without `OVER` takes the whole input.
+        let over = call.over_clause();
+        if over.is_none() && !scope.marked {
             self.error(
                 range,
                 "Analytic function lump cannot be called without an OVER clause",
             );
             return None;
-        };
+        }
         let args = self.arguments(list.iter().flat_map(|list| list.arguments()), "lump")?;
         let [(category, _)] = args.positional.as_slice() else {
             self.error(range, "lump takes one positional argument, the category");
@@ -240,15 +242,21 @@ impl Pass<'_> {
         let named = |name: &str| (args.named.iter()).find(|(n, ..)| n == name);
 
         let category = self.expr(category, scope.arguments())?;
-        let window = self.over(
-            &over,
-            "lump",
-            Over::Required {
-                order_by: Need::Forbidden,
-                frame: false,
-            },
-            scope.arguments(),
-        )?;
+        let partition = match &over {
+            Some(over) => {
+                self.over(
+                    over,
+                    "lump",
+                    Over::Required {
+                        order_by: Need::Forbidden,
+                        frame: false,
+                    },
+                    scope.arguments(),
+                )?
+                .partition
+            }
+            None => Vec::new(),
+        };
         // The weight: an aggregate of the rows of each category.
         let weight = match named("weight") {
             Some((_, expr, _)) => {
@@ -363,7 +371,7 @@ impl Pass<'_> {
         let expr = lump::window(
             LumpCall {
                 category,
-                partition: window.partition,
+                partition,
                 weight,
                 keep,
                 other,

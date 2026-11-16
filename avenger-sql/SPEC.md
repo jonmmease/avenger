@@ -78,6 +78,7 @@ FROM penguins
 - A constructor builds the options of a chart, such as `polar(inner_radius => 0.5)` for a mark's `coord`, or `interval_fit(zero => FALSE)` for a scale. Its arguments are constants.
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them.
 - A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
+- A channel takes windows on its rows too, as in `bar(x => bin(body_mass_g), y => COUNT(*))`. There `bin`, `timeunit`, and `lump` take no `OVER`, and compute over the whole input, or over each group with `OVER panel`.
 
 A composition aggregate composes the charts of the rows of a group, one chart for each row:
 
