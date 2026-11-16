@@ -96,3 +96,20 @@ fn a_keyword_has_no_hover() {
     let document = document(TEXT);
     assert_eq!(hover(&document, "WHERE", 0), None);
 }
+
+#[test]
+fn hover_shows_a_column_inside_an_aggregate_of_a_mark() {
+    let document =
+        document("FROM penguins |> AGGREGATE bar(x => species, y => AVG(body_mass_g)) AS chart");
+    assert!(
+        document.diagnostics().is_empty(),
+        "{:?}",
+        document.diagnostics()
+    );
+    let (range, markdown) = hover(&document, "body_mass_g", 0).unwrap();
+    assert_eq!(range, "body_mass_g");
+    assert!(
+        markdown.starts_with("```googlesql\nbody_mass_g: INT64"),
+        "{markdown}"
+    );
+}

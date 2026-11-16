@@ -59,7 +59,30 @@ The library binds the functions of avenger-chart's `functions` feature: the READ
 - The `ORDER BY` of a call is the draw order of its rows, a `WHERE` before the `AGGREGATE` selects them, and `GROUP BY` gives one chart for each group.
 - A property, `coord`, and an option of `scaled` are constants, such as the folded call of a constructor.
 
-Each call binds at planning to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning. A channel argument reads each row, so the aggregates of a chart come from an `AGGREGATE` before the mark, as `COUNT(*)` does above.
+Each call binds at planning to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning.
+
+## Statistics in channels
+
+A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, and the analysis plans it as the staged query that a user could type for it:
+
+```sql
+FROM penguins
+|> AGGREGATE bar(x => species, y => AVG(body_mass_g), color => sex) AS chart GROUP BY island
+```
+
+plans as
+
+```sql
+FROM penguins
+|> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY island, species, sex
+|> AGGREGATE bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart GROUP BY island
+```
+
+- In a call that holds an aggregate, each channel that holds none is a key, and the call aggregates once for each combination of the operator's groups and its keys. Here the keys are `species` and `sex`.
+- A channel that holds an aggregate is a measure. Outside its aggregates, a measure reads only keys, groups, and constants, so `y => AVG(body_mass_g) / 1000` is a measure, and `y => body_mass_g + COUNT(*)` is an error, since `body_mass_g` is neither a key nor aggregated. A key of the call's `ORDER BY` is a channel, a group, or an aggregate.
+- Each channel's column takes the text of its value as written, with its spaces collapsed, such as `AVG(body_mass_g)`, which titles its axis or its legend. A column keeps its name.
+- Each such call is a branch of the operator over its input, aggregated to one row for each group, and the branches and the other items join on the groups, with `NULL` equal to `NULL`. The input runs once for all of them.
+- An aggregate of an aggregate in one call, such as `SUM(COUNT(*))` without `OVER`, is an error, and so is such a call in an `AGGREGATE` grouped by `GROUPING SETS`, `ROLLUP`, or `CUBE`.
 
 A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. A call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors. The constructors set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot.
 

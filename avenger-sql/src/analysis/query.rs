@@ -8,9 +8,13 @@ use avenger_sql_syntax::{
     TextRange,
 };
 use datafusion::{
-    common::{Column, DFSchema, ExprSchema, JoinType, Result, ScalarValue},
+    common::{
+        tree_node::{Transformed, TreeNode},
+        Column, DFSchema, ExprSchema, JoinType, NullEquality, Result, ScalarValue,
+    },
     datasource::provider_as_source,
     functions::core::expr_fn::{get_field, named_struct},
+    functions_aggregate::count::count_all,
     logical_expr::{
         utils::{find_aggregate_exprs, find_window_exprs, grouping_set_to_exprlist},
         Aggregate, Expr, ExprSchemable, GroupingSet, LogicalPlan, LogicalPlanBuilder, SortExpr,
@@ -19,11 +23,14 @@ use datafusion::{
 
 use super::{
     build::{cast, int},
-    expr::{direction, inferred_name, Scope},
+    expr::{direction, inferred_name, Scope, AGGREGATE_ITEMS},
+    lifting::{self, Lifting},
     model::{Definition, PlaceKind},
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
 };
+use avenger_datafusion_shared::shared;
+
 use crate::library::{form::supertype, Ty};
 
 /// A kind of join.
@@ -1496,6 +1503,8 @@ impl Pass<'_> {
             }
         }
         let rows = rows.unordered();
+        // The mark calls of the items whose channels compute statistics, which the items record.
+        let first_lifting = self.liftings.len();
         let group_by = op.group_by();
         let ascending = group_by
             .as_ref()
@@ -1654,7 +1663,7 @@ impl Pass<'_> {
                 continue;
             }
             let (name, definition) = output_name(item.alias(), expr.as_ref());
-            let scope = Scope::of(&rows, "pipe AGGREGATE")
+            let scope = Scope::of(&rows, AGGREGATE_ITEMS)
                 .aggregates()
                 .grouped(item_keys);
             let planned = expr.and_then(|expr| self.expr(&expr, scope));
@@ -1666,6 +1675,39 @@ impl Pass<'_> {
                 range: item_range,
             });
         }
+        // Each mark call that computes statistics plans as a branch, whose mark column stands in
+        // for the call in the items.
+        let liftings = self.liftings.split_off(first_lifting);
+        let mut branches: Vec<(Lifting, String)> = Vec::new();
+        if !liftings.is_empty() {
+            for item in &mut items {
+                let Some(expr) = item.expr.take() else {
+                    continue;
+                };
+                let replaced = expr.transform_up(|expr| {
+                    let Some(lifting) = liftings.iter().find(|lifting| lifting.mark == expr) else {
+                        return Ok(Transformed::no(expr));
+                    };
+                    let alias = match branches.iter().find(|(known, _)| known.mark == expr) {
+                        Some((_, alias)) => alias.clone(),
+                        None => {
+                            let alias = format!("__lifting_{}", branches.len());
+                            branches.push((lifting.clone(), alias.clone()));
+                            alias
+                        }
+                    };
+                    let column = Column::new(Some(alias), "__mark");
+                    Ok(Transformed::yes(Expr::Column(column)))
+                });
+                item.expr = replaced.ok().map(|replaced| replaced.data);
+            }
+        }
+        let lifted = |expr: &Expr| {
+            (expr.column_refs().iter()).any(|column| {
+                (column.relation.as_ref())
+                    .is_some_and(|relation| relation.table().starts_with("__lifting_"))
+            })
+        };
         let names: Vec<Col> = (groups.iter().chain(&items))
             .map(|output| Col {
                 name: output.name.clone(),
@@ -1678,7 +1720,10 @@ impl Pass<'_> {
         let mut reported = HashSet::new();
         for item in &items {
             if let Some(expr) = &item.expr {
-                if find_aggregate_exprs([expr]).is_empty() && reported.insert(item.range) {
+                if find_aggregate_exprs([expr]).is_empty()
+                    && !lifted(expr)
+                    && reported.insert(item.range)
+                {
                     self.error(
                         item.range,
                         "Pipe AGGREGATE cannot include non-aggregate expressions",
@@ -1694,6 +1739,12 @@ impl Pass<'_> {
         let (Some(plan), true, true) = (rows.plan.clone(), ok, all) else {
             return failed();
         };
+        // The branches read one run of the input with the other items.
+        let plan = match branches.is_empty() {
+            true => plan,
+            false => shared(plan),
+        };
+        let lifting_input = plan.clone();
         // The windows of `HAVING MAX` and `HAVING MIN`, which a window node computes before the
         // aggregate.
         let windows = find_window_exprs(items.iter().filter_map(|item| item.expr.as_ref()));
@@ -1753,16 +1804,55 @@ impl Pass<'_> {
                 vec![Expr::GroupingSet(GroupingSet::GroupingSets(sets))]
             }
         };
+        // An aggregate of no groups and no aggregates beside branches counts the rows, for one row
+        // that the branches join.
+        let planned_aggregates = match (aggregates.is_empty(), group_exprs.is_empty()) {
+            (true, true) if !branches.is_empty() => vec![count_all().alias("__rows")],
+            _ => aggregates.clone(),
+        };
         let plan = LogicalPlanBuilder::from(plan)
-            .aggregate(group_exprs.clone(), aggregates.clone())
+            .aggregate(group_exprs.clone(), planned_aggregates)
             .and_then(|b| b.build());
-        let plan: LogicalPlan = match plan {
+        let mut plan: LogicalPlan = match plan {
             Ok(plan) => plan,
             Err(error) => {
                 self.datafusion_error(range, error);
                 return failed();
             }
         };
+        // Each branch joins the aggregate on the groups, `NULL` equal to `NULL`.
+        for (lifting, alias) in &branches {
+            let joined =
+                lifting::branch(lifting_input.clone(), &keys, lifting, alias).and_then(|branch| {
+                    let builder = LogicalPlanBuilder::from(plan.clone());
+                    let builder = match keys.is_empty() {
+                        true => builder.cross_join(branch)?,
+                        false => {
+                            let left: Vec<Column> = plan.schema().columns()[..keys.len()].to_vec();
+                            let right: Vec<Column> = (0..keys.len())
+                                .map(|index| {
+                                    Column::new(Some(alias.clone()), format!("__group_{index}"))
+                                })
+                                .collect();
+                            builder.join_detailed(
+                                branch,
+                                JoinType::Left,
+                                (left, right),
+                                None,
+                                NullEquality::NullEqualsNull,
+                            )?
+                        }
+                    };
+                    builder.build()
+                });
+            plan = match joined {
+                Ok(plan) => plan,
+                Err(error) => {
+                    self.datafusion_error(range, error);
+                    return failed();
+                }
+            };
+        }
         let output: Vec<Column> = (plan.schema().columns().into_iter())
             .filter(|column| column.name != Aggregate::INTERNAL_GROUPING_ID)
             .collect();

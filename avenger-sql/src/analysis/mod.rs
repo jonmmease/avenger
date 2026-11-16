@@ -13,6 +13,7 @@
 mod build;
 mod expr;
 mod highlight;
+mod lifting;
 mod match_recognize;
 mod model;
 mod nested;
@@ -191,6 +192,7 @@ pub fn analyze(
         call_depth: 0,
         categories: None,
         match_recognize: Vec::new(),
+        liftings: Vec::new(),
     };
     let mut plan = None;
     let mut statements = Vec::new();
@@ -267,6 +269,9 @@ pub(crate) struct Pass<'a> {
     categories: Option<Vec<datafusion::logical_expr::SortExpr>>,
     /// The clauses of the `MATCH_RECOGNIZE`s whose expressions the pass plans, innermost last.
     match_recognize: Vec<match_recognize::Frame>,
+    /// The mark calls whose channels compute statistics, in the items of the pipe `AGGREGATE`s
+    /// that the pass plans, which each operator takes when it plans its items.
+    liftings: Vec<lifting::Lifting>,
 }
 
 /// A name of a pipe `WITH`, and the rows of its query.

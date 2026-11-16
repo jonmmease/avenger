@@ -94,7 +94,8 @@ fn an_aggregate_completes_marks_and_a_mark_its_parameters() {
         constructors.contains(&"scaled") && constructors.contains(&"direct"),
         "{constructors:?}"
     );
-    assert!(item(&completions, "COUNT").is_none());
+    // A mark in an item of a pipe AGGREGATE takes aggregates in its channels.
+    assert!(item(&completions, "COUNT").is_some());
 }
 
 #[test]
@@ -497,4 +498,10 @@ fn a_layer_completes_another_chart_or_an_option() {
         .items
         .iter()
         .all(|item| item.kind == CompletionKind::Parameter));
+}
+
+#[test]
+fn a_mark_outside_an_aggregate_completes_no_aggregates_in_its_channels() {
+    let (completions, _) = complete("FROM penguins |> SELECT bar(x => species, y => $0)");
+    assert!(item(&completions, "COUNT").is_none());
 }
