@@ -23,7 +23,7 @@ use datafusion::{
         },
         compute::{SortOptions, concat_batches, sort_to_indices, take, take_record_batch},
         datatypes::SchemaRef,
-        row::{OwnedRow, RowConverter, SortField},
+        row::{RowConverter, SortField},
     },
     common::{DFSchemaRef, ParamValues, Result},
     execution::context::ExecutionProps,
@@ -33,6 +33,17 @@ use datafusion::{
 };
 
 use crate::{execute, front::bind_params};
+
+/// The place of the column `name`, the stages' `seq`, in the output of `conditions`, which
+/// carries the stages' columns.
+fn seq_in(conditions: &LogicalPlan, name: &str) -> Result<usize> {
+    let schema = conditions.schema();
+    (0..schema.fields().len())
+        .find(|&i| schema.field(i).name() == name)
+        .ok_or_else(|| {
+            datafusion::common::DataFusionError::Plan(format!("the conditions carry no `{name}`"))
+        })
+}
 
 /// A match and its number in its partition.
 type Numbered<'m> = (u64, &'m Match);
@@ -49,7 +60,8 @@ pub(crate) struct MatchState {
     call: MatchRecognizeCall,
     back: usize,
     ahead: usize,
-    /// The stages' rows, and the place of `seq` in them.
+    /// The stages' rows, and the place of `seq` in the conditions' output, which carries the
+    /// stages' columns.
     staged_schema: SchemaRef,
     seq: usize,
     /// The places, in the conditions' output, of the variables and the position, and of the
@@ -61,7 +73,8 @@ pub(crate) struct MatchState {
     /// The partition expressions over the stages' rows, and the converter of their values.
     partition: Vec<Arc<dyn PhysicalExpr>>,
     converter: Option<RowConverter>,
-    index: HashMap<OwnedRow, usize>,
+    /// Each partition's index, by the bytes of its partition values' row.
+    index: HashMap<Box<[u8]>, usize>,
     partitions: Vec<Partition>,
     /// The measures of the final matches, the number of them that `take_new_finals` gave, and
     /// the measures' schema.
@@ -130,7 +143,10 @@ impl MatchState {
             node_rows: front.node_rows.clone(),
             back: front.back,
             ahead: front.ahead,
-            seq: input.index_of_column(&front.seq)?,
+            seq: seq_in(
+                &conditions,
+                input.field(input.index_of_column(&front.seq)?).name(),
+            )?,
             staged_schema,
             position: output.index_of_column(&call.position)?,
             variables,
@@ -169,11 +185,11 @@ impl MatchState {
                 let keys = converter.convert_columns(&values)?;
                 let mut out = Vec::with_capacity(n);
                 for key in keys.iter() {
-                    let index = match self.index.get(&key.owned()) {
+                    let index = match self.index.get(key.as_ref()) {
                         Some(index) => *index,
                         None => {
                             let index = self.add_partition();
-                            self.index.insert(key.owned(), index);
+                            self.index.insert(key.as_ref().into(), index);
                             index
                         }
                     };
@@ -221,7 +237,7 @@ impl MatchState {
             &Arc::new(self.conditions.schema().as_arrow().clone()),
             &output,
         )?;
-        let seq = output.column(self.seq_in_output()?).clone();
+        let seq = output.column(self.seq).clone();
         let order = sort_to_indices(&seq, Some(SortOptions::default()), None)?;
         let output = take_record_batch(&output, &order)?;
         let flags: Vec<Vec<bool>> = (self.variables.iter())
@@ -267,19 +283,6 @@ impl MatchState {
         }
         partition.frontier = settled;
         Ok(changed)
-    }
-
-    /// The place of `seq` in the conditions' output, which carries the stages' columns.
-    fn seq_in_output(&self) -> Result<usize> {
-        let name = self.staged_schema.field(self.seq).name();
-        let schema = self.conditions.schema();
-        (0..schema.fields().len())
-            .find(|&i| schema.field(i).name() == name)
-            .ok_or_else(|| {
-                datafusion::common::DataFusionError::Plan(format!(
-                    "the conditions carry no `{name}`"
-                ))
-            })
     }
 
     /// The measures of `matches`, numbered, over the conditions' `output` of the partition's rows

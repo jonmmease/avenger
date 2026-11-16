@@ -198,13 +198,14 @@ impl StreamingQuery {
             let finals = front.take_new_finals();
             if !finals.is_empty() {
                 let mut candidates = latest.kept.clone();
-                candidates.extend(staged(&self.ctx, &split.slot, &latest.stages, &finals).await?);
-                latest.kept = top(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
+                candidates.extend(run_over(&self.ctx, &split.slot, &latest.stages, &finals).await?);
+                latest.kept =
+                    run_over(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
             }
             let mut candidates = latest.kept.clone();
             let open = front.open_rows();
-            candidates.extend(staged(&self.ctx, &split.slot, &latest.stages, &open).await?);
-            let first = top(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
+            candidates.extend(run_over(&self.ctx, &split.slot, &latest.stages, &open).await?);
+            let first = run_over(&self.ctx, &pieces.candidates, &latest.top, &candidates).await?;
             let rows = concat(&first)?.map(|rows| {
                 let skip = pieces.skip.min(rows.num_rows());
                 rows.slice(skip, rows.num_rows() - skip)
@@ -306,32 +307,18 @@ fn concat(batches: &[RecordBatch]) -> Result<Option<RecordBatch>> {
     }
 }
 
-/// The rows of `stages` over `rows` of the front's output, which `slot` holds.
-async fn staged(
+/// The rows of `plan` over `rows`, which it reads through `slot`, or none without rows.
+async fn run_over(
     ctx: &SessionContext,
     slot: &avenger_sql::streaming::Slot,
-    stages: &LogicalPlan,
+    plan: &LogicalPlan,
     rows: &[RecordBatch],
 ) -> Result<Vec<RecordBatch>> {
     let Some(rows) = concat(rows)? else {
         return Ok(Vec::new());
     };
     slot.set(rows.columns().to_vec());
-    execute(ctx, stages).await
-}
-
-/// The first rows of `rows` in the order of `top`, which reads them through `slot`.
-async fn top(
-    ctx: &SessionContext,
-    slot: &avenger_sql::streaming::Slot,
-    top: &LogicalPlan,
-    rows: &[RecordBatch],
-) -> Result<Vec<RecordBatch>> {
-    let Some(rows) = concat(rows)? else {
-        return Ok(Vec::new());
-    };
-    slot.set(rows.columns().to_vec());
-    execute(ctx, top).await
+    execute(ctx, plan).await
 }
 
 /// Whether `plan` reads a parameter.

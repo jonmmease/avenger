@@ -550,82 +550,15 @@ fn record_the_corpus() {
     std::fs::write(output.join("googlesql_match_recognize.txt"), text).unwrap();
 }
 
-/// The matches of a streaming matcher at each prefix of `case`'s rows: the final matches before
-/// each frontier, kept, and the tail's matches from the frontier, found again for each new row.
-fn streamed(program: &Program, case: &Case, prefix: usize) -> Vec<(usize, Vec<usize>)> {
-    let mut kept: Vec<(usize, Vec<usize>)> = Vec::new();
-    let mut frontier = 0;
-    let mut current = Vec::new();
-    for rows in 1..=prefix {
-        let meets = |row: usize, variable: usize| case.rows[row][variable];
-        let tail = Tail {
-            start: frontier,
-            partition_start: true,
-            firm: rows,
-        };
-        let (found, settled) = tail_matches(program, rows, meets, case.skip, case.longest, tail);
-        current = kept.clone();
-        for m in found {
-            let entry = (m.start, m.variables);
-            if m.start < settled {
-                kept.push(entry.clone());
-            }
-            current.push(entry);
-        }
-        current.sort();
-        current.dedup();
-        frontier = settled;
-    }
-    current
-}
-
-#[test]
-fn a_streaming_matcher_finds_the_matches_of_each_prefix() {
-    let mut failures = Vec::new();
-    for case in corpus() {
-        let p = pattern(&case.full_pattern(), "abc");
-        let program = Program::compile(&p).unwrap();
-        for prefix in 1..=case.rows.len() {
-            let meets = |row: usize, variable: usize| case.rows[row][variable];
-            let mut batch: Vec<(usize, Vec<usize>)> =
-                matches(&program, prefix, meets, case.skip, case.longest)
-                    .into_iter()
-                    .map(|m| (m.start, m.variables))
-                    .collect();
-            batch.sort();
-            let streaming = streamed(&program, &case, prefix);
-            if streaming != batch {
-                failures.push(format!(
-                    "{} over {} {} longest={} prefix={prefix}\n  streaming {streaming:?}\n  batch     {batch:?}",
-                    case.pattern,
-                    case.rows_text(),
-                    case.skip_text(),
-                    case.longest
-                ));
-            }
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} failures\n{}",
-        failures.len(),
-        failures
-            .iter()
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-}
-
-#[test]
-fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
-    // As a condition reads `NEXT`, the last row of a prefix has conditions that change when the
-    // next row arrives: here, the inverse of its final conditions.
-    let view = |case: &Case, prefix: usize, row: usize, variable: usize| match row + 1 == prefix {
-        true => !case.rows[row][variable],
-        false => case.rows[row][variable],
-    };
+/// The prefixes of the corpus cases where a streaming matcher's matches differ from the batch
+/// matches. The streaming matcher sees one more row at a time: it keeps the matches before each
+/// settled frontier and finds the tail's matches again from the frontier. `view` gives the
+/// conditions of a row at a prefix, and `firm` the number of a prefix's rows whose conditions
+/// are final.
+fn streaming_failures(
+    view: impl Fn(&Case, usize, usize, usize) -> bool,
+    firm: impl Fn(usize) -> usize,
+) -> Vec<String> {
     let mut failures = Vec::new();
     for case in corpus() {
         let p = pattern(&case.full_pattern(), "abc");
@@ -643,7 +576,7 @@ fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
             let tail = Tail {
                 start: frontier,
                 partition_start: true,
-                firm: prefix - 1,
+                firm: firm(prefix),
             };
             let (found, settled) =
                 tail_matches(&program, prefix, meets, case.skip, case.longest, tail);
@@ -667,6 +600,10 @@ fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
             }
         }
     }
+    failures
+}
+
+fn assert_none(failures: Vec<String>) {
     assert!(
         failures.is_empty(),
         "{} failures\n{}",
@@ -678,4 +615,25 @@ fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+}
+
+#[test]
+fn a_streaming_matcher_finds_the_matches_of_each_prefix() {
+    assert_none(streaming_failures(
+        |case, _, row, variable| case.rows[row][variable],
+        |prefix| prefix,
+    ));
+}
+
+#[test]
+fn a_streaming_matcher_takes_the_last_rows_conditions_as_provisional() {
+    // As a condition reads `NEXT`, the last row of a prefix has conditions that change when the
+    // next row arrives: here, the inverse of its final conditions.
+    assert_none(streaming_failures(
+        |case, prefix, row, variable| match row + 1 == prefix {
+            true => !case.rows[row][variable],
+            false => case.rows[row][variable],
+        },
+        |prefix| prefix - 1,
+    ));
 }
