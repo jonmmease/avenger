@@ -514,10 +514,13 @@ fn a_mark_in_an_aggregate_completes_window_functions_in_its_channels() {
 }
 
 #[test]
-fn a_window_in_a_mark_channel_completes_panel() {
+fn a_window_in_a_mark_channel_completes_the_windows_of_the_call() {
     let (completions, _) =
         complete("FROM penguins |> AGGREGATE bar(x => bin(body_mass_g) OVER pa$0, y => COUNT(*))");
     assert!(item(&completions, "panel").is_some());
+    let (completions, _) =
+        complete("FROM penguins |> AGGREGATE bar(x => island, y => stack(COUNT(*)) OVER $0)");
+    assert!(item(&completions, "position").is_some() && item(&completions, "series").is_some());
     let (completions, _) = complete("FROM penguins |> EXTEND ROW_NUMBER() OVER pa$0 AS n");
     assert!(item(&completions, "panel").is_none());
 }

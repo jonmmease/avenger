@@ -273,3 +273,8 @@ FROM penguins
      bar(x => bin(body_mass_g) OVER panel, y => COUNT(*), color => lump(species, n => 2)) AS chart
    GROUP BY island
 
+lifting
+FROM penguins
+|> AGGREGATE
+     bar(x => island, y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart
+

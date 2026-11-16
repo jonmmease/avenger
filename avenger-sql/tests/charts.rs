@@ -166,3 +166,22 @@ async fn a_facet_of_histograms_with_shared_bins() {
     let charts = charts(query).await;
     render(&charts[0], "lifted-facet-histograms");
 }
+
+#[tokio::test]
+async fn a_lifted_stacked_bar() {
+    let query = "FROM penguins
+|> AGGREGATE bar(x => island, y => stack(COUNT(*)), color => species) AS chart";
+    let charts = charts(query).await;
+    render(&charts[0], "lifted-stacked-bar");
+}
+
+#[tokio::test]
+async fn a_lifted_stacked_area_with_zero_fill() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> SET body_mass_g = bin(body_mass_g, maxbins => 30) OVER ()
+|> SET body_mass_g = body_mass_g.start
+|> AGGREGATE area(x => body_mass_g, y => stack(COUNT(*)), color => species) AS chart";
+    let charts = charts(query).await;
+    render(&charts[0], "lifted-stacked-area");
+}

@@ -1585,7 +1585,11 @@ impl Pass<'_> {
         let window = over.is_some() || matches!(function.kind, library::FunctionKind::Window);
         // In the `keep` of a lump, a window runs over the categories, so its arguments and its
         // keys read the aggregates of each category's rows.
-        let window_scope = match self.categories.is_some() && over.is_some() {
+        // A window in a mark's channel reads the aggregates of the call's keys too.
+        let defaulted = scope.marked && over.is_none() && function.default_window.is_some();
+        let window_scope = match (self.categories.is_some() || (scope.marked && scope.aggregates))
+            && (over.is_some() || defaulted)
+        {
             true => scope.arguments().aggregates(),
             false => scope.arguments(),
         };
@@ -1604,6 +1608,7 @@ impl Pass<'_> {
                 ..scope
             },
             (true, true) => window_scope,
+            (true, false) if defaulted => window_scope,
             (true, false) => scope.arguments(),
             (false, _) => scope,
         };
@@ -1694,8 +1699,10 @@ impl Pass<'_> {
         let mut ranges = Vec::new();
         // The range of each argument of `args` that is a string literal.
         let mut strings = Vec::new();
-        // The channel values of a mark, as the user wrote them.
+        // The channel values of a mark, as the user wrote them, and the count of its positional
+        // arguments so far, which name their channels in the order of the form.
         let mut written = Vec::new();
+        let mut positional = 0;
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1738,7 +1745,21 @@ impl Pass<'_> {
             match self.expr(&value, arg_scope) {
                 Some(expr) => {
                     if marked {
+                        let channel = match &named {
+                            Some(name) => name.to_ascii_lowercase(),
+                            None => {
+                                positional += 1;
+                                (function.forms.first())
+                                    .and_then(|form| {
+                                        form.signature.positional().nth(positional - 1)
+                                    })
+                                    .and_then(|index| function.forms[0].signature.args.get(index))
+                                    .map(|arg| arg.param.to_ascii_lowercase())
+                                    .unwrap_or_default()
+                            }
+                        };
                         written.push(lifting::Written {
+                            channel,
                             value: lifting::channel_value(&expr).clone(),
                             range: value.syntax().text_range(),
                             text: lifting::channel_title(&value, self.library),
@@ -1915,12 +1936,13 @@ impl Pass<'_> {
                     return None;
                 }
                 // A window without `OVER` in a mark's channel takes its function's default.
-                let over = over.unwrap_or_else(|| match function.default_window {
-                    Some(DefaultWindow::Whole) | None => Window {
-                        partition: Vec::new(),
-                        order: Vec::new(),
-                        frame: WindowFrame::new(None),
+                let over = over.unwrap_or_else(|| Window {
+                    partition: match function.default_window {
+                        Some(DefaultWindow::Position) => vec![lifting::mark_window("position")],
+                        Some(DefaultWindow::Whole) | None => Vec::new(),
                     },
+                    order: Vec::new(),
+                    frame: WindowFrame::new(None),
                 });
                 Some(typed(over.window(func, args, null_treatment), result))
             }
@@ -1943,16 +1965,17 @@ impl Pass<'_> {
             ..scope
         };
         self.place(range, PlaceKind::OrderKey, &keys, None);
-        // A window in a mark's channel can add to `panel`, the partition of the groups.
-        let mut panel = false;
+        // A window in a mark's channel can add to `panel`, `position`, or `series`, the windows of
+        // the call, which the branch of the call resolves.
+        let mut named: Option<String> = None;
         let (spec, ranked) = match self.categories.clone() {
             Some(ranked) => {
                 let (spec, named) = self.category_window(over)?;
                 (spec, named.then_some(ranked))
             }
             None if scope.marked => {
-                let (spec, named) = self.mark_window(over)?;
-                panel = named;
+                let (spec, name) = self.mark_window(over)?;
+                named = name;
                 (spec, None)
             }
             None => (self.window_syntax(over)?, None),
@@ -1990,12 +2013,13 @@ impl Pass<'_> {
             None => None,
         };
         let mut partition: Vec<Expr> = partition.into_iter().collect::<Option<_>>()?;
-        if panel {
-            partition = scope.groups.unwrap_or_default().to_vec();
+        if let Some(name) = &named {
+            partition = vec![lifting::mark_window(name)];
         }
         let order = order?;
         match order_need {
-            Need::Required if order.is_empty() => {
+            // A window over a window of a mark call takes its default order.
+            Need::Required if order.is_empty() && named.is_none() => {
                 self.error(
                     range,
                     format!("Window ORDER BY is required for analytic function {name}"),
@@ -2070,25 +2094,28 @@ impl Pass<'_> {
         }
     }
 
-    /// The window of an `OVER` clause in a mark's channel, and whether it is or adds to the window
-    /// `panel`, the partition of the groups of the `AGGREGATE`.
-    fn mark_window(&mut self, over: &ast::OverClause) -> Option<(WindowSyntax, bool)> {
-        let panel =
-            |name: &ast::NameRef| name.text().is_some_and(|t| t.eq_ignore_ascii_case("panel"));
+    /// The window of an `OVER` clause in a mark's channel, and the window of the call, `panel`,
+    /// `position`, or `series`, that it is or adds to.
+    fn mark_window(&mut self, over: &ast::OverClause) -> Option<(WindowSyntax, Option<String>)> {
+        let call_window = |name: &ast::NameRef| {
+            name.text()
+                .map(|text| text.to_ascii_lowercase())
+                .filter(|text| matches!(text.as_str(), "panel" | "position" | "series"))
+        };
         if let Some(name) = over.name_ref() {
-            if !panel(&name) {
-                return self.named_window(&name).map(|spec| (spec, false));
-            }
+            let Some(window) = call_window(&name) else {
+                return self.named_window(&name).map(|spec| (spec, None));
+            };
             let none = WindowSyntax {
                 partition: None,
                 order: None,
                 frame: None,
             };
-            return Some((none, true));
+            return Some((none, Some(window)));
         }
         let spec = over.window_spec()?;
-        match spec.name_ref() {
-            Some(name) if panel(&name) => {
+        match spec.name_ref().as_ref().and_then(call_window) {
+            Some(window) => {
                 if spec.partition_by().is_some() {
                     self.error(
                         spec.syntax().text_range(),
@@ -2101,11 +2128,11 @@ impl Pass<'_> {
                     order: spec.order_by(),
                     frame: spec.frame(),
                 };
-                Some((own, true))
+                Some((own, Some(window)))
             }
-            _ => {
+            None => {
                 let range = spec.syntax().text_range();
-                self.extend_window(&spec, range).map(|spec| (spec, false))
+                self.extend_window(&spec, range).map(|spec| (spec, None))
             }
         }
     }

@@ -407,12 +407,230 @@ async fn the_errors_of_windows_on_the_rows() {
             format!("{PENGUINS} |> EXTEND ROW_NUMBER() OVER panel AS n"),
             "panel",
         ),
-        (
-            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => SUM(COUNT(*)) OVER ())"),
-            "Aggregations of aggregations are not allowed",
-        ),
     ] {
         let message = error(&query).await;
         assert!(message.contains(expected), "{query}\n{message}");
     }
+}
+
+/// The counts of the penguins by island and species, as `c`.
+const COUNTS: &str = "|> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species";
+
+#[tokio::test]
+async fn a_default_stack_puts_the_first_series_on_top() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => stack(COUNT(*)), color => species) \
+             AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
+             ORDER BY species DESC NULLS FIRST) \
+             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn an_order_of_a_stack_comes_first_and_the_default_breaks_its_ties() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, \
+             y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
+             ORDER BY `COUNT(*)` DESC, species DESC NULLS FIRST) \
+             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_horizontal_stack_and_a_normalized_stack() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(y => island, x => stack(COUNT(*)), color => species) \
+             AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
+             ORDER BY species ASC NULLS LAST) \
+             |> AGGREGATE bar(y => island, x => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, \
+             y => stack(COUNT(*), offset => 'normalize'), color => species) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> SET `COUNT(*)` = stack(`COUNT(*)`, offset => 'normalize') OVER \
+             (PARTITION BY island ORDER BY species DESC NULLS FIRST) \
+             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_stack_centered_with_windows_over_position() {
+    let centered = "STRUCT(SUM(COUNT(*)) OVER (position ROWS UNBOUNDED PRECEDING) - COUNT(*) \
+                    - SUM(COUNT(*)) OVER position / 2 AS start, \
+                    SUM(COUNT(*)) OVER (position ROWS UNBOUNDED PRECEDING) \
+                    - SUM(COUNT(*)) OVER position / 2 AS `end`)";
+    let name = (centered.split_whitespace().collect::<Vec<_>>().join(" ")).replace('`', "\\`");
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => island, y => {centered}, color => species) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> EXTEND STRUCT(SUM(`COUNT(*)`) OVER (PARTITION BY island \
+             ORDER BY species DESC NULLS FIRST ROWS UNBOUNDED PRECEDING) - `COUNT(*)` \
+             - SUM(`COUNT(*)`) OVER (PARTITION BY island) / 2 \
+             AS start, SUM(`COUNT(*)`) OVER (PARTITION BY island ORDER BY species DESC NULLS FIRST \
+             ROWS UNBOUNDED PRECEDING) - SUM(`COUNT(*)`) OVER (PARTITION BY island) / 2 \
+             AS `end`) AS `{name}` \
+             |> AGGREGATE bar(x => island, y => `{name}`, color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+/// The penguins with the start of the bin of their mass, where some bins lack a species.
+const BINNED: &str = "FROM penguins |> WHERE body_mass_g IS NOT NULL \
+                      |> EXTEND bin(body_mass_g) OVER () AS b \
+                      |> EXTEND b.start AS mass";
+
+#[tokio::test]
+async fn a_stacked_area_fills_the_keys_that_a_series_lacks_with_zero() {
+    same(
+        &format!(
+            "{BINNED} |> AGGREGATE area(x => mass, y => stack(COUNT(*)), color => species) AS chart"
+        ),
+        &format!(
+            "{BINNED} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY mass, species \
+             |> CALL impute(mass, [species], `COUNT(*)`, value => 0) \
+             |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY mass \
+             ORDER BY species DESC NULLS FIRST) \
+             |> AGGREGATE area(x => mass, y => `COUNT(*)`, color => species) AS chart"
+        ),
+    )
+    .await;
+    // A stacked line takes the end of each layer.
+    same(
+        &format!(
+            "{BINNED} |> AGGREGATE line(x => mass, y => stack(COUNT(*)).`end`, color => species) \
+             AS chart"
+        ),
+        &format!(
+            "{BINNED} |> AGGREGATE COUNT(*) AS c GROUP BY mass, species \
+             |> CALL impute(mass, [species], c, value => 0) \
+             |> EXTEND stack(c) OVER (PARTITION BY mass ORDER BY species DESC NULLS FIRST).`end` \
+             AS `stack(COUNT(*)).\\`end\\`` \
+             |> AGGREGATE line(x => mass, y => `stack(COUNT(*)).\\`end\\``, color => species) \
+             AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_bump_chart_ranks_without_a_fill_or_a_default_order() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE line(x => island, \
+             y => RANK() OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> EXTEND RANK() OVER (PARTITION BY island ORDER BY `COUNT(*)` DESC) \
+             AS `RANK() OVER (position ORDER BY COUNT(*) DESC)` \
+             |> AGGREGATE line(x => island, y => `RANK() OVER (position ORDER BY COUNT(*) DESC)`, \
+             color => species) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn windows_over_a_panel_and_over_a_series() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE symbol(x => species, \
+             y => COUNT(*) / SUM(COUNT(*)) OVER panel) AS chart GROUP BY island"
+        ),
+        &format!(
+            "{PENGUINS} {COUNTS} \
+             |> EXTEND `COUNT(*)` / SUM(`COUNT(*)`) OVER (PARTITION BY island) \
+             AS `COUNT(*) / SUM(COUNT(*)) OVER panel` \
+             |> AGGREGATE symbol(x => species, y => `COUNT(*) / SUM(COUNT(*)) OVER panel`) \
+             AS chart GROUP BY island"
+        ),
+    )
+    .await;
+    for (window, staged) in [
+        (
+            "SUM(COUNT(*)) OVER (series ROWS UNBOUNDED PRECEDING)",
+            "SUM(`COUNT(*)`) OVER (PARTITION BY island ORDER BY species ROWS UNBOUNDED PRECEDING)",
+        ),
+        (
+            "LAG(COUNT(*)) OVER series",
+            "LAG(`COUNT(*)`) OVER (PARTITION BY island ORDER BY species)",
+        ),
+        (
+            "SUM(COUNT(*)) OVER series",
+            "SUM(`COUNT(*)`) OVER (PARTITION BY island)",
+        ),
+    ] {
+        same(
+            &format!(
+                "{PENGUINS} |> AGGREGATE line(x => species, y => {window}, color => island) \
+                 AS chart"
+            ),
+            &format!(
+                "{PENGUINS} {COUNTS} |> EXTEND {staged} AS `{window}` \
+                 |> AGGREGATE line(x => species, y => `{window}`, color => island) AS chart"
+            ),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn a_discretizer_of_an_aggregate_bins_the_aggregated_rows() {
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE symbol(x => species, y => COUNT(*), \
+             color => bin(COUNT(*)).start) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
+             |> EXTEND bin(`COUNT(*)`) OVER () AS b \
+             |> EXTEND b.start AS `bin(COUNT(*)).start` \
+             |> AGGREGATE symbol(x => species, y => `COUNT(*)`, color => `bin(COUNT(*)).start`) \
+             AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_errors_of_windows_on_the_aggregated_rows() {
+    let message = error(&format!(
+        "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(stack(COUNT(*))))"
+    ))
+    .await;
+    assert!(
+        message.contains("Aggregations of aggregations are not allowed"),
+        "{message}"
+    );
 }

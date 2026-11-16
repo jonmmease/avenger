@@ -405,6 +405,21 @@ pub struct Function {
     /// Whether a mark's channel that holds a call takes the text of the call's first argument as
     /// the name of its column, as `bin(body_mass_g)` takes `body_mass_g`.
     pub titled_by_argument: bool,
+    /// The order of its window that a window function reads, which decides where the default
+    /// orders of a mark call's windows apply.
+    pub window_order: WindowOrder,
+}
+
+/// The order of its window that a window function reads.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowOrder {
+    /// No order: the function reads the rows of its frame as a set.
+    #[default]
+    None,
+    /// Only the peers of the order, the rows that tie: `RANK` gives tied rows one rank.
+    Peers,
+    /// The order of the rows, as `ROW_NUMBER` and `LAG` do.
+    Rows,
 }
 
 /// The window of a window function without `OVER` in the channels of a mark call.
@@ -412,6 +427,8 @@ pub struct Function {
 pub enum DefaultWindow {
     /// `OVER ()`: the whole input of the `AGGREGATE`.
     Whole,
+    /// `OVER position`: the groups and the position keys of the call.
+    Position,
 }
 
 impl Function {
@@ -430,6 +447,7 @@ impl Function {
             examples: Vec::new(),
             default_window: None,
             titled_by_argument: false,
+            window_order: WindowOrder::None,
         }
     }
 
@@ -473,6 +491,12 @@ impl Function {
     pub(crate) fn in_marks(mut self, window: DefaultWindow, titled_by_argument: bool) -> Self {
         self.default_window = Some(window);
         self.titled_by_argument = titled_by_argument;
+        self
+    }
+
+    /// The order of its window that the function reads.
+    pub(crate) fn reads_order(mut self, order: WindowOrder) -> Self {
+        self.window_order = order;
         self
     }
 
