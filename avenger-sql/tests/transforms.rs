@@ -509,3 +509,31 @@ async fn a_variable_that_fails_a_check_is_an_error_of_its_option_when_the_query_
         "{error:?}"
     );
 }
+
+#[tokio::test]
+async fn an_aggregate_grouped_by_a_lump_reads_its_variables() {
+    // A variable below the lump, in its weight, and in its n, against the literals.
+    let grouped = "|> AGGREGATE COUNT(*) AS c GROUP BY l";
+    let cases = [
+        (
+            "DECLARE heavy INT64 DEFAULT 4000; FROM penguins |> WHERE body_mass_g > heavy |> EXTEND lump(island, n => 1) OVER () AS l",
+            "FROM penguins |> WHERE body_mass_g > 4000 |> EXTEND lump(island, n => 1) OVER () AS l",
+        ),
+        (
+            "DECLARE k FLOAT64 DEFAULT 2; FROM penguins |> EXTEND lump(island, n => 1, weight => SUM(body_mass_g) * k) OVER () AS l",
+            "FROM penguins |> EXTEND lump(island, n => 1, weight => SUM(body_mass_g) * 2) OVER () AS l",
+        ),
+        (
+            "DECLARE top INT64 DEFAULT 2; FROM penguins |> EXTEND lump(island, n => top) OVER () AS l",
+            "FROM penguins |> EXTEND lump(island, n => 2) OVER () AS l",
+        ),
+    ];
+    for (variable, literal) in cases {
+        let found = rows(&format!("{variable} {grouped}")).await;
+        assert_eq!(
+            found,
+            rows(&format!("{literal} {grouped}")).await,
+            "{variable}"
+        );
+    }
+}

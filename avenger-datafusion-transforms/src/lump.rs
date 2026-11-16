@@ -665,6 +665,12 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     let Some((resolved, call, input)) = resolve(&aggregate.input, exprs)? else {
         return Ok(None);
     };
+    // The mark holds copies of the call and of its input, which the binding of the plan's
+    // parameters doesn't reach, so a copy with a placeholder would plan the parameter unbound.
+    // The plan of the lump without the fusion holds them bound.
+    if holds_placeholder(&call, &input)? {
+        return Ok(None);
+    }
     let (groups, aggregates) = resolved.split_at(groups.len());
     // Each group is the lump or a key of its partition.
     let mut group_keys: Vec<Option<usize>> = Vec::new();
@@ -791,6 +797,35 @@ pub fn fuse(plan: &LogicalPlan) -> Result<Option<LogicalPlan>> {
     Ok(Some(
         LogicalPlanBuilder::from(merged).project(exprs)?.build()?,
     ))
+}
+
+/// Whether the call `call` of a lump, or its input `input`, holds a placeholder of a parameter.
+fn holds_placeholder(call: &LumpCall, input: &LogicalPlan) -> Result<bool> {
+    let placeholder = |expr: &Expr| expr.exists(|e| Ok(matches!(e, Expr::Placeholder(_))));
+    let keep = match &call.keep {
+        Keep::First(n) => n,
+        Keep::Condition(condition) => condition,
+    };
+    let exprs = [&call.category, keep, &call.other, &call.null_category]
+        .into_iter()
+        .chain(&call.partition)
+        .chain(&call.weight);
+    for expr in exprs {
+        if placeholder(expr)? {
+            return Ok(true);
+        }
+    }
+    let mut found = false;
+    input.apply_with_subqueries(|plan| {
+        for expr in plan.expressions() {
+            if placeholder(&expr)? {
+                found = true;
+                return Ok(TreeNodeRecursion::Stop);
+            }
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })?;
+    Ok(found)
 }
 
 /// `expr` without the marks of lumps, each its lump.

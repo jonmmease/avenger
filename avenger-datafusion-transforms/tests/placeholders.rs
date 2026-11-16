@@ -225,3 +225,45 @@ async fn the_values_of_impute_are_values() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn an_aggregate_grouped_by_a_lump_binds_its_placeholders() {
+    // The fusion of the aggregate with the lump reads copies of the call and of its input, so it
+    // leaves out a lump with a placeholder, which plans bound without the fusion.
+    let ctx = session();
+    exec(&ctx, C).await.unwrap();
+    let c = input(&ctx, "SELECT * FROM c").await.unwrap();
+    let plan = |since: Expr, n: Expr| -> Result<LogicalPlan> {
+        let input = LogicalPlanBuilder::from(c.clone())
+            .filter(col("i").gt_eq(since))?
+            .build()?;
+        let call = LumpCall {
+            category: col("g"),
+            partition: Vec::new(),
+            weight: None,
+            keep: Keep::First(n),
+            other: lit("Rest"),
+            null_category: Nulls::Keep.expr(),
+        };
+        let plan = lump::plan(input, call, Column::from_name("l"))?;
+        LogicalPlanBuilder::from(plan)
+            .aggregate(
+                vec![col("l")],
+                vec![datafusion::functions_aggregate::count::count(lit(1))],
+            )?
+            .build()
+    };
+    let want = run(&ctx, plan(lit(2i64), lit(1i64)).unwrap(), vec![])
+        .await
+        .unwrap();
+    let bound = plan(
+        placeholder("since", DataType::Int64),
+        placeholder("n", DataType::Int64),
+    )
+    .unwrap();
+    let values = vec![
+        ("since", ScalarValue::from(2i64)),
+        ("n", ScalarValue::from(1i64)),
+    ];
+    assert_eq!(run(&ctx, bound, values).await.unwrap(), want);
+}
