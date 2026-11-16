@@ -1,7 +1,10 @@
 //! The editor's assistance outside egui: the state of the completion popup, which items it shows
-//! as the user types, and the text after an insert, and the fixes of the errors at the cursor.
+//! as the user types, and the text after an insert, the fixes of the errors at the cursor, the
+//! definition and the references of the name at the cursor, and the blocks of a hover.
 //! Positions are character indices, as egui's cursor counts them, and the requests of the
 //! `Document` take byte offsets, which [`Chars`] converts.
+
+use std::ops::Range;
 
 use avenger_sql_language::{CompletionItem, Document, Fix};
 
@@ -133,6 +136,24 @@ pub fn apply(text: &str, fix: &Fix) -> String {
         applied.replace_range(range, &edit.replacement);
     }
     applied
+}
+
+/// The range of characters of the definition of the name at the character `cursor`.
+pub fn definition(document: &Document, cursor: usize) -> Option<Range<usize>> {
+    let chars = Chars::new(document.text());
+    let link = document.definition((chars.offset(cursor) as u32).into())?;
+    Some(chars.range(link.target))
+}
+
+/// The ranges of characters of the definition of the name at the character `cursor` and of each
+/// use of it, in the order of the text.
+pub fn references(document: &Document, cursor: usize) -> Vec<Range<usize>> {
+    let chars = Chars::new(document.text());
+    (document
+        .references((chars.offset(cursor) as u32).into())
+        .into_iter())
+    .map(|reference| chars.range(reference.range))
+    .collect()
 }
 
 /// A run of the text of a block of Markdown, with its style.
