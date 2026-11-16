@@ -326,6 +326,11 @@ impl Document {
         }
         if expression {
             let calls = place.is_none_or(Place::takes_calls);
+            // The values and the constructors of the argument's parameter come first, and the
+            // items of the place after them.
+            if let Some(before) = &before {
+                self.argument_values(before, calls, &mut items);
+            }
             if let Some(scope) = scope.filter(|_| place.is_none_or(Place::takes_columns)) {
                 let expected = place.and_then(|place| place.expected.as_ref());
                 self.columns(scope, expected, calls, &mut items);
@@ -336,9 +341,6 @@ impl Document {
                     .as_ref()
                     .is_some_and(|before| self.in_chart_call(before));
                 self.functions(&root, start, place, chart, &mut items);
-            }
-            if let Some(before) = &before {
-                self.argument_values(before, &mut items);
             }
         }
         finish(range, replace, items, quote)
@@ -768,8 +770,9 @@ impl Document {
         })
     }
 
-    /// At the start of an argument whose parameter takes a value of a set, its values.
-    fn argument_values(&self, before: &SyntaxToken, items: &mut Items) {
+    /// At the start of an argument whose parameter takes a value of a set, its values, and when
+    /// the place takes `calls`, the constructors of a parameter that takes them, after the values.
+    fn argument_values(&self, before: &SyntaxToken, calls: bool, items: &mut Items) {
         if !matches!(
             before.kind(),
             SyntaxKind::L_PAREN | SyntaxKind::COMMA | SyntaxKind::FAT_ARROW
@@ -794,6 +797,32 @@ impl Document {
         };
         if let Some(param) = param {
             push_values(function, &param, items);
+            if calls {
+                self.push_constructors(function, &param, items);
+            }
+        }
+    }
+
+    /// The constructors that `param` of `function` takes, in the order of its forms, each with a
+    /// detail that names the parameter and the part that it builds.
+    fn push_constructors(&self, function: &Function, param: &str, items: &mut Items) {
+        let Some(named) = function.param_named(param) else {
+            return;
+        };
+        for (index, builds) in named.takes.constructors.iter().enumerate() {
+            let Some(constructor) = self.library.get(&builds.constructor) else {
+                continue;
+            };
+            let detail = match &builds.part {
+                None => format!("builds `{}`", named.name),
+                Some(part) => format!("builds the {} of `{}`", part.replace('_', " "), named.name),
+            };
+            items.push(CompletionItem {
+                // After the values of the parameter, whose labels are letters.
+                sort: format!("{}~{index:03}", rank::ARGUMENT),
+                detail: Some(detail),
+                ..self.function_item(constructor)
+            });
         }
     }
 
@@ -863,13 +892,15 @@ impl Items {
 }
 
 /// The parameter of the positional argument at `position` in some form of `function` that takes
-/// a value of a set there.
+/// a value of a set or a constructor there.
 fn positional_param(function: &Function, position: usize) -> Option<String> {
     (function.forms.iter()).find_map(|form| {
         let arg = (form.signature.args.iter())
             .filter(|arg| !arg.named_only)
             .nth(position)?;
-        matches!(arg.accept, Accept::OneOf(_)).then(|| arg.param.clone())
+        let constructors = (function.param_named(&arg.param))
+            .is_some_and(|param| !param.takes.constructors.is_empty());
+        (matches!(arg.accept, Accept::OneOf(_)) || constructors).then(|| arg.param.clone())
     })
 }
 

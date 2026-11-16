@@ -66,12 +66,27 @@ fn hover_shows_functions_with_their_resolved_forms() {
     let document = document(TEXT);
     let (range, markdown) = hover(&document, "SUBSTR", 0).unwrap();
     assert_eq!(range, "SUBSTR");
+    // The forms of a function and its summary, without the parameters and the examples of the
+    // reference.
     assert!(
-        markdown.starts_with("Resolved as `SUBSTR(STRING, INT64, INT64) -> STRING`\n\n## `SUBSTR`"),
+        markdown.starts_with("```googlesql\nSUBSTR(value: STRING, position: INT64"),
         "{markdown}"
     );
+    assert!(!markdown.contains("Resolved as"), "{markdown}");
+    assert!(!markdown.contains("**Parameters**"), "{markdown}");
+    // A function with several forms names the form of the call.
+    let several = common::document("FROM penguins |> AGGREGATE AVG(body_mass_g) AS m");
+    let (_, markdown) = hover(&several, "AVG", 0).unwrap();
+    assert!(
+        markdown.contains("```\n\nResolved as `AVG(INT64) -> FLOAT64`\n\nReturns the mean"),
+        "{markdown}"
+    );
+    // A mark's form, with its every channel, is longer than a hover writes.
     let (_, markdown) = hover(&document, "bar", 0).unwrap();
-    assert!(markdown.contains("## `bar`"), "{markdown}");
+    assert!(
+        markdown.starts_with("```googlesql\nbar(...) -> CHART\n```\n\nA rectangle"),
+        "{markdown}"
+    );
     let (_, markdown) = hover(&document, "twice", 1).unwrap();
     assert_eq!(
         markdown,
@@ -89,6 +104,72 @@ fn hover_shows_the_parameter_of_a_value_of_a_set() {
         "{markdown}"
     );
     assert!(markdown.contains("\n\nValues: 'zero', "), "{markdown}");
+}
+
+#[test]
+fn hover_shows_the_parameter_of_an_argument_name() {
+    let document = document(TEXT);
+    let (range, markdown) = hover(&document, "offset =>", 0).unwrap();
+    assert_eq!(range, "offset");
+    assert!(
+        markdown.starts_with("```googlesql\noffset => "),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("```\n\nA parameter of `stack`: "),
+        "{markdown}"
+    );
+    let (range, markdown) = hover(&document, "x =>", 0).unwrap();
+    assert_eq!(range, "x");
+    assert!(
+        markdown.starts_with("```googlesql\nx: ANY\n```\n\nA parameter of `bar`: "),
+        "{markdown}"
+    );
+    // At the start of the name of an argument of a call in the value of another argument.
+    let nested =
+        common::document("FROM penguins |> AGGREGATE bar(x => scaled(species, title => 'S'))");
+    let start = nested.text().find("title").unwrap() as u32;
+    let found = nested.hover(start.into()).unwrap();
+    assert_eq!(at(&nested, found.range), "title");
+    assert!(
+        found.markdown.contains("A parameter of `scaled`"),
+        "{}",
+        found.markdown
+    );
+    // The value of an argument has the hover of its expression.
+    let (range, _) = hover(&document, "species, y => share", 0).unwrap();
+    assert_eq!(range, "species");
+}
+
+#[test]
+fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
+    let document = common::document(
+        "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+         scale => scale(domain => interval_fit(pin => domain_pin(0, 'low'))))) AS chart",
+    );
+    let (range, markdown) = hover(&document, "pin =>", 0).unwrap();
+    assert_eq!(range, "pin");
+    assert!(
+        markdown.starts_with(
+            "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```\n\n\
+             A parameter of `interval_fit`: "
+        ),
+        "{markdown}"
+    );
+    // Three strings of the set, the target's own constructor, then the groups of its parts.
+    let (_, markdown) = hover(&document, "scale =>", 0).unwrap();
+    assert!(
+        markdown.starts_with(
+            "```googlesql\nscale => 'linear' | 'log' | 'pow' | …\nscale => scale(...)\n```\n\n\
+             A parameter of `scaled`: "
+        ),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("\n- Its domain: `category_fit(...)`"),
+        "{markdown}"
+    );
+    assert!(!markdown.contains("BYTES"), "{markdown}");
 }
 
 #[test]

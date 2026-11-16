@@ -455,3 +455,81 @@ fn each_part_that_the_syntax_completes_after_an_interval_analyzes() {
         );
     }
 }
+
+/// The forms of the parameter `param` of `function`, as Markdown, with at most three strings.
+fn forms(library: &Library, function: &str, param: &str) -> Option<String> {
+    let function = library.get(function).expect("the function");
+    let param = function.param_named(param).expect("the parameter");
+    param.forms(Some(3)).map(|forms| forms.markdown())
+}
+
+#[test]
+fn a_parameter_that_takes_constructors_writes_its_forms() {
+    let library = Library::new();
+    // One constructor of the target itself writes its full form.
+    assert_eq!(
+        forms(&library, "interval_fit", "pin").unwrap(),
+        "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
+    );
+    // An array of fragments of a constructor.
+    let tools = forms(&library, "bar", "tools").unwrap();
+    assert!(tools.contains("tools => [tool("), "{tools}");
+    // Three strings of a set and `…`, the target's own constructor, then the constructors of its
+    // parts in groups, by the parameters of `scale`.
+    let scale = forms(&library, "scaled", "scale").unwrap();
+    assert!(
+        scale.starts_with(
+            "```googlesql\nscale => 'linear' | 'log' | 'pow' | …\nscale => scale(...)\n```\n\n"
+        ),
+        "{scale}"
+    );
+    let groups: Vec<&str> = (scale.lines())
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(|line| line.split(':').next().unwrap())
+        .collect();
+    assert_eq!(
+        groups,
+        [
+            "Its type",
+            "Its domain",
+            "Its range",
+            "Its axis",
+            "Its legend"
+        ]
+    );
+    assert!(
+        scale.contains("- Its type: `band_scale(...)`, `custom_scale(...)`, `linear_scale(...)`"),
+        "{scale}"
+    );
+    assert!(scale.contains("`interval_fit(...)`"), "{scale}");
+    // The strings of the parameter are the values of its set, each of them.
+    let scaled = library.get("scaled").unwrap();
+    let values = scaled.values_of("scale");
+    assert!(
+        values.len() > 3 && values.contains(&"linear") && values.contains(&"time"),
+        "{values:?}"
+    );
+    // Other values, as the text of a title, and no forms without constructors.
+    let title = forms(&library, "axis", "title").unwrap();
+    assert!(
+        title.contains("title => STRING\ntitle => title("),
+        "{title}"
+    );
+    assert_eq!(forms(&library, "interval_fit", "zero"), None);
+    assert_eq!(forms(&library, "SUBSTR", "value"), None);
+}
+
+#[test]
+fn the_reference_writes_the_forms_of_a_parameter_with_its_every_string() {
+    let library = Library::new();
+    let entry = avenger_sql::library::entry(library.get("scaled").unwrap());
+    assert!(
+        entry.contains("scale => 'linear' | 'log' | 'pow' | 'symlog'"),
+        "{entry}"
+    );
+    assert!(!entry.contains('…'), "{entry}");
+    assert!(
+        entry.contains("  - Its domain: `category_fit(...)`"),
+        "{entry}"
+    );
+}

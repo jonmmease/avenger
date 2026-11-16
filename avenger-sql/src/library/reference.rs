@@ -1,6 +1,6 @@
 //! The reference of the library's functions, as Markdown: for each function, its signatures,
-//! its summary and description, its notes, its parameters, and its examples, in the layout of
-//! GoogleSQL's function reference.
+//! its summary and description, its notes, its parameters, with the forms of a parameter that
+//! takes constructors, and its examples, in the layout of GoogleSQL's function reference.
 
 use super::{Function, FunctionKind, Library, Need, Over};
 
@@ -43,6 +43,14 @@ pub fn entry(function: &Function) -> String {
             // The paragraphs after the first indent, so they stay in the item of the list.
             let doc = param.doc.replace('\n', "\n  ").replace("\n  \n", "\n\n");
             out.push_str(&format!("+ `{}`: {doc}\n", param.name));
+            // The forms of a parameter that takes constructors, with each of its strings.
+            if let Some(forms) = param.forms(None) {
+                let forms = forms
+                    .markdown()
+                    .replace('\n', "\n  ")
+                    .replace("\n  \n", "\n\n");
+                out.push_str(&format!("\n  {forms}\n"));
+            }
         }
     }
     let clauses = clauses(function);

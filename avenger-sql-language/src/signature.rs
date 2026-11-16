@@ -8,7 +8,11 @@ use avenger_sql_syntax::{
     SyntaxKind, SyntaxNode,
 };
 
-use crate::{collapse, hover::callee, statements, Document, Offset};
+use crate::{
+    collapse,
+    hover::{callee, STRINGS},
+    statements, Document, Offset,
+};
 
 /// The forms of a call's function, and the form and the parameter at the cursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,7 +187,11 @@ fn takes(args: &[FormArg], at: &At) -> bool {
 
 /// The doc of the parameter of `arg`, when the function has one.
 fn function_doc(function: &Function, arg: &FormArg) -> Option<String> {
-    (function.param_named(&arg.param)).map(|param| param.doc.clone())
+    let param = function.param_named(&arg.param)?;
+    Some(match param.forms(Some(STRINGS)) {
+        Some(forms) => format!("{}\n\n{}", param.doc, forms.markdown()),
+        None => param.doc.clone(),
+    })
 }
 
 /// The `CREATE FUNCTION` of the script's temporary function `name` before `offset`, the last

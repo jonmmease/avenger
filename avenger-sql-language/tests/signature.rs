@@ -134,3 +134,26 @@ fn the_charts_of_a_layer_repeat_and_its_options_go_by_name() {
         Some("id => STRING")
     );
 }
+
+#[test]
+fn a_parameter_that_takes_constructors_documents_its_forms() {
+    // The documentation of the active parameter at the cursor.
+    let doc = |text: &str| {
+        let help = help(text).unwrap();
+        let signature = &help.signatures[help.active_signature];
+        let parameter = &signature.parameters[signature.active_parameter.unwrap()];
+        parameter.documentation.clone().unwrap()
+    };
+    let pin = doc("FROM penguins |> SELECT interval_fit(pin => $0) AS f");
+    assert!(
+        pin.ends_with(
+            "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
+        ),
+        "{pin}"
+    );
+    let scale = doc("FROM penguins |> SELECT scaled(1, scale => $0) AS s");
+    assert!(
+        scale.contains("\n- Its domain: `category_fit(...)`"),
+        "{scale}"
+    );
+}

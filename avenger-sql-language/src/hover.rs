@@ -2,7 +2,7 @@
 
 use avenger_sql::{
     analysis::{Column, Definition},
-    library::entry,
+    library::{Function, FORM},
     types::googlesql_name,
 };
 use avenger_sql_syntax::{
@@ -21,6 +21,10 @@ pub struct Hover {
 
 /// The longest text of a definition that a hover quotes, in characters.
 const QUOTE: usize = 60;
+
+/// The strings of a set that the hover of a parameter that takes constructors shows, before `…`.
+/// Completion in the string lists them all.
+pub(crate) const STRINGS: usize = 3;
 
 impl Document {
     /// Markdown on what is at `offset`: a name that the analysis resolved, or a string that a
@@ -50,6 +54,9 @@ impl Document {
                 range: value.range,
                 markdown,
             });
+        }
+        if let Some(hover) = self.argument_name(&root, offset) {
+            return Some(hover);
         }
         let name = model.name_at(offset)?;
         let markdown = match &name.definition {
@@ -110,11 +117,15 @@ impl Document {
                     format!("```googlesql\n{header}\n```\n\nA temporary function.")
                 }
                 (None, Some(function)) => {
-                    let resolved = call_range(&root, name.range)
+                    // The form that the call resolves to tells apart the forms of a function
+                    // that has several.
+                    let resolved = (function.forms.len() > 1)
+                        .then(|| call_range(&root, name.range))
+                        .flatten()
                         .and_then(|range| (model.calls.iter()).rfind(|call| call.range == range))
-                        .map(|call| format!("Resolved as `{}`\n\n", call.form))
+                        .map(|call| format!("\n\nResolved as `{}`", call.form))
                         .unwrap_or_default();
-                    format!("{resolved}{}", entry(function))
+                    brief(function, &resolved)
                 }
                 (None, None) => {
                     format!("```googlesql\n{function_name}\n```\n\nA function of a module.")
@@ -125,6 +136,59 @@ impl Document {
             range: name.range,
             markdown,
         })
+    }
+
+    /// The parameter of the named argument whose name is at `offset`, in a call of a function of
+    /// the library: its form, as the function's form writes it, or the forms of a parameter that
+    /// takes constructors in place of its type, its documentation, and the constructors of the
+    /// parts of its target.
+    fn argument_name(&self, root: &SyntaxNode, offset: Offset) -> Option<Hover> {
+        // The named argument whose name holds the offset, not an argument whose value holds the
+        // call of the name, as at the start of `title` in `x => scaled(a, title => ...)`.
+        let holds = |named: &ast::NamedArg| {
+            (named.name_ref())
+                .is_some_and(|name| name.syntax().text_range().contains_inclusive(offset))
+        };
+        let named = (root.token_at_offset(offset))
+            .flat_map(|token| token.parent_ancestors())
+            .filter_map(ast::NamedArg::cast)
+            .find(holds)?;
+        let name_ref = named.name_ref()?;
+        let range = name_ref.syntax().text_range();
+        let param = name_ref.text()?;
+        let call = named.syntax().parent()?.parent()?;
+        let function = self.library.get(&callee(&call)?)?;
+        let resolved = (self.analysis.model.calls.iter())
+            .rfind(|form| form.range == call.text_range())
+            .and_then(|form| form.index);
+        let takes = |form: &avenger_sql::library::Form| {
+            (form.signature.args.iter()).position(|arg| arg.param.eq_ignore_ascii_case(&param))
+        };
+        let (index, arg) =
+            match resolved.and_then(|index| Some((index, takes(&function.forms[index])?))) {
+                Some(found) => found,
+                None => (function.forms.iter())
+                    .enumerate()
+                    .find_map(|(index, form)| Some((index, takes(form)?)))?,
+            };
+        let label = function.signatures().swap_remove(index);
+        let named = function.param_named(&param);
+        let forms = named.and_then(|param| param.forms(Some(STRINGS)));
+        let lines = match &forms {
+            Some(forms) => forms.lines.join("\n"),
+            None => label.text[label.args[arg].clone()].to_string(),
+        };
+        let mut markdown = format!(
+            "```googlesql\n{lines}\n```\n\nA parameter of `{}`",
+            function.name
+        );
+        if let Some(param) = named {
+            markdown.push_str(&format!(": {}", param.doc));
+        }
+        if let Some(groups) = forms.and_then(|forms| forms.groups()) {
+            markdown.push_str(&format!("\n\n{groups}"));
+        }
+        Some(Hover { range, markdown })
     }
 
     fn column(&self, column: &Column) -> String {
@@ -194,6 +258,39 @@ fn call_function(root: &SyntaxNode, range: TextRange) -> Option<String> {
         .ancestors()
         .filter(|node| node.kind() == SyntaxKind::ARG_LIST)
         .find_map(|list| callee(&list.parent()?))
+}
+
+/// The hover of the library function `function`: its forms, or `name(...)` and its result when a
+/// form is longer than [`FORM`], then `resolved`, its summary, its description, and its notes.
+/// The reference of the library holds its parameters, clauses, and examples, and the hover of an
+/// argument's name shows its parameter.
+fn brief(function: &Function, resolved: &str) -> String {
+    let labels = function.signatures();
+    let forms: Vec<String> = match labels
+        .iter()
+        .all(|label| label.text.chars().count() <= FORM)
+    {
+        true => labels.into_iter().map(|label| label.text).collect(),
+        false => {
+            let mut results: Vec<String> = (function.forms.iter())
+                .map(|form| form.signature.result.to_string())
+                .collect();
+            results.dedup();
+            vec![format!("{}(...) -> {}", function.name, results.join(" | "))]
+        }
+    };
+    let mut markdown = format!(
+        "```googlesql\n{}\n```{resolved}\n\n{}",
+        forms.join("\n"),
+        function.summary
+    );
+    if !function.description.is_empty() && function.description != function.summary {
+        markdown.push_str(&format!("\n\n{}", function.description));
+    }
+    for note in &function.notes {
+        markdown.push_str(&format!("\n\n**Note:** {note}"));
+    }
+    markdown
 }
 
 /// The name of the function that the call, table function source, or pipe `CALL` `node` calls,
