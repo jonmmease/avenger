@@ -771,6 +771,11 @@ impl<'a> Parser<'a> {
 
     /// Whether the current token ends a pipe operator: `|>`, `)`, `;` or the end.
     pub(crate) fn at_operator_end(&self) -> bool {
-        matches!(self.current(), PIPE | R_PAREN | SEMICOLON | EOF)
+        self.operator_end_at(0)
+    }
+
+    /// Whether the token `n` places ahead ends a pipe operator, and so a query's `FROM`.
+    pub(crate) fn operator_end_at(&self, n: usize) -> bool {
+        matches!(self.nth(n), PIPE | R_PAREN | SEMICOLON | EOF)
     }
 }

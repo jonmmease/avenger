@@ -355,6 +355,8 @@ pub const QUERIES: &[&str] = &[
     "FROM t, u MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) JOIN (v JOIN w USING (k)) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE) USING (n)",
     "FROM f(1) MATCH_RECOGNIZE (ORDER BY x MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)",
     "FROM t |> SELECT `match_recognize`, measures, pattern, `define` AS skip, past, after",
+    // A sort key that starts with a column named `measures` and goes on with an operator.
+    "FROM t |> MATCH_RECOGNIZE (ORDER BY x, measures + 1 MEASURES COUNT(*) AS n PATTERN (a) DEFINE a AS TRUE)",
 ];
 
 /// Texts with a trailing comma in each kind of list, which avenger-sql takes and GoogleSQL takes

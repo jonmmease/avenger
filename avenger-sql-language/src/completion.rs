@@ -607,6 +607,17 @@ impl Document {
     /// `|> SELECT`, `|> EXTEND`, or `|> SET`, and in a window's specification, `ORDER BY` and a
     /// frame when the window function takes them.
     fn keyword_fits(&self, kind: SyntaxKind, before: &SyntaxToken) -> bool {
+        // A clause of a call's arguments, which the call's function takes.
+        if let Some(function) = self.call_function(before) {
+            let clauses = &function.clauses;
+            match kind {
+                SyntaxKind::IGNORE_KW | SyntaxKind::RESPECT_KW => return clauses.null_treatment,
+                SyntaxKind::HAVING_KW => return clauses.having,
+                SyntaxKind::LIMIT_KW => return clauses.limit,
+                SyntaxKind::ORDER_KW => return clauses.order_by,
+                _ => {}
+            }
+        }
         match kind {
             // A `PIVOT` takes the call of an aggregate, which `NOT` doesn't start.
             SyntaxKind::NOT_KW => (self.analysis.model.place_at(before.text_range().end()))
@@ -623,22 +634,6 @@ impl Document {
                     .is_some_and(|function| function.clauses.over != Over::Forbidden);
                 let place = self.analysis.model.place_at(call.text_range().start());
                 windowed && place.is_some_and(|place| place.windows)
-            }
-            // A clause of a call's arguments, which the call's function takes.
-            SyntaxKind::IGNORE_KW
-            | SyntaxKind::RESPECT_KW
-            | SyntaxKind::HAVING_KW
-            | SyntaxKind::LIMIT_KW
-            | SyntaxKind::ORDER_KW
-                if self.call_function(before).is_some() =>
-            {
-                let clauses = &self.call_function(before).expect("a call").clauses;
-                match kind {
-                    SyntaxKind::IGNORE_KW | SyntaxKind::RESPECT_KW => clauses.null_treatment,
-                    SyntaxKind::HAVING_KW => clauses.having,
-                    SyntaxKind::LIMIT_KW => clauses.limit,
-                    _ => clauses.order_by,
-                }
             }
             SyntaxKind::ORDER_KW | SyntaxKind::ROWS_KW | SyntaxKind::RANGE_KW => {
                 let function = (before.parent_ancestors())
@@ -793,7 +788,6 @@ impl Document {
         }
     }
 
-    /// The argument list that `before` is in, of a call of a function of the library.
     /// The library's function of the call whose arguments hold `before` directly, not in a
     /// subquery or a window of an argument.
     fn call_function(&self, before: &SyntaxToken) -> Option<&Function> {
@@ -808,6 +802,7 @@ impl Document {
         self.library.get(&callee(&list.parent()?)?)
     }
 
+    /// The argument list that `before` is in, of a call of a function of the library.
     fn argument_list(&self, before: &SyntaxToken) -> Option<(ast::ArgList, &Function)> {
         let list = before.parent_ancestors().find_map(ast::ArgList::cast)?;
         let function = self.library.get(&callee(&list.syntax().parent()?)?)?;

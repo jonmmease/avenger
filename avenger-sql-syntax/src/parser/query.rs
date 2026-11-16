@@ -263,11 +263,6 @@ impl Parser<'_> {
         marker.complete(self, PAREN_QUERY)
     }
 
-    /// Whether the token `n` places ahead ends a query: `|>`, `)`, `;` or the end.
-    fn nth_ends_query(&self, n: usize) -> bool {
-        matches!(self.nth(n), PIPE | R_PAREN | SEMICOLON | EOF)
-    }
-
     /// The sources of `FROM` and their joins. Commas and joins associate to the left, as in
     /// GoogleSQL, so `a, b JOIN c` joins `c` to the cross join of `a` and `b`.
     fn sources(&mut self) {
@@ -275,7 +270,7 @@ impl Parser<'_> {
             return;
         };
         loop {
-            if self.current() == COMMA && self.nth_ends_query(1) {
+            if self.current() == COMMA && self.operator_end_at(1) {
                 self.bump();
                 // A source can also start here: at the cursor, record what a source takes.
                 if self.at_cursor() {
@@ -567,9 +562,12 @@ impl Parser<'_> {
     }
 
     /// Whether `MEASURES` starts the clause after a trailing comma of `MATCH_RECOGNIZE`'s `ORDER BY`,
-    /// and isn't a key named `measures`, which the clause would follow.
+    /// and isn't a key named `measures`, which the clause would follow. A key goes on with an
+    /// operator, as `measures + 1`, so a measure that starts with a unary `+` or `-` after a
+    /// trailing comma reads as a key.
     fn at_measures(&self) -> bool {
         let continues_key = matches!(self.nth(1), COMMA | DOT | L_BRACK | L_PAREN)
+            || self.infix_at(1)
             || ["ASC", "DESC", "NULLS", "MEASURES"]
                 .iter()
                 .any(|keyword| self.keyword_at(1, keyword));

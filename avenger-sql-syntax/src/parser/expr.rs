@@ -320,6 +320,17 @@ impl Parser<'_> {
         }
     }
 
+    /// Whether an infix operator starts at the token `n` places ahead.
+    pub(crate) fn infix_at(&self, n: usize) -> bool {
+        INFIX_OPERATORS.iter().any(|&(operator, _)| match operator {
+            Infix::Keyword(word) => self.keyword_at(n, word),
+            Infix::Phrase(words) => {
+                (words.iter().enumerate()).all(|(offset, word)| self.keyword_at(n + offset, word))
+            }
+            Infix::Token(token) => self.nth(n) == token,
+        })
+    }
+
     /// The level of the infix operator at the current token.
     fn infix_level(&self) -> Option<u8> {
         match self.current() {
