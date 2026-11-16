@@ -12,7 +12,7 @@ use datafusion::{
 };
 
 use crate::{
-    analysis::{analyze, Diagnostic, Options},
+    analysis::{analyze, Diagnostic, Lifted, Options},
     catalog::{references, SessionCatalog},
     library::Library,
 };
@@ -92,6 +92,31 @@ pub async fn sql_with_modules(
         return Err(script_error(text, analysis.diagnostics));
     }
     analysis.dataframe(ctx).await
+}
+
+/// The script `text` as the script that its lifted calls plan, as [`Analysis::lift`] prints it,
+/// with the tables of `ctx`. A script with an error returns a [`ScriptError`] of every diagnostic.
+///
+/// [`Analysis::lift`]: crate::analysis::Analysis::lift
+pub async fn lift(ctx: &SessionContext, text: &str) -> Result<Lifted> {
+    let parse = avenger_sql_syntax::parse(text);
+    if !parse.ok() {
+        let diagnostics = (parse.diagnostics().iter())
+            .map(|diagnostic| Diagnostic {
+                range: diagnostic.range,
+                message: diagnostic.message.clone(),
+            })
+            .collect();
+        return Err(script_error(text, diagnostics));
+    }
+    let root = parse.syntax();
+    let references = references(&root);
+    let catalog = SessionCatalog::load(ctx, &references).await?;
+    let analysis = analyze(&root, &catalog, library(), &Options::default());
+    match analysis.lift(text) {
+        Some(lifted) => Ok(lifted),
+        None => Err(script_error(text, analysis.diagnostics)),
+    }
 }
 
 fn script_error(text: &str, diagnostics: Vec<Diagnostic>) -> DataFusionError {

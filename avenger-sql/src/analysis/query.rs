@@ -26,6 +26,7 @@ use super::{
     expr::{direction, inferred_name, Scope, AGGREGATE_ITEMS},
     lifting::{self, Lifting},
     model::{Definition, PlaceKind},
+    print,
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -1822,9 +1823,10 @@ impl Pass<'_> {
             }
         };
         // Each branch joins the aggregate on the groups, `NULL` equal to `NULL`.
-        for (lifting, alias) in &branches {
-            let joined =
-                lifting::branch(lifting_input.clone(), &keys, lifting, alias).and_then(|branch| {
+        for (lifting, alias) in &mut branches {
+            let joined = lifting::branch(lifting_input.clone(), &keys, lifting, alias).and_then(
+                |(branch, filled)| {
+                    lifting.printed.filled = filled;
                     let builder = LogicalPlanBuilder::from(plan.clone());
                     let builder = match keys.is_empty() {
                         true => builder.cross_join(branch)?,
@@ -1845,7 +1847,8 @@ impl Pass<'_> {
                         }
                     };
                     builder.build()
-                });
+                },
+            );
             plan = match joined {
                 Ok(plan) => plan,
                 Err(error) => {
@@ -1853,6 +1856,9 @@ impl Pass<'_> {
                     return failed();
                 }
             };
+        }
+        if !branches.is_empty() {
+            self.record_lifted(op, range, &groups, &items, &branches);
         }
         let output: Vec<Column> = (plan.schema().columns().into_iter())
             .filter(|column| column.name != Aggregate::INTERNAL_GROUPING_ID)
@@ -2054,4 +2060,55 @@ pub(super) fn regroup(expr: Expr, grouped: &[(Expr, Column)]) -> Result<Expr> {
         None => Ok(Transformed::no(e)),
     })
     .map(|t| t.data)
+}
+
+impl Pass<'_> {
+    /// Records the text of the `AGGREGATE` `op` at `range`, whose `branches` are lifted calls, for
+    /// the printer of the stages: its input, its groups, and each item with its aggregates and its
+    /// lifted calls.
+    fn record_lifted(
+        &mut self,
+        op: &ast::PipeAggregate,
+        range: TextRange,
+        groups: &[Output],
+        items: &[Output],
+        branches: &[(Lifting, String)],
+    ) {
+        let Some(start) = print::query_start(op.syntax()) else {
+            return;
+        };
+        let expressions: Vec<ast::Expr> = op
+            .aggregate_items()
+            .filter_map(|item| item.expr())
+            .collect();
+        let mut printed = Vec::new();
+        for item in items {
+            let Some(expr) = expressions
+                .iter()
+                .find(|expr| item.range.contains_range(expr.syntax().text_range()))
+            else {
+                continue;
+            };
+            let calls: Vec<print::PrintedCall> = (branches.iter())
+                .map(|(lifting, _)| lifting.printed.clone())
+                .filter(|call| expr.syntax().text_range().contains_range(call.range))
+                .collect();
+            let aggregates = print::aggregates(expr, &calls, self.library);
+            printed.push(print::PrintedItem {
+                range: expr.syntax().text_range(),
+                name: item.name.clone(),
+                aggregates,
+                calls,
+            });
+        }
+        self.lifted.push(print::LiftedOperator {
+            range,
+            input: TextRange::new(start, range.start()),
+            groups: groups
+                .iter()
+                .map(|group| (group.range, group.name.clone()))
+                .collect(),
+            items: printed,
+        });
+    }
 }

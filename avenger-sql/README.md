@@ -92,6 +92,8 @@ FROM penguins
 - `stack` without `OVER` takes `OVER position`, so `bar(x => island, y => stack(COUNT(*)), color => species)` stacks the species of each island. `stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC)` puts the largest count at the bottom, and `offset` applies as for `stack` anywhere.
 - A stacked `line`, `area`, `trail`, `polar_line`, or `polar_area`, whose measure is a span or a field of one built from windows over `position`, fills each key that a series of a group lacks with zero before the windows, so the series do not cross.
 
+`avenger_sql::lift(ctx, text)`, or `Analysis::lift` of an analysis, writes a script as the script that its lifted calls plan, as pipe SQL that a user could type: each `AGGREGATE` with a lifted call becomes its stages, one operator to a line, and the rest of the text stays as written, with its layout and comments. It returns the text and the ranges that it wrote, and the printout has nothing more to lift. A call beside other items prints as a `LEFT JOIN` on the groups whose query repeats the operator's input, so the printout computes the input once for each branch, where the plan reads one run of it.
+
 A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. A call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors. The constructors set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot.
 
 ## Compositions

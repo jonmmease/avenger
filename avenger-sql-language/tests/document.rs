@@ -182,3 +182,14 @@ fn selection_ranges_grow_from_the_name_at_the_cursor() {
         assert!(pair[1].contains_range(pair[0]) && pair[1] != pair[0]);
     }
 }
+
+#[test]
+fn a_document_prints_the_stages_of_its_lifted_calls() {
+    let document = document("FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart");
+    let lifted = document.lifted().unwrap();
+    assert_eq!(
+        lifted.text,
+        "FROM penguins |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species\n|> SELECT `species`, `COUNT(*)`\n|> AGGREGATE bar(x => `species`, y => `COUNT(*)`) AS `chart`"
+    );
+    assert_eq!(lifted.generated.len(), 1);
+}

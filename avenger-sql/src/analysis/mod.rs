@@ -17,6 +17,7 @@ mod lifting;
 mod match_recognize;
 mod model;
 mod nested;
+mod print;
 mod query;
 mod reshape;
 mod rows;
@@ -34,6 +35,7 @@ pub use model::{
     match_recognize_part, CallForm, Column, Definition, EnumValue, FieldBase, MatchRecognizePart,
     Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
+pub use print::{Lifted, LiftedOperator};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
 use rows::{Col, Qualifiers, RangeVar, Rows};
@@ -74,6 +76,8 @@ pub struct Analysis {
     pub plan: Option<LogicalPlan>,
     pub model: Model,
     pub diagnostics: Vec<Diagnostic>,
+    /// The pipe `AGGREGATE`s that hold lifted calls, which [`Analysis::lift`] prints.
+    pub lifted: Vec<LiftedOperator>,
 }
 
 /// A statement of a script and its plan.
@@ -193,6 +197,7 @@ pub fn analyze(
         categories: None,
         match_recognize: Vec::new(),
         liftings: Vec::new(),
+        lifted: Vec::new(),
     };
     let mut plan = None;
     let mut statements = Vec::new();
@@ -229,6 +234,7 @@ pub fn analyze(
         plan,
         model: pass.model,
         diagnostics: pass.diagnostics,
+        lifted: pass.lifted,
     }
 }
 
@@ -272,6 +278,8 @@ pub(crate) struct Pass<'a> {
     /// The mark calls whose channels compute statistics, in the items of the pipe `AGGREGATE`s
     /// that the pass plans, which each operator takes when it plans its items.
     liftings: Vec<lifting::Lifting>,
+    /// The pipe `AGGREGATE`s that hold lifted calls, for the printer of the stages.
+    lifted: Vec<print::LiftedOperator>,
 }
 
 /// A name of a pipe `WITH`, and the rows of its query.
