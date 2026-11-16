@@ -27,7 +27,7 @@ use datafusion::{
     logical_expr::{AggregateUDF, Expr, WindowFunctionDefinition, WindowUDF},
 };
 
-use super::{cast, lit_i64, lit_str, Function, Need, Planned};
+use super::{cast, lit_i64, lit_str, Function, Need, Planned, WindowOrder};
 
 /// The example table of the aggregates, `x` of `[1, 2, 2, 3, NULL]`.
 const NUMBERS: &str = "FROM UNNEST([1, 2, 2, 3, NULL]) AS x";
@@ -135,7 +135,7 @@ const TIES: &str = "FROM UNNEST([1, 2, 2, 3]) AS x";
 const DISTINCT: &str = "FROM UNNEST([1, 2, 3, 4]) AS x";
 
 pub(super) fn window_functions() -> Vec<Function> {
-    vec![
+    let functions = vec![
         nullary("ROW_NUMBER", "Returns the number of each row in its window, from 1.", Need::Allowed, "INT64", row_number_udwf)
             .description("Rows that tie in the window's order take distinct numbers, in an order that isn't fixed.")
             .example(&format!("{TIES} |> EXTEND ROW_NUMBER() OVER (ORDER BY x) AS n"), "x | n\n1 | 1\n2 | 2\n2 | 3\n3 | 4"),
@@ -171,7 +171,19 @@ pub(super) fn window_functions() -> Vec<Function> {
             .form("(value: T) -> T where T: ANY", |call| Ok(window(last_value_udwf(), vec![call.arg(0)])))
             .null_treatment()
             .example(&format!("{DISTINCT} |> EXTEND LAST_VALUE(x) OVER (ORDER BY x) AS last"), "x | last\n1 | 1\n2 | 2\n3 | 3\n4 | 4"),
-    ]
+    ];
+    // The order that each reads, for the default orders of a mark call's windows.
+    (functions.into_iter())
+        .map(|function| {
+            let order = match function.name.as_str() {
+                "ROW_NUMBER" | "NTILE" | "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE"
+                | "NTH_VALUE" => WindowOrder::Rows,
+                "RANK" | "DENSE_RANK" | "PERCENT_RANK" | "CUME_DIST" => WindowOrder::Peers,
+                _ => WindowOrder::None,
+            };
+            function.reads_order(order)
+        })
+        .collect()
 }
 
 /// `LAG(value [, offset [, default_value]])` or `LEAD`.

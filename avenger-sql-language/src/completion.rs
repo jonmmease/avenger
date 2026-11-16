@@ -254,12 +254,18 @@ impl Document {
                     if let Some(before) = &before {
                         windows(before, &mut items);
                         if self.in_mark_channel(before) {
-                            items.simple(
-                                "panel".to_string(),
-                                CompletionKind::Window,
-                                Some("PARTITION BY the groups of the AGGREGATE".to_string()),
-                                rank::VARIABLE,
-                            );
+                            for (name, detail) in [
+                                ("panel", "PARTITION BY the groups of the AGGREGATE"),
+                                ("position", "PARTITION BY the groups and the position keys"),
+                                ("series", "PARTITION BY the groups and the series keys"),
+                            ] {
+                                items.simple(
+                                    name.to_string(),
+                                    CompletionKind::Window,
+                                    Some(detail.to_string()),
+                                    rank::VARIABLE,
+                                );
+                            }
                         }
                     }
                 }
@@ -731,7 +737,7 @@ impl Document {
     }
 
     /// Whether `before` is in the channels of a mark in an item of a pipe `AGGREGATE`, where a
-    /// window can name `panel`.
+    /// window can name `panel`, `position`, or `series`.
     fn in_mark_channel(&self, before: &SyntaxToken) -> bool {
         let ancestors: Vec<_> = before.parent_ancestors().collect();
         let mark = ancestors.iter().position(|node| {

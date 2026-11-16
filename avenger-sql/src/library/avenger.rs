@@ -44,7 +44,7 @@ use datafusion::{
 
 use super::{
     form::{Accept, Arity, FormArg, Signature, Ty},
-    null, DefaultWindow, Family, Function, Need, Planned,
+    null, DefaultWindow, Family, Function, Need, Planned, WindowOrder,
 };
 use crate::functions::{
     combine::CombineFunction,
@@ -452,6 +452,8 @@ fn stack() -> Function {
             Need::Required,
             false,
         )
+        .in_marks(DefaultWindow::Position, true)
+        .reads_order(WindowOrder::Rows)
         .description(
             "`PARTITION BY` gives the stacks, and `ORDER BY` the order of the layers in each \
              stack, from the bottom. The bounds are `NULL` for a value without a layer.",
