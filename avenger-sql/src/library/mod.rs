@@ -568,11 +568,24 @@ impl Function {
     /// Whether the parameter `name` takes one value of a set in some form, as `null_category` of
     /// `lump` does.
     pub fn takes_one_of(&self, name: &str) -> bool {
-        (self.forms.iter())
-            .flat_map(|form| &form.signature.args)
-            .any(|arg| {
-                arg.param.eq_ignore_ascii_case(name) && matches!(arg.accept, Accept::OneOf(_))
-            })
+        !self.values_of(name).is_empty()
+    }
+
+    /// The values of the sets that the parameter `name` takes in the forms, each once, in the
+    /// order of the forms.
+    pub fn values_of(&self, name: &str) -> Vec<&str> {
+        let mut values: Vec<&str> = Vec::new();
+        for arg in (self.forms.iter()).flat_map(|form| &form.signature.args) {
+            if let (true, Accept::OneOf(set)) = (arg.param.eq_ignore_ascii_case(name), &arg.accept)
+            {
+                for value in set {
+                    if !values.contains(&value.as_str()) {
+                        values.push(value);
+                    }
+                }
+            }
+        }
+        values
     }
 
     /// Whether the argument at `position`, or the one named `name`, takes a date part in some
