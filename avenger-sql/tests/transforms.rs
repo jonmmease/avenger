@@ -239,6 +239,37 @@ async fn bins_of_one_value_with_other_options_have_columns_of_their_own() {
     );
 }
 
+#[tokio::test]
+async fn a_unit_of_weeks_names_the_first_day_of_its_weeks() {
+    // Wednesday, March 13, 2024 is in the Sunday week from March 10 and the Monday week from
+    // March 11, which a unit names or `week_start` gives.
+    let day = "FROM UNNEST([DATE '2024-03-13']) AS d |> EXTEND";
+    for (call, start, unit) in [
+        (
+            "timeunit(d, unit => 'week') OVER ()",
+            "2024-03-10",
+            "week(1)",
+        ),
+        (
+            "timeunit(d, unit => 'week(2)') OVER ()",
+            "2024-03-11",
+            "week(2)",
+        ),
+        (
+            "timeunit(d, unit => 'week', week_start => 2) OVER ()",
+            "2024-03-11",
+            "week(2)",
+        ),
+    ] {
+        let found = lines(&format!("{day} {call} AS u |> SELECT u.start, u.unit")).await;
+        assert_eq!(
+            found,
+            [format!("{start} | {unit}"), "start | unit".to_string()],
+            "{call}"
+        );
+    }
+}
+
 #[test]
 fn the_errors_of_the_options_of_window_transforms_are_at_their_text() {
     let cases = [
@@ -271,6 +302,16 @@ fn the_errors_of_the_options_of_window_transforms_are_at_their_text() {
             "timeunit(DATE '2024-01-01', unit => 'month', maxbins => 10) OVER ()",
             "timeunit takes unit or maxbins, not both: an explicit unit has no automatic choice",
             "maxbins => 10",
+        ),
+        (
+            "timeunit(DATE '2024-01-01', unit => 'week(2)', week_start => 1) OVER ()",
+            "The unit of timeunit starts its weeks on day 2, but the weeks of the call start on day 1",
+            "unit => 'week(2)'",
+        ),
+        (
+            "timeunit(DATE '2024-01-01', unit => 'week', week_start => 9) OVER ()",
+            "The week_start of timeunit is a day from 1 for Sunday to 7 for Saturday, not 9",
+            "week_start => 9",
         ),
         (
             "stack(body_mass_g, offset => 'up') OVER (ORDER BY species)",

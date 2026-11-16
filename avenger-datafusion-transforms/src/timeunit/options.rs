@@ -1,41 +1,64 @@
-//! The options of a call, and the metadata tag of a result.
+//! The options of a call.
 
 use super::*;
 
 use crate::OptionError;
 use datafusion::arrow::datatypes::{DataType, TimeUnit as ArrowUnit};
 
+/// The first day of a week, numbered as GoogleSQL's `DAYOFWEEK`, from 1 for Sunday to 7 for
+/// Saturday. Weeks start on Sunday by default, as GoogleSQL's `WEEK` does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum WeekStart {
     #[default]
-    Monday,
     Sunday,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
 }
 
+const WEEK_STARTS: [WeekStart; 7] = [
+    WeekStart::Sunday,
+    WeekStart::Monday,
+    WeekStart::Tuesday,
+    WeekStart::Wednesday,
+    WeekStart::Thursday,
+    WeekStart::Friday,
+    WeekStart::Saturday,
+];
+
 impl WeekStart {
-    /// A leap year whose January 1 is the first day of a week: the reference calendar of
-    /// the collapsing units, and the origin of the units of a week or shorter.
+    /// The day of the number `n`, from 1 for Sunday to 7 for Saturday.
+    pub fn from_number(n: i64) -> Option<Self> {
+        let i = usize::try_from(n.checked_sub(1)?).ok()?;
+        WEEK_STARTS.get(i).copied()
+    }
+
+    /// The number of the day, from 1 for Sunday to 7 for Saturday.
+    pub fn number(self) -> i64 {
+        self as i64 + 1
+    }
+
+    /// A leap year whose January 1 is this day: the reference calendar of `week_of_year` and
+    /// `day_of_week`, and the origin of weeks.
     pub fn reference_year(self) -> i32 {
         match self {
-            WeekStart::Monday => 2024,
             WeekStart::Sunday => 2012,
+            WeekStart::Monday => 2024,
+            WeekStart::Tuesday => 2008,
+            WeekStart::Wednesday => 2020,
+            WeekStart::Thursday => 2004,
+            WeekStart::Friday => 2016,
+            WeekStart::Saturday => 2000,
         }
     }
 
-    /// The day of the name `monday` or `sunday`.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "monday" => Some(WeekStart::Monday),
-            "sunday" => Some(WeekStart::Sunday),
-            _ => None,
-        }
-    }
-
-    pub(super) fn name(self) -> &'static str {
-        match self {
-            WeekStart::Monday => "monday",
-            WeekStart::Sunday => "sunday",
-        }
+    /// The index in its week of the day `days` after January 1, 1970, a Thursday: 0 for this
+    /// day.
+    pub(super) fn index(self, days: i64) -> i64 {
+        (days + 5 - self.number()).rem_euclid(7)
     }
 }
 
@@ -44,7 +67,8 @@ pub struct TimeUnitOptions {
     pub unit: Option<Unit>,
     pub maxbins: Option<i64>,
     pub min_unit: Option<Unit>,
-    pub week_start: WeekStart,
+    /// The first day of a week, Sunday when unset.
+    pub week_start: Option<WeekStart>,
     /// The first month of the fiscal year, 1 to 12.
     pub fiscal_year_start: Option<i64>,
 }
@@ -130,6 +154,45 @@ impl TimeUnitOptions {
         Ok(())
     }
 
+    /// Takes the calendar that the text of the unit of `option` names, such as the Monday of
+    /// `'week(2)'`. A calendar that differs from the `week_start` or the `fiscal_year_start` of
+    /// the call, or of another unit, is an error of `option`.
+    pub fn take_calendar(
+        &mut self,
+        option: &'static str,
+        calendar: Option<UnitCalendar>,
+    ) -> std::result::Result<(), OptionError> {
+        match calendar {
+            None => Ok(()),
+            Some(UnitCalendar::WeekStart(day)) => match self.week_start {
+                Some(set) if set != day => Err(OptionError::new(
+                    option,
+                    format!(
+                        "The {option} of timeunit starts its weeks on day {}, but the weeks of the call start on day {}",
+                        day.number(),
+                        set.number()
+                    ),
+                )),
+                _ => {
+                    self.week_start = Some(day);
+                    Ok(())
+                }
+            },
+            Some(UnitCalendar::FiscalYearStart(month)) => match self.fiscal_year_start {
+                Some(set) if set != month => Err(OptionError::new(
+                    option,
+                    format!(
+                        "The {option} of timeunit starts its fiscal years in month {month}, but the fiscal years of the call start in month {set}"
+                    ),
+                )),
+                _ => {
+                    self.fiscal_year_start = Some(month);
+                    Ok(())
+                }
+            },
+        }
+    }
+
     /// The options that differ from the defaults, as named arguments, such as
     /// `unit => 'month'`.
     pub(super) fn text(&self) -> String {
@@ -143,21 +206,12 @@ impl TimeUnitOptions {
         if let Some(u) = self.min_unit {
             parts.push(format!("min_unit => '{}'", u.text()));
         }
-        if self.week_start != WeekStart::default() {
-            parts.push(format!("week_start => '{}'", self.week_start.name()));
+        if let Some(day) = self.week_start {
+            parts.push(format!("week_start => {}", day.number()));
         }
         if let Some(m) = self.fiscal_year_start {
             parts.push(format!("fiscal_year_start => {m}"));
         }
         parts.join(", ")
-    }
-
-    /// The value of the metadata key `avenger.time_unit`.
-    pub fn tag(&self) -> String {
-        let fiscal = self
-            .fiscal_year_start
-            .map(|m| format!(",\"fiscal_year_start\":{m}"))
-            .unwrap_or_default();
-        format!("{{\"week_start\":\"{}\"{fiscal}}}", self.week_start.name())
     }
 }

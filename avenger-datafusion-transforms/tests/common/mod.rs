@@ -132,12 +132,15 @@ pub async fn rows(ctx: &SessionContext, sql: &str) -> Result<Vec<Vec<String>>> {
     Ok(rows)
 }
 
-/// The options of `timeunit` with the unit `text`.
+/// The options of `timeunit` with the unit `text`, and the calendar that it names.
 pub fn unit(text: &str) -> TimeUnitOptions {
-    TimeUnitOptions {
-        unit: Some(Unit::parse(text).expect("a unit")),
+    let (unit, calendar) = Unit::parse(text).expect("a unit");
+    let mut options = TimeUnitOptions {
+        unit: Some(unit),
         ..Default::default()
-    }
+    };
+    options.take_calendar("unit", calendar).expect("a calendar");
+    options
 }
 
 /// Registers as the view `name` the query `input` with the column `u`, the time unit of `value`

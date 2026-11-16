@@ -2,7 +2,6 @@
 
 use super::*;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use datafusion::arrow::array::{
@@ -62,11 +61,12 @@ pub(crate) fn unit_type() -> DataType {
     DataType::Dictionary(Box::new(DataType::Int32), Box::new(DataType::Utf8))
 }
 
-pub(super) fn result_field(name: &str, dt: &DataType, nullable: bool, tag: String) -> FieldRef {
-    Arc::new(
-        Field::new(name, DataType::Struct(result_fields(dt)), nullable)
-            .with_metadata(HashMap::from([(TAG.to_string(), tag)])),
-    )
+pub(super) fn result_field(name: &str, dt: &DataType, nullable: bool) -> FieldRef {
+    Arc::new(Field::new(
+        name,
+        DataType::Struct(result_fields(dt)),
+        nullable,
+    ))
 }
 
 /// The units of the values of `x`, with the unit of each row from `unit_of` (None for a
@@ -119,7 +119,11 @@ pub fn apply(
     for (u, rows) in units.iter().zip(&rows) {
         apply_unit(&mut cal, &ticks, rows, *u, &mut starts, &mut ends);
     }
-    let mut texts: Vec<String> = units.iter().map(|u| u.text()).collect();
+    // Each unit's text names its calendar, so the rows carry it.
+    let week_start = o.week_start.unwrap_or_default();
+    let mut texts: Vec<String> = (units.iter())
+        .map(|u| u.text_in(week_start, o.fiscal_year_start))
+        .collect();
     if texts.is_empty() {
         texts.push(String::new());
     }
@@ -222,31 +226,6 @@ impl UnitSequence {
             }
         })
     }
-}
-
-/// The calendar options of the metadata tag of a `timeunit` result: `week_start` and
-/// `fiscal_year_start`, or the defaults without a tag.
-pub(crate) fn options_of_tag(tag: Option<&str>) -> Result<TimeUnitOptions> {
-    // The JSON value of a key: up to the next comma or brace.
-    let value = |key: &str| -> Option<&str> {
-        let tag = tag?;
-        let at = tag.find(&format!("\"{key}\":"))? + key.len() + 3;
-        tag[at..].split([',', '}']).next()
-    };
-    let week_start = match value("week_start").map(|v| v.trim_matches('"')) {
-        Some(name) => match WeekStart::from_name(name) {
-            Some(week_start) => week_start,
-            None => return plan_err!("the time unit tag has the week start '{name}'"),
-        },
-        None => WeekStart::default(),
-    };
-    let options = TimeUnitOptions {
-        week_start,
-        fiscal_year_start: value("fiscal_year_start").and_then(|v| v.parse().ok()),
-        ..Default::default()
-    };
-    options.check()?;
-    Ok(options)
 }
 
 pub(super) fn apply_unit(

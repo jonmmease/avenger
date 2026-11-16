@@ -94,7 +94,7 @@ fn min_unit(text: &str) -> TimeUnitOptions {
 /// `options` with weeks that start on Sunday.
 fn sunday(options: TimeUnitOptions) -> TimeUnitOptions {
     TimeUnitOptions {
-        week_start: WeekStart::Sunday,
+        week_start: Some(WeekStart::Sunday),
         ..options
     }
 }
@@ -227,7 +227,10 @@ async fn zones() -> Result<()> {
 #[tokio::test]
 async fn expected_units() -> Result<()> {
     // Weeks that start on Monday or Sunday, and fiscal years that start in October or February.
-    let mon = TimeUnitOptions::default();
+    let mon = TimeUnitOptions {
+        week_start: Some(WeekStart::Monday),
+        ..Default::default()
+    };
     let sun = sunday(mon.clone());
     let (oct, feb) = (fiscal(10, mon.clone()), fiscal(2, mon.clone()));
     // (value, time zone, unit, other options, start, end)
@@ -406,22 +409,23 @@ async fn expected_units() -> Result<()> {
             "2024-01-15T00:00",
         ),
         // A count steps on across its parent units: days and units shorter than a day from
-        // the first day of a week of the reference year, months from January of year 0.
+        // January 1, 2012, which the first day of a week does not move, and months from January
+        // of year 0.
         (
             "2024-01-31T12:00",
             None,
             "2 days",
             &mon,
-            "2024-01-31T00:00",
-            "2024-02-02T00:00",
+            "2024-01-30T00:00",
+            "2024-02-01T00:00",
         ),
         (
             "2024-01-31T12:00",
             None,
             "7 days",
             &mon,
-            "2024-01-29T00:00",
-            "2024-02-05T00:00",
+            "2024-01-28T00:00",
+            "2024-02-04T00:00",
         ),
         (
             "2024-01-31T12:00",
@@ -505,14 +509,15 @@ async fn expected_units() -> Result<()> {
             "2023-02-01T00:00",
             "2025-02-01T00:00",
         ),
-        // Collapsing units on the reference years: 2024 for Monday weeks, 2012 for Sunday.
+        // Collapsing units on the reference year 2012, and the units of weeks on the year of
+        // the first day of their weeks: 2024 for Monday, 2012 for Sunday.
         (
             "2023-07-04T15:00",
             None,
             "month_of_year",
             &mon,
-            "2024-07-01T00:00",
-            "2024-08-01T00:00",
+            "2012-07-01T00:00",
+            "2012-08-01T00:00",
         ),
         (
             "2023-07-04T15:00",
@@ -551,8 +556,8 @@ async fn expected_units() -> Result<()> {
             None,
             "day_of_year",
             &mon,
-            "2024-02-29T00:00",
-            "2024-03-01T00:00",
+            "2012-02-29T00:00",
+            "2012-03-01T00:00",
         ),
         // The same value by month and day: March 1, not the 60th day of a leap year.
         (
@@ -560,24 +565,24 @@ async fn expected_units() -> Result<()> {
             None,
             "month_day",
             &mon,
-            "2024-03-01T00:00",
-            "2024-03-02T00:00",
+            "2012-03-01T00:00",
+            "2012-03-02T00:00",
         ),
         (
             "2023-11-15T15:00",
             None,
             "fiscal_quarter_of_year",
             &oct,
-            "2024-10-01T00:00",
-            "2025-01-01T00:00",
+            "2012-10-01T00:00",
+            "2013-01-01T00:00",
         ),
         (
             "2024-11-03T06:30",
             NY,
             "hour_of_day",
             &mon,
-            "2024-01-01T06:00",
-            "2024-01-01T07:00",
+            "2012-01-01T06:00",
+            "2012-01-01T07:00",
         ),
     ];
     let ctx = session();
@@ -586,10 +591,15 @@ async fn expected_units() -> Result<()> {
             unit: unit(text).unit,
             ..other.clone()
         };
+        // The row's unit names the calendar of the call.
+        let named = (options.unit.unwrap()).text_in(
+            options.week_start.unwrap_or_default(),
+            options.fiscal_year_start,
+        );
         let (s, e, u) = unit_of(&ctx, value, tz, options).await?;
         assert_eq!(
             (iso(s), iso(e), u.as_str()),
-            (iso(ms(start)), iso(ms(end)), text),
+            (iso(ms(start)), iso(ms(end)), named.as_str()),
             "{value} {tz:?} '{text}' ({other:?})"
         );
     }
@@ -610,39 +620,147 @@ async fn dates_stay_dates() -> Result<()> {
     Ok(())
 }
 
-/// The field's metadata names the options that the unit needs to be read, in the planned
-/// schema and in the batches, through a query that groups by the unit.
+/// The text of a unit names the calendar of a unit of weeks and of a fiscal unit, after the
+/// count, and a parameter out of range or of another unit is an error.
+#[test]
+fn the_text_of_a_unit_names_its_calendar() {
+    use timeunit::UnitCalendar::{FiscalYearStart, WeekStart as Starts};
+    for (text, calendar, written) in [
+        ("week", None, "week(1)"),
+        ("week(2)", Some(Starts(WeekStart::Monday)), "week(2)"),
+        (
+            "2 weeks(7)",
+            Some(Starts(WeekStart::Saturday)),
+            "2 weeks(7)",
+        ),
+        (
+            "week_of_year(3)",
+            Some(Starts(WeekStart::Tuesday)),
+            "week_of_year(3)",
+        ),
+        (
+            "day_of_week(1)",
+            Some(Starts(WeekStart::Sunday)),
+            "day_of_week(1)",
+        ),
+        (
+            "fiscal_quarter(10)",
+            Some(FiscalYearStart(10)),
+            "fiscal_quarter(10)",
+        ),
+        (
+            "2 fiscal_years(4)",
+            Some(FiscalYearStart(4)),
+            "2 fiscal_years(4)",
+        ),
+        (
+            "fiscal_quarter_of_year(7)",
+            Some(FiscalYearStart(7)),
+            "fiscal_quarter_of_year(7)",
+        ),
+        ("month", None, "month"),
+        ("3 days", None, "3 days"),
+    ] {
+        let (unit, named) = Unit::parse(text).unwrap();
+        assert_eq!(named, calendar, "{text}");
+        let mut options = TimeUnitOptions::default();
+        options.take_calendar("unit", named).unwrap();
+        let month = options.fiscal_year_start;
+        assert_eq!(
+            unit.text_in(options.week_start.unwrap_or_default(), month),
+            written
+        );
+    }
+    for (text, message) in [
+        ("week(0)", "from 1 for Sunday to 7 for Saturday, not 0"),
+        ("week(8)", "from 1 for Sunday to 7 for Saturday, not 8"),
+        ("fiscal_year(13)", "from 1 to 12, not 13"),
+        ("month(2)", "takes no parameter"),
+        ("week(monday)", "is a number"),
+    ] {
+        let error = Unit::parse(text).unwrap_err().to_string();
+        assert!(error.contains(message), "{text}: {error}");
+    }
+    // A unit's calendar sets the option, and one that contradicts it is an error.
+    let mut options = TimeUnitOptions {
+        week_start: Some(WeekStart::Sunday),
+        ..Default::default()
+    };
+    let (_, calendar) = Unit::parse("week(2)").unwrap();
+    let error = options.take_calendar("unit", calendar).unwrap_err();
+    assert_eq!(error.option, "unit");
+}
+
+/// Weeks, `week_of_year`, and `day_of_week` start on each of the seven days, and the reference
+/// year of a week's collapsing units starts on its first day.
 #[tokio::test]
-async fn metadata() -> Result<()> {
+async fn weeks_start_on_each_day() -> Result<()> {
+    let ctx = session();
+    // Wednesday, March 13, 2024, and the first day of its week from Sunday to Saturday.
+    let starts = [
+        "2024-03-10",
+        "2024-03-11",
+        "2024-03-12",
+        "2024-03-13",
+        "2024-03-07",
+        "2024-03-08",
+        "2024-03-09",
+    ];
+    let years = [2012, 2024, 2008, 2020, 2004, 2016, 2000];
+    for (day, (start, year)) in (1..=7).zip(starts.iter().zip(years)) {
+        let text = format!("week({day})");
+        let (s, e, u) = unit_of(&ctx, "2024-03-13T12:00", None, unit(&text)).await?;
+        let first = ms(&format!("{start}T00:00"));
+        assert_eq!(
+            (s, e, u.as_str()),
+            (first, first + 7 * 86_400_000, text.as_str())
+        );
+        // The day of the week is the day of the reference year at its index in the week.
+        let text = format!("day_of_week({day})");
+        let (s, _, _) = unit_of(&ctx, "2024-03-13T12:00", None, unit(&text)).await?;
+        let index = (3 - (day - 1) as i64).rem_euclid(7);
+        assert_eq!(
+            s,
+            ms(&format!("{year}-01-01T00:00")) + index * 86_400_000,
+            "{text}"
+        );
+    }
+    Ok(())
+}
+
+/// The result's field holds no metadata, and each row's unit names its calendar: the first day
+/// of the weeks of a unit of weeks, and the first month of the fiscal years of a fiscal unit.
+#[tokio::test]
+async fn units_name_their_calendars() -> Result<()> {
     let ctx = session();
     register(
         &ctx,
         "c",
         vec![("t", ts(vec![ms("2024-03-13T00:00")], None))],
     )?;
-    for (options, tag) in [
-        (unit("quarter"), r#"{"week_start":"monday"}"#),
-        (
-            sunday(fiscal(10, maxbins(10))),
-            r#"{"week_start":"sunday","fiscal_year_start":10}"#,
-        ),
+    for (options, text) in [
+        (unit("quarter"), "quarter"),
+        (unit("week"), "week(1)"),
+        (unit("2 weeks(2)"), "2 weeks(2)"),
+        (unit("day_of_week(7)"), "day_of_week(7)"),
+        (fiscal(10, unit("fiscal_quarter")), "fiscal_quarter(10)"),
+        (unit("fiscal_year(4)"), "fiscal_year(4)"),
     ] {
         time_units(&ctx, "units", INPUT, "t", &[], options.clone()).await?;
-        let df = ctx
-            .sql("SELECT u, count(*) AS n FROM units GROUP BY u")
-            .await?;
-        let key = |m: &std::collections::HashMap<String, String>| m.get(timeunit::TAG).cloned();
-        let planned = key(df.schema().field(0).metadata());
+        let df = ctx.sql("SELECT u.unit AS unit FROM units").await?;
+        let planned = ctx.sql("SELECT u FROM units").await?;
+        assert!(
+            planned.schema().field(0).metadata().is_empty(),
+            "{options:?}"
+        );
         let batches = df.collect().await?;
-        let run = key(batches[0].schema().field(0).metadata());
-        assert_eq!(planned.as_deref(), Some(tag), "{options:?}");
-        assert_eq!(run.as_deref(), Some(tag), "{options:?}");
+        let units = batches[0].column(0);
+        let units = cast(units, &DataType::Utf8)?;
+        assert_eq!(units.as_string::<i32>().value(0), text, "{options:?}");
     }
     Ok(())
 }
 
-/// Automatic units: by the span and the spacing of the values and by the options, of DATE
-/// values, and in each window partition.
 #[tokio::test]
 async fn automatic_units() -> Result<()> {
     let ctx = session();
@@ -665,7 +783,7 @@ async fn automatic_units() -> Result<()> {
             series("2024-01-03T00:00", 7 * D, 52),
             None,
             maxbins(365),
-            "week",
+            "week(1)",
         ),
         (
             series("2024-01-01T00:00", 15 * M, 96),
@@ -696,7 +814,7 @@ async fn automatic_units() -> Result<()> {
             scattered("2020-01-01T00:00", 4 * Y, 1000),
             None,
             fiscal(10, auto()),
-            "fiscal_quarter",
+            "fiscal_quarter(10)",
         ),
         (
             scattered("1980-01-01T00:00", 40 * Y, 1000),

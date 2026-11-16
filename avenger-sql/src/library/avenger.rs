@@ -28,7 +28,7 @@ use avenger_datafusion_transforms::{
     bin::{self, BinOptions},
     stack::{self, StackOffset},
     table_function::constant,
-    timeunit::{self, TimeUnitOptions, Unit, WeekStart},
+    timeunit::{self, TimeUnitOptions, Unit, UnitCalendar, WeekStart},
     OptionError,
 };
 use datafusion::{
@@ -493,8 +493,8 @@ fn timeunit() -> Function {
              `OVER ()` serves. A count steps evenly across the longer units, so `'7 days'` are \
              weeks, and a count that divides a longer unit, such as `'15 minutes'` or `'3 \
              months'`, starts again at each start of the longer unit. The result holds the start \
-             of the unit, the start of the next unit, and the name of the unit, such as \
-             `'month'` or `'3 months'`.",
+             of the unit, the start of the next unit, and the text of the unit with its \
+             calendar, such as `'month'`, `'3 months'`, or `'week(1)'`.",
         )
         .param(
             "value",
@@ -505,9 +505,12 @@ fn timeunit() -> Function {
             "unit",
             "The unit, such as `'month'`, which holds a span of time and takes a count and a \
              plural, as in `'15 minutes'` or `'3 months'`, or a collapsing unit, such as \
-             `'month_of_year'`, which maps each value into one reference year. The fiscal units \
-             `'fiscal_year'` and `'fiscal_quarter'` need `fiscal_year_start`. When omitted, \
-             `timeunit` chooses one unit for each partition.",
+             `'month_of_year'`, which maps each value into one reference year. The units of \
+             weeks name the first day of their weeks in parentheses, as GoogleSQL's `DAYOFWEEK` \
+             numbers it, from 1 for Sunday to 7 for Saturday, as in `'week(2)'` for weeks that \
+             start on Monday, and the fiscal units name the first month of their fiscal years, as \
+             in `'fiscal_quarter(10)'`. Without one, a unit takes `week_start` or \
+             `fiscal_year_start`. When omitted, `timeunit` chooses one unit for each partition.",
         )
         .param(
             "min_unit",
@@ -522,7 +525,9 @@ fn timeunit() -> Function {
         )
         .param(
             "week_start",
-            "The first day of a week. When omitted, `'monday'`.",
+            "The first day of a week, as GoogleSQL's `DAYOFWEEK` numbers it, from 1 for Sunday \
+             to 7 for Saturday, such as 2 for Monday. When omitted, 1, so weeks start on Sunday, \
+             as GoogleSQL's `WEEK` does.",
         )
         .param(
             "fiscal_year_start",
@@ -530,7 +535,7 @@ fn timeunit() -> Function {
              October.",
         ),
         "(value: T[, unit => STRING][, min_unit => STRING][, maxbins => INT64][, week_start => \
-         ONEOF('monday', 'sunday')][, fiscal_year_start => INT64]) -> STRUCT<start T, end T, unit \
+         INT64][, fiscal_year_start => INT64]) -> STRUCT<start T, end T, unit \
          STRING> where T: DATE | DATETIME | TIMESTAMP",
         timeunit_window,
     )
@@ -803,7 +808,8 @@ impl Options<'_, '_> {
     }
 
     /// The unit of the option `name`, when the call gives it.
-    fn unit(&self, name: &str) -> Result<Option<Unit>, super::CallError> {
+    /// The unit of the option `name`, and the calendar that its text names.
+    fn unit(&self, name: &str) -> Result<Option<(Unit, Option<UnitCalendar>)>, super::CallError> {
         let Some(text) = self.text(name)? else {
             return Ok(None);
         };
@@ -874,18 +880,34 @@ fn stack_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
 
 /// The window of a call of `timeunit`.
 fn timeunit_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
-    let week_start = match o.text("week_start")? {
-        // The form takes only the names of days.
-        Some(name) => WeekStart::from_name(&name).expect("a week start of the form"),
-        None => WeekStart::default(),
+    let week_start = match o.integer("week_start")? {
+        Some(n) => match WeekStart::from_number(n) {
+            Some(day) => Some(day),
+            None => {
+                return Err(o.call.error_at(
+                    o.index("week_start"),
+                    format!(
+                        "The week_start of timeunit is a day from 1 for Sunday to 7 for Saturday, \
+                         not {n}"
+                    ),
+                ))
+            }
+        },
+        None => None,
     };
-    let options = TimeUnitOptions {
-        unit: o.unit("unit")?,
+    let (unit, min_unit) = (o.unit("unit")?, o.unit("min_unit")?);
+    let mut options = TimeUnitOptions {
+        unit: unit.map(|(unit, _)| unit),
         maxbins: o.integer("maxbins")?,
-        min_unit: o.unit("min_unit")?,
+        min_unit: min_unit.map(|(unit, _)| unit),
         week_start,
         fiscal_year_start: o.integer("fiscal_year_start")?,
     };
+    // A unit's text names its calendar, which sets the options.
+    for (name, unit) in [("unit", unit), ("min_unit", min_unit)] {
+        let calendar = unit.and_then(|(_, calendar)| calendar);
+        (options.take_calendar(name, calendar)).map_err(|error| o.error(error))?;
+    }
     options.check().map_err(|error| o.error(error))?;
     let value = o.call.type_of(&o.call.arg(0))?;
     options.check_type(&value).map_err(|error| o.error(error))?;
