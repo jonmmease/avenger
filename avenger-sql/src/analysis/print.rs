@@ -270,9 +270,19 @@ fn quoted(name: &str) -> String {
     format!("`{}`", name.replace('\\', "\\\\").replace('`', "\\`"))
 }
 
+/// The alias of an item named `name`, which an item without a name takes none of.
+fn alias(name: &str) -> String {
+    match name.is_empty() {
+        true => String::new(),
+        false => format!(" AS {}", quoted(name)),
+    }
+}
+
 /// `text` as the column `name`: itself when it names the column already.
 fn aliased(text: &str, name: &str) -> String {
-    match text == name || text == quoted(name) {
+    let identifier = (name.chars().next()).is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    match (text == name && identifier) || text == quoted(name) {
         true => text.to_string(),
         false => format!("{text} AS {}", quoted(name)),
     }
@@ -664,8 +674,8 @@ impl LiftedOperator {
                     let (stages, mark) = call.stages(&mut writer, &groups, &names);
                     let mut out: Vec<String> = stages;
                     out.push(format!(
-                        "|> AGGREGATE {mark} AS {}{group_by}",
-                        quoted(&item.name)
+                        "|> AGGREGATE {mark}{}{group_by}",
+                        alias(&item.name)
                     ));
                     return out.join(&format!("\n{indent}"));
                 }
@@ -731,11 +741,7 @@ impl LiftedOperator {
             .map(|name| format!("__items.{0} AS {0}", quoted(name)))
             .collect();
         for item in &self.items {
-            select.push(format!(
-                "{} AS {}",
-                writer.at(item.range),
-                quoted(&item.name)
-            ));
+            select.push(format!("{}{}", writer.at(item.range), alias(&item.name)));
         }
         let mut out = vec![aggregate, "|> AS __items".to_string()];
         out.extend(branches);

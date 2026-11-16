@@ -704,6 +704,30 @@ async fn the_printouts_of_the_stages() {
 }
 
 #[tokio::test]
+async fn an_unaliased_item_and_a_key_expression_print_as_written() {
+    // An item without an alias prints without one, and a key that is an expression keeps the
+    // alias that its stage reads it by.
+    let query = format!(
+        "{PENGUINS} |> AGGREGATE rect(x => island, y => CAST(body_mass_g > 4000 AS STRING), \
+         color => COUNT(*))"
+    );
+    let printed = avenger_sql::lift(&session(), &query).await.unwrap().text;
+    assert!(!printed.contains("``"), "{printed}");
+    assert!(
+        printed
+            .contains("CAST(body_mass_g > 4000 AS STRING) AS `CAST(body_mass_g > 4000 AS STRING)`"),
+        "{printed}"
+    );
+    let rows = avenger_sql::sql(&session(), &printed)
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    assert_eq!(rows.iter().map(|batch| batch.num_rows()).sum::<usize>(), 1);
+}
+
+#[tokio::test]
 async fn a_printout_keeps_the_rest_of_the_script() {
     let script = "-- The counts of the species.\nDECLARE n INT64 DEFAULT 1;\n\n\
                   FROM penguins\n  -- Only the weighed penguins.\n  |> WHERE body_mass_g IS NOT NULL\n  \
