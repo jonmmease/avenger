@@ -45,7 +45,11 @@ use datafusion::{
     },
 };
 
-use super::{query::regroup, rows, Pass};
+use super::{
+    print::{self, PrintedCall, PrintedChannel},
+    query::regroup,
+    rows, Pass,
+};
 use crate::library::{Library, WindowOrder};
 
 /// The qualifier of the column that stands for a window of a mark call in the partition of a
@@ -122,6 +126,8 @@ pub(crate) struct Lifting {
     /// Whether the call draws a path whose measure stacks over `position`, which fills the keys
     /// that a series lacks with zero.
     pub fill: bool,
+    /// The text of the call, which the printer of the stages reads.
+    pub printed: PrintedCall,
 }
 
 /// What the windows `panel`, `position`, and `series` of a mark call partition and order by.
@@ -144,6 +150,8 @@ pub(crate) struct Windows {
 /// `scaled` or `direct`, its range, the text that names its column, and its complete text.
 pub(crate) struct Written {
     pub channel: String,
+    /// The syntax of the value, inside `scaled` or `direct`.
+    pub node: ast::Expr,
     pub value: Expr,
     pub range: TextRange,
     pub text: String,
@@ -196,6 +204,26 @@ pub(crate) fn channel_title(value: &ast::Expr, library: &Library) -> String {
 fn collapsed(value: &ast::Expr) -> String {
     let text = value.syntax().text().to_string();
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The syntax of the channel value `value`, inside `scaled` or `direct`.
+pub(crate) fn channel_node(value: &ast::Expr) -> ast::Expr {
+    if let ast::Expr::CallExpr(call) = value {
+        let kind = (call.path().and_then(|path| path.names())).is_some_and(|names| {
+            matches!(names.as_slice(), [name] if Kind::of(&name.to_ascii_lowercase()).is_some())
+        });
+        let first =
+            (call.arg_list().and_then(|list| list.arguments().next())).and_then(|argument| {
+                match argument {
+                    ast::Argument::Arg(arg) => arg.expr(),
+                    _ => None,
+                }
+            });
+        if let (true, Some(first)) = (kind, first) {
+            return first;
+        }
+    }
+    value.clone()
 }
 
 /// The text of the channel value `value`, inside `scaled` or `direct`, with its spaces collapsed.
@@ -394,6 +422,7 @@ impl Pass<'_> {
         mark: &Expr,
         written: &[Written],
         order: &[SortExpr],
+        order_nodes: &[ast::Expr],
         order_range: Option<TextRange>,
         groups: Option<&[Expr]>,
         range: TextRange,
@@ -552,12 +581,49 @@ impl Pass<'_> {
             && written
                 .iter()
                 .any(|value| !is_key(&value.value) && names_position(&value.value));
+        // The text of the call, by the same roles, for the printer of the stages.
+        let channels: Vec<&Written> = written.iter().filter(|value| part(&value.value)).collect();
+        let printed_channels: Vec<PrintedChannel> = (channels.iter())
+            .map(|value| PrintedChannel {
+                range: value.node.syntax().text_range(),
+                name: (names.iter())
+                    .find(|(expr, _)| expr == &value.value)
+                    .map(|(_, name)| name.clone())
+                    .unwrap_or_else(|| value.text.clone()),
+                key: is_key(&value.value),
+            })
+            .collect();
+        let indices = |list: &[Expr]| -> Vec<usize> {
+            (list.iter())
+                .filter_map(|expr| channels.iter().position(|value| &value.value == expr))
+                .collect()
+        };
+        let roots: Vec<ast::Expr> = (channels.iter().map(|value| value.node.clone()))
+            .chain(order_nodes.iter().cloned())
+            .collect();
+        let printed = PrintedCall {
+            range,
+            channels: printed_channels,
+            order: order_nodes
+                .iter()
+                .map(|node| node.syntax().text_range())
+                .collect(),
+            parts: print::parts(&roots, aggregating, library),
+            position: indices(&partitions.position),
+            series: indices(&partitions.series),
+            other: indices(&partitions.other),
+            measures: indices(&partitions.measures),
+            reversed: partitions.reversed,
+            aggregating,
+            filled: false,
+        };
         self.liftings.push(Lifting {
             mark: mark.clone(),
             names,
             windows: partitions,
             aggregating,
             fill,
+            printed,
         });
         true
     }
@@ -622,7 +688,7 @@ pub(crate) fn branch(
     groups: &[Expr],
     lifting: &Lifting,
     alias: &str,
-) -> Result<LogicalPlan> {
+) -> Result<(LogicalPlan, bool)> {
     let Expr::AggregateFunction(mark) = &lifting.mark else {
         unreachable!("a lifting holds a mark aggregate");
     };
@@ -741,8 +807,9 @@ pub(crate) fn branch(
         .map(|part| calls.resolve(part, &["panel", "position", "series"], &staged))
         .collect::<Result<_>>()?;
     // A stacked path fills the keys that a series lacks with zero before its windows.
+    let mut fills = false;
     if lifting.fill {
-        plan = filled(plan, values.as_slice(), &parts, &staged)?;
+        (plan, fills) = filled(plan, values.as_slice(), &parts, &staged)?;
     }
     loop {
         let found = innermost_windows(&parts);
@@ -819,10 +886,11 @@ pub(crate) fn branch(
     let group_columns: Vec<Expr> = (0..groups.len())
         .map(|index| Expr::Column(Column::from_name(format!("__group_{index}"))))
         .collect();
-    LogicalPlanBuilder::from(projected)
+    let plan = LogicalPlanBuilder::from(projected)
         .aggregate(group_columns, vec![restaged.alias("__mark")])?
         .alias(alias)?
-        .build()
+        .build()?;
+    Ok((plan, fills))
 }
 
 /// `plan`, the aggregated rows of a stacked path, with a row of zeros for each position key and
@@ -834,9 +902,9 @@ fn filled(
     values: &[&Expr],
     parts: &[Expr],
     staged: &Staged,
-) -> Result<LogicalPlan> {
+) -> Result<(LogicalPlan, bool)> {
     let [key] = staged.position else {
-        return Ok(plan);
+        return Ok((plan, false));
     };
     let schema = plan.schema().clone();
     // The staged measures that stack over `position`, and the aggregates that they read.
@@ -854,7 +922,7 @@ fn filled(
         }
     }
     let (Some(value), Expr::Column(key)) = (read.first().cloned(), key) else {
-        return Ok(plan);
+        return Ok((plan, false));
     };
     let groups: Vec<Column> = (staged.series.iter())
         .filter_map(|expr| match expr {
@@ -890,7 +958,7 @@ fn filled(
     // The other aggregates that the stack reads are zero on the added rows.
     let others = &read[1..];
     if others.is_empty() {
-        return Ok(imputed);
+        return Ok((imputed, true));
     }
     let projection = (imputed.schema().columns().into_iter())
         .map(|column| -> Result<Expr> {
@@ -902,9 +970,10 @@ fn filled(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    LogicalPlanBuilder::from(imputed)
+    let plan = LogicalPlanBuilder::from(imputed)
         .project(projection)?
-        .build()
+        .build()?;
+    Ok((plan, true))
 }
 
 impl Staged<'_> {

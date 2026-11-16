@@ -18,11 +18,20 @@ async fn charts(query: &str) -> Vec<Chart> {
     charts_in(&session(), query).await
 }
 
-/// Asserts that `lifted` gives the charts of `staged`.
+/// Asserts that `lifted` gives the charts of `staged`, and so does the printout of its stages,
+/// which has nothing more to lift.
 async fn same(lifted: &str, staged: &str) {
     let found = charts(lifted).await;
     assert!(!found.is_empty(), "{lifted}");
     assert_eq!(found, charts(staged).await, "{lifted}");
+    let printed = avenger_sql::lift(&session(), lifted).await.unwrap().text;
+    assert_eq!(
+        found,
+        charts(&printed).await,
+        "{lifted}\nprinted as\n{printed}"
+    );
+    let again = avenger_sql::lift(&session(), &printed).await.unwrap().text;
+    assert_eq!(again, printed, "the printout of {lifted} lifts again");
 }
 
 /// The message of the error of `query`.
@@ -633,4 +642,81 @@ async fn the_errors_of_windows_on_the_aggregated_rows() {
         message.contains("Aggregations of aggregations are not allowed"),
         "{message}"
     );
+}
+
+/// Asserts that the printout of each of `cases`, by name, equals its baseline in
+/// `tests/baselines/liftings/`. A difference writes the printout to `tests/output/liftings/`,
+/// which a copy into the baselines accepts.
+async fn printouts(cases: &[(&str, String)]) {
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let output = manifest.join("tests/output/liftings");
+    std::fs::create_dir_all(&output).unwrap();
+    let mut differ = Vec::new();
+    for (name, query) in cases {
+        let printed = avenger_sql::lift(&session(), query).await.unwrap().text + "\n";
+        let baseline = manifest.join(format!("tests/baselines/liftings/{name}.sql"));
+        if std::fs::read_to_string(&baseline).unwrap_or_default() != printed {
+            std::fs::write(output.join(format!("{name}.sql")), &printed).unwrap();
+            differ.push(*name);
+        }
+    }
+    assert!(
+        differ.is_empty(),
+        "the printouts of {differ:?} differ from their baselines; see tests/output/liftings/"
+    );
+}
+
+#[tokio::test]
+async fn the_printouts_of_the_stages() {
+    printouts(&[
+        (
+            "count",
+            "FROM penguins\n|> AGGREGATE bar(x => species, y => COUNT(*)) AS chart".to_string(),
+        ),
+        (
+            "facet-histograms",
+            "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
+             |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island\n\
+             |> AGGREGATE facet_col(chart, island) AS chart"
+                .to_string(),
+        ),
+        (
+            "stacked-area",
+            format!(
+                "{BINNED}\n|> AGGREGATE area(x => mass, y => stack(COUNT(*)), color => species) \
+                 AS chart"
+            ),
+        ),
+        (
+            "items",
+            "FROM penguins\n|> AGGREGATE COUNT(*) AS n, bar(x => species, y => COUNT(*)) AS chart \
+             GROUP BY island"
+                .to_string(),
+        ),
+        (
+            "share",
+            "FROM penguins\n|> AGGREGATE symbol(x => species, y => COUNT(*) / SUM(COUNT(*)) \
+             OVER panel) AS chart GROUP BY island"
+                .to_string(),
+        ),
+    ])
+    .await;
+}
+
+#[tokio::test]
+async fn a_printout_keeps_the_rest_of_the_script() {
+    let script = "-- The counts of the species.\nDECLARE n INT64 DEFAULT 1;\n\n\
+                  FROM penguins\n  -- Only the weighed penguins.\n  |> WHERE body_mass_g IS NOT NULL\n  \
+                  |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart\n";
+    let lifted = avenger_sql::lift(&session(), script).await.unwrap();
+    let before = "-- The counts of the species.\nDECLARE n INT64 DEFAULT 1;\n\nFROM penguins\n  \
+                  -- Only the weighed penguins.\n  |> WHERE body_mass_g IS NOT NULL\n  ";
+    assert!(lifted.text.starts_with(before), "{}", lifted.text);
+    assert!(lifted.text.ends_with(" AS `chart`\n"), "{}", lifted.text);
+    assert_eq!(lifted.generated.len(), 1);
+    // A query with nothing to lift comes back as written.
+    let flat = "FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species";
+    let lifted = avenger_sql::lift(&session(), flat).await.unwrap();
+    assert_eq!(lifted.text, flat);
+    assert!(lifted.generated.is_empty());
 }

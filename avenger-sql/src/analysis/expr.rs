@@ -1760,6 +1760,7 @@ impl Pass<'_> {
                         };
                         written.push(lifting::Written {
                             channel,
+                            node: lifting::channel_node(&value),
                             value: lifting::channel_value(&expr).clone(),
                             range: value.syntax().text_range(),
                             text: lifting::channel_title(&value, self.library),
@@ -1910,13 +1911,19 @@ impl Pass<'_> {
                             Expr::AggregateFunction(call) => call.params.order_by.clone(),
                             _ => Vec::new(),
                         };
-                        let order_range = (list.as_ref().and_then(|list| list.order_by()))
-                            .map(|order| order.syntax().text_range());
+                        let order_by = list.as_ref().and_then(|list| list.order_by());
+                        let order_range =
+                            order_by.as_ref().map(|order| order.syntax().text_range());
+                        let order_nodes: Vec<ast::Expr> = (order_by.iter())
+                            .flat_map(|order| order.order_keys())
+                            .filter_map(|key| key.expr())
+                            .collect();
                         if !self.lift(
                             fname,
                             &aggregate,
                             &written,
                             &order,
+                            &order_nodes,
                             order_range,
                             scope.groups,
                             range,

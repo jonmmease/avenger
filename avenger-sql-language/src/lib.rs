@@ -126,6 +126,13 @@ impl Document {
         &self.analysis
     }
 
+    /// The text as the script that its lifted calls plan: each pipe `AGGREGATE` with a mark call
+    /// that computes statistics in its channels becomes its staged pipe query, and the ranges
+    /// that the printer wrote mark it. `None` for a text with an error.
+    pub fn lifted(&self) -> Option<avenger_sql::analysis::Lifted> {
+        self.analysis.lift(&self.text)
+    }
+
     /// The errors of the text, in the order of their ranges. An error of the analysis inside a
     /// statement with an error of the syntax is left out: the analysis reads what the parser
     /// could make of the statement, so its errors there repeat the syntax's. An error of the
