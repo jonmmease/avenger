@@ -167,7 +167,8 @@ fn literal(ty: &Ty, vars: &[(String, Vec<Ty>)]) -> String {
         Ty::BigNumeric => "BIGNUMERIC '1'".to_string(),
         Ty::Bool => "TRUE".to_string(),
         Ty::String => "'a'".to_string(),
-        Ty::Bytes => "b'a'".to_string(),
+        // A chart is the result of a function, and no form takes one as a typed argument.
+        Ty::Bytes | Ty::Chart => "b'a'".to_string(),
         Ty::Date => "DATE '2024-01-01'".to_string(),
         Ty::Time => "TIME '01:02:03'".to_string(),
         Ty::Datetime => "DATETIME '2024-01-01 00:00:00'".to_string(),

@@ -85,19 +85,16 @@ pub(super) fn functions() -> Vec<Function> {
             function = function.param(&sql_name(channel.name), channel.doc);
             args.push(any(channel.name, channel.required));
         }
-        for property in mark.properties {
-            function = function.param(&sql_name(property.name), property.doc);
-            args.push(arg(
-                property.name,
-                ty_of(property.accepts),
-                property.required,
-            ));
+        // The properties, then the options of the mark's plot and layer, such as `tools`.
+        for param in mark.properties.iter().chain(mark.options) {
+            function = function.param(&sql_name(param.name), param.doc);
+            args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
         function = function.param(&sql_name(COORD), COORD_DOC);
         args.push(any(COORD, false));
         let signature = Signature {
             args,
-            result: Ty::Bytes,
+            result: Ty::Chart,
             vars: Vec::new(),
         };
         functions.push(function.with_signature(signature, move |call| {
@@ -252,7 +249,7 @@ fn aggregate_composition(spec: &'static Composition) -> Function {
     }
     let signature = Signature {
         args,
-        result: Ty::Bytes,
+        result: Ty::Chart,
         vars: Vec::new(),
     };
     function.with_signature(signature, move |call| {
@@ -293,7 +290,7 @@ fn scalar_composition(spec: &'static Composition) -> Function {
     }
     let signature = Signature {
         args,
-        result: Ty::Bytes,
+        result: Ty::Chart,
         vars: Vec::new(),
     };
     function.with_signature(signature, move |call| {

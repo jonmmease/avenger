@@ -411,3 +411,43 @@ async fn an_empty_group_gives_a_chart_of_no_rows() {
     let chart = chart("FROM t |> WHERE a > 100 |> AGGREGATE symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 0);
 }
+
+#[tokio::test]
+async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
+    let chart = chart(
+        "FROM t |> AGGREGATE symbol(x => a, y => b, title => 'Points', \
+         tools => [navigate(), tooltip()], width => 200, id => 'points') AS chart",
+    )
+    .await;
+    let Some(node::Node::Plot(plot)) = &chart.root().node else {
+        panic!("the root is a plot")
+    };
+    assert_eq!(plot.title.as_ref().unwrap().text, "Points");
+    assert_eq!(plot.width, Some(200.0));
+    // The navigation stays on the plot, and the tooltip acts on the call's layer.
+    assert!(matches!(
+        plot.tools.as_slice(),
+        [avenger_chart::proto::Tool {
+            kind: Some(avenger_chart::proto::tool::Kind::Navigate(_)),
+            ..
+        }]
+    ));
+    let Some(avenger_chart::proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
+        panic!("a Cartesian plot")
+    };
+    let layer = &cartesian.layers[0];
+    assert_eq!(layer.id, "points");
+    assert!(matches!(
+        layer.tools.as_slice(),
+        [avenger_chart::proto::LayerTool {
+            kind: Some(avenger_chart::proto::layer_tool::Kind::Tooltip(_)),
+            ..
+        }]
+    ));
+}
+
+#[tokio::test]
+async fn an_option_of_a_mark_is_a_constant() {
+    let message = error("FROM t |> AGGREGATE symbol(x => a, y => b, title => s) AS chart").await;
+    assert!(message.contains("plan-time constant"), "{message}");
+}

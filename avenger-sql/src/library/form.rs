@@ -36,6 +36,9 @@ pub enum Ty {
     Bool,
     String,
     Bytes,
+    /// A chart of avenger's functions, the result of a mark or a composition: `BYTES` of the
+    /// chart's message, in a field with the chart's extension.
+    Chart,
     Date,
     Time,
     Datetime,
@@ -113,6 +116,7 @@ impl Ty {
             Ty::String if options.utf8_view => DataType::Utf8View,
             Ty::String => DataType::Utf8,
             Ty::Bytes => DataType::Binary,
+            Ty::Chart => DataType::BinaryView,
             Ty::Date => DataType::Date32,
             Ty::Time => DataType::Time64(TimeUnit::Microsecond),
             Ty::Datetime => types::datetime(),
@@ -166,6 +170,7 @@ impl fmt::Display for Ty {
             Ty::Bool => f.write_str("BOOL"),
             Ty::String => f.write_str("STRING"),
             Ty::Bytes => f.write_str("BYTES"),
+            Ty::Chart => f.write_str("CHART"),
             Ty::Date => f.write_str("DATE"),
             Ty::Time => f.write_str("TIME"),
             Ty::Datetime => f.write_str("DATETIME"),
@@ -748,6 +753,7 @@ impl<'a> Parser<'a> {
             "BOOL" => Ty::Bool,
             "STRING" => Ty::String,
             "BYTES" => Ty::Bytes,
+            "CHART" => Ty::Chart,
             "DATE" => Ty::Date,
             "TIME" => Ty::Time,
             "DATETIME" => Ty::Datetime,

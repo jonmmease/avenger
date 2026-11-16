@@ -1101,7 +1101,7 @@ pub(crate) fn exact(current: &DataType, ty: &Ty, options: TypeOptions) -> bool {
         // fragments of avenger's functions keep their views and the extensions of their fields,
         // and a column keeps its layout, so an argument stays the column that an `ORDER BY` of
         // the call names.
-        Ty::Bytes => matches!(
+        Ty::Bytes | Ty::Chart => matches!(
             current,
             DataType::Binary | DataType::BinaryView | DataType::LargeBinary
         ),
