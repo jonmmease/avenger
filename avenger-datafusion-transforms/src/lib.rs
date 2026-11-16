@@ -18,8 +18,13 @@
 //! [`table_function::TableFunctionExtensionPlanner`], and a session runs its `InlineShared`,
 //! which computes cheap inputs again in place of sharing them.
 //!
-//! The options of a call are Rust values, which their `check` methods check: an
-//! [`OptionError`] names the option, so the front end places the error at its argument.
+//! The options of a call are expressions of the plan, such as literals or placeholders of
+//! parameters, which the plan binds before it runs, so a plan compiles once and binds each run:
+//! the struct of the options of `bin` and `timeunit`, the offset of `stack`, the `n`, `other`,
+//! and `null_category` of `lump`, and the values of `impute`. The functions that read them
+//! check their values when the query runs, and a front end checks its literals while it plans,
+//! with the `check` methods of the Rust values of the options: an [`OptionError`] names the
+//! option, so the front end places the error at its argument.
 //!
 //! Each module describes its transform: [`bin`], [`stack`], [`timeunit`], [`impute`], and
 //! [`lump`]. [`table_function`] holds the machinery of table functions over an input relation,

@@ -183,11 +183,11 @@ fn the_errors_of_lump_are_at_their_text() {
     let cases = [
         ("lump(island) OVER ()", "lump takes exactly one of n and keep", "lump(island) OVER ()"),
         ("lump(island, n => 1, keep => TRUE) OVER ()", "lump takes exactly one of n and keep", "lump(island, n => 1, keep => TRUE) OVER ()"),
-        ("lump(island, n => 0) OVER ()", "The n of lump is a positive INT64 literal", "0"),
+        ("lump(island, n => 0) OVER ()", "The n of lump is a positive INT64 literal or an INT64 variable", "0"),
         ("lump(island, top => 1) OVER ()", "lump has no parameter named `top`", "top => 1"),
         ("lump(island, n => 1, n => 2) OVER ()", "The argument n of lump is given twice", "n => 2"),
         ("lump(island, n => 1, null_category => 'rank') OVER ()", "The null_category of lump is 'keep', 'other' or 'drop'; found 'rank'", "null_category => 'rank'"),
-        ("lump(island, n => 1, other => 1) OVER ()", "The argument other of lump must be a STRING literal", "1"),
+        ("lump(island, n => 1, other => 1) OVER ()", "The argument other of lump must be a STRING literal or variable", "1"),
         ("lump(island, n => 1, weight => body_mass_g) OVER ()", "The weight of lump is an aggregate of the rows of each category, such as SUM(tons)", "body_mass_g"),
         ("lump(island, n => 1, weight => SUM(body_mass_g) + body_mass_g) OVER ()", "The weight of lump reads the rows of each category through aggregates, and body_mass_g is not in one", "SUM(body_mass_g) + body_mass_g"),
         ("lump(island, n => 1, weight => MAX(species)) OVER ()", "The weight of lump is a number; found STRING", "MAX(species)"),
@@ -444,4 +444,68 @@ async fn an_aggregate_grouped_by_a_lump_merges_its_categories() {
     };
     assert_eq!(joins(&plan(fused).await), 0);
     assert!(joins(&plan(unfused).await) > 0);
+}
+
+#[tokio::test]
+async fn a_script_variable_stands_in_the_options_of_the_transforms() {
+    // Each call with its options from variables, also one from a query, against the literals.
+    let cases = [
+        (
+            "DECLARE width FLOAT64 DEFAULT 500;",
+            "FROM penguins |> EXTEND bin(body_mass_g, step => width) OVER () AS b |> SELECT b.start, b.end",
+            "FROM penguins |> EXTEND bin(body_mass_g, step => 500) OVER () AS b |> SELECT b.start, b.end",
+        ),
+        (
+            "DECLARE n INT64 DEFAULT (FROM penguins |> AGGREGATE COUNT(DISTINCT species) - 2);",
+            "FROM penguins |> EXTEND lump(island, n => n, other => o) OVER () AS l |> SELECT l.value, l.other",
+            "FROM penguins |> EXTEND lump(island, n => 1, other => 'Rest') OVER () AS l |> SELECT l.value, l.other",
+        ),
+        (
+            "DECLARE u STRING DEFAULT 'week(2)';",
+            "FROM UNNEST([DATE '2024-03-13']) AS d |> EXTEND timeunit(d, unit => u) OVER () AS t |> SELECT t.start, t.unit",
+            "FROM UNNEST([DATE '2024-03-13']) AS d |> EXTEND timeunit(d, unit => 'week(2)') OVER () AS t |> SELECT t.start, t.unit",
+        ),
+        (
+            "DECLARE offset STRING DEFAULT 'normalize';",
+            "FROM penguins |> EXTEND stack(body_mass_g, offset => offset) OVER (PARTITION BY species ORDER BY island) AS s |> SELECT s.start, s.end",
+            "FROM penguins |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY species ORDER BY island) AS s |> SELECT s.start, s.end",
+        ),
+        (
+            "DECLARE fill INT64 DEFAULT 0;",
+            &format!("{COUNTS} |> CALL impute(island, [species], n, value => fill)"),
+            &format!("{COUNTS} |> CALL impute(island, [species], n, value => 0)"),
+        ),
+    ];
+    for (declare, variable, literal) in cases {
+        let declare = format!("{declare} DECLARE o STRING DEFAULT 'Rest';");
+        let found = rows(&format!("{declare}\n{variable}")).await;
+        assert_eq!(found, rows(literal).await, "{variable}");
+    }
+}
+
+#[test]
+fn a_variable_of_another_type_is_an_error_of_the_analysis() {
+    // As a literal of the type is: no form of the call takes it.
+    let found = errors(
+        "DECLARE width STRING DEFAULT 'wide'; FROM penguins |> EXTEND bin(body_mass_g, step => width) OVER () AS b",
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .0
+            .starts_with("no form of bin takes (FLOAT64, STRING)"),
+        "{found:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_variable_that_fails_a_check_is_an_error_of_its_option_when_the_query_runs() {
+    let text = "DECLARE width FLOAT64 DEFAULT -1; FROM penguins |> EXTEND bin(body_mass_g, step => width) OVER () AS b";
+    let error = pass::run(text).await.unwrap_err();
+    assert!(
+        error
+            .iter()
+            .any(|e| e.contains("The step of bin must be a positive number, not -1")),
+        "{error:?}"
+    );
 }

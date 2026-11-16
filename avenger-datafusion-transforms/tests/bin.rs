@@ -149,7 +149,7 @@ async fn placeholder_windows() -> Result<()> {
             maxbins,
             ..Default::default()
         };
-        let window = bin::window(options).call(vec![col("x")]);
+        let window = bin::window(false).call(vec![col("x"), options.expr()]);
         window.partition_by(vec![col("g")]).build()
     };
     let (b, c) = (placeholder(10.0)?, placeholder(4.0)?);

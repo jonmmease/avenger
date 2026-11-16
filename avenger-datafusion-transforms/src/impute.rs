@@ -75,10 +75,11 @@ use datafusion::physical_expr::aggregate::AggregateExprBuilder;
 use datafusion::physical_expr::expressions::Column as PhysicalColumn;
 
 use crate::table_function::{
-    ArgAt, ArgError, PartitionTransform, TableFunctionNode, TableTransform, cast_exact, constant,
-    row_bytes,
+    ArgAt, ArgError, PartitionTransform, TableFunctionNode, TableTransform, cast_exact, column_of,
+    constant, row_bytes,
 };
-use datafusion::logical_expr::{Expr, Extension, LogicalPlan};
+use datafusion::common::tree_node::TreeNode;
+use datafusion::logical_expr::{Expr, ExprSchemable, Extension, LogicalPlan};
 
 mod gaps;
 pub use gaps::{GapKind, Gaps, Step};
@@ -171,6 +172,12 @@ pub struct ImputeTransform {
     /// `fill_gaps => ...`.
     pub gaps: Option<Gaps>,
     pub flag: Option<String>,
+    /// The named arguments of the values of the call, `value`, `method`, `frame`, `keys`,
+    /// `extra_keys`, and `fill_gaps`, as expressions of the plan with their indices among the
+    /// named arguments. A placeholder in one of them leaves `fill`, `keys`, `extra_keys`, and
+    /// `gaps` stand-ins of its type until the plan binds it, and the transform of each partition
+    /// reads them again.
+    pub value_arguments: Vec<(usize, String, Named)>,
 }
 
 /// The input columns, then the flag. Added rows are NULL in the columns other than the
@@ -219,22 +226,57 @@ fn output_schema(
     )?))
 }
 
-impl TableTransform for ImputeTransform {
-    fn name(&self) -> &'static str {
-        "Impute"
-    }
+impl ImputeTransform {
+    /// The columns of the input that the transform reads: the key, the groups, and the value.
     fn columns(&self) -> Vec<Column> {
         std::iter::once(self.key.clone())
             .chain(self.groupby.iter().cloned())
             .chain([self.val.clone()])
             .collect()
     }
-    fn with_columns(&self, columns: Vec<Column>) -> Result<Arc<dyn TableTransform>> {
-        let g = self.groupby.len();
+}
+
+impl TableTransform for ImputeTransform {
+    fn name(&self) -> &'static str {
+        "Impute"
+    }
+    fn arguments(&self) -> Vec<Expr> {
+        // The columns, then the expressions of the values.
+        let values = (self.value_arguments.iter()).flat_map(|(_, _, named)| match named {
+            Named::Value(expr) => vec![expr.clone()],
+            Named::List(list) => list.clone(),
+            Named::Name(_) | Named::Columns(_) => Vec::new(),
+        });
+        (self.columns().into_iter().map(Expr::Column))
+            .chain(values)
+            .collect()
+    }
+    fn with_arguments(&self, arguments: Vec<Expr>) -> Result<Arc<dyn TableTransform>> {
+        let mut exprs = arguments.into_iter();
+        let mut column = || column_of("Impute", exprs.next().expect("a column"));
+        let (key, groupby, val) = (
+            column()?,
+            (0..self.groupby.len())
+                .map(|_| column())
+                .collect::<Result<_>>()?,
+            column()?,
+        );
+        let mut next = || exprs.next().expect("an expression of each value");
+        let value_arguments = (self.value_arguments.iter())
+            .map(|(index, name, named)| {
+                let named = match named {
+                    Named::Value(_) => Named::Value(next()),
+                    Named::List(list) => Named::List(list.iter().map(|_| next()).collect()),
+                    other => other.clone(),
+                };
+                (*index, name.clone(), named)
+            })
+            .collect();
         Ok(Arc::new(Self {
-            key: columns[0].clone(),
-            groupby: columns[1..1 + g].to_vec(),
-            val: columns[1 + g].clone(),
+            key,
+            groupby,
+            val,
+            value_arguments,
             ..self.clone()
         }))
     }
@@ -249,6 +291,17 @@ impl TableTransform for ImputeTransform {
         )
     }
     fn partition_transform(&self, input: &DFSchema) -> Result<Arc<dyn PartitionTransform>> {
+        // The values of the bound plan, which the transform reads in place of their stand-ins.
+        let key_type = input.field_from_column(&self.key)?.data_type().clone();
+        let val_field = input.field_from_column(&self.val)?.clone();
+        let resolved = resolve(
+            &self.value_arguments,
+            &key_type,
+            &val_field,
+            &self.val,
+            true,
+        )
+        .map_err(|error| datafusion::common::DataFusionError::Plan(error.message))?;
         Ok(Arc::new(Spec {
             key: input.index_of_column(&self.key)?,
             groups: self
@@ -257,10 +310,10 @@ impl TableTransform for ImputeTransform {
                 .map(|c| input.index_of_column(c))
                 .collect::<Result<Vec<_>>>()?,
             val: input.index_of_column(&self.val)?,
-            fill: self.fill.clone(),
-            keys: self.keys.clone(),
-            extra_keys: self.extra_keys.clone(),
-            gaps: self.gaps.clone(),
+            fill: resolved.fill,
+            keys: resolved.keys,
+            extra_keys: resolved.extra_keys,
+            gaps: resolved.gaps,
         }))
     }
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -294,7 +347,7 @@ impl TableTransform for ImputeTransform {
 // ---------------------------------------------------------------------------------------
 
 /// A named argument of a call of `impute`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Named {
     /// A constant expression, of `value`, `method` and `fill_gaps`.
     Value(Expr),
@@ -367,18 +420,12 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
         ));
     }
     let key_type = schema.field_from_column(&key)?.data_type().clone();
-    let val_type = schema.field_from_column(&val)?.data_type().clone();
 
-    let mut value = None;
-    let mut method: Option<(String, usize)> = None;
-    let mut frame: Option<(Frame, usize)> = None;
-    let mut keys = None;
-    let mut extra_keys = Vec::new();
-    let mut gaps: Option<(Gaps, usize)> = None;
     let mut flag = None;
     let mut partition_by: Vec<Column> = Vec::new();
     let mut partition_at = None;
     let mut seen: Vec<&str> = Vec::new();
+    let mut value_arguments: Vec<(usize, String, Named)> = Vec::new();
     for (index, (name, arg)) in named.iter().enumerate() {
         let at = ArgAt::Named(index);
         let Some(&known) = NAMED.iter().find(|n| name.eq_ignore_ascii_case(n)) else {
@@ -397,6 +444,98 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
             ));
         }
         seen.push(known);
+        match (known, arg) {
+            ("flag", Named::Name(name)) => {
+                if schema
+                    .fields()
+                    .iter()
+                    .any(|f| f.name().eq_ignore_ascii_case(name))
+                {
+                    return Err(ArgError::new(
+                        at,
+                        format!("the flag column `{name}` is already a column of the input"),
+                    ));
+                }
+                flag = Some(name.clone());
+            }
+            ("partition_by", Named::Columns(columns)) => {
+                for (i, c) in columns.iter().enumerate() {
+                    if partition_by.contains(c) {
+                        return Err(ArgError::new(
+                            ArgAt::NamedElement(index, i),
+                            format!("the partition column {} of impute is given twice", c.name),
+                        ));
+                    }
+                    partition_by.push(c.clone());
+                }
+                partition_at = Some(index);
+            }
+            ("value" | "method" | "fill_gaps", Named::Value(_))
+            | ("frame" | "keys" | "extra_keys", Named::List(_)) => {
+                value_arguments.push((index, known.to_string(), arg.clone()));
+            }
+            (known, _) => {
+                let wants = match known {
+                    "frame" | "keys" | "extra_keys" => "a list of constants, such as [1, 2]",
+                    "flag" => "a column name, such as `flag => 'imputed'`",
+                    "partition_by" => "a list of columns of the input",
+                    _ => "a constant",
+                };
+                return Err(ArgError::new(at, format!("`{known}` takes {wants}")));
+            }
+        }
+    }
+    let val_field = schema.field_from_column(&val)?.clone();
+    let resolved = resolve(&value_arguments, &key_type, &val_field, &val, false)?;
+    let transform = Arc::new(ImputeTransform {
+        key,
+        groupby,
+        val,
+        fill: resolved.fill,
+        keys: resolved.keys,
+        extra_keys: resolved.extra_keys,
+        gaps: resolved.gaps,
+        flag,
+        value_arguments,
+    });
+    let read = transform.columns();
+    if let (Some(c), Some(index)) = (partition_by.iter().find(|c| read.contains(c)), partition_at) {
+        return Err(ArgError::new(
+            ArgAt::Named(index),
+            format!(
+                "the partition column {} of impute is also a column of another argument",
+                c.name
+            ),
+        ));
+    }
+    let node = TableFunctionNode::try_new(input, partition_by, transform)?;
+    Ok(LogicalPlan::Extension(Extension {
+        node: Arc::new(node),
+    }))
+}
+
+/// The values of the arguments `arguments` of a call of `impute`, with their indices among the
+/// named arguments. Before the plan binds its parameters, `bound` is false, and an argument that
+/// holds a placeholder takes a stand-in of its type, so the plan has its schema: the value
+/// `NULL` of its type, no bounds of a frame, no keys, and no gaps.
+fn resolve(
+    arguments: &[(usize, String, Named)],
+    key_type: &DataType,
+    val_field: &Field,
+    val: &Column,
+    bound: bool,
+) -> std::result::Result<Resolved, ArgError> {
+    let val_type = val_field.data_type().clone();
+    // An argument of a placeholder, which waits for the bound plan.
+    let deferred = |e: &Expr| !bound && has_placeholder(e);
+    let mut value = None;
+    let mut method: Option<(String, usize)> = None;
+    let mut frame: Option<(Frame, usize)> = None;
+    let mut keys = None;
+    let mut extra_keys = Vec::new();
+    let mut gaps: Option<(Option<Gaps>, usize)> = None;
+    for (index, known, arg) in arguments {
+        let (index, at) = (*index, ArgAt::Named(*index));
         let constant_of = |what: &str, e: &Expr| -> std::result::Result<ScalarValue, ArgError> {
             constant(e).map_err(|e| {
                 ArgError::new(
@@ -405,7 +544,34 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
                 )
             })
         };
-        match (known, arg) {
+        match (known.as_str(), arg) {
+            ("value", Named::Value(e)) if deferred(e) => {
+                // A NULL of the type of the value, which gives the type of the column.
+                let ty = e.get_type(&DFSchema::empty()).map_err(|error| {
+                    ArgError::new(
+                        at,
+                        format!("`value` has no type: {}", error.strip_backtrace()),
+                    )
+                })?;
+                let to = match (
+                    ty.is_null() || ty == val_type,
+                    ty.is_numeric() && val_type.is_numeric(),
+                ) {
+                    (true, _) => Some(val_type.clone()),
+                    (false, true) => type_union_resolution(&[val_type.clone(), ty.clone()]),
+                    (false, false) => None,
+                };
+                let Some(to) = to else {
+                    return Err(ArgError::new(
+                        at,
+                        format!(
+                            "`value` of the type {ty} does not coerce to the type of {}, {val_type}",
+                            val.name
+                        ),
+                    ));
+                };
+                value = Some(ScalarValue::try_from(&to)?);
+            }
             ("value", Named::Value(e)) => {
                 let v = constant_of("`value`", e)?;
                 // A value that the column's type holds keeps the type. A number that a numeric
@@ -435,6 +601,12 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
                 value = Some(cast);
             }
             ("method", Named::Value(e)) => {
+                if deferred(e) {
+                    return Err(ArgError::new(
+                        at,
+                        "`method` takes a literal, since it decides the type of the value column",
+                    ));
+                }
                 let v = constant_of("`method`", e)?;
                 let Some(Some(m)) = v.try_as_str() else {
                     return Err(ArgError::new(
@@ -454,6 +626,9 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
                 let mut bounds = [None, None];
                 for (i, b) in bounds_exprs.iter().enumerate() {
                     let bat = ArgAt::NamedElement(index, i);
+                    if deferred(b) {
+                        continue;
+                    }
                     bounds[i] = match constant(b) {
                         Ok(v) if v.is_null() => None,
                         Ok(v) if v.data_type().is_integer() => match v.cast_to(&DataType::Int64) {
@@ -484,61 +659,30 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
                 frame = Some(((bounds[0], bounds[1]), index));
             }
             ("keys", Named::List(list)) => {
-                keys = Some(constants(list, index, "`keys`", &key_type, "the key")?);
+                keys = Some(constants(
+                    list, index, "`keys`", key_type, "the key", bound,
+                )?);
             }
             ("extra_keys", Named::List(list)) => {
-                extra_keys = constants(list, index, "`extra_keys`", &key_type, "the key")?;
+                extra_keys = constants(list, index, "`extra_keys`", key_type, "the key", bound)?;
             }
+            ("fill_gaps", Named::Value(e)) if deferred(e) => gaps = Some((None, index)),
             ("fill_gaps", Named::Value(e)) => {
                 let v = constant_of("`fill_gaps`", e)?;
-                if let Some(g) = Gaps::plan(&v, &key_type).map_err(|m| ArgError::new(at, m))? {
-                    gaps = Some((g, index));
+                if let Some(g) = Gaps::plan(&v, key_type).map_err(|m| ArgError::new(at, m))? {
+                    gaps = Some((Some(g), index));
                 }
             }
-            ("flag", Named::Name(name)) => {
-                if schema
-                    .fields()
-                    .iter()
-                    .any(|f| f.name().eq_ignore_ascii_case(name))
-                {
-                    return Err(ArgError::new(
-                        at,
-                        format!("the flag column `{name}` is already a column of the input"),
-                    ));
-                }
-                flag = Some(name.clone());
-            }
-            ("partition_by", Named::Columns(columns)) => {
-                for (i, c) in columns.iter().enumerate() {
-                    if partition_by.contains(c) {
-                        return Err(ArgError::new(
-                            ArgAt::NamedElement(index, i),
-                            format!("the partition column {} of impute is given twice", c.name),
-                        ));
-                    }
-                    partition_by.push(c.clone());
-                }
-                partition_at = Some(index);
-            }
-            (known, _) => {
-                let wants = match known {
-                    "frame" | "keys" | "extra_keys" => "a list of constants, such as [1, 2]",
-                    "flag" => "a column name, such as `flag => 'imputed'`",
-                    "partition_by" => "a list of columns of the input",
-                    _ => "a constant",
-                };
-                return Err(ArgError::new(at, format!("`{known}` takes {wants}")));
-            }
+            _ => unreachable!("an argument of the values"),
         }
     }
-
     if let (Some((_, index)), Some(_)) = (&gaps, &keys) {
         return Err(ArgError::new(
             ArgAt::Named(*index),
             "`fill_gaps` adds to the key values of the rows, which `keys` replaces; give one of them",
         ));
     }
-    let gaps = gaps.map(|(g, _)| g);
+    let gaps = gaps.and_then(|(g, _)| g);
     let fill = match (value, method) {
         (Some(_), Some((_, index))) => {
             return Err(ArgError::new(
@@ -579,7 +723,7 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
                 stat,
                 frame: frame.map(|(f, _)| f),
             };
-            if let Err(e) = fill.value_type(schema.field_from_column(&val)?) {
+            if let Err(e) = fill.value_type(val_field) {
                 let e = e.strip_backtrace();
                 return Err(ArgError::new(
                     at,
@@ -593,45 +737,46 @@ pub fn plan(input: LogicalPlan, call: ImputeCall) -> std::result::Result<Logical
             fill
         }
     };
-    let transform = Arc::new(ImputeTransform {
-        key,
-        groupby,
-        val,
+    Ok(Resolved {
         fill,
         keys,
         extra_keys,
         gaps,
-        flag,
-    });
-    let read = transform.columns();
-    if let (Some(c), Some(index)) = (partition_by.iter().find(|c| read.contains(c)), partition_at) {
-        return Err(ArgError::new(
-            ArgAt::Named(index),
-            format!(
-                "the partition column {} of impute is also a column of another argument",
-                c.name
-            ),
-        ));
-    }
-    let node = TableFunctionNode::try_new(input, partition_by, transform)?;
-    Ok(LogicalPlan::Extension(Extension {
-        node: Arc::new(node),
-    }))
+    })
+}
+
+/// Whether `expr` holds a placeholder of a parameter, which the plan binds before it runs.
+fn has_placeholder(expr: &Expr) -> bool {
+    expr.exists(|e| Ok(matches!(e, Expr::Placeholder(_))))
+        .unwrap_or(false)
+}
+
+/// The values of a call of `impute`, which its value arguments give.
+struct Resolved {
+    fill: Fill,
+    keys: Option<Vec<ScalarValue>>,
+    extra_keys: Vec<ScalarValue>,
+    gaps: Option<Gaps>,
 }
 
 /// The constants of the list of the named argument at `index`, each cast exactly to
 /// `data_type`, without repeats. `what` names the list, such as "`keys`", and `of` the type,
-/// such as "the key".
+/// such as "the key". Before the plan binds its parameters, `bound` is false, and a value that
+/// holds a placeholder waits for the bound plan.
 fn constants(
     list: &[Expr],
     index: usize,
     what: &str,
     data_type: &DataType,
     of: &str,
+    bound: bool,
 ) -> std::result::Result<Vec<ScalarValue>, ArgError> {
     let mut out: Vec<ScalarValue> = Vec::new();
     for (i, e) in list.iter().enumerate() {
         let at = ArgAt::NamedElement(index, i);
+        if !bound && has_placeholder(e) {
+            continue;
+        }
         let v = constant(e).map_err(|e| {
             ArgError::new(
                 at,

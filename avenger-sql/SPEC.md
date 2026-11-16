@@ -16,7 +16,7 @@ FROM penguins
 |> AGGREGATE AVG(kg(body_mass_g)) AS kg GROUP BY species
 ```
 
-- `DECLARE name [type] [DEFAULT value]` declares variables, before any other statement. `SET name = value` and `SET (a, b) = (...)` assign them.
+- `DECLARE name [type] [DEFAULT value]` declares variables, before any other statement. `SET name = value` and `SET (a, b) = (...)` assign them. A variable stands in the options of the transforms, as in `bin(x, step => width)`, also when its value is the result of a query, since the plan binds it before the query runs.
 - `CREATE TEMP TABLE t AS (query)`, or `CREATE TEMP TABLE t (columns)`, names a table for the statements after it.
 - `CREATE TEMP [AGGREGATE | TABLE] FUNCTION` defines a function. A parameter takes a type, `ANY TYPE`, `ANY TABLE`, or `TABLE<...>`. A table function's body is a query.
 - `IMPORT MODULE path [AS alias]` imports the public functions and constants of a module that the catalog holds. A module starts with `MODULE path;` and holds `CREATE PUBLIC` or `CREATE PRIVATE` functions and constants.

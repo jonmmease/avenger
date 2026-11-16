@@ -11,7 +11,7 @@ use common::{bins, register, session, view};
 use datafusion::arrow::array::{ArrayRef, Float64Array, Int64Array};
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::{Column, Result};
-use datafusion::prelude::{SessionContext, col};
+use datafusion::prelude::{SessionContext, col, lit};
 
 fn context() -> Result<SessionContext> {
     let ctx = session();
@@ -81,9 +81,9 @@ async fn the_readers_of_a_lump_share_its_input() -> Result<()> {
             category: col("g"),
             partition: vec![],
             weight: None,
-            keep: Keep::First(1),
-            other: "Other".to_string(),
-            null_category: Nulls::Keep,
+            keep: Keep::First(lit(1i64)),
+            other: lit("Other"),
+            null_category: Nulls::Keep.expr(),
         };
         lump::plan(input, call, Column::from_name("l"))
     })

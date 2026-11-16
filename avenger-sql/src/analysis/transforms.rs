@@ -113,7 +113,7 @@ impl Pass<'_> {
         ok.then_some(args)
     }
 
-    /// The string literal `expr`, the argument `name` of `function`.
+    /// The string literal `expr`, the argument `name` of `function`, such as a column name.
     fn literal_text(&mut self, expr: &ast::Expr, function: &str, name: &str) -> Option<String> {
         let at = expr.syntax().text_range();
         let empty = DFSchema::empty();
@@ -126,6 +126,46 @@ impl Pass<'_> {
                 self.error(
                     at,
                     format!("The argument {name} of {function} must be a STRING literal"),
+                );
+                None
+            }
+        }
+    }
+
+    /// The `STRING` literal or variable `expr`, the argument `name` of `function`.
+    fn text_value(
+        &mut self,
+        expr: &ast::Expr,
+        function: &str,
+        name: &str,
+        scope: Scope,
+    ) -> Option<Expr> {
+        let at = expr.syntax().text_range();
+        let empty = DFSchema::empty();
+        let planned = self.expr(expr, Scope::constant(&empty, "a constant argument"))?;
+        let text = |ty: &datafusion::arrow::datatypes::DataType| {
+            matches!(
+                ty,
+                datafusion::arrow::datatypes::DataType::Utf8
+                    | datafusion::arrow::datatypes::DataType::Utf8View
+                    | datafusion::arrow::datatypes::DataType::LargeUtf8
+            )
+        };
+        let ok = match &planned {
+            Expr::Literal(value, _) => value.try_as_str().flatten().is_some(),
+            planned if crate::library::is_parameter(planned) => {
+                self.type_of(planned, scope).is_some_and(|ty| text(&ty))
+            }
+            _ => false,
+        };
+        match ok {
+            true => Some(planned),
+            false => {
+                self.error(
+                    at,
+                    format!(
+                        "The argument {name} of {function} must be a STRING literal or variable"
+                    ),
                 );
                 None
             }
@@ -243,9 +283,18 @@ impl Pass<'_> {
                 let at = expr.syntax().text_range();
                 let empty = DFSchema::empty();
                 match self.expr(expr, Scope::constant(&empty, "the n of lump"))? {
-                    Expr::Literal(ScalarValue::Int64(Some(n)), _) if n > 0 => Keep::First(n),
+                    n @ Expr::Literal(ScalarValue::Int64(Some(1..)), _) => Keep::First(n),
+                    // A variable below 1 keeps no category.
+                    n if crate::library::is_parameter(&n)
+                        && self.type_of(&n, scope).is_some_and(|ty| ty.is_integer()) =>
+                    {
+                        Keep::First(n)
+                    }
                     _ => {
-                        self.error(at, "The n of lump is a positive INT64 literal");
+                        self.error(
+                            at,
+                            "The n of lump is a positive INT64 literal or an INT64 variable",
+                        );
                         return None;
                     }
                 }
@@ -288,22 +337,26 @@ impl Pass<'_> {
             }
         };
         let other = match named("other") {
-            Some((_, expr, _)) => self.literal_text(expr, "lump", "other")?,
-            None => "Other".to_string(),
+            Some((_, expr, _)) => self.text_value(expr, "lump", "other", scope)?,
+            None => Expr::Literal(ScalarValue::Utf8(Some("Other".to_string())), None),
         };
         let null_category = match named("null_category") {
             Some((_, expr, at)) => {
                 let at = *at;
-                let mode = self.literal_text(expr, "lump", "null_category")?;
-                match Nulls::parse(&mode) {
-                    Some(mode) => mode,
-                    None => {
-                        self.error(at, format!("The null_category of lump is 'keep', 'other' or 'drop'; found '{mode}'"));
+                let mode = self.text_value(expr, "lump", "null_category", scope)?;
+                match mode
+                    .as_literal()
+                    .and_then(|value| value.try_as_str())
+                    .flatten()
+                {
+                    Some(name) if Nulls::parse(name).is_none() => {
+                        self.error(at, format!("The null_category of lump is 'keep', 'other' or 'drop'; found '{name}'"));
                         return None;
                     }
+                    _ => mode,
                 }
             }
-            None => Nulls::Keep,
+            None => Nulls::Keep.expr(),
         };
         let category_type = self.type_of(&category, scope)?;
         let id = self.qualifiers.fresh("lump").table().to_string();

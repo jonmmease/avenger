@@ -6,8 +6,10 @@
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! composition aggregate composes the charts of a group, as in `facet_col(chart, island)`. A
 //! constructor returns the fragment of its message. The transforms take their options as named
-//! arguments, as in `bin(x, maxbins => 30)`, which must be constants: the form of each builds the
-//! typed options of its call and checks them, so an error of an option is at its argument. The
+//! arguments, as in `bin(x, maxbins => 30)`: literals or script variables, which stay
+//! expressions of the plan until it binds the variables. The form of each checks the literals of
+//! its call, so an error of one is at its argument, and the transform checks the value of a
+//! variable when the query runs. The
 //! docs of the marks and the constructors are avenger-chart's, and the forms of the transforms
 //! declare their options, with their docs. The pass plans the calls of `lump` and `impute` itself,
 //! since their arguments read other scopes than a row: the library holds their docs and forms.
@@ -26,7 +28,7 @@ use avenger_chart::functions::{
 };
 use avenger_datafusion_transforms::{
     bin::{self, BinOptions},
-    stack::{self, StackOffset},
+    stack,
     table_function::constant,
     timeunit::{self, TimeUnitOptions, Unit, UnitCalendar, WeekStart},
     OptionError,
@@ -711,10 +713,14 @@ fn impute() -> Function {
 
 /// The window transform `function` of the form `declaration`, whose options are named arguments
 /// after its value. `window` builds the window function of a call from its options.
+/// The window function of a call of a transform, and its arguments after the value, such as the
+/// struct of its options.
+type TransformWindow = (Arc<WindowUDF>, Vec<Expr>);
+
 fn transform(
     function: Function,
     declaration: &str,
-    window: fn(&Options) -> Result<Arc<WindowUDF>, super::CallError>,
+    window: fn(&Options) -> Result<TransformWindow, super::CallError>,
 ) -> Function {
     let signature = Signature::parse(declaration).expect("the form of a transform");
     let names: Vec<String> = (signature.args.iter())
@@ -725,15 +731,18 @@ fn transform(
             call,
             names: &names,
         };
+        let (window, options) = window(&options)?;
         Ok(Planned::Window {
-            func: WindowFunctionDefinition::WindowUDF(window(&options)?),
-            args: vec![call.arg(0)],
+            func: WindowFunctionDefinition::WindowUDF(window),
+            args: [call.arg(0)].into_iter().chain(options).collect(),
             result: None,
         })
     })
 }
 
-/// The options of a call of a window transform, the constants of its named arguments.
+/// The options of a call of a window transform, the constants of its named arguments: literals,
+/// which the analysis checks, and script variables, which the transform checks when the query
+/// runs.
 struct Options<'c, 'a> {
     call: &'c super::Call<'a>,
     /// The names of the parameters of the form, the value's first.
@@ -747,12 +756,17 @@ impl Options<'_, '_> {
             .expect("an option of the form")
     }
 
-    /// The constant of the option `name`, when the call gives it.
+    /// The constant of the option `name`, when the call gives it as a literal, which the
+    /// analysis checks. A parameter, such as a script variable, has no value until the plan
+    /// binds it.
     fn value(&self, name: &str) -> Result<Option<ScalarValue>, super::CallError> {
         let index = self.index(name);
         let Some(expr) = self.call.value(index) else {
             return Ok(None);
         };
+        if super::is_parameter(expr) {
+            return Ok(None);
+        }
         match constant(expr) {
             Ok(value) if value.is_null() => Err(self
                 .call
@@ -827,6 +841,18 @@ impl Options<'_, '_> {
         }
     }
 
+    /// Whether the call gives the option `name`.
+    fn gives(&self, name: &str) -> bool {
+        self.call.value(self.index(name)).is_some()
+    }
+
+    /// The options that the call gives, by name, as expressions of the plan.
+    fn given(&self) -> Vec<(String, Expr)> {
+        (self.names.iter().enumerate().skip(1))
+            .filter_map(|(index, name)| Some((name.clone(), self.call.value(index)?.clone())))
+            .collect()
+    }
+
     /// An error of an option, at its argument.
     fn error(&self, error: OptionError) -> super::CallError {
         self.call.error_at(self.index(error.option), error.message)
@@ -834,7 +860,7 @@ impl Options<'_, '_> {
 }
 
 /// The window of a call of `bin`.
-fn bin_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
+fn bin_window(o: &Options) -> Result<TransformWindow, super::CallError> {
     let mut options = BinOptions::default();
     if let Some(maxbins) = o.number("maxbins")? {
         options.maxbins = maxbins;
@@ -865,21 +891,19 @@ fn bin_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
     }
     options.anchor = o.number("anchor")?;
     options.check().map_err(|error| o.error(error))?;
-    Ok(bin::window(options))
+    let options = bin::options(o.given())?;
+    Ok((bin::window(o.gives("extent")), vec![options]))
 }
 
 /// The window of a call of `stack`.
-fn stack_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
-    let offset = match o.text("offset")? {
-        // The form takes only the names of offsets.
-        Some(name) => StackOffset::from_name(&name).expect("an offset of the form"),
-        None => StackOffset::Zero,
-    };
-    Ok(stack::window(offset))
+fn stack_window(o: &Options) -> Result<TransformWindow, super::CallError> {
+    // The form takes only the names of offsets, or a variable, which `stack` checks.
+    let offset = o.call.value(o.index("offset")).cloned();
+    Ok((stack::window(), offset.into_iter().collect()))
 }
 
 /// The window of a call of `timeunit`.
-fn timeunit_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
+fn timeunit_window(o: &Options) -> Result<TransformWindow, super::CallError> {
     let week_start = match o.integer("week_start")? {
         Some(n) => match WeekStart::from_number(n) {
             Some(day) => Some(day),
@@ -911,5 +935,6 @@ fn timeunit_window(o: &Options) -> Result<Arc<WindowUDF>, super::CallError> {
     options.check().map_err(|error| o.error(error))?;
     let value = o.call.type_of(&o.call.arg(0))?;
     options.check_type(&value).map_err(|error| o.error(error))?;
-    Ok(timeunit::window(options))
+    let options = timeunit::options(o.given())?;
+    Ok((timeunit::window(o.gives("unit")), vec![options]))
 }

@@ -4,7 +4,7 @@
 use super::*;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use crate::utils::PartitionValue;
 use crate::window::{Output, PartitionedCall, Transform, placeholder, plan_partitioned};
@@ -19,6 +19,7 @@ use datafusion::logical_expr::{
     Accumulator, AggregateUDF, AggregateUDFImpl, ColumnarValue, Expr, LogicalPlan, ReturnFieldArgs,
     ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature, Volatility, WindowUDF,
 };
+use datafusion::physical_expr::expressions::Literal;
 
 /// A call of `timeunit`: the date or timestamp, the window partitions, and the options.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,14 +29,12 @@ pub struct TimeUnitCall {
     pub options: TimeUnitOptions,
 }
 
-/// The placeholder window of a call of `timeunit` with `options`, whose argument is the value
-/// and whose `PARTITION BY` gives the window partitions. [`crate::plan_windows`] plans it.
-pub fn window(options: TimeUnitOptions) -> Arc<WindowUDF> {
-    let name = match options.text() {
-        text if text.is_empty() => "timeunit".to_string(),
-        text => format!("timeunit[{text}]"),
-    };
-    placeholder(name, Transform::TimeUnit(options))
+/// The placeholder window of a call of `timeunit`, whose arguments are the value and the
+/// struct of its options, from [`options`], and whose `PARTITION BY` gives the window
+/// partitions. `gives_unit` tells whether the call gives a unit, which plans the units without
+/// an aggregate. [`crate::plan_windows`] plans it.
+pub fn window(gives_unit: bool) -> Arc<WindowUDF> {
+    placeholder("timeunit".to_string(), Transform::TimeUnit { gives_unit })
 }
 
 /// The plan of `input` with the column `output`, the time unit of each row by `call`, after the
@@ -46,52 +45,66 @@ pub fn plan(input: LogicalPlan, call: TimeUnitCall, output: Column) -> Result<Lo
         partition,
         options,
     } = call;
-    let call = PartitionedCall::TimeUnit { value, options };
+    options.check()?;
+    let call = PartitionedCall::TimeUnit {
+        value,
+        gives_unit: options.unit.is_some(),
+        options: options.expr(),
+    };
     plan_partitioned(input, &partition, vec![(call, output)])
 }
 
-/// The field `name` of the time units of the values of `input` by `options`.
+/// The field `name` of the time units of the values of `input`, which checks the options when
+/// they are a constant of the plan, `options`.
 pub(crate) fn window_field(
     name: &str,
     input: &Field,
-    options: &TimeUnitOptions,
+    options: Option<&ScalarValue>,
 ) -> Result<FieldRef> {
-    options.check()?;
-    Calendar::new(input.data_type(), options)?;
+    if let Some(options) = options {
+        let options = TimeUnitOptions::of_scalar(options)?;
+        Calendar::new(input.data_type(), &options)?;
+    }
     Ok(result_field(name, input.data_type(), input.is_nullable()))
 }
 
-/// The time units of `value` by `options`, the call at index `i` of its partitions: with a
-/// `unit`, of each row, else of the unit that each partition chooses.
-pub(crate) fn output(value: Expr, options: TimeUnitOptions, i: usize) -> Output {
-    if options.unit.is_some() {
-        return Output::Row(scalar_udf(options).call(vec![value]));
+/// The time units of `value` by `options`, the struct of its options, the call at index `i` of
+/// its partitions: with a `unit`, of each row, else of the unit that each partition chooses.
+pub(crate) fn output(value: Expr, options: Expr, gives_unit: bool, i: usize) -> Output {
+    if gives_unit {
+        return Output::Row(TIMEUNIT.call(vec![value, options]));
     }
     let alias = format!("__timeunit_unit_{i}");
     let chosen = PartitionValue {
         aggregates: vec![
-            choose_udaf(options.clone())
-                .call(vec![value.clone()])
+            CHOOSE
+                .call(vec![value.clone(), options.clone()])
                 .alias(&alias),
         ],
         value: Expr::Column(Column::from_name(alias)),
     };
-    let apply = apply_udf(options);
-    Output::Partition(chosen, Box::new(move |unit| apply.call(vec![value, unit])))
+    Output::Partition(
+        chosen,
+        Box::new(move |unit| APPLY.call(vec![value, unit, options])),
+    )
 }
 
-/// `__timeunit(x)`: internal; the unit of each value by options with a `unit`.
+/// The options of a call, the constant struct of the argument `arg`.
+fn options_of(arg: &ColumnarValue) -> Result<TimeUnitOptions> {
+    let array = arg.to_array(1)?;
+    Ok(TimeUnitOptions::of_struct(array.as_struct(), 0)?)
+}
+
+static TIMEUNIT: LazyLock<ScalarUDF> = LazyLock::new(|| {
+    ScalarUDF::new_from_impl(TimeUnitScalar {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+});
+
+/// `__timeunit(x, options)`: internal; the unit of each value by options with a `unit`.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct TimeUnitScalar {
-    options: TimeUnitOptions,
     signature: Signature,
-}
-
-fn scalar_udf(options: TimeUnitOptions) -> ScalarUDF {
-    ScalarUDF::new_from_impl(TimeUnitScalar {
-        options,
-        signature: Signature::any(1, Volatility::Immutable),
-    })
 }
 
 impl ScalarUDFImpl for TimeUnitScalar {
@@ -108,28 +121,28 @@ impl ScalarUDFImpl for TimeUnitScalar {
         )
     }
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
-        window_field(self.name(), &args.arg_fields[0], &self.options)
+        let options = args.scalar_arguments.get(1).copied().flatten();
+        window_field(self.name(), &args.arg_fields[0], options)
     }
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let unit = self.options.unit;
+        let options = options_of(&args.args[1])?;
+        let unit = options.unit;
         let x = args.args[0].to_array(args.number_rows)?;
-        Ok(ColumnarValue::Array(apply(&x, &self.options, |_| unit)?))
+        Ok(ColumnarValue::Array(apply(&x, &options, |_| unit)?))
     }
 }
 
-/// `__timeunit_apply(x, unit)`: internal; the unit of each value, from `unit`, the text of a
-/// unit for each row from `__timeunit_choose`, as a dictionary.
+static APPLY: LazyLock<ScalarUDF> = LazyLock::new(|| {
+    ScalarUDF::new_from_impl(TimeUnitApply {
+        signature: Signature::any(3, Volatility::Immutable),
+    })
+});
+
+/// `__timeunit_apply(x, unit, options)`: internal; the unit of each value, from `unit`, the
+/// text of a unit for each row from `__timeunit_choose`, as a dictionary.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct TimeUnitApply {
-    options: TimeUnitOptions,
     signature: Signature,
-}
-
-fn apply_udf(options: TimeUnitOptions) -> ScalarUDF {
-    ScalarUDF::new_from_impl(TimeUnitApply {
-        options,
-        signature: Signature::any(2, Volatility::Immutable),
-    })
 }
 
 impl ScalarUDFImpl for TimeUnitApply {
@@ -146,10 +159,11 @@ impl ScalarUDFImpl for TimeUnitApply {
         )
     }
     fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
-        window_field(self.name(), &args.arg_fields[0], &self.options)
+        let options = args.scalar_arguments.get(2).copied().flatten();
+        window_field(self.name(), &args.arg_fields[0], options)
     }
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        let o = &self.options;
+        let o = &options_of(&args.args[2])?;
         let x = args.args[0].to_array(args.number_rows)?;
         let units = match &args.args[1] {
             ColumnarValue::Scalar(unit) => {
@@ -202,19 +216,17 @@ impl ScalarUDFImpl for TimeUnitApply {
     }
 }
 
-/// `__timeunit_choose(x)`: internal aggregate; the text of the unit that `timeunit` chooses for
-/// the values by its options.
+static CHOOSE: LazyLock<AggregateUDF> = LazyLock::new(|| {
+    AggregateUDF::new_from_impl(TimeUnitChoose {
+        signature: Signature::any(2, Volatility::Immutable),
+    })
+});
+
+/// `__timeunit_choose(x, options)`: internal aggregate; the text of the unit that `timeunit`
+/// chooses for the values by its options, a constant of the plan.
 #[derive(Debug, PartialEq, Eq, Hash)]
 struct TimeUnitChoose {
-    options: TimeUnitOptions,
     signature: Signature,
-}
-
-fn choose_udaf(options: TimeUnitOptions) -> AggregateUDF {
-    AggregateUDF::new_from_impl(TimeUnitChoose {
-        options,
-        signature: Signature::any(1, Volatility::Immutable),
-    })
 }
 
 impl AggregateUDFImpl for TimeUnitChoose {
@@ -228,7 +240,12 @@ impl AggregateUDFImpl for TimeUnitChoose {
         Ok(unit_type())
     }
     fn accumulator(&self, args: AccumulatorArgs) -> Result<Box<dyn Accumulator>> {
-        let options = self.options.clone();
+        // The options are a literal after the plan binds its parameters.
+        let literal = (args.exprs.get(1)).and_then(|expr| expr.downcast_ref::<Literal>());
+        let Some(literal) = literal else {
+            return internal_err!("{} takes its options as a constant", self.name());
+        };
+        let options = TimeUnitOptions::of_scalar(literal.value())?;
         let cal = Calendar::new(args.expr_fields[0].data_type(), &options)?;
         Ok(Box::new(ChooseAccumulator {
             options,

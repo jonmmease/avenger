@@ -96,7 +96,7 @@ The aggregates of a layer and the concats take the `_agg` names, as GoogleSQL na
 
 ## Transforms
 
-`bin`, `stack`, and `timeunit` are window functions, whose options are named arguments, as `bin(body_mass_g, maxbins => 30) OVER ()`.
+`bin`, `stack`, and `timeunit` are window functions, whose options are named arguments, as `bin(body_mass_g, maxbins => 30) OVER ()`. An option is a literal or a parameter, such as a script variable or a query parameter, which stays a placeholder of the plan until it is bound, as `sql` binds the variables, so a plan of a document compiles once and binds each run. The analysis checks a literal at its argument, and the transform checks the value of a parameter when the query runs. The `method`, `flag`, and `partition_by` of `impute` decide the schema of its result, so they take literals.
 
 `lump` keeps the heaviest categories of each partition of its `OVER` clause, or the categories that a condition keeps, and lumps the rest into an Other group:
 

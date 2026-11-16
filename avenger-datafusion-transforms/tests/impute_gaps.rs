@@ -9,7 +9,7 @@
 mod common;
 
 use avenger_datafusion_transforms::bin::{self, BinOptions};
-use avenger_datafusion_transforms::stack::{self, StackOffset};
+use avenger_datafusion_transforms::stack;
 use avenger_datafusion_transforms::table_function::ArgAt;
 use avenger_datafusion_transforms::timeunit::{TimeUnitOptions, WeekStart};
 use common::{exec, impute_call, impute_error, imputed, rows, session, time_units, unit};
@@ -115,7 +115,7 @@ async fn time_unit_months() -> Result<()> {
     assert_eq!(rows(&ctx, sql).await?.concat(), [end, end]);
 
     // Stacked: each month has a layer of each series.
-    ctx.register_udwf(stack::window(StackOffset::Zero).as_ref().clone());
+    ctx.register_udwf(stack::window().as_ref().clone());
     let sql = "SELECT u['start'] AS month, count(*) FROM (SELECT u, stack(units) OVER (PARTITION BY u ORDER BY series) AS y
          FROM imputed) GROUP BY u ORDER BY 1";
     let stacked = rows(&ctx, sql).await?;
