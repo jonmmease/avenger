@@ -601,19 +601,22 @@ impl Pass<'_> {
             outer: Vec::new(),
             outer_range_variables: Vec::new(),
         });
-        {
-            let empty = DFSchema::empty();
-            let scope = Scope::constant(&empty, "the function's body");
-            let scope = match kind {
-                Kind::Aggregate => scope.aggregates(),
-                _ => scope,
-            };
-            self.place(body, PlaceKind::Body, &scope, None);
-        }
+        let empty = DFSchema::empty();
+        let scope = Scope::constant(&empty, "the function's body");
+        let scope = match kind {
+            Kind::Aggregate => scope.aggregates(),
+            _ => scope,
+        };
         // The body reads its parameters, which the pass binds when it plans the body.
-        if let Some(place) = self.model.places.last_mut() {
-            place.columns = reads_parameters;
-        }
+        self.model.places.push(super::model::Place {
+            range: body,
+            kind: PlaceKind::Body,
+            columns: reads_parameters,
+            aggregates: scope.aggregates,
+            windows: scope.windows,
+            match_recognize: None,
+            expected: None,
+        });
         // The body, with each parameter of a type, planned once for its errors and the model. A
         // function with a parameter of any type or a table plans its body at each call.
         let typed: Option<Vec<(String, DataType)>> = (function.params.iter())
@@ -648,12 +651,6 @@ impl Pass<'_> {
                     let args = (typed.into_iter())
                         .map(|(_, ty)| cast(Expr::Literal(ScalarValue::Null, None), ty))
                         .collect();
-                    let empty = DFSchema::empty();
-                    let scope = Scope::constant(&empty, "the function's body");
-                    let scope = match kind {
-                        Kind::Aggregate => scope.aggregates(),
-                        _ => scope,
-                    };
                     if self.body(&function, args, scope).is_none() {
                         return;
                     }

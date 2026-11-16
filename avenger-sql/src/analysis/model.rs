@@ -105,10 +105,9 @@ pub fn match_recognize_part(name: &str) -> Option<MatchRecognizePart> {
 impl Place {
     /// Whether a call of `function` can stand here: a function of a `MATCH_RECOGNIZE` in its
     /// clause, a mark where aggregates can, an aggregate where aggregates can, or windows can and
-    /// it takes `OVER`, a
-    /// window function where windows can, and a scalar function anywhere but a list of columns
-    /// and a `PIVOT`, and in an item of `|> AGGREGATE`, over an aggregate.
-    /// A table function stands after `FROM` and a pipe `CALL`, which are no places.
+    /// it takes `OVER`, a window function where windows can, and a scalar function anywhere but a
+    /// list of columns and a `PIVOT`, and in an item of `|> AGGREGATE`, over an aggregate. A table
+    /// function stands after `FROM` and a pipe `CALL`, which are no places.
     pub fn takes(&self, function: &crate::library::Function) -> bool {
         use crate::library::{Family, FunctionKind, Over};
         if let Some(part) = match_recognize_part(&function.name) {

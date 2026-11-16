@@ -365,18 +365,7 @@ impl Pass<'_> {
         self.model.operators.push(OperatorScope {
             range,
             input: input.map(Self::columns_info).unwrap_or_default(),
-            range_variables: (scope_rows.vars.iter())
-                .map(|var| RangeVariable {
-                    name: var.name.clone(),
-                    definition: var.definition,
-                    columns: (var.columns.iter())
-                        .map(|col| Column {
-                            qualifiers: vec![var.name.clone()],
-                            ..Self::column_info(col, &scope_rows.vars, scope_rows.schema())
-                        })
-                        .collect(),
-                })
-                .collect(),
+            range_variables: Self::range_variables_info(&scope_rows.vars, scope_rows.schema()),
             output: Self::columns_info(output),
             queries: self.queries_in_scope(),
             outer: self.outer_columns(),
@@ -384,10 +373,31 @@ impl Pass<'_> {
         });
     }
 
-    /// The columns of the enclosing queries that a subquery reads, innermost first: not those
-    /// of a `MATCH_RECOGNIZE` clause, whose columns its subqueries can't read.
+    /// The range variables `vars`, each with its columns, whose types `schema` gives.
+    fn range_variables_info(vars: &[RangeVar], schema: Option<&DFSchema>) -> Vec<RangeVariable> {
+        (vars.iter())
+            .map(|var| RangeVariable {
+                name: var.name.clone(),
+                definition: var.definition,
+                columns: (var.columns.iter())
+                    .map(|col| Column {
+                        qualifiers: vec![var.name.clone()],
+                        ..Self::column_info(col, vars, schema)
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// The enclosing queries whose columns a subquery reads, innermost first: not those of a
+    /// `MATCH_RECOGNIZE` clause, whose columns its subqueries can't read.
+    fn readable_outers(&self) -> impl Iterator<Item = &expr::Outer> {
+        (self.outers.iter().rev()).filter(|outer| outer.match_recognize.is_none())
+    }
+
+    /// The columns of the enclosing queries that a subquery reads, innermost first, and the
+    /// parameters of the function whose body the pass plans, which its queries read.
     pub(crate) fn outer_columns(&self) -> Vec<Column> {
-        // The parameters of the function whose body the pass plans, which its queries read.
         let params = self.params.iter().map(|(name, arg)| Column {
             name: name.clone(),
             qualifiers: Vec::new(),
@@ -400,59 +410,17 @@ impl Pass<'_> {
                 _ => None,
             },
         });
-        let readable = self
-            .outers
-            .iter()
-            .rev()
-            .filter(|o| o.match_recognize.is_none());
-        let outer = (readable).flat_map(|outer| {
-            outer.columns.iter().map(move |col| Column {
-                name: col.name.clone(),
-                qualifiers: (outer.vars.iter())
-                    .filter(|var| var.columns.iter().any(|c| c.column == col.column))
-                    .map(|var| var.name.clone())
-                    .collect(),
-                definition: col.definition,
-                ty: (outer.schema.as_ref())
-                    .and_then(|schema| {
-                        datafusion::common::ExprSchema::field_from_column(schema, &col.column).ok()
-                    })
-                    .map(|field| field.data_type().clone()),
-            })
+        let outer = self.readable_outers().flat_map(|outer| {
+            (outer.columns.iter())
+                .map(|col| Self::column_info(col, &outer.vars, outer.schema.as_ref()))
         });
         outer.chain(params).collect()
     }
 
     /// The range variables of the enclosing queries that a subquery reads, innermost first.
     pub(crate) fn outer_range_variables(&self) -> Vec<RangeVariable> {
-        let readable = self
-            .outers
-            .iter()
-            .rev()
-            .filter(|o| o.match_recognize.is_none());
-        (readable)
-            .flat_map(|outer| {
-                outer.vars.iter().map(move |var| RangeVariable {
-                    name: var.name.clone(),
-                    definition: var.definition,
-                    columns: (var.columns.iter())
-                        .map(|col| Column {
-                            name: col.name.clone(),
-                            qualifiers: vec![var.name.clone()],
-                            definition: col.definition,
-                            ty: (outer.schema.as_ref())
-                                .and_then(|schema| {
-                                    datafusion::common::ExprSchema::field_from_column(
-                                        schema,
-                                        &col.column,
-                                    )
-                                    .ok()
-                                })
-                                .map(|field| field.data_type().clone()),
-                        })
-                        .collect(),
-                })
-            })
+        self.readable_outers()
+            .flat_map(|outer| Self::range_variables_info(&outer.vars, outer.schema.as_ref()))
             .collect()
     }
 
@@ -479,12 +447,8 @@ impl Pass<'_> {
         scope: &expr::Scope,
         expected: Option<datafusion::arrow::datatypes::DataType>,
     ) {
-        use model::{MatchRecognizePart, PlaceKind};
-        let match_recognize = self.mr_frame().and_then(|frame| match frame.clause {
-            match_recognize::Clause::Measures => Some(MatchRecognizePart::Measures),
-            match_recognize::Clause::Define => Some(MatchRecognizePart::Define),
-            match_recognize::Clause::Keys => None,
-        });
+        use model::PlaceKind;
+        let match_recognize = self.mr_frame().and_then(|frame| frame.clause.part());
         let expected = expected.or_else(|| {
             matches!(kind, PlaceKind::Filter | PlaceKind::Define)
                 .then_some(datafusion::arrow::datatypes::DataType::Boolean)

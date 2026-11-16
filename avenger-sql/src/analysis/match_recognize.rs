@@ -46,7 +46,7 @@ use datafusion::{
 
 use super::{
     expr::{direction, Scope, ARGUMENT},
-    model::{Definition, PlaceKind},
+    model::{match_recognize_part, Definition, MatchRecognizePart, PlaceKind},
     rows::{self, plan_name, Col, Item, RangeVar, Rows},
     Pass,
 };
@@ -71,13 +71,15 @@ pub(crate) enum Clause {
     Measures,
 }
 
-/// The clause of a `MATCH_RECOGNIZE` that takes the function `name`, as the model's
-/// `match_recognize_part` says, which is also the rule of an editor's places.
-fn part_clause(name: &str) -> Option<Clause> {
-    super::model::match_recognize_part(name).map(|part| match part {
-        super::model::MatchRecognizePart::Define => Clause::Define,
-        super::model::MatchRecognizePart::Measures => Clause::Measures,
-    })
+impl Clause {
+    /// The clause as the model names it, for a clause whose functions only it takes.
+    pub(crate) fn part(self) -> Option<MatchRecognizePart> {
+        match self {
+            Clause::Keys => None,
+            Clause::Define => Some(MatchRecognizePart::Define),
+            Clause::Measures => Some(MatchRecognizePart::Measures),
+        }
+    }
 }
 
 /// The clause of a `MATCH_RECOGNIZE` that the pass plans, at the depth of the queries that enclose
@@ -284,6 +286,9 @@ impl Pass<'_> {
         let list = call.arg_list();
         let frame = self.mr_frame().map(|frame| (frame.clause, frame.name));
         let clause = frame.map(|(clause, _)| clause);
+        // The clause that takes the function, by the model's rule, which an editor's places
+        // follow too.
+        let in_part = clause.and_then(Clause::part) == match_recognize_part(name);
         if let (Some((_, clause_name)), Some(_)) = (frame, call.over_clause()) {
             self.error(
                 range,
@@ -293,7 +298,7 @@ impl Pass<'_> {
         }
         match name {
             "PREV" | "NEXT" => {
-                if clause != part_clause(name) {
+                if !in_part {
                     self.error(range, format!("function {name} must be directly inside a MATCH_RECOGNIZE's DEFINE clause, without any enclosing subquery"));
                     return false;
                 }
@@ -353,7 +358,7 @@ impl Pass<'_> {
                 true
             }
             "FIRST" | "LAST" => {
-                if clause != part_clause(name) {
+                if !in_part {
                     self.error(range, format!("aggregate function {name} can only be used inside a MATCH_RECOGNIZE's MEASURES clause"));
                     return false;
                 }
@@ -370,7 +375,7 @@ impl Pass<'_> {
                 true
             }
             "MATCH_NUMBER" | "MATCH_ROW_NUMBER" | "CLASSIFIER" => {
-                if clause != part_clause(name) {
+                if !in_part {
                     let in_subquery = (self.match_recognize.iter()).any(|frame| {
                         frame.clause == Clause::Measures && frame.depth < self.outers.len()
                     });
