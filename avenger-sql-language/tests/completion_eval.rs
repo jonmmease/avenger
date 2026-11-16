@@ -284,23 +284,13 @@ fn judge(env: &Env, prefix: &str, insert: &str, after: &str, whole: bool) -> Opt
     None
 }
 
-/// The texts after a keyword that complete an expression that it starts, of each keyword, and
-/// over an aggregate for `|> AGGREGATE`.
+/// The texts after a keyword that complete an expression that it starts, and over an aggregate
+/// for `|> AGGREGATE`. An error at the end of the text, such as the date part that `INTERVAL TRUE`
+/// lacks, is one that the text after the item can fix, so one operand serves most keywords.
 const EXPRESSIONS: &[&str] = &[
     " TRUE",
     " ANY_VALUE(TRUE)",
-    " 1 DAY",
-    " ANY_VALUE(1) DAY",
-    " (FROM one)",
-    " ''",
-    "(1 AS INT64)",
-    "(ANY_VALUE(1) AS INT64)",
-    "(DAY FROM CURRENT_DATE())",
-    "(DAY FROM ANY_VALUE(CURRENT_DATE()))",
-    " WHEN TRUE THEN 1 END",
     " WHEN ANY_VALUE(TRUE) THEN 1 END",
-    "(ANY_VALUE(1))",
-    "[ANY_VALUE(1)]",
 ];
 
 /// Whether `keyword` after `prefix` starts an expression: the parser expects one after it.
@@ -385,13 +375,9 @@ fn soft(message: &str) -> Option<&'static str> {
         " takes ",
         "should return type",
         "requires at least",
-        "must be type",
         "incompatible",
         "must be arrays",
-        "unnest plan",
         "expects",
-        "mismatched",
-        "needs a value",
         "Expected type",
         "literal:",
         // What the text after the cursor gives: the query after `CORRESPONDING BY (...)`, a
