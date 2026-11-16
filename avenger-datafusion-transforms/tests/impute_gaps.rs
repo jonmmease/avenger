@@ -282,7 +282,7 @@ async fn calendars() -> Result<()> {
     .await?;
     let input = "SELECT t FROM days WHERE t < TIMESTAMP '2024-04-01'";
     let sundays = TimeUnitOptions {
-        week_start: WeekStart::Sunday,
+        week_start: Some(WeekStart::Sunday),
         ..unit("week")
     };
     time_units(&ctx, "days_weeks", input, "t", &[], sundays).await?;
@@ -296,6 +296,21 @@ async fn calendars() -> Result<()> {
     time_units(&ctx, "days_quarters", input, "t", &[], fiscal).await?;
     let quarters = ["2024-10", "2025-01", "2025-04"].map(|m| format!("{m}-01T00:00:00"));
     assert_eq!(starts("days_quarters").await?, quarters);
+
+    // The calendar comes from the text of the keys' unit: weeks that start on Monday, and a
+    // key that a query builds with the fiscal quarters of October years.
+    let input = "SELECT t FROM days WHERE t < TIMESTAMP '2024-04-01'";
+    time_units(&ctx, "days_mondays", input, "t", &[], unit("week(2)")).await?;
+    let weeks = ["04", "11", "18", "25"].map(|d| format!("2024-03-{d}T00:00:00"));
+    assert_eq!(starts("days_mondays").await?, weeks);
+    exec(
+        &ctx,
+        "CREATE VIEW built AS SELECT named_struct('start', TIMESTAMP '2024-10-01', 'end', TIMESTAMP '2025-01-01', 'unit', 'fiscal_quarter(10)') AS u
+         UNION ALL SELECT named_struct('start', TIMESTAMP '2025-04-01', 'end', TIMESTAMP '2025-07-01', 'unit', 'fiscal_quarter(10)')",
+    )
+    .await?;
+    let quarters = ["2024-10", "2025-01", "2025-04"].map(|m| format!("{m}-01T00:00:00"));
+    assert_eq!(starts("built").await?, quarters);
     Ok(())
 }
 
@@ -334,7 +349,7 @@ async fn errors() -> Result<()> {
             mid,
             d,
             &gaps("'fiscal_quarter'"),
-            "needs a fiscal year start",
+            "needs the first month of its fiscal years",
         ),
         (
             mid,
@@ -397,10 +412,10 @@ async fn errors() -> Result<()> {
     let run_errors: [(&str, Columns, &str, &str); 6] = [
         (mid, d, "'month'", "is not the start of a 'month'"),
         (
-            "SELECT named_struct('start', TIMESTAMP '2024-03-03', 'end', TIMESTAMP '2024-03-10', 'unit', 'week') AS k, 1 AS n",
+            "SELECT named_struct('start', TIMESTAMP '2024-03-03', 'end', TIMESTAMP '2024-03-10', 'unit', 'week(2)') AS k, 1 AS n",
             ("k", &[], "n"),
             "true",
-            "is not a unit 'week' of its calendar options",
+            "is not a unit 'week(2)' of its calendar",
         ),
         (
             "SELECT u, units FROM sales_months",

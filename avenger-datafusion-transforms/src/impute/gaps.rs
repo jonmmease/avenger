@@ -261,16 +261,17 @@ impl Gaps {
                         "the step of a key of type {key} is a unit, such as 'month', not {v}"
                     ));
                 };
-                let unit = Unit::parse(text).map_err(|e| e.strip_backtrace())?;
+                let (unit, calendar) = Unit::parse(text).map_err(|e| e.strip_backtrace())?;
                 if kind == GapKind::Date {
                     if matches!(unit, Unit::Collapse(_)) {
                         return Err(format!(
                             "the collapsing unit '{text}' does not apply to a date key; key impute by the result of timeunit"
                         ));
                     }
-                    if unit.is_fiscal() {
+                    if unit.is_fiscal() && calendar.is_none() {
                         return Err(format!(
-                            "the fiscal unit '{text}' needs a fiscal year start; key impute by the result of timeunit with 'fiscal_year_start'"
+                            "the fiscal unit '{text}' needs the first month of its fiscal years, as in '{}(10)'",
+                            unit.text()
                         ));
                     }
                     let o = TimeUnitOptions {
@@ -491,7 +492,10 @@ impl Gaps {
         };
         let text = match (texts.first(), step) {
             (Some(key), Some(step)) => {
-                if Unit::parse(key)? != Unit::parse(step)? {
+                // The step names the unit of the keys, and its calendar, when it names one.
+                let ((key_unit, key_calendar), (step_unit, step_calendar)) =
+                    (Unit::parse(key)?, Unit::parse(step)?);
+                if key_unit != step_unit || step_calendar.is_some_and(|c| Some(c) != key_calendar) {
                     return exec_err!(
                         "the step '{step}' of `fill_gaps` differs from the unit '{key}' of the keys"
                     );
@@ -502,13 +506,10 @@ impl Gaps {
             (None, Some(step)) => step.to_string(),
             (None, None) => return Ok(new_null_array(field.data_type(), 0)),
         };
-        let unit = Unit::parse(&text)?;
-        let options = match self.kind {
-            GapKind::TimeUnit => {
-                timeunit::options_of_tag(field.metadata().get(timeunit::TAG).map(String::as_str))?
-            }
-            _ => TimeUnitOptions::default(),
-        };
+        // The unit's text names its calendar.
+        let (unit, calendar) = Unit::parse(&text)?;
+        let mut options = TimeUnitOptions::default();
+        options.take_calendar("fill_gaps", calendar)?;
         let mut seq = UnitSequence::new(&dt, &options, unit)?;
 
         // Each key must be a unit of the sequence.
@@ -532,7 +533,7 @@ impl Gaps {
                         "the key {shown} is not the start of a '{text}'; truncate the keys with timeunit or date_trunc, or key impute by the result of timeunit"
                     ),
                     _ => exec_err!(
-                        "the key {shown} is not a unit '{text}' of its calendar options; key impute by the result of timeunit, whose rule tags the calendar"
+                        "the key {shown} is not a unit '{text}' of its calendar; a unit names its calendar, as 'week(2)' names weeks that start on Monday"
                     ),
                 };
             }

@@ -409,7 +409,7 @@ impl Calendar {
         Ok(Self {
             kind,
             clock: Clock::new(zone, name),
-            week_start: o.week_start,
+            week_start: o.week_start.unwrap_or_default(),
             // `check` keeps the month from 1 to 12.
             fiscal: o.fiscal_year_start.map(|m| m as u32),
         })
@@ -448,19 +448,25 @@ impl Calendar {
         Kind::Days.ndt(days).date()
     }
 
-    /// The origin of the units of a week or shorter: the first day of a week, January 1 of
-    /// the reference year.
+    /// The origin of days and of the units shorter than a day: January 1, 2012, which the
+    /// first day of a week does not move, so only the units of weeks name one.
     pub(super) fn origin(&self) -> NaiveDate {
+        ymd(ORIGIN_YEAR, 1, 1)
+    }
+
+    /// The origin of weeks: January 1 of the reference year of the first day of a week, which
+    /// is that day.
+    pub(super) fn week_origin(&self) -> NaiveDate {
         ymd(self.week_start.reference_year(), 1, 1)
     }
 
     /// The first day of the unit of one day or longer that contains `d`, and of the next.
-    /// Days and weeks step from [`Calendar::origin`], months, quarters, and years from
-    /// January of year 0, and fiscal units from the start of fiscal year 0.
+    /// Days step from [`Calendar::origin`], weeks from [`Calendar::week_origin`], months,
+    /// quarters, and years from January of year 0, and fiscal units from the start of fiscal
+    /// year 0.
     pub(super) fn civil_dates(&self, d: NaiveDate, t: Trunc, k: u32) -> (NaiveDate, NaiveDate) {
         let k = k as i64;
-        let days = |n: i64| {
-            let origin = self.origin();
+        let days = |n: i64, origin: NaiveDate| {
             let i = (d - origin).num_days().div_euclid(n) * n;
             (origin + Duration::days(i), origin + Duration::days(i + n))
         };
@@ -477,8 +483,8 @@ impl Calendar {
             f => f as i64 - 1 - 12,
         };
         match t {
-            Trunc::Day => days(k),
-            Trunc::Week => days(7 * k),
+            Trunc::Day => days(k, self.origin()),
+            Trunc::Week => days(7 * k, self.week_origin()),
             Trunc::Month => months(0, k),
             Trunc::Quarter => months(0, 3 * k),
             Trunc::Year => months(0, 12 * k),
@@ -542,9 +548,7 @@ impl Calendar {
         // Wide integers: the origin is far from the ends of the range of nanoseconds.
         let step = (sub_ms(unit) * k as i64) as i128 * ps as i128 / 1000;
         let shift = off as i128 * ps as i128;
-        let origin = days_from_civil(self.week_start.reference_year() as i64, 1, 1) as i128
-            * 86_400
-            * ps as i128;
+        let origin = days_from_civil(ORIGIN_YEAR as i64, 1, 1) as i128 * 86_400 * ps as i128;
         let local = t as i128 + shift;
         let s = origin + (local - origin).div_euclid(step) * step - shift;
         Some((i64::try_from(s).ok()?, i64::try_from(s + step).ok()?))
@@ -609,12 +613,12 @@ impl Calendar {
         let lt = self.local_ticks(t);
         let (days, tod) = (lt.div_euclid(dt), lt.rem_euclid(dt));
         let (y, m, d) = civil_from_days(days);
-        let ry = self.week_start.reference_year() as i64;
+        // The reference year: 2012, or for the units of weeks, the year of the first day of a
+        // week.
+        let ry = ORIGIN_YEAR as i64;
         let jan1 = days_from_civil(ry, 1, 1);
-        let week_index = |days: i64| match self.week_start {
-            WeekStart::Monday => (days + 3).rem_euclid(7),
-            WeekStart::Sunday => (days + 4).rem_euclid(7),
-        };
+        let week_jan1 = days_from_civil(self.week_start.reference_year() as i64, 1, 1);
+        let week_index = |days: i64| self.week_start.index(days);
         // The first day of the month with index `y * 12 + month0`.
         let month = |i: i64| days_from_civil(i.div_euclid(12), i.rem_euclid(12) as u32 + 1, 1);
         let ps = self.kind.per_second();
@@ -653,11 +657,14 @@ impl Calendar {
                 } else {
                     (days - first) / 7 + 1
                 };
-                let s = jan1 + 7 * (w - 1);
+                let s = week_jan1 + 7 * (w - 1);
                 (s, s + 7)
             }
             Collapse::DayOfMonth => (jan1 + d as i64 - 1, jan1 + d as i64),
-            Collapse::DayOfWeek => (jan1 + week_index(days), jan1 + week_index(days) + 1),
+            Collapse::DayOfWeek => {
+                let s = week_jan1 + week_index(days);
+                (s, s + 1)
+            }
             Collapse::HourOfDay => return time(3600 * ps),
             Collapse::MinuteOfDay => return time(60 * ps),
             Collapse::SecondOfDay => return time(ps),
@@ -718,6 +725,11 @@ impl Calendar {
         }
     }
 }
+
+/// The year of the origin of days and of the units shorter than a day, and the reference year
+/// of the collapsing units other than those of weeks: a leap year, so `month_day` and
+/// `day_of_year` hold February 29.
+const ORIGIN_YEAR: i32 = 2012;
 
 /// Days since 1970-01-01 of a civil date (Howard Hinnant's `days_from_civil`).
 pub(super) fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {

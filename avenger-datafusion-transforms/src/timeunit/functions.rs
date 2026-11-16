@@ -58,12 +58,7 @@ pub(crate) fn window_field(
 ) -> Result<FieldRef> {
     options.check()?;
     Calendar::new(input.data_type(), options)?;
-    Ok(result_field(
-        name,
-        input.data_type(),
-        input.is_nullable(),
-        options.tag(),
-    ))
+    Ok(result_field(name, input.data_type(), input.is_nullable()))
 }
 
 /// The time units of `value` by `options`, the call at index `i` of its partitions: with a
@@ -158,7 +153,12 @@ impl ScalarUDFImpl for TimeUnitApply {
         let x = args.args[0].to_array(args.number_rows)?;
         let units = match &args.args[1] {
             ColumnarValue::Scalar(unit) => {
-                let unit = unit.try_as_str().flatten().map(Unit::parse).transpose()?;
+                let unit = unit
+                    .try_as_str()
+                    .flatten()
+                    .map(Unit::parse)
+                    .transpose()?
+                    .map(|(unit, _)| unit);
                 return Ok(ColumnarValue::Array(apply(&x, o, |_| unit)?));
             }
             ColumnarValue::Array(units) => units,
@@ -186,7 +186,8 @@ impl ScalarUDFImpl for TimeUnitApply {
                             let unit = texts
                                 .is_valid(i)
                                 .then(|| Unit::parse(texts.value(i)))
-                                .transpose()?;
+                                .transpose()?
+                                .map(|(unit, _)| unit);
                             parsed.insert(k, unit);
                             unit
                         }

@@ -1,6 +1,10 @@
-//! The units: truncating units with a count, and collapsing units.
+//! The units: truncating units with a count, and collapsing units, and their text, which
+//! names the calendar of a unit that depends on one: the first day of the weeks of `week(2)`,
+//! Monday, and the first month of the fiscal years of `fiscal_quarter(10)`, October.
 
 use datafusion::common::{Result, plan_err};
+
+use super::WeekStart;
 
 /// A truncating unit: values go to the unit that contains them on the calendar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -74,9 +78,62 @@ pub enum Unit {
     Collapse(Collapse),
 }
 
+/// The calendar that the text of a unit names, in the parentheses after its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UnitCalendar {
+    /// The first day of the weeks of `week`, `week_of_year`, and `day_of_week`.
+    WeekStart(WeekStart),
+    /// The first month, from 1 to 12, of the fiscal years of the fiscal units.
+    FiscalYearStart(i64),
+}
+
 impl Unit {
-    pub fn parse(text: &str) -> Result<Unit> {
+    /// The unit of `text`, such as `'month'`, `'3 hours'`, or `'2 weeks(2)'`, and the calendar
+    /// that it names. A unit of weeks names the first day of its weeks as GoogleSQL's
+    /// `DAYOFWEEK` numbers it, from 1 for Sunday to 7 for Saturday, and a fiscal unit the first
+    /// month of its fiscal years, from 1 to 12.
+    pub fn parse(text: &str) -> Result<(Unit, Option<UnitCalendar>)> {
         let words: Vec<&str> = text.split_whitespace().collect();
+        let Some(last) = words.last() else {
+            return plan_err!("unknown time unit '{text}'");
+        };
+        let (name, parameter) = match last.strip_suffix(')').and_then(|rest| rest.split_once('(')) {
+            Some((name, parameter)) => match parameter.trim().parse::<i64>() {
+                Ok(n) => (name, Some(n)),
+                Err(_) => return plan_err!("the parameter of the unit '{text}' is a number"),
+            },
+            None => (*last, None),
+        };
+        let unit = Self::parse_name(text, &words[..words.len() - 1], name)?;
+        let calendar = match (parameter, unit.follows_weeks(), unit.is_fiscal()) {
+            (None, ..) => None,
+            (Some(n), true, _) => match WeekStart::from_number(n) {
+                Some(day) => Some(UnitCalendar::WeekStart(day)),
+                None => {
+                    return plan_err!(
+                        "the first day of the weeks of '{text}' is a number from 1 for Sunday to 7 for Saturday, not {n}"
+                    );
+                }
+            },
+            (Some(n), _, true) if (1..=12).contains(&n) => Some(UnitCalendar::FiscalYearStart(n)),
+            (Some(n), _, true) => {
+                return plan_err!(
+                    "the first month of the fiscal years of '{text}' is a number from 1 to 12, not {n}"
+                );
+            }
+            (Some(_), false, false) => {
+                return plan_err!(
+                    "the unit '{}' takes no parameter: only the units of weeks and the fiscal units name a calendar",
+                    unit.text()
+                );
+            }
+        };
+        Ok((unit, calendar))
+    }
+
+    /// The unit of the name `name`, after the words `count` of its text `text`.
+    fn parse_name(text: &str, count: &[&str], name: &str) -> Result<Unit> {
+        let words: Vec<&str> = count.iter().copied().chain([name]).collect();
         let (count, name) = match words[..] {
             [name] => (1, name),
             [count, name] => match count.parse::<u32>() {
@@ -108,6 +165,19 @@ impl Unit {
         }
     }
 
+    /// The text of the unit and of its calendar, which names the first day of the weeks of a
+    /// unit of weeks and the first month of the fiscal years of a fiscal unit, such as
+    /// `'week(1)'` or `'fiscal_quarter(10)'`.
+    pub fn text_in(&self, week_start: WeekStart, fiscal_year_start: Option<i64>) -> String {
+        let text = self.text();
+        match (self.follows_weeks(), self.is_fiscal(), fiscal_year_start) {
+            (true, ..) => format!("{text}({})", week_start.number()),
+            (_, true, Some(month)) => format!("{text}({month})"),
+            _ => text,
+        }
+    }
+
+    /// The text of the unit without its calendar, such as `'2 weeks'`.
     pub fn text(&self) -> String {
         match self {
             Unit::Trunc(t, k) => {
@@ -141,6 +211,16 @@ impl Unit {
                     | Collapse::SecondOfMinute
             ),
         }
+    }
+
+    /// Whether the first day of a week moves the bounds of the unit: `week`, `week_of_year`,
+    /// and `day_of_week`.
+    pub fn follows_weeks(&self) -> bool {
+        matches!(
+            self,
+            Unit::Trunc(Trunc::Week, _)
+                | Unit::Collapse(Collapse::WeekOfYear | Collapse::DayOfWeek)
+        )
     }
 
     pub fn is_fiscal(&self) -> bool {
