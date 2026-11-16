@@ -237,3 +237,16 @@ googlesql_pipe_5c
 DECLARE lo INT64 DEFAULT 0; CREATE TEMP FUNCTION f(a INT64) AS (a + lo); SET lo = 5; FROM t |> SELECT f(x) AS y
 googlesql_pipe_5c
 DECLARE k INT64 DEFAULT 10; CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v) + k); FROM t |> AGGREGATE h(x) AS total
+compositions
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
+compositions
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY sex, island
+|> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
+|> AGGREGATE facet_row(chart, sex) AS chart
+compositions
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
+|> AGGREGATE hconcat_agg(chart ORDER BY species) AS chart

@@ -1,6 +1,6 @@
-//! An evaluation of completion over 100 example queries: the chart, mark, transform, constructor,
-//! and script queries of avenger-sql's tests, and the queries of GoogleSQL's recorded pipe corpus
-//! that avenger-sql accepts, in `tests/data/completion_queries.txt`.
+//! An evaluation of completion over example queries: the chart, mark, composition, transform,
+//! constructor, and script queries of avenger-sql's tests, and the queries of GoogleSQL's
+//! recorded pipe corpus that avenger-sql accepts, in `tests/data/completion_queries.txt`.
 //!
 //! At up to 10 locations of each query, over the kinds of its tokens, it completes twice: in the
 //! whole query, and in the text cut at the cursor. The cursor is at the start of the token or two
@@ -783,7 +783,7 @@ fn evaluate(name: &str, missed: bool) -> Evaluation {
             text.to_string()
         })
         .collect();
-    assert_eq!(queries.len(), 100);
+    assert_eq!(queries.len(), 103);
     for (index, text) in queries.iter().enumerate() {
         let diagnostics = env.document(text).diagnostics();
         assert!(diagnostics.is_empty(), "query {index}: {diagnostics:?}");

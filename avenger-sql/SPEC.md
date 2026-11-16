@@ -79,6 +79,18 @@ FROM penguins
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them.
 - Compute aggregates in an `AGGREGATE` before the mark, since a channel reads each row.
 
+A composition aggregate composes the charts of the rows of a group, one chart for each row:
+
+```sql
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
+```
+
+- `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of a key, and label them. A `facet_row` of `facet_col` charts is a grid.
+- `layer_agg(chart ORDER BY k)` overlays the plots of the charts, and `hconcat_agg` and `vconcat_agg` place them in a row or a column, in the order of the `ORDER BY`. Without one, their order is unspecified.
+- The options of a composition are named constants, as in `facet_wrap(chart, species, layout => wrap_layout(max_columns => 2))`.
+
 ## Transforms
 
 - `bin`, `stack`, and `timeunit` are window functions with named options, as in `bin(body_mass_g, maxbins => 30) OVER ()`. Each returns a struct, such as the `start` and `end` of a bin.

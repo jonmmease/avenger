@@ -27,8 +27,7 @@ const SPECS: [Spec; 6] = [
         kind: "Layer",
         node: "Plot",
         omit: &[],
-        doc:
-            "The plot of the layers of a column of charts, whose roots are plots of one coordinate \
+        doc: "The plot of the layers of the charts, whose roots are plots of one coordinate \
               system. The charts draw in their order, each over the ones before it, and their \
               layers share every channel by default. The options are those of the plot, and an \
               option that a layered plot sets applies when the call does not set it.",
@@ -38,7 +37,7 @@ const SPECS: [Spec; 6] = [
         kind: "HConcat",
         node: "Concat",
         omit: &["facet"],
-        doc: "A concat of a column of charts side by side, from left to right, in their order. \
+        doc: "A concat of the charts side by side, from left to right, in their order. \
               The options are those of the concat.",
     },
     Spec {
@@ -46,8 +45,8 @@ const SPECS: [Spec; 6] = [
         kind: "VConcat",
         node: "Concat",
         omit: &["facet"],
-        doc: "A concat of a column of charts one above another, from top to bottom, in their \
-              order. The options are those of the concat.",
+        doc: "A concat of the charts one above another, from top to bottom, in their order. The \
+              options are those of the concat.",
     },
     Spec {
         name: "facet_row",

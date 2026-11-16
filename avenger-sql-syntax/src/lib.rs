@@ -273,6 +273,8 @@ pub enum FunctionRole {
     Constructor,
     /// A transform: `bin`, `stack`, `timeunit`, `lump`, or `impute`.
     Transform,
+    /// A composition of avenger-chart, which composes charts: a layer, a concat, or a facet.
+    Composition,
 }
 
 impl From<ast::FunctionKind> for FunctionRole {

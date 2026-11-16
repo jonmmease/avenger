@@ -458,3 +458,26 @@ fn a_subquery_or_a_window_in_an_argument_completes_as_its_own_place() {
     assert!(labels(&completions, CompletionKind::Column).contains(&"species"));
     assert!(labels(&completions, CompletionKind::Parameter).is_empty());
 }
+
+#[test]
+fn an_aggregate_completes_compositions_and_their_options_constructors_first() {
+    let (completions, _) = complete("FROM penguins |> AGGREGATE $0");
+    let facet_col = item(&completions, "facet_col").unwrap();
+    assert_eq!(
+        facet_col.kind,
+        CompletionKind::Function(FunctionRole::Composition)
+    );
+    let (completions, _) = complete(
+        "FROM penguins |> AGGREGATE bar(x => species) AS chart GROUP BY island \
+         |> AGGREGATE facet_col(chart, island, layout => $0) AS chart",
+    );
+    let first = (completions.items.iter())
+        .find(|item| matches!(item.kind, CompletionKind::Function(_)))
+        .unwrap();
+    assert_eq!(
+        first.kind,
+        CompletionKind::Function(FunctionRole::Constructor),
+        "{}",
+        first.label
+    );
+}

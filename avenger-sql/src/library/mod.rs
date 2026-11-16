@@ -90,6 +90,9 @@ pub enum Family {
     /// A transform of avenger-datafusion-transforms: `bin`, `stack`, `timeunit`, `lump`, or
     /// `impute`.
     Transform,
+    /// A composition of avenger-chart: an aggregate that composes the charts of a group, such as
+    /// `facet_col`.
+    Composition,
 }
 
 impl FunctionKind {
@@ -457,6 +460,7 @@ impl Function {
             Family::Mark => FunctionRole::Mark,
             Family::Constructor => FunctionRole::Constructor,
             Family::Transform => FunctionRole::Transform,
+            Family::Composition => FunctionRole::Composition,
             Family::GoogleSql => self.kind.role(),
         }
     }
