@@ -39,3 +39,4 @@ avenger-lang-preview/preview.avgr
 /avenger-chart-eval/tests/output/
 /avenger-sql/tests/output/
 /avenger-datafusion-transforms/tests/output/
+/avenger-streaming/tests/output/
