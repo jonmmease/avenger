@@ -274,6 +274,14 @@ fn a_place_takes_what_the_analysis_accepts_there() {
     // After a pipe `CALL`, table functions, and no table.
     let (completions, _) = complete("FROM penguins |> CALL $0");
     assert!(labels(&completions, CompletionKind::Table).is_empty());
+    // A pipe `CALL` passes its input to a table parameter, which `FROM` needs no input for.
+    let functions = "CREATE TEMP TABLE FUNCTION numbers(n INT64) AS (FROM UNNEST([n]) AS v);\n\
+         CREATE TEMP TABLE FUNCTION firsts(src ANY TABLE) AS (FROM src |> LIMIT 1);\n";
+    let table = CompletionKind::Function(FunctionRole::Table);
+    let (completions, _) = complete(&format!("{functions}FROM penguins |> CALL $0"));
+    assert_eq!(labels(&completions, table), ["firsts"]);
+    let (completions, _) = complete(&format!("{functions}FROM $0"));
+    assert_eq!(labels(&completions, table), ["firsts", "numbers"]);
     // An item of `|> AGGREGATE` takes no column by itself.
     let (completions, _) = complete("FROM penguins |> AGGREGATE $0");
     assert!(labels(&completions, CompletionKind::Column).is_empty());

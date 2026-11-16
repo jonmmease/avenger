@@ -32,7 +32,10 @@ mod common;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use avenger_sql::{
@@ -84,32 +87,26 @@ fn oracle(env: &Env, prefix: &str, insert: &str, item: Item) -> Option<String> {
             // A keyword that starts an expression is valid where some expression that it starts
             // is, as `NOT TRUE`, and not merely where the parser takes the keyword.
             if starts_expression(env, prefix, insert) {
-                let mut first = None;
-                for after in EXPRESSIONS {
-                    match judge(env, prefix, insert, after, true) {
-                        None => return None,
-                        Some(reason) => {
-                            first.get_or_insert(reason);
-                        }
-                    }
-                }
-                return first;
+                return first_valid(
+                    (EXPRESSIONS.iter()).map(|after| judge(env, prefix, insert, after, true)),
+                );
             }
-            let bare = judge(env, prefix, insert, "", false);
-            bare.as_ref()?;
-            judge(env, prefix, insert, " (", false)?;
-            judge(env, prefix, insert, " ''", false)?;
-            judge(env, prefix, insert, "(ANY_VALUE(1))", true)?;
-            judge(env, prefix, insert, "[ANY_VALUE(1)]", true).and(bare)
+            let tries = [
+                ("", false),
+                (" (", false),
+                (" ''", false),
+                ("(ANY_VALUE(1))", true),
+                ("[ANY_VALUE(1)]", true),
+            ];
+            first_valid(
+                (tries.into_iter()).map(|(after, whole)| judge(env, prefix, insert, after, whole)),
+            )
         }
-        // A function is valid where some call of it is: without arguments when a form takes
-        // none, and with one otherwise, with and without `OVER`, and over an aggregate, as
-        // `ABS(SUM(x))` in `|> AGGREGATE`. A call without arguments of a function that takes some
-        // fails on its arguments before its place, so the oracle doesn't try one.
+        // A function is valid where some call of it is: a call of each form, with an argument of
+        // its type for each that the form needs, so that an error of a type does not hide the
+        // error of the place, with and without `OVER`, and over an aggregate, as
+        // `ABS(ANY_VALUE(1))` in `|> AGGREGATE`.
         Item::Function => {
-            // A call of each form, with an argument of its type for each that the form needs,
-            // so that an error of a type doesn't hide the error of the place, with and without
-            // `OVER`, and over an aggregate, as `ABS(ANY_VALUE(1))` in `|> AGGREGATE`.
             let forms = env.library.get(insert).map(|function| &function.forms);
             let mut calls: Vec<String> = Vec::new();
             for form in forms.into_iter().flatten() {
@@ -126,19 +123,20 @@ fn oracle(env: &Env, prefix: &str, insert: &str, item: Item) -> Option<String> {
             if calls.is_empty() {
                 calls.push("()".to_string());
             }
-            let mut first = None;
-            for call in calls {
-                match judge(env, prefix, insert, &call, true) {
-                    None => return None,
-                    Some(reason) => {
-                        first.get_or_insert(reason);
-                    }
-                }
-            }
-            first
+            first_valid((calls.iter()).map(|call| judge(env, prefix, insert, call, true)))
         }
         Item::Name => judge(env, prefix, insert, "", false),
     }
+}
+
+/// `None` when some try is valid, and otherwise the reason of the first. The tries run until
+/// one is valid.
+fn first_valid(reasons: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    let mut first = None;
+    for reason in reasons {
+        first.get_or_insert(reason?);
+    }
+    first
 }
 
 /// A literal of the type `ty`, whose type variables take the first type of their sets in
@@ -179,7 +177,11 @@ fn call_of(signature: &Signature, wrapped: bool) -> String {
         .any(|arg| arg.arity != Arity::Optional && matches!(arg.accept, Accept::Value(_)));
     let mut first = true;
     let mut values: Vec<String> = Vec::new();
+    // The number of positional arguments before `arg`.
+    let mut position = 0;
     for arg in &signature.args {
+        let before = position;
+        position += usize::from(!arg.named_only);
         let value_arg = matches!(arg.accept, Accept::Value(_));
         let wrap = wrapped && first && value_arg;
         let needed = arg.arity != Arity::Optional;
@@ -188,7 +190,7 @@ fn call_of(signature: &Signature, wrapped: bool) -> String {
         if !needed && !optional {
             continue;
         }
-        let named = arg.named_only || values.len() != positional(signature, arg);
+        let named = arg.named_only || values.len() != before;
         let mut value = match &arg.accept {
             Accept::Value(ty) | Accept::Const(ty) => literal(ty, &signature.vars),
             Accept::OneOf(values) => format!("'{}'", values[0]),
@@ -204,14 +206,6 @@ fn call_of(signature: &Signature, wrapped: bool) -> String {
         });
     }
     format!("({})", values.join(", "))
-}
-
-/// The number of positional arguments of `signature` before `arg`.
-fn positional(signature: &Signature, arg: &avenger_sql::library::FormArg) -> usize {
-    (signature.args.iter())
-        .take_while(|other| !std::ptr::eq(*other, arg))
-        .filter(|other| !other.named_only)
-        .count()
 }
 
 /// The reason that `insert` and `after` cannot follow `prefix`, or `None`. An error inside
@@ -320,22 +314,15 @@ fn over(env: &Env, prefix: &str) -> Option<String> {
     let start = trimmed[..open]
         .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
         .len();
-    let mut first = None;
-    for after in ["OVER ()", "OVER (ORDER BY 1)"] {
+    first_valid(["OVER ()", "OVER (ORDER BY 1)"].into_iter().map(|after| {
         let text = format!("{prefix}{after}");
         let end = text.len();
         let document = env.document(&text);
-        let error = (document.diagnostics().into_iter())
+        (document.diagnostics().into_iter())
             .find(|d| usize::from(d.range.start()) >= start && usize::from(d.range.start()) <= end)
-            .filter(|d| d.source == Source::Syntax || !soft(&d.message));
-        match error {
-            None => return None,
-            Some(error) => {
-                first.get_or_insert(error.message);
-            }
-        }
-    }
-    first
+            .filter(|d| d.source == Source::Syntax || !soft(&d.message))
+            .map(|error| error.message)
+    }))
 }
 
 /// Whether the parser reads `keyword` after `prefix` as a keyword, and not as a name, such as
@@ -351,9 +338,16 @@ fn read_as_keyword(env: &Env, prefix: &str, keyword: &str) -> bool {
 /// Whether an error of the analysis is one that the rest of the text can fix: the arguments of a
 /// call, the type of an operand, or a window function's `OVER`.
 fn soft(message: &str) -> bool {
-    // A call that its place forbids, as an analytic function in an aggregate's argument, or
-    // with more positional arguments than its function takes.
-    if message.contains("not allowed") || message.contains("positional argument") {
+    // A call that its place forbids, as an analytic function in an aggregate's argument or a
+    // table function without a table parameter after a pipe `CALL`, or with more positional
+    // arguments than its function takes.
+    let forbidden = [
+        "not allowed",
+        "positional argument",
+        "pipe CALL syntax",
+        "takes no TABLE argument",
+    ];
+    if forbidden.iter().any(|pattern| message.contains(pattern)) {
         return false;
     }
     [
@@ -603,7 +597,7 @@ fn probe(env: &Env, query: usize, text: &str, location: &Location, index: usize)
         cursor += 1;
     }
     let mut probes = Vec::new();
-    for (mode, mode_text) in [("valid", text), ("cut", &text[..cursor])] {
+    for (mode, mode_text) in [("whole", text), ("cut", &text[..cursor])] {
         let document = env.document(mode_text);
         let completions = document.completions(Offset::from(cursor as u32));
         let prefix = &mode_text[..usize::from(completions.range.start())];
@@ -718,7 +712,7 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
         columns: columns.into_iter().collect(),
     };
     let data = include_str!("data/completion_queries.txt");
-    let queries: Vec<&str> = (data.split('\u{1e}'))
+    let queries: Vec<String> = (data.split('\u{1e}'))
         .map(|record| record.trim_start_matches('\n'))
         .filter(|record| !record.trim().is_empty())
         .map(|record| {
@@ -727,7 +721,7 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
                 .collect::<Vec<_>>()
                 .join("\n");
             let (_, text) = record.split_once('\n').unwrap();
-            Box::leak(text.to_string().into_boxed_str()) as &str
+            text.to_string()
         })
         .collect();
     assert_eq!(queries.len(), 100);
@@ -737,15 +731,11 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
     }
 
     let probes = Mutex::new(Vec::new());
-    let next = Mutex::new(0usize);
+    let next = AtomicUsize::new(0);
     std::thread::scope(|scope| {
         for _ in 0..8 {
             scope.spawn(|| loop {
-                let index = {
-                    let mut next = next.lock().unwrap();
-                    *next += 1;
-                    *next - 1
-                };
+                let index = next.fetch_add(1, Ordering::Relaxed);
                 let Some(text) = queries.get(index) else {
                     break;
                 };
@@ -799,8 +789,8 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
          invalid items: {invalid}\nmissed items: {missed}\n",
         probes.len(),
         queries.len(),
-        offered("valid"),
-        total("valid"),
+        offered("whole"),
+        total("whole"),
         offered("cut"),
         total("cut"),
     );
@@ -810,7 +800,7 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
     std::fs::write(format!("{out}/summary.txt"), &summary).unwrap();
     println!("{summary}");
     assert!(
-        offered("valid") == total("valid") && offered("cut") == total("cut"),
+        offered("whole") == total("whole") && offered("cut") == total("cut"),
         "a probe does not offer its token: {summary}see {out}/probes.txt"
     );
     assert_eq!(invalid, 0, "invalid items: {summary}see {out}/probes.txt");
