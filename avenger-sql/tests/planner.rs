@@ -1172,12 +1172,16 @@ fn a_pattern_over_the_cap_and_a_parameter_bound_are_errors() {
     }
 }
 
+/// The input of the cases of repeated names, function bodies and correlation: a table of columns,
+/// since a pattern variable reads columns, and GoogleSQL rejects `b.price` over a value table.
+const PRICES: &str = "FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 6), STRUCT(4, 9)]) |> SELECT *";
+
 #[tokio::test]
 async fn repeated_names_repeated_partitions_and_sql_aggregates() {
     // The rows of `execute_query` for an input with two columns of one name, a repeated
     // partition column, an aggregate function of SQL in a measure, and an input column with the
     // name of a column of the node.
-    let data = "FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 6), STRUCT(4, 9)]) |> SELECT *";
+    let data = PRICES;
     let cases = [
         (
             format!("{data} |> AS l |> JOIN ({data}) AS r ON l.id = r.id |> MATCH_RECOGNIZE(ORDER BY l.id MEASURES COUNT(*) AS n PATTERN (a+) DEFINE a AS TRUE)"),
@@ -1206,7 +1210,7 @@ fn errors_of_names_function_bodies_and_correlation() {
     // GoogleSQL's messages, from `execute_query`, but for the body of a function, whose error
     // avenger-sql writes after the function's name, and for a correlated clause, which
     // avenger-sql doesn't plan.
-    let data = "FROM UNNEST([STRUCT(1 AS id, 10 AS price), STRUCT(2, 8), STRUCT(3, 6), STRUCT(4, 9)]) |> SELECT *";
+    let data = PRICES;
     let cases = [
         (
             format!("{data} |> AS l |> JOIN ({data}) AS r ON l.id = r.id |> MATCH_RECOGNIZE(ORDER BY l.id MEASURES MAX(a.price) AS top PATTERN (a+) DEFINE a AS TRUE)"),

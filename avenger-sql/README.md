@@ -44,7 +44,7 @@ The output has one row for each match: the partition columns, then the measures.
 - A pattern compiles to at most 100,000 instructions, which bounded quantifiers such as `a{50000}` reach. The matcher's cost for each row is at most the size of the pattern's program, so no pattern takes exponential time.
 - The clause holds the input's rows in memory, in one task for each group of partitions.
 - A clause in a subquery doesn't read the columns of the query around it: a condition or a measure that does is an error, since DataFusion doesn't plan the correlation through the clause.
-- Two aggregates that take `ORDER BY` in other orders are an error of DataFusion, and a measure without `ORDER BY`, such as `STRING_AGG(x)`, reads the rows in their order, so `STRING_AGG(x)` beside `STRING_AGG(y ORDER BY y)` is an error. `ARRAY_AGG` mixes orders.
+- Two aggregates that take `ORDER BY` in other orders are an error of DataFusion, and a measure without `ORDER BY`, such as `STRING_AGG(x)`, reads the rows in their order, so `STRING_AGG(x)` beside `STRING_AGG(y ORDER BY y)` is an error. `ARRAY_AGG` takes its own order beside the order of another aggregate.
 
 ## Errors
 
