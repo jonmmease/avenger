@@ -10,7 +10,6 @@ use crate::{
 /// The help for a query that doesn't start with `FROM`.
 const FROM_FIRST: &str = "a query starts with FROM, as in `FROM t |> SELECT a`";
 
-/// The pipe operators of GoogleSQL that avenger-sql does not read.
 /// The words that start each pipe operator that avenger-sql reads, with the words that the first
 /// takes after it, such as `ORDER BY`.
 const PIPE_OPERATORS: &[&str] = &[
@@ -52,6 +51,7 @@ const PIPE_OPERATORS: &[&str] = &[
 /// The sampling methods of `TABLESAMPLE`.
 const SAMPLE_METHODS: &[&str] = &["BERNOULLI", "SYSTEM", "RESERVOIR"];
 
+/// The pipe operators of GoogleSQL that avenger-sql does not read.
 const UNSUPPORTED_OPERATORS: &[&str] = &[
     "RECURSIVE",
     "WINDOW",

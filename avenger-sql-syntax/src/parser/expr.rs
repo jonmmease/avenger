@@ -50,6 +50,43 @@ const EXPRESSION_WORDS: &[&str] = &[
     "STRUCT",
 ];
 
+/// An infix operator: a keyword, keywords in a sequence, or a token.
+#[derive(Clone, Copy)]
+enum Infix {
+    Keyword(&'static str),
+    Phrase(&'static [&'static str]),
+    Token(SyntaxKind),
+}
+
+/// The infix operators and the levels at which they bind, which both parsing and completion
+/// read. `>>` is two adjacent `>` tokens, which `infix_level` reads apart.
+const INFIX_OPERATORS: &[(Infix, u8)] = &[
+    (Infix::Keyword("OR"), OR),
+    (Infix::Keyword("AND"), AND),
+    (Infix::Keyword("IS"), COMPARISON),
+    (Infix::Keyword("LIKE"), COMPARISON),
+    (Infix::Keyword("BETWEEN"), COMPARISON),
+    (Infix::Keyword("IN"), COMPARISON),
+    (Infix::Phrase(&["NOT", "LIKE"]), COMPARISON),
+    (Infix::Phrase(&["NOT", "BETWEEN"]), COMPARISON),
+    (Infix::Phrase(&["NOT", "IN"]), COMPARISON),
+    (Infix::Token(EQ), COMPARISON),
+    (Infix::Token(NEQ), COMPARISON),
+    (Infix::Token(LT), COMPARISON),
+    (Infix::Token(LT_EQ), COMPARISON),
+    (Infix::Token(GT), COMPARISON),
+    (Infix::Token(GT_EQ), COMPARISON),
+    (Infix::Token(BIT_OR), BIT_OR_LEVEL),
+    (Infix::Token(CARET), BIT_XOR),
+    (Infix::Token(AMP), BIT_AND),
+    (Infix::Token(SHL), SHIFT),
+    (Infix::Token(PLUS), ADDITIVE),
+    (Infix::Token(MINUS), ADDITIVE),
+    (Infix::Token(CONCAT), CONCAT_LEVEL),
+    (Infix::Token(STAR), MULTIPLICATIVE),
+    (Infix::Token(SLASH), MULTIPLICATIVE),
+];
+
 /// The keywords of typed literals, such as `DATE '2024-01-01'`. avenger-sql has no JSON type, so
 /// the parser reads `JSON` but does not expect it.
 const TYPED_LITERALS: &[&str] = &[
@@ -267,81 +304,39 @@ impl Parser<'_> {
         if !self.at_cursor() {
             return;
         }
-        let keywords = [
-            (AND_KW, AND),
-            (OR_KW, OR),
-            (IS_KW, COMPARISON),
-            (IN_KW, COMPARISON),
-            (LIKE_KW, COMPARISON),
-            (BETWEEN_KW, COMPARISON),
-        ];
-        for (keyword, op_level) in keywords {
-            if op_level >= level {
-                self.record(Expected::Keyword(keyword));
+        for &(operator, op_level) in INFIX_OPERATORS {
+            if op_level < level {
+                continue;
             }
-        }
-        if COMPARISON >= level {
-            for phrase in [&["NOT", "IN"][..], &["NOT", "LIKE"], &["NOT", "BETWEEN"]] {
-                self.record(Expected::Phrase(phrase));
-            }
-        }
-        let tokens = [
-            (EQ, COMPARISON),
-            (NEQ, COMPARISON),
-            (LT, COMPARISON),
-            (LT_EQ, COMPARISON),
-            (GT, COMPARISON),
-            (GT_EQ, COMPARISON),
-            (BIT_OR, BIT_OR_LEVEL),
-            (CARET, BIT_XOR),
-            (AMP, BIT_AND),
-            (SHL, SHIFT),
-            (PLUS, ADDITIVE),
-            (MINUS, ADDITIVE),
-            (CONCAT, CONCAT_LEVEL),
-            (STAR, MULTIPLICATIVE),
-            (SLASH, MULTIPLICATIVE),
-        ];
-        for (token, op_level) in tokens {
-            if op_level >= level {
-                self.record(Expected::Token(token));
+            match operator {
+                Infix::Keyword(word) => {
+                    if let Some(kind) = SyntaxKind::keyword(word) {
+                        self.record(Expected::Keyword(kind));
+                    }
+                }
+                Infix::Phrase(words) => self.record(Expected::Phrase(words)),
+                Infix::Token(token) => self.record(Expected::Token(token)),
             }
         }
     }
 
     /// The level of the infix operator at the current token.
     fn infix_level(&self) -> Option<u8> {
-        let level = match self.current() {
-            GT if self.adjacent_gt() => SHIFT,
-            EQ | NEQ | LT | LT_EQ | GT | GT_EQ => COMPARISON,
-            BIT_OR => BIT_OR_LEVEL,
-            CARET => BIT_XOR,
-            AMP => BIT_AND,
-            SHL => SHIFT,
-            PLUS | MINUS => ADDITIVE,
-            CONCAT => CONCAT_LEVEL,
-            STAR | SLASH => MULTIPLICATIVE,
-            WORD => {
-                if self.at_keyword("OR") {
-                    OR
-                } else if self.at_keyword("AND") {
-                    AND
-                } else if self.at_keyword("IS")
-                    || self.at_keyword("LIKE")
-                    || self.at_keyword("BETWEEN")
-                    || self.at_keyword("IN")
-                    || self.at_keywords(&["NOT", "LIKE"])
-                    || self.at_keywords(&["NOT", "BETWEEN"])
-                    || self.at_keywords(&["NOT", "IN"])
-                {
-                    COMPARISON
-                } else {
-                    return None;
-                }
-            }
-            _ => return None,
-        };
-        Some(level)
+        match self.current() {
+            // `>>`, two adjacent `>`, which the lexer leaves apart for the ends of type lists.
+            GT if self.adjacent_gt() => Some(SHIFT),
+            WORD => INFIX_OPERATORS.iter().find_map(|&(operator, level)| {
+                let found = match operator {
+                    Infix::Keyword(word) => self.at_keyword(word),
+                    Infix::Phrase(words) => self.at_keywords(words),
+                    Infix::Token(_) => false,
+                };
+                found.then_some(level)
+            }),
+            current => INFIX_OPERATORS.iter().find_map(|&(operator, level)| {
+                matches!(operator, Infix::Token(token) if token == current).then_some(level)
+            }),
+        }
     }
 
     /// The comparison after `left`: an operator such as `<`, or `IS`, `LIKE`, `BETWEEN` or `IN`.

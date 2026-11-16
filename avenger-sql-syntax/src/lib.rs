@@ -153,8 +153,9 @@ pub enum Expected {
     PipeOperator,
     /// The start of a statement.
     Statement,
-    /// One word of a fixed set, such as a date part or a sampling method. Some words, such as
-    /// `TRUE` or `DATE`, are not keywords of the lexer.
+    /// One of a fixed set of words or phrases, such as a date part, a sampling method, or a pipe
+    /// operator such as `ORDER BY`. Some words, such as `TRUE` or `DATE`, are not keywords of the
+    /// lexer.
     Words(&'static [&'static str]),
     /// Words in a sequence, such as `BY NAME`, where the grammar takes the first only with the
     /// rest. When the text ends after the first words, the phrase holds the words after them.
