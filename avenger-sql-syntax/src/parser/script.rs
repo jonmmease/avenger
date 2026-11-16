@@ -5,7 +5,7 @@
 //! functions and constants, following GoogleSQL's modules.
 
 use super::Parser;
-use crate::{diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
+use crate::{ast::FunctionKind, diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
 
 /// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
 /// statements and blocks, DDL, DML, transactions and the rest.
@@ -37,13 +37,6 @@ enum Object {
     Table,
     Function(FunctionKind),
     Constant,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FunctionKind {
-    Scalar,
-    Aggregate,
-    Table,
 }
 
 /// The help of a statement that a script doesn't hold.
@@ -410,15 +403,18 @@ impl Parser<'_> {
         };
         self.record_name(match object {
             Object::Table => NameRole::Table,
-            Object::Function(_) => NameRole::Function,
+            Object::Function(kind) => NameRole::Function(kind.into()),
             Object::Constant => NameRole::Variable,
         });
         match object {
             Object::Table => {
                 self.table_path();
             }
-            _ => {
-                self.path(NameRole::Function);
+            Object::Function(kind) => {
+                self.path(NameRole::Function(kind.into()));
+            }
+            Object::Constant => {
+                self.path(NameRole::Variable);
             }
         }
         let kind = match object {

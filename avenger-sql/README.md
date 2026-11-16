@@ -48,7 +48,7 @@ The output has one row for each match: the partition columns, then the measures.
 
 ## Errors
 
-A script with errors returns `ScriptError` as `DataFusionError::External`: the syntax errors of the parse, or else every error of the analysis, each a `Diagnostic` with the range of its text. Its message gives each error with its line and column. `analysis::analyze` returns the same diagnostics with the semantic model of a script, its names and the forms of its calls, for an editor.
+A script with errors returns `ScriptError` as `DataFusionError::External`: the syntax errors of the parse, or else every error of the analysis, each a `Diagnostic` with the range of its text. Its message gives each error with its line and column. `analysis::analyze` returns the same diagnostics with the semantic model of a script, its names and the forms of its calls, for an editor. `Model::refine_highlights` refines the ranges of avenger-sql-syntax's `highlight` with that model: a name takes the role of its definition, so a script variable or a range variable is no longer a column, a function is a scalar, an aggregate, a window, or a table function, a mark, a constructor, or a transform, and a string that a parameter takes as one value of a set, as `offset => 'normalize'` of `stack`, is an enum value. An editor can show the syntax's classes at once, and the refined ones when the analysis of the same text finishes.
 
 ## Mark functions
 
