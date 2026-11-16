@@ -257,6 +257,11 @@ pub(crate) fn escape(name: &str) -> String {
     name.replace('\\', "\\\\").replace('`', "\\`")
 }
 
+/// `text` with each run of whitespace as one space.
+fn collapse(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// The first line of `text`, without the whitespace around it, shortened to `max` characters.
 fn first_line(text: &str, max: usize) -> String {
     let line = text.trim().lines().next().unwrap_or_default().trim();

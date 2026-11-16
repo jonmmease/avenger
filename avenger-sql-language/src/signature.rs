@@ -8,7 +8,7 @@ use avenger_sql_syntax::{
     SyntaxKind, SyntaxNode,
 };
 
-use crate::{hover::callee, statements, Document, Offset};
+use crate::{collapse, hover::callee, statements, Document, Offset};
 
 /// The forms of a call's function, and the form and the parameter at the cursor.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,9 +251,4 @@ fn temporary_signature(create: &ast::CreateFunctionStmt, at: &At) -> SignatureIn
         parameters,
         active_parameter,
     }
-}
-
-/// `text` with each run of whitespace as one space.
-fn collapse(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

@@ -17,7 +17,7 @@ use avenger_sql_syntax::{
 use datafusion::arrow::datatypes::DataType;
 
 use crate::{
-    escape,
+    collapse, escape,
     hover::{callee, create_header},
     quote, statements, token_before, Document, Offset,
 };
@@ -307,8 +307,7 @@ impl Document {
             let calls = place.is_none_or(Place::takes_calls);
             if let Some(scope) = scope.filter(|_| place.is_none_or(Place::takes_columns)) {
                 let expected = place.and_then(|place| place.expected.as_ref());
-                let range_variables = place.is_none_or(Place::takes_calls);
-                self.columns(scope, expected, range_variables, &mut items);
+                self.columns(scope, expected, calls, &mut items);
             }
             if calls {
                 self.variables(&root, start, &mut items);
@@ -798,23 +797,19 @@ fn positional_param(function: &Function, position: usize) -> Option<String> {
 
 /// The values of the sets that `param` of `function` takes, as string literals.
 fn push_values(function: &Function, param: &str, items: &mut Items) {
-    let doc = function.param_named(param).map(|param| param.doc.clone());
-    for arg in (function.forms.iter()).flat_map(|form| &form.signature.args) {
-        let (true, Accept::OneOf(values)) = (arg.param.eq_ignore_ascii_case(param), &arg.accept)
-        else {
-            continue;
-        };
-        for value in values {
-            let literal = format!("'{value}'");
-            items.push(CompletionItem {
-                sort: sort(rank::ARGUMENT, value),
-                insert: literal.clone(),
-                label: literal,
-                kind: CompletionKind::EnumValue,
-                detail: Some(format!("a value of `{}`", arg.param)),
-                documentation: doc.clone(),
-            });
-        }
+    let named = function.param_named(param);
+    let doc = named.map(|param| param.doc.clone());
+    let name = named.map_or(param, |param| param.name.as_str());
+    for value in function.values_of(param) {
+        let literal = format!("'{value}'");
+        items.push(CompletionItem {
+            sort: sort(rank::ARGUMENT, value),
+            insert: literal.clone(),
+            label: literal,
+            kind: CompletionKind::EnumValue,
+            detail: Some(format!("a value of `{name}`")),
+            documentation: doc.clone(),
+        });
     }
 }
 
@@ -922,11 +917,6 @@ fn windows(before: &SyntaxToken, items: &mut Items) {
             items.simple(name, CompletionKind::Window, detail, rank::VARIABLE);
         }
     }
-}
-
-/// `text` with each run of whitespace as one space.
-fn collapse(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// A name without its backticks.

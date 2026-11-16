@@ -5,7 +5,7 @@ use avenger_sql_syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
 };
 
-use crate::{first_line, statements, trimmed, Document, Offset};
+use crate::{collapse, first_line, statements, trimmed, Document, Offset};
 
 /// An item of the outline of a script.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -288,9 +288,4 @@ fn keywords(node: &SyntaxNode) -> Vec<SyntaxToken> {
         .filter(|token| !token.kind().is_trivia())
         .take_while(|token| token.kind() == SyntaxKind::PIPE || token.kind().is_keyword())
         .collect()
-}
-
-/// `text` with each run of whitespace as one space.
-fn collapse(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

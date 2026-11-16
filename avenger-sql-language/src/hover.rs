@@ -2,7 +2,7 @@
 
 use avenger_sql::{
     analysis::{Column, Definition},
-    library::{entry, Accept, Function},
+    library::entry,
     types::googlesql_name,
 };
 use avenger_sql_syntax::{
@@ -39,7 +39,9 @@ impl Document {
                 if let Some(param) = function.param_named(&value.param) {
                     markdown.push_str(&format!(": {}", param.doc));
                 }
-                let values = one_of(function, &value.param);
+                let values: Vec<String> = (function.values_of(&value.param).into_iter())
+                    .map(|value| format!("'{value}'"))
+                    .collect();
                 if !values.is_empty() {
                     markdown.push_str(&format!("\n\nValues: {}", values.join(", ")));
                 }
@@ -179,22 +181,6 @@ fn columns(columns: &[Column]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// The values of the sets that the parameter `param` of `function` takes, as string literals.
-fn one_of(function: &Function, param: &str) -> Vec<String> {
-    let mut values: Vec<String> = Vec::new();
-    for arg in (function.forms.iter()).flat_map(|form| &form.signature.args) {
-        if let (true, Accept::OneOf(set)) = (arg.param.eq_ignore_ascii_case(param), &arg.accept) {
-            for value in set {
-                let value = format!("'{value}'");
-                if !values.contains(&value) {
-                    values.push(value);
-                }
-            }
-        }
-    }
-    values
 }
 
 /// The name of the function of the call whose arguments hold `range`.
