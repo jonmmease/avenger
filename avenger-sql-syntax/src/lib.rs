@@ -215,3 +215,14 @@ pub enum FunctionRole {
     /// A transform: `bin`, `stack`, `timeunit`, `lump`, or `impute`.
     Transform,
 }
+
+impl From<ast::FunctionKind> for FunctionRole {
+    /// The role of a function that a `CREATE` defines, by its kind.
+    fn from(kind: ast::FunctionKind) -> FunctionRole {
+        match kind {
+            ast::FunctionKind::Scalar => FunctionRole::Scalar,
+            ast::FunctionKind::Aggregate => FunctionRole::Aggregate,
+            ast::FunctionKind::Table => FunctionRole::Table,
+        }
+    }
+}

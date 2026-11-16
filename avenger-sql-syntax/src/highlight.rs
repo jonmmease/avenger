@@ -18,7 +18,7 @@
 use rowan::TextRange;
 
 use crate::{
-    ast::{self, AstNode, FunctionKind},
+    ast::{self, AstNode},
     FunctionRole, NameRole,
     SyntaxKind::*,
     SyntaxNode, SyntaxToken,
@@ -181,12 +181,8 @@ fn path_role(name: &SyntaxNode, path: &SyntaxNode) -> (NameRole, bool) {
         PATH_LIST | UNPIVOT_CLAUSE => NameRole::Column,
         CREATE_TABLE_STMT => return (NameRole::Table, true),
         CREATE_FUNCTION_STMT => {
-            let kind = ast::CreateFunctionStmt::cast(holder).map(|stmt| stmt.function_kind());
-            let role = match kind {
-                Some(FunctionKind::Aggregate) => FunctionRole::Aggregate,
-                Some(FunctionKind::Table) => FunctionRole::Table,
-                _ => FunctionRole::Scalar,
-            };
+            let role = ast::CreateFunctionStmt::cast(holder)
+                .map_or(FunctionRole::Scalar, |stmt| stmt.function_kind().into());
             return (NameRole::Function(role), true);
         }
         CREATE_CONSTANT_STMT => return (NameRole::Variable, true),
