@@ -296,7 +296,14 @@ impl Document {
             self.tables(&root, start, scope, &mut items);
         }
         if tables || table_functions {
-            self.table_functions(&root, start, &mut items);
+            // A pipe `CALL` passes its input to a table parameter.
+            let pipe = before.as_ref().is_some_and(|token| {
+                token.kind() == SyntaxKind::CALL_KW
+                    && token
+                        .parent()
+                        .is_some_and(|parent| parent.kind() == SyntaxKind::PIPE_CALL)
+            });
+            self.table_functions(&root, start, pipe, &mut items);
         }
         if names && !expression {
             if let Some(scope) = scope.filter(|_| place.is_none_or(Place::takes_columns)) {
@@ -522,13 +529,23 @@ impl Document {
         }
     }
 
-    /// The table functions of the library and the temporary table functions before `start`.
-    fn table_functions(&self, root: &SyntaxNode, start: Offset, items: &mut Items) {
+    /// The table functions of the library and the temporary table functions before `start`, and
+    /// after a pipe `CALL`, only the temporary ones with a table parameter, which takes its input.
+    /// Each table function of the library takes a table.
+    fn table_functions(&self, root: &SyntaxNode, start: Offset, pipe: bool, items: &mut Items) {
         for function in (self.library.functions()).filter(|f| f.kind == FunctionKind::Table) {
             items.push(self.function_item(function));
         }
         for create in temporary_functions(&self.text, root, start) {
-            if create.function_kind() == ast::FunctionKind::Table {
+            let takes_input = (create.param_list().iter())
+                .flat_map(|list| list.parameters())
+                .any(|parameter| {
+                    matches!(
+                        parameter.param_type(),
+                        Some(ast::ParamType::AnyTable(_) | ast::ParamType::TableType(_))
+                    )
+                });
+            if create.function_kind() == ast::FunctionKind::Table && (takes_input || !pipe) {
                 items.extend_temporary(&create, FunctionRole::Table);
             }
         }

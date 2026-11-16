@@ -32,6 +32,57 @@ pub fn catalog() -> MemoryCatalog {
         .with_schema(&["islands"], Arc::new(islands))
 }
 
+/// The tables of avenger-sql's tests and of GoogleSQL's recorded queries, which the queries of
+/// the completion evaluation read: `penguins`, `arrays`, `one`, `t`, `u`, `sales`, and `wide`.
+pub fn examples() -> MemoryCatalog {
+    let f = |name: &str, ty: DataType| Field::new(name, ty, true);
+    let schema = |fields: Vec<Field>| Arc::new(Schema::new(fields));
+    let number = |name: &str| f(name, DataType::Float64);
+    let item = Arc::new(Field::new("item", DataType::Int64, true));
+    MemoryCatalog::new()
+        .with_schema(
+            &["penguins"],
+            schema(vec![
+                f("species", DataType::Utf8),
+                f("island", DataType::Utf8),
+                number("bill_length_mm"),
+                number("bill_depth_mm"),
+                number("flipper_length_mm"),
+                number("body_mass_g"),
+                f("sex", DataType::Utf8),
+            ]),
+        )
+        .with_schema(
+            &["arrays"],
+            schema(vec![f("k", DataType::Int64), f("xs", DataType::List(item))]),
+        )
+        .with_schema(&["one"], schema(vec![f("one", DataType::Int64)]))
+        .with_schema(
+            &["t"],
+            schema(vec![f("x", DataType::Int64), f("s", DataType::Utf8)]),
+        )
+        .with_schema(
+            &["u"],
+            schema(vec![f("x", DataType::Int64), f("s", DataType::Utf8)]),
+        )
+        .with_schema(
+            &["sales"],
+            schema(vec![
+                f("sp", DataType::Utf8),
+                f("isl", DataType::Utf8),
+                f("m", DataType::Int64),
+            ]),
+        )
+        .with_schema(
+            &["wide"],
+            schema(
+                ["k", "a", "b", "c", "d"]
+                    .map(|n| f(n, DataType::Int64))
+                    .to_vec(),
+            ),
+        )
+}
+
 /// The document of `text`.
 pub fn document(text: &str) -> Document {
     Document::new(
