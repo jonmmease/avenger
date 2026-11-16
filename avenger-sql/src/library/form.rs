@@ -267,7 +267,8 @@ pub enum Accept {
 pub enum Arity {
     Required,
     Optional,
-    /// Any number, as the last argument of the form.
+    /// Any number, as the last argument that a call gives by position. Only arguments that a call
+    /// names follow it, such as the options of `layer(chart, ..., tools => ...)`.
     Repeated,
 }
 
@@ -292,15 +293,17 @@ pub struct Signature {
 }
 
 impl Signature {
-    /// The number of the arguments before a repeated last one.
-    pub fn fixed(&self) -> usize {
-        let repeated = (self.args.last()).is_some_and(|arg| arg.arity == Arity::Repeated);
-        self.args.len() - usize::from(repeated)
+    /// The index of the repeated argument, when the form has one.
+    pub fn repeated(&self) -> Option<usize> {
+        (self.args.iter()).position(|arg| arg.arity == Arity::Repeated)
     }
 
-    /// The indices of the fixed arguments that a call gives by position, in order.
+    /// The indices of the arguments other than a repeated one that a call gives by position, in
+    /// order.
     pub fn positional(&self) -> impl Iterator<Item = usize> + '_ {
-        (0..self.fixed()).filter(|&index| !self.args[index].named_only)
+        let repeated = self.repeated();
+        (0..self.args.len())
+            .filter(move |&index| !self.args[index].named_only && Some(index) != repeated)
     }
 
     /// The signature of the declaration `text`, as the module describes it.
@@ -635,6 +638,11 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 self.expect(",")?;
+            }
+        }
+        if let Some(index) = (args.iter()).position(|arg: &FormArg| arg.arity == Arity::Repeated) {
+            if !args[index + 1..].iter().all(|arg| arg.named_only) {
+                return Err("only named arguments follow a repeated one".to_string());
             }
         }
         self.expect("->")?;

@@ -1,6 +1,7 @@
 //! The functions of avenger-chart in DataFusion: an aggregate function for each mark of each layer,
 //! which builds a chart of the rows of its group, an aggregate function for each composition,
-//! which composes the charts of the rows of its group, a scalar function for each constructor,
+//! which composes the charts of the rows of its group, a scalar function for each layer and
+//! concat, which composes the charts of a row, a scalar function for each constructor,
 //! which returns the fragment of its message, and the scalar functions `scaled` and `direct`. They
 //! are a binding of `avenger_chart::functions`.
 //!
@@ -30,6 +31,7 @@
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
 
+pub(crate) mod combine;
 pub(crate) mod composition;
 pub(crate) mod constructor;
 pub(crate) mod declaration;

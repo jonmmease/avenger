@@ -384,6 +384,23 @@ fn the_label_of_each_form_marks_each_argument() {
         .map(|range| &substr.text[range.clone()])
         .collect();
     assert_eq!(args, ["value: STRING", "position: INT64", "length: INT64"]);
+    // A repeated argument, then options by name.
+    let layer = library.get("layer").unwrap().signatures().remove(0);
+    assert!(
+        (layer.text).starts_with("layer(chart: ANY, ...[, id => STRING]"),
+        "{}",
+        layer.text
+    );
+}
+
+#[test]
+fn only_named_arguments_follow_a_repeated_one() {
+    use avenger_sql::library::Signature;
+    let signature = Signature::parse("(charts: ANY..., tools => ANY) -> BYTES").unwrap();
+    assert_eq!(signature.repeated(), Some(0));
+    assert_eq!(signature.positional().count(), 0);
+    let error = Signature::parse("(charts: ANY..., tools: ANY) -> BYTES").unwrap_err();
+    assert_eq!(error, "only named arguments follow a repeated one");
 }
 
 #[test]

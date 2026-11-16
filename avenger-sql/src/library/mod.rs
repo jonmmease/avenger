@@ -781,8 +781,8 @@ impl Function {
         context: PlanContext<'a>,
     ) -> Result<Call<'a>, CallError> {
         let signature = &form.signature;
-        let fixed = signature.fixed();
-        let mut slots: Vec<Option<(usize, Arg)>> = vec![None; fixed];
+        let repeated = signature.repeated();
+        let mut slots: Vec<Option<(usize, Arg)>> = vec![None; signature.args.len()];
         let mut rest = Vec::new();
         for (at, ((_, arg), slot)) in args.into_iter().zip(binding).enumerate() {
             let index = *slot;
@@ -837,9 +837,9 @@ impl Function {
                     Arg::Value(coerce(expr, ty, &context)?)
                 }
             };
-            match index < fixed {
-                true => slots[index] = Some((at, arg)),
-                false => rest.push((at, arg)),
+            match Some(index) == repeated {
+                true => rest.push((at, arg)),
+                false => slots[index] = Some((at, arg)),
             }
         }
         Ok(Call {
@@ -965,21 +965,20 @@ fn bind(
     star: bool,
 ) -> Result<Vec<usize>, CallError> {
     let form_args = &signature.args;
-    let fixed = signature.fixed();
-    let repeated = fixed < form_args.len();
+    let repeated = signature.repeated();
     let positional: Vec<usize> = signature.positional().collect();
     let mut filled = vec![false; form_args.len()];
     let mut binding = Vec::with_capacity(args.len());
     let mut next = 0;
     for (at, (arg_name, _)) in args.iter().enumerate() {
         let index = match arg_name {
-            None => match positional.get(next) {
-                Some(&index) => {
+            None => match (positional.get(next), repeated) {
+                (Some(&index), _) => {
                     next += 1;
                     index
                 }
-                None if repeated => fixed,
-                None => {
+                (None, Some(index)) => index,
+                (None, None) => {
                     return Err(CallError::arg(
                         at,
                         format!(
@@ -991,9 +990,9 @@ fn bind(
                 }
             },
             Some(arg_name) => {
-                let Some(index) =
-                    (0..fixed).find(|&index| form_args[index].param.eq_ignore_ascii_case(arg_name))
-                else {
+                let Some(index) = (0..form_args.len()).find(|&index| {
+                    Some(index) != repeated && form_args[index].param.eq_ignore_ascii_case(arg_name)
+                }) else {
                     return Err(CallError::arg(
                         at,
                         format!("this form of {name} takes no `{arg_name}`"),
@@ -1014,9 +1013,13 @@ fn bind(
         filled[index] = true;
         binding.push(index);
     }
-    let star_fills = star && fixed > 0;
-    for (index, arg) in form_args.iter().enumerate().take(fixed) {
-        if arg.arity == Arity::Required && !filled[index] && !(star_fills && index == 0) {
+    let star_fills = star && repeated != Some(0) && !form_args.is_empty();
+    for (index, arg) in form_args.iter().enumerate() {
+        if Some(index) != repeated
+            && arg.arity == Arity::Required
+            && !filled[index]
+            && !(star_fills && index == 0)
+        {
             return Err(CallError::call(format!(
                 "{name} needs its argument `{}`",
                 arg.param
