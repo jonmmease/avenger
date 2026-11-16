@@ -481,3 +481,20 @@ fn an_aggregate_completes_compositions_and_their_options_constructors_first() {
         first.label
     );
 }
+
+#[test]
+fn a_layer_completes_another_chart_or_an_option() {
+    let charts = "FROM (FROM penguins |> AGGREGATE bar(x => species) AS a, bar(x => island) AS b)";
+    let (completions, _) = complete(&format!("{charts} |> SELECT layer(a, $0) AS c"));
+    assert!(labels(&completions, CompletionKind::Column).contains(&"b"));
+    let parameters = labels(&completions, CompletionKind::Parameter);
+    assert!(parameters.contains(&"tools"), "{parameters:?}");
+    // After an option, the call takes only names.
+    let (completions, _) = complete(&format!(
+        "{charts} |> SELECT layer(a, b, id => 'l', $0) AS c"
+    ));
+    assert!(completions
+        .items
+        .iter()
+        .all(|item| item.kind == CompletionKind::Parameter));
+}
