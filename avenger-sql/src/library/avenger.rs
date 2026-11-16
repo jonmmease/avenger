@@ -1,8 +1,10 @@
-//! avenger's own functions: the marks, constructors, `scaled`, and `direct` of avenger-chart, the
-//! window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table function `impute`.
+//! avenger's own functions: the marks, compositions, constructors, `scaled`, and `direct` of
+//! avenger-chart, the window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table
+//! function `impute`.
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
+//! composition aggregate composes the charts of a group, as in `facet_col(chart, island)`. A
 //! constructor returns the fragment of its message. The transforms take their options as named
 //! arguments, as in `bin(x, maxbins => 30)`, which must be constants: the form of each builds the
 //! typed options of its call and checks them, so an error of an option is at its argument. The
@@ -19,7 +21,8 @@
 use std::sync::Arc;
 
 use avenger_chart::functions::{
-    constructors, encoding_options, marks, Accept as ChartAccept, Kind, Shape, COORD,
+    compositions, constructors, encoding_options, marks, Accept as ChartAccept, Composition, Kind,
+    Shape, COORD,
 };
 use avenger_datafusion_transforms::{
     bin::{self, BinOptions},
@@ -42,8 +45,23 @@ use super::{
     null, Family, Function, Need, Planned,
 };
 use crate::functions::{
-    constructor::ConstructorFunction, declaration::MarkDeclaration, kind::KindFunction,
+    composition::{aggregate_name, CompositionDeclaration},
+    constructor::ConstructorFunction,
+    declaration::MarkDeclaration,
+    kind::KindFunction,
 };
+
+/// The doc of the argument of the charts of a composition aggregate.
+const CHART_DOC: &str = "A column of charts, one for each row of the group.";
+
+/// The doc of the key of a facet.
+const KEY_DOC: &str =
+    "The key of each chart, whose values the facet lays out and labels, and whose \
+     column names the facet.";
+
+/// The note of a layer or a concat on the order of its charts.
+const ORDER_NOTE: &str = "The `ORDER BY` of the call orders the charts, as in \
+     `layer_agg(chart ORDER BY k)`. Without it, their order is unspecified.";
 
 /// The doc of the parameter `coord` of a mark.
 const COORD_DOC: &str =
@@ -87,6 +105,9 @@ pub(super) fn functions() -> Vec<Function> {
                 result: None,
             })
         }));
+    }
+    for composition in compositions() {
+        functions.push(aggregate_composition(composition));
     }
     for constructor in constructors() {
         let udf = Arc::new(ScalarUDF::new_from_impl(ConstructorFunction::new(
@@ -196,6 +217,46 @@ fn positional(values: Vec<Option<Expr>>) -> Vec<Expr> {
         .take(given)
         .map(|value| value.unwrap_or_else(null))
         .collect()
+}
+
+/// The aggregate of a composition, which composes the charts of the rows of a group: the charts,
+/// the key of a facet, then the options of its composition.
+fn aggregate_composition(spec: &'static Composition) -> Function {
+    let udaf = Arc::new(AggregateUDF::new_from_impl(CompositionDeclaration::new(
+        spec,
+    )));
+    let mut function = Function::aggregate(aggregate_name(spec), summary(spec.doc))
+        .description(spec.doc)
+        .order_by()
+        .family(Family::Composition);
+    function.clauses.over = super::Over::Forbidden;
+    function.clauses.having = false;
+    if !spec.kind.takes_key() {
+        function = function.note(ORDER_NOTE);
+    }
+    function = function.param("chart", CHART_DOC);
+    let mut args = vec![any("chart", true)];
+    if spec.kind.takes_key() {
+        function = function.param("key", KEY_DOC);
+        args.push(any("key", true));
+    }
+    for param in spec.params {
+        function = function.param(&sql_name(param.name), param.doc);
+        args.push(arg(param.name, ty_of(param.accepts), param.required));
+    }
+    let signature = Signature {
+        args,
+        result: Ty::Bytes,
+        vars: Vec::new(),
+    };
+    function.with_signature(signature, move |call| {
+        Ok(Planned::Aggregate {
+            func: udaf.clone(),
+            args: positional(call.values()),
+            filter: None,
+            result: None,
+        })
+    })
 }
 
 fn scaled() -> Function {

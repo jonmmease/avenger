@@ -63,6 +63,23 @@ Each call binds at planning to an aggregate of its own, which takes only the col
 
 A constructor is a scalar function, which returns a fragment of its message in a `BinaryView` value whose field has the extension name `avenger.chart.fragment` and the full name of the message as its extension metadata. A call of constants folds to a literal, and its errors, such as an unknown enum name, are planning errors. The constructors set the options of a chart: `scaled(flipper_length_mm, scale => interval_fit(zero => FALSE))` fits a domain to the data without zero, and `polar_bar(..., coord => polar(inner_radius => 0.5))` sets the options of a plot.
 
+## Compositions
+
+The composition aggregates of avenger-chart's `functions` feature compose the charts of the rows of a group, so the data gives the structure, one chart for each row:
+
+```sql
+FROM penguins
+|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+   GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
+```
+
+- `layer_agg(chart)` overlays the plots of the charts of a group, `hconcat_agg(chart)` places them in a row, and `vconcat_agg(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer_agg(chart ORDER BY k)`. Without an `ORDER BY`, their order is unspecified, as for `ARRAY_AGG`.
+- `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY` of the call. A facet labels each chart with its value, and its column is the name of the key's column. Two rows of a group with one key value are an error, and a `NULL` chart is an empty cell. A `facet_row` of `facet_col` charts is a grid, whose rows each get a cell for every column.
+- The options of a composition are those of its node, by name, such as `layout => wrap_layout(max_columns => 2)` of a `facet_wrap`, and they are constants, as the properties of a mark are. A `NULL` chart is no child of a layer or a concat, and a composition without children is the empty chart.
+
+The `_agg` names follow GoogleSQL's `STRING_AGG` and `ARRAY_CONCAT_AGG`: an aggregate and a scalar function cannot share a name.
+
 ## Transforms
 
 `bin`, `stack`, and `timeunit` are window functions, whose options are named arguments, as `bin(body_mass_g, maxbins => 30) OVER ()`.

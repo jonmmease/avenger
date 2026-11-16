@@ -318,8 +318,10 @@ impl Document {
             }
             if calls {
                 self.variables(&root, start, &mut items);
-                let mark = before.as_ref().is_some_and(|before| self.in_mark(before));
-                self.functions(&root, start, place, mark, &mut items);
+                let chart = before
+                    .as_ref()
+                    .is_some_and(|before| self.in_chart_call(before));
+                self.functions(&root, start, place, chart, &mut items);
             }
             if let Some(before) = &before {
                 self.argument_values(before, &mut items);
@@ -553,13 +555,13 @@ impl Document {
 
     /// The functions that `place` takes, by the model's rules, of the library and the temporary
     /// functions before `start`. Without a place, an expression takes scalar functions. In the
-    /// arguments of a mark, the constructors come first.
+    /// arguments of a mark or a composition, `chart`, the constructors come first.
     fn functions(
         &self,
         root: &SyntaxNode,
         start: Offset,
         place: Option<&Place>,
-        mark: bool,
+        chart: bool,
         items: &mut Items,
     ) {
         for function in self.library.functions() {
@@ -572,7 +574,7 @@ impl Document {
             };
             if takes {
                 let mut item = self.function_item(function);
-                if mark && function.family == Family::Constructor {
+                if chart && function.family == Family::Constructor {
                     item.sort = sort(rank::VARIABLE, &function.name);
                 }
                 items.push(item);
@@ -720,10 +722,12 @@ impl Document {
         })
     }
 
-    /// Whether `before` is in the arguments of a mark.
-    fn in_mark(&self, before: &SyntaxToken) -> bool {
-        self.argument_list(before)
-            .is_some_and(|(_, function)| function.family == Family::Mark)
+    /// Whether `before` is in the arguments of a mark or a composition, whose options the
+    /// constructors build.
+    fn in_chart_call(&self, before: &SyntaxToken) -> bool {
+        self.argument_list(before).is_some_and(|(_, function)| {
+            matches!(function.family, Family::Mark | Family::Composition)
+        })
     }
 
     /// At the start of an argument whose parameter takes a value of a set, its values.

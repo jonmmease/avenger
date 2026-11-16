@@ -10,7 +10,10 @@ use arrow::{
     ipc::reader::StreamReader,
 };
 use avenger_chart::{charts_from_arrow, Chart, Decode};
-use datafusion::{datasource::MemTable, prelude::SessionContext};
+use datafusion::{
+    datasource::MemTable,
+    prelude::{SessionConfig, SessionContext},
+};
 
 /// The 344 penguins of the Palmer Archipelago dataset (CC0, from
 /// <https://github.com/allisonhorst/palmerpenguins>, as seaborn-data ships it): `species`,
@@ -80,7 +83,12 @@ pub fn one() -> RecordBatch {
 
 /// A session with the transforms and the tables `penguins`, `earthquakes`, and `one`.
 pub fn session() -> SessionContext {
-    let ctx = SessionContext::new();
+    session_with(SessionConfig::new())
+}
+
+/// A session of `config` with the transforms and the tables of [`session`].
+pub fn session_with(config: SessionConfig) -> SessionContext {
+    let ctx = SessionContext::new_with_config(config);
     avenger_sql::register(&ctx).unwrap();
     for (name, table) in [
         ("penguins", penguins()),
@@ -96,8 +104,13 @@ pub fn session() -> SessionContext {
 /// The charts of the column `chart` of `query`, in the order of its rows.
 #[allow(dead_code)]
 pub async fn charts(query: &str) -> Vec<Chart> {
-    let ctx = session();
-    let batches = avenger_sql::sql(&ctx, query)
+    charts_in(&session(), query).await
+}
+
+/// The charts of the column `chart` of `query` in the session `ctx`, in the order of its rows.
+#[allow(dead_code)]
+pub async fn charts_in(ctx: &SessionContext, query: &str) -> Vec<Chart> {
+    let batches = avenger_sql::sql(ctx, query)
         .await
         .unwrap()
         .collect()
