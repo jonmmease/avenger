@@ -24,8 +24,12 @@
 //! plans only at a call, a call of a window that the text does not define or of a window
 //! function without its `OVER`, and a `PIVOT` without its `FOR`.
 //!
-//! The test writes its probes and a summary to `tests/output/completion_eval/`, and fails when a
-//! probe does not offer its token, or offers an invalid item, or misses a valid one.
+//! One test fails when a probe does not offer its token or offers an invalid item. Another,
+//! ignored, fails when a probe of the cut text misses a valid item, which it looks for by trying
+//! each keyword, function, and name there. Each writes its probes, a summary, and the errors that
+//! the oracle excused as ones that the text after the item can fix, by message, to a directory of
+//! `tests/output/completion_eval/`. The summary counts the excused errors by pattern, so that a new
+//! kind of excused error shows there.
 
 mod common;
 
@@ -54,6 +58,11 @@ struct Env {
     functions: Vec<String>,
     tables: Vec<String>,
     columns: Vec<String>,
+    /// Whether the evaluation looks for the valid items that completion leaves out.
+    missed: bool,
+    /// The errors that `soft` excused in the texts that the oracle accepted: each message, with
+    /// the pattern that excused it and its count.
+    excused: Mutex<BTreeMap<String, (&'static str, usize)>>,
 }
 
 impl Env {
@@ -64,6 +73,12 @@ impl Env {
             self.library.clone(),
             Options::default(),
         )
+    }
+
+    /// Records that the oracle accepted a text with the error `message`, which `pattern` excused.
+    fn excuse(&self, pattern: &'static str, message: &str) {
+        let mut excused = self.excused.lock().unwrap();
+        excused.entry(message.to_string()).or_insert((pattern, 0)).1 += 1;
     }
 }
 
@@ -253,12 +268,20 @@ fn judge(env: &Env, prefix: &str, insert: &str, after: &str, whole: bool) -> Opt
     let start = prefix
         .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
         .len();
-    (document.analysis().diagnostics.iter())
-        .find(|d| {
-            let s = usize::from(d.range.start());
-            s >= start && s < end.max(prefix.len() + 1) && !soft(&d.message)
-        })
-        .map(|d| format!("semantic: {}", d.message))
+    let mut excused = Vec::new();
+    for d in (document.analysis().diagnostics.iter()).filter(|d| {
+        let s = usize::from(d.range.start());
+        s >= start && s < end.max(prefix.len() + 1)
+    }) {
+        match soft(&d.message) {
+            Some(pattern) => excused.push((pattern, &d.message)),
+            None => return Some(format!("semantic: {}", d.message)),
+        }
+    }
+    for (pattern, message) in excused {
+        env.excuse(pattern, message);
+    }
+    None
 }
 
 /// The texts after a keyword that complete an expression that it starts, of each keyword, and
@@ -318,10 +341,16 @@ fn over(env: &Env, prefix: &str) -> Option<String> {
         let text = format!("{prefix}{after}");
         let end = text.len();
         let document = env.document(&text);
-        (document.diagnostics().into_iter())
-            .find(|d| usize::from(d.range.start()) >= start && usize::from(d.range.start()) <= end)
-            .filter(|d| d.source == Source::Syntax || !soft(&d.message))
-            .map(|error| error.message)
+        let error = (document.diagnostics().into_iter()).find(|d| {
+            usize::from(d.range.start()) >= start && usize::from(d.range.start()) <= end
+        })?;
+        match soft(&error.message).filter(|_| error.source != Source::Syntax) {
+            Some(pattern) => {
+                env.excuse(pattern, &error.message);
+                None
+            }
+            None => Some(error.message),
+        }
     }))
 }
 
@@ -335,9 +364,9 @@ fn read_as_keyword(env: &Env, prefix: &str, keyword: &str) -> bool {
         .is_none_or(|h| h.highlight == Highlight::Keyword)
 }
 
-/// Whether an error of the analysis is one that the rest of the text can fix: the arguments of a
-/// call, the type of an operand, or a window function's `OVER`.
-fn soft(message: &str) -> bool {
+/// The pattern of an error of the analysis that the rest of the text can fix: the arguments of a
+/// call, the type of an operand, or a window function's `OVER`, or `None` for another error.
+fn soft(message: &str) -> Option<&'static str> {
     // A call that its place forbids, as an analytic function in an aggregate's argument or a
     // table function without a table parameter after a pipe `CALL`, or with more positional
     // arguments than its function takes.
@@ -348,7 +377,7 @@ fn soft(message: &str) -> bool {
         "takes no TABLE argument",
     ];
     if forbidden.iter().any(|pattern| message.contains(pattern)) {
-        return false;
+        return None;
     }
     [
         "signature",
@@ -371,8 +400,8 @@ fn soft(message: &str) -> bool {
         "Unrecognized window alias",
         "Duplicate table alias",
     ]
-    .iter()
-    .any(|pattern| message.contains(pattern))
+    .into_iter()
+    .find(|pattern| message.contains(pattern))
 }
 
 /// The first word of a label, in upper case and without backticks.
@@ -625,7 +654,7 @@ fn probe(env: &Env, query: usize, text: &str, location: &Location, index: usize)
                     invalid.push((item.label.clone(), reason));
                 }
             }
-            if mode == "cut" && !enum_value {
+            if env.missed && mode == "cut" && !enum_value {
                 let names = defined_names(&document);
                 // A keyword is no field after a `.`, and a word that names a function is judged
                 // as the function.
@@ -680,8 +709,20 @@ fn defined_names(document: &Document) -> Vec<String> {
     names
 }
 
-#[test]
-fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
+/// What an evaluation found, and the directory of its output.
+struct Evaluation {
+    /// Whether every probe whose token the text tells offers it.
+    offered: bool,
+    invalid: usize,
+    missed: usize,
+    summary: String,
+    out: String,
+}
+
+/// Evaluates completion over the example queries, and with `missed`, looks for the valid items
+/// that it leaves out. It writes the probes, the errors that the oracle excused, and a summary to
+/// `tests/output/completion_eval/{name}/`.
+fn evaluate(name: &str, missed: bool) -> Evaluation {
     let library = Library::new();
     let grammar = include_str!("../../avenger-sql-syntax/sql.ungram");
     let keywords: BTreeSet<String> = (grammar.split('\'').skip(1).step_by(2))
@@ -710,6 +751,8 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
         keywords: keywords.into_iter().collect(),
         tables,
         columns: columns.into_iter().collect(),
+        missed,
+        excused: Mutex::new(BTreeMap::new()),
     };
     let data = include_str!("data/completion_queries.txt");
     let queries: Vec<String> = (data.split('\u{1e}'))
@@ -777,32 +820,85 @@ fn completion_offers_only_and_all_valid_items_over_the_example_queries() {
     };
     let total = |mode: &str| counted.iter().filter(|p| p.mode == mode).count();
     let invalid: usize = probes.iter().map(|p| p.invalid.len()).sum();
-    let missed: usize = probes.iter().map(|p| p.missed.len()).sum();
+    let missed_items: usize = probes.iter().map(|p| p.missed.len()).sum();
     let unjudged = probes
         .iter()
         .filter(|p| !p.judged && p.category != "definition")
         .count();
+    // The errors that `soft` excused, by its pattern, so that a new kind shows in the summary.
+    let excused = env.excused.into_inner().unwrap();
+    let mut patterns: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut messages = String::new();
+    for (message, (pattern, count)) in &excused {
+        *patterns.entry(pattern).or_default() += count;
+        writeln!(messages, "{count} [{pattern}] {message}").unwrap();
+    }
+    let patterns: Vec<String> = (patterns.iter())
+        .map(|(pattern, count)| format!("  {pattern}: {count}"))
+        .collect();
+    let missed_line = match missed {
+        true => format!("{missed_items}"),
+        false => "not looked for".to_string(),
+    };
     let summary = format!(
         "{} probes over {} queries, {unjudged} that the oracle cannot judge, {unknowable} whose \
          token the text cannot tell\n\
          token offered: {} of {} in the whole query, {} of {} in the cut text\n\
-         invalid items: {invalid}\nmissed items: {missed}\n",
+         invalid items: {invalid}\nmissed items: {missed_line}\n\
+         errors that the oracle excused, by pattern, of {} messages:\n{}\n",
         probes.len(),
         queries.len(),
         offered("whole"),
         total("whole"),
         offered("cut"),
         total("cut"),
+        excused.len(),
+        patterns.join("\n"),
     );
-    let out = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/output/completion_eval");
-    std::fs::create_dir_all(out).unwrap();
+    let out = format!(
+        "{}/tests/output/completion_eval/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::create_dir_all(&out).unwrap();
     std::fs::write(format!("{out}/probes.txt"), &lines).unwrap();
+    std::fs::write(format!("{out}/excused.txt"), &messages).unwrap();
     std::fs::write(format!("{out}/summary.txt"), &summary).unwrap();
     println!("{summary}");
+    Evaluation {
+        offered: offered("whole") == total("whole") && offered("cut") == total("cut"),
+        invalid,
+        missed: missed_items,
+        summary,
+        out,
+    }
+}
+
+#[test]
+fn completion_offers_the_tokens_and_only_valid_items_of_the_example_queries() {
+    let Evaluation {
+        offered,
+        invalid,
+        summary,
+        out,
+        ..
+    } = evaluate("items", false);
     assert!(
-        offered("whole") == total("whole") && offered("cut") == total("cut"),
+        offered,
         "a probe does not offer its token: {summary}see {out}/probes.txt"
     );
     assert_eq!(invalid, 0, "invalid items: {summary}see {out}/probes.txt");
+}
+
+/// Completion leaves out no valid item: the oracle tries each keyword, function, and name at each
+/// probe of the cut text. Run it with `--ignored` after a change of completion.
+#[test]
+#[ignore = "tries every keyword, function, and name at each probe"]
+fn completion_misses_no_valid_item_of_the_example_queries() {
+    let Evaluation {
+        missed,
+        summary,
+        out,
+        ..
+    } = evaluate("missed", true);
     assert_eq!(missed, 0, "missed items: {summary}see {out}/probes.txt");
 }
