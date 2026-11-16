@@ -41,11 +41,20 @@ pub struct Options {
     pub query: Option<PathBuf>,
     /// Where to save a PNG of the window once it settles, after which the editor exits.
     pub screenshot: Option<PathBuf>,
+    /// The character index where `--cursor` focuses the editor, before a screenshot.
+    pub cursor: Option<usize>,
+    /// The keys that each `--press <KEYS>` presses after `--cursor`, in order, such as
+    /// `alt+Space` or `cmd+Period`: modifiers `alt`, `ctrl`, `shift`, and `cmd`, and egui's
+    /// name of a key.
+    pub presses: Vec<(egui::Modifiers, egui::Key)>,
+    /// Whether `--hover` holds the pointer over the character after the cursor.
+    pub hover: bool,
 }
 
 impl Options {
-    /// The options of `args`, which exclude the program name: file paths, `--query <FILE>`, and
-    /// `--screenshot <PNG>`.
+    /// The options of `args`, which exclude the program name: file paths, `--query <FILE>`,
+    /// `--screenshot <PNG>`, and the options that drive the editor before a screenshot,
+    /// `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`.
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut options = Self::default();
         let mut args = args.into_iter();
@@ -58,12 +67,40 @@ impl Options {
             match arg.as_str() {
                 "--query" => options.query = Some(value("--query")?),
                 "--screenshot" => options.screenshot = Some(value("--screenshot")?),
+                "--cursor" => {
+                    let index = value("--cursor")?;
+                    let index = index.to_string_lossy().parse();
+                    options.cursor = Some(index.map_err(|_| "--cursor needs an index")?);
+                }
+                "--press" => {
+                    let keys = value("--press")?.to_string_lossy().into_owned();
+                    options.presses.push(press(&keys)?);
+                }
+                "--hover" => options.hover = true,
                 flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
                 _ => options.files.push(PathBuf::from(arg)),
             }
         }
         Ok(options)
     }
+}
+
+/// The modifiers and the key of `keys`, such as `alt+Space`.
+fn press(keys: &str) -> Result<(egui::Modifiers, egui::Key), String> {
+    let mut modifiers = egui::Modifiers::NONE;
+    let mut parts: Vec<&str> = keys.split('+').collect();
+    let name = parts.pop().unwrap_or_default();
+    for part in parts {
+        modifiers |= match part {
+            "alt" => egui::Modifiers::ALT,
+            "ctrl" => egui::Modifiers::CTRL,
+            "shift" => egui::Modifiers::SHIFT,
+            "cmd" => egui::Modifiers::COMMAND,
+            _ => return Err(format!("unknown modifier {part} in --press {keys}")),
+        };
+    }
+    let key = egui::Key::from_name(name).ok_or_else(|| format!("unknown key in --press {keys}"))?;
+    Ok((modifiers, key))
 }
 
 /// What the background tasks send back to the window.
@@ -118,6 +155,54 @@ struct Screenshot {
     started: Instant,
     idle_frames: u32,
     requested: bool,
+    /// The steps of `--cursor`, `--press`, and `--hover`, which run once the window settles.
+    drive: Option<Drive>,
+}
+
+/// The editor's state before a screenshot: the cursor, the keys that it presses one frame apart,
+/// and whether the pointer then holds over the character after the cursor.
+struct Drive {
+    cursor: usize,
+    presses: Vec<(egui::Modifiers, egui::Key)>,
+    hover: bool,
+    frame: u32,
+    /// When the pointer moved over the character, for the tooltip's delay.
+    hovered: Option<Instant>,
+    /// The events of the next frame.
+    events: Vec<egui::Event>,
+}
+
+impl Drive {
+    /// Takes the drive's next step after the editor's last frame, and returns whether the
+    /// editor is ready for the screenshot.
+    fn step(&mut self, ctx: &egui::Context, editor: &CodeEditor) -> bool {
+        self.frame += 1;
+        // The cursor at frame 1, a press each second frame from frame 3, and then the hover.
+        let hover = 3 + 2 * self.presses.len() as u32;
+        match self.frame {
+            1 => editor.place(ctx, self.cursor),
+            frame if frame >= 3 && frame < hover && frame % 2 == 1 => {
+                let (modifiers, key) = self.presses[(frame as usize - 3) / 2];
+                self.events
+                    .extend([true, false].map(|pressed| egui::Event::Key {
+                        key,
+                        physical_key: None,
+                        pressed,
+                        repeat: false,
+                        modifiers,
+                    }));
+            }
+            frame if frame == hover && self.hover => {
+                if let Some(caret) = editor.caret() {
+                    self.events.push(egui::Event::PointerMoved(caret));
+                    self.hovered = Some(Instant::now());
+                }
+            }
+            _ => {}
+        }
+        let held = (self.hovered).is_none_or(|at| at.elapsed() > Duration::from_secs(1));
+        self.frame > hover + 4 && held
+    }
 }
 
 pub struct EditorApp {
@@ -217,6 +302,14 @@ impl EditorApp {
                 started: Instant::now(),
                 idle_frames: 0,
                 requested: false,
+                drive: options.cursor.map(|cursor| Drive {
+                    cursor,
+                    presses: options.presses,
+                    hover: options.hover,
+                    frame: 0,
+                    hovered: None,
+                    events: Vec::new(),
+                }),
             }),
             #[cfg(not(target_arch = "wasm32"))]
             window_limit: None,
@@ -678,7 +771,12 @@ impl EditorApp {
         }
         screenshot.idle_frames = if busy { 0 } else { screenshot.idle_frames + 1 };
         let timed_out = screenshot.started.elapsed() > SCREENSHOT_TIMEOUT;
-        if !screenshot.requested && (screenshot.idle_frames >= 10 || timed_out) {
+        let settled = screenshot.idle_frames >= 10;
+        let driven = match &mut screenshot.drive {
+            Some(drive) => settled && drive.step(ctx, &self.editor),
+            None => true,
+        };
+        if !screenshot.requested && ((settled && driven) || timed_out) {
             screenshot.requested = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -687,6 +785,13 @@ impl EditorApp {
 }
 
 impl eframe::App for EditorApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        let drive = (self.screenshot.as_mut()).and_then(|screenshot| screenshot.drive.as_mut());
+        if let Some(drive) = drive {
+            raw_input.events.append(&mut drive.events);
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let Some(state) = frame.wgpu_render_state().cloned() else {
             return;
@@ -736,15 +841,7 @@ impl eframe::App for EditorApp {
                 ui.separator();
                 let analyzed = self.text.clone();
                 let document = self.analyzed.document(&analyzed);
-                let highlights = document.highlights();
-                let chars = highlight::Chars::new(&analyzed);
-                let errors: Vec<std::ops::Range<usize>> = (document.diagnostics().iter())
-                    .map(|diagnostic| chars.range(diagnostic.range))
-                    .collect();
-                if self
-                    .editor
-                    .show(ui, &mut self.text, &analyzed, &highlights, &errors)
-                {
+                if self.editor.show(ui, &mut self.text, document) {
                     // The error points into the text before the edit.
                     if let Some(error) = &mut self.error {
                         error.range = None;
