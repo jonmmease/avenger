@@ -128,6 +128,51 @@ fn an_argument_completes_the_values_of_its_set() {
 }
 
 #[test]
+fn an_argument_completes_the_constructors_of_its_parameter_first() {
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+                scale => scale(domain => interval_fit(pin => $0)))) AS chart";
+    let (completions, _) = complete(text);
+    let first = &completions.items[0];
+    assert_eq!(first.label, "domain_pin");
+    assert_eq!(first.detail.as_deref(), Some("builds `pin`"));
+    // The strings of the set, then the constructors in the order of their groups.
+    let text =
+        "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => $0)) AS chart";
+    let (completions, _) = complete(text);
+    let first: Vec<&str> = (completions.items.iter().take(20))
+        .map(|item| item.label.as_str())
+        .collect();
+    assert_eq!(first[0], "'band'", "{first:?}");
+    let scale = first.iter().position(|label| *label == "scale").unwrap();
+    let linear = first
+        .iter()
+        .position(|label| *label == "linear_scale")
+        .unwrap();
+    assert!(
+        first[..scale].iter().all(|label| label.starts_with('\'')),
+        "{first:?}"
+    );
+    assert!(scale < linear, "{first:?}");
+    let detail = item(&completions, "linear_scale").and_then(|item| item.detail.as_deref());
+    assert_eq!(detail, Some("builds the type of `scale`"));
+    // In the string, every value of the set.
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => 'l$0')) AS chart";
+    let (completions, replaced) = complete(text);
+    assert_eq!(replaced, "'l'");
+    let values = labels(&completions, CompletionKind::EnumValue);
+    assert!(
+        values.contains(&"'linear'") && values.contains(&"'log'") && values.len() > 3,
+        "{values:?}"
+    );
+    // A parameter that takes no constructor has none first.
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+                scale => scale(domain => interval_fit(zero => $0)))) AS chart";
+    let (completions, _) = complete(text);
+    let detail = completions.items[0].detail.as_deref().unwrap_or_default();
+    assert!(!detail.starts_with("builds"), "{detail}");
+}
+
+#[test]
 fn keywords_complete_operators_and_statements() {
     let (completions, _) = complete("FROM penguins |> $0");
     let keywords = labels(&completions, CompletionKind::Keyword);

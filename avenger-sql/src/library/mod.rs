@@ -113,6 +113,134 @@ pub struct Param {
     pub name: String,
     /// What the parameter takes, what its values mean, and what omitting it does.
     pub doc: String,
+    /// What a parameter of a chart function that takes constructors takes, which its form types
+    /// as `BYTES` or `ANY`. Empty for the other parameters.
+    pub takes: Takes,
+}
+
+/// What a parameter of a chart function takes besides the type of its form: the strings of a
+/// set, the types of its other values, and the constructors whose fragments it takes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Takes {
+    /// The strings of the set that the parameter takes, such as the types of a scale.
+    pub strings: Vec<String>,
+    /// The types of the other values that the parameter takes, such as `STRING` for the text of
+    /// a title.
+    pub values: Vec<Ty>,
+    /// The constructors, each once: those of the target itself, then those of its parts in the
+    /// order of the parameters of the target's constructor.
+    pub constructors: Vec<Builds>,
+}
+
+/// A constructor that a parameter takes, by its name in SQL, with the part of the parameter's
+/// target that its fragment sets: the parameter of the target's constructor that sets the
+/// outermost field of its chain, such as `type` for `linear_scale` and `domain` for
+/// `interval_fit` in the `scale` of `scaled`, or `None` for the target itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Builds {
+    pub constructor: String,
+    pub part: Option<String>,
+    /// Whether the parameter takes an array of the constructor's fragments, as `tools` does.
+    pub array: bool,
+    /// The form of the constructor without its result, such as
+    /// `domain_pin(value: ANY, position: 'low' | 'mid' | 'high')`.
+    pub form: String,
+}
+
+/// The longest form of a function that a hover writes, in characters, and of a constructor in
+/// the forms of a parameter. A longer form writes `name(...)`.
+pub const FORM: usize = 100;
+
+/// The forms of a parameter that takes constructors, from [`Param::forms`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Forms {
+    /// The lines of what the parameter takes, such as
+    /// `pin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')`: its strings, its other
+    /// values, and the constructors of its target itself.
+    pub lines: Vec<String>,
+    /// The constructors of the parts of its target, by part, such as
+    /// `("Its domain", ["category_fit(...)", ...])`.
+    pub groups: Vec<(String, Vec<String>)>,
+}
+
+impl Forms {
+    /// The forms as Markdown: the lines in a code block, then a list of the groups.
+    pub fn markdown(&self) -> String {
+        let lines = format!("```googlesql\n{}\n```", self.lines.join("\n"));
+        match self.groups() {
+            Some(groups) => format!("{lines}\n\n{groups}"),
+            None => lines,
+        }
+    }
+
+    /// The groups as a Markdown list, such as `- Its domain: `scale_domain(...)`, ...`, or
+    /// `None` without groups.
+    pub fn groups(&self) -> Option<String> {
+        let items: Vec<String> = (self.groups.iter())
+            .map(|(label, constructors)| {
+                let names: Vec<String> = constructors.iter().map(|c| format!("`{c}`")).collect();
+                format!("- {label}: {}", names.join(", "))
+            })
+            .collect();
+        (!items.is_empty()).then(|| items.join("\n"))
+    }
+}
+
+impl Param {
+    /// The forms of the parameter when it takes constructors: a line of its strings, at most
+    /// `strings` of them and then `…` when `strings` is given, a line of its other values, and a
+    /// line for each constructor of its target itself, with the full form of a constructor when it
+    /// is the only one and no longer than [`FORM`], else `name(...)`. The constructors of the
+    /// parts of its target follow in groups.
+    pub fn forms(&self, strings: Option<usize>) -> Option<Forms> {
+        let takes = &self.takes;
+        if takes.constructors.is_empty() {
+            return None;
+        }
+        let name = &self.name;
+        let mut lines = Vec::new();
+        if !takes.strings.is_empty() {
+            let shown = strings.unwrap_or(usize::MAX);
+            let mut values: Vec<String> = (takes.strings.iter().take(shown))
+                .map(|value| format!("'{value}'"))
+                .collect();
+            if takes.strings.len() > shown {
+                values.push("…".to_string());
+            }
+            lines.push(format!("{name} => {}", values.join(" | ")));
+        }
+        if !takes.values.is_empty() {
+            let values: Vec<String> = takes.values.iter().map(Ty::to_string).collect();
+            lines.push(format!("{name} => {}", values.join(" | ")));
+        }
+        let direct: Vec<&Builds> = (takes.constructors.iter())
+            .filter(|builds| builds.part.is_none())
+            .collect();
+        let only = direct.len() == 1;
+        for builds in direct {
+            let form = match only && builds.form.chars().count() <= FORM {
+                true => builds.form.clone(),
+                false => format!("{}(...)", builds.constructor),
+            };
+            lines.push(match builds.array {
+                true => format!("{name} => [{form}, ...]"),
+                false => format!("{name} => {form}"),
+            });
+        }
+        let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+        for builds in &takes.constructors {
+            let Some(part) = &builds.part else {
+                continue;
+            };
+            let label = format!("Its {}", part.replace('_', " "));
+            let form = format!("{}(...)", builds.constructor);
+            match groups.iter_mut().find(|(other, _)| *other == label) {
+                Some((_, forms)) => forms.push(form),
+                None => groups.push((label, vec![form])),
+            }
+        }
+        Some(Forms { lines, groups })
+    }
 }
 
 /// An example of a call: a query or an expression, and its result.
@@ -526,7 +654,15 @@ impl Function {
         self.params.push(Param {
             name: name.to_string(),
             doc: doc.to_string(),
+            takes: Takes::default(),
         });
+        self
+    }
+
+    /// A parameter of a chart function, with what it takes besides the type of its form.
+    pub(crate) fn chart_param(mut self, name: &str, doc: &str, takes: Takes) -> Self {
+        self = self.param(name, doc);
+        self.params.last_mut().expect("the parameter").takes = takes;
         self
     }
 
@@ -623,9 +759,13 @@ impl Function {
     }
 
     /// The values of the sets that the parameter `name` takes in the forms, each once, in the
-    /// order of the forms.
+    /// order of the forms, and the strings of a parameter of a chart function that takes
+    /// constructors.
     pub fn values_of(&self, name: &str) -> Vec<&str> {
-        let mut values: Vec<&str> = Vec::new();
+        let mut values: Vec<&str> = (self.param_named(name).into_iter())
+            .flat_map(|param| &param.takes.strings)
+            .map(String::as_str)
+            .collect();
         for arg in (self.forms.iter()).flat_map(|form| &form.signature.args) {
             if let (true, Accept::OneOf(set)) = (arg.param.eq_ignore_ascii_case(name), &arg.accept)
             {

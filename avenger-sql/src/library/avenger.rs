@@ -23,8 +23,8 @@
 use std::sync::Arc;
 
 use avenger_chart::functions::{
-    compositions, constructors, encoding_options, marks, Accept as ChartAccept, Composition, Kind,
-    Shape, COORD,
+    compositions, constructors, encoding_options, marks, Accept as ChartAccept, Class, Composition,
+    Kind, Shape, COORD,
 };
 use avenger_datafusion_transforms::{
     bin::{self, BinOptions},
@@ -44,7 +44,7 @@ use datafusion::{
 
 use super::{
     form::{Accept, Arity, FormArg, Signature, Ty},
-    null, DefaultWindow, Family, Function, Need, Planned, WindowOrder,
+    null, Builds, DefaultWindow, Family, Function, Need, Planned, Takes, WindowOrder,
 };
 use crate::functions::{
     combine::CombineFunction,
@@ -87,7 +87,7 @@ pub(super) fn functions() -> Vec<Function> {
         }
         // The properties, then the options of the mark's plot and layer, such as `tools`.
         for param in mark.properties.iter().chain(mark.options) {
-            function = function.param(&sql_name(param.name), param.doc);
+            function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
             args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
         function = function.param(&sql_name(COORD), COORD_DOC);
@@ -125,7 +125,7 @@ pub(super) fn functions() -> Vec<Function> {
             .family(Family::Constructor);
         let mut args = Vec::new();
         for param in constructor.params {
-            function = function.param(&sql_name(param.name), param.doc);
+            function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
             args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
         let signature = Signature {
@@ -143,7 +143,27 @@ pub(super) fn functions() -> Vec<Function> {
     for transform in [bin(), stack(), timeunit(), lump(), impute()] {
         functions.push(transform.family(Family::Transform));
     }
+    fill_forms(&mut functions);
     functions
+}
+
+/// The forms of the constructors that the parameters of `functions` take, from the signatures of
+/// the constructors, without their results.
+fn fill_forms(functions: &mut [Function]) {
+    let forms: std::collections::HashMap<String, String> = (functions.iter())
+        .filter(|function| function.family == Family::Constructor)
+        .filter_map(|function| {
+            let label = function.signatures().into_iter().next()?;
+            let (form, _) = label.text.rsplit_once(" -> ")?;
+            Some((function.name.clone(), form.to_string()))
+        })
+        .collect();
+    let builds = (functions.iter_mut())
+        .flat_map(|function| &mut function.params)
+        .flat_map(|param| &mut param.takes.constructors);
+    for builds in builds {
+        builds.form = forms.get(&builds.constructor).cloned().unwrap_or_default();
+    }
 }
 
 /// The first sentence of `doc`, for a summary.
@@ -192,6 +212,95 @@ fn ty_of(accepts: &[ChartAccept]) -> Accept {
             shape => Accept::Value(shape_ty(shape)),
         },
         _ => Accept::Value(Ty::Any),
+    }
+}
+
+/// What a parameter of avenger-chart takes besides the type of its form, when it takes a
+/// constructor: the strings of its sets, the types of its other values, and its constructors,
+/// each once. Empty when it takes no constructor.
+///
+/// A constructor of a part of the parameter's target belongs to the parameter of the target's
+/// own constructor that sets the outermost field of its chain, as `linear_scale`, which sets the
+/// member `linear` of a scale, belongs to the parameter `type` of `scale`. The constructors
+/// follow the order of those parameters.
+fn takes(accepts: &[ChartAccept]) -> Takes {
+    let target = accepts
+        .iter()
+        .find_map(|accept| match (accept.chain, accept.shape) {
+            ([], Shape::Message { constructor, .. }) => {
+                avenger_chart::functions::constructor(constructor)
+            }
+            _ => None,
+        });
+    // The parameter of the target's constructor that sets the field `step`, and its index.
+    let part = |step: &str| -> (usize, String) {
+        let params = target.map_or(&[][..], |target| target.params);
+        let index = (params.iter().position(|param| param.name == step)).or_else(|| {
+            (params.iter()).position(|param| {
+                (param.accepts.iter()).any(|accept| accept.chain.last() == Some(&step))
+            })
+        });
+        match index {
+            Some(index) => (index, params[index].name.to_string()),
+            None => (params.len(), step.to_string()),
+        }
+    };
+    let mut takes = Takes::default();
+    let mut order = Vec::new();
+    for accept in accepts {
+        let part = accept.chain.last().map(|step| part(step));
+        let (shape, array) = match accept.shape {
+            Shape::Array(element) => (*element, true),
+            shape => (shape, false),
+        };
+        match (accept.class, shape) {
+            (_, Shape::Message { constructor, .. }) => {
+                let builds = Builds {
+                    constructor: sql_name(constructor),
+                    part: part.as_ref().map(|(_, name)| name.clone()),
+                    array,
+                    form: String::new(),
+                };
+                if !takes.constructors.contains(&builds) {
+                    takes.constructors.push(builds);
+                    order.push(part.map(|(index, _)| index));
+                }
+            }
+            (Class::Str, Shape::Enum { values, .. } | Shape::Names(values)) if !array => {
+                for value in values {
+                    if !takes.strings.iter().any(|other| other == value.name) {
+                        takes.strings.push(value.name.to_string());
+                    }
+                }
+            }
+            (class, _) => {
+                let ty = match class {
+                    Class::Bool => Ty::Bool,
+                    Class::Int => Ty::Int64,
+                    Class::Float => Ty::Float64,
+                    Class::Str => Ty::String,
+                    Class::Array => shape_ty(&accept.shape),
+                    Class::Bytes => Ty::Bytes,
+                    Class::Other | Class::Fragment => Ty::Any,
+                };
+                if !takes.values.contains(&ty) {
+                    takes.values.push(ty);
+                }
+            }
+        }
+    }
+    // A parameter that takes any constant takes it as the one type of its other values.
+    if takes.values.contains(&Ty::Any) {
+        takes.values = vec![Ty::Any];
+    }
+    // The target's own constructors first, then the parts by their parameters, a stable sort.
+    let mut constructors: Vec<(Option<usize>, Builds)> =
+        order.into_iter().zip(takes.constructors).collect();
+    constructors.sort_by_key(|(index, _)| *index);
+    takes.constructors = constructors.into_iter().map(|(_, builds)| builds).collect();
+    match takes.constructors.is_empty() {
+        true => Takes::default(),
+        false => takes,
     }
 }
 
@@ -244,7 +353,7 @@ fn aggregate_composition(spec: &'static Composition) -> Function {
         args.push(any("key", true));
     }
     for param in spec.params {
-        function = function.param(&sql_name(param.name), param.doc);
+        function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
         args.push(arg(param.name, ty_of(param.accepts), param.required));
     }
     let signature = Signature {
@@ -282,7 +391,7 @@ fn scalar_composition(spec: &'static Composition) -> Function {
         ..any("chart", true)
     }];
     for param in spec.params {
-        function = function.param(&sql_name(param.name), param.doc);
+        function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
         args.push(FormArg {
             named_only: true,
             ..arg(param.name, ty_of(param.accepts), false)
@@ -319,7 +428,7 @@ fn scaled() -> Function {
     .param("value", "The value of the channel.");
     let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
     for option in encoding_options() {
-        function = function.param(&sql_name(option.name), option.doc);
+        function = function.chart_param(&sql_name(option.name), option.doc, takes(option.accepts));
         args.push(FormArg {
             named_only: true,
             ..arg(option.name, ty_of(option.accepts), false)
