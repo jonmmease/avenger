@@ -27,6 +27,8 @@ const QUERIES: &[&str] = &[
     "FROM events |> WHERE type = 'click' |> AGGREGATE COUNT(*) AS n GROUP BY target |> WHERE n >= 3 |> AGGREGATE COUNT(*) AS hot_targets",
     // A table function downstream of a grouped front.
     "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, inside |> CALL impute(type, [inside], n, value => 0)",
+    // The distinct pairs of a stage's columns.
+    "FROM events |> SELECT type, inside |> DISTINCT",
     // The last click, and the last pointer position.
     "FROM events |> WHERE type = 'click' |> ORDER BY seq DESC |> LIMIT 1 |> SELECT target, x, y",
     "FROM events |> WHERE type = 'pointermove' |> ORDER BY seq DESC |> LIMIT 1 |> SELECT x, y, ts",

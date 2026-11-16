@@ -138,8 +138,8 @@ pub(crate) struct AggregateState {
     /// The converter of the group values to rows, or `None` without groups.
     converter: Option<RowConverter>,
     group_types: Vec<DataType>,
-    /// Each group's index, by its group values.
-    index: HashMap<OwnedRow, usize>,
+    /// Each group's index, by the bytes of its group values' row.
+    index: HashMap<Box<[u8]>, usize>,
     keys: Vec<OwnedRow>,
     /// Each group's accumulators, and their values after the last frame.
     accumulators: Vec<Vec<Box<dyn Accumulator>>>,
@@ -156,7 +156,7 @@ impl AggregateState {
             .collect::<Result<_>>()?;
         let index = self.accumulators.len();
         if let Some(key) = key {
-            self.index.insert(key.clone(), index);
+            self.index.insert(key.row().as_ref().into(), index);
             self.keys.push(key);
         }
         self.accumulators.push(accumulators);
@@ -179,7 +179,7 @@ impl AggregateState {
                 let converted = converter.convert_columns(&values)?;
                 let mut groups = Vec::with_capacity(n);
                 for row in converted.iter() {
-                    let index = match self.index.get(&row.owned()) {
+                    let index = match self.index.get(row.as_ref()) {
                         Some(index) => *index,
                         None => {
                             changed = true;

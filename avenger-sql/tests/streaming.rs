@@ -90,14 +90,10 @@ fn the_fronts_of_aggregates_and_limits_split() {
             "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, target |> CALL impute(type, [target], n, value => 0)",
             "aggregate of 2 groups and 1 aggregates",
         ),
+        // `DISTINCT`, an aggregate grouped by every column.
         (
-            "FROM events AS e |> WHERE e.type = 'click' |> AGGREGATE COUNT(*) AS n",
-            "aggregate of 0 groups and 1 aggregates",
-        ),
-        // A table function downstream of the front.
-        (
-            "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY type, target |> CALL impute(type, [target], n, value => 0)",
-            "aggregate of 2 groups and 1 aggregates",
+            "FROM events |> SELECT type, target |> DISTINCT",
+            "aggregate of 2 groups and 0 aggregates",
         ),
     ];
     for (query, want) in cases {
@@ -161,6 +157,18 @@ fn the_other_shapes_are_rejected() {
         (
             "FROM events |> WHERE ts > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE) |> AGGREGATE COUNT(*) AS n",
             "a stage over events reads the function now, whose value a stream reads at another time than the batch plan does",
+        ),
+        (
+            "FROM events |> AGGREGATE COUNT(*) AS n GROUP BY ts > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE) AS recent",
+            "the front over events reads the function now, whose value a stream reads at another time than the batch plan does",
+        ),
+        (
+            "FROM events |> AGGREGATE COUNTIF(ts > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE)) AS n",
+            "the front over events reads the function now, whose value a stream reads at another time than the batch plan does",
+        ),
+        (
+            "FROM events |> AGGREGATE MAX(ts) AS last |> WHERE last > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 1 MINUTE)",
+            "the query reads the function now after its front, which a stream runs again only when the front's output changes",
         ),
         (
             "FROM events |> WHERE target IN (FROM targets |> SELECT target) |> AGGREGATE COUNT(*) AS n",

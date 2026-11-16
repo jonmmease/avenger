@@ -9,7 +9,8 @@
 //! event so far. The fronts take rows that only grow, as `events` does, so none of them needs a
 //! retraction:
 //!
-//! - an `AGGREGATE`, grouped or not, whose accumulators only add rows;
+//! - an `AGGREGATE`, grouped or not, whose accumulators only add rows, and a `DISTINCT`, an
+//!   aggregate grouped by every column without aggregates;
 //! - an `ORDER BY ... LIMIT`, whose kept rows only leave when a new row takes their place.
 //!
 //! [`split`] rejects a query of another shape, whose caller runs the batch plan.
@@ -26,7 +27,9 @@ use datafusion::{
         Column, DFSchemaRef, ScalarValue,
     },
     datasource::{provider_as_source, source_as_provider, MemTable, TableProvider},
-    logical_expr::{Expr, Limit, LogicalPlan, LogicalPlanBuilder, SortExpr, TableScan, Volatility},
+    logical_expr::{
+        Distinct, Expr, Limit, LogicalPlan, LogicalPlanBuilder, SortExpr, TableScan, Volatility,
+    },
 };
 
 /// A query over `events`, split for a streaming runtime.
@@ -159,12 +162,12 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
     let lowest = reduced.map_or(0, |i| i + 1);
     for node in path[lowest..top].iter().rev() {
         if let LogicalPlan::Extension(extension) = node {
-            let name = format!("{}", node.display());
-            return match name.starts_with("MatchRecognize") {
-                true => reject("MATCH_RECOGNIZE over events isn't a streaming front yet"),
-                false => reject(format!(
-                    "the table function {} over events isn't a streaming front",
-                    extension.node.name()
+            return match extension.node.name() {
+                "MatchRecognize" => {
+                    reject("MATCH_RECOGNIZE over events isn't a streaming front yet")
+                }
+                name => reject(format!(
+                    "the table function {name} over events isn't a streaming front"
                 )),
             };
         }
@@ -200,6 +203,19 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
             };
             (front, &path[top - 2])
         }
+        // `DISTINCT` is an aggregate grouped by every column, without aggregates.
+        LogicalPlan::Distinct(Distinct::All(_)) => {
+            let front = Front::Aggregate {
+                groups: stages
+                    .schema()
+                    .columns()
+                    .into_iter()
+                    .map(Expr::Column)
+                    .collect(),
+                aggregates: Vec::new(),
+            };
+            (front, node)
+        }
         LogicalPlan::Window(_) => return reject(
             "a window over events, which reads every row, as a window function or HAVING MAX does",
         ),
@@ -212,6 +228,15 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
             ))
         }
     };
+    let front_exprs: Vec<&Expr> = match &front {
+        Front::Aggregate { groups, aggregates } => groups.iter().chain(aggregates).collect(),
+        Front::Limit { order, .. } => order.iter().map(|key| &key.expr).collect(),
+    };
+    if let Some(what) = front_exprs.into_iter().find_map(|e| unstable(e, true)) {
+        return reject(format!(
+            "the front over events reads {what}, whose value a stream reads at another time than the batch plan does"
+        ));
+    }
     let slot = Slot::new("front", replaced.schema());
     let downstream = plan
         .clone()
@@ -225,6 +250,25 @@ pub fn split(plan: &LogicalPlan, events: &Arc<dyn TableProvider>) -> Result<Spli
         })
         .expect("the downstream")
         .data;
+    // The downstream runs again only when the front's output changes, so it reads no value that
+    // changes on its own.
+    let mut changing = None;
+    downstream
+        .apply_with_subqueries(|node| {
+            node.apply_expressions(|e| {
+                changing = unstable(e, false);
+                Ok(match changing {
+                    Some(_) => TreeNodeRecursion::Stop,
+                    None => TreeNodeRecursion::Continue,
+                })
+            })
+        })
+        .expect("a walk of the downstream");
+    if let Some(what) = changing {
+        return reject(format!(
+            "the query reads {what} after its front, which a stream runs again only when the front's output changes"
+        ));
+    }
     Ok(Split {
         stages: stages.clone(),
         scan: scan.clone(),
@@ -269,33 +313,38 @@ fn stateless(node: &LogicalPlan) -> Result<bool, Rejection> {
         LogicalPlan::SubqueryAlias(_) => Vec::new(),
         _ => return Ok(false),
     };
-    for expr in exprs {
-        let mut found = None;
-        expr.apply(|e| {
-            match e {
-                Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_) => {
-                    found = Some("a subquery".to_string());
-                }
-                Expr::ScalarFunction(call)
-                    if call.func.signature().volatility != Volatility::Immutable =>
-                {
-                    found = Some(format!("the function {}", call.func.name()));
-                }
-                _ => {}
-            }
-            Ok(match found {
-                Some(_) => TreeNodeRecursion::Stop,
-                None => TreeNodeRecursion::Continue,
-            })
-        })
-        .expect("a walk of an expression");
-        if let Some(what) = found {
-            return reject(format!(
-                "a stage over events reads {what}, whose value a stream reads at another time than the batch plan does"
-            ));
-        }
+    if let Some(what) = exprs.into_iter().find_map(|e| unstable(e, true)) {
+        return reject(format!(
+            "a stage over events reads {what}, whose value a stream reads at another time than the batch plan does"
+        ));
     }
     Ok(true)
+}
+
+/// What `expr` reads whose value a stream reads at another time than the batch plan does: a
+/// function whose value can change between calls, such as the clock, and with `subqueries`, a
+/// subquery.
+fn unstable(expr: &Expr, subqueries: bool) -> Option<String> {
+    let mut found = None;
+    expr.apply(|e| {
+        match e {
+            Expr::ScalarSubquery(_) | Expr::Exists(_) | Expr::InSubquery(_) if subqueries => {
+                found = Some("a subquery".to_string());
+            }
+            Expr::ScalarFunction(call)
+                if call.func.signature().volatility != Volatility::Immutable =>
+            {
+                found = Some(format!("the function {}", call.func.name()));
+            }
+            _ => {}
+        }
+        Ok(match found {
+            Some(_) => TreeNodeRecursion::Stop,
+            None => TreeNodeRecursion::Continue,
+        })
+    })
+    .expect("a walk of an expression");
+    found
 }
 
 /// The skip and the fetch of `limit`, which are literals.
