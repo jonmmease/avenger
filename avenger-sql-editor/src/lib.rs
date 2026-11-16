@@ -3,6 +3,7 @@
 //! chart, or as a table whose chart columns show the chart of each row.
 
 pub mod app;
+pub mod assist;
 mod cards;
 pub mod charts;
 pub mod comment;
