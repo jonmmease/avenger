@@ -764,11 +764,7 @@ impl Pass<'_> {
             return None;
         }
         let arg_scope = match function.kind {
-            Kind::Aggregate => Scope {
-                aggregates: false,
-                windows: false,
-                ..scope
-            },
+            Kind::Aggregate => scope.arguments(),
             _ => scope,
         };
         let mut args = Vec::new();
@@ -841,10 +837,13 @@ impl Pass<'_> {
             );
             return None;
         }
+        // A body is not in the clause of a `MATCH_RECOGNIZE` that calls it, as in GoogleSQL.
+        let frames = std::mem::take(&mut self.match_recognize);
         self.call_depth += 1;
         let prefix = format!("In {}: ", function.name);
         let body = self.inlined(&prefix, range, |pass| pass.body(&function, values, scope));
         self.call_depth -= 1;
+        self.match_recognize = frames;
         let body = body?;
         let result = self
             .type_of(&body, scope)

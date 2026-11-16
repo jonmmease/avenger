@@ -25,6 +25,8 @@ A table function such as `impute` reads the plan of an input relation. Every tab
 
 An aggregate grouped by a lump, and by the lump's partition keys, plans through the analyzer rule `lump::LumpAggregateFusion` without the join of the lump to its rows: the categories hold the states of their rows' aggregates, and each value of the lump merges them, for the aggregates that merge from states, such as `SUM` and `AVG`.
 
+The module `match_recognize` holds the matcher of row pattern recognition and its node. A pattern compiles to a program, which a Pike VM runs over each partition's rows, with the preferences of GoogleSQL's matcher, both skip modes, and `use_longest_match`. `match_recognize::plan` takes a plan whose rows have their position in the partition and a boolean column for each pattern variable, and outputs each row of each match with its match number and its variable, and one row without a variable for each empty match. avenger-sql plans GoogleSQL's `MATCH_RECOGNIZE` onto it, and computes the measures with an aggregate over its output.
+
 ## Tests
 
 The tests state what each transform does: bins, stacks, and time units of chosen values and options, time units that tile time across changes of the UTC offset, `impute` and `lump` against equivalent SQL, and the gaps and partitions of `impute`. The tests build the calls in Rust, plan the inputs and the reference queries in DataFusion's SQL, which only the tests enable, and compare the results.
