@@ -607,6 +607,17 @@ impl Document {
     /// `|> SELECT`, `|> EXTEND`, or `|> SET`, and in a window's specification, `ORDER BY` and a
     /// frame when the window function takes them.
     fn keyword_fits(&self, kind: SyntaxKind, before: &SyntaxToken) -> bool {
+        // A clause of a call's arguments, which the call's function takes.
+        if let Some((_, function)) = self.argument_list(before) {
+            let clauses = &function.clauses;
+            match kind {
+                SyntaxKind::IGNORE_KW | SyntaxKind::RESPECT_KW => return clauses.null_treatment,
+                SyntaxKind::HAVING_KW => return clauses.having,
+                SyntaxKind::LIMIT_KW => return clauses.limit,
+                SyntaxKind::ORDER_KW => return clauses.order_by,
+                _ => {}
+            }
+        }
         match kind {
             // A `PIVOT` takes the call of an aggregate, which `NOT` doesn't start.
             SyntaxKind::NOT_KW => (self.analysis.model.place_at(before.text_range().end()))
@@ -777,9 +788,17 @@ impl Document {
         }
     }
 
-    /// The argument list that `before` is in, of a call of a function of the library.
+    /// The argument list that holds `before` directly, not in a subquery or a window of an
+    /// argument, of a call of a function of the library, and the function.
     fn argument_list(&self, before: &SyntaxToken) -> Option<(ast::ArgList, &Function)> {
-        let list = before.parent_ancestors().find_map(ast::ArgList::cast)?;
+        let list = (before.parent_ancestors())
+            .find(|node| {
+                matches!(
+                    node.kind(),
+                    SyntaxKind::ARG_LIST | SyntaxKind::QUERY | SyntaxKind::WINDOW_SPEC
+                )
+            })
+            .and_then(ast::ArgList::cast)?;
         let function = self.library.get(&callee(&list.syntax().parent()?)?)?;
         Some((list, function))
     }

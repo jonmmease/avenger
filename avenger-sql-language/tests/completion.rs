@@ -411,3 +411,50 @@ fn a_window_completes_no_aggregate_in_its_keys() {
     let (completions, _) = complete("FROM penguins |> EXTEND RANK() OVER (ORDER BY $0) AS r");
     assert!(item(&completions, "SUM").is_none());
 }
+
+#[test]
+fn a_trailing_comma_completes_another_item() {
+    let (completions, _) = complete("FROM penguins |> WHERE species IN ('Adelie', $0)");
+    assert!(labels(&completions, CompletionKind::Column).contains(&"island"));
+    let (completions, _) = complete("FROM penguins, $0");
+    assert!(labels(&completions, CompletionKind::Table).contains(&"islands"));
+}
+
+#[test]
+fn a_call_completes_the_clauses_that_its_function_takes() {
+    let keywords = |text: &str| -> Vec<String> {
+        let (completions, _) = complete(text);
+        labels(&completions, CompletionKind::Keyword)
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    };
+    let array_agg = keywords("FROM penguins |> AGGREGATE ARRAY_AGG(species $0");
+    assert!(array_agg.iter().any(|k| k == "LIMIT"), "{array_agg:?}");
+    assert!(
+        array_agg.iter().any(|k| k.starts_with("ORDER")),
+        "{array_agg:?}"
+    );
+    let any_value = keywords("FROM penguins |> AGGREGATE ANY_VALUE(species $0");
+    for clause in ["LIMIT", "IGNORE", "RESPECT"] {
+        assert!(
+            !any_value.iter().any(|k| k.starts_with(clause)),
+            "{any_value:?}"
+        );
+    }
+}
+
+#[test]
+fn a_subquery_or_a_window_in_an_argument_completes_as_its_own_place() {
+    // The named argument of the call around them doesn't make their lists take only names.
+    let (completions, _) = complete(
+        "FROM penguins |> EXTEND bin(body_mass_g, maxbins => (FROM penguins |> SELECT species, $0 |> LIMIT 1)) OVER () AS b",
+    );
+    assert!(labels(&completions, CompletionKind::Column).contains(&"island"));
+    assert!(labels(&completions, CompletionKind::Parameter).is_empty());
+    let (completions, _) = complete(
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*) OVER (PARTITION BY island, $0)) AS c",
+    );
+    assert!(labels(&completions, CompletionKind::Column).contains(&"species"));
+    assert!(labels(&completions, CompletionKind::Parameter).is_empty());
+}

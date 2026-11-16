@@ -102,3 +102,15 @@ fn outside_an_argument_list_there_is_no_help() {
     assert_eq!(help("FROM penguins |> WHERE $0species = 'Adelie'"), None);
     assert_eq!(help("FROM penguins |> SELECT SUBSTR(species, 1)$0"), None);
 }
+
+#[test]
+fn a_trailing_comma_keeps_the_call_and_names_no_parameter_past_the_last() {
+    let help = help("FROM penguins |> SELECT SUBSTR(species, 1, 3,$0)").unwrap();
+    let signature = &help.signatures[help.active_signature];
+    assert!(
+        signature.label.starts_with("SUBSTR("),
+        "{}",
+        signature.label
+    );
+    assert_eq!(active(signature), None);
+}

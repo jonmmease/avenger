@@ -12,6 +12,7 @@ fn inputs() -> Vec<String> {
         .map(|text| text.to_string())
         .collect();
     inputs.extend(QUERIES.iter().map(|text| text.to_string()));
+    inputs.extend(TRAILING_COMMAS.iter().map(|text| text.to_string()));
     inputs.extend(
         EXPRESSIONS
             .iter()
