@@ -25,11 +25,13 @@ pub(crate) enum FrontState {
     Empty,
     Aggregate(Box<AggregateState>),
     Limit(LimitState),
+    Match(Box<crate::matching::MatchState>),
 }
 
 impl FrontState {
     /// The state of `front` over the rows of the schema `input`, the stages' output.
     pub(crate) fn new(
+        ctx: &datafusion::prelude::SessionContext,
         front: &Front,
         input: &DFSchemaRef,
         params: &Option<ParamValues>,
@@ -84,6 +86,9 @@ impl FrontState {
                 }
                 Ok(FrontState::Aggregate(Box::new(state)))
             }
+            Front::MatchRecognize(front) => Ok(FrontState::Match(Box::new(
+                crate::matching::MatchState::new(ctx, front, input, params, props)?,
+            ))),
             Front::Limit { order, skip, fetch } => {
                 let order: Vec<datafusion::logical_expr::SortExpr> = (order.iter())
                     .map(|key| {
@@ -106,11 +111,12 @@ impl FrontState {
     }
 
     /// Applies `rows` of the stages, and returns whether the output changed.
-    pub(crate) fn apply(&mut self, rows: &RecordBatch) -> Result<bool> {
+    pub(crate) async fn apply(&mut self, rows: &RecordBatch) -> Result<bool> {
         match self {
             FrontState::Empty => Ok(false),
             FrontState::Aggregate(state) => state.apply(rows),
             FrontState::Limit(state) => state.apply(rows),
+            FrontState::Match(state) => state.apply(rows).await,
         }
     }
 
@@ -120,6 +126,7 @@ impl FrontState {
             FrontState::Empty => Ok(Vec::new()),
             FrontState::Aggregate(state) => state.output(),
             FrontState::Limit(state) => state.output(),
+            FrontState::Match(state) => state.output(),
         }
     }
 }
@@ -175,6 +182,7 @@ impl AggregateState {
             Some(converter) => {
                 let values: Vec<ArrayRef> = (self.groups.iter())
                     .map(|g| g.evaluate(rows).and_then(|v| v.into_array(n)))
+                    .map(|v| v.and_then(signless_zeros))
                     .collect::<Result<_>>()?;
                 let converted = converter.convert_columns(&values)?;
                 let mut groups = Vec::with_capacity(n);
@@ -275,7 +283,7 @@ impl LimitState {
         let keys: Vec<SortColumn> = (self.order.iter())
             .map(|key| {
                 Ok(SortColumn {
-                    values: key.expr.evaluate(&candidates)?.into_array(n)?,
+                    values: signless_zeros(key.expr.evaluate(&candidates)?.into_array(n)?)?,
                     options: Some(key.options),
                 })
             })
@@ -301,7 +309,7 @@ impl LimitState {
 }
 
 /// `expr` with each parameter as its value.
-fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<Expr> {
+pub(crate) fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<Expr> {
     use datafusion::common::tree_node::{Transformed, TreeNode};
     let Some(params) = params else {
         return Ok(expr.clone());
@@ -315,4 +323,20 @@ fn bind_params(expr: &Expr, params: &Option<ParamValues>) -> Result<Expr> {
             _ => Ok(Transformed::no(e)),
         })
         .map(|t| t.data)
+}
+
+/// `values` with each zero of a float as `0.0`. The row format and `lexsort` tell `-0.0` from
+/// `0.0`, where DataFusion's grouping and sorting take them as one value.
+pub(crate) fn signless_zeros(values: ArrayRef) -> Result<ArrayRef> {
+    use datafusion::arrow::{
+        compute::kernels::numeric::add,
+        datatypes::DataType::{Float32, Float64},
+    };
+    let zero = match values.data_type() {
+        Float32 => ScalarValue::Float32(Some(0.0)),
+        Float64 => ScalarValue::Float64(Some(0.0)),
+        _ => return Ok(values),
+    };
+    // `-0.0 + 0.0` is `0.0`, and `NaN + 0.0` stays `NaN`.
+    Ok(add(&values, &zero.to_scalar()?)?)
 }
