@@ -608,7 +608,7 @@ impl Document {
     /// frame when the window function takes them.
     fn keyword_fits(&self, kind: SyntaxKind, before: &SyntaxToken) -> bool {
         // A clause of a call's arguments, which the call's function takes.
-        if let Some(function) = self.call_function(before) {
+        if let Some((_, function)) = self.argument_list(before) {
             let clauses = &function.clauses;
             match kind {
                 SyntaxKind::IGNORE_KW | SyntaxKind::RESPECT_KW => return clauses.null_treatment,
@@ -788,9 +788,9 @@ impl Document {
         }
     }
 
-    /// The library's function of the call whose arguments hold `before` directly, not in a
-    /// subquery or a window of an argument.
-    fn call_function(&self, before: &SyntaxToken) -> Option<&Function> {
+    /// The argument list that holds `before` directly, not in a subquery or a window of an
+    /// argument, of a call of a function of the library, and the function.
+    fn argument_list(&self, before: &SyntaxToken) -> Option<(ast::ArgList, &Function)> {
         let list = (before.parent_ancestors())
             .find(|node| {
                 matches!(
@@ -798,13 +798,7 @@ impl Document {
                     SyntaxKind::ARG_LIST | SyntaxKind::QUERY | SyntaxKind::WINDOW_SPEC
                 )
             })
-            .filter(|node| node.kind() == SyntaxKind::ARG_LIST)?;
-        self.library.get(&callee(&list.parent()?)?)
-    }
-
-    /// The argument list that `before` is in, of a call of a function of the library.
-    fn argument_list(&self, before: &SyntaxToken) -> Option<(ast::ArgList, &Function)> {
-        let list = before.parent_ancestors().find_map(ast::ArgList::cast)?;
+            .and_then(ast::ArgList::cast)?;
         let function = self.library.get(&callee(&list.syntax().parent()?)?)?;
         Some((list, function))
     }

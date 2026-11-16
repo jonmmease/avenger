@@ -443,3 +443,18 @@ fn a_call_completes_the_clauses_that_its_function_takes() {
         );
     }
 }
+
+#[test]
+fn a_subquery_or_a_window_in_an_argument_completes_as_its_own_place() {
+    // The named argument of the call around them doesn't make their lists take only names.
+    let (completions, _) = complete(
+        "FROM penguins |> EXTEND bin(body_mass_g, maxbins => (FROM penguins |> SELECT species, $0 |> LIMIT 1)) OVER () AS b",
+    );
+    assert!(labels(&completions, CompletionKind::Column).contains(&"island"));
+    assert!(labels(&completions, CompletionKind::Parameter).is_empty());
+    let (completions, _) = complete(
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*) OVER (PARTITION BY island, $0)) AS c",
+    );
+    assert!(labels(&completions, CompletionKind::Column).contains(&"species"));
+    assert!(labels(&completions, CompletionKind::Parameter).is_empty());
+}
