@@ -114,3 +114,23 @@ fn a_trailing_comma_keeps_the_call_and_names_no_parameter_past_the_last() {
     );
     assert_eq!(active(signature), None);
 }
+
+#[test]
+fn the_charts_of_a_layer_repeat_and_its_options_go_by_name() {
+    let at = |text: &str| {
+        let help = help(text).unwrap();
+        let signature = &help.signatures[help.active_signature];
+        active(signature).map(str::to_string)
+    };
+    let charts = "FROM (FROM penguins |> AGGREGATE bar(x => species) AS a, bar(x => island) AS b)";
+    for text in [
+        format!("{charts} |> SELECT layer($0a, b) AS c"),
+        format!("{charts} |> SELECT layer(a, b, $0) AS c"),
+    ] {
+        assert_eq!(at(&text).as_deref(), Some("chart: ANY"), "{text}");
+    }
+    assert_eq!(
+        at(&format!("{charts} |> SELECT layer(a, b, id => $0) AS c")).as_deref(),
+        Some("id => STRING")
+    );
+}

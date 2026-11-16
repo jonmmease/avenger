@@ -48,7 +48,10 @@ use super::{
 pub(super) const SECTION: DocSection = DocSection {
     include: true,
     label: "Chart Compositions",
-    description: Some("Functions that compose the avenger charts of a group."),
+    description: Some(
+        "Functions that compose avenger charts: scalars of the charts of a row, and aggregates of \
+         the charts of a group.",
+    ),
 };
 
 /// The registered function of a composition: its signature, its parameter names, and its

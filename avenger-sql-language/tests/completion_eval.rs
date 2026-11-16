@@ -20,7 +20,7 @@
 //! is not counted as missed.
 //!
 //! The oracle cannot judge some places, which the probes count apart: the arguments of `lump`,
-//! `impute`, and the marks, which the pass binds itself, the body of a function that the pass
+//! `impute`, the marks, and the compositions, which the pass binds itself, the body of a function that the pass
 //! plans only at a call, a call of a window that the text does not define or of a window
 //! function without its `OVER`, and a `PIVOT` without its `FOR`.
 //!
@@ -535,10 +535,10 @@ fn context(text: &str, cursor: usize) -> String {
 }
 
 /// Whether the oracle can judge the items at `offset` of `document`: not in the arguments of a
-/// call that the pass binds itself, or of a mark, whose errors of its arguments hide the others,
-/// not in the body of a function of a parameter of any type or a table, which the pass plans
-/// only at a call, not after a window that the text does not define or in a window function
-/// without its `OVER`, and not in a `PIVOT` without its `FOR`.
+/// call that the pass binds itself, or of a mark or a composition, whose errors of its arguments
+/// hide the others, not in the body of a function of a parameter of any type or a table, which
+/// the pass plans only at a call, not after a window that the text does not define or in a window
+/// function without its `OVER`, and not in a `PIVOT` without its `FOR`.
 fn judged(env: &Env, document: &Document, offset: usize) -> bool {
     let parse = avenger_sql_syntax::parse(document.text());
     // Whether `node` holds `offset`, or ends before it, open, with only spaces between.
@@ -590,7 +590,8 @@ fn judged(env: &Env, document: &Document, offset: usize) -> bool {
                     .chars()
                     .rev()
                     .collect();
-                let mark = (env.library.get(&word)).is_some_and(|f| f.family == Family::Mark);
+                let mark = (env.library.get(&word))
+                    .is_some_and(|f| matches!(f.family, Family::Mark | Family::Composition));
                 if mark || matches!(word.to_ascii_lowercase().as_str(), "lump" | "impute") {
                     return false;
                 }
@@ -783,7 +784,7 @@ fn evaluate(name: &str, missed: bool) -> Evaluation {
             text.to_string()
         })
         .collect();
-    assert_eq!(queries.len(), 103);
+    assert_eq!(queries.len(), 104);
     for (index, text) in queries.iter().enumerate() {
         let diagnostics = env.document(text).diagnostics();
         assert!(diagnostics.is_empty(), "query {index}: {diagnostics:?}");

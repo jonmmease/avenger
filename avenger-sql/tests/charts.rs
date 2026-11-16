@@ -132,3 +132,18 @@ async fn a_grid_of_scatter_plots_by_sex_and_island() {
     assert_eq!(charts.len(), 1);
     render(&charts[0], "facet-grid-sex-island");
 }
+
+#[tokio::test]
+async fn a_facet_of_layers_by_island() {
+    let query = "FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE AVG(bill_depth_mm) AS mean GROUP BY island, species
+|> AGGREGATE layer(
+     bar(x => species, y => mean, color => species),
+     symbol(x => species, y => mean, fill => 'black')) AS chart
+   GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart";
+    let charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    render(&charts[0], "facet-col-layers");
+}

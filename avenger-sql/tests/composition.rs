@@ -1,5 +1,6 @@
 //! The composition aggregates `layer_agg`, `hconcat_agg`, `vconcat_agg`, `facet_row`,
-//! `facet_col`, and `facet_wrap` over a column of charts.
+//! `facet_col`, and `facet_wrap` over a column of charts, and the scalar compositions `layer`,
+//! `hconcat`, and `vconcat` over the charts of a row.
 
 mod common;
 
@@ -207,6 +208,178 @@ async fn the_errors_of_a_composition() {
                 scatter("island")
             ),
             "has a concat at its root",
+        ),
+    ] {
+        let message = error(&query).await;
+        assert!(message.contains(expected), "{query}: {message}");
+    }
+}
+
+/// Two scatter plots of the penguins, `a` and `b`, and a bar chart, `c`, as the columns of one row.
+fn three() -> String {
+    format!(
+        "{PENGUINS} |> AGGREGATE \
+         symbol(x => bill_length_mm, y => bill_depth_mm) AS a, \
+         symbol(x => flipper_length_mm, y => body_mass_g) AS b, \
+         bar(x => species, y => body_mass_g) AS c"
+    )
+}
+
+/// The charts of the columns `names` of [`three`] as rows of a union, with their places in `k`.
+fn rows(names: &[&str]) -> String {
+    let branch = |(k, name): (usize, &&str)| {
+        format!("FROM ({}) |> SELECT {name} AS chart, {k} AS k", three())
+    };
+    let mut branches = names.iter().enumerate().map(branch);
+    let first = branches.next().unwrap();
+    let rest: Vec<String> = branches
+        .map(|branch| format!("|> UNION ALL ({branch})"))
+        .collect();
+    format!("{first} {}", rest.join(" "))
+}
+
+#[tokio::test]
+async fn a_scalar_composition_composes_the_charts_of_a_row() {
+    for (scalar, aggregate) in [
+        ("layer", "layer_agg"),
+        ("hconcat", "hconcat_agg"),
+        ("vconcat", "vconcat_agg"),
+    ] {
+        assert_eq!(
+            chart(&format!(
+                "FROM ({}) |> SELECT {scalar}(a, b) AS chart",
+                three()
+            ))
+            .await,
+            chart(&format!(
+                "{} |> AGGREGATE {aggregate}(chart ORDER BY k) AS chart",
+                rows(&["a", "b"])
+            ))
+            .await,
+            "{scalar}"
+        );
+    }
+    // The children take the order of the arguments.
+    let ba = chart(&format!(
+        "FROM ({}) |> SELECT hconcat(b, a) AS chart",
+        three()
+    ))
+    .await;
+    assert_ne!(
+        ba,
+        chart(&format!(
+            "FROM ({}) |> SELECT hconcat(a, b) AS chart",
+            three()
+        ))
+        .await
+    );
+    assert_eq!(
+        ba,
+        chart(&format!(
+            "{} |> AGGREGATE hconcat_agg(chart ORDER BY k) AS chart",
+            rows(&["b", "a"])
+        ))
+        .await
+    );
+    // Any number of charts, nested.
+    assert_eq!(
+        chart(&format!(
+            "FROM ({}) |> SELECT vconcat(c, hconcat(a, b, a)) AS chart",
+            three()
+        ))
+        .await,
+        chart(&format!(
+            "FROM ({0}) |> SELECT c AS chart, 0 AS k \
+             |> UNION ALL (FROM ({0}) |> SELECT hconcat(a, b, a) AS chart, 1 AS k) \
+             |> AGGREGATE vconcat_agg(chart ORDER BY k) AS chart",
+            three()
+        ))
+        .await
+    );
+}
+
+#[tokio::test]
+async fn a_null_chart_is_no_child_of_a_scalar_composition() {
+    assert_eq!(
+        chart(&format!(
+            "FROM ({}) |> SELECT hconcat(a, NULL, b) AS chart",
+            three()
+        ))
+        .await,
+        chart(&format!(
+            "FROM ({}) |> SELECT hconcat(a, b) AS chart",
+            three()
+        ))
+        .await
+    );
+    let empty = chart(&format!(
+        "FROM ({}) |> SELECT layer(NULL, NULL) AS chart",
+        three()
+    ))
+    .await;
+    assert_eq!(children(empty.root()).0, "empty");
+}
+
+#[tokio::test]
+async fn a_scalar_composition_takes_the_options_of_its_composition() {
+    assert_eq!(
+        chart(&format!(
+            "FROM ({}) |> SELECT hconcat(a, b, layout => concat_layout(gap => 24)) AS chart",
+            three()
+        ))
+        .await,
+        chart(&format!(
+            "{} |> AGGREGATE hconcat_agg(chart, layout => concat_layout(gap => 24) ORDER BY k) \
+             AS chart",
+            rows(&["a", "b"])
+        ))
+        .await
+    );
+}
+
+#[tokio::test]
+async fn a_scalar_composition_of_mark_aggregates_composes_each_group() {
+    let query = format!(
+        "{PENGUINS} |> AGGREGATE layer(\
+           symbol(x => bill_length_mm, y => bill_depth_mm), \
+           symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart \
+         GROUP BY island"
+    );
+    assert_eq!(charts(&query).await.len(), 3, "one chart of each island");
+    // The result is a column of charts, which an aggregate composes.
+    let faceted = chart(&format!(
+        "{query} |> AGGREGATE facet_col(chart, island) AS chart"
+    ))
+    .await;
+    assert_eq!(children(faceted.root()).1.len(), 3);
+}
+
+#[tokio::test]
+async fn the_errors_of_a_scalar_composition() {
+    for (query, expected) in [
+        (
+            format!("FROM ({}) |> SELECT layer(a, 1) AS chart", three()),
+            "layer() composes charts, and its argument 2 is not a chart",
+        ),
+        (
+            format!(
+                "FROM ({}) |> SELECT hconcat(a, b, layout => a) AS chart",
+                three()
+            ),
+            "hconcat() needs a plan-time constant for `layout`",
+        ),
+        // A facet has no scalar form, and a layer's options go by name.
+        (
+            format!("FROM ({}) |> SELECT facet_col(a, b) AS chart", three()),
+            "facet_col",
+        ),
+        (
+            format!(
+                "FROM ({}) |> SELECT hconcat(a, b, layout => concat_layout(gap => 24), c) \
+                 AS chart",
+                three()
+            ),
+            "positional argument",
         ),
     ] {
         let message = error(&query).await;
