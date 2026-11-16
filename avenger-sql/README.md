@@ -78,7 +78,21 @@ FROM penguins
 - `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY` of the call. A facet labels each chart with its value, and its column is the name of the key's column. Two rows of a group with one key value are an error, and a `NULL` chart is an empty cell. A `facet_row` of `facet_col` charts is a grid, whose rows each get a cell for every column.
 - The options of a composition are those of its node, by name, such as `layout => wrap_layout(max_columns => 2)` of a `facet_wrap`, and they are constants, as the properties of a mark are. A `NULL` chart is no child of a layer or a concat, and a composition without children is the empty chart.
 
-The `_agg` names follow GoogleSQL's `STRING_AGG` and `ARRAY_CONCAT_AGG`: an aggregate and a scalar function cannot share a name.
+The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a row, the charts that a query writes as columns, so the query authors the structure:
+
+```sql
+FROM penguins
+|> AGGREGATE layer(
+     symbol(x => bill_length_mm, y => bill_depth_mm),
+     symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
+   GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
+```
+
+- `layer(chart, ...)` overlays the plots of its charts, `hconcat(chart, ...)` places them in a row, and `vconcat(chart, ...)` in a column, in the order of the arguments, so the first layer draws first and the first child of a concat is the leftmost or the topmost. A call takes one chart or more, and calls nest, as in `vconcat(top, hconcat(main, side))`.
+- The options of a scalar are those of its aggregate, by name, after the charts, such as `hconcat(a, b, layout => concat_layout(gap => 24))`. A `NULL` chart is no child, and a scalar over mark aggregates, such as the `layer` above, composes the marks of each group.
+
+The aggregates of a layer and the concats take the `_agg` names, as GoogleSQL names `STRING_AGG` and `ARRAY_CONCAT_AGG`, because an aggregate and a scalar function cannot share a name. The facets keep their names, since they compose only rows.
 
 ## Transforms
 

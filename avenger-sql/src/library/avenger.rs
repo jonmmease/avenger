@@ -45,6 +45,7 @@ use super::{
     null, Family, Function, Need, Planned,
 };
 use crate::functions::{
+    combine::CombineFunction,
     composition::{aggregate_name, CompositionDeclaration},
     constructor::ConstructorFunction,
     declaration::MarkDeclaration,
@@ -108,6 +109,9 @@ pub(super) fn functions() -> Vec<Function> {
     }
     for composition in compositions() {
         functions.push(aggregate_composition(composition));
+        if !composition.kind.takes_key() {
+            functions.push(scalar_composition(composition));
+        }
     }
     for constructor in constructors() {
         let udf = Arc::new(ScalarUDF::new_from_impl(ConstructorFunction::new(
@@ -256,6 +260,44 @@ fn aggregate_composition(spec: &'static Composition) -> Function {
             filter: None,
             result: None,
         })
+    })
+}
+
+/// The scalar of a layer or a concat, which composes the charts of a row: its charts by position,
+/// in their order, then the options of its composition by name.
+fn scalar_composition(spec: &'static Composition) -> Function {
+    let udf = Arc::new(ScalarUDF::new_from_impl(CombineFunction::new(spec)));
+    let mut function = Function::scalar(spec.name, summary(spec.doc))
+        .description(spec.doc)
+        .note(
+            "A scalar composes the charts of a row, in the order of its arguments, and the \
+             aggregate of the same name with `_agg` composes the charts of a group.",
+        )
+        .family(Family::Composition)
+        .param(
+            "chart",
+            "The charts to compose, in their order. A `NULL` chart is no child.",
+        );
+    let mut args = vec![FormArg {
+        arity: Arity::Repeated,
+        ..any("chart", true)
+    }];
+    for param in spec.params {
+        function = function.param(&sql_name(param.name), param.doc);
+        args.push(FormArg {
+            named_only: true,
+            ..arg(param.name, ty_of(param.accepts), false)
+        });
+    }
+    let signature = Signature {
+        args,
+        result: Ty::Bytes,
+        vars: Vec::new(),
+    };
+    function.with_signature(signature, move |call| {
+        // The options, one for each parameter, then the charts, as the function reads them.
+        let options = (call.values().into_iter().skip(1)).map(|value| value.unwrap_or_else(null));
+        Ok(udf.call(options.chain(call.rest()).collect()))
     })
 }
 

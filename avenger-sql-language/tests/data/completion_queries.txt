@@ -250,3 +250,10 @@ compositions
 FROM penguins
 |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
 |> AGGREGATE hconcat_agg(chart ORDER BY species) AS chart
+compositions
+FROM penguins
+|> AGGREGATE layer(
+     symbol(x => bill_length_mm, y => bill_depth_mm),
+     symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
+   GROUP BY island
+|> AGGREGATE facet_col(chart, island) AS chart
