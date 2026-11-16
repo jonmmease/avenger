@@ -165,8 +165,13 @@ pub fn plan_windows(input: LogicalPlan, windows: Vec<Expr>) -> Result<(LogicalPl
         }
         let value = function.params.args[0].clone();
         let call = match transform {
+            // The window's own category and partition, which a caller may have rebased onto the
+            // columns of an earlier window, such as a `timeunit` that the category reads.
             Transform::Lump(call) => {
-                plan = lump::plan(plan, call.as_ref().clone(), output)?;
+                let mut call = call.as_ref().clone();
+                call.category = value;
+                call.partition = params.partition_by.clone();
+                plan = lump::plan(plan, call, output)?;
                 continue;
             }
             Transform::Bin { gives_extent } => PartitionedCall::Bin {

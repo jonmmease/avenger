@@ -38,8 +38,8 @@ use super::{
 };
 use crate::{
     library::{
-        self, form::supertype, operator, Arg, CallError, DatePart, ErrorAt, Function, Need, Over,
-        PlanContext, Planned, Subscript, Ty,
+        self, form::supertype, operator, Arg, CallError, DatePart, DefaultWindow, ErrorAt,
+        Function, Need, Over, PlanContext, Planned, Subscript, Ty,
     },
     types,
 };
@@ -58,6 +58,9 @@ pub(crate) struct Scope<'r> {
     /// The group expressions of the aggregate whose items the scope plans, over which `HAVING MAX`
     /// finds the greatest value, or `None` for grouping sets.
     pub groups: Option<&'r [Expr]>,
+    /// Whether the scope is in the channels of a mark call in an item of a pipe `AGGREGATE`,
+    /// where windows run on the rows, even in the arguments of an aggregate or a window.
+    pub marked: bool,
 }
 
 impl<'r> Scope<'r> {
@@ -70,6 +73,7 @@ impl<'r> Scope<'r> {
             aggregates: false,
             windows: false,
             groups: Some(&[]),
+            marked: false,
         }
     }
 
@@ -84,6 +88,7 @@ impl<'r> Scope<'r> {
             aggregates: false,
             windows: false,
             groups: Some(&[]),
+            marked: false,
         }
     }
 
@@ -106,12 +111,13 @@ impl<'r> Scope<'r> {
         }
     }
 
-    /// The scope of the arguments of an aggregate or a window function, which call neither.
+    /// The scope of the arguments of an aggregate or a window function, which call neither, but
+    /// for the windows on the rows of a mark's channels.
     pub(crate) fn arguments(self) -> Self {
         Self {
             clause: ARGUMENT,
             aggregates: false,
-            windows: false,
+            windows: self.marked,
             ..self
         }
     }
@@ -1593,7 +1599,8 @@ impl Pass<'_> {
             _ if marked => Scope {
                 clause: MARK_CHANNEL,
                 aggregates: true,
-                windows: false,
+                windows: true,
+                marked: true,
                 ..scope
             },
             (true, true) => window_scope,
@@ -1671,7 +1678,9 @@ impl Pass<'_> {
                 );
                 ok = false;
             }
-            (Over::Required { .. }, None) => {
+            (Over::Required { .. }, None)
+                if !(scope.marked && function.default_window.is_some()) =>
+            {
                 self.error(
                     range,
                     format!("Analytic function {fname} cannot be called without an OVER clause"),
@@ -1732,7 +1741,8 @@ impl Pass<'_> {
                         written.push(lifting::Written {
                             value: lifting::channel_value(&expr).clone(),
                             range: value.syntax().text_range(),
-                            text: lifting::channel_text(&value),
+                            text: lifting::channel_title(&value, self.library),
+                            full: lifting::channel_text(&value),
                         });
                     }
                     args.push((named, Arg::Value(expr)));
@@ -1904,7 +1914,14 @@ impl Pass<'_> {
                     );
                     return None;
                 }
-                let over = over.expect("a window function has an OVER clause");
+                // A window without `OVER` in a mark's channel takes its function's default.
+                let over = over.unwrap_or_else(|| match function.default_window {
+                    Some(DefaultWindow::Whole) | None => Window {
+                        partition: Vec::new(),
+                        order: Vec::new(),
+                        frame: WindowFrame::new(None),
+                    },
+                });
                 Some(typed(over.window(func, args, null_treatment), result))
             }
         }
@@ -1926,10 +1943,17 @@ impl Pass<'_> {
             ..scope
         };
         self.place(range, PlaceKind::OrderKey, &keys, None);
+        // A window in a mark's channel can add to `panel`, the partition of the groups.
+        let mut panel = false;
         let (spec, ranked) = match self.categories.clone() {
             Some(ranked) => {
                 let (spec, named) = self.category_window(over)?;
                 (spec, named.then_some(ranked))
+            }
+            None if scope.marked => {
+                let (spec, named) = self.mark_window(over)?;
+                panel = named;
+                (spec, None)
             }
             None => (self.window_syntax(over)?, None),
         };
@@ -1965,7 +1989,10 @@ impl Pass<'_> {
             Some(frame) => Some(self.frame(frame, scope)?),
             None => None,
         };
-        let partition: Vec<Expr> = partition.into_iter().collect::<Option<_>>()?;
+        let mut partition: Vec<Expr> = partition.into_iter().collect::<Option<_>>()?;
+        if panel {
+            partition = scope.groups.unwrap_or_default().to_vec();
+        }
         let order = order?;
         match order_need {
             Need::Required if order.is_empty() => {
@@ -2040,6 +2067,46 @@ impl Pass<'_> {
                 None
             }
             None => Some((own, false)),
+        }
+    }
+
+    /// The window of an `OVER` clause in a mark's channel, and whether it is or adds to the window
+    /// `panel`, the partition of the groups of the `AGGREGATE`.
+    fn mark_window(&mut self, over: &ast::OverClause) -> Option<(WindowSyntax, bool)> {
+        let panel =
+            |name: &ast::NameRef| name.text().is_some_and(|t| t.eq_ignore_ascii_case("panel"));
+        if let Some(name) = over.name_ref() {
+            if !panel(&name) {
+                return self.named_window(&name).map(|spec| (spec, false));
+            }
+            let none = WindowSyntax {
+                partition: None,
+                order: None,
+                frame: None,
+            };
+            return Some((none, true));
+        }
+        let spec = over.window_spec()?;
+        match spec.name_ref() {
+            Some(name) if panel(&name) => {
+                if spec.partition_by().is_some() {
+                    self.error(
+                        spec.syntax().text_range(),
+                        "If a window has a PARTITION BY, it cannot reference a named window",
+                    );
+                    return None;
+                }
+                let own = WindowSyntax {
+                    partition: None,
+                    order: spec.order_by(),
+                    frame: spec.frame(),
+                };
+                Some((own, true))
+            }
+            _ => {
+                let range = spec.syntax().text_range();
+                self.extend_window(&spec, range).map(|spec| (spec, false))
+            }
         }
     }
 

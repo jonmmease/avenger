@@ -399,6 +399,19 @@ pub struct Function {
     /// Whether a call can write `SAFE.` before the name.
     pub safe: bool,
     pub examples: Vec<Example>,
+    /// In the channels of a mark call, the window of a call without `OVER`, or `None` for a
+    /// function that needs one there too.
+    pub default_window: Option<DefaultWindow>,
+    /// Whether a mark's channel that holds a call takes the text of the call's first argument as
+    /// the name of its column, as `bin(body_mass_g)` takes `body_mass_g`.
+    pub titled_by_argument: bool,
+}
+
+/// The window of a window function without `OVER` in the channels of a mark call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DefaultWindow {
+    /// `OVER ()`: the whole input of the `AGGREGATE`.
+    Whole,
 }
 
 impl Function {
@@ -415,6 +428,8 @@ impl Function {
             clauses,
             safe: false,
             examples: Vec::new(),
+            default_window: None,
+            titled_by_argument: false,
         }
     }
 
@@ -450,6 +465,14 @@ impl Function {
 
     pub(crate) fn family(mut self, family: Family) -> Self {
         self.family = family;
+        self
+    }
+
+    /// The window of a call without `OVER` in the channels of a mark call, and whether its
+    /// channel's column takes the text of its first argument.
+    pub(crate) fn in_marks(mut self, window: DefaultWindow, titled_by_argument: bool) -> Self {
+        self.default_window = Some(window);
+        self.titled_by_argument = titled_by_argument;
         self
     }
 

@@ -44,7 +44,7 @@ use datafusion::{
 
 use super::{
     form::{Accept, Arity, FormArg, Signature, Ty},
-    null, Family, Function, Need, Planned,
+    null, DefaultWindow, Family, Function, Need, Planned,
 };
 use crate::functions::{
     combine::CombineFunction,
@@ -379,6 +379,7 @@ fn bin() -> Function {
             Need::Forbidden,
             false,
         )
+        .in_marks(DefaultWindow::Whole, true)
         .description(
             "`bin` computes over each partition of its `OVER` clause, which takes no `ORDER BY` \
              or frame: the bins of the rows of a partition share one step and one start. `OVER \
@@ -489,6 +490,7 @@ fn timeunit() -> Function {
             Need::Forbidden,
             false,
         )
+        .in_marks(DefaultWindow::Whole, true)
         .description(
             "`timeunit` takes no `ORDER BY` or frame in its `OVER` clause. Without a `unit`, it \
              chooses one unit for each partition. With a `unit`, the partitions don't matter, so \
@@ -566,6 +568,7 @@ fn lump() -> Function {
         Need::Forbidden,
         false,
     )
+    .in_marks(DefaultWindow::Whole, true)
     .description(
         "`lump` decides each category of each partition of its `OVER` clause, which takes no \
          `ORDER BY` or frame, and returns the lump of each row's category: \

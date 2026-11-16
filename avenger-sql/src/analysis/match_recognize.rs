@@ -1537,5 +1537,6 @@ fn constant_scope<'s>(empty: &'s DFSchema, clause: &'static str) -> Scope<'s> {
         aggregates: false,
         windows: false,
         groups: Some(&[]),
+        marked: false,
     }
 }
