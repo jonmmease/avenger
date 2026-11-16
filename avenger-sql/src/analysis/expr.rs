@@ -31,6 +31,7 @@ use datafusion::{
 
 use super::{
     build::{self, cast, int, subquery},
+    lifting,
     model::{CallForm, Definition, EnumValue, FieldBase, PlaceKind},
     rows::{Col, RangeVar, Rows},
     Pass,
@@ -118,6 +119,12 @@ impl<'r> Scope<'r> {
 
 /// The clause of the arguments of an aggregate or a window function.
 pub(crate) const ARGUMENT: &str = "an aggregate's argument";
+
+/// The clause of the items of a pipe `AGGREGATE`.
+pub(crate) const AGGREGATE_ITEMS: &str = "pipe AGGREGATE";
+
+/// The clause of the channels of a mark in an item of a pipe `AGGREGATE`, which take aggregates.
+pub(crate) const MARK_CHANNEL: &str = "a mark's channel";
 
 /// The range of the error `error` of a call at `range` whose arguments are at `ranges`.
 fn error_range(error: &CallError, ranges: &[TextRange], range: TextRange) -> TextRange {
@@ -1576,7 +1583,19 @@ impl Pass<'_> {
             true => scope.arguments().aggregates(),
             false => scope.arguments(),
         };
+        // A mark in an item of a pipe `AGGREGATE` takes aggregates in its channels, which the
+        // operator plans as a branch.
+        let marked = function.family == library::Family::Mark
+            && scope.aggregates
+            && scope.clause == AGGREGATE_ITEMS
+            && over.is_none();
         let arg_scope = match (aggregate || window, over.is_some()) {
+            _ if marked => Scope {
+                clause: MARK_CHANNEL,
+                aggregates: true,
+                windows: false,
+                ..scope
+            },
             (true, true) => window_scope,
             (true, false) => scope.arguments(),
             (false, _) => scope,
@@ -1666,6 +1685,8 @@ impl Pass<'_> {
         let mut ranges = Vec::new();
         // The range of each argument of `args` that is a string literal.
         let mut strings = Vec::new();
+        // The channel values of a mark, as the user wrote them.
+        let mut written = Vec::new();
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1707,6 +1728,13 @@ impl Pass<'_> {
             }
             match self.expr(&value, arg_scope) {
                 Some(expr) => {
+                    if marked {
+                        written.push(lifting::Written {
+                            value: lifting::channel_value(&expr).clone(),
+                            range: value.syntax().text_range(),
+                            text: lifting::channel_text(&value),
+                        });
+                    }
                     args.push((named, Arg::Value(expr)));
                     strings.push(string_literal(&value));
                 }
@@ -1846,6 +1874,25 @@ impl Pass<'_> {
                         Some(limit) => limited(fname, aggregate, limit?),
                         None => Expr::AggregateFunction(aggregate),
                     };
+                    if marked {
+                        let order: Vec<SortExpr> = match &aggregate {
+                            Expr::AggregateFunction(call) => call.params.order_by.clone(),
+                            _ => Vec::new(),
+                        };
+                        let order_range = (list.as_ref().and_then(|list| list.order_by()))
+                            .map(|order| order.syntax().text_range());
+                        if !self.lift(
+                            fname,
+                            &aggregate,
+                            &written,
+                            &order,
+                            order_range,
+                            scope.groups,
+                            range,
+                        ) {
+                            return None;
+                        }
+                    }
                     Some(typed(aggregate, result))
                 }
             },

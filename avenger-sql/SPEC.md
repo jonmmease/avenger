@@ -65,7 +65,7 @@ There are two exceptions:
 
 ## Charts
 
-A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, or one chart for each group with `GROUP BY`. Each channel is a named argument that reads each row.
+A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, or one chart for each group with `GROUP BY`. Each channel is a named argument that reads each row, or aggregates them.
 
 ```sql
 FROM penguins
@@ -77,7 +77,7 @@ FROM penguins
 - `scaled(value, scale => ...)` and `direct(value)` choose whether a channel goes through a scale.
 - A constructor builds the options of a chart, such as `polar(inner_radius => 0.5)` for a mark's `coord`, or `interval_fit(zero => FALSE)` for a scale. Its arguments are constants.
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them.
-- Compute aggregates in an `AGGREGATE` before the mark, since a channel reads each row.
+- A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
 
 A composition aggregate composes the charts of the rows of a group, one chart for each row:
 
