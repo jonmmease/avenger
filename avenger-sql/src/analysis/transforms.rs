@@ -324,6 +324,7 @@ impl Pass<'_> {
             form: format!(
                 "lump({ty}) -> STRUCT<value {ty}, other STRING, weight FLOAT64, category_count INT64>"
             ),
+            index: None,
         });
         self.record_enum_options("lump", &args);
         Some(expr)
@@ -419,6 +420,7 @@ impl Pass<'_> {
             Definition::Function {
                 name: "impute".to_string(),
                 role: FunctionRole::Transform,
+                definition: None,
             },
         );
         let Some(args) = self.arguments(arguments, "impute") else {

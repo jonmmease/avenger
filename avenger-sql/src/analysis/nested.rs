@@ -26,6 +26,7 @@ use datafusion::{
 use super::{
     build::{self, cast, int, window},
     expr::{Outer, Scope},
+    model::PlaceKind,
     query::alias_name,
     rows::{Col, Item, RangeVar, Rows},
     Pass, WithName,
@@ -206,7 +207,11 @@ impl Pass<'_> {
             rows.columns.remove(visible);
         }
         let at = on.syntax().text_range();
-        let matched = self.condition(&on, Scope::of(&rows, "JOIN ON clause"), "JOIN ON clause");
+        let matched = {
+            let scope = Scope::of(&rows, "JOIN ON clause");
+            self.place(at, PlaceKind::Filter, &scope, None);
+            self.condition(&on, scope, "JOIN ON clause")
+        };
         let (Some(matched), Some(plan)) = (matched, rows.plan.clone()) else {
             return rows.fail();
         };
@@ -270,7 +275,11 @@ impl Pass<'_> {
     /// The rows of `rows` that the condition `on` keeps, as the `ON` of an inner join.
     fn on_filter(&mut self, rows: Rows, on: &ast::Expr) -> Rows {
         let at = on.syntax().text_range();
-        let predicate = self.condition(on, Scope::of(&rows, "JOIN ON clause"), "JOIN ON clause");
+        let predicate = {
+            let scope = Scope::of(&rows, "JOIN ON clause");
+            self.place(at, PlaceKind::Filter, &scope, None);
+            self.condition(on, scope, "JOIN ON clause")
+        };
         let (Some(predicate), Some(plan)) = (predicate, rows.plan.clone()) else {
             return rows.fail();
         };
@@ -341,7 +350,18 @@ impl Pass<'_> {
         let base = base.unordered();
         let alias = alias_name(unnest.alias());
         let offset = unnest.with_offset().map(offset_name);
-        // The arrays, each with its alias.
+        // The arrays, each with its alias. They read the columns before the `UNNEST`, and call no
+        // aggregate or window.
+        {
+            let range = unnest.syntax().text_range();
+            self.record_operator(range, Some(&base), &base);
+            self.place(
+                range,
+                PlaceKind::Argument,
+                &Scope::of(&base, "UNNEST"),
+                None,
+            );
+        }
         let mut arrays: Vec<(Option<Expr>, Option<Named>, TextRange)> = Vec::new();
         for aliased in unnest.aliased_exprs() {
             let at = aliased.syntax().text_range();

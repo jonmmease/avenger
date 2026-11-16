@@ -49,6 +49,8 @@ fn a_memory_catalog_finds_tables_without_regard_to_case() {
     assert_eq!(table.names, ["Sales", "Orders"]);
     assert_eq!(table.schema(), schema());
     assert!(catalog.table(&names("orders")).is_none());
+    let tables: Vec<Vec<String>> = catalog.tables().into_iter().map(|t| t.names).collect();
+    assert_eq!(tables, [["Sales", "Orders"]]);
 }
 
 #[tokio::test]
@@ -76,6 +78,11 @@ async fn a_session_catalog_loads_the_tables_that_a_script_names() {
         assert_eq!(table.schema(), schema(), "{path}");
     }
     assert!(catalog.table(&names("missing")).is_none());
+    // Its tables are those that it loaded, under the paths that the script writes.
+    let tables: Vec<String> = (catalog.tables().into_iter())
+        .map(|table| table.names.join("."))
+        .collect();
+    assert_eq!(tables, ["orders", "SALES.Q1", "datafusion.public.ORDERS"]);
     // DataFusion's sessions map strings to views by default.
     assert!(catalog.type_options().utf8_view);
 }

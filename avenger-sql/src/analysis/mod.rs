@@ -26,11 +26,12 @@ mod transforms;
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 use datafusion::{
     common::{DFSchema, DataFusionError, ExprSchema},
-    logical_expr::LogicalPlan,
+    logical_expr::{Expr, LogicalPlan},
 };
 
 pub use model::{
-    CallForm, Column, Definition, EnumValue, Model, NameUse, OperatorScope, RangeVariable,
+    match_recognize_part, CallForm, Column, Definition, EnumValue, FieldBase, MatchRecognizePart,
+    Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
@@ -364,19 +365,120 @@ impl Pass<'_> {
         self.model.operators.push(OperatorScope {
             range,
             input: input.map(Self::columns_info).unwrap_or_default(),
-            range_variables: (scope_rows.vars.iter())
-                .map(|var| RangeVariable {
-                    name: var.name.clone(),
-                    definition: var.definition,
-                    columns: (var.columns.iter())
-                        .map(|col| Column {
-                            qualifiers: vec![var.name.clone()],
-                            ..Self::column_info(col, &scope_rows.vars, scope_rows.schema())
-                        })
-                        .collect(),
-                })
-                .collect(),
+            range_variables: Self::range_variables_info(&scope_rows.vars, scope_rows.schema()),
             output: Self::columns_info(output),
+            queries: self.queries_in_scope(),
+            outer: self.outer_columns(),
+            outer_range_variables: self.outer_range_variables(),
+        });
+    }
+
+    /// The range variables `vars`, each with its columns, whose types `schema` gives.
+    fn range_variables_info(vars: &[RangeVar], schema: Option<&DFSchema>) -> Vec<RangeVariable> {
+        (vars.iter())
+            .map(|var| RangeVariable {
+                name: var.name.clone(),
+                definition: var.definition,
+                columns: (var.columns.iter())
+                    .map(|col| Column {
+                        qualifiers: vec![var.name.clone()],
+                        ..Self::column_info(col, vars, schema)
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// The enclosing queries whose columns a subquery reads, innermost first: not those of a
+    /// `MATCH_RECOGNIZE` clause, whose columns its subqueries can't read.
+    fn readable_outers(&self) -> impl Iterator<Item = &expr::Outer> {
+        (self.outers.iter().rev()).filter(|outer| outer.match_recognize.is_none())
+    }
+
+    /// The columns of the enclosing queries that a subquery reads, innermost first, and the
+    /// parameters of the function whose body the pass plans, which its queries read.
+    pub(crate) fn outer_columns(&self) -> Vec<Column> {
+        let params = self.params.iter().map(|(name, arg)| Column {
+            name: name.clone(),
+            qualifiers: Vec::new(),
+            definition: None,
+            ty: match arg {
+                Expr::Placeholder(placeholder) => {
+                    (placeholder.field.as_ref()).map(|field| field.data_type().clone())
+                }
+                Expr::Cast(cast) => Some(cast.field.data_type().clone()),
+                _ => None,
+            },
+        });
+        let outer = self.readable_outers().flat_map(|outer| {
+            (outer.columns.iter())
+                .map(|col| Self::column_info(col, &outer.vars, outer.schema.as_ref()))
+        });
+        outer.chain(params).collect()
+    }
+
+    /// The range variables of the enclosing queries that a subquery reads, innermost first.
+    pub(crate) fn outer_range_variables(&self) -> Vec<RangeVariable> {
+        self.readable_outers()
+            .flat_map(|outer| Self::range_variables_info(&outer.vars, outer.schema.as_ref()))
+            .collect()
+    }
+
+    /// The names of the pipe `WITH`s and the temporary tables in scope.
+    pub(crate) fn queries_in_scope(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for with in self.with_names.iter().chain(&self.temp_tables) {
+            if !names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&with.name))
+            {
+                names.push(with.name.clone());
+            }
+        }
+        names
+    }
+
+    /// Records the place `range` of the kind `kind`, where the pass plans expressions in
+    /// `scope`, with the type of its value when the pass knows it.
+    pub(crate) fn place(
+        &mut self,
+        range: TextRange,
+        kind: model::PlaceKind,
+        scope: &expr::Scope,
+        expected: Option<datafusion::arrow::datatypes::DataType>,
+    ) {
+        use model::PlaceKind;
+        let match_recognize = self.mr_frame().and_then(|frame| frame.clause.part());
+        let expected = expected.or_else(|| {
+            matches!(kind, PlaceKind::Filter | PlaceKind::Define)
+                .then_some(datafusion::arrow::datatypes::DataType::Boolean)
+        });
+        self.model.places.push(model::Place {
+            range,
+            kind,
+            // The body of a function reads its parameters as names, and a subquery the columns of
+            // the queries around it.
+            columns: !scope.columns.is_empty()
+                || !self.params.is_empty()
+                || !self.outers.is_empty(),
+            aggregates: scope.aggregates,
+            windows: scope.windows,
+            match_recognize,
+            expected,
+        });
+    }
+
+    /// Records the place `range` that holds names of the input's columns only, as
+    /// `CORRESPONDING BY (...)`, or a constant, which reads no columns.
+    pub(crate) fn place_without_scope(&mut self, range: TextRange, kind: model::PlaceKind) {
+        self.model.places.push(model::Place {
+            range,
+            kind,
+            columns: kind == model::PlaceKind::ColumnList,
+            aggregates: false,
+            windows: false,
+            match_recognize: None,
+            expected: None,
         });
     }
 

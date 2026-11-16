@@ -356,3 +356,85 @@ fn a_call_can_name_each_function_and_parameter() {
     assert!(reserved.is_empty(), "reserved names: {reserved:?}");
     assert!(library.get("select_").is_some());
 }
+
+#[test]
+fn the_label_of_each_form_marks_each_argument() {
+    let library = Library::new();
+    for function in library.functions() {
+        for (form, label) in function.forms.iter().zip(function.signatures()) {
+            assert_eq!(
+                label.args.len(),
+                form.signature.args.len(),
+                "{}",
+                label.text
+            );
+            for (arg, range) in form.signature.args.iter().zip(&label.args) {
+                let text = &label.text[range.clone()];
+                assert!(
+                    text.starts_with(&arg.param) && !text.ends_with(' '),
+                    "{}: {text:?} for {}",
+                    label.text,
+                    arg.param
+                );
+            }
+        }
+    }
+    let substr = library.get("SUBSTR").unwrap().signatures().remove(0);
+    let args: Vec<&str> = (substr.args.iter())
+        .map(|range| &substr.text[range.clone()])
+        .collect();
+    assert_eq!(args, ["value: STRING", "position: INT64", "length: INT64"]);
+}
+
+#[test]
+fn the_syntax_completes_the_date_parts_of_the_library() {
+    use avenger_sql::library::DatePart;
+    for name in avenger_sql_syntax::DATE_PARTS {
+        assert!(DatePart::parse(name, None).is_some(), "{name}");
+    }
+    for name in [
+        "MICROSECOND",
+        "MILLISECOND",
+        "SECOND",
+        "MINUTE",
+        "HOUR",
+        "DAYOFWEEK",
+        "DAY",
+        "DAYOFYEAR",
+        "WEEK",
+        "ISOWEEK",
+        "MONTH",
+        "QUARTER",
+        "YEAR",
+        "ISOYEAR",
+        "DATE",
+        "TIME",
+        "DATETIME",
+    ] {
+        let part = DatePart::parse(name, None).unwrap();
+        assert!(
+            avenger_sql_syntax::DATE_PARTS.contains(&part.name().as_str()),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn each_part_that_the_syntax_completes_after_an_interval_analyzes() {
+    let catalog = avenger_sql::catalog::MemoryCatalog::new();
+    for part in avenger_sql_syntax::INTERVAL_PARTS {
+        let text = format!("FROM UNNEST([1]) AS n |> SELECT INTERVAL 1 {part} AS v");
+        let parse = avenger_sql_syntax::parse(&text);
+        let analysis = avenger_sql::analyze(
+            &parse.syntax(),
+            &catalog,
+            &Library::new(),
+            &avenger_sql::analysis::Options::default(),
+        );
+        assert!(
+            analysis.diagnostics.is_empty(),
+            "{text}: {:?}",
+            analysis.diagnostics
+        );
+    }
+}

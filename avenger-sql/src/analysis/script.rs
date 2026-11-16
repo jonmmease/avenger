@@ -29,7 +29,7 @@ use std::sync::Arc;
 use super::{
     build::cast,
     expr::Scope,
-    model::{CallForm, Definition},
+    model::{CallForm, Definition, PlaceKind},
     query::alias_name,
     rows::{Col, Rows},
     Pass, StatementPlan, WithName,
@@ -100,6 +100,9 @@ pub(crate) struct TempFunction {
     pub public: bool,
     /// The module whose names its body reads first.
     pub module: Option<String>,
+    /// The range of the name that its `CREATE` writes, for a function of the script. A function
+    /// of a module has none: its range is in the module's text.
+    pub definition: Option<TextRange>,
 }
 
 /// A constant of a module.
@@ -258,6 +261,11 @@ impl Pass<'_> {
         let at = expr.syntax().text_range();
         let empty = DFSchema::empty();
         let scope = Scope::constant(&empty, "SET");
+        let expected = match variables.as_slice() {
+            [variable] => Some(variable.ty.clone()),
+            _ => None,
+        };
+        self.place(at, PlaceKind::Variable, &scope, expected);
         let Some(value) = self.expr(&expr, scope) else {
             return Vec::new();
         };
@@ -351,16 +359,27 @@ impl Pass<'_> {
             self.error(path_range, format!("Table {name} already exists"));
             return;
         }
-        let columns: Option<Vec<(String, DataType, TextRange)>> =
-            create.column_list().map(|list| {
-                list.column_defs()
-                    .filter_map(|column| {
-                        let name = column.name()?;
-                        let ty = types::arrow_type(&column.ty()?, self.type_options).ok()?;
-                        Some((name.text()?, ty, name.syntax().text_range()))
-                    })
-                    .collect()
-            });
+        let mut columns: Option<Vec<(String, DataType, TextRange)>> = None;
+        if let Some(list) = create.column_list() {
+            let mut defs = Vec::new();
+            for column in list.column_defs() {
+                let (Some(name), Some(ty)) = (column.name(), column.ty()) else {
+                    continue;
+                };
+                let ty = match types::arrow_type(&ty, self.type_options) {
+                    Ok(ty) => ty,
+                    // The table keeps its other columns, so its reads add no errors.
+                    Err(error) => {
+                        self.error(error.range, error.message);
+                        continue;
+                    }
+                };
+                if let Some(text) = name.text() {
+                    defs.push((text, ty, name.syntax().text_range()));
+                }
+            }
+            columns = Some(defs);
+        }
         let rows = match (create.query(), columns) {
             (Some(query), columns) => {
                 let rows = self.query(&query);
@@ -462,7 +481,10 @@ impl Pass<'_> {
         module: Option<&InModule>,
     ) {
         let range = create.syntax().text_range();
-        let Some(names) = create.name_path().and_then(|path| path.names()) else {
+        let Some(name_path) = create.name_path() else {
+            return;
+        };
+        let Some(names) = name_path.names() else {
             return;
         };
         let name = names.join(".");
@@ -547,31 +569,92 @@ impl Pass<'_> {
             body,
             public,
             module: module.map(|m| m.path.clone()),
+            definition: module.is_none().then(|| name_path.syntax().text_range()),
         };
-        // The body, with each parameter of a type, planned once for its errors and the model.
-        if kind != Kind::Table
-            && function
-                .params
-                .iter()
-                .all(|p| matches!(p.ty, ParamTy::Value(_)))
-        {
-            let args: Vec<Expr> = (function.params.iter())
-                .map(|param| match &param.ty {
-                    ParamTy::Value(ty) => cast(
-                        Expr::Literal(ScalarValue::Null, None),
-                        ty.arrow(self.type_options),
-                    ),
-                    _ => unreachable!(),
+        // The scope of the body, whose columns are the parameters that take values, for an
+        // editor. A table function plans its body only where a query calls it.
+        let input: Vec<super::model::Column> = (create.param_list().iter())
+            .flat_map(|list| list.parameters())
+            .zip(&function.params)
+            .filter_map(|(parameter, param)| {
+                let ty = match &param.ty {
+                    ParamTy::Value(ty) => Some(ty.arrow(self.type_options)),
+                    ParamTy::Any => None,
+                    ParamTy::Table => return None,
+                };
+                Some(super::model::Column {
+                    name: param.name.clone(),
+                    qualifiers: Vec::new(),
+                    definition: parameter.name().map(|name| name.syntax().text_range()),
+                    ty,
                 })
-                .collect();
-            let empty = DFSchema::empty();
-            let scope = Scope::constant(&empty, "the function's body");
-            let scope = match kind {
-                Kind::Aggregate => scope.aggregates(),
-                _ => scope,
-            };
-            if self.body(&function, args, scope).is_none() {
-                return;
+            })
+            .collect();
+        let body = function.body.syntax().text_range();
+        let reads_parameters = !input.is_empty();
+        self.model.operators.push(super::model::OperatorScope {
+            range: body,
+            input,
+            range_variables: Vec::new(),
+            output: Vec::new(),
+            queries: self.queries_in_scope(),
+            outer: Vec::new(),
+            outer_range_variables: Vec::new(),
+        });
+        let empty = DFSchema::empty();
+        let scope = Scope::constant(&empty, "the function's body");
+        let scope = match kind {
+            Kind::Aggregate => scope.aggregates(),
+            _ => scope,
+        };
+        // The body reads its parameters, which the pass binds when it plans the body.
+        self.model.places.push(super::model::Place {
+            range: body,
+            kind: PlaceKind::Body,
+            columns: reads_parameters,
+            aggregates: scope.aggregates,
+            windows: scope.windows,
+            match_recognize: None,
+            expected: None,
+        });
+        // The body, with each parameter of a type, planned once for its errors and the model. A
+        // function with a parameter of any type or a table plans its body at each call.
+        let typed: Option<Vec<(String, DataType)>> = (function.params.iter())
+            .map(|param| match &param.ty {
+                ParamTy::Value(ty) => Some((param.name.clone(), ty.arrow(self.type_options))),
+                ParamTy::Any | ParamTy::Table => None,
+            })
+            .collect();
+        if let Some(typed) = typed {
+            match kind {
+                // A parameter of a table function is a query parameter of its body, which a
+                // `LIMIT` takes.
+                Kind::Table => {
+                    let Some(query) = self.body_query(&function, range) else {
+                        return;
+                    };
+                    let bindings = (typed.into_iter())
+                        .map(|(name, ty)| {
+                            let id = format!("${name}");
+                            let field = Arc::new(Field::new(id.clone(), ty, true));
+                            let placeholder = Placeholder::new_with_field(id, Some(field));
+                            (name, Expr::Placeholder(placeholder))
+                        })
+                        .collect();
+                    let errors = self.diagnostics.len();
+                    self.plan_table_body(&function, &query, bindings, Vec::new());
+                    if self.diagnostics.len() > errors {
+                        return;
+                    }
+                }
+                Kind::Scalar | Kind::Aggregate => {
+                    let args = (typed.into_iter())
+                        .map(|(_, ty)| cast(Expr::Literal(ScalarValue::Null, None), ty))
+                        .collect();
+                    if self.body(&function, args, scope).is_none() {
+                        return;
+                    }
+                }
             }
         }
         if let Some(existing) = existing {
@@ -762,6 +845,7 @@ impl Pass<'_> {
             Definition::Function {
                 name: function.name.clone(),
                 role: function.kind.role(),
+                definition: function.definition,
             },
         );
         if function.kind == Kind::Table {
@@ -870,6 +954,7 @@ impl Pass<'_> {
         self.model.calls.push(CallForm {
             range,
             form: format!("{}({}) -> {result}", function.name, types.join(", ")),
+            index: None,
         });
         Some(body)
     }
@@ -923,6 +1008,7 @@ impl Pass<'_> {
             Definition::Function {
                 name: function.name.clone(),
                 role: function.kind.role(),
+                definition: function.definition,
             },
         );
         // The arguments: values, which read only the script's variables, and tables.
@@ -1028,6 +1114,23 @@ impl Pass<'_> {
                 }
             }
         }
+        let Some(query) = self.body_query(&function, range) else {
+            return failed;
+        };
+        // The errors of the body point at the call, and the model keeps the names of the body
+        // from its definition, or from no plan for a function of a table or of any type.
+        let prefix = format!("In {}: ", function.name);
+        let rows = self.inlined(&prefix, range, |pass| {
+            pass.plan_table_body(&function, &query, bindings, tables)
+        });
+        let alias =
+            alias_name(alias).or_else(|| Some((function.name.clone(), path.syntax().text_range())));
+        self.close(rows, alias, false, range)
+    }
+
+    /// The query of the body of the table function `function`, or `None` with an error at
+    /// `range`.
+    fn body_query(&mut self, function: &TempFunction, range: TextRange) -> Option<ast::Query> {
         let query = match (function.body.query(), function.body.expr()) {
             (Some(query), _) => Some(query),
             (None, Some(ast::Expr::SubqueryExpr(subquery))) => {
@@ -1035,21 +1138,28 @@ impl Pass<'_> {
             }
             _ => None,
         };
-        let Some(query) = query else {
+        if query.is_none() {
             self.error(range, format!("The body of {} is no query", function.name));
-            return failed;
-        };
-        let prefix = format!("In {}: ", function.name);
-        let rows = self.in_body(&function, bindings, |pass| {
+        }
+        query
+    }
+
+    /// The rows of `query`, the body of the table function `function`, with its value
+    /// parameters bound to `bindings` and its table parameters to `tables`.
+    fn plan_table_body(
+        &mut self,
+        function: &TempFunction,
+        query: &ast::Query,
+        bindings: Vec<(String, Expr)>,
+        tables: Vec<WithName>,
+    ) -> Rows {
+        self.in_body(function, bindings, |pass| {
             let saved_tables = pass.temp_tables.len();
             pass.temp_tables.extend(tables);
-            let rows = pass.inlined(&prefix, range, |pass| pass.query(&query));
+            let rows = pass.query(query);
             pass.temp_tables.truncate(saved_tables);
             rows
-        });
-        let alias =
-            alias_name(alias).or_else(|| Some((function.name.clone(), path.syntax().text_range())));
-        self.close(rows, alias, false, range)
+        })
     }
 
     /// The rows of the table at `names` as a source: a pipe `WITH` name, a temporary table, or a
@@ -1148,24 +1258,26 @@ impl Pass<'_> {
     }
 
     /// The result of `plan`, which plans the code of a definition at its call or its import. The
-    /// model keeps the names, the operators and the call forms of the code from the definition,
-    /// and each error of the code goes to `range`, after `prefix`, as `In f: `.
+    /// model keeps the names, the operators, the call forms and the places of the code from the
+    /// definition, and each error of the code goes to `range`, after `prefix`, as `In f: `.
     fn inlined<R>(
         &mut self,
         prefix: &str,
         range: TextRange,
         plan: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let (names, operators, calls, errors) = (
+        let (names, operators, calls, places, errors) = (
             self.model.names.len(),
             self.model.operators.len(),
             self.model.calls.len(),
+            self.model.places.len(),
             self.diagnostics.len(),
         );
         let result = plan(self);
         self.model.names.truncate(names);
         self.model.operators.truncate(operators);
         self.model.calls.truncate(calls);
+        self.model.places.truncate(places);
         for diagnostic in &mut self.diagnostics[errors..] {
             diagnostic.message = format!("{prefix}{}", diagnostic.message);
             diagnostic.range = range;

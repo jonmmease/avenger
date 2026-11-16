@@ -31,7 +31,7 @@ use datafusion::{
 
 use super::{
     build::{self, cast, int, subquery},
-    model::{CallForm, Definition, EnumValue},
+    model::{CallForm, Definition, EnumValue, FieldBase, PlaceKind},
     rows::{Col, RangeVar, Rows},
     Pass,
 };
@@ -252,6 +252,15 @@ impl Pass<'_> {
             ast::Expr::PathExpr(path) => self.path(&path.path()?, scope),
             ast::Expr::FieldExpr(field) => {
                 let base = self.child(field.expr(), scope);
+                // The type before the `.`, whose fields an editor offers after it.
+                if let (Some(planned), Some(syntax)) = (&base, field.expr()) {
+                    if let Some(ty) = self.type_of(planned, scope) {
+                        self.model.field_bases.push(FieldBase {
+                            range: syntax.syntax().text_range(),
+                            ty,
+                        });
+                    }
+                }
                 let name = field.name_ref()?;
                 let text = name.text()?;
                 self.field(base?, &text, name.syntax().text_range(), scope)
@@ -1092,6 +1101,7 @@ impl Pass<'_> {
                 self.model.calls.push(CallForm {
                     range,
                     form: resolved.render(&function.name),
+                    index: Some(resolved.form),
                 });
                 Some(expr)
             }
@@ -1539,10 +1549,18 @@ impl Pass<'_> {
             Definition::Function {
                 name: function.name.clone(),
                 role: function.role(),
+                definition: None,
             },
         );
         if function.name == "lump" {
             return self.lump(call, scope, range);
+        }
+        if function.kind == library::FunctionKind::Table {
+            self.error(
+                range,
+                format!("Table-valued function {} goes in FROM", function.name),
+            );
+            return None;
         }
         let (fname, clauses) = (&function.name, function.clauses);
         if !self.mr_call_allowed(fname, call, scope, safe) {
@@ -1563,6 +1581,14 @@ impl Pass<'_> {
             (true, false) => scope.arguments(),
             (false, _) => scope,
         };
+        if let (true, Some(list)) = (aggregate || window, &list) {
+            self.place(
+                list.syntax().text_range(),
+                PlaceKind::Argument,
+                &arg_scope,
+                None,
+            );
+        }
         let star = list.as_ref().is_some_and(|list| list.star_arg().is_some());
         let distinct = list
             .as_ref()
@@ -1711,6 +1737,7 @@ impl Pass<'_> {
         self.model.calls.push(CallForm {
             range,
             form: resolved.render(fname),
+            index: Some(resolved.form),
         });
         for (at, param) in &resolved.enums {
             if let Some(range) = strings[*at] {
@@ -1845,6 +1872,13 @@ impl Pass<'_> {
         scope: Scope,
     ) -> Option<Window> {
         let range = over.syntax().text_range();
+        // A window's keys take no aggregate and no window function.
+        let keys = Scope {
+            aggregates: false,
+            windows: false,
+            ..scope
+        };
+        self.place(range, PlaceKind::OrderKey, &keys, None);
         let (spec, ranked) = match self.categories.clone() {
             Some(ranked) => {
                 let (spec, named) = self.category_window(over)?;
