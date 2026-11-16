@@ -8,7 +8,7 @@ use std::sync::Arc;
 use datafusion::arrow::array::{Array, AsArray, StructArray};
 use datafusion::arrow::buffer::NullBuffer;
 use datafusion::arrow::datatypes::{DataType, Field, FieldRef, Fields};
-use datafusion::common::tree_node::Transformed;
+use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::{Column, JoinType, NullEquality, Result, ScalarValue, Spans};
 use datafusion::functions::core::expr_fn::get_field;
 use datafusion::logical_expr::{
@@ -320,4 +320,49 @@ impl OptimizerRule for StructGroupSplit {
             LogicalPlanBuilder::from(new_agg).project(exprs)?.build()?,
         ))
     }
+}
+
+/// `expr` as a literal when it is a constant, such as a struct of literal options, so the plan
+/// checks it before it runs, or else `expr`, such as a struct that holds a placeholder.
+pub(crate) fn folded(expr: Expr) -> Expr {
+    let placeholder = (expr.exists(|e| Ok(matches!(e, Expr::Placeholder(_))))).unwrap_or(true);
+    match placeholder {
+        true => expr,
+        false => match crate::table_function::constant(&expr) {
+            Ok(value) => Expr::Literal(value, None),
+            Err(_) => expr,
+        },
+    }
+}
+
+/// The struct of the options `given` of a call of `transform`, by their names, with the fields
+/// `fields`: each option cast to the type of its field, and NULL for an option that the call
+/// omits, which takes its default. A struct of constants folds to a literal.
+pub(crate) fn options_struct(
+    transform: &str,
+    fields: &Fields,
+    given: Vec<(String, Expr)>,
+) -> Result<Expr> {
+    let mut values: Vec<Option<Expr>> = vec![None; fields.len()];
+    for (name, expr) in given {
+        let Some(i) = fields.iter().position(|field| field.name() == &name) else {
+            return datafusion::common::plan_err!("{transform} has no option {name}");
+        };
+        values[i] = Some(expr);
+    }
+    let mut args = Vec::with_capacity(2 * values.len());
+    for (field, value) in fields.iter().zip(values) {
+        let value = value.unwrap_or_else(|| Expr::Literal(ScalarValue::Null, None));
+        args.push(Expr::Literal(
+            ScalarValue::from(field.name().as_str()),
+            None,
+        ));
+        args.push(Expr::Cast(datafusion::logical_expr::Cast::new(
+            Box::new(value),
+            field.data_type().clone(),
+        )));
+    }
+    Ok(folded(
+        datafusion::functions::core::named_struct().call(args),
+    ))
 }

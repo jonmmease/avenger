@@ -196,7 +196,7 @@ async fn call(ctx: &SessionContext, case: &Case, keys: &str, nulls: Nulls) -> Re
         None => None,
     };
     let keep = match keep {
-        First(n) => Keep::First(n),
+        First(n) => Keep::First(lit(n)),
         Sql(cond) => Keep::Condition(sql(&cond.replace("PARTITION BY {keys}", "")).await?),
         Ranked(n) => {
             let weight = weight.clone().unwrap_or_else(lump::count_star);
@@ -213,8 +213,8 @@ async fn call(ctx: &SessionContext, case: &Case, keys: &str, nulls: Nulls) -> Re
         partition,
         weight,
         keep,
-        other: other.to_string(),
-        null_category: nulls,
+        other: lit(other),
+        null_category: nulls.expr(),
     })
 }
 

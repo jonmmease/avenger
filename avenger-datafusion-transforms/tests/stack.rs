@@ -3,7 +3,7 @@
 
 mod common;
 
-use avenger_datafusion_transforms::stack::{self, StackOffset};
+use avenger_datafusion_transforms::stack;
 use common::{exec, rows, session, view};
 use datafusion::common::Result;
 use datafusion::logical_expr::{ExprFunctionExt, LogicalPlanBuilder};
@@ -26,8 +26,8 @@ async fn offsets() -> Result<()> {
         ("center", "-3 -2, -2 0, 0 3, -5 -1, -, -1 5, -"),
     ];
     for (offset, want) in cases {
-        let window = stack::window(StackOffset::from_name(offset).expect("an offset"))
-            .call(vec![col("v")])
+        let window = stack::window()
+            .call(vec![col("v"), lit(offset)])
             .partition_by(vec![col("x")])
             .order_by(vec![col("s").sort(true, false)])
             .build()?;
@@ -56,7 +56,7 @@ async fn offsets() -> Result<()> {
 #[tokio::test]
 async fn errors() -> Result<()> {
     let ctx = session();
-    let window = stack::window(StackOffset::Zero).call(vec![lit("a")]);
+    let window = stack::window().call(vec![lit("a")]);
     let e = (ctx.sql("SELECT 2.0 AS v").await?)
         .window(vec![window.alias("y")])
         .expect_err("a string value");

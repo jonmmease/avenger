@@ -55,7 +55,7 @@ use avenger_datafusion_shared::shared;
 use datafusion::logical_expr::{
     AggregateUDF, Cast, ColumnarValue, Expr, ExprSchemable, JoinType, LogicalPlan,
     LogicalPlanBuilder, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDF, ScalarUDFImpl, Signature,
-    SortExpr, Volatility, WindowFrame, WindowFunctionDefinition, when,
+    SortExpr, Volatility, WindowFrame, WindowFunctionDefinition, lit, when,
 };
 use datafusion::optimizer::AnalyzerRule;
 
@@ -82,22 +82,36 @@ impl Nulls {
         }
     }
 
-    /// The decision of the NULL category: kept, lumped into the Other group, or neither.
-    fn decision(self) -> Expr {
-        let value = match self {
-            Nulls::Keep => Some(true),
-            Nulls::Other => Some(false),
-            Nulls::Drop => None,
-        };
-        Expr::Literal(ScalarValue::Boolean(value), None)
+    /// The name of the option's value.
+    pub fn name(self) -> &'static str {
+        match self {
+            Nulls::Keep => "keep",
+            Nulls::Other => "other",
+            Nulls::Drop => "drop",
+        }
     }
+
+    /// The option's value as a constant of the plan, the text of its name.
+    pub fn expr(self) -> Expr {
+        Expr::Literal(ScalarValue::Utf8(Some(self.name().to_string())), None)
+    }
+}
+
+/// The decision of the NULL category by `null_category`, the text of a [`Nulls`]: kept, lumped
+/// into the Other group, or neither, which also a value of no option gives.
+fn null_decision(null_category: Expr) -> Result<Expr> {
+    let name = datafusion::functions::string::expr_fn::lower(null_category);
+    when(name.clone().eq(lit(Nulls::Keep.name())), lit_bool(true))
+        .when(name.eq(lit(Nulls::Other.name())), lit_bool(false))
+        .end()
 }
 
 /// Which categories a lump keeps.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Keep {
-    /// The first `n` categories of `ranked`.
-    First(i64),
+    /// The first `n` categories of `ranked`, an `INT64` of the plan, such as a literal or a
+    /// placeholder. A number below 1 keeps no category.
+    First(Expr),
     /// The categories for which the condition holds, an expression over the input of aggregates
     /// of a category's rows and windows over the categories.
     Condition(Expr),
@@ -112,8 +126,10 @@ pub struct LumpCall {
     /// The aggregate of a category's rows that weighs it, or `COUNT(*)`.
     pub weight: Option<Expr>,
     pub keep: Keep,
-    pub other: String,
-    pub null_category: Nulls,
+    /// The text of the Other group, a `STRING` of the plan.
+    pub other: Expr,
+    /// The text of a [`Nulls`], a `STRING` of the plan.
+    pub null_category: Expr,
 }
 
 /// The fields of the struct of a lump of a category of the type `category`.
@@ -237,7 +253,7 @@ fn decide(input: LogicalPlan, call: &LumpCall, extra: Vec<Expr>) -> Result<Decid
                 Vec::new(),
             );
             window.params.order_by = ranked(&weight, &category);
-            Expr::from(window).lt_eq(Expr::Literal(ScalarValue::Int64(Some(n)), None))
+            Expr::from(window).lt_eq(cast(n, DataType::Int64))
         }
     };
     let aggregates = find_aggregate_exprs([&weight, &keep]);
@@ -299,7 +315,7 @@ fn decide(input: LogicalPlan, call: &LumpCall, extra: Vec<Expr>) -> Result<Decid
         return plan_err!("the keep of lump is a condition, not a value of another type");
     }
     // The decision of each category: kept, lumped, or for a dropped NULL category, neither.
-    let decision = when(col(CAT).is_null(), null_category.decision())
+    let decision = when(col(CAT).is_null(), null_decision(null_category)?)
         .otherwise(coalesce(vec![keep, lit_bool(false)]))?;
     let mut exprs: Vec<Expr> = (keys.iter().zip(&d_keys))
         .map(|(k, d)| col(k).alias(d))
@@ -337,7 +353,7 @@ fn lit_bool(value: bool) -> Expr {
 
 /// The lump struct of a category, the column `category`, from the columns of its decision, its
 /// weight, the Other weight and the number of lumped categories.
-fn lump_struct(category: &str, category_type: &DataType, other: String) -> Result<Expr> {
+fn lump_struct(category: &str, category_type: &DataType, other: Expr) -> Result<Expr> {
     let (kept, lumped) = (kept(), lumped());
     let parts = vec![
         // The struct is NULL where the rows have no lump.
@@ -346,11 +362,7 @@ fn lump_struct(category: &str, category_type: &DataType, other: String) -> Resul
             when(kept.clone(), col(category)).end()?,
             category_type.clone(),
         ),
-        when(
-            lumped.clone(),
-            Expr::Literal(ScalarValue::Utf8(Some(other)), None),
-        )
-        .end()?,
+        when(lumped.clone(), cast(other, DataType::Utf8)).end()?,
         when(kept.clone(), col(WEIGHT))
             .when(lumped.clone(), col(OTHER))
             .end()?,

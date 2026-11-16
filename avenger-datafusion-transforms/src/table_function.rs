@@ -96,6 +96,14 @@ impl From<DataFusionError> for ArgError {
     }
 }
 
+/// The column of the expression `expr` of the node of `transform`, which reads a column.
+pub(crate) fn column_of(transform: &str, expr: Expr) -> Result<Column> {
+    match expr {
+        Expr::Column(column) => Ok(column),
+        expr => datafusion::common::internal_err!("{transform} expects a column, not {expr}"),
+    }
+}
+
 /// The value of a constant expression, after type coercion (`1 + 0.5`).
 pub fn constant(expr: &Expr) -> Result<ScalarValue> {
     let schema = DFSchema::empty();
@@ -162,13 +170,18 @@ impl<T: Any + PartialEq + Hash> DynTransform for T {
 pub trait TableTransform: DynTransform + fmt::Debug + Send + Sync {
     /// The name of the logical node, such as `Impute`.
     fn name(&self) -> &'static str;
-    /// The columns of the input that the transform reads.
-    fn columns(&self) -> Vec<Column>;
-    /// The transform with `columns` in place of its columns, in the order of [`Self::columns`].
-    fn with_columns(&self, columns: Vec<Column>) -> Result<Arc<dyn TableTransform>>;
+    /// The expressions of the transform's arguments, in an order of its own: the columns of the
+    /// input that it reads, and the values that read no column, such as literals or
+    /// placeholders. The node's `expressions` hands them to DataFusion, which rewrites them, as
+    /// when it binds the parameters of the plan or simplifies its expressions.
+    fn arguments(&self) -> Vec<Expr>;
+    /// The transform with `arguments` in place of its arguments, in the order of
+    /// [`Self::arguments`].
+    fn with_arguments(&self, arguments: Vec<Expr>) -> Result<Arc<dyn TableTransform>>;
     /// The schema of the result of `input`, which `partition_by` partitions.
     fn schema(&self, input: &DFSchema, partition_by: &[Column]) -> Result<DFSchemaRef>;
-    /// The transform of each partition, with the columns as indices of `input`.
+    /// The transform of each partition, with the columns as indices of `input`. The plan has
+    /// bound its parameters, so each value is a literal.
     fn partition_transform(&self, input: &DFSchema) -> Result<Arc<dyn PartitionTransform>>;
     /// The transform in `EXPLAIN`, after the node's name.
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result;
@@ -250,11 +263,9 @@ impl UserDefinedLogicalNodeCore for TableFunctionNode {
         &self.schema
     }
     fn expressions(&self) -> Vec<Expr> {
-        self.transform
-            .columns()
-            .into_iter()
-            .chain(self.partition_by.iter().cloned())
-            .map(Expr::Column)
+        // The transform's arguments, then the partition columns.
+        (self.transform.arguments().into_iter())
+            .chain(self.partition_by.iter().cloned().map(Expr::Column))
             .collect()
     }
     fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -267,17 +278,12 @@ impl UserDefinedLogicalNodeCore for TableFunctionNode {
         Ok(())
     }
     fn with_exprs_and_inputs(&self, exprs: Vec<Expr>, inputs: Vec<LogicalPlan>) -> Result<Self> {
-        let mut columns = exprs
-            .into_iter()
-            .map(|e| match e {
-                Expr::Column(c) => Ok(c),
-                e => datafusion::common::internal_err!(
-                    "{} expects columns, not {e}",
-                    self.transform.name()
-                ),
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let partition_by = columns.split_off(columns.len() - self.partition_by.len());
+        let mut exprs = exprs;
+        let partition_by = (exprs
+            .split_off(exprs.len() - self.partition_by.len())
+            .into_iter())
+        .map(|e| column_of(self.transform.name(), e))
+        .collect::<Result<Vec<_>>>()?;
         let input = inputs.into_iter().next().expect("one input");
         // A rebuild over an input with more columns, such as DataFusion's pushdown of a struct
         // field access (`key['month']`) into the input: added rows would be NULL in those
@@ -292,7 +298,7 @@ impl UserDefinedLogicalNodeCore for TableFunctionNode {
         } else {
             input
         };
-        Self::try_new(input, partition_by, self.transform.with_columns(columns)?)
+        Self::try_new(input, partition_by, self.transform.with_arguments(exprs)?)
     }
 }
 

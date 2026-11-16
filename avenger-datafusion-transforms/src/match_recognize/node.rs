@@ -20,11 +20,11 @@ use datafusion::arrow::datatypes::{DataType, Field, SchemaRef};
 use datafusion::common::{
     Column, DFSchema, DFSchemaRef, DataFusionError, ExprSchema, Result, plan_err,
 };
-use datafusion::logical_expr::{Extension, LogicalPlan};
+use datafusion::logical_expr::{Expr, Extension, LogicalPlan};
 
 use super::matcher::{Skip, matches};
 use super::pattern::{Pattern, Program};
-use crate::table_function::{PartitionTransform, TableFunctionNode, TableTransform};
+use crate::table_function::{PartitionTransform, TableFunctionNode, TableTransform, column_of};
 
 /// A call of `MATCH_RECOGNIZE` over an input, whose columns a front end computes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -128,16 +128,23 @@ impl TableTransform for MatchRecognizeTransform {
         "MatchRecognize"
     }
 
-    fn columns(&self) -> Vec<Column> {
-        std::iter::once(self.position.clone())
-            .chain(self.variables.iter().cloned())
+    fn arguments(&self) -> Vec<Expr> {
+        // The position, then the variables, which are columns.
+        std::iter::once(&self.position)
+            .chain(&self.variables)
+            .cloned()
+            .map(Expr::Column)
             .collect()
     }
 
-    fn with_columns(&self, columns: Vec<Column>) -> Result<Arc<dyn TableTransform>> {
+    fn with_arguments(&self, arguments: Vec<Expr>) -> Result<Arc<dyn TableTransform>> {
+        let mut columns = (arguments.into_iter())
+            .map(|expr| column_of("MatchRecognize", expr))
+            .collect::<Result<Vec<_>>>()?;
+        let variables = columns.split_off(1);
         Ok(Arc::new(Self {
-            position: columns[0].clone(),
-            variables: columns[1..].to_vec(),
+            position: columns.remove(0),
+            variables,
             ..self.clone()
         }))
     }

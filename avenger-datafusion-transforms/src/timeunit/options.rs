@@ -3,7 +3,10 @@
 use super::*;
 
 use crate::OptionError;
-use datafusion::arrow::datatypes::{DataType, TimeUnit as ArrowUnit};
+use datafusion::arrow::array::{Array, AsArray, StructArray};
+use datafusion::arrow::datatypes::{DataType, Field, Fields, Int64Type, TimeUnit as ArrowUnit};
+use datafusion::common::{Result, ScalarValue};
+use datafusion::logical_expr::{Expr, lit};
 
 /// The first day of a week, numbered as GoogleSQL's `DAYOFWEEK`, from 1 for Sunday to 7 for
 /// Saturday. Weeks start on Sunday by default, as GoogleSQL's `WEEK` does.
@@ -192,26 +195,105 @@ impl TimeUnitOptions {
             },
         }
     }
+}
 
-    /// The options that differ from the defaults, as named arguments, such as
-    /// `unit => 'month'`.
-    pub(super) fn text(&self) -> String {
-        let mut parts = Vec::new();
-        if let Some(u) = self.unit {
-            parts.push(format!("unit => '{}'", u.text()));
-        }
-        if let Some(n) = self.maxbins {
-            parts.push(format!("maxbins => {n}"));
-        }
-        if let Some(u) = self.min_unit {
-            parts.push(format!("min_unit => '{}'", u.text()));
-        }
-        if let Some(day) = self.week_start {
-            parts.push(format!("week_start => {}", day.number()));
-        }
-        if let Some(m) = self.fiscal_year_start {
-            parts.push(format!("fiscal_year_start => {m}"));
-        }
-        parts.join(", ")
+impl TimeUnitOptions {
+    /// The options as a constant struct of [`options_fields`].
+    pub fn expr(&self) -> Expr {
+        let text = |u: Option<Unit>| lit(ScalarValue::Utf8(u.map(|u| u.text())));
+        let values = [
+            text(self.unit),
+            lit(ScalarValue::Int64(self.maxbins)),
+            text(self.min_unit),
+            lit(ScalarValue::Int64(self.week_start.map(WeekStart::number))),
+            lit(ScalarValue::Int64(self.fiscal_year_start)),
+        ];
+        let given = (options_fields().iter().zip(values))
+            .map(|(field, value)| (field.name().clone(), value))
+            .collect();
+        options(given).expect("the options of timeunit")
     }
+
+    /// The options of the constant struct `value` of [`options_fields`], checked.
+    pub fn of_scalar(value: &ScalarValue) -> Result<Self> {
+        let array = value.to_array()?;
+        Ok(Self::of_struct(array.as_struct(), 0)?)
+    }
+
+    /// The options of the row `i` of `array`, a struct of [`options_fields`], with the default
+    /// of each NULL field, and the calendar that the text of a unit names, checked.
+    pub fn of_struct(array: &StructArray, i: usize) -> std::result::Result<Self, OptionError> {
+        let integer = |j: usize| {
+            let column = array.column(j).as_primitive::<Int64Type>();
+            column.is_valid(i).then(|| column.value(i))
+        };
+        let unit = |option: &'static str, j: usize| {
+            let column = array.column(j).as_string::<i32>();
+            match column.is_valid(i) {
+                true => Unit::parse(column.value(i))
+                    .map(Some)
+                    .map_err(|error| OptionError::new(option, unit_message(error))),
+                false => Ok(None),
+            }
+        };
+        let (unit_of, min_unit) = (unit("unit", 0)?, unit("min_unit", 2)?);
+        let week_start = match integer(3) {
+            Some(n) => match WeekStart::from_number(n) {
+                Some(day) => Some(day),
+                None => {
+                    return Err(OptionError::new(
+                        "week_start",
+                        format!(
+                            "The week_start of timeunit is a day from 1 for Sunday to 7 for Saturday, not {n}"
+                        ),
+                    ));
+                }
+            },
+            None => None,
+        };
+        let mut options = Self {
+            unit: unit_of.map(|(unit, _)| unit),
+            maxbins: integer(1),
+            min_unit: min_unit.map(|(unit, _)| unit),
+            week_start,
+            fiscal_year_start: integer(4),
+        };
+        for (option, unit) in [("unit", unit_of), ("min_unit", min_unit)] {
+            options.take_calendar(option, unit.and_then(|(_, calendar)| calendar))?;
+        }
+        options.check()?;
+        Ok(options)
+    }
+}
+
+/// The message of an error of the text of a unit, as a sentence.
+fn unit_message(error: datafusion::common::DataFusionError) -> String {
+    let message = match error {
+        datafusion::common::DataFusionError::Plan(message) => message,
+        error => error.to_string(),
+    };
+    let mut chars = message.chars();
+    (chars.next().into_iter())
+        .flat_map(char::to_uppercase)
+        .chain(chars)
+        .collect()
+}
+
+/// The names and the types of the options of `timeunit`, the fields of the struct of
+/// [`options`]: the units as their text, which names their calendars.
+pub fn options_fields() -> Fields {
+    Fields::from(vec![
+        Field::new("unit", DataType::Utf8, true),
+        Field::new("maxbins", DataType::Int64, true),
+        Field::new("min_unit", DataType::Utf8, true),
+        Field::new("week_start", DataType::Int64, true),
+        Field::new("fiscal_year_start", DataType::Int64, true),
+    ])
+}
+
+/// The struct of the options `given` of a call, by their names, as expressions of the plan,
+/// such as literals or placeholders: each cast to the type of its field, and NULL for an option
+/// that the call omits, which takes its default.
+pub fn options(given: Vec<(String, Expr)>) -> Result<Expr> {
+    crate::utils::options_struct("timeunit", &options_fields(), given)
 }

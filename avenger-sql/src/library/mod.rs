@@ -813,6 +813,9 @@ impl Function {
                                 format!("`{}` takes a literal", form_arg.param),
                             ))
                         }
+                        // A parameter's value is checked by the function that reads it, when
+                        // the query runs.
+                        Accept::OneOf(_) if is_parameter(&expr) => {}
                         Accept::OneOf(values) => {
                             let value = match &expr {
                                 Expr::Literal(value, _) => value.try_as_str().flatten(),
@@ -1198,4 +1201,10 @@ pub(crate) fn null_when(condition: Expr, value: Expr) -> Expr {
     datafusion::logical_expr::when(condition, null())
         .otherwise(value)
         .expect("a CASE of one branch")
+}
+
+/// Whether `expr` is a parameter of the plan: a placeholder, such as a script variable or a
+/// query parameter, which the plan binds before it runs.
+pub(crate) fn is_parameter(expr: &Expr) -> bool {
+    matches!(expr, Expr::Placeholder(_))
 }

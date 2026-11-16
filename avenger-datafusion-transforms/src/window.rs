@@ -17,16 +17,24 @@ use datafusion::logical_expr::{
     WindowFunctionDefinition, WindowUDF, WindowUDFImpl,
 };
 
-use crate::bin::{self, BinOptions};
+use crate::bin;
 use crate::lump::{self, LumpCall};
-use crate::timeunit::{self, TimeUnitOptions};
+use crate::timeunit;
 use crate::utils::{PartitionValue, partition_values};
 
 /// The transform of a placeholder window.
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Transform {
-    Bin(BinOptions),
-    TimeUnit(TimeUnitOptions),
+    /// `bin`, whose second argument is the struct of its options, and whether the call gives an
+    /// extent.
+    Bin {
+        gives_extent: bool,
+    },
+    /// `timeunit`, whose second argument is the struct of its options, and whether the call
+    /// gives a unit.
+    TimeUnit {
+        gives_unit: bool,
+    },
     Lump(Box<LumpCall>),
 }
 
@@ -44,7 +52,7 @@ pub(crate) fn placeholder(name: String, transform: Transform) -> Arc<WindowUDF> 
     Arc::new(WindowUDF::new_from_impl(Placeholder {
         name,
         transform,
-        signature: Signature::any(1, Volatility::Immutable),
+        signature: Signature::variadic_any(Volatility::Immutable),
     }))
 }
 
@@ -69,14 +77,23 @@ impl WindowUDFImpl for Placeholder {
             return plan_err!("{} needs a value", self.name);
         };
         match &self.transform {
-            Transform::Bin(_) => bin::result_field(args.name(), input),
-            Transform::TimeUnit(options) => timeunit::window_field(args.name(), input, options),
+            Transform::Bin { .. } => bin::result_field(args.name(), input),
+            Transform::TimeUnit { .. } => timeunit::window_field(args.name(), input, None),
             Transform::Lump(_) => Ok(Arc::new(Field::new(
                 args.name(),
                 DataType::Struct(lump::lump_fields(input.data_type())),
                 true,
             ))),
         }
+    }
+}
+
+/// The argument at `index` of the placeholder window `function`, such as the struct of its
+/// options.
+fn argument(function: &WindowFunction, index: usize) -> Result<Expr> {
+    match function.params.args.get(index) {
+        Some(arg) => Ok(arg.clone()),
+        None => plan_err!("{} needs its options", function.fun.name()),
     }
 }
 
@@ -97,11 +114,15 @@ fn placeholder_of(expr: &Expr) -> Option<(&Transform, &WindowFunction)> {
 pub(crate) enum PartitionedCall {
     Bin {
         value: Expr,
-        options: BinOptions,
+        /// The struct of the options.
+        options: Expr,
+        gives_extent: bool,
     },
     TimeUnit {
         value: Expr,
-        options: TimeUnitOptions,
+        /// The struct of the options.
+        options: Expr,
+        gives_unit: bool,
     },
 }
 
@@ -148,13 +169,15 @@ pub fn plan_windows(input: LogicalPlan, windows: Vec<Expr>) -> Result<(LogicalPl
                 plan = lump::plan(plan, call.as_ref().clone(), output)?;
                 continue;
             }
-            Transform::Bin(options) => PartitionedCall::Bin {
+            Transform::Bin { gives_extent } => PartitionedCall::Bin {
                 value,
-                options: options.clone(),
+                options: argument(function, 1)?,
+                gives_extent: *gives_extent,
             },
-            Transform::TimeUnit(options) => PartitionedCall::TimeUnit {
+            Transform::TimeUnit { gives_unit } => PartitionedCall::TimeUnit {
                 value,
-                options: options.clone(),
+                options: argument(function, 1)?,
+                gives_unit: *gives_unit,
             },
         };
         let partition = &function.params.partition_by;
@@ -209,8 +232,16 @@ pub(crate) fn plan_partitioned(
     let mut outputs = Vec::with_capacity(calls.len());
     for (i, (call, output)) in calls.into_iter().enumerate() {
         let result = match call {
-            PartitionedCall::Bin { value, options } => bin::output(value, options, i)?,
-            PartitionedCall::TimeUnit { value, options } => timeunit::output(value, options, i),
+            PartitionedCall::Bin {
+                value,
+                options,
+                gives_extent,
+            } => bin::output(value, options, gives_extent, i)?,
+            PartitionedCall::TimeUnit {
+                value,
+                options,
+                gives_unit,
+            } => timeunit::output(value, options, gives_unit, i),
         };
         match result {
             Output::Row(expr) => outputs.push((Ok(expr), output)),
