@@ -65,7 +65,7 @@ There are two exceptions:
 
 ## Charts
 
-A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, or one chart for each group with `GROUP BY`. Each channel is a named argument that reads each row, or aggregates them.
+A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, or one chart for each group with `GROUP BY`. A mark or a composition returns a `CHART`, the bytes of the chart in a column that holds charts. Each channel is a named argument that reads each row, or aggregates them.
 
 ```sql
 FROM penguins
@@ -76,6 +76,7 @@ FROM penguins
 - Marks include `bar`, `line`, `area`, `symbol`, `rule`, `rect`, `text`, `trail`, `path`, `image`, their `polar_` forms, and the `geo_` marks of maps.
 - `scaled(value, scale => ...)` and `direct(value)` choose whether a channel goes through a scale.
 - A constructor builds the options of a chart, such as `polar(inner_radius => 0.5)` for a mark's `coord`, or `interval_fit(zero => FALSE)` for a scale. Its arguments are constants.
+- A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection on the mark's layer.
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them.
 - A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
 - A channel takes windows on its rows too, as in `bar(x => bin(body_mass_g), y => COUNT(*))`. There `bin`, `timeunit`, and `lump` take no `OVER`, and compute over the whole input, or over each group with `OVER panel`.
