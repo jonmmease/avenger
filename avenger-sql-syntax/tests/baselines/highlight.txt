@@ -49,8 +49,8 @@
 691..696 "total" Name(Alias) definition
 701..708 "quarter" Name(Column)
 721..723 "q1" Name(Alias) definition
-758..763 "sales" Name(Column)
-768..775 "quarter" Name(Column)
+758..763 "sales" Name(Column) definition
+768..775 "quarter" Name(Column) definition
 780..782 "q1" Name(Column)
 792..794 "q2" Name(Column)
 835..836 "x" Name(Table)
