@@ -14,6 +14,6 @@ Number fixtures store each input's exact `f64` bits as hexadecimal text. Tick fi
 
 Datetime fixtures cover D3 directives in UTC. Separate processes test selected patterns across display timezones and timezone transitions. Time tick fixtures record d3-time's ticks for local domains in each timezone, with labels from Vega's calendar multi-format.
 
-The generator reads `en-US`, `de-DE`, `fr-FR`, and `ja-JP` from each crate's `locales/` directory. These definitions come from d3-format 3.1.2 and d3-time-format 4.1.0. Each directory includes the upstream license.
+The generator reads `en-US`, `de-DE`, `fr-FR`, and `ja-JP` from `avenger-format-locales-d3`: number locales from `locales/number/` and time locales from `locales/`. These definitions come from d3-format 3.1.2 and d3-time-format 4.1.0. Each directory includes the upstream license.
 
 Separate Rust tests cover pattern validation and Avenger's intentional differences from D3 and Vega, including `%j` calendar ordinals and automatic trimming before localization and padding.

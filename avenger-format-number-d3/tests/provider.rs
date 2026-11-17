@@ -22,7 +22,7 @@ fn provider_prepares_explicit_patterns_and_precision() {
     for (registered, selected) in [("de-DE", "de_DE"), ("de_DE", "de-DE")] {
         let provider = D3NumberFormatProvider::new().with_locale(selected);
         let result = provider.prepare(",.1f");
-        if cfg!(feature = "all-locales") {
+        if avenger_format_locales_d3::bundled_number("de-DE").is_some() {
             assert!(result.is_ok());
         } else {
             assert!(matches!(

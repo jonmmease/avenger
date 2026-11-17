@@ -213,7 +213,7 @@ fn compile_numfmt_uses_number_locale_context() {
         D3NumberFormatProvider::new().with_locale("de-DE").with_custom_locale(
             "de-DE",
             serde_json::from_str(include_str!(
-                "../../avenger-format-number-d3/locales/de-DE.json"
+                "../../avenger-format-locales-d3/locales/number/de-DE.json"
             ))
             .unwrap(),
         ),

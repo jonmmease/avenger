@@ -364,7 +364,7 @@ fn format_writes_scientific_notation_as_math() {
         [markup(r#"$#"1.2" times 10^(3)$"#)]
     );
     let locale = serde_json::from_str(include_str!(
-        "../../avenger-format-number-d3/locales/de-DE.json"
+        "../../avenger-format-locales-d3/locales/number/de-DE.json"
     ))
     .unwrap();
     let german = engine().with_number_formatting(Arc::new(

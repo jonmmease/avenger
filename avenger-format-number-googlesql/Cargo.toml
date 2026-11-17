@@ -1,0 +1,17 @@
+[package]
+name = "avenger-format-number-googlesql"
+version = "0.1.0"
+edition = "2021"
+description = "GoogleSQL's FORMAT conversions of numbers, and a number format provider"
+
+[dependencies]
+avenger-format = { path = "../avenger-format" }
+avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
+serde = { workspace = true }
+
+[features]
+# All of d3's number locales, where the default build bundles U.S. English.
+all-locales = ["avenger-format-locales-d3/all-locales"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

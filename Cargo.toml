@@ -6,6 +6,7 @@ members = [
     "avenger-format",
     "avenger-format-number-d3",
     "avenger-format-number-icu",
+    "avenger-format-number-googlesql",
     "avenger-format-datetime-d3",
     "avenger-format-locales-d3",
     "avenger-format-datetime-googlesql",

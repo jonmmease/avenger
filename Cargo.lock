@@ -792,9 +792,20 @@ name = "avenger-format-number-d3"
 version = "0.1.0"
 dependencies = [
  "avenger-format",
+ "avenger-format-locales-d3",
  "num-bigint 0.4.6",
  "num-traits",
  "ryu-js",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "avenger-format-number-googlesql"
+version = "0.1.0"
+dependencies = [
+ "avenger-format",
+ "avenger-format-locales-d3",
  "serde",
  "serde_json",
 ]

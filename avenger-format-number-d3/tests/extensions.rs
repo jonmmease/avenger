@@ -9,10 +9,13 @@ fn exponent_parts_match_localized_text() {
     let mut registry = NumberLocaleRegistry::with_builtins();
     assert_eq!(
         registry.resolve("de-DE").is_ok(),
-        cfg!(feature = "all-locales")
+        avenger_format_locales_d3::bundled_number("de-DE").is_some()
     );
     registry
-        .register_custom_locale_json("de-DE", include_str!("../locales/de-DE.json"))
+        .register_custom_locale_json(
+            "de-DE",
+            include_str!("../../avenger-format-locales-d3/locales/number/de-DE.json"),
+        )
         .unwrap();
     let locale = registry.resolve("de-DE").unwrap();
     let formatter = PreparedNumberFormat::new(Some("+.3~e"), &locale).unwrap();
