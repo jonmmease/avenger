@@ -1,6 +1,15 @@
 //! Widget fonts, colors, sizes and spacing.
 
+use avenger_common::types::{FontStyle, FontWeight};
+
 use crate::widget::Look;
+
+/// `color` with its red, green and blue components blended toward `background` by `amount`, and
+/// its alpha kept.
+pub(crate) fn blend(color: [f32; 4], background: [f32; 4], amount: f32) -> [f32; 4] {
+    let mix = |channel: usize| color[channel] + (background[channel] - color[channel]) * amount;
+    [mix(0), mix(1), mix(2), color[3]]
+}
 
 /// The colors of a widget part in one state, as RGBA with components from 0 to 1.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,15 +25,10 @@ impl Paint {
     /// An opaque color blended by 0.55 appears like the original at 45% opacity over that
     /// background. It stays opaque, so overlapping parts do not show through each other.
     pub fn blend(&self, background: [f32; 4], amount: f32) -> Self {
-        let blend = |color: [f32; 4]| {
-            let mix =
-                |channel: usize| color[channel] + (background[channel] - color[channel]) * amount;
-            [mix(0), mix(1), mix(2), color[3]]
-        };
         Self {
-            fill: blend(self.fill),
-            border: blend(self.border),
-            foreground: blend(self.foreground),
+            fill: blend(self.fill, background, amount),
+            border: blend(self.border, background, amount),
+            foreground: blend(self.foreground, background, amount),
         }
     }
 }
@@ -75,20 +79,52 @@ impl Palette {
     }
 }
 
+/// The font and the color of a widget's text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextStyle {
+    /// A CSS-style list of font families.
+    pub font_family: String,
+    pub font_size: f32,
+    pub font_weight: FontWeight,
+    pub font_style: FontStyle,
+    /// The color of the text of an enabled widget. A disabled widget blends it 55% toward the
+    /// background, as [`Palette::shaded`] blends a disabled paint.
+    pub color: [f32; 4],
+}
+
+impl TextStyle {
+    /// The color of the text in `look`.
+    pub fn color(&self, look: Look, background: [f32; 4]) -> [f32; 4] {
+        match look.enabled {
+            true => self.color,
+            false => blend(self.color, background, 0.55),
+        }
+    }
+}
+
 /// Fonts, colors, sizes and spacing for a [`Widgets`](crate::Widgets) tool.
 /// `WidgetStyle::default()` is a light style, and [`WidgetStyle::dark`] a dark style.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WidgetStyle {
-    /// A CSS-style list of font families for labels.
-    pub font_family: String,
-    pub font_size: f32,
+    /// The text that names a control: the label of a slider, a range slider, a radio group, a
+    /// check box list, a text input, a check box, or a button, and the title of a group box.
+    pub title: TextStyle,
+    /// The labels of the items of a radio group and a check box list, and the text of a text
+    /// input.
+    pub label: TextStyle,
+    /// The readout of a slider's or a range slider's value.
+    pub readout: TextStyle,
     /// The color of the surface that the widgets sit on.
     pub background: [f32; 4],
-    /// Control surfaces: a button, an unchecked box or radio button, a slider's track and
-    /// thumb, a group box's border, and every label.
+    /// Control surfaces: a button, an unchecked box or radio button, a text input's field, and a
+    /// group box's border.
     pub neutral: Palette,
-    /// Selection: a checked box, a selected radio button and the filled part of a slider.
+    /// Selection: a checked box, a selected radio button and the filled part of a slider's rail.
     pub accent: Palette,
+    /// The line that a slider's thumbs run along, in the fill of its paint.
+    pub rail: Palette,
+    /// The thumbs of a slider and a range slider.
+    pub thumb: Palette,
     pub border_width: f32,
     pub corner_radius: f32,
     /// Horizontal and vertical padding between the border and the text of a button or a text
@@ -100,11 +136,12 @@ pub struct WidgetStyle {
     pub item_gap: [f32; 2],
     /// The side length of a check box and the diameter of a radio button.
     pub control_size: f32,
-    pub track_height: f32,
+    /// The thickness of a slider's rail.
+    pub rail_height: f32,
     /// The diameter of a slider's thumb.
     pub thumb_size: f32,
-    /// A slider track's preferred and minimum lengths.
-    pub track_length: [f32; 2],
+    /// A slider rail's preferred and minimum lengths.
+    pub rail_length: [f32; 2],
     /// A text input box's preferred and minimum widths.
     pub input_width: [f32; 2],
     /// The color of a text input's selection, drawn under its text.
@@ -132,39 +169,21 @@ impl Default for WidgetStyle {
             border: [0.16, 0.42, 0.85, 1.0],
             foreground: [1.0, 1.0, 1.0, 1.0],
         };
-        Self {
-            font_family: "sans-serif".to_string(),
-            font_size: 13.0,
+        Self::colored(
             background,
-            neutral: Palette::shaded(
+            Palette::shaded(
                 neutral,
                 [0.92, 0.93, 0.95, 1.0],
                 [0.86, 0.87, 0.9, 1.0],
                 background,
             ),
-            accent: Palette::shaded(
+            Palette::shaded(
                 accent,
                 [0.12, 0.36, 0.77, 1.0],
                 [0.09, 0.3, 0.67, 1.0],
                 background,
             ),
-            border_width: 1.0,
-            corner_radius: 4.0,
-            button_padding: [10.0, 5.0],
-            label_gap: 6.0,
-            item_gap: [14.0, 6.0],
-            control_size: 14.0,
-            track_height: 4.0,
-            thumb_size: 14.0,
-            track_length: [160.0, 60.0],
-            input_width: [200.0, 80.0],
-            selection_color: [0.16, 0.42, 0.85, 0.25],
-            caret_width: 1.0,
-            focus_color: [0.16, 0.42, 0.85, 0.9],
-            focus_width: 2.0,
-            focus_offset: 2.0,
-            group_padding: 8.0,
-        }
+        )
     }
 }
 
@@ -183,22 +202,67 @@ impl WidgetStyle {
             foreground: [0.06, 0.08, 0.12, 1.0],
         };
         Self {
-            background,
-            neutral: Palette::shaded(
-                neutral,
-                [0.25, 0.26, 0.3, 1.0],
-                [0.3, 0.31, 0.36, 1.0],
-                background,
-            ),
-            accent: Palette::shaded(
-                accent,
-                [0.45, 0.65, 1.0, 1.0],
-                [0.53, 0.71, 1.0, 1.0],
-                background,
-            ),
             selection_color: [0.36, 0.58, 0.98, 0.35],
             focus_color: [0.45, 0.65, 1.0, 0.9],
-            ..Self::default()
+            ..Self::colored(
+                background,
+                Palette::shaded(
+                    neutral,
+                    [0.25, 0.26, 0.3, 1.0],
+                    [0.3, 0.31, 0.36, 1.0],
+                    background,
+                ),
+                Palette::shaded(
+                    accent,
+                    [0.45, 0.65, 1.0, 1.0],
+                    [0.53, 0.71, 1.0, 1.0],
+                    background,
+                ),
+            )
+        }
+    }
+
+    /// The light style's sizes and spacing, on `background` with the palettes `neutral` and
+    /// `accent`: the texts take the neutral foreground, the rail takes the neutral border, and the
+    /// thumbs take the neutral palette.
+    fn colored(background: [f32; 4], neutral: Palette, accent: Palette) -> Self {
+        let text = TextStyle {
+            font_family: "sans-serif".to_string(),
+            font_size: 13.0,
+            font_weight: FontWeight::NORMAL,
+            font_style: FontStyle::Normal,
+            color: neutral.normal.foreground,
+        };
+        let line = neutral.normal.border;
+        let rail = Paint {
+            fill: line,
+            ..neutral.normal
+        };
+        Self {
+            title: text.clone(),
+            label: text.clone(),
+            readout: text,
+            background,
+            rail: Palette::shaded(rail, line, line, background),
+            thumb: neutral.clone(),
+            neutral,
+            accent,
+            border_width: 1.0,
+            corner_radius: 4.0,
+            button_padding: [10.0, 5.0],
+            label_gap: 6.0,
+            item_gap: [14.0, 6.0],
+            control_size: 14.0,
+            rail_height: 4.0,
+            thumb_size: 14.0,
+            rail_length: [160.0, 60.0],
+            input_width: [200.0, 80.0],
+            selection_color: [0.16, 0.42, 0.85, 0.25],
+            caret_width: 1.0,
+            focus_color: [0.16, 0.42, 0.85, 0.9],
+            focus_width: 2.0,
+            focus_offset: 2.0,
+            group_padding: 8.0,
         }
     }
 }

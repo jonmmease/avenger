@@ -121,7 +121,7 @@ let points = widgets
 | `Checkbox` | Toggles on a left-button release inside it. | Space toggles on release. Escape cancels a pending press. |
 | `RadioGroup` | Selects an item when a press begins and ends on it. | Arrow keys move the selection and wrap at either end. |
 | `CheckboxList` | Toggles an item when a press begins and ends on it. | Arrow keys move between the items and wrap at either end, and Space toggles the item. |
-| `Slider` | Pressing or dragging on the track sets the value at the pointer. | Arrow keys move one step, Page Up and Page Down move ten steps, and Home and End select the endpoints. |
+| `Slider` | Pressing or dragging on the rail sets the value at the pointer. | Arrow keys move one step, Page Up and Page Down move ten steps, and Home and End select the endpoints. |
 | `RangeSlider` | A press moves the nearer thumb to the pointer, and a drag moves it without passing the other. | As a slider's keys, for the thumb that moved last, as far as the other thumb allows. |
 | `TextInput` | A press places the caret. A drag or a press with Shift selects, a double press selects a word, and a triple press selects all. A drag after a double press selects whole words. | Typing, editing and clipboard keys, as [Edit text](#edit-text) lists. |
 | `GroupBox` | Consumes presses inside it that miss its widgets. | None. It isn't a Tab stop. |
@@ -209,8 +209,12 @@ and built-in widgets.
 
 ## Style
 
-`WidgetStyle` sets the font, colors, sizes and spacing. `WidgetStyle::default()` is a light
-style, and `WidgetStyle::dark()` is a dark style. Each palette has a `Paint` for the normal,
-hovered, pressed and disabled states, selected by `palette.paint(look)`. The presets dim disabled
-widgets by blending their normal colors toward the background while preserving alpha. Opaque
-parts stay opaque, so overlapping parts do not show through each other.
+`WidgetStyle` sets the fonts, colors, sizes and spacing. `WidgetStyle::default()` is a light
+style, and `WidgetStyle::dark()` is a dark style. A `TextStyle` gives the font and the color of
+each kind of text: `title`, the text that names a control, such as a slider's label or a check
+box's label, `label`, the labels of a radio group's or a check box list's items, and `readout`, a
+slider's readout. Each palette has a `Paint` for the normal, hovered, pressed and disabled states,
+selected by `palette.paint(look)`: `neutral` and `accent` for the controls, and `rail` and `thumb`
+for the parts of sliders. The presets dim disabled widgets by blending their normal colors toward
+the background while preserving alpha, and a disabled widget blends its texts' colors the same
+way. Opaque parts stay opaque, so overlapping parts do not show through each other.

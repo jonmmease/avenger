@@ -36,7 +36,7 @@ pub use group_box::GroupBox;
 pub use radio::{RadioDirection, RadioGroup, RadioGroupState, RadioGroupView};
 pub use range_slider::{RangeSlider, RangeSliderState, RangeSliderView};
 pub use slider::{Slider, SliderState, SliderView};
-pub use style::{Paint, Palette, WidgetStyle};
+pub use style::{Paint, Palette, TextStyle, WidgetStyle};
 pub use text_input::{TextInput, TextInputState, TextInputView};
 #[cfg(feature = "app")]
 pub use tool::WidgetsState;

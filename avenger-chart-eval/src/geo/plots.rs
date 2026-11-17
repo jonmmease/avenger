@@ -47,7 +47,7 @@ use crate::{
     polyline::{polyline, rule_lines, series_lines, series_trails, Polyline},
     reach::Reach,
     state::Fit,
-    style::{color as style_color, number as style_number},
+    style::number as style_number,
     EvalError, EvalWarning,
 };
 
@@ -522,7 +522,11 @@ impl GeoGroup {
             }
             _ => (None, false, Vec::new()),
         };
-        let sphere = crate::geo::sphere(spec).map(|_| sphere_style(&styles[nodes.plot]));
+        // A plot draws its sphere from the computed style of its `sphere`, unless it hides it.
+        let sphere = (crate::geo::sphere(spec).and(nodes.sphere))
+            .map(|node| &styles[node])
+            .filter(|style| !style.is_hidden())
+            .map(sphere_style);
         Ok(GeoPlot {
             path: plot_ref.path.clone(),
             guide: GeoGuide { aspect, labels },
@@ -1238,18 +1242,16 @@ fn graticule_config(
     }
 }
 
-/// The style of a sphere from the computed `background` and border of its `plot[type=geo]`.
-fn sphere_style(plot: &ComputedStyle) -> SphereStyle {
-    let border = (plot.keyword(Property::BorderStyle))
-        .is_some_and(|line| line != "none")
-        .then(|| plot.color(Property::BorderColor))
-        .flatten();
+/// The style of a sphere from the computed `fill`, `stroke`, and `stroke-width` of its `sphere`,
+/// which draws no outline with `stroke: none`.
+fn sphere_style(sphere: &ComputedStyle) -> SphereStyle {
+    let stroke = paint_color(sphere, Property::Stroke);
     SphereStyle {
-        fill: style_color(plot, Property::Background),
-        stroke: border.unwrap_or([0.0; 4]),
-        stroke_width: match border {
-            Some(_) => style_number(plot, Property::BorderWidth),
-            None => 0.0,
+        fill: paint_color(sphere, Property::Fill),
+        stroke,
+        stroke_width: match stroke[3] > 0.0 {
+            true => style_number(sphere, Property::StrokeWidth),
+            false => 0.0,
         },
     }
 }

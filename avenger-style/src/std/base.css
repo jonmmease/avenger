@@ -12,7 +12,7 @@ chart {
 
 /* Texts take the color of the chart, the foreground. 1rem is 10px at a text scale of 1. */
 chart > title { font-size: 1.3rem; font-weight: bold; offset: 10; }
-chart > subtitle { font-size: 1.2rem; }
+chart > title > subtitle { font-size: 1.2rem; font-weight: normal; }
 attribution { font-size: 1rem; }
 axis > title, legend > title, facet > title { font-size: 1.1rem; font-weight: bold; }
 label { font-size: 1rem; }
@@ -20,8 +20,10 @@ label { font-size: 1rem; }
 /* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a
    continuous scale has about 5 entries. */
 legend { offset: 12; }
-/* Widgets stand above their plots, apart from them as legends are. */
+/* Widgets stand above their plots, apart from them as legends are. Their texts take the widget's
+   font, and their rails and thumbs the widget's own paint. */
 widget { orient: top; offset: 12; }
+widget > label { font-size: inherit; }
 legend[type=symbol] { value-count: 5; max-entries: 30; }
 legend[type=colorbar] > ramp { max-length: 200; }
 
@@ -46,13 +48,14 @@ plot:is([type=cartesian], [type=polar], [type=geo]) { contain-intrinsic-size: 20
 scale:is([channel=x], [channel=y]):is([type=band], [type=point], [type=nested_band]) {
   step: 20;
 }
-/* The sphere of a geo plot, which a geo plot with a sphere fills and outlines: pale blue, with the
-   color of guide lines, and graticule labels 4 from their lines. */
-plot[type=geo] {
-  background: #f0f7ff;
-  border: 1 solid color-mix(in srgb,
+/* The sphere of a geo plot: pale blue, outlined in the color of guide lines, and graticule labels
+   4 from their lines. */
+plot[type=geo] > sphere {
+  fill: #f0f7ff;
+  stroke: color-mix(in srgb,
             env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
             env(background, white));
+  stroke-width: 1;
 }
 graticule > label { margin: 4; }
 graticule > grid { stroke-width: 0.7; }
@@ -152,11 +155,13 @@ scale[type=nested_band] { padding-inner: 0.5 0.1; padding-outer: 0; }
               env(background, white));
   }
   label { font-weight: bold; }
+  widget > label { font-weight: inherit; }
 }
 
 /* Forced colors: system colors for backgrounds, texts, guides, the store layer, and focus. */
 @media (forced-colors: active) {
   chart, plot { background: Canvas !important; }
+  plot[type=geo] > sphere { fill: Canvas !important; }
   chart { color: CanvasText !important; }
   :is(title, subtitle), :is(axis, legend, facet) > label { fill: CanvasText !important; }
   axis > rule, axis > tick, grid { stroke: CanvasText !important; }

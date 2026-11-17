@@ -9,8 +9,8 @@ use avenger_scenegraph::marks::rect::SceneRectMark;
 use avenger_scenegraph::marks::text::SceneTextMark;
 use avenger_typst_label::{LabelError, TextBounds, TextLayout};
 
-use crate::style::WidgetStyle;
-use crate::widget::{Look, WidgetContext};
+use crate::style::{TextStyle, WidgetStyle};
+use crate::widget::WidgetContext;
 
 /// A box as `[x, y, width, height]`.
 pub(crate) type Bounds = [f32; 4];
@@ -70,13 +70,13 @@ impl Text {
         self.syntax
     }
 
-    /// The text in the style's font, with its top left corner at `at`.
+    /// The text in the font of `text`, with its top left corner at `at`.
     pub(crate) fn mark(
         &self,
         name: &str,
         at: [f32; 2],
         color: [f32; 4],
-        style: &WidgetStyle,
+        text: &TextStyle,
     ) -> SceneTextMark {
         SceneTextMark {
             name: name.to_string(),
@@ -88,30 +88,40 @@ impl Text {
             align: TextAlign::Left.into(),
             baseline: TextBaseline::Top.into(),
             color: color.into(),
-            font: style.font_family.clone().into(),
-            font_size: style.font_size.into(),
+            font: text.font_family.clone().into(),
+            font_size: text.font_size.into(),
+            font_weight: text.font_weight.into(),
+            font_style: text.font_style.into(),
             ..Default::default()
         }
     }
 
-    /// The text's box in the style's font.
-    pub(crate) fn bounds(&self, cx: &WidgetContext<'_>) -> Result<TextBounds, LabelError> {
-        let mark = self.mark("", [0.0; 2], [0.0; 4], cx.style);
+    /// The text's box in the font of `text`.
+    pub(crate) fn bounds(
+        &self,
+        cx: &WidgetContext<'_>,
+        text: &TextStyle,
+    ) -> Result<TextBounds, LabelError> {
+        let mark = self.mark("", [0.0; 2], [0.0; 4], text);
         let label = mark.labels().next().expect("a text mark with one label");
         cx.engine.bounds(&label.label)
     }
 
-    /// The text's layout in the style's font, for carets and selections.
-    pub(crate) fn layout(&self, cx: &WidgetContext<'_>) -> Result<Arc<TextLayout>, LabelError> {
-        let mark = self.mark("", [0.0; 2], [0.0; 4], cx.style);
+    /// The text's layout in the font of `text`, for carets and selections.
+    pub(crate) fn layout(
+        &self,
+        cx: &WidgetContext<'_>,
+        text: &TextStyle,
+    ) -> Result<Arc<TextLayout>, LabelError> {
+        let mark = self.mark("", [0.0; 2], [0.0; 4], text);
         let label = mark.labels().next().expect("a text mark with one label");
         cx.engine.text_layout(&label.label)
     }
 
-    /// The text's width and height, or zeros if typesetting fails. The widget reports the error
-    /// when drawing.
-    pub(crate) fn size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
-        self.bounds(cx)
+    /// The text's width and height in the font of `text`, or zeros if typesetting fails. The
+    /// widget reports the error when drawing.
+    pub(crate) fn size(&self, cx: &WidgetContext<'_>, text: &TextStyle) -> [f32; 2] {
+        self.bounds(cx, text)
             .map_or([0.0; 2], |bounds| [bounds.width, bounds.height])
     }
 }
@@ -171,15 +181,6 @@ pub(crate) fn cover([x, y, width, height]: Bounds) -> SceneMark {
         ..Default::default()
     }
     .into()
-}
-
-/// The color of a widget's label, which changes only when the widget is disabled.
-pub(crate) fn label_color(style: &WidgetStyle, look: Look) -> [f32; 4] {
-    let enabled = Look {
-        enabled: look.enabled,
-        ..Look::default()
-    };
-    style.neutral.paint(enabled).foreground
 }
 
 /// Whether `bounds` contains `point`.

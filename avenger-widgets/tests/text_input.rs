@@ -468,8 +468,8 @@ fn after(f: &Fixture, prefix: &str) -> [f32; 2] {
     let style = WidgetStyle::default();
     let text = SceneTextMark {
         text: prefix.to_string().into(),
-        font: style.font_family.into(),
-        font_size: style.font_size.into(),
+        font: style.label.font_family.into(),
+        font_size: style.label.font_size.into(),
         ..Default::default()
     };
     let label = text.labels().next().unwrap().label;

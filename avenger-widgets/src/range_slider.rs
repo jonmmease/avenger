@@ -12,15 +12,15 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_typst_label::{bind, LabelError, LabelValue, LabelValues};
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{focus_ring, label_color, rect, Text};
+use crate::draw::{focus_ring, rect, Text};
 use crate::slider::{moves, readout_gap, round_to};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
 /// A slider with two thumbs over a range, which set the low and the high end of a range of values,
-/// with an optional label above its track and an optional readout of both ends beside it. The
+/// with an optional label above its rail and an optional readout of both ends beside it. The
 /// thumbs cannot pass each other.
 ///
-/// A left-button press on the track moves the nearer thumb to the pointer, and dragging moves it.
+/// A left-button press on the rail moves the nearer thumb to the pointer, and dragging moves it.
 /// Arrow keys move the thumb that moved last by one step, Page Up and Page Down by ten steps, and
 /// Home and End move it to an endpoint, as far as the other thumb allows. Canceling a drag,
 /// including with Escape, restores its starting range.
@@ -52,7 +52,7 @@ impl<State> RangeSlider<State> {
         }
     }
 
-    /// Show `label`, plain text or Typst markup (`Text::markup`), above the track.
+    /// Show `label`, plain text or Typst markup (`Text::markup`), above the rail.
     pub fn label(mut self, label: impl Into<Text>) -> Self {
         self.label = Some(label.into());
         self
@@ -194,7 +194,7 @@ impl<State> RangeSlider<State> {
     fn readout_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         let whole = [*self.range.start(), *self.range.end()];
         match self.readout_text(whole, cx) {
-            Ok(Some(text)) => text.size(cx),
+            Ok(Some(text)) => text.size(cx, &cx.style.readout),
             _ => [0.0; 2],
         }
     }
@@ -202,14 +202,14 @@ impl<State> RangeSlider<State> {
     fn label_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         match &self.label {
             Some(label) => {
-                let [width, height] = label.size(cx);
+                let [width, height] = label.size(cx, &cx.style.title);
                 [width, height + cx.style.label_gap]
             }
             None => [0.0; 2],
         }
     }
 
-    /// The top and the height of the row of the track, and the bounds of the thumbs' centers.
+    /// The top and the height of the row of the rail, and the bounds of the thumbs' centers.
     fn parts(&self, rect: Rect, cx: &WidgetContext<'_>) -> ([f32; 2], [f32; 2], f32) {
         let style = cx.style;
         let [_, label_height] = self.label_size(cx);
@@ -221,11 +221,11 @@ impl<State> RangeSlider<State> {
             None => 0.0,
         };
         let half = style.thumb_size / 2.0;
-        let track = [
+        let rail = [
             rect.x + half,
             (rect.right() - reserved - half).max(rect.x + half),
         ];
-        ([row_top, row_height], track, rect.right() - readout[0])
+        ([row_top, row_height], rail, rect.right() - readout[0])
     }
 
     fn value_at(&self, x: f32, [start_x, end_x]: [f32; 2]) -> f64 {
@@ -290,7 +290,7 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
                     Some(_) => readout_gap(style) + readout[0],
                     None => 0.0,
                 };
-                label_width.max(style.track_length[0] + style.thumb_size + reserved)
+                label_width.max(style.rail_length[0] + style.thumb_size + reserved)
             }
             Direction::Vertical => label_height + style.thumb_size.max(readout[1]),
         }
@@ -303,8 +303,8 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
             Some(_) => readout_gap(style) + self.readout_size(cx)[0],
             None => 0.0,
         };
-        let track = style.track_length[1] + style.thumb_size + reserved;
-        avenger_layout::Measurement::always(label_width.max(track))
+        let rail = style.rail_length[1] + style.thumb_size + reserved;
+        avenger_layout::Measurement::always(label_width.max(rail))
     }
 
     fn view(&self, app: &State, own: &RangeSliderState) -> RangeSliderView {
@@ -326,32 +326,32 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
         let style = cx.style;
         let look = placed.look;
         let r = placed.rect;
-        let ([row_top, row_height], track, readout_x) = self.parts(r, cx);
+        let ([row_top, row_height], rail, readout_x) = self.parts(r, cx);
         let middle = row_top + row_height / 2.0;
-        let [low_x, high_x] = view.range.map(|value| self.x_of(value, track));
+        let [low_x, high_x] = view.range.map(|value| self.x_of(value, rail));
         let base = Look {
             hovered: false,
             pressed: false,
             ..look
         };
-        let height = style.track_height;
+        let height = style.rail_height;
         let top = middle - height / 2.0;
         let size = style.thumb_size;
-        let color = label_color(style, look);
         let mut marks: Vec<SceneMark> = Vec::new();
         if let Some(label) = &self.label {
-            label.bounds(cx)?;
+            label.bounds(cx, &style.title)?;
+            let color = style.title.color(look, style.background);
             marks.push(
                 label
-                    .mark("range_slider_label", [r.x, r.y], color, style)
+                    .mark("range_slider_label", [r.x, r.y], color, &style.title)
                     .into(),
             );
         }
         marks.push(
             rect(
-                "track",
-                [track[0], top, track[1] - track[0], height],
-                style.neutral.paint(base).border,
+                "rail",
+                [rail[0], top, rail[1] - rail[0], height],
+                style.rail.paint(base).fill,
                 [0.0; 4],
                 0.0,
                 height / 2.0,
@@ -360,7 +360,7 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
         );
         marks.push(
             rect(
-                "track_fill",
+                "rail_fill",
                 [low_x, top, high_x - low_x, height],
                 style.accent.paint(base).fill,
                 [0.0; 4],
@@ -370,7 +370,7 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
             .into(),
         );
         for (thumb, x) in [low_x, high_x].into_iter().enumerate() {
-            let paint = style.neutral.paint(Look {
+            let paint = style.thumb.paint(Look {
                 pressed: view.dragging == Some(thumb),
                 ..look
             });
@@ -391,9 +391,10 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
             }
         }
         if let Some(readout) = self.readout_text(view.range, cx)? {
-            let bounds = readout.bounds(cx)?;
+            let bounds = readout.bounds(cx, &style.readout)?;
             let at = [readout_x, middle - bounds.height / 2.0];
-            marks.push(readout.mark("readout", at, color, style).into());
+            let color = style.readout.color(look, style.background);
+            marks.push(readout.mark("readout", at, color, &style.readout).into());
         }
         Ok(marks)
     }
@@ -441,14 +442,14 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
             WidgetEvent::Blur if std::mem::take(&mut own.key_changed) => return self.settle(app),
             WidgetEvent::Focus | WidgetEvent::Blur => return Rebuild::none(),
         };
-        let (row, track, _) = self.parts(placed.rect, cx);
+        let (row, rail, _) = self.parts(placed.rect, cx);
         match event {
             SceneGraphEvent::MouseDown(down) if down.button == MouseButton::Left => {
                 if !(row[0]..=row[0] + row[1]).contains(&down.position[1]) {
                     return Rebuild::none();
                 }
                 let current = self.current(app);
-                let [low_x, high_x] = current.map(|value| self.x_of(value, track));
+                let [low_x, high_x] = current.map(|value| self.x_of(value, rail));
                 let x = down.position[0];
                 // The nearer thumb moves, and the high thumb of two that stand together moves
                 // toward a press past them.
@@ -464,12 +465,12 @@ impl<State: Send + Sync + 'static> Widget<State> for RangeSlider<State> {
                     changed: false,
                     canceled: false,
                 });
-                self.drag_to(x, track, app, own)
+                self.drag_to(x, rail, app, own)
             }
             SceneGraphEvent::CursorMoved(moved)
                 if own.drag.as_ref().is_some_and(|drag| !drag.canceled) =>
             {
-                self.drag_to(moved.position[0], track, app, own)
+                self.drag_to(moved.position[0], rail, app, own)
             }
             SceneGraphEvent::MouseUp(up) if up.button == MouseButton::Left => {
                 match own.drag.take() {
@@ -513,14 +514,14 @@ impl<State> RangeSlider<State> {
     fn drag_to(
         &self,
         x: f32,
-        track: [f32; 2],
+        rail: [f32; 2],
         app: &mut State,
         own: &mut RangeSliderState,
     ) -> Rebuild {
         let Some(thumb) = own.drag.as_ref().map(|drag| drag.thumb) else {
             return Rebuild::none();
         };
-        let range = self.moved(self.current(app), thumb, self.value_at(x, track));
+        let range = self.moved(self.current(app), thumb, self.value_at(x, rail));
         let (changed, rebuild) = self.assign(range, app);
         if let Some(drag) = &mut own.drag {
             drag.changed |= changed;

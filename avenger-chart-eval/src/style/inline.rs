@@ -630,15 +630,46 @@ pub(crate) fn geo_mark(tree: &mut Styled, node: NodeId, mark: &geo_layer::Mark) 
     }
 }
 
-/// A `SphereStyle` on the `plot[type=geo]` of its geo plot: its fill as the `background`, and its
-/// stroke and width as a solid border.
+/// A `SphereStyle` on the `sphere` of its geo plot: its `fill`, its `stroke`, and its
+/// `stroke-width`.
 pub(crate) fn sphere(tree: &mut Styled, node: NodeId, sphere: &proto::SphereStyle) {
-    color(tree, node, Property::Background, &sphere.fill);
-    if !sphere.stroke.is_empty() {
-        color(tree, node, Property::BorderColor, &sphere.stroke);
-        set(tree, node, Property::BorderStyle, "solid");
+    color(tree, node, Property::Fill, &sphere.fill);
+    color(tree, node, Property::Stroke, &sphere.stroke);
+    px(tree, node, Property::StrokeWidth, sphere.stroke_width);
+}
+
+/// The nodes of a widget and of the parts that its kind draws.
+#[derive(Clone, Debug)]
+pub(crate) struct WidgetNodes {
+    pub(crate) widget: NodeId,
+    /// The title, which names the widget, and which a check box draws as its label.
+    pub(crate) title: NodeId,
+    /// The labels of the items of a radio group, a check box list, or a mode widget of a group.
+    pub(crate) label: Option<NodeId>,
+    /// The rail, the thumbs, and the readout of a slider or a range slider.
+    pub(crate) rail: Option<NodeId>,
+    pub(crate) thumb: Option<NodeId>,
+    pub(crate) readout: Option<NodeId>,
+}
+
+/// A `Widget` on its nodes: whether its title shows and its font, and the fonts of the labels of
+/// its items and of its readout.
+pub(crate) fn widget(tree: &mut Styled, nodes: &WidgetNodes, widget: &proto::Widget) {
+    use proto::widget::Kind;
+    guide_title(tree, nodes.title, widget.title.as_ref());
+    let (labels, readout) = match &widget.kind {
+        Some(Kind::Radio(radio)) => (radio.labels.as_ref(), None),
+        Some(Kind::Checkboxes(checkboxes)) => (checkboxes.labels.as_ref(), None),
+        Some(Kind::Slider(slider)) => (None, slider.readout.as_ref()),
+        Some(Kind::RangeSlider(slider)) => (None, slider.readout.as_ref()),
+        _ => (None, None),
+    };
+    if let (Some(node), Some(labels)) = (nodes.label, labels) {
+        font(tree, node, Font::of_labels(labels));
     }
-    px(tree, node, Property::BorderWidth, sphere.stroke_width);
+    if let (Some(node), Some(readout)) = (nodes.readout, readout) {
+        font(tree, node, Font::of_labels(readout));
+    }
 }
 
 /// The nodes of the parts of a graticule.

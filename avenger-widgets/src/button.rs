@@ -9,7 +9,7 @@ use avenger_layout::Direction;
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use crate::binding::{self, Get};
-use crate::draw::{cover, focus_ring, label_color, rect, Text};
+use crate::draw::{cover, focus_ring, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
 type Press<State> = Arc<dyn Fn(&mut State) -> Rebuild + Send + Sync>;
@@ -84,7 +84,8 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
     }
 
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
-        let [width, height] = self.label.as_ref().map_or([0.0; 2], |label| label.size(cx));
+        let title = &cx.style.title;
+        let [width, height] = (self.label.as_ref()).map_or([0.0; 2], |label| label.size(cx, title));
         let [across, down] = cx.style.button_padding;
         match direction {
             Direction::Horizontal => width + 2.0 * across,
@@ -118,13 +119,13 @@ impl<State: Send + Sync + 'static> Widget<State> for Button<State> {
         )
         .into()];
         if let Some(label) = &self.label {
-            let bounds = label.bounds(cx)?;
+            let bounds = label.bounds(cx, &style.title)?;
             let at = [
                 r.x + (r.width - bounds.width) / 2.0,
                 r.y + (r.height - bounds.height) / 2.0,
             ];
-            let color = label_color(style, look);
-            marks.push(label.mark("button_label", at, color, style).into());
+            let color = style.title.color(look, style.background);
+            marks.push(label.mark("button_label", at, color, &style.title).into());
         }
         marks.push(cover(frame));
         if look.focus_visible {

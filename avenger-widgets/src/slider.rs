@@ -12,13 +12,13 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_typst_label::{bind, LabelError, LabelValue, LabelValues};
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{focus_ring, label_color, rect, Text};
+use crate::draw::{focus_ring, rect, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
-/// A slider with an optional label above its track and an optional readout beside it.
+/// A slider with an optional label above its rail and an optional readout beside it.
 ///
-/// A left-button press on the track sets the value at the pointer. Dragging updates the value.
+/// A left-button press on the rail sets the value at the pointer. Dragging updates the value.
 /// Arrow keys move the value by one step, Page Up and Page Down by ten steps, and Home and End
 /// select the endpoints. Canceling a drag, including with Escape, restores its starting value.
 pub struct Slider<State> {
@@ -55,7 +55,7 @@ impl<State> Slider<State> {
         }
     }
 
-    /// Show `label`, plain text or Typst markup (`Text::markup`), above the track.
+    /// Show `label`, plain text or Typst markup (`Text::markup`), above the rail.
     pub fn label(mut self, label: impl Into<Text>) -> Self {
         self.label = Some(label.into());
         self
@@ -251,7 +251,7 @@ impl<State> Slider<State> {
     /// failures measure as empty.
     fn readout_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         let size = |value: f64| match self.readout_text(value, cx) {
-            Ok(Some(text)) => text.size(cx),
+            Ok(Some(text)) => text.size(cx, &cx.style.readout),
             _ => [0.0; 2],
         };
         let [start, end] = [size(*self.range.start()), size(*self.range.end())];
@@ -262,7 +262,7 @@ impl<State> Slider<State> {
     fn label_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         match &self.label {
             Some(label) => {
-                let [width, height] = label.size(cx);
+                let [width, height] = label.size(cx, &cx.style.title);
                 [width, height + cx.style.label_gap]
             }
             None => [0.0; 2],
@@ -283,7 +283,7 @@ impl<State> Slider<State> {
         let half = style.thumb_size / 2.0;
         Parts {
             row: [row_top, row_height],
-            track: [
+            rail: [
                 rect.x + half,
                 (rect.right() - reserved - half).max(rect.x + half),
             ],
@@ -291,9 +291,9 @@ impl<State> Slider<State> {
         }
     }
 
-    /// The value at `x` along the track.
-    fn value_at(&self, x: f32, track: [f32; 2]) -> f64 {
-        let [start_x, end_x] = track;
+    /// The value at `x` along the rail.
+    fn value_at(&self, x: f32, rail: [f32; 2]) -> f64 {
+        let [start_x, end_x] = rail;
         let along = if end_x > start_x {
             f64::from(((x - start_x) / (end_x - start_x)).clamp(0.0, 1.0))
         } else {
@@ -306,10 +306,10 @@ impl<State> Slider<State> {
 
 /// Where a slider's parts lie in its rectangle.
 struct Parts {
-    /// The top and height of the row that holds the track, the thumb and the readout.
+    /// The top and height of the row that holds the rail, the thumb and the readout.
     row: [f32; 2],
     /// Horizontal bounds for the thumb's center, from the range's start to its end.
-    track: [f32; 2],
+    rail: [f32; 2],
     readout_x: f32,
 }
 
@@ -361,13 +361,13 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
                     Some(_) => readout_gap(style) + readout[0],
                     None => 0.0,
                 };
-                label_width.max(style.track_length[0] + style.thumb_size + reserved)
+                label_width.max(style.rail_length[0] + style.thumb_size + reserved)
             }
             Direction::Vertical => label_height + style.thumb_size.max(readout[1]),
         }
     }
 
-    /// The larger of the label width and the minimum track width, including thumb and readout.
+    /// The larger of the label width and the minimum rail width, including thumb and readout.
     fn width(&self, _height: f32, cx: &WidgetContext<'_>) -> avenger_layout::Measurement {
         let style = cx.style;
         let [label_width, _] = self.label_size(cx);
@@ -375,8 +375,8 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
             Some(_) => readout_gap(style) + self.readout_size(cx)[0],
             None => 0.0,
         };
-        let track = style.track_length[1] + style.thumb_size + reserved;
-        avenger_layout::Measurement::always(label_width.max(track))
+        let rail = style.rail_length[1] + style.thumb_size + reserved;
+        avenger_layout::Measurement::always(label_width.max(rail))
     }
 
     fn view(&self, app: &State, own: &SliderState) -> SliderView {
@@ -398,7 +398,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
         let parts = self.parts(r, cx);
         let [row_top, row_height] = parts.row;
         let middle = row_top + row_height / 2.0;
-        let [start_x, end_x] = parts.track;
+        let [start_x, end_x] = parts.rail;
         let (start, end) = (*self.range.start(), *self.range.end());
         let along = if end > start {
             ((view.value - start) / (end - start)).clamp(0.0, 1.0) as f32
@@ -411,34 +411,38 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
             pressed: false,
             ..look
         };
-        let track = style.neutral.paint(base);
+        let rail = style.rail.paint(base);
         let filled = style.accent.paint(base);
-        let thumb = style.neutral.paint(Look {
+        let thumb = style.thumb.paint(Look {
             pressed: view.dragging,
             ..look
         });
-        let height = style.track_height;
+        let height = style.rail_height;
         let top = middle - height / 2.0;
         let size = style.thumb_size;
         let thumb_bounds = [thumb_x - size / 2.0, middle - size / 2.0, size, size];
-        let color = label_color(style, look);
         let mut marks: Vec<SceneMark> = Vec::new();
         if let Some(label) = &self.label {
-            label.bounds(cx)?;
-            marks.push(label.mark("slider_label", [r.x, r.y], color, style).into());
+            label.bounds(cx, &style.title)?;
+            let color = style.title.color(look, style.background);
+            marks.push(
+                label
+                    .mark("slider_label", [r.x, r.y], color, &style.title)
+                    .into(),
+            );
         }
         marks.extend::<[SceneMark; 3]>([
             rect(
-                "track",
+                "rail",
                 [start_x, top, end_x - start_x, height],
-                track.border,
+                rail.fill,
                 [0.0; 4],
                 0.0,
                 height / 2.0,
             )
             .into(),
             rect(
-                "track_fill",
+                "rail_fill",
                 [start_x, top, thumb_x - start_x, height],
                 filled.fill,
                 [0.0; 4],
@@ -457,9 +461,10 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
             .into(),
         ]);
         if let Some(readout) = self.readout_text(view.value, cx)? {
-            let bounds = readout.bounds(cx)?;
+            let bounds = readout.bounds(cx, &style.readout)?;
             let at = [parts.readout_x, middle - bounds.height / 2.0];
-            marks.push(readout.mark("readout", at, color, style).into());
+            let color = style.readout.color(look, style.background);
+            marks.push(readout.mark("readout", at, color, &style.readout).into());
         }
         if look.focus_visible {
             marks.push(focus_ring(thumb_bounds, size / 2.0, style));
@@ -527,11 +532,11 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
                     changed: false,
                     canceled: false,
                 });
-                self.drag_to(down.position[0], parts.track, app, own)
+                self.drag_to(down.position[0], parts.rail, app, own)
             }
             SceneGraphEvent::CursorMoved(moved) if own.drag.as_ref().is_some_and(Drag::active) => {
-                let track = self.parts(placed.rect, cx).track;
-                self.drag_to(moved.position[0], track, app, own)
+                let rail = self.parts(placed.rect, cx).rail;
+                self.drag_to(moved.position[0], rail, app, own)
             }
             SceneGraphEvent::MouseUp(up) if up.button == MouseButton::Left => {
                 match own.drag.take() {
@@ -574,8 +579,8 @@ impl<State: Send + Sync + 'static> Widget<State> for Slider<State> {
 
 impl<State> Slider<State> {
     /// Set the value at `x` during a drag.
-    fn drag_to(&self, x: f32, track: [f32; 2], app: &mut State, own: &mut SliderState) -> Rebuild {
-        let (changed, rebuild) = self.set(self.value_at(x, track), app);
+    fn drag_to(&self, x: f32, rail: [f32; 2], app: &mut State, own: &mut SliderState) -> Rebuild {
+        let (changed, rebuild) = self.set(self.value_at(x, rail), app);
         if let Some(drag) = &mut own.drag {
             drag.changed |= changed;
         }
@@ -607,7 +612,7 @@ pub(crate) fn round_to(value: f64, exponent: i32) -> f64 {
     }
 }
 
-/// The gap between the end of the track and the readout, which holds the thumb's focus ring.
+/// The gap between the end of the rail and the readout, which holds the thumb's focus ring.
 pub(crate) fn readout_gap(style: &WidgetStyle) -> f32 {
     style.label_gap + style.focus_offset + style.focus_width
 }

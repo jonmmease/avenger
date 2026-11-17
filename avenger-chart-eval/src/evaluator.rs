@@ -670,14 +670,13 @@ impl ChartEvaluator {
                     PlotCoords::cartesian(plot_size, [x, y])
                 }
             };
-            // The background and the border of a geo plot draw its sphere.
-            if geo_fit.is_none() {
-                marks.extend(backdrop(
-                    &format!("{}/background", plot_ref.name),
-                    &styles[self.nodes.plot(&plot_ref.path).plot],
-                    [rect.x, rect.y, rect.width, rect.height],
-                ));
-            }
+            // The background and the border of every plot draw its box, and a geo plot's
+            // `sphere` draws its sphere.
+            marks.extend(backdrop(
+                &format!("{}/background", plot_ref.name),
+                &styles[self.nodes.plot(&plot_ref.path).plot],
+                [rect.x, rect.y, rect.width, rect.height],
+            ));
             marks.push(
                 SceneGroup {
                     name: plot_ref.name.clone(),
@@ -1590,7 +1589,8 @@ fn prepare(inputs: &Inputs) -> Result<Prepared> {
             chart,
             resolved,
             drawn,
-            styles: (nodes.widgets.iter()).map(|node| &styles[*node]).collect(),
+            styles,
+            nodes: &nodes.widgets,
             engine,
         },
         &mut warnings,

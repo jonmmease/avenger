@@ -466,7 +466,7 @@ fn a_slider_gesture_settles_once_and_escape_or_a_cancel_restores_it() {
         let mut state = stacked();
         state.value = 4.5;
         let mut f = fixture(state).await;
-        let [x, y, width, height] = bounds(&f.boxes("slider", "track")[0]);
+        let [x, y, width, height] = bounds(&f.boxes("slider", "rail")[0]);
         let at = |along: f32| [x + along * width, y + height / 2.0];
 
         // Escape restores exactly the value at the press, which no step admits, and the release

@@ -9,7 +9,7 @@ use avenger_layout::{Direction, Measurement, Rect};
 use avenger_scenegraph::marks::mark::SceneMark;
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{cover, focus_ring, holds, label_color, rect, Bounds, Text};
+use crate::draw::{cover, focus_ring, holds, rect, Bounds, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 
@@ -106,10 +106,10 @@ impl<State, T: Clone + PartialEq + Send + Sync + 'static> RadioGroup<State, T> {
     fn sizes(&self, cx: &WidgetContext<'_>) -> Sizes {
         let style = cx.style;
         Sizes {
-            label: self.label.as_ref().map(|label| label.size(cx)),
+            label: (self.label.as_ref()).map(|label| label.size(cx, &style.title)),
             items: (self.items.iter())
                 .map(|(_, label)| {
-                    let [width, height] = label.size(cx);
+                    let [width, height] = label.size(cx, &style.label);
                     [
                         style.control_size + style.label_gap + width,
                         height.max(style.control_size),
@@ -265,19 +265,24 @@ impl<State: Send + Sync + 'static, T: Clone + PartialEq + Send + Sync + 'static>
     ) -> Result<Vec<SceneMark>, WidgetError> {
         let style = cx.style;
         let look = placed.look;
-        let color = label_color(style, look);
         let mut marks: Vec<SceneMark> = Vec::new();
         if let Some(label) = &self.label {
-            label.bounds(cx)?;
+            label.bounds(cx, &style.title)?;
             let at = [placed.rect.x, placed.rect.y];
-            marks.push(label.mark("radio_group_label", at, color, style).into());
+            let color = style.title.color(look, style.background);
+            marks.push(
+                label
+                    .mark("radio_group_label", at, color, &style.title)
+                    .into(),
+            );
         }
+        let color = style.label.color(look, style.background);
         let sizes = self.sizes(cx);
         let items = self.arrange(placed.rect, &sizes, style);
         let size = style.control_size;
         for (index, ((_, label), [x, y, width, height])) in self.items.iter().zip(items).enumerate()
         {
-            let bounds = label.bounds(cx)?;
+            let bounds = label.bounds(cx, &style.label)?;
             let hovered = look.hovered && view.hovered == Some(index);
             let item = Look {
                 hovered,
@@ -323,7 +328,7 @@ impl<State: Send + Sync + 'static, T: Clone + PartialEq + Send + Sync + 'static>
                 x + size + style.label_gap,
                 y + (height - bounds.height) / 2.0,
             ];
-            marks.push(label.mark("radio_label", at, color, style).into());
+            marks.push(label.mark("radio_label", at, color, &style.label).into());
             marks.push(cover([x, y, width, height]));
             if look.focus_visible && index == view.selected.unwrap_or(0) {
                 marks.push(focus_ring(circle, size / 2.0, style));

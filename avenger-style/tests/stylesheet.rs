@@ -690,12 +690,26 @@ fn container_units_are_errors_that_point_to_container_conditions() {
 }
 
 #[test]
-fn widgets_and_their_parts_take_accent_color() {
+fn widgets_and_their_parts_take_their_styles() {
     let (_, diagnostics) = parse(
-        "widget[type=range_slider][key=magnitude] thumb { accent-color: #2a52cc; }\n\
-         widget track { accent-color: auto; } widget readout { font-size: 11px; }",
+        "widget[type=range_slider][key=magnitude] { accent-color: #2a52cc; }\n\
+         widget rail { fill: gray; } widget thumb { fill: white; stroke: auto; }\n\
+         widget > title { font-weight: bold; } widget > label { font-style: italic; }\n\
+         widget readout { font-size: 11px; }",
     );
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     error("widget[channel=x] { color: red; }", "attribute");
     error("widget { accent-color: 3px; }", "accent-color");
+    // A slider's line is its `rail`, so `track` names only the sizes of a composition's layout.
+    error(
+        "widget track { fill: gray; }",
+        "`track` is not an element of the style tree",
+    );
+}
+
+#[test]
+fn a_geo_plot_has_a_sphere() {
+    let (_, diagnostics) =
+        parse("plot[type=geo] > sphere { fill: #eef; stroke: gray; stroke-width: 0.5; }");
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
 }

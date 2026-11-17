@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use arrow::datatypes::DataType;
 use avenger_chart::{
     layer::{CoordKind, LayerRef, MarkMessage},
-    proto::{self, encoding, layer_tool, node::Node, plot::Coord, select, tool},
+    proto::{self, encoding, layer_tool, node::Node, plot::Coord, select, tool, widget},
     resolve::{PlotRef, Resolved, ScaleGroup},
     Chart, FitKind,
 };
@@ -21,7 +21,9 @@ use crate::{
 
 use super::{
     guide_kind, inline,
-    inline::{AxisNodes, ColorbarNodes, FacetNodes, GraticuleNodes, LegendNodes, Styled},
+    inline::{
+        AxisNodes, ColorbarNodes, FacetNodes, GraticuleNodes, LegendNodes, Styled, WidgetNodes,
+    },
     scale_type, GuideKind,
 };
 
@@ -35,12 +37,15 @@ pub(crate) enum GuideNodes {
 }
 
 /// The nodes that a plot, a concat, or a wrap has: the `plot` inside its `chart`, and its title and
-/// subtitle.
+/// the subtitle below the title.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeNodes {
     pub(crate) plot: NodeId,
     pub(crate) title: Option<NodeId>,
     pub(crate) subtitle: Option<NodeId>,
+    /// The sphere of a geo plot that draws one.
+    #[cfg_attr(not(feature = "geo"), allow(dead_code))]
+    pub(crate) sphere: Option<NodeId>,
     /// The graticule of a geo plot that has one.
     #[cfg_attr(not(feature = "geo"), allow(dead_code))]
     pub(crate) graticule: Option<GraticuleNodes>,
@@ -70,9 +75,9 @@ pub(crate) struct StyleNodes {
     /// The `facet` of each concat or wrap with a facet that shows, by the path of the concat or
     /// the wrap.
     pub(crate) facets: HashMap<String, FacetNodes>,
-    /// The `widget` of each widget group, under the `plot` of the node that holds the group, in
-    /// the order of `Resolved::widgets`.
-    pub(crate) widgets: Vec<NodeId>,
+    /// The nodes of each widget group: its `widget`, under the `plot` of the node that holds the
+    /// group, and the parts that its kind draws, in the order of `Resolved::widgets`.
+    pub(crate) widgets: Vec<WidgetNodes>,
 }
 
 impl StyleNodes {
@@ -213,7 +218,9 @@ pub(crate) fn build(
         }
         tree.set_attribute(node, "key", group.key.clone());
         identify(&mut tree, node, "", &group.widget.classes);
-        widgets.push(node);
+        let nodes = widget_nodes(&mut tree, node, group.widget.kind.as_ref());
+        inline::widget(&mut tree, &nodes, &group.widget);
+        widgets.push(nodes);
     }
 
     let nodes = StyleNodes {
@@ -264,14 +271,14 @@ fn composition(
         Some(title) => {
             let title_node = tree.add(chart_node, Element::Title);
             let subtitle_node =
-                (!title.subtitle.is_empty()).then(|| tree.add(chart_node, Element::Subtitle));
+                (!title.subtitle.is_empty()).then(|| tree.add(title_node, Element::Subtitle));
             inline::title(tree, title_node, subtitle_node, title);
             (Some(title_node), subtitle_node)
         }
         None => (None, None),
     };
     let plot_node = tree.add(chart_node, Element::Plot);
-    let mut graticule = None;
+    let (mut sphere, mut graticule) = (None, None);
     match kind {
         Node::Plot(plot) => {
             let coord = CoordKind::of(plot).expect("a valid plot has a coordinate system");
@@ -294,7 +301,7 @@ fn composition(
             }
             inline::plot(tree, plot_node, plot);
             if let Some(Coord::Geo(geo)) = &plot.coord {
-                graticule = geo_plot(tree, plot_node, geo);
+                (sphere, graticule) = geo_plot(tree, plot_node, geo);
             }
         }
         Node::Concat(concat) => {
@@ -355,6 +362,7 @@ fn composition(
             plot: plot_node,
             title: title_node,
             subtitle: subtitle_node,
+            sphere,
             graticule,
         },
     );
@@ -376,24 +384,65 @@ fn composition(
     }
 }
 
-/// The `projection` of the `plot[type=geo]` of a geo plot, its sphere's inline styles, and the nodes of
-/// its graticule, when it draws one.
-fn geo_plot(tree: &mut Styled, plot_node: NodeId, plot: &proto::GeoPlot) -> Option<GraticuleNodes> {
-    let spec = plot.options.as_ref()?;
+/// The nodes of the parts that a widget of `kind` draws under its `widget`: a title for every kind,
+/// the labels of the items of a radio group, a check box list, and a mode widget of a group, and
+/// the rail, the thumbs, and the readout of the sliders.
+fn widget_nodes(tree: &mut Styled, widget: NodeId, kind: Option<&widget::Kind>) -> WidgetNodes {
+    let mut nodes = WidgetNodes {
+        widget,
+        title: tree.add(widget, Element::Title),
+        label: None,
+        rail: None,
+        thumb: None,
+        readout: None,
+    };
+    match kind {
+        Some(widget::Kind::Slider(_) | widget::Kind::RangeSlider(_)) => {
+            nodes.rail = Some(tree.add(widget, Element::Rail));
+            nodes.thumb = Some(tree.add(widget, Element::Thumb));
+            nodes.readout = Some(tree.add(widget, Element::Readout));
+        }
+        Some(widget::Kind::Radio(_) | widget::Kind::Checkboxes(_)) => {
+            nodes.label = Some(tree.add(widget, Element::Label));
+        }
+        Some(widget::Kind::Mode(mode)) => {
+            if let Some(proto::mode_widget::Modes::Group(_)) = mode.modes {
+                nodes.label = Some(tree.add(widget, Element::Label));
+            }
+        }
+        Some(widget::Kind::Checkbox(_)) | None => {}
+    }
+    nodes
+}
+
+/// The `projection` of the `plot[type=geo]` of a geo plot, and the nodes of its sphere and of its
+/// graticule, with their inline styles, when it draws them.
+fn geo_plot(
+    tree: &mut Styled,
+    plot_node: NodeId,
+    plot: &proto::GeoPlot,
+) -> (Option<NodeId>, Option<GraticuleNodes>) {
+    let Some(spec) = plot.options.as_ref() else {
+        return (None, None);
+    };
     if let Some(name) = spec.projection.as_ref().and_then(projection_name) {
         tree.set_attribute(plot_node, "projection", name);
     }
-    if let Some(sphere) = crate::geo::sphere(spec) {
-        inline::sphere(tree, plot_node, sphere);
-    }
-    let graticule = crate::geo::graticule(spec)?;
-    let graticule_node = tree.add(plot_node, Element::Graticule);
-    let nodes = GraticuleNodes {
-        grid: tree.add(graticule_node, Element::Grid),
-        label: tree.add(graticule_node, Element::Label),
-    };
-    inline::graticule(tree, &nodes, graticule);
-    Some(nodes)
+    let sphere = crate::geo::sphere(spec).map(|sphere| {
+        let node = tree.add(plot_node, Element::Sphere);
+        inline::sphere(tree, node, sphere);
+        node
+    });
+    let graticule = crate::geo::graticule(spec).map(|graticule| {
+        let graticule_node = tree.add(plot_node, Element::Graticule);
+        let nodes = GraticuleNodes {
+            grid: tree.add(graticule_node, Element::Grid),
+            label: tree.add(graticule_node, Element::Label),
+        };
+        inline::graticule(tree, &nodes, graticule);
+        nodes
+    });
+    (sphere, graticule)
 }
 
 /// The name of a projection: its type in lowercase without the prefix, such as `equal_earth` or

@@ -660,3 +660,351 @@ fn the_properties_of_parts_reach_their_guides() {
         "labels farther from their ticks"
     );
 }
+
+/// The marks of a scene, with the marks inside its groups, in drawing order.
+fn all_marks(evaluated: &EvaluatedChart) -> Vec<&SceneMark> {
+    fn walk<'a>(marks: &'a [SceneMark], out: &mut Vec<&'a SceneMark>) {
+        for mark in marks {
+            out.push(mark);
+            if let SceneMark::Group(group) = mark {
+                walk(&group.marks, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&evaluated.scene.marks, &mut out);
+    out
+}
+
+/// The text mark named `name` of a scene.
+fn text_named<'a>(
+    evaluated: &'a EvaluatedChart,
+    name: &str,
+) -> &'a avenger_scenegraph::marks::text::SceneTextMark {
+    (all_marks(evaluated).into_iter())
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) if text.name == name => Some(text),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a text mark named `{name}`"))
+}
+
+/// The fill and the stroke of the rectangle mark named `name` of a scene.
+fn rect_paints(evaluated: &EvaluatedChart, name: &str) -> Option<[[f32; 4]; 2]> {
+    use avenger_color::ColorOrGradient;
+    let color = |paint: Option<&ColorOrGradient>| match paint {
+        Some(ColorOrGradient::Color(color)) => *color,
+        other => panic!("a color: {other:?}"),
+    };
+    (all_marks(evaluated).into_iter()).find_map(|mark| match mark {
+        SceneMark::Rect(rect) if rect.name == name => {
+            Some([color(rect.fill.first()), color(rect.stroke.first())])
+        }
+        _ => None,
+    })
+}
+
+/// A subtitle is a part of its title, so it takes the title's text styles unless it sets its own.
+#[test]
+fn a_subtitle_takes_the_text_styles_of_its_title() {
+    let chart = |title: TitleBuilder| {
+        let symbols =
+            CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+        Chart::builder(Plot::cartesian([symbols]).title(title))
+            .build()
+            .unwrap()
+    };
+    let host = HostInputs::sized(400.0, 300.0);
+    let red = Title::builder()
+        .text("Penguins")
+        .subtitle("By species")
+        .color("red");
+    let mut red = evaluator(chart(red), cascade(""));
+    let (title, subtitle) = {
+        let tree = red.style_tree();
+        let title = nodes_of(tree, Element::Title)[0];
+        (title, part(tree, title, Element::Subtitle))
+    };
+    let styles = red.styles(&host);
+    assert_eq!(
+        styles[subtitle].color(Property::Color),
+        Some([1.0, 0.0, 0.0, 1.0])
+    );
+    // The base stylesheet keeps the subtitle smaller than its bold title, and at a normal weight.
+    assert_eq!(styles[title].font_size(), 13.0);
+    assert_eq!(styles[subtitle].font_size(), 12.0);
+    assert_eq!(
+        styles[subtitle].keyword(Property::FontWeight),
+        Some("normal")
+    );
+
+    // A subtitle with a color of its own keeps it.
+    let blue = Title::builder()
+        .text("Penguins")
+        .subtitle("By species")
+        .color("red")
+        .subtitle_color("blue");
+    let mut blue = evaluator(chart(blue), cascade(""));
+    let styles = blue.styles(&host);
+    assert_eq!(
+        styles[subtitle].color(Property::Color),
+        Some([0.0, 0.0, 1.0, 1.0])
+    );
+
+    // A stylesheet's title styles reach the subtitle too.
+    let plain = Title::builder().text("Penguins").subtitle("By species");
+    let mut plain = evaluator(
+        chart(plain),
+        cascade("chart > title { color: green; font-style: italic; }"),
+    );
+    let styles = plain.styles(&host);
+    let green = [0.0, 128.0 / 255.0, 0.0, 1.0];
+    assert_eq!(styles[subtitle].color(Property::Color), Some(green));
+    assert_eq!(
+        styles[subtitle].keyword(Property::FontStyle),
+        Some("italic")
+    );
+}
+
+/// A geo plot draws its sphere from its `sphere` node, with the inline styles of `SphereStyle` over
+/// the stylesheets, and its box from its own `background` and border, as a Cartesian plot does.
+#[cfg(feature = "geo")]
+#[test]
+fn a_geo_plot_draws_its_sphere_and_its_box_from_their_nodes() {
+    use avenger_color::ColorOrGradient;
+    let cities = RecordBatch::try_from_iter([
+        (
+            "lon",
+            Arc::new(Float64Array::from(vec![-74.0, 2.35, 139.7])) as ArrayRef,
+        ),
+        ("lat", Arc::new(Float64Array::from(vec![40.7, 48.9, 35.7]))),
+    ])
+    .unwrap();
+    let places = GeoLayer::symbol(
+        cities,
+        GeoSymbolMark::builder().longitude("lon").latitude("lat"),
+    );
+    let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere())
+        .sphere(SphereStyle::builder().fill("red"));
+    let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
+        .build()
+        .unwrap();
+    {
+        let evaluator = evaluator(chart.clone(), cascade(""));
+        let tree = evaluator.style_tree();
+        let plot = nodes_of(tree, Element::Plot)[0];
+        assert_eq!(elements(tree, plot)[0], Element::Sphere);
+    }
+    // The sphere's fill, its stroke, and the width of its stroke.
+    let sphere = |evaluated: &EvaluatedChart| {
+        let color = |paint: Option<&ColorOrGradient>| match paint {
+            Some(ColorOrGradient::Color(color)) => *color,
+            other => panic!("a color: {other:?}"),
+        };
+        (all_marks(evaluated).into_iter()).find_map(|mark| match mark {
+            SceneMark::Path(path) => Some((
+                color(path.fill.first()),
+                color(path.stroke.first()),
+                *path.stroke_width.first().unwrap(),
+            )),
+            _ => None,
+        })
+    };
+    let background = |evaluated: &EvaluatedChart| {
+        let name = format!("{}/background", evaluated.plots[0].name);
+        rect_paints(evaluated, &name).map(|[fill, _]| fill)
+    };
+
+    // The field's fill, and the base stylesheet's outline, with no box behind the plot.
+    let plain = evaluated(&chart, "");
+    let (fill, stroke, width) = sphere(&plain).expect("a sphere");
+    assert_eq!(fill, [1.0, 0.0, 0.0, 1.0]);
+    assert!(stroke[3] > 0.0 && width == 1.0, "{stroke:?} {width}");
+    assert_eq!(background(&plain), None);
+
+    // A stylesheet outlines the sphere, and the plot's own background fills its box.
+    let styled = evaluated(
+        &chart,
+        "plot[type=geo] > sphere { fill: blue; stroke: green; stroke-width: 3; }
+         plot[type=geo] { background: yellow; }",
+    );
+    let green = [0.0, 128.0 / 255.0, 0.0, 1.0];
+    assert_eq!(sphere(&styled), Some(([1.0, 0.0, 0.0, 1.0], green, 3.0)));
+    assert_eq!(background(&styled), Some([1.0, 1.0, 0.0, 1.0]));
+
+    // A hidden sphere draws nothing.
+    let hidden = evaluated(&chart, "sphere { display: none; }");
+    assert_eq!(sphere(&hidden), None);
+}
+
+/// The title, the labels of the items, and the readout of a widget take the fonts of their nodes,
+/// and its rail and its thumbs their paints: the inline fonts of the format over the stylesheets.
+#[test]
+fn the_parts_of_widgets_take_the_styles_of_their_nodes() {
+    use avenger_common::types::{FontStyle, FontWeight};
+    use avenger_widgets::WidgetStyle;
+    let data = || WidgetDomain::data(WidgetDataDomain::builder());
+    let slider = Widget::slider(
+        SliderWidget::new("filter", "mass", data())
+            .step(50.0)
+            .readout(
+                Labels::builder()
+                    .format(",.0f")
+                    .font_size(15.0)
+                    .color("red"),
+            ),
+    )
+    .key("mass")
+    .title(Title::builder().text("Mass").font_weight(700.0));
+    let radio = Widget::radio(
+        RadioWidget::new("filter", "species", data()).labels(Labels::builder().font_size(14.0)),
+    )
+    .key("species");
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"))
+        .widgets([slider, radio]);
+    let chart = Chart::builder(Plot::cartesian([symbols]))
+        .number_format_syntax("d3")
+        .selections([Selection::new("filter", SelectionResolution::Intersect)])
+        .build()
+        .unwrap();
+    {
+        let evaluator = evaluator(chart.clone(), cascade(""));
+        let tree = evaluator.style_tree();
+        let widgets = nodes_of(tree, Element::Widget);
+        assert_eq!(
+            elements(tree, widgets[0]),
+            [
+                Element::Title,
+                Element::Rail,
+                Element::Thumb,
+                Element::Readout
+            ]
+        );
+        assert_eq!(elements(tree, widgets[1]), [Element::Title, Element::Label]);
+    }
+
+    let plain = evaluated(&chart, "");
+    assert!(plain.warnings.is_empty(), "{:#?}", plain.warnings);
+    let [slider, radio] = &plain.widgets[..] else {
+        panic!("two widgets: {:#?}", plain.widgets);
+    };
+    let red = [1.0, 0.0, 0.0, 1.0];
+    assert_eq!(slider.style.title.font_weight, FontWeight::BOLD);
+    assert_eq!(
+        (slider.style.readout.font_size, slider.style.readout.color),
+        (15.0, red)
+    );
+    assert_eq!(radio.style.label.font_size, 14.0);
+    // A part without styles of its own takes the widget's font, and the rail and the thumbs take
+    // the widget style's own paints.
+    assert_eq!(radio.style.title.font_size, 11.0);
+    assert_eq!(radio.style.title.font_weight, FontWeight::NORMAL);
+    assert_eq!(slider.style.rail, WidgetStyle::default().rail);
+    assert_eq!(slider.style.thumb, WidgetStyle::default().thumb);
+    // The drawn texts take the parts' fonts, and the readout its color.
+    assert_eq!(
+        text_named(&plain, "slider_label").font_weight.first(),
+        Some(&FontWeight::BOLD)
+    );
+    let readout = text_named(&plain, "readout");
+    assert_eq!(readout.font_size.first(), Some(&15.0));
+    assert_eq!(readout.color.first(), Some(&red));
+    assert_eq!(
+        text_named(&plain, "radio_label").font_size.first(),
+        Some(&14.0)
+    );
+
+    // A stylesheet paints the rail and the thumbs and styles the texts, below the inline fonts.
+    let styled = evaluated(
+        &chart,
+        "widget > rail { fill: green; }
+         widget > thumb { fill: white; stroke: black; }
+         widget > readout { font-size: 20px; font-style: italic; }
+         widget[type=radio] > title { color: blue; }",
+    );
+    let green = [0.0, 128.0 / 255.0, 0.0, 1.0];
+    assert_eq!(rect_paints(&styled, "rail").unwrap()[0], green);
+    assert_eq!(
+        rect_paints(&styled, "thumb"),
+        Some([[1.0; 4], [0.0, 0.0, 0.0, 1.0]])
+    );
+    let readout = text_named(&styled, "readout");
+    assert_eq!(readout.font_size.first(), Some(&15.0));
+    assert_eq!(readout.font_style.first(), Some(&FontStyle::Italic));
+    assert_eq!(
+        text_named(&styled, "radio_group_label").color.first(),
+        Some(&[0.0, 0.0, 1.0, 1.0])
+    );
+}
+
+/// Each kind of widget has the nodes of the parts that it draws, and a range slider's readout and a
+/// check box list's labels take their inline fonts.
+#[test]
+fn every_kind_of_widget_has_the_nodes_of_its_parts() {
+    let data = || WidgetDomain::data(WidgetDataDomain::builder());
+    let widgets = [
+        Widget::range_slider(
+            RangeSliderWidget::new("filter", "mass", data())
+                .readout(Labels::builder().format(",.0f").font_size(15.0)),
+        )
+        .key("mass"),
+        Widget::checkboxes(
+            CheckboxesWidget::new("filter", "species", data())
+                .labels(Labels::builder().font_size(14.0)),
+        )
+        .key("species"),
+        Widget::checkbox(CheckboxWidget::new("filter", "species", "Adelie")).key("adelie"),
+        Widget::mode(ModeWidget::group("drag")).key("drag"),
+        Widget::mode(ModeWidget::toggle("tooltips")).key("tooltips"),
+    ];
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"))
+        .tools([LayerToolBuilder::from(
+            Tooltip::builder().modes(["tooltips"]),
+        )])
+        .widgets(widgets);
+    let tools = [
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder()).modes(["box"])),
+    ];
+    let chart = Chart::builder(Plot::cartesian([symbols]).id("penguins").tools(tools))
+        .number_format_syntax("d3")
+        .selections([Selection::new("filter", SelectionResolution::Intersect)])
+        .modes([
+            Mode::new("pan").label("Pan").group("drag"),
+            Mode::new("box").label("Box").group("drag"),
+            Mode::new("tooltips").label("Tooltips").on(true),
+        ])
+        .build()
+        .unwrap();
+    {
+        let evaluator = evaluator(chart.clone(), cascade(""));
+        let tree = evaluator.style_tree();
+        let parts: Vec<Vec<Element>> = (nodes_of(tree, Element::Widget).into_iter())
+            .map(|widget| elements(tree, widget))
+            .collect();
+        use Element::{Label, Rail, Readout, Thumb, Title};
+        assert_eq!(
+            parts,
+            [
+                vec![Title, Rail, Thumb, Readout],
+                vec![Title, Label],
+                vec![Title],
+                vec![Title, Label],
+                vec![Title],
+            ]
+        );
+    }
+    let evaluated = evaluated(&chart, "");
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let styles: Vec<_> = evaluated
+        .widgets
+        .iter()
+        .map(|widget| &widget.style)
+        .collect();
+    assert_eq!(styles[0].readout.font_size, 15.0);
+    assert_eq!(styles[1].label.font_size, 14.0);
+    assert_eq!(
+        text_named(&evaluated, "readout").font_size.first(),
+        Some(&15.0)
+    );
+}
