@@ -9,7 +9,8 @@
 //! A mark function takes each channel of its mark as a named parameter:
 //!
 //! ```sql
-//! SELECT bar(x => species, y => n, color => island) AS chart FROM counts
+//! FROM counts
+//! |> AGGREGATE bar(x => species, y => n, color => island) AS chart
 //! ```
 //!
 //! A channel argument that reads the rows is a column of the chart's layer table, named by the

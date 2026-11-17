@@ -119,7 +119,8 @@ The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a r
 FROM penguins
 |> AGGREGATE layer(
      symbol(x => bill_length_mm, y => bill_depth_mm),
-     symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
+     symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
+   ) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
 ```
@@ -148,7 +149,7 @@ Its arguments read three scopes. The category reads each row. `weight`, `COUNT(*
 ```sql
 FROM sales
 |> AGGREGATE SUM(units) AS units GROUP BY month, region
-|> CALL impute(month, [region], units, value => 0, flag => 'imputed')
+|> CALL impute(month, [region], units, value => 0, flag => 'imputed');
 
 FROM impute(TABLE monthly, month, [region], units, method => 'avg', frame => [-1, 1])
 ```
