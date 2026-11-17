@@ -329,7 +329,7 @@ async fn aggregates_marks_and_windows_plan_in_items() {
         rows("FROM penguins |> AGGREGATE SUM(body_mass_g) + flipper_length_mm AS s GROUP BY flipper_length_mm |> WHERE flipper_length_mm = 172").await,
         standard_rows("SELECT flipper_length_mm, sum(body_mass_g) + flipper_length_mm AS s FROM penguins WHERE flipper_length_mm = 172 GROUP BY flipper_length_mm").await,
     );
-    let batches = run("FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species |> AGGREGATE bar(x => species, y => n ORDER BY species) AS chart")
+    let batches = run("FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species |> AGGREGATE mark_bar(x => species, y => n ORDER BY species) AS chart")
         .await
         .unwrap();
     let column = batches[0].column_by_name("chart").expect("a chart column");

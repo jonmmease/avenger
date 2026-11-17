@@ -70,11 +70,27 @@ fn an_expression_completes_the_columns_of_its_input() {
 fn an_aggregate_completes_marks_and_a_mark_its_parameters() {
     let (completions, _) = complete("FROM penguins |> AGGREGATE $0");
     assert!(item(&completions, "COUNT").is_some());
-    let bar = item(&completions, "bar").unwrap();
+    let bar = item(&completions, "mark_bar").unwrap();
     assert_eq!(bar.kind, CompletionKind::Function(FunctionRole::Mark));
-    assert!(bar.documentation.as_deref().unwrap().contains("## `bar`"));
+    assert!(bar
+        .documentation
+        .as_deref()
+        .unwrap()
+        .contains("## `mark_bar`"));
+    // Every mark shares the prefix `mark_`, so the prefix completes the marks alone.
+    let (completions, _) = complete("FROM penguins |> AGGREGATE mark_$0");
+    let marks = labels(&completions, CompletionKind::Function(FunctionRole::Mark));
+    assert!(
+        marks.contains(&"mark_bar") && marks.contains(&"mark_polar_bar"),
+        "{marks:?}"
+    );
+    assert!(
+        marks.iter().all(|mark| mark.starts_with("mark_")),
+        "{marks:?}"
+    );
     // After a named argument, an argument takes only a name.
-    let (completions, _) = complete("FROM penguins |> AGGREGATE bar(x => species, $0) AS chart");
+    let (completions, _) =
+        complete("FROM penguins |> AGGREGATE mark_bar(x => species, $0) AS chart");
     let parameters = labels(&completions, CompletionKind::Parameter);
     assert!(parameters.contains(&"y"), "{parameters:?}");
     assert!(!parameters.contains(&"x"), "{parameters:?}");
@@ -85,7 +101,7 @@ fn an_aggregate_completes_marks_and_a_mark_its_parameters() {
         .all(|item| item.kind == CompletionKind::Parameter));
     // The value of a mark's argument, where the constructors come first among the functions.
     let (completions, _) =
-        complete("FROM penguins |> AGGREGATE bar(x => species, y => $0) AS chart");
+        complete("FROM penguins |> AGGREGATE mark_bar(x => species, y => $0) AS chart");
     let constructors = labels(
         &completions,
         CompletionKind::Function(FunctionRole::Constructor),
@@ -133,7 +149,7 @@ fn an_argument_completes_the_values_of_its_set() {
 
 #[test]
 fn an_argument_completes_the_constructors_of_its_parameter_first() {
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), \
                 scale => scale(pin => $0))) AS chart";
     let (completions, _) = complete(text);
     let first = &completions.items[0];
@@ -142,7 +158,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     // The constructor named after the parameter, then the constructors one level down, named
     // after the parameters of `scale`, then the strings of the set.
     let text =
-        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), scale => $0)) AS chart";
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), scale => $0)) AS chart";
     let (completions, _) = complete(text);
     let first: Vec<&str> = (completions.items.iter().take(20))
         .map(|item| item.label.as_str())
@@ -156,7 +172,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     let detail = item(&completions, "type").and_then(|item| item.detail.as_deref());
     assert_eq!(detail, Some("builds the `type` of `scale`"));
     // After `type =>`, the scale types: the constructor of the type, then each type's.
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), \
                 scale => scale(type => $0))) AS chart";
     let (completions, _) = complete(text);
     let first: Vec<&str> = (completions.items.iter().take(4))
@@ -171,7 +187,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     );
     // In the string, every value of the set.
     let text =
-        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), scale => 'l$0')) AS chart";
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), scale => 'l$0')) AS chart";
     let (completions, replaced) = complete(text);
     assert_eq!(replaced, "'l'");
     let values = labels(&completions, CompletionKind::EnumValue);
@@ -180,7 +196,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
         "{values:?}"
     );
     // A parameter that takes no constructor has none first.
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), \
                 scale => scale(zero => $0))) AS chart";
     let (completions, _) = complete(text);
     let detail = completions.items[0].detail.as_deref().unwrap_or_default();
@@ -356,7 +372,7 @@ fn a_place_takes_what_the_analysis_accepts_there() {
 
 #[test]
 fn a_named_argument_at_the_cursor_completes_its_own_name() {
-    let (completions, _) = complete("FROM penguins |> AGGREGATE bar($0x => species) AS chart");
+    let (completions, _) = complete("FROM penguins |> AGGREGATE mark_bar($0x => species) AS chart");
     assert!(labels(&completions, CompletionKind::Parameter).contains(&"x"));
 }
 
@@ -514,7 +530,7 @@ fn a_subquery_or_a_window_in_an_argument_completes_as_its_own_place() {
     assert!(labels(&completions, CompletionKind::Column).contains(&"island"));
     assert!(labels(&completions, CompletionKind::Parameter).is_empty());
     let (completions, _) = complete(
-        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*) OVER (PARTITION BY island, $0)) AS c",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*) OVER (PARTITION BY island, $0)) AS c",
     );
     assert!(labels(&completions, CompletionKind::Column).contains(&"species"));
     assert!(labels(&completions, CompletionKind::Parameter).is_empty());
@@ -529,7 +545,7 @@ fn an_aggregate_completes_compositions_and_their_options_constructors_first() {
         CompletionKind::Function(FunctionRole::Composition)
     );
     let (completions, _) = complete(
-        "FROM penguins |> AGGREGATE bar(x => species) AS chart GROUP BY island \
+        "FROM penguins |> AGGREGATE mark_bar(x => species) AS chart GROUP BY island \
          |> AGGREGATE facet_column(chart, island, resolve => $0) AS chart",
     );
     let first = (completions.items.iter())
@@ -545,7 +561,8 @@ fn an_aggregate_completes_compositions_and_their_options_constructors_first() {
 
 #[test]
 fn a_layer_completes_another_chart_or_an_option() {
-    let charts = "FROM (FROM penguins |> AGGREGATE bar(x => species) AS a, bar(x => island) AS b)";
+    let charts =
+        "FROM (FROM penguins |> AGGREGATE mark_bar(x => species) AS a, mark_bar(x => island) AS b)";
     let (completions, _) = complete(&format!("{charts} |> SELECT layer(a, $0) AS c"));
     assert!(labels(&completions, CompletionKind::Column).contains(&"b"));
     let parameters = labels(&completions, CompletionKind::Parameter);
@@ -562,24 +579,25 @@ fn a_layer_completes_another_chart_or_an_option() {
 
 #[test]
 fn a_mark_outside_an_aggregate_completes_no_aggregates_in_its_channels() {
-    let (completions, _) = complete("FROM penguins |> SELECT bar(x => species, y => $0)");
+    let (completions, _) = complete("FROM penguins |> SELECT mark_bar(x => species, y => $0)");
     assert!(item(&completions, "COUNT").is_none());
 }
 
 #[test]
 fn a_mark_in_an_aggregate_completes_window_functions_in_its_channels() {
-    let (completions, _) = complete("FROM penguins |> AGGREGATE bar(x => $0, y => COUNT(*))");
+    let (completions, _) = complete("FROM penguins |> AGGREGATE mark_bar(x => $0, y => COUNT(*))");
     assert!(item(&completions, "bin").is_some());
     assert!(item(&completions, "NTILE").is_some());
 }
 
 #[test]
 fn a_window_in_a_mark_channel_completes_the_windows_of_the_call() {
-    let (completions, _) =
-        complete("FROM penguins |> AGGREGATE bar(x => bin(body_mass_g) OVER pa$0, y => COUNT(*))");
+    let (completions, _) = complete(
+        "FROM penguins |> AGGREGATE mark_bar(x => bin(body_mass_g) OVER pa$0, y => COUNT(*))",
+    );
     assert!(item(&completions, "panel").is_some());
     let (completions, _) =
-        complete("FROM penguins |> AGGREGATE bar(x => island, y => stack(COUNT(*)) OVER $0)");
+        complete("FROM penguins |> AGGREGATE mark_bar(x => island, y => stack(COUNT(*)) OVER $0)");
     assert!(item(&completions, "position").is_some() && item(&completions, "series").is_some());
     let (completions, _) = complete("FROM penguins |> EXTEND ROW_NUMBER() OVER pa$0 AS n");
     assert!(item(&completions, "panel").is_none());
@@ -595,11 +613,11 @@ fn an_element_of_an_array_completes_the_constructors_of_its_elements() {
     };
     // The tools of a mark and of a composition, at the start of the array and after an element.
     for text in [
-        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => [$0]) AS chart",
-        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => [na$0]) AS chart",
-        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), \
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*), tools => [$0]) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*), tools => [na$0]) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*), \
          tools => [navigate(), $0]) AS chart",
-        "FROM penguins |> AGGREGATE layer(bar(x => species, y => COUNT(*)), \
+        "FROM penguins |> AGGREGATE layer(mark_bar(x => species, y => COUNT(*)), \
          title => 'T', tools => [$0]) AS chart",
     ] {
         let labels = labels_of(text);
@@ -611,13 +629,13 @@ fn an_element_of_an_array_completes_the_constructors_of_its_elements() {
     }
     // The levels of a nested band axis take `level`.
     let labels = labels_of(
-        "FROM penguins |> AGGREGATE bar(x => x(species, axis => axis(levels => [$0])), \
+        "FROM penguins |> AGGREGATE mark_bar(x => x(species, axis => axis(levels => [$0])), \
          y => COUNT(*)) AS chart",
     );
     assert!(labels.iter().any(|label| label == "level"), "{labels:?}");
     // A bare element constructor is not the value of the array's argument.
     let labels = labels_of(
-        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => $0) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*), tools => $0) AS chart",
     );
     assert!(
         !labels.iter().any(|label| label == "navigate"),

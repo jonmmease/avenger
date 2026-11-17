@@ -31,7 +31,7 @@ async fn a_chart_reads_the_bins_of_a_transform() {
 |> WHERE body_mass_g IS NOT NULL
 |> EXTEND bin(body_mass_g) OVER () AS b
 |> AGGREGATE COUNT(*) AS n GROUP BY b
-|> AGGREGATE bar(x => b, y => n) AS chart";
+|> AGGREGATE mark_bar(x => b, y => n) AS chart";
     let charts = pass::charts(query).await;
     assert_eq!(charts.len(), 1);
     let chart = &charts[0];

@@ -33,7 +33,7 @@ fn diagnostics_leave_out_the_analysis_of_a_broken_statement() {
 
 #[test]
 fn highlights_take_the_roles_that_the_analysis_resolved() {
-    let text = "DECLARE lo INT64 DEFAULT 1;\nFROM penguins |> WHERE body_mass_g > lo |> AGGREGATE bar(x => species) AS chart";
+    let text = "DECLARE lo INT64 DEFAULT 1;\nFROM penguins |> WHERE body_mass_g > lo |> AGGREGATE mark_bar(x => species) AS chart";
     let document = document(text);
     let highlights = document.highlights();
     let class = |needle: &str, n: usize| {
@@ -48,7 +48,7 @@ fn highlights_take_the_roles_that_the_analysis_resolved() {
         Some(Highlight::Name(NameRole::Column))
     );
     assert_eq!(
-        class("bar", 0),
+        class("mark_bar", 0),
         Some(Highlight::Name(NameRole::Function(FunctionRole::Mark)))
     );
 }
@@ -129,7 +129,7 @@ fn folding_ranges_hold_multi_line_statements_calls_and_comments() {
     let text = "-- penguins
 -- by species
 FROM penguins
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
   x => species,
   y => COUNT(*)
 ) AS chart;
@@ -185,11 +185,12 @@ fn selection_ranges_grow_from_the_name_at_the_cursor() {
 
 #[test]
 fn a_document_prints_the_stages_of_its_lifted_calls() {
-    let document = document("FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart");
+    let document =
+        document("FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart");
     let lifted = document.lifted().unwrap();
     assert_eq!(
         lifted.text,
-        "FROM penguins |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species\n|> SELECT `species`, `COUNT(*)`\n|> AGGREGATE bar(x => `species`, y => `COUNT(*)`) AS `chart`"
+        "FROM penguins |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species\n|> SELECT `species`, `COUNT(*)`\n|> AGGREGATE mark_bar(x => `species`, y => `COUNT(*)`) AS `chart`"
     );
     assert_eq!(lifted.generated.len(), 1);
 }

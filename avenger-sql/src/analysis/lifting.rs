@@ -4,7 +4,7 @@
 //!
 //! ```sql
 //! FROM penguins
-//! |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart GROUP BY island
+//! |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart GROUP BY island
 //! ```
 //!
 //! plans as
@@ -12,7 +12,7 @@
 //! ```sql
 //! FROM penguins
 //! |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species
-//! |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island
+//! |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island
 //! ```
 //!
 //! In a call that holds an aggregate, each channel that holds neither an aggregate nor a window
@@ -71,7 +71,13 @@ const SERIES: &[&str] = &[
 ];
 
 /// The marks that draw paths, whose stacks fill the keys that a series lacks with zero.
-const PATHS: &[&str] = &["line", "area", "trail", "polar_line", "polar_area"];
+const PATHS: &[&str] = &[
+    "mark_line",
+    "mark_area",
+    "mark_trail",
+    "mark_polar_line",
+    "mark_polar_area",
+];
 
 /// The partition of the window `name`, `panel`, `position`, or `series`, of a mark call, which the
 /// branch resolves.

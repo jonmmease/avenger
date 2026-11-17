@@ -40,7 +40,7 @@ async fn encoding_plan(
         _ => "x => one, y => one",
     };
     let query = format!(
-        "FROM one |> AGGREGATE symbol({channel} => {channel}(one, {place} => {expression}), \
+        "FROM one |> AGGREGATE mark_symbol({channel} => {channel}(one, {place} => {expression}), \
          {others}) AS value"
     );
     let frame = avenger_sql::sql(&ctx, &query)
@@ -215,7 +215,7 @@ async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
         let chart = |value: &str| {
             format!(
                 "FROM penguins
-                 |> AGGREGATE symbol(x => x(body_mass_g, {place} => {value}), y => species)
+                 |> AGGREGATE mark_symbol(x => x(body_mass_g, {place} => {value}), y => species)
                       AS chart"
             )
         };
@@ -240,7 +240,7 @@ async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
         let chart = |value: &str| {
             format!(
                 "FROM penguins
-                 |> AGGREGATE symbol(
+                 |> AGGREGATE mark_symbol(
                       x => body_mass_g,
                       y => species,
                       color => color(island, {place} => {value}),
@@ -393,7 +393,7 @@ async fn one_name_builds_the_message_of_its_place() {
     let chart = chart_of(
         "FROM penguins
          |> WHERE body_mass_g IS NOT NULL
-         |> AGGREGATE symbol(
+         |> AGGREGATE mark_symbol(
               x => x(LOG(body_mass_g), scale => scale(type => log(base => 2))),
               y => species,
             ) AS chart",
@@ -672,7 +672,7 @@ fn plot(chart: &Chart) -> &avenger_chart::proto::Plot {
 #[tokio::test]
 async fn a_property_sets_its_field_of_the_mark() {
     let chart = chart(
-        "FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -689,7 +689,7 @@ async fn a_property_sets_its_field_of_the_mark() {
 #[tokio::test]
 async fn coord_sets_the_options_of_the_plot() {
     let chart = chart(
-        "FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart",
+        "FROM penguins |> AGGREGATE mark_polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Polar(polar)) = &plot(&chart).coord else {
@@ -727,7 +727,7 @@ async fn the_reader_checks_the_parameters_of_a_projection() {
     ] {
         let ctx = common::session();
         let query = format!(
-            "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
+            "FROM penguins |> AGGREGATE mark_geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
         );
         let result = match avenger_sql::sql(&ctx, &query).await {
             Ok(frame) => frame.collect().await.map(|_| ()),
@@ -750,7 +750,7 @@ async fn the_reader_checks_the_parameters_of_a_projection() {
 /// A geo chart of the penguins with the `coord` argument `coord`.
 async fn chart_of_geo(coord: &str) -> Chart {
     chart(&format!(
-        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
+        "FROM penguins |> AGGREGATE mark_geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
     ))
     .await
 }
@@ -758,7 +758,7 @@ async fn chart_of_geo(coord: &str) -> Chart {
 #[tokio::test]
 async fn a_channel_function_takes_the_options_of_its_encoding() {
     let chart = chart(
-        "FROM penguins |> AGGREGATE symbol(
+        "FROM penguins |> AGGREGATE mark_symbol(
            x => x(
              body_mass_g,
              scale => scale(type => 'log'),
@@ -807,7 +807,7 @@ async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
     for (query, option, expected) in [
         (
             "FROM penguins
-             |> AGGREGATE symbol(
+             |> AGGREGATE mark_symbol(
                   x => x(body_mass_g, legend => legend(columns => 2)),
                   y => flipper_length_mm,
                 ) AS chart",
@@ -816,7 +816,7 @@ async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
         ),
         (
             "FROM penguins
-             |> AGGREGATE symbol(
+             |> AGGREGATE mark_symbol(
                   x => body_mass_g,
                   y => flipper_length_mm,
                   color => color(species, axis => FALSE),
@@ -827,13 +827,13 @@ async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
         ),
         (
             "FROM penguins
-             |> AGGREGATE rule(x => body_mass_g, x2 => x2(flipper_length_mm, axis => FALSE)) AS chart",
+             |> AGGREGATE mark_rule(x => body_mass_g, x2 => x2(flipper_length_mm, axis => FALSE)) AS chart",
             "axis",
             "x2 has no parameter named `axis`",
         ),
         (
             "FROM penguins
-             |> AGGREGATE rule(
+             |> AGGREGATE mark_rule(
                   x => body_mass_g,
                   x2 => x2(flipper_length_mm, axis => axis(grid => FALSE)),
                 ) AS chart",
@@ -866,24 +866,24 @@ async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
 async fn the_options_of_a_mark_are_plan_time_constants() {
     for (query, expected) in [
         (
-            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)",
-            "bar() needs a plan-time constant for a property",
+            "FROM penguins |> AGGREGATE mark_bar(x => species, y => body_mass_g, corner_radius => body_mass_g)",
+            "mark_bar() needs a plan-time constant for a property",
         ),
         (
-            "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)",
+            "FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)",
             "needs a plan-time constant for an option of `x`",
         ),
         (
-            "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)",
-            "geo_symbol() needs `coord`",
+            "FROM penguins |> AGGREGATE mark_geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)",
+            "mark_geo_symbol() needs `coord`",
         ),
         // A wrong constructor inside an option fails with its own error, not the mark's.
         (
-            "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(domain => linear())), y => flipper_length_mm)",
+            "FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, scale => scale(domain => linear())), y => flipper_length_mm)",
             "`domain` takes",
         ),
         (
-            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))",
+            "FROM penguins |> AGGREGATE mark_bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))",
             "`coord` takes `coord => cartesian([aspect_ratio => ANY])`, not `geo(...)`",
         ),
     ] {
@@ -906,7 +906,7 @@ async fn tools(query: &str) -> Vec<avenger_chart::proto::Tool> {
         .unwrap()
         .into_unoptimized_plan();
     let library = avenger_sql::library::Library::new();
-    let index = (library.get("symbol").unwrap().forms[0]
+    let index = (library.get("mark_symbol").unwrap().forms[0]
         .signature
         .args
         .iter())
@@ -917,7 +917,7 @@ async fn tools(query: &str) -> Vec<avenger_chart::proto::Tool> {
         node.apply_expressions(|expr| {
             expr.apply(|expr| {
                 if let Expr::AggregateFunction(call) = expr {
-                    if call.func.name() == "symbol" {
+                    if call.func.name() == "mark_symbol" {
                         found = call.params.args.get(index).cloned();
                     }
                 }
@@ -961,7 +961,7 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
     use avenger_chart::proto::tool::Kind;
     let built = tools(
         "FROM penguins
-         |> AGGREGATE symbol(
+         |> AGGREGATE mark_symbol(
               x => body_mass_g,
               y => flipper_length_mm,
               tools => [
@@ -1002,7 +1002,7 @@ async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
     // A string names a tool without required content.
     let chart = chart(
         "FROM penguins
-         |> AGGREGATE symbol(x => body_mass_g, y => flipper_length_mm, tools => ['navigate']) AS chart",
+         |> AGGREGATE mark_symbol(x => body_mass_g, y => flipper_length_mm, tools => ['navigate']) AS chart",
     )
     .await;
     let navigate = Navigate::builder().to_fragment().unwrap();
@@ -1017,7 +1017,7 @@ async fn one_name_builds_a_point_scale_and_a_point_selection() {
     use avenger_chart::proto::tool::Kind;
     let built = tools(
         "FROM penguins
-         |> AGGREGATE symbol(
+         |> AGGREGATE mark_symbol(
               x => x(species, scale => scale(type => point(padding => 0.5))),
               y => flipper_length_mm,
               tools => [select('pick', type => point(keys => ['species'], toggle => TRUE))],
@@ -1134,7 +1134,7 @@ async fn a_channel_function_resolves_only_as_the_value_of_its_channel() {
     // `color` of `title`, takes its function, and the constructor's parameter takes its value.
     let chart = chart(
         "FROM penguins
-         |> AGGREGATE symbol(
+         |> AGGREGATE mark_symbol(
               x => x(body_mass_g, axis => axis(title => title('Mass', color => 'gray'))),
               y => species,
               size => size(flipper_length_mm, legend => FALSE),
@@ -1160,7 +1160,7 @@ async fn a_channel_function_resolves_only_as_the_value_of_its_channel() {
         "{message}"
     );
     let message = query_error(
-        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => size(flipper_length_mm)) AS chart",
+        "FROM penguins |> AGGREGATE mark_symbol(x => body_mass_g, y => size(flipper_length_mm)) AS chart",
     )
     .await;
     assert!(
@@ -1169,7 +1169,7 @@ async fn a_channel_function_resolves_only_as_the_value_of_its_channel() {
     );
     // In an expression of a channel, a channel function is no function.
     let message = query_error(
-        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => CONCAT(y(species), '')) AS chart",
+        "FROM penguins |> AGGREGATE mark_symbol(x => body_mass_g, y => CONCAT(y(species), '')) AS chart",
     )
     .await;
     assert!(
@@ -1183,7 +1183,7 @@ async fn datum_takes_a_constant_of_a_script_variable() {
     let chart = chart(
         "DECLARE s DEFAULT 'Adelie';
          FROM penguins
-         |> AGGREGATE symbol(x => body_mass_g, y => flipper_length_mm, color => datum(s)) AS chart",
+         |> AGGREGATE mark_symbol(x => body_mass_g, y => flipper_length_mm, color => datum(s)) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
@@ -1207,11 +1207,13 @@ async fn reading_error(query: &str) -> String {
 #[tokio::test]
 async fn labels_take_the_settings_that_their_guide_draws() {
     let symbol = |x: &str, color: &str| {
-        format!("FROM penguins |> AGGREGATE symbol(x => {x}, y => bill_depth_mm{color}) AS chart")
+        format!(
+            "FROM penguins |> AGGREGATE mark_symbol(x => {x}, y => bill_depth_mm{color}) AS chart"
+        )
     };
     let polar = |labels: &str| {
         format!(
-            "FROM penguins |> AGGREGATE polar_bar(theta => species, radius => radius(body_mass_g, \
+            "FROM penguins |> AGGREGATE mark_polar_bar(theta => species, radius => radius(body_mass_g, \
              axis => axis(labels => labels({labels})))) AS chart"
         )
     };
@@ -1256,7 +1258,7 @@ async fn labels_take_the_settings_that_their_guide_draws() {
 async fn a_legend_places_its_values_as_an_axis_does() {
     for channel in ["color", "size"] {
         let chart = chart(&format!(
-            "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+            "FROM penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, \
              {channel} => {channel}(body_mass_g, legend => legend(value_placement => 3))) AS chart"
         ))
         .await;
@@ -1295,7 +1297,7 @@ async fn a_subtitle_is_a_text_or_its_constructor() {
         ),
     ] {
         let chart = chart(&format!(
-            "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+            "FROM penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, \
              title => {title}) AS chart"
         ))
         .await;

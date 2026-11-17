@@ -3,4 +3,4 @@ FROM penguins |> WHERE body_mass_g IS NOT NULL |> EXTEND bin(body_mass_g) OVER (
 |> CALL impute(`mass`, [`species`], `COUNT(*)`, value => 0)
 |> EXTEND stack(`COUNT(*)`) OVER (PARTITION BY `mass` ORDER BY `species` DESC NULLS FIRST) AS `stack(COUNT(*))`
 |> SELECT `mass`, `stack(COUNT(*))` AS `COUNT(*)`, `species`
-|> AGGREGATE area(x => `mass`, y => `COUNT(*)`, color => `species`) AS `chart`
+|> AGGREGATE mark_area(x => `mass`, y => `COUNT(*)`, color => `species`) AS `chart`

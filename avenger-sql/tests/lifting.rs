@@ -48,10 +48,10 @@ async fn error(query: &str) -> String {
 #[tokio::test]
 async fn a_count_by_category() {
     same(
-        &format!("{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart"),
+        &format!("{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart"),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart"
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart"
         ),
     )
     .await;
@@ -61,13 +61,13 @@ async fn a_count_by_category() {
 async fn a_mean_of_each_key_of_each_group() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => AVG(body_mass_g), color => sex) AS \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g), color => sex) AS \
              chart GROUP BY island"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` \
              GROUP BY island, species, sex \
-             |> AGGREGATE bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart \
+             |> AGGREGATE mark_bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart \
              GROUP BY island"
         ),
     )
@@ -78,12 +78,12 @@ async fn a_mean_of_each_key_of_each_group() {
 async fn a_measure_computes_over_its_aggregates_under_its_text() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE symbol(x => species, y => AVG(body_mass_g)   /  1000) AS chart"
+            "{PENGUINS} |> AGGREGATE mark_symbol(x => species, y => AVG(body_mass_g)   /  1000) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE AVG(body_mass_g) AS m GROUP BY species \
              |> SELECT species, m / 1000 AS `AVG(body_mass_g) / 1000` \
-             |> AGGREGATE symbol(x => species, y => `AVG(body_mass_g) / 1000`) AS chart"
+             |> AGGREGATE mark_symbol(x => species, y => `AVG(body_mass_g) / 1000`) AS chart"
         ),
     )
     .await;
@@ -93,23 +93,23 @@ async fn a_measure_computes_over_its_aggregates_under_its_text() {
 async fn channel_functions_and_markers_keep_their_place() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => y(COUNT(*), title => 'Penguins')) \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), title => 'Penguins')) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => y(`COUNT(*)`, title => 'Penguins')) AS chart"
+             |> AGGREGATE mark_bar(x => species, y => y(`COUNT(*)`, title => 'Penguins')) AS chart"
         ),
     )
     .await;
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => y(AVG(body_mass_g), \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => y(AVG(body_mass_g), \
              axis => axis(labels => labels(angle => -45))), fill => fill(value('red'))) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => y(`AVG(body_mass_g)`, \
+             |> AGGREGATE mark_bar(x => species, y => y(`AVG(body_mass_g)`, \
              axis => axis(labels => labels(angle => -45))), fill => fill(value('red'))) AS chart"
         ),
     )
@@ -119,7 +119,7 @@ async fn channel_functions_and_markers_keep_their_place() {
 #[tokio::test]
 async fn a_channel_function_lifts_its_aggregate_and_sets_its_axis() {
     let charts = common::charts(&format!(
-        "{PENGUINS} |> AGGREGATE bar(x => species, \
+        "{PENGUINS} |> AGGREGATE mark_bar(x => species, \
          y => y(AVG(body_mass_g), axis => axis(labels => labels(angle => -45)))) AS chart"
     ))
     .await;
@@ -149,13 +149,13 @@ async fn a_channel_function_lifts_its_aggregate_and_sets_its_axis() {
 async fn the_order_by_of_a_lifted_call_draws_by_an_aggregate() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*) ORDER BY AVG(body_mass_g) DESC) \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(*) ORDER BY AVG(body_mass_g) DESC) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)`, AVG(body_mass_g) AS m \
              GROUP BY species \
-             |> AGGREGATE bar(x => species, y => `COUNT(*)` ORDER BY m DESC) AS chart"
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)` ORDER BY m DESC) AS chart"
         ),
     )
     .await;
@@ -164,7 +164,7 @@ async fn the_order_by_of_a_lifted_call_draws_by_an_aggregate() {
 #[tokio::test]
 async fn items_beside_a_lifted_chart_join_on_the_groups() {
     let query = format!(
-        "{PENGUINS} |> AGGREGATE COUNT(*) AS n, bar(x => species, y => COUNT(*)) AS chart \
+        "{PENGUINS} |> AGGREGATE COUNT(*) AS n, mark_bar(x => species, y => COUNT(*)) AS chart \
          GROUP BY island |> ORDER BY island"
     );
     let batches = avenger_sql::sql(&session(), &query)
@@ -183,7 +183,7 @@ async fn items_beside_a_lifted_chart_join_on_the_groups() {
         &query,
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
-             |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island \
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island \
              |> ORDER BY island"
         ),
     )
@@ -194,14 +194,14 @@ async fn items_beside_a_lifted_chart_join_on_the_groups() {
 async fn two_lifted_marks_and_a_layer_of_two_grains() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE layer(bar(x => species, y => COUNT(*)), \
-             rule(y => AVG(body_mass_g))) AS chart"
+            "{PENGUINS} |> AGGREGATE layer(mark_bar(x => species, y => COUNT(*)), \
+             mark_rule(y => AVG(body_mass_g))) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart \
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart \
              |> CROSS JOIN ({PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` \
-             |> AGGREGATE rule(y => `AVG(body_mass_g)`) AS r) \
+             |> AGGREGATE mark_rule(y => `AVG(body_mass_g)`) AS r) \
              |> SELECT layer(chart, r) AS chart"
         ),
     )
@@ -212,12 +212,12 @@ async fn two_lifted_marks_and_a_layer_of_two_grains() {
 async fn a_facet_of_lifted_charts() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart GROUP BY island \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart GROUP BY island \
              |> AGGREGATE facet_column(chart, island) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
-             |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island \
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island \
              |> AGGREGATE facet_column(chart, island) AS chart"
         ),
     )
@@ -227,8 +227,8 @@ async fn a_facet_of_lifted_charts() {
 #[tokio::test]
 async fn a_flat_mark_beside_a_lifted_one_reads_the_rows() {
     let query = format!(
-        "{PENGUINS} |> AGGREGATE layer(symbol(x => bill_length_mm, y => bill_depth_mm), \
-         rule(y => AVG(bill_depth_mm))) AS chart"
+        "{PENGUINS} |> AGGREGATE layer(mark_symbol(x => bill_length_mm, y => bill_depth_mm), \
+         mark_rule(y => AVG(bill_depth_mm))) AS chart"
     );
     assert_eq!(charts(&query).await.len(), 1);
 }
@@ -237,22 +237,24 @@ async fn a_flat_mark_beside_a_lifted_one_reads_the_rows() {
 async fn the_errors_of_a_lifted_call() {
     for (query, expected) in [
         (
-            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => body_mass_g + COUNT(*))"),
+            format!("{PENGUINS} |> AGGREGATE mark_bar(x => species, y => body_mass_g + COUNT(*))"),
             "body_mass_g + COUNT(*) reads the column body_mass_g outside its aggregates, which \
-             is neither a key of bar nor a group",
+             is neither a key of mark_bar nor a group",
         ),
         (
-            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*) ORDER BY island)"),
-            "The ORDER BY of bar orders by island, which is neither a channel of the call, a \
+            format!(
+                "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(*) ORDER BY island)"
+            ),
+            "The ORDER BY of mark_bar orders by island, which is neither a channel of the call, a \
              group, nor an aggregate",
         ),
         (
-            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => SUM(COUNT(*)))"),
+            format!("{PENGUINS} |> AGGREGATE mark_bar(x => species, y => SUM(COUNT(*)))"),
             "Aggregations of aggregations are not allowed",
         ),
         (
             format!(
-                "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart \
+                "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart \
                  GROUP BY ROLLUP (island)"
             ),
             "bar computes statistics in its channels, which an AGGREGATE with GROUPING SETS, \
@@ -260,7 +262,7 @@ async fn the_errors_of_a_lifted_call() {
         ),
         (
             // A mark outside the items of a pipe AGGREGATE keeps the errors of main.
-            format!("{PENGUINS} |> SELECT bar(x => species, y => COUNT(*)) AS chart"),
+            format!("{PENGUINS} |> SELECT mark_bar(x => species, y => COUNT(*)) AS chart"),
             "Aggregations of aggregations are not allowed",
         ),
     ] {
@@ -284,11 +286,11 @@ fn layer_columns(chart: &Chart) -> Vec<String> {
 #[tokio::test]
 async fn a_histogram_bins_the_whole_input() {
     same(
-        &format!("{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart"),
+        &format!("{PENGUINS} |> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*)) AS chart"),
         &format!(
             "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY body_mass_g \
-             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart"
+             |> AGGREGATE mark_bar(x => body_mass_g, y => `COUNT(*)`) AS chart"
         ),
     )
     .await;
@@ -298,25 +300,25 @@ async fn a_histogram_bins_the_whole_input() {
 async fn the_charts_of_the_groups_share_their_bins_or_take_their_own() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*)) AS chart \
              GROUP BY island"
         ),
         &format!(
             "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, body_mass_g \
-             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
+             |> AGGREGATE mark_bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
         ),
     )
     .await;
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g) OVER panel, y => COUNT(*)) AS chart \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => bin(body_mass_g) OVER panel, y => COUNT(*)) AS chart \
              GROUP BY island"
         ),
         &format!(
             "{PENGUINS} |> SET body_mass_g = bin(body_mass_g) OVER (PARTITION BY island) \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, body_mass_g \
-             |> AGGREGATE bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
+             |> AGGREGATE mark_bar(x => body_mass_g, y => `COUNT(*)`) AS chart GROUP BY island"
         ),
     )
     .await;
@@ -326,26 +328,26 @@ async fn the_charts_of_the_groups_share_their_bins_or_take_their_own() {
 async fn a_lumped_legend_and_a_weighted_lump() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, y => COUNT(*), color => lump(species, n => 1)) \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, y => COUNT(*), color => lump(species, n => 1)) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} |> SET species = lump(species, n => 1) OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
-             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
     // The weight of a lump aggregates the rows of each category, so the legend is still a key.
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, y => COUNT(*), \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, y => COUNT(*), \
              color => lump(species, n => 1, weight => SUM(body_mass_g))) AS chart"
         ),
         &format!(
             "{PENGUINS} |> SET species = lump(species, n => 1, weight => SUM(body_mass_g)) OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
-             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
@@ -355,14 +357,14 @@ async fn a_lumped_legend_and_a_weighted_lump() {
 async fn a_window_that_reads_only_rows_is_a_key() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => NTILE(4) OVER (ORDER BY body_mass_g), y => COUNT(*)) \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => NTILE(4) OVER (ORDER BY body_mass_g), y => COUNT(*)) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} |> EXTEND NTILE(4) OVER (ORDER BY body_mass_g) \
              AS `NTILE(4) OVER (ORDER BY body_mass_g)` \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY `NTILE(4) OVER (ORDER BY body_mass_g)` \
-             |> AGGREGATE bar(x => `NTILE(4) OVER (ORDER BY body_mass_g)`, y => `COUNT(*)`) \
+             |> AGGREGATE mark_bar(x => `NTILE(4) OVER (ORDER BY body_mass_g)`, y => `COUNT(*)`) \
              AS chart"
         ),
     )
@@ -373,13 +375,13 @@ async fn a_window_that_reads_only_rows_is_a_key() {
 async fn a_window_on_the_rows_inside_an_aggregate() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => species, \
              y => AVG(body_mass_g - AVG(body_mass_g) OVER ())) AS chart"
         ),
         &format!(
             "{PENGUINS} |> EXTEND body_mass_g - AVG(body_mass_g) OVER () AS d \
              |> AGGREGATE AVG(d) AS `AVG(body_mass_g - AVG(body_mass_g) OVER ())` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => `AVG(body_mass_g - AVG(body_mass_g) OVER ())`) \
+             |> AGGREGATE mark_bar(x => species, y => `AVG(body_mass_g - AVG(body_mass_g) OVER ())`) \
              AS chart"
         ),
     )
@@ -390,13 +392,13 @@ async fn a_window_on_the_rows_inside_an_aggregate() {
 async fn a_call_without_an_aggregate_takes_windows_on_its_rows() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE symbol(x => body_mass_g, \
+            "{PENGUINS} |> AGGREGATE mark_symbol(x => body_mass_g, \
              y => RANK() OVER (ORDER BY body_mass_g)) AS chart"
         ),
         &format!(
             "{PENGUINS} |> EXTEND RANK() OVER (ORDER BY body_mass_g) \
              AS `RANK() OVER (ORDER BY body_mass_g)` \
-             |> AGGREGATE symbol(x => body_mass_g, y => `RANK() OVER (ORDER BY body_mass_g)`) \
+             |> AGGREGATE mark_symbol(x => body_mass_g, y => `RANK() OVER (ORDER BY body_mass_g)`) \
              AS chart"
         ),
     )
@@ -409,25 +411,25 @@ async fn timeunits_and_a_window_of_a_window() {
                  DATE '2024-03-15', DATE '2024-03-16', DATE '2024-03-17']) AS d";
     same(
         &format!(
-            "{dates} |> AGGREGATE bar(x => timeunit(d, unit => 'month'), y => COUNT(*)) AS chart"
+            "{dates} |> AGGREGATE mark_bar(x => timeunit(d, unit => 'month'), y => COUNT(*)) AS chart"
         ),
         &format!(
             "{dates} |> SET d = timeunit(d, unit => 'month') OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY d \
-             |> AGGREGATE bar(x => d, y => `COUNT(*)`) AS chart"
+             |> AGGREGATE mark_bar(x => d, y => `COUNT(*)`) AS chart"
         ),
     )
     .await;
     same(
         &format!(
-            "{dates} |> AGGREGATE bar(x => lump(timeunit(d, unit => 'month'), n => 1), \
+            "{dates} |> AGGREGATE mark_bar(x => lump(timeunit(d, unit => 'month'), n => 1), \
              y => COUNT(*)) AS chart"
         ),
         &format!(
             "{dates} |> SET d = timeunit(d, unit => 'month') OVER () \
              |> SET d = lump(d, n => 1) OVER () \
              |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY d \
-             |> AGGREGATE bar(x => d, y => `COUNT(*)`) AS chart"
+             |> AGGREGATE mark_bar(x => d, y => `COUNT(*)`) AS chart"
         ),
     )
     .await;
@@ -436,7 +438,7 @@ async fn timeunits_and_a_window_of_a_window() {
 #[tokio::test]
 async fn a_lifted_value_leaves_a_column_its_name() {
     let charts = charts(&format!(
-        "{PENGUINS} |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*), \
+        "{PENGUINS} |> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*), \
          color => body_mass_g) AS chart"
     ))
     .await;
@@ -450,7 +452,7 @@ async fn a_lifted_value_leaves_a_column_its_name() {
 async fn the_errors_of_windows_on_the_rows() {
     for (query, expected) in [
         (
-            format!("{PENGUINS} |> AGGREGATE bar(x => species, y => ROW_NUMBER())"),
+            format!("{PENGUINS} |> AGGREGATE mark_bar(x => species, y => ROW_NUMBER())"),
             "Analytic function ROW_NUMBER cannot be called without an OVER clause",
         ),
         (
@@ -470,14 +472,14 @@ const COUNTS: &str = "|> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, speci
 async fn a_default_stack_puts_the_first_series_on_top() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, y => stack(COUNT(*)), color => species) \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, y => stack(COUNT(*)), color => species) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
              ORDER BY species DESC NULLS FIRST) \
-             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
@@ -487,14 +489,14 @@ async fn a_default_stack_puts_the_first_series_on_top() {
 async fn an_order_of_a_stack_comes_first_and_the_default_breaks_its_ties() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, \
              y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
              ORDER BY `COUNT(*)` DESC, species DESC NULLS FIRST) \
-             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
@@ -504,27 +506,27 @@ async fn an_order_of_a_stack_comes_first_and_the_default_breaks_its_ties() {
 async fn a_horizontal_stack_and_a_normalized_stack() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(y => island, x => stack(COUNT(*)), color => species) \
+            "{PENGUINS} |> AGGREGATE mark_bar(y => island, x => stack(COUNT(*)), color => species) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY island \
              ORDER BY species ASC NULLS LAST) \
-             |> AGGREGATE bar(y => island, x => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(y => island, x => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, \
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, \
              y => stack(COUNT(*), offset => 'normalize'), color => species) AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> SET `COUNT(*)` = stack(`COUNT(*)`, offset => 'normalize') OVER \
              (PARTITION BY island ORDER BY species DESC NULLS FIRST) \
-             |> AGGREGATE bar(x => island, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
@@ -539,7 +541,7 @@ async fn a_stack_centered_with_windows_over_position() {
     let name = (centered.split_whitespace().collect::<Vec<_>>().join(" ")).replace('`', "\\`");
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => island, y => {centered}, color => species) AS chart"
+            "{PENGUINS} |> AGGREGATE mark_bar(x => island, y => {centered}, color => species) AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
@@ -549,7 +551,7 @@ async fn a_stack_centered_with_windows_over_position() {
              AS start, SUM(`COUNT(*)`) OVER (PARTITION BY island ORDER BY species DESC NULLS FIRST \
              ROWS UNBOUNDED PRECEDING) - SUM(`COUNT(*)`) OVER (PARTITION BY island) / 2 \
              AS `end`) AS `{name}` \
-             |> AGGREGATE bar(x => island, y => `{name}`, color => species) AS chart"
+             |> AGGREGATE mark_bar(x => island, y => `{name}`, color => species) AS chart"
         ),
     )
     .await;
@@ -564,21 +566,21 @@ const BINNED: &str = "FROM penguins |> WHERE body_mass_g IS NOT NULL \
 async fn a_stacked_area_fills_the_keys_that_a_series_lacks_with_zero() {
     same(
         &format!(
-            "{BINNED} |> AGGREGATE area(x => mass, y => stack(COUNT(*)), color => species) AS chart"
+            "{BINNED} |> AGGREGATE mark_area(x => mass, y => stack(COUNT(*)), color => species) AS chart"
         ),
         &format!(
             "{BINNED} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY mass, species \
              |> CALL impute(mass, [species], `COUNT(*)`, value => 0) \
              |> SET `COUNT(*)` = stack(`COUNT(*)`) OVER (PARTITION BY mass \
              ORDER BY species DESC NULLS FIRST) \
-             |> AGGREGATE area(x => mass, y => `COUNT(*)`, color => species) AS chart"
+             |> AGGREGATE mark_area(x => mass, y => `COUNT(*)`, color => species) AS chart"
         ),
     )
     .await;
     // A stacked line takes the end of each layer.
     same(
         &format!(
-            "{BINNED} |> AGGREGATE line(x => mass, y => stack(COUNT(*)).`end`, color => species) \
+            "{BINNED} |> AGGREGATE mark_line(x => mass, y => stack(COUNT(*)).`end`, color => species) \
              AS chart"
         ),
         &format!(
@@ -586,7 +588,7 @@ async fn a_stacked_area_fills_the_keys_that_a_series_lacks_with_zero() {
              |> CALL impute(mass, [species], c, value => 0) \
              |> EXTEND stack(c) OVER (PARTITION BY mass ORDER BY species DESC NULLS FIRST).`end` \
              AS `stack(COUNT(*)).\\`end\\`` \
-             |> AGGREGATE line(x => mass, y => `stack(COUNT(*)).\\`end\\``, color => species) \
+             |> AGGREGATE mark_line(x => mass, y => `stack(COUNT(*)).\\`end\\``, color => species) \
              AS chart"
         ),
     )
@@ -597,14 +599,14 @@ async fn a_stacked_area_fills_the_keys_that_a_series_lacks_with_zero() {
 async fn a_bump_chart_ranks_without_a_fill_or_a_default_order() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE line(x => island, \
+            "{PENGUINS} |> AGGREGATE mark_line(x => island, \
              y => RANK() OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> EXTEND RANK() OVER (PARTITION BY island ORDER BY `COUNT(*)` DESC) \
              AS `RANK() OVER (position ORDER BY COUNT(*) DESC)` \
-             |> AGGREGATE line(x => island, y => `RANK() OVER (position ORDER BY COUNT(*) DESC)`, \
+             |> AGGREGATE mark_line(x => island, y => `RANK() OVER (position ORDER BY COUNT(*) DESC)`, \
              color => species) AS chart"
         ),
     )
@@ -615,14 +617,14 @@ async fn a_bump_chart_ranks_without_a_fill_or_a_default_order() {
 async fn windows_over_a_panel_and_over_a_series() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE symbol(x => species, \
+            "{PENGUINS} |> AGGREGATE mark_symbol(x => species, \
              y => COUNT(*) / SUM(COUNT(*)) OVER panel) AS chart GROUP BY island"
         ),
         &format!(
             "{PENGUINS} {COUNTS} \
              |> EXTEND `COUNT(*)` / SUM(`COUNT(*)`) OVER (PARTITION BY island) \
              AS `COUNT(*) / SUM(COUNT(*)) OVER panel` \
-             |> AGGREGATE symbol(x => species, y => `COUNT(*) / SUM(COUNT(*)) OVER panel`) \
+             |> AGGREGATE mark_symbol(x => species, y => `COUNT(*) / SUM(COUNT(*)) OVER panel`) \
              AS chart GROUP BY island"
         ),
     )
@@ -643,12 +645,12 @@ async fn windows_over_a_panel_and_over_a_series() {
     ] {
         same(
             &format!(
-                "{PENGUINS} |> AGGREGATE line(x => species, y => {window}, color => island) \
+                "{PENGUINS} |> AGGREGATE mark_line(x => species, y => {window}, color => island) \
                  AS chart"
             ),
             &format!(
                 "{PENGUINS} {COUNTS} |> EXTEND {staged} AS `{window}` \
-                 |> AGGREGATE line(x => species, y => `{window}`, color => island) AS chart"
+                 |> AGGREGATE mark_line(x => species, y => `{window}`, color => island) AS chart"
             ),
         )
         .await;
@@ -659,14 +661,14 @@ async fn windows_over_a_panel_and_over_a_series() {
 async fn a_discretizer_of_an_aggregate_bins_the_aggregated_rows() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE symbol(x => species, y => COUNT(*), \
+            "{PENGUINS} |> AGGREGATE mark_symbol(x => species, y => COUNT(*), \
              color => bin(COUNT(*)).start) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
              |> EXTEND bin(`COUNT(*)`) OVER () AS b \
              |> EXTEND b.start AS `bin(COUNT(*)).start` \
-             |> AGGREGATE symbol(x => species, y => `COUNT(*)`, color => `bin(COUNT(*)).start`) \
+             |> AGGREGATE mark_symbol(x => species, y => `COUNT(*)`, color => `bin(COUNT(*)).start`) \
              AS chart"
         ),
     )
@@ -676,7 +678,7 @@ async fn a_discretizer_of_an_aggregate_bins_the_aggregated_rows() {
 #[tokio::test]
 async fn the_errors_of_windows_on_the_aggregated_rows() {
     let message = error(&format!(
-        "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(stack(COUNT(*))))"
+        "{PENGUINS} |> AGGREGATE mark_bar(x => species, y => COUNT(stack(COUNT(*))))"
     ))
     .await;
     assert!(
@@ -712,31 +714,31 @@ async fn the_printouts_of_the_stages() {
     printouts(&[
         (
             "count",
-            "FROM penguins\n|> AGGREGATE bar(x => species, y => COUNT(*)) AS chart".to_string(),
+            "FROM penguins\n|> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart".to_string(),
         ),
         (
             "facet-histograms",
             "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
-             |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island\n\
+             |> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island\n\
              |> AGGREGATE facet_column(chart, island) AS chart"
                 .to_string(),
         ),
         (
             "stacked-area",
             format!(
-                "{BINNED}\n|> AGGREGATE area(x => mass, y => stack(COUNT(*)), color => species) \
+                "{BINNED}\n|> AGGREGATE mark_area(x => mass, y => stack(COUNT(*)), color => species) \
                  AS chart"
             ),
         ),
         (
             "items",
-            "FROM penguins\n|> AGGREGATE COUNT(*) AS n, bar(x => species, y => COUNT(*)) AS chart \
+            "FROM penguins\n|> AGGREGATE COUNT(*) AS n, mark_bar(x => species, y => COUNT(*)) AS chart \
              GROUP BY island"
                 .to_string(),
         ),
         (
             "share",
-            "FROM penguins\n|> AGGREGATE symbol(x => species, y => COUNT(*) / SUM(COUNT(*)) \
+            "FROM penguins\n|> AGGREGATE mark_symbol(x => species, y => COUNT(*) / SUM(COUNT(*)) \
              OVER panel) AS chart GROUP BY island"
                 .to_string(),
         ),
@@ -748,7 +750,7 @@ async fn the_printouts_of_the_stages() {
 }
 
 /// A mark call longer than a line, with nested calls and an array, written on one line.
-const LONG_CALL: &str = "FROM penguins\n|> AGGREGATE symbol(x => x(species, title => 'Species', \
+const LONG_CALL: &str = "FROM penguins\n|> AGGREGATE mark_symbol(x => x(species, title => 'Species', \
      axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), scale => scale(zero => FALSE), \
      axis => axis(labels => labels(angle => -45), title => title('Mean body mass (g)', font_size => 14))), \
      color => species, tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)] ORDER BY \
@@ -757,12 +759,13 @@ const LONG_CALL: &str = "FROM penguins\n|> AGGREGATE symbol(x => x(species, titl
 /// A stacked area whose stage of `impute` is longer than a line.
 const LONG_IMPUTE: &str = "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
      |> EXTEND bin(body_mass_g) OVER () AS b\n|> EXTEND b.start AS mass\n\
-     |> AGGREGATE area(x => mass, y => stack(SUM(flipper_length_mm)), color => species, \
+     |> AGGREGATE mark_area(x => mass, y => stack(SUM(flipper_length_mm)), color => species, \
      stroke => sex) AS chart GROUP BY island";
 
 /// An indented `AGGREGATE` of an item beside a mark call longer than a line, which plans as a
 /// branch.
-const LONG_BRANCH: &str = "FROM (\n  FROM penguins\n  |> AGGREGATE COUNT(*) AS n, symbol(x => \
+const LONG_BRANCH: &str =
+    "FROM (\n  FROM penguins\n  |> AGGREGATE COUNT(*) AS n, mark_symbol(x => \
      x(species, title => 'Species', axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), \
      scale => scale(zero => FALSE)), color => species) AS chart GROUP BY island\n)";
 
@@ -783,7 +786,7 @@ async fn an_unaliased_item_and_a_key_expression_print_as_written() {
     // An item without an alias prints without one, and a key that is an expression keeps the
     // alias that its stage reads it by.
     let query = format!(
-        "{PENGUINS} |> AGGREGATE rect(x => island, y => CAST(body_mass_g > 4000 AS STRING), \
+        "{PENGUINS} |> AGGREGATE mark_rect(x => island, y => CAST(body_mass_g > 4000 AS STRING), \
          color => COUNT(*))"
     );
     let printed = avenger_sql::lift(&session(), &query).await.unwrap().text;
@@ -806,7 +809,7 @@ async fn an_unaliased_item_and_a_key_expression_print_as_written() {
 async fn a_printout_keeps_the_rest_of_the_script() {
     let script = "-- The counts of the species.\nDECLARE n INT64 DEFAULT 1;\n\n\
                   FROM penguins\n  -- Only the weighed penguins.\n  |> WHERE body_mass_g IS NOT NULL\n  \
-                  |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart\n";
+                  |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart\n";
     let lifted = avenger_sql::lift(&session(), script).await.unwrap();
     let before = "-- The counts of the species.\nDECLARE n INT64 DEFAULT 1;\n\nFROM penguins\n  \
                   -- Only the weighed penguins.\n  |> WHERE body_mass_g IS NOT NULL\n  ";

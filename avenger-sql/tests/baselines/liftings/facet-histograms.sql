@@ -3,5 +3,5 @@ FROM penguins
 |> EXTEND bin(body_mass_g) OVER () AS `bin(body_mass_g)`
 |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, `bin(body_mass_g)` AS `body_mass_g`
 |> SELECT `island`, `body_mass_g`, `COUNT(*)`
-|> AGGREGATE bar(x => `body_mass_g`, y => `COUNT(*)`) AS `chart` GROUP BY `island`
+|> AGGREGATE mark_bar(x => `body_mass_g`, y => `COUNT(*)`) AS `chart` GROUP BY `island`
 |> AGGREGATE facet_column(chart, island) AS chart

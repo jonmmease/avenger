@@ -70,16 +70,16 @@ A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, o
 ```sql
 FROM penguins
 |> AGGREGATE COUNT(*) AS n GROUP BY species
-|> AGGREGATE bar(x => species, y => n) AS chart
+|> AGGREGATE mark_bar(x => species, y => n) AS chart
 ```
 
-- Marks include `bar`, `line`, `area`, `symbol`, `rule`, `rect`, `text`, `trail`, `path`, `image`, their `polar_` forms, and the `geo_` marks of maps.
+- A mark's name is `mark_` and its kind, as Altair's methods are: `mark_bar`, `mark_line`, `mark_area`, `mark_symbol`, `mark_rule`, `mark_rect`, `mark_text`, `mark_trail`, `mark_path`, and `mark_image`, their `mark_polar_` forms, such as `mark_polar_bar`, and the `mark_geo_` marks of maps, such as `mark_geo_shape`. So `mark_` completes every mark, and `mark_polar_` the marks of polar plots.
 - A bare value of the rows goes through the channel's scale, and a bare constant goes through the scale on a position, as `y => 0` does, and is drawn as it is on another channel, as `fill => 'red'` is. `datum(...)` makes a constant go through the scale, as in `color => datum('Adelie')`, and `value(...)` draws a constant or a column as it is, as in `fill => value(css_color)`.
 - A channel with a scale takes its channel function, named after the channel, which keeps the kind of its value and takes the options of the channel's encoding by name: `scale`, `axis`, `title`, `band_position`, `band_level`, and `selection_field` on `x`, `y`, `theta`, and `radius`, none on `x2`, `y2`, `theta2`, and `radius2`, which follow the first position, and `scale`, `legend`, `title`, and `selection_field` on the other channels, such as `color` and `size`. So `fill => fill('red')` draws red, as `fill => 'red'` does. The value of a channel function can be `datum(...)` or `value(...)`:
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(body_mass_g, axis => axis(grid => FALSE)),
      y => y(AVG(flipper_length_mm), title => 'Flipper length (mm)'),
      color => color(datum('Adelie'), legend => FALSE),
@@ -91,30 +91,30 @@ FROM penguins
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(body_mass_g, axis => axis(labels => "%'.0f g")),
      y => y(bill_length_mm, axis => labels(format => '%.1f')),
    ) AS chart
 ```
 
-- A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection tool on the mark's layer. A selection tool, `select(...)`, writes a selection that the chart declares, which avenger-sql can't declare yet, so a chart with one is an error.
-- The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them. The `order` channel of a line or an area orders the rows of its path, as in `line(x => x, y => y, order => step)`.
-- A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
-- A channel takes windows on its rows too, as in `bar(x => bin(body_mass_g), y => COUNT(*))`. There `bin`, `timeunit`, and `lump` take no `OVER`, and compute over the whole input, or over each group with `OVER panel`.
+- A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `mark_symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection tool on the mark's layer. A selection tool, `select(...)`, writes a selection that the chart declares, which avenger-sql can't declare yet, so a chart with one is an error.
+- The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them. The `order` channel of a line or an area orders the rows of its path, as in `mark_line(x => x, y => y, order => step)`.
+- A channel takes aggregates, as in `mark_bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
+- A channel takes windows on its rows too, as in `mark_bar(x => bin(body_mass_g), y => COUNT(*))`. There `bin`, `timeunit`, and `lump` take no `OVER`, and compute over the whole input, or over each group with `OVER panel`.
 - A window that reads an aggregate runs on the aggregated rows, as `stack(COUNT(*))` does. `stack` takes no `OVER` there and stacks within `position`, the groups and the position keys. The windows `panel`, `position`, and `series` partition by the groups, and by the position or the series keys, and give an order where GoogleSQL leaves one unspecified.
 
 A composition aggregate composes the charts of the rows of a group, one chart for each row:
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
 ```
 
 - `facet_row(chart, key)`, `facet_column(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of a key, and label them. A `facet_row` of `facet_column` charts is a grid.
 - `layer_agg(chart ORDER BY k)` overlays the plots of the charts, and `hconcat_agg` and `vconcat_agg` place them in a row or a column, in the order of the `ORDER BY`. Without one, their order is unspecified.
 - The options of a composition are named constants, as in `facet_wrap(chart, species, max_columns => 2)`. `resolve => resolve(y => 'independent')` gives each child its own scale of `y`, `parts => parts(legend => 'keep')` keeps a legend beside each plot, and `tracks => [200, 400]` sets the length of each child's track. An array that mixes lengths and shares writes a constructor for each track, as in `tracks => [track(200), track(share => 2, max => 600)]`.
-- The scalars `layer(a, b, ...)`, `hconcat(...)`, and `vconcat(...)` compose the charts of one row, in the order of their arguments, such as the marks of one `AGGREGATE` item: `layer(bar(...), symbol(...))`. Their options follow the charts by name.
+- The scalars `layer(a, b, ...)`, `hconcat(...)`, and `vconcat(...)` compose the charts of one row, in the order of their arguments, such as the marks of one `AGGREGATE` item: `layer(mark_bar(...), mark_symbol(...))`. Their options follow the charts by name.
 
 ## Options of charts
 
@@ -136,7 +136,7 @@ A value always wraps in its constructor: where `foo => v` is valid, `foo => foo(
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(bill_length_mm, axis => title('Bill length (mm)')),
      y => y(body_mass_g, scale => 'log', axis => axis(grid => FALSE)),
      title => title('Penguins', subtitle => 'Palmer Archipelago'),
@@ -157,7 +157,7 @@ Arguments never align under the opening parenthesis.
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(
        bill_length_mm,
        title => 'Bill length (mm)',

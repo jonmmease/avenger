@@ -132,13 +132,13 @@ impl fmt::Display for Element {
 }
 
 /// The kinds of the marks of avenger-chart, which the `type` of a mark names along with its
-/// function name.
+/// prefixed name.
 pub const MARK_KINDS: &[&str] = &[
     "symbol", "line", "trail", "area", "bar", "rect", "rule", "text", "image", "path", "shape",
 ];
 
-/// Whether `name` names a mark, as a kind such as `bar` or as a function name such as
-/// `polar_bar`.
+/// Whether `name` names a mark, as a kind such as `bar` or as a prefixed name, the kind with the
+/// prefix of a coordinate system, such as `polar_bar`.
 pub fn is_mark_name(name: &str) -> bool {
     let kind = name
         .strip_prefix("polar_")

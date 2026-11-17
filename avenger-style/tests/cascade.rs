@@ -521,7 +521,7 @@ fn the_vega_lite_stylesheet_gives_its_looks() {
 }
 
 #[test]
-fn a_mark_matches_its_kind_and_its_function_name() {
+fn a_mark_matches_its_kind_and_its_prefixed_name() {
     let mut tree = StyleTree::new(Element::Chart);
     let plot = tree.add(tree.root(), Element::Plot);
     tree.set_attribute(plot, "type", "polar");

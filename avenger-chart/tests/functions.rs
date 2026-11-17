@@ -149,7 +149,7 @@ fn an_error_holds_its_path_and_the_inputs_of_its_parameter() {
 
 #[test]
 fn a_mark_call_builds_the_chart_of_its_builder() {
-    let mut call = mark("bar").expect("a mark").call();
+    let mut call = mark("mark_bar").expect("a mark").call();
     call.channel("x", ChannelArg::Field("c".into()), None, None, &[])
         .unwrap();
     call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
@@ -166,7 +166,7 @@ fn a_mark_call_builds_the_chart_of_its_builder() {
 #[test]
 fn bare_arguments_take_the_kinds_of_their_channels() {
     let value = |array: ArrayRef| ChannelArg::Value(array);
-    let mut call = mark("symbol").expect("a mark").call();
+    let mut call = mark("mark_symbol").expect("a mark").call();
     call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.channel(
@@ -210,7 +210,7 @@ fn bare_arguments_take_the_kinds_of_their_channels() {
 
 /// The arguments of the options of `symbol` from named arguments.
 fn mark_options(named: Vec<(&str, Arg)>) -> Vec<Option<Arg>> {
-    let options = mark("symbol").expect("a mark").options;
+    let options = mark("mark_symbol").expect("a mark").options;
     let mut args: Vec<Option<Arg>> = vec![None; options.len()];
     for (param, arg) in named {
         let index = (options.iter())
@@ -223,7 +223,7 @@ fn mark_options(named: Vec<(&str, Arg)>) -> Vec<Option<Arg>> {
 
 /// A symbol call of `table` with the mark options `named`.
 fn symbols_with(named: Vec<(&str, Arg)>) -> Chart {
-    let mut call = mark("symbol").expect("a mark").call();
+    let mut call = mark("mark_symbol").expect("a mark").call();
     call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
@@ -303,7 +303,7 @@ fn a_mark_parameter_wins_over_an_option_of_its_name() {
         options.iter().map(|option| option.name).collect()
     };
     assert_eq!(
-        names("symbol"),
+        names("mark_symbol"),
         [
             "title",
             "attribution",
@@ -316,11 +316,11 @@ fn a_mark_parameter_wins_over_an_option_of_its_name() {
     );
     // The `width` channel of `text` wins over the width of its plot.
     assert_eq!(
-        names("text"),
+        names("mark_text"),
         ["title", "attribution", "tools", "height", "id", "classes"]
     );
     assert_eq!(
-        names("image"),
+        names("mark_image"),
         ["title", "attribution", "tools", "id", "classes"]
     );
 }
@@ -380,7 +380,7 @@ fn a_layer_composition_merges_the_options_of_its_charts() {
 
 #[test]
 fn the_rules_of_a_mark_fail_its_call() {
-    let mut call = mark("geo_symbol").expect("a mark").call();
+    let mut call = mark("mark_geo_symbol").expect("a mark").call();
     call.channel("longitude", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.channel("latitude", ChannelArg::Field("a".into()), None, None, &[])
@@ -392,7 +392,7 @@ fn the_rules_of_a_mark_fail_its_call() {
         "{error}"
     );
 
-    let mut call = mark("text").expect("a mark").call();
+    let mut call = mark("mark_text").expect("a mark").call();
     let error = (call.channel(
         "text",
         ChannelArg::Field("c".into()),
@@ -754,7 +754,7 @@ fn a_binding_names_the_format_syntaxes_of_each_chart_that_it_builds() {
         )
     };
     let named = ("googlesql".to_string(), "googlesql".to_string());
-    let mut call = mark("symbol").expect("a mark").call();
+    let mut call = mark("mark_symbol").expect("a mark").call();
     call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
@@ -868,7 +868,7 @@ fn each_channel_with_a_scale_has_a_function_with_the_options_of_its_channel() {
 
 #[test]
 fn a_channel_function_sets_its_options_and_only_its_own_channel() {
-    let mut call = mark("symbol").expect("a mark").call();
+    let mut call = mark("mark_symbol").expect("a mark").call();
     call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
@@ -894,7 +894,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
     assert!(
         error
             .to_string()
-            .contains("`fill` of symbol() takes `fill(...)`, not `color(...)`"),
+            .contains("`fill` of mark_symbol() takes `fill(...)`, not `color(...)`"),
         "{error}"
     );
     let chart = call.bind().unwrap().chart(table(), NONE).unwrap();
@@ -905,7 +905,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
         .unwrap();
     assert_eq!(encoding.title.as_deref(), Some("C"), "{encoding:?}");
     // `datum` takes a constant, since a column passes through the scale without it.
-    let mut call = mark("symbol").expect("a mark").call();
+    let mut call = mark("mark_symbol").expect("a mark").call();
     let error = (call.channel(
         "color",
         ChannelArg::Field("c".into()),

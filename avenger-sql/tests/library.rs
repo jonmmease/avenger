@@ -332,7 +332,7 @@ fn a_cast_with_a_format_is_unsupported() {
 fn the_library_names_functions_without_regard_to_case() {
     let library = Library::new();
     assert_eq!(library.get("sum").expect("SUM").name, "SUM");
-    assert_eq!(library.get("BAR").expect("bar").name, "bar");
+    assert_eq!(library.get("MARK_BAR").expect("mark_bar").name, "mark_bar");
     assert!(library.get("OFFSET").is_none());
 }
 
@@ -489,7 +489,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         "```googlesql\npin => pin(value: ANY, position => 'low' | 'mid' | 'high')\n```"
     );
     // The elements of an array whose element holds only a choice take the choice's members.
-    let tools = forms(&library, "bar", "tools").unwrap();
+    let tools = forms(&library, "mark_bar", "tools").unwrap();
     assert!(
         tools.contains("tools => [navigate(...), ...]\ntools => [tooltip(...), ...]"),
         "{tools}"
@@ -511,9 +511,9 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
     let axis = forms(&library, "x_channel", "axis").unwrap();
     assert!(axis.contains("axis => axis("), "{axis}");
     // A channel with a scale takes any value, and its channel function under its name.
-    let x = forms(&library, "symbol", "x").unwrap();
+    let x = forms(&library, "mark_symbol", "x").unwrap();
     assert!(x.starts_with("```googlesql\nx => ANY\nx => x("), "{x}");
-    assert_eq!(forms(&library, "text", "text"), None);
+    assert_eq!(forms(&library, "mark_text", "text"), None);
     // The members of the type of a scale are one level down from its type.
     let kind = forms(&library, "scale", "type").unwrap();
     assert!(

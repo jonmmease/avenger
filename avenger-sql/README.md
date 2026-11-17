@@ -5,7 +5,7 @@ GoogleSQL pipe queries that build avenger charts, planned onto DataFusion. The m
 ```sql
 FROM penguins
 |> AGGREGATE COUNT(*) AS n GROUP BY species
-|> AGGREGATE bar(x => species, y => n) AS chart
+|> AGGREGATE mark_bar(x => species, y => n) AS chart
 ```
 
 `sql(ctx, text)` plans a script over the tables of a DataFusion session and returns the rows of its last query as a DataFrame. avenger-sql-syntax parses the script, and avenger-sql resolves its names and types by GoogleSQL's rules and plans each statement as a DataFusion logical plan. DataFusion's SQL planner takes no part, and the build of avenger-sql holds no sqlparser. `register(ctx)` adds what the plans of the transforms need to run: avenger-sql's query planner, which plans `impute` and the inputs that a plan reads more than once and runs once, and the optimizer rules that compute cheap shared inputs again and group by the fields of a struct, such as a bin.
@@ -83,7 +83,7 @@ A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, a
 
 ```sql
 FROM penguins
-|> AGGREGATE bar(x => species, y => AVG(body_mass_g), color => sex) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g), color => sex) AS chart GROUP BY island
 ```
 
 plans as
@@ -91,7 +91,7 @@ plans as
 ```sql
 FROM penguins
 |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY island, species, sex
-|> AGGREGATE bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart GROUP BY island
 ```
 
 - In a call that holds an aggregate, each channel that holds none is a key, and the call aggregates once for each combination of the operator's groups and its keys. Here the keys are `species` and `sex`.
@@ -105,8 +105,8 @@ FROM penguins
 - A window that reads an aggregate, or names `position` or `series`, runs on the aggregated rows, and its channel is a measure: `y => stack(COUNT(*))`, `y => COUNT(*) / SUM(COUNT(*)) OVER panel`, and `color => bin(COUNT(*)).start`. An explicit `OVER` keeps GoogleSQL's meaning, so `SUM(COUNT(*)) OVER ()` reads the aggregated rows of every group.
 - A mark call has three windows: `panel` partitions by the operator's groups, `position` by the groups and the keys of the position channels (`x`, `y`, `theta`, and `radius`), and `series` by the groups and the keys of the series channels (`color`, `fill`, `stroke`, `stroke_dash`, `pattern`, and `detail`). Their keys leave out each channel that names one of them.
 - A window over one of them that reads the order of its rows, as `stack`, `ROW_NUMBER`, `LAG`, and a frame of `ROWS` do, takes its own `ORDER BY` and then the window's default order, which breaks its ties and orders a window without an `ORDER BY`. `panel` orders by the position keys, then the series, `position` by the series, and `series` by the position keys, each then by the other keys and the measures. `position` orders the series as a stack shows them: when the call's measure is in `y`, the series descend, so that the first entry of the legend is on top. A series ascends by its values, with `NULL` last, as a chart orders its categories by default. The order that a scale's own category fit gives is not read yet. A window that reads no order, or only the peers of its order, such as `SUM(COUNT(*)) OVER series` and `RANK`, keeps its order as written.
-- `stack` without `OVER` takes `OVER position`, so `bar(x => island, y => stack(COUNT(*)), color => species)` stacks the species of each island. `stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC)` puts the largest count at the bottom, and `offset` applies as for `stack` anywhere.
-- A stacked `line`, `area`, `trail`, `polar_line`, or `polar_area`, whose measure is a span or a field of one built from windows over `position`, fills each key that a series of a group lacks with zero before the windows, so the series do not cross.
+- `stack` without `OVER` takes `OVER position`, so `mark_bar(x => island, y => stack(COUNT(*)), color => species)` stacks the species of each island. `stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC)` puts the largest count at the bottom, and `offset` applies as for `stack` anywhere.
+- A stacked `mark_line`, `mark_area`, `mark_trail`, `mark_polar_line`, or `mark_polar_area`, whose measure is a span or a field of one built from windows over `position`, fills each key that a series of a group lacks with zero before the windows, so the series do not cross.
 
 `avenger_sql::lift(ctx, text)`, or `Analysis::lift` of an analysis, writes a script as the script that its lifted calls plan, as pipe SQL that a user could type: each `AGGREGATE` with a lifted call becomes its stages, one operator to a line, and the rest of the text stays as written, with its layout and comments. It returns the text and the ranges that it wrote, and the printout has nothing more to lift. A call beside other items prints as a `LEFT JOIN` on the groups whose query repeats the operator's input, so the printout computes the input once for each branch, where the plan reads one run of it.
 
@@ -118,7 +118,7 @@ The composition aggregates of avenger-chart's `functions` feature compose the ch
 
 ```sql
 FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
 ```
@@ -133,8 +133,8 @@ The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a r
 ```sql
 FROM penguins
 |> AGGREGATE layer(
-     symbol(x => bill_length_mm, y => bill_depth_mm),
-     symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm),
+     mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
    ) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart

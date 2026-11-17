@@ -157,19 +157,19 @@ impl StyleTree {
         self.set(node, name, AttributeValue::One(value.into()));
     }
 
-    /// Sets the two forms of the attribute `name`: the kind of a mark and its function name, or
+    /// Sets the two forms of the attribute `name`: the kind of a mark and its prefixed name, or
     /// the lists of both for the marks of a scale.
     pub fn set_attribute_forms(
         &mut self,
         node: NodeId,
         name: &'static str,
         kind: impl Into<String>,
-        function: impl Into<String>,
+        prefixed: impl Into<String>,
     ) {
         self.set(
             node,
             name,
-            AttributeValue::Forms([kind.into(), function.into()]),
+            AttributeValue::Forms([kind.into(), prefixed.into()]),
         );
     }
 

@@ -78,7 +78,7 @@ fn render(chart: &Chart, name: &str) {
 async fn a_bar_chart_of_counts() {
     let query = "FROM penguins
 |> AGGREGATE count(*) AS n GROUP BY species
-|> AGGREGATE bar(x => species, y => n ORDER BY species) AS chart";
+|> AGGREGATE mark_bar(x => species, y => n ORDER BY species) AS chart";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "penguins-bar");
@@ -87,7 +87,7 @@ async fn a_bar_chart_of_counts() {
 #[tokio::test]
 async fn a_chart_for_each_group() {
     let query = "FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(flipper_length_mm, scale => scale(zero => FALSE)),
      y => y(body_mass_g, scale => scale(zero => FALSE)),
      color => island,
@@ -102,7 +102,7 @@ async fn a_chart_for_each_group() {
 #[tokio::test]
 async fn a_map_of_earthquakes() {
     let query = "FROM earthquakes
-|> AGGREGATE geo_symbol(
+|> AGGREGATE mark_geo_symbol(
      longitude => longitude,
      latitude => latitude,
      size => size(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
@@ -121,7 +121,7 @@ async fn a_map_of_earthquakes() {
 async fn a_facet_of_scatter_plots_by_island() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart";
     let charts = charts(query).await;
@@ -133,7 +133,7 @@ async fn a_facet_of_scatter_plots_by_island() {
 async fn a_grid_of_scatter_plots_by_sex_and_island() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL AND sex IS NOT NULL
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
    GROUP BY sex, island
 |> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex
 |> AGGREGATE facet_row(chart, sex) AS chart";
@@ -148,8 +148,8 @@ async fn a_facet_of_layers_by_island() {
 |> WHERE body_mass_g IS NOT NULL
 |> AGGREGATE AVG(bill_depth_mm) AS mean GROUP BY island, species
 |> AGGREGATE layer(
-     bar(x => species, y => mean, color => species),
-     symbol(x => species, y => mean, fill => 'black')) AS chart
+     mark_bar(x => species, y => mean, color => species),
+     mark_symbol(x => species, y => mean, fill => 'black')) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart";
     let charts = charts(query).await;
@@ -161,7 +161,7 @@ async fn a_facet_of_layers_by_island() {
 async fn a_histogram_of_lifted_bins() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart";
+|> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*)) AS chart";
     let charts = charts(query).await;
     render(&charts[0], "lifted-histogram");
 }
@@ -170,7 +170,7 @@ async fn a_histogram_of_lifted_bins() {
 async fn a_facet_of_histograms_with_shared_bins() {
     let query = "FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart";
     let charts = charts(query).await;
     render(&charts[0], "lifted-facet-histograms");
@@ -179,7 +179,7 @@ async fn a_facet_of_histograms_with_shared_bins() {
 #[tokio::test]
 async fn a_lifted_stacked_bar() {
     let query = "FROM penguins
-|> AGGREGATE bar(x => island, y => stack(COUNT(*)), color => species) AS chart";
+|> AGGREGATE mark_bar(x => island, y => stack(COUNT(*)), color => species) AS chart";
     let charts = charts(query).await;
     render(&charts[0], "lifted-stacked-bar");
 }
@@ -190,7 +190,7 @@ async fn a_lifted_stacked_area_with_zero_fill() {
 |> WHERE body_mass_g IS NOT NULL
 |> SET body_mass_g = bin(body_mass_g, maxbins => 30) OVER ()
 |> SET body_mass_g = body_mass_g.start
-|> AGGREGATE area(x => body_mass_g, y => stack(COUNT(*)), color => species) AS chart";
+|> AGGREGATE mark_area(x => body_mass_g, y => stack(COUNT(*)), color => species) AS chart";
     let charts = charts(query).await;
     render(&charts[0], "lifted-stacked-area");
 }
@@ -236,7 +236,7 @@ fn holds(texts: &[String], text: &str) -> bool {
 async fn an_axis_formats_its_labels_with_a_googlesql_pattern() {
     let chart = one("FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(body_mass_g, axis => axis(labels => labels(format => \"%'.0f\"))),
      y => y(bill_length_mm, axis => axis(labels => '%.1f mm')),
    ) AS chart")
@@ -250,7 +250,7 @@ async fn an_axis_formats_its_labels_with_a_googlesql_pattern() {
 async fn a_legend_formats_its_labels_with_a_googlesql_pattern() {
     let chart = one("FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => bill_length_mm,
      y => bill_depth_mm,
      color => color(body_mass_g, legend => legend(labels => \"%'.1f\")),
@@ -264,7 +264,7 @@ async fn a_legend_formats_its_labels_with_a_googlesql_pattern() {
 async fn a_text_mark_formats_its_values_with_a_googlesql_pattern() {
     let chart = one("FROM penguins
 |> AGGREGATE COUNT(*) AS n GROUP BY species
-|> AGGREGATE text(x => species, y => n, text => n, format => '%05d') AS chart")
+|> AGGREGATE mark_text(x => species, y => n, text => n, format => '%05d') AS chart")
     .await;
     let texts = drawn(&chart);
     for count in ["00152", "00068", "00124"] {
@@ -276,7 +276,7 @@ async fn a_text_mark_formats_its_values_with_a_googlesql_pattern() {
 async fn a_tooltip_field_takes_a_googlesql_pattern() {
     let chart = one("FROM penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => bill_length_mm,
      y => body_mass_g,
      tools => [tooltip(fields => [field(column => 'body_mass_g', format => \"%'.0f g\")])],
@@ -304,7 +304,7 @@ async fn a_date_axis_formats_its_labels_with_format_date_elements() {
    ])";
     let chart = one(&format!(
         "{days}
-|> AGGREGATE line(x => x(day, axis => axis(labels => '%Y-%m')), y => n ORDER BY day) AS chart"
+|> AGGREGATE mark_line(x => x(day, axis => axis(labels => '%Y-%m')), y => n ORDER BY day) AS chart"
     ))
     .await;
     let texts = drawn(&chart);
@@ -312,7 +312,7 @@ async fn a_date_axis_formats_its_labels_with_format_date_elements() {
 
     // Without a pattern, the provider's default ticks.
     let chart = one(&format!(
-        "{days}\n|> AGGREGATE line(x => day, y => n ORDER BY day) AS chart"
+        "{days}\n|> AGGREGATE mark_line(x => day, y => n ORDER BY day) AS chart"
     ))
     .await;
     assert!(!drawn(&chart).is_empty());
@@ -320,8 +320,8 @@ async fn a_date_axis_formats_its_labels_with_format_date_elements() {
 
 #[tokio::test]
 async fn compositions_of_marks_with_patterns_name_googlesql() {
-    let marks = "bar(x => species, y => y(n, axis => axis(labels => '%.1f'))),
-     text(x => species, y => n, text => n, format => '%05d')";
+    let marks = "mark_bar(x => species, y => y(n, axis => axis(labels => '%.1f'))),
+     mark_text(x => species, y => n, text => n, format => '%05d')";
     let counts = "FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species, island";
     let layered = one(&format!(
         "{counts}
@@ -335,7 +335,7 @@ async fn compositions_of_marks_with_patterns_name_googlesql() {
 
     let concat = one(&format!(
         "{counts}
-|> AGGREGATE bar(x => species, y => y(n, axis => axis(labels => '%.1f'))) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => species, y => y(n, axis => axis(labels => '%.1f'))) AS chart GROUP BY island
 |> AGGREGATE hconcat_agg(chart ORDER BY island) AS chart"
     ))
     .await;
@@ -356,7 +356,7 @@ async fn compositions_of_marks_with_patterns_name_googlesql() {
 async fn a_chart_without_patterns_takes_the_default_ticks() {
     let chart = one("FROM penguins
 |> AGGREGATE COUNT(*) AS n GROUP BY species
-|> AGGREGATE bar(x => species, y => n) AS chart")
+|> AGGREGATE mark_bar(x => species, y => n) AS chart")
     .await;
     let texts = drawn(&chart);
     assert!(holds(&texts, "0") && holds(&texts, "Adelie"), "{texts:?}");

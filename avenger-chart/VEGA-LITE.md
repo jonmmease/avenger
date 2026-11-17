@@ -96,19 +96,19 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `color`, `fill`, `stroke`, `opacity`, `fillOpacity`, `strokeOpacity`, `strokeWidth`, `strokeDash`, `size`, `shape`, `angle` | The same channels in snake case, with `strokeDash` as CSS's `stroke_dasharray` | `stroke_width => 2`, `stroke_dasharray => '4 2'` | `shape` also takes SVG path data |
 | `text`, `url` | `text`, `image` | `text => species` | An image is a URL or a struct of RGBA pixels |
 | `detail` | `detail` | `detail => island` | One encoding |
-| `order` | The `ORDER BY` of the mark call, and the `order` channel | `line(x => day, y => price, order => step ORDER BY symbol)` | `ORDER BY` gives the draw order of the rows, and `order` only the order of the rows along the path of a line or an area |
+| `order` | The `ORDER BY` of the mark call, and the `order` channel | `mark_line(x => day, y => price, order => step ORDER BY symbol)` | `ORDER BY` gives the draw order of the rows, and `order` only the order of the rows along the path of a line or an area |
 | `tooltip` | A tooltip tool | `tools => [tooltip(fields => [field(column => 'species')])]` | No fields show every column, as `content: 'data'` does |
 | `longitude`, `latitude`, `longitude2`, `latitude2` | The same channels | `longitude => lon` | Without scales |
-| `shape` of `geoshape` | `geometry` | `geo_shape(geometry => geom)` | GeoArrow geometries |
+| `shape` of `geoshape` | `geometry` | `mark_geo_shape(geometry => geom)` | GeoArrow geometries |
 | `xError`, `yError`, `href`, `key`, `description` | None | None | |
-| mark `point`, `circle`, `square` | `SymbolMark` | `symbol(...)` | Its `shape` channel picks the symbol |
-| `line`, `trail`, `area`, `bar`, `rect`, `rule`, `text`, `image` | The marks of the same names | `line(...)` | |
-| `arc` | The polar marks, such as `PolarRectMark` and `PolarBarMark`, on a polar plot | `polar_bar(theta => species, radius => COUNT(*))` | The polar marks pair with the Cartesian ones |
-| `geoshape` | `GeoShapeMark` | `geo_shape(...)` | |
-| `tick` | `RuleMark` or `BarMark` | `rule(...)` | The nearest marks |
-| `filled`, `orient`, `cornerRadius` | `filled`, `orient`, `corner_radius` | `bar(..., corner_radius => 4)` | Properties of the mark |
-| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `text_overflow`, `format` | `text(..., font_family => 'Lato')` | `text_overflow` takes CSS's `clip` or `ellipsis`, `white_space` takes `normal` or `nowrap`, and `format` is a property of the mark, a GoogleSQL pattern as on an axis |
-| `aspect`, `smooth` of `image` | `ImageMark.object_fit`, `image_rendering` | `image(..., image_rendering => 'pixelated')` | CSS's keywords: `object_fit` takes `contain` or `fill`, and `image_rendering` takes `auto`, `smooth`, or `pixelated` |
+| mark `point`, `circle`, `square` | `SymbolMark` | `mark_symbol(...)` | Its `shape` channel picks the symbol |
+| `line`, `trail`, `area`, `bar`, `rect`, `rule`, `text`, `image` | The marks of the same names, as `mark_` and the name, as Altair's methods are | `mark_line(...)` | A polar mark is `mark_polar_` and its name, and a geo mark `mark_geo_` and its name |
+| `arc` | The polar marks, such as `PolarRectMark` and `PolarBarMark`, on a polar plot | `mark_polar_bar(theta => species, radius => COUNT(*))` | The polar marks pair with the Cartesian ones |
+| `geoshape` | `GeoShapeMark` | `mark_geo_shape(...)` | |
+| `tick` | `RuleMark` or `BarMark` | `mark_rule(...)` | The nearest marks |
+| `filled`, `orient`, `cornerRadius` | `filled`, `orient`, `corner_radius` | `mark_bar(..., corner_radius => 4)` | Properties of the mark |
+| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `text_overflow`, `format` | `mark_text(..., font_family => 'Lato')` | `text_overflow` takes CSS's `clip` or `ellipsis`, `white_space` takes `normal` or `nowrap`, and `format` is a property of the mark, a GoogleSQL pattern as on an axis |
+| `aspect`, `smooth` of `image` | `ImageMark.object_fit`, `image_rendering` | `mark_image(..., image_rendering => 'pixelated')` | CSS's keywords: `object_fit` takes `contain` or `fill`, and `image_rendering` takes `auto`, `smooth`, or `pixelated` |
 | Mark constants, such as `color` and `strokeWidth` | Direct values of the channels | `stroke => 'black'` | |
 | `innerRadius` | `Polar.inner_radius` | `coord => polar(inner_radius => 0.5)` | A fraction of the outer radius |
 | `style` | `classes` of a layer | `classes => ['dots']` | |
@@ -126,7 +126,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `spacing` | `Concat.gap`, `Wrap.gap` | `gap => 16` | |
 | `resolve.scale` | `Resolve`, one field for each channel with a scale, and `projection` | `resolve => resolve(y => 'independent')` | Also `pattern`, and the sharing of projections |
 | `resolve.axis`, `resolve.legend` | `PartRules` | `parts => parts(axis_title => 'keep', legend => 'keep')` | A rule for each kind of part: `keep`, `collapse`, or `merge` |
-| `width`, `height` of a view | `Plot.width`, `Plot.height` | `symbol(..., width => 300)` | They fix the length of the plot's track |
+| `width`, `height` of a view | `Plot.width`, `Plot.height` | `mark_symbol(..., width => 300)` | They fix the length of the plot's track |
 | `title` | `title` | `title => 'Penguins'` | |
 | `name` | `id` | `id => 'points'` | Stylesheets select it with `#id` |
 | `repeat` | None | Several mark calls, or unpivoted rows in a facet | |

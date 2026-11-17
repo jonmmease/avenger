@@ -4,8 +4,8 @@
 //! ```sql
 //! FROM penguins
 //! |> AGGREGATE layer(
-//!      symbol(x => bill_length_mm, y => bill_depth_mm),
-//!      symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
+//!      mark_symbol(x => bill_length_mm, y => bill_depth_mm),
+//!      mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20),
 //!    ) AS chart
 //!    GROUP BY island
 //! ```

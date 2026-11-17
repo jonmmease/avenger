@@ -4,7 +4,7 @@
 //! from its functions.
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
-//! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
+//! `|> AGGREGATE mark_bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! composition aggregate composes the charts of a group, as in `facet_column(chart, island)`. A
 //! constructor returns the fragment of its message, and only an argument of a chart function
 //! calls it, by the name that the argument's parameter gives it, as [`context`](super::context)
@@ -562,7 +562,7 @@ fn datum() -> Function {
         Ok(udf.call(vec![call.arg(0)]))
     })
     .example(
-        "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => body_mass_g, \
+        "FROM penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => body_mass_g, \
          color => datum('Adelie')) AS chart",
         "Every symbol has the color that the color scale gives `Adelie`.",
     )
@@ -594,7 +594,7 @@ fn value() -> Function {
     })
     .example(
         "FROM penguins |> AGGREGATE AVG(body_mass_g) AS mass GROUP BY species \
-         |> AGGREGATE bar(x => species, y => mass, fill => value('steelblue')) AS chart",
+         |> AGGREGATE mark_bar(x => species, y => mass, fill => value('steelblue')) AS chart",
         "Every bar is steel blue, and the chart has no color legend.",
     )
 }

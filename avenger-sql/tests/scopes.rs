@@ -436,7 +436,7 @@ fn a_place_takes_the_functions_that_the_pass_accepts_there() {
         ("SUM", "SUM(x)"),
         ("ROW_NUMBER", "ROW_NUMBER()"),
         ("UPPER", "UPPER(s)"),
-        ("bar", "bar(x => s)"),
+        ("mark_bar", "mark_bar(x => s)"),
         ("MATCH_NUMBER", "MATCH_NUMBER()"),
     ];
     // Each text is valid but for the call, so the pass accepts the call when it reports no error.

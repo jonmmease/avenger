@@ -1,7 +1,7 @@
 FROM penguins
 |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY island, species
 |> SELECT `island`, `species`, `AVG(body_mass_g)`
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(`species`, title => 'Species', axis => axis(grid => FALSE)),
      y => y(
        `AVG(body_mass_g)`,
