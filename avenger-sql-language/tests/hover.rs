@@ -122,17 +122,20 @@ fn hover_shows_the_parameter_of_an_argument_name() {
     let (range, markdown) = hover(&document, "x =>", 0).unwrap();
     assert_eq!(range, "x");
     assert!(
-        markdown.starts_with("```googlesql\nx: ANY\n```\n\nA parameter of `bar`: "),
+        markdown.starts_with("```googlesql\nx => ANY\nx => x("),
+        "{markdown}"
+    );
+    assert!(
+        markdown.contains("```\n\nA parameter of `bar`: "),
         "{markdown}"
     );
     // At the start of the name of an argument of a call in the value of another argument.
-    let nested =
-        common::document("FROM penguins |> AGGREGATE bar(x => scaled(species, title => 'S'))");
+    let nested = common::document("FROM penguins |> AGGREGATE bar(x => x(species, title => 'S'))");
     let start = nested.text().find("title").unwrap() as u32;
     let found = nested.hover(start.into()).unwrap();
     assert_eq!(at(&nested, found.range), "title");
     assert!(
-        found.markdown.contains("A parameter of `scaled`"),
+        found.markdown.contains("A parameter of `x`"),
         "{}",
         found.markdown
     );
@@ -144,7 +147,7 @@ fn hover_shows_the_parameter_of_an_argument_name() {
 #[test]
 fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     let document = common::document(
-        "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
          scale => scale(pin => pin(0, position => 'low')))) AS chart",
     );
     assert!(
@@ -167,7 +170,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     assert!(
         markdown.starts_with(
             "```googlesql\npin(value: ANY, position => 'low' | 'mid' | 'high') -> BYTES\n```\n\n\
-             Builds the `pin` of the `scale` of `scaled(...)`."
+             Builds the `pin` of the `scale` of the `y` of `bar(...)`."
         ),
         "{markdown}"
     );
@@ -177,7 +180,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     assert!(
         markdown.starts_with(
             "```googlesql\nscale => 'linear' | 'log' | 'pow' | …\nscale => scale(...)\n```\n\n\
-             A parameter of `scaled`: "
+             A parameter of `y`: "
         ),
         "{markdown}"
     );
@@ -186,6 +189,33 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
         "{markdown}"
     );
     assert!(!markdown.contains("BYTES"), "{markdown}");
+}
+
+#[test]
+fn hover_shows_a_channel_function_and_the_channel_that_takes_it() {
+    let document = common::document(
+        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), title => 'N')) AS chart",
+    );
+    assert!(
+        document.diagnostics().is_empty(),
+        "{:?}",
+        document.diagnostics()
+    );
+    // The channel function names the channel that it sets, with its options.
+    let (range, markdown) = hover(&document, "y(COUNT", 0).unwrap();
+    assert_eq!(range, "y");
+    assert!(
+        markdown.contains("Builds the `y` of `bar(...)`."),
+        "{markdown}"
+    );
+    assert!(markdown.contains("Sets the channel `y`"), "{markdown}");
+    // The channel's parameter takes any value and its channel function.
+    let (range, markdown) = hover(&document, "y =>", 0).unwrap();
+    assert_eq!(range, "y");
+    assert!(
+        markdown.starts_with("```googlesql\ny => ANY\ny => y("),
+        "{markdown}"
+    );
 }
 
 #[test]

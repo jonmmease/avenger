@@ -274,8 +274,8 @@ pub enum FunctionRole {
     Table,
     /// A mark of avenger-chart, which builds a chart of the rows of its group.
     Mark,
-    /// A constructor of avenger-chart, or `scaled` or `direct`, which returns a fragment of a
-    /// chart's message.
+    /// A constructor of avenger-chart, which returns a fragment of a chart's message, a channel
+    /// function, such as `x`, or `datum` or `value`.
     Constructor,
     /// A transform: `bin`, `stack`, `timeunit`, `lump`, or `impute`.
     Transform,

@@ -8,9 +8,9 @@ use prost::{bytes::Bytes, Message};
 use super::{
     generated::{
         apply_all_encoding, apply_all_mark_options, to_cartesian, to_geo, to_polar,
-        PARAMS_MARK_OPTIONS,
+        PARAMS_ENCODING, PARAMS_MARK_OPTIONS,
     },
-    Arg, ArgError, Kind, Mark, COORD,
+    Arg, ArgError, ChannelFunction, Kind, Mark, COORD,
 };
 use crate::{
     builder::{from_fragment, to_fragment, Build, Builder, Parts, Value},
@@ -102,13 +102,16 @@ pub struct MarkCall {
 
 impl MarkCall {
     /// Sets the channel `name` from `arg`, with the kind `kind`, or the default kind of the
-    /// channel for `None`, and for the scaled kind the options of an encoding `options`, in the
-    /// order of [`encoding_options`](super::encoding_options).
+    /// channel for `None`. `function` is the channel function that wraps the value, when the call
+    /// writes one, and `options` are its arguments after the value, in the order of its
+    /// [`options`](super::ChannelFunction::options). A constant of the scaled kind, which
+    /// [`DATUM`](super::DATUM) gives, needs a channel with a scale.
     pub fn channel(
         &mut self,
         name: &str,
         arg: ChannelArg,
         kind: Option<Kind>,
+        function: Option<&ChannelFunction>,
         options: &[Option<Arg>],
     ) -> Result<(), ArgError> {
         let mark = self.mark.name;
@@ -116,10 +119,26 @@ impl MarkCall {
             .find(|channel| channel.name == name)
             .ok_or_else(|| ArgError::mark(format!("{mark}() has no channel `{name}`")))?;
         let channel = declared.channel;
-        if kind == Some(Kind::Scaled) && !scales_strings(channel) && !scales_numbers(channel) {
+        if let Some(function) = function.filter(|function| function.channel != channel) {
             return Err(ArgError::mark(format!(
-                "scaled() needs a channel with a scale, and `{name}` of {mark}() has none"
+                "`{name}` of {mark}() takes `{name}(...)`, not `{}(...)`, which sets the channel `{}`",
+                function.name, function.name
             )));
+        }
+        if kind == Some(Kind::Scaled) {
+            if !scales_strings(channel) {
+                return Err(ArgError::mark(format!(
+                    "{}() needs a channel with a scale, and `{name}` of {mark}() has none",
+                    Kind::Scaled.name()
+                )));
+            }
+            if let ChannelArg::Field(column) = &arg {
+                return Err(ArgError::mark(format!(
+                    "{}() takes a constant, and `{name}` of {mark}() holds `{column}`, which \
+                     passes through the channel's scale without it",
+                    Kind::Scaled.name()
+                )));
+            }
         }
         let mut encoding = match arg {
             ChannelArg::Field(column) => {
@@ -139,9 +158,26 @@ impl MarkCall {
                 }
             }
         };
-        if !options.is_empty() {
-            encoding =
-                apply_all_encoding(encoding, options).map_err(|e| e.within(declared.name))?;
+        if let Some(function) = function {
+            if options.len() > function.options.len() {
+                return Err(ArgError::arity(
+                    function.options.len() + 1,
+                    options.len() + 1,
+                ));
+            }
+            // The function's options are some of the options of every encoding, which apply in
+            // their order.
+            let mut all: Vec<Option<Arg>> = vec![None; PARAMS_ENCODING.len()];
+            for (option, arg) in function.options.iter().zip(options) {
+                let index = (PARAMS_ENCODING.iter())
+                    .position(|every| every.name == option.name)
+                    .expect("an option of a channel function is an option of an encoding");
+                all[index] = arg.clone();
+            }
+            if all.iter().any(Option::is_some) {
+                encoding =
+                    apply_all_encoding(encoding, &all).map_err(|e| e.within(declared.name))?;
+            }
         }
         set_encoding(
             &mut self.layer,

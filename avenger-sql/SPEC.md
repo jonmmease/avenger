@@ -74,7 +74,19 @@ FROM penguins
 ```
 
 - Marks include `bar`, `line`, `area`, `symbol`, `rule`, `rect`, `text`, `trail`, `path`, `image`, their `polar_` forms, and the `geo_` marks of maps.
-- `scaled(value, scale => ...)` and `direct(value)` choose whether a channel goes through a scale. `scaled` also takes the options of its channel's encoding, such as `title`, the `axis` of a position, as in `x => scaled(body_mass_g, axis => axis(grid => FALSE))`, and the `legend` of another channel.
+- A bare value of the rows goes through the channel's scale, and a bare constant goes through the scale on a position, as `y => 0` does, and is drawn as it is on another channel, as `fill => 'red'` is. `datum(...)` makes a constant go through the scale, as in `color => datum('Adelie')`, and `value(...)` draws a constant or a column as it is, as in `fill => value(css_color)`.
+- A channel with a scale takes its channel function, named after the channel, which keeps the kind of its value and takes the options of the channel's encoding by name: `scale`, `axis`, `title`, `band_position`, `band_level`, and `selection_field` on `x`, `y`, `theta`, and `radius`, none on `x2`, `y2`, `theta2`, and `radius2`, which follow the first position, and `scale`, `legend`, `title`, and `selection_field` on the other channels, such as `color` and `size`. The value of a channel function can be `datum(...)` or `value(...)`:
+
+```sql
+FROM penguins
+|> AGGREGATE symbol(
+     x => x(body_mass_g, axis => axis(grid => FALSE)),
+     y => y(AVG(flipper_length_mm), title => 'Flipper length (mm)'),
+     color => color(datum('Adelie'), legend => FALSE),
+   ) AS chart
+   GROUP BY species
+```
+
 - A constructor builds the options of a chart, such as `polar(inner_radius => 0.5)` for a mark's `coord`, or `scale(zero => FALSE)` for a scale. Its arguments are constants. A constructor is named after the option that it fills, and only an argument of a chart function takes it: `type => log(base => 2)` is a log scale in `scale(...)`, where `LOG(x)` elsewhere is GoogleSQL's. One level down, `scale => pin(1000, position => 'low')` is short for `scale => scale(pin => pin(1000, position => 'low'))`. A constructor takes its shorthand by position and every other argument by name.
 - A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection on the mark's layer.
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them. The `order` channel of a line or an area orders the rows of its path, as in `line(x => x, y => y, order => step)`.

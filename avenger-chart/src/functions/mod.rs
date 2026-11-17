@@ -7,9 +7,10 @@
 //! The module has three parts:
 //!
 //! - Tables that describe the functions: [`constructors`], [`marks`], with the options of the
-//!   plot and the layer of each mark function, and [`encoding_options`], the options of
-//!   `scaled`. Each parameter lists every input that it accepts, with the chain of
-//!   conversions that the input takes.
+//!   plot and the layer of each mark function, and [`channel_functions`], a function for each
+//!   channel with a scale, which takes the channel's value and the options of its encoding. Each
+//!   parameter lists every input that it accepts, with the chain of conversions that the input
+//!   takes.
 //! - [`Constructor::build`], which builds the fragment of a constructor from [`Arg`]s, the
 //!   constant arguments that a binding converts its values to.
 //! - [`Mark::call`], which checks the arguments of a mark function and gives a
@@ -36,19 +37,23 @@ pub use call::{ChannelArg, MarkCall, MarkTemplate};
 pub use compose::{composition, compositions, Child, ChildOrder, Composition, CompositionKind};
 pub use error::{ArgError, Expected, Reason};
 
-use crate::{proto, CoordKind};
+use crate::{
+    proto,
+    validate::{is_position, scales_strings, takes_scale},
+    CoordKind,
+};
 
 /// The extension name of an Arrow column of fragments, whose metadata is the full name of their
 /// message.
 pub const FRAGMENT_EXTENSION_NAME: &str = "avenger.chart.fragment";
 
-/// The name of `scaled`, whose argument a mark draws through the channel's scale: a
-/// `scaled_field` or a `scaled_value`.
-pub const SCALED: &str = "scaled";
+/// The name of `datum`, whose constant argument a mark draws through the channel's scale: a
+/// `scaled_value`, as Vega-Lite's `datum` is.
+pub const DATUM: &str = "datum";
 
-/// The name of `direct`, whose argument a mark draws as it is: a `direct_field` or a
-/// `direct_value`.
-pub const DIRECT: &str = "direct";
+/// The name of `value`, whose argument a mark draws as it is: a `direct_field` or a
+/// `direct_value`, as Vega-Lite's `value` is.
+pub const VALUE: &str = "value";
 
 /// A constructor: its unique name, the full name of its message, the oneof that it builds, its
 /// documentation, and its parameters. A constructor of a message builds a fragment of the message.
@@ -199,9 +204,80 @@ pub fn constructor(name: &str) -> Option<&'static Constructor> {
         .find(|constructor| constructor.name == name)
 }
 
-/// The options of `scaled`, the options of an encoding, which follow its value.
-pub fn encoding_options() -> &'static [Param] {
-    generated::PARAMS_ENCODING
+/// The options of a position with a scale of its own, `x`, `y`, `theta`, and `radius`, in the
+/// order of its channel function's parameters.
+const POSITION_OPTIONS: &[&str] = &[
+    "scale",
+    "axis",
+    "title",
+    "band_position",
+    "band_level",
+    "selection_field",
+];
+
+/// The options of the second position of a pair, `x2`, `y2`, `theta2`, and `radius2`, which
+/// follows the scale, the axis, and the title of the first, so it takes none.
+const PARTNER_OPTIONS: &[&str] = &[];
+
+/// The options of another channel with a scale of its own, such as `color`.
+const OTHER_OPTIONS: &[&str] = &["scale", "legend", "title", "selection_field"];
+
+/// A channel function: a function for a channel with a scale, named after the channel, which takes
+/// the channel's value and then, by name, the options of its encoding that the channel has, as
+/// `x(body_mass, axis => axis(grid => FALSE))`. A position with a scale of its own takes its
+/// scale, its axis, its title, its place in a band, and its selection field, the second position
+/// of a pair no options, and another channel its scale, its legend, its title, and its
+/// selection field.
+///
+/// A channel function keeps the kind of its value: a bare value takes the default kind of the
+/// channel, and [`DATUM`] or [`VALUE`] around the value gives its kind, so `fill('red')` draws red
+/// as `fill => 'red'` does.
+#[derive(Debug)]
+pub struct ChannelFunction {
+    pub name: &'static str,
+    pub channel: proto::Channel,
+    /// The documentation of the channel's values.
+    pub doc: &'static str,
+    /// The options of the channel's encoding, which follow its value, by name.
+    pub options: Vec<&'static Param>,
+}
+
+/// The channel functions, one for each channel with a scale, in the order of the channels.
+pub fn channel_functions() -> &'static [ChannelFunction] {
+    static FUNCTIONS: std::sync::OnceLock<Vec<ChannelFunction>> = std::sync::OnceLock::new();
+    FUNCTIONS.get_or_init(|| {
+        let encoding = generated::PARAMS_ENCODING;
+        (generated::ENUM_CHANNEL.iter())
+            .filter_map(|name| {
+                let upper = format!("CHANNEL_{}", name.name.to_ascii_uppercase());
+                let channel = proto::Channel::from_str_name(&upper)?;
+                let options = match (scales_strings(channel), takes_scale(channel)) {
+                    (false, _) => return None,
+                    (true, true) if is_position(channel) => POSITION_OPTIONS,
+                    (true, true) => OTHER_OPTIONS,
+                    (true, false) => PARTNER_OPTIONS,
+                };
+                let options = (options.iter())
+                    .map(|option| {
+                        (encoding.iter())
+                            .find(|param| param.name == *option)
+                            .expect("an option of a channel function is an option of an encoding")
+                    })
+                    .collect();
+                Some(ChannelFunction {
+                    name: name.name,
+                    channel,
+                    doc: name.doc,
+                    options,
+                })
+            })
+            .collect()
+    })
+}
+
+/// The channel function named `name`, such as `x` or `fill_opacity`.
+pub fn channel_function(name: &str) -> Option<&'static ChannelFunction> {
+    (channel_functions().iter()).find(|function| function.name.eq_ignore_ascii_case(name))
 }
 
 /// The fields and the oneofs that the `lift` and `lift_oneof` options mark, the shorthands of
@@ -375,8 +451,9 @@ pub struct Channel {
     pub doc: &'static str,
 }
 
-/// The kind of a channel's encoding: a value that a mark draws through the channel's scale, or
-/// one that it draws as it is.
+/// The kind of a channel's encoding: a value that a mark draws through the channel's scale, which
+/// [`DATUM`] gives a constant, or one that it draws as it is, which [`VALUE`] gives a constant or a
+/// column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Scaled,
@@ -384,11 +461,11 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The kind that the function `name`, `scaled` or `direct`, gives.
+    /// The kind that the function `name`, `datum` or `value`, gives.
     pub fn of(name: &str) -> Option<Self> {
         match name {
-            SCALED => Some(Self::Scaled),
-            DIRECT => Some(Self::Direct),
+            DATUM => Some(Self::Scaled),
+            VALUE => Some(Self::Direct),
             _ => None,
         }
     }
@@ -396,8 +473,8 @@ impl Kind {
     /// The name of the function that gives the kind.
     pub fn name(self) -> &'static str {
         match self {
-            Self::Scaled => SCALED,
-            Self::Direct => DIRECT,
+            Self::Scaled => DATUM,
+            Self::Direct => VALUE,
         }
     }
 }

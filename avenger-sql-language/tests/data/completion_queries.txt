@@ -6,9 +6,11 @@ FROM penguins
 charts
 FROM penguins
 |> AGGREGATE symbol(
-     x => scaled(flipper_length_mm, scale => scale(zero => FALSE)),
-     y => scaled(body_mass_g, scale => scale(zero => FALSE)),
-     color => island) AS chart GROUP BY species
+     x => x(flipper_length_mm, scale => scale(zero => FALSE)),
+     y => y(body_mass_g, scale => scale(zero => FALSE)),
+     color => island,
+   ) AS chart
+   GROUP BY species
 |> ORDER BY species
 marks
 FROM t |> AGGREGATE symbol(x => 1, y => 2)
@@ -50,19 +52,36 @@ FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, co
 constructors
 FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(projection => 'mercator')) AS chart
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass', axis => axis(grid => FALSE)), y => scaled(flipper_length_mm, axis => FALSE), color => scaled(species, legend => legend(columns => 2))) AS chart
+FROM penguins
+|> AGGREGATE symbol(
+     x => x(body_mass_g, scale => scale(type => 'log'), title => 'Mass', axis => axis(grid => FALSE)),
+     y => y(flipper_length_mm, axis => FALSE),
+     color => color(species, legend => legend(columns => 2)),
+   ) AS chart
 constructors
 FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm)
+FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)
 constructors
 FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => pin(1000, position => 'low')), y => flipper_length_mm) AS chart
+FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => pin(1000, position => 'low')), y => flipper_length_mm) AS chart
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, axis => axis(title => title('Mass', font_size => 14), labels => labels(font_size => 9))), y => species) AS chart
+FROM penguins
+|> AGGREGATE symbol(
+     x => x(
+       body_mass_g,
+       axis => axis(title => title('Mass', font_size => 14), labels => labels(font_size => 9)),
+     ),
+     y => species,
+   ) AS chart
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => log(base => 2))), y => species, tools => [navigate(), tooltip(nearest => TRUE)]) AS chart
+FROM penguins
+|> AGGREGATE symbol(
+     x => x(body_mass_g, scale => scale(type => log(base => 2))),
+     y => species,
+     tools => [navigate(), tooltip(nearest => TRUE)],
+   ) AS chart
 scripts
 CREATE TEMP TABLE w (a INT64, b STRING); FROM w |> AGGREGATE COUNT(*) AS n
 scripts
@@ -99,7 +118,7 @@ highlight
 FROM penguins
 |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share,
 lump(island, n => 2, null_category => 'drop', other => 'Rest') OVER () AS isle
-|> AGGREGATE bar(x => species, y => scaled(share.end, title => 'Share'), orient => 'vertical') AS chart;
+|> AGGREGATE bar(x => species, y => y(share.end, title => 'Share'), orient => 'vertical') AS chart;
 FROM sales |> CALL impute(isl, [sp], m, method => 'avg')
 googlesql_pipe_5a
 FROM t |> UNION ALL (FROM u)

@@ -6,7 +6,7 @@ use super::{argument::describe_fragment, Accept, Arg, Class, Name, Shape};
 use crate::ChartError;
 
 /// An error of a call: the path of the parameters from the function to the argument, such as
-/// `x` and `scale` for an option of `scaled` of the channel `x`, and the reason. Its display is
+/// `x` and `scale` for an option of the channel function `x`, and the reason. Its display is
 /// the text of the SQL errors, such as `` `nice` takes a Boolean, an integer, or a
 /// floating-point number, not a string ``.
 #[derive(Debug)]

@@ -154,7 +154,7 @@ impl Document {
     /// parts of its target.
     fn argument_name(&self, root: &SyntaxNode, offset: Offset) -> Option<Hover> {
         // The named argument whose name holds the offset, not an argument whose value holds the
-        // call of the name, as at the start of `title` in `x => scaled(a, title => ...)`.
+        // call of the name, as at the start of `title` in `x => x(a, title => ...)`.
         let holds = |named: &ast::NamedArg| {
             (named.name_ref())
                 .is_some_and(|name| name.syntax().text_range().contains_inclusive(offset))

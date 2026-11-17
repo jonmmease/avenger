@@ -1,6 +1,7 @@
-//! avenger's own functions: the marks, compositions, `scaled`, and `direct` of avenger-chart, the
+//! avenger's own functions: the marks, compositions, `datum`, and `value` of avenger-chart, the
 //! window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table function `impute`, and
-//! the constructors of avenger-chart, which the library holds apart from its functions.
+//! the constructors and the channel functions of avenger-chart, which the library holds apart
+//! from its functions.
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
@@ -26,9 +27,9 @@ use std::sync::Arc;
 
 use avenger_chart::{
     functions::{
-        compositions, constructor as chart_constructor, constructors as constructors_of_chart,
-        encoding_options, marks, Accept as ChartAccept, Class, Composition, Kind,
-        Param as ChartParam, Shape, COORD,
+        channel_function, channel_functions, compositions, constructor as chart_constructor,
+        constructors as constructors_of_chart, marks, Accept as ChartAccept, ChannelFunction,
+        Class, Composition, Kind, Param as ChartParam, Shape, COORD,
     },
     CoordKind,
 };
@@ -57,7 +58,7 @@ use crate::functions::{
     composition::{aggregate_name, CompositionDeclaration},
     constructor::ConstructorFunction,
     declaration::MarkDeclaration,
-    kind::KindFunction,
+    kind::{ChannelUdf, KindFunction},
 };
 
 /// The doc of the argument of the charts of a composition aggregate.
@@ -87,8 +88,12 @@ pub(super) fn functions() -> Vec<Function> {
         function.clauses.over = super::Over::Forbidden;
         function.clauses.having = false;
         let mut args = Vec::new();
+        // A channel with a scale takes its channel function, named after the channel.
         for channel in mark.channels {
-            function = function.param(channel.name, channel.doc);
+            function = match channel_function(channel.name) {
+                Some(own) => function.chart_param(channel.name, channel.doc, channel_takes(own)),
+                None => function.param(channel.name, channel.doc),
+            };
             args.push(any(channel.name, channel.required));
         }
         // The properties, then the options of the mark's plot and layer, such as `tools`.
@@ -118,8 +123,8 @@ pub(super) fn functions() -> Vec<Function> {
             functions.push(scalar_composition(composition));
         }
     }
-    for constructor in [scaled(), direct()] {
-        functions.push(constructor.family(Family::Constructor));
+    for marker in [datum(), value()] {
+        functions.push(marker.family(Family::Constructor));
     }
     for transform in [bin(), stack(), timeunit(), lump(), impute()] {
         functions.push(transform.family(Family::Transform));
@@ -162,7 +167,78 @@ pub(super) fn constructors() -> Vec<Function> {
             Ok(udf.call(positional(call.values())))
         }));
     }
+    functions.extend(channel_functions().iter().map(channel));
     functions
+}
+
+/// The unique name of the channel function `function` among the constructors, which a channel
+/// argument of a mark calls by the channel's name.
+fn channel_key(function: &ChannelFunction) -> String {
+    format!("{}_channel", function.name)
+}
+
+/// What a channel with a scale takes: any value of the rows, and its channel function, named
+/// after the channel. A channel function is no constructor of an option, so no constructor is one
+/// level down from it.
+fn channel_takes(function: &ChannelFunction) -> Takes {
+    Takes {
+        values: vec![Ty::Any],
+        constructors: vec![own_builds(function.name, &channel_key(function), false)],
+        ..Takes::default()
+    }
+}
+
+/// The channel function `function`, under its unique name: the channel's value, of any type,
+/// which it returns, then the options of the channel's encoding by name.
+fn channel(function: &'static ChannelFunction) -> Function {
+    let udf = Arc::new(ScalarUDF::new_from_impl(ChannelUdf::new(function)));
+    let name = function.name;
+    let mut doc = format!(
+        "Sets the channel `{name}` of a mark to its value, with the options of the channel's \
+         encoding."
+    );
+    let options: Vec<String> = (function.options.iter())
+        .map(|option| format!("`{}`", option.name))
+        .collect();
+    doc.push_str(&format!(
+        " Use it as the value of the channel, as in `{name} => {name}(value, ...)`. It keeps the \
+         kind of its value: a bare value passes through the channel's scale when it reads the \
+         rows or when the channel is a position, and is drawn as it is otherwise, \
+         `datum(...)` passes a constant through the scale, and `value(...)` draws a constant or \
+         a column as it is. Its options are {}.",
+        match options.as_slice() {
+            [only] => only.clone(),
+            [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+            [] => "none".to_string(),
+        }
+    ));
+    let mut built = Function::scalar(&channel_key(function), summary(&doc))
+        .description(&doc)
+        .family(Family::Constructor)
+        .param(
+            "value",
+            &format!(
+                "The value of the channel, an expression of the rows or a constant, alone or in \
+                 `datum(...)` or `value(...)`. {}",
+                function.doc
+            ),
+        );
+    let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
+    for option in &function.options {
+        built = built.chart_param(option.name, option.doc, takes(option));
+        args.push(FormArg {
+            named_only: true,
+            ..arg(option.name, ty_of(option.accepts), false)
+        });
+    }
+    let signature = Signature {
+        args,
+        result: Ty::Var("T".to_string()),
+        vars: vec![("T".to_string(), Vec::new())],
+    };
+    built.with_signature(signature, move |call| {
+        Ok(udf.call(positional(call.values())))
+    })
 }
 
 /// The forms of the constructors that the parameters of `functions` and `constructors` take, from
@@ -466,55 +542,33 @@ fn scalar_composition(spec: &'static Composition) -> Function {
     })
 }
 
-fn scaled() -> Function {
+fn datum() -> Function {
     let udf = Arc::new(ScalarUDF::new_from_shared_impl(Arc::new(
         KindFunction::new(Kind::Scaled),
     )));
-    let mut function = Function::scalar(
+    Function::scalar(
         Kind::Scaled.name(),
-        "Gives a channel of a mark a value that passes through the channel's scale.",
+        "Gives a channel of a mark a constant that passes through the channel's scale.",
     )
     .description(
-        "Use `scaled` in an argument of a mark function, as in `color => scaled('Adelie')`, the \
-         color that the color scale gives the category `Adelie`. A channel argument without \
-         `scaled` or `direct` passes through the scale when the channel has a scale, such as \
-         `color` or `y`, and is drawn as it is otherwise, such as `text`. A constant on a \
-         position passes through the scale, as `y => 0` does for a reference line at zero. \
-         `scaled` makes the scaled kind explicit, and its options set the channel's encoding: \
-         its title, its scale, the axis of a position, and the legend of another channel.",
+        "Use `datum` as the value of a channel with a scale, alone or in the channel's function, \
+         as in `color => datum('Adelie')`, the color that the color scale gives the category \
+         `Adelie`, or `color => color(datum('Adelie'), legend => FALSE)`. A constant on a \
+         position passes through the scale without it, as `y => 0` does for a reference line, \
+         and a value of the rows passes through the scale of any channel with one.",
     )
-    .param("value", "The value of the channel.");
-    let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
-    for option in encoding_options() {
-        function = function.chart_param(option.name, option.doc, takes(option));
-        args.push(FormArg {
-            named_only: true,
-            ..arg(option.name, ty_of(option.accepts), false)
-        });
-    }
-    let signature = Signature {
-        args,
-        result: Ty::Var("T".to_string()),
-        vars: vec![("T".to_string(), Vec::new())],
-    };
-    function
-        .with_signature(signature, move |call| {
-            Ok(udf.call(positional(call.values())))
-        })
-        .example(
-            "FROM penguins |> AGGREGATE AVG(body_mass_g) AS mass GROUP BY species \
-             |> AGGREGATE bar(x => species, y => scaled(mass, title => 'Body mass (g)')) AS chart",
-            "The axis of `y` takes the title `Body mass (g)`.",
-        )
-        .example(
-            "FROM penguins |> AGGREGATE symbol(x => scaled(bill_length_mm, axis => axis(grid => FALSE)), \
-             y => body_mass_g, color => scaled(species, legend => legend(columns => 2))) AS chart",
-            "The axis of `x` draws no grid lines, and the legend of `color` lays out its entries in \
-             two columns.",
-        )
+    .param("value", "The constant of the channel.")
+    .form("(value: T) -> T where T: ANY", move |call| {
+        Ok(udf.call(vec![call.arg(0)]))
+    })
+    .example(
+        "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => body_mass_g, \
+         color => datum('Adelie')) AS chart",
+        "Every symbol has the color that the color scale gives `Adelie`.",
+    )
 }
 
-fn direct() -> Function {
+fn value() -> Function {
     let udf = Arc::new(ScalarUDF::new_from_shared_impl(Arc::new(
         KindFunction::new(Kind::Direct),
     )));
@@ -524,18 +578,23 @@ fn direct() -> Function {
          scale.",
     )
     .description(
-        "Use `direct` in an argument of a mark function, as in `fill => direct(color)` for a \
-         column of CSS colors. On a position, a direct value is a fraction of the plot: \
-         `x => direct(0.5)` is the middle of the plot's width, and `y => direct(0)` its bottom \
-         edge, at any size of the plot.",
+        "Use `value` as the value of a channel, alone or in the channel's function, as in \
+         `fill => value(color)` for a column of CSS colors, or \
+         `fill => fill(value(color), title => 'Color')`. A constant on a channel other than a \
+         position is drawn as it is without it, as `fill => 'steelblue'` is. On a position, a \
+         direct value is a fraction of the plot: `x => value(0.5)` is the middle of the plot's \
+         width, and `y => value(0)` its bottom edge, at any size of the plot.",
     )
-    .param("value", "The value of the channel.")
+    .param(
+        "value",
+        "The value of the channel, a constant or an expression of the rows.",
+    )
     .form("(value: T) -> T where T: ANY", move |call| {
         Ok(udf.call(vec![call.arg(0)]))
     })
     .example(
         "FROM penguins |> AGGREGATE AVG(body_mass_g) AS mass GROUP BY species \
-         |> AGGREGATE bar(x => species, y => mass, fill => direct('steelblue')) AS chart",
+         |> AGGREGATE bar(x => species, y => mass, fill => value('steelblue')) AS chart",
         "Every bar is steel blue, and the chart has no color legend.",
     )
 }

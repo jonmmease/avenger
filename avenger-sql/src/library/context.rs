@@ -1,8 +1,9 @@
 //! The function of a call by its place in the text: a constructor of a chart's option, by the name
 //! that the parameter of its argument gives it, or a function of the library.
 //!
-//! A constructor is valid only in an argument of a chart function: a mark, a composition,
-//! `scaled`, or a constructor in them. Its name resolves against what the argument's parameter
+//! A constructor is valid only in an argument of a chart function: a mark, a composition, a
+//! channel function, or a constructor in them. A channel function is valid only as the value of
+//! the channel of its name, as `color => color(species, legend => FALSE)`. Its name resolves against what the argument's parameter
 //! takes, its [`Takes`](super::Takes), so one name builds different messages in different places,
 //! as `type => point(...)` is a point scale in `scale(...)` and a point selection in `select(...)`,
 //! and `log(...)` in `type =>` is a log scale where `LOG(x)` elsewhere is GoogleSQL's. The

@@ -1601,8 +1601,14 @@ impl Pass<'_> {
                     Some(function) => (function, None),
                     None => {
                         let places = library.constructor_places(&name);
+                        let channel = avenger_chart::functions::channel_function(&name);
                         let message = match places.is_empty() {
                             true => format!("Function not found: {name}"),
+                            false if channel.is_some() => format!(
+                                "`{name}(...)` sets the channel `{name}` of a mark, so only the \
+                                 value of that channel holds it, as {}",
+                                places.join(" or ")
+                            ),
                             false => format!(
                                 "`{name}(...)` builds an option of a chart, so only a chart \
                                  function's options hold it, as {}",
@@ -1790,6 +1796,35 @@ impl Pass<'_> {
                 ok = false;
                 continue;
             };
+            // A name that no parameter of a chart function has, before its value, which would
+            // resolve against no parameter.
+            let chart = matches!(
+                function.family,
+                library::Family::Mark | library::Family::Composition | library::Family::Constructor
+            );
+            if let (true, Some(name)) = (chart, &named) {
+                if function.param_named(name).is_none() {
+                    let range = argument.syntax().text_range();
+                    let params: Vec<String> = (function.params.iter())
+                        .map(|param| format!("`{}`", param.name))
+                        .collect();
+                    let mut message = function.unknown_parameter(name);
+                    match params.as_slice() {
+                        [only] => message.push_str(&format!(", only {only}")),
+                        [first, last] => {
+                            message.push_str(&format!(": its parameters are {first} and {last}"))
+                        }
+                        [rest @ .., last] if params.len() <= 8 => message.push_str(&format!(
+                            ": its parameters are {}, and {last}",
+                            rest.join(", ")
+                        )),
+                        _ => {}
+                    }
+                    self.error(range, message);
+                    ok = false;
+                    continue;
+                }
+            }
             // A literal that a parameter of a chart function does not take.
             let unaccepted = (param.as_deref())
                 .and_then(|param| function.param_named(param))
@@ -1835,12 +1870,12 @@ impl Pass<'_> {
                             }
                         };
                         written.push(lifting::Written {
-                            channel,
-                            node: lifting::channel_node(&value),
+                            node: lifting::channel_node(&value, &channel),
                             value: lifting::channel_value(&expr).clone(),
                             range: value.syntax().text_range(),
-                            text: lifting::channel_title(&value, self.library),
-                            full: lifting::channel_text(&value),
+                            text: lifting::channel_title(&value, &channel, self.library),
+                            full: lifting::channel_text(&value, &channel),
+                            channel,
                         });
                     }
                     args.push((named, Arg::Value(expr)));

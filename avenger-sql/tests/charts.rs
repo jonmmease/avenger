@@ -82,9 +82,11 @@ async fn a_bar_chart_of_counts() {
 async fn a_chart_for_each_group() {
     let query = "FROM penguins
 |> AGGREGATE symbol(
-     x => scaled(flipper_length_mm, scale => scale(zero => FALSE)),
-     y => scaled(body_mass_g, scale => scale(zero => FALSE)),
-     color => island) AS chart GROUP BY species
+     x => x(flipper_length_mm, scale => scale(zero => FALSE)),
+     y => y(body_mass_g, scale => scale(zero => FALSE)),
+     color => island,
+   ) AS chart
+   GROUP BY species
 |> ORDER BY species";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 3, "one chart for each species");
@@ -97,7 +99,7 @@ async fn a_map_of_earthquakes() {
 |> AGGREGATE geo_symbol(
      longitude => longitude,
      latitude => latitude,
-     size => scaled(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
+     size => size(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
      color => depth_km,
      coord => geo(
        projection => projection(type => 'equal_earth', fit => 'whole_sphere'),

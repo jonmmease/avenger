@@ -6,7 +6,7 @@ fn the_examples_of_the_guide_parse_without_errors() {
     let examples: Vec<&str> = (guide.split("```sql\n").skip(1))
         .map(|rest| rest.split("```").next().unwrap())
         .collect();
-    assert_eq!(examples.len(), 6);
+    assert_eq!(examples.len(), 7);
     for example in examples {
         let parse = avenger_sql_syntax::parse(example);
         assert!(

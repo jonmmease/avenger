@@ -144,21 +144,55 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         let parameter = &signature.parameters[signature.active_parameter.unwrap()];
         parameter.documentation.clone().unwrap()
     };
-    let pin = doc("FROM penguins |> SELECT scaled(1, scale => scale(pin => $0)) AS f");
+    let pin = doc(
+        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(pin => $0)), \
+         y => species) AS f",
+    );
     assert!(
         pin.ends_with(
             "```googlesql\npin => pin(value: ANY, position => 'low' | 'mid' | 'high')\n```"
         ),
         "{pin}"
     );
-    let scale = doc("FROM penguins |> SELECT scaled(1, scale => $0) AS s");
+    let scale = doc(
+        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => $0), y => species) AS s",
+    );
     assert!(
         scale.contains("\n- One level down: `type(...)`, `domain(...)`"),
         "{scale}"
     );
     // The forms of a constructor under the name that its place gives it.
-    let help =
-        help("FROM penguins |> SELECT scaled(1, scale => scale(type => log($0))) AS s").unwrap();
+    let help = help(
+        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(type => log($0))), \
+         y => species) AS s",
+    )
+    .unwrap();
     let label = &help.signatures[help.active_signature].label;
     assert!(label.starts_with("log([base => "), "{label}");
+}
+
+#[test]
+fn a_channel_function_shows_the_options_of_its_channel() {
+    let label = |text: &str| {
+        let help = help(text).unwrap();
+        help.signatures[help.active_signature].label.clone()
+    };
+    // A position with a scale of its own takes its axis, and the second position takes only its value.
+    let x = label("FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, $0), y => species) AS s");
+    assert!(
+        x.starts_with("x(value: T[, scale => ") && x.contains("axis => ") && !x.contains("legend"),
+        "{x}"
+    );
+    let x2 =
+        label("FROM penguins |> AGGREGATE rule(x => body_mass_g, x2 => x2(body_mass_g, $0)) AS s");
+    assert!(x2.starts_with("x2(value: T) -> T"), "{x2}");
+    // Another channel takes its legend.
+    let color = label(
+        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => species, \
+         color => color(species, $0)) AS s",
+    );
+    assert!(
+        color.contains("legend => ") && !color.contains("axis =>"),
+        "{color}"
+    );
 }

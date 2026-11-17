@@ -90,18 +90,57 @@ async fn a_measure_computes_over_its_aggregates_under_its_text() {
 }
 
 #[tokio::test]
-async fn scaled_and_direct_keep_their_place() {
+async fn channel_functions_and_markers_keep_their_place() {
     same(
         &format!(
-            "{PENGUINS} |> AGGREGATE bar(x => species, y => scaled(COUNT(*), title => 'Penguins')) \
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => y(COUNT(*), title => 'Penguins')) \
              AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
-             |> AGGREGATE bar(x => species, y => scaled(`COUNT(*)`, title => 'Penguins')) AS chart"
+             |> AGGREGATE bar(x => species, y => y(`COUNT(*)`, title => 'Penguins')) AS chart"
         ),
     )
     .await;
+    same(
+        &format!(
+            "{PENGUINS} |> AGGREGATE bar(x => species, y => y(AVG(body_mass_g), \
+             axis => axis(label_rotation => -45)), fill => fill(value('red'))) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY species \
+             |> AGGREGATE bar(x => species, y => y(`AVG(body_mass_g)`, \
+             axis => axis(label_rotation => -45)), fill => fill(value('red'))) AS chart"
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_channel_function_lifts_its_aggregate_and_sets_its_axis() {
+    let charts = common::charts(&format!(
+        "{PENGUINS} |> AGGREGATE bar(x => species, \
+         y => y(AVG(body_mass_g), axis => axis(label_rotation => -45))) AS chart"
+    ))
+    .await;
+    let Some(avenger_chart::proto::node::Node::Plot(plot)) = &charts[0].root().node else {
+        panic!("the root is a plot")
+    };
+    let layer = avenger_chart::LayerRef::of(plot).remove(0);
+    let y = (layer.mark().unwrap())
+        .encoding(avenger_chart::proto::Channel::Y)
+        .unwrap();
+    assert!(matches!(
+        y.axis.as_ref().and_then(|axis| axis.label_rotation.as_ref()),
+        Some(avenger_chart::proto::axis::LabelRotation::LabelAngle(angle)) if *angle == -45.0
+    ));
+    let table = charts[0].table(layer.table().unwrap());
+    assert!(
+        table.schema().field_with_name("AVG(body_mass_g)").is_ok(),
+        "the column takes the text inside the channel function: {:?}",
+        table.schema()
+    );
+    assert_eq!(table.num_rows(), 3, "one row for each species");
 }
 
 #[tokio::test]
@@ -699,8 +738,42 @@ async fn the_printouts_of_the_stages() {
              OVER panel) AS chart GROUP BY island"
                 .to_string(),
         ),
+        ("long-call", LONG_CALL.to_string()),
+        ("long-impute", LONG_IMPUTE.to_string()),
+        ("long-branch", LONG_BRANCH.to_string()),
     ])
     .await;
+}
+
+/// A mark call longer than a line, with nested calls and an array, written on one line.
+const LONG_CALL: &str = "FROM penguins\n|> AGGREGATE symbol(x => x(species, title => 'Species', \
+     axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), scale => scale(zero => FALSE), \
+     axis => axis(label_rotation => -45, title => title('Mean body mass (g)', font_size => 14))), \
+     color => species, tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)] ORDER BY \
+     species) AS chart GROUP BY island";
+
+/// A stacked area whose stage of `impute` is longer than a line.
+const LONG_IMPUTE: &str = "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
+     |> EXTEND bin(body_mass_g) OVER () AS b\n|> EXTEND b.start AS mass\n\
+     |> AGGREGATE area(x => mass, y => stack(SUM(flipper_length_mm)), color => species, \
+     stroke => sex) AS chart GROUP BY island";
+
+/// An indented `AGGREGATE` of an item beside a mark call longer than a line, which plans as a
+/// branch.
+const LONG_BRANCH: &str = "FROM (\n  FROM penguins\n  |> AGGREGATE COUNT(*) AS n, symbol(x => \
+     x(species, title => 'Species', axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), \
+     scale => scale(zero => FALSE)), color => species) AS chart GROUP BY island\n)";
+
+#[tokio::test]
+async fn the_printout_of_a_long_call_plans_its_charts() {
+    // The printout breaks the long calls, with trailing commas, and plans the same charts.
+    for query in [LONG_CALL, LONG_IMPUTE, LONG_BRANCH] {
+        let printed = avenger_sql::lift(&session(), query).await.unwrap().text;
+        assert!(printed.contains("(\n     "), "{printed}");
+        assert_eq!(charts(query).await, charts(&printed).await, "{printed}");
+        let again = avenger_sql::lift(&session(), &printed).await.unwrap().text;
+        assert_eq!(again, printed);
+    }
 }
 
 #[tokio::test]

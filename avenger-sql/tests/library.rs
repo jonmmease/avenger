@@ -496,7 +496,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
     );
     // Three strings of a set and `…`, the parameter's own constructor, then the constructors one
     // level down, named after the parameters of `scale`.
-    let scale = forms(&library, "scaled", "scale").unwrap();
+    let scale = forms(&library, "x_channel", "scale").unwrap();
     assert!(
         scale.starts_with(
             "```googlesql\nscale => 'linear' | 'log' | 'pow' | …\nscale => scale(...)\n```\n\n"
@@ -508,8 +508,12 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         "{scale}"
     );
     // The axis and the legend are options of the encoding, beside its scale.
-    let axis = forms(&library, "scaled", "axis").unwrap();
+    let axis = forms(&library, "x_channel", "axis").unwrap();
     assert!(axis.contains("axis => axis("), "{axis}");
+    // A channel with a scale takes any value, and its channel function under its name.
+    let x = forms(&library, "symbol", "x").unwrap();
+    assert!(x.starts_with("```googlesql\nx => ANY\nx => x("), "{x}");
+    assert_eq!(forms(&library, "text", "text"), None);
     // The members of the type of a scale are one level down from its type.
     let kind = forms(&library, "scale", "type").unwrap();
     assert!(
@@ -517,8 +521,8 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         "{kind}"
     );
     // The strings of the parameter are the values of its set, each of them.
-    let scaled = library.get("scaled").unwrap();
-    let values = scaled.values_of("scale");
+    let x = library.constructor("x_channel").unwrap();
+    let values = x.values_of("scale");
     assert!(
         values.len() > 3 && values.contains(&"linear") && values.contains(&"time"),
         "{values:?}"
@@ -536,7 +540,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
 #[test]
 fn the_reference_writes_the_forms_of_a_parameter_with_its_every_string() {
     let library = Library::new();
-    let entry = avenger_sql::library::entry(library.get("scaled").unwrap());
+    let entry = avenger_sql::library::entry(library.constructor("x_channel").unwrap());
     assert!(
         entry.contains("scale => 'linear' | 'log' | 'pow' | 'symlog'"),
         "{entry}"
