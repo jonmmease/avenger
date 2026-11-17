@@ -130,6 +130,8 @@ An element of an array takes the constructor that its argument names, as `levels
 
 A shorthand is an ordinary value that fills a plain field of the argument's own option: `title => 'Mass'` fills the text of a title, `axis => FALSE` hides an axis, `scale => 'log'` picks the type of a scale, and `tracks => [200, 400]` fills the length of each track. A shorthand never fills a field of a child, so `axis => 'Bill length'` is an error, and `axis => title('Bill length')` sets the axis title by form 3.
 
+The options of a chart follow the parts of its stylesheets. A part with text of its own nests: `axis(labels => labels(angle => -45))` sets what `axis > label { angle: -45 }` sets. A part that only draws is a prefix: `axis(tick_stroke => 'gray', grid_stroke_width => 0.5)`. A style option takes the name of its stylesheet property with underscores, and its keywords, as `text_align => 'end'` and `white_space => 'nowrap'`. `value_placement` places the values that a guide marks, its ticks, grid lines, labels, and swatches, as `axis(value_placement => 5)`, and `tick` names only the tick marks.
+
 A value always wraps in its constructor: where `foo => v` is valid, `foo => foo(v)` is valid too and means the same, so named arguments can follow the value, as in `title => title('Mass', font_size => 14)`. A constructor takes its shorthand at position 0, and every other argument by name. A shorthand can be valid at position 0 when it is not valid alone: `pin(1000, position => 'low')` is a pin, and `pin => 1000` is an error, since a pin needs its position.
 
 ```sql

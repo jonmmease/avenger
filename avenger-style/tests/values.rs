@@ -222,7 +222,8 @@ fn keywords_and_the_values_of_scales() {
     accepts(Property::Pattern, &["none", "\"stripes 45 8 2\""]);
     rejects(Property::Pattern, &["stripes", "\"zigzag\""]);
     accepts(Property::Align, &["true", "false", "left"]);
-    accepts(Property::Display, &["none", "block", "flex"]);
+    accepts(Property::Display, &["none", "block", "true", "false"]);
+    rejects(Property::Display, &["flex", "inline", "contents"]);
     accepts(Property::Separator, &["\" · \""]);
 
     let Some(Value::List(families)) =

@@ -25,7 +25,7 @@ message Axis {
   // Whether the scale draws this axis. When unset, it does. `false` draws no axis, as an unset
   // axis of `theta` or `radius` draws none, and an unset axis of `x` or `y` draws the default
   // axis.
-  optional bool show = 1 [(avenger.chart.v1.lift) = true];
+  optional bool display = 1 [(avenger.chart.v1.lift) = true];
   // The title. When unset, or when its text is empty, the axis takes the titles of the encodings
   // of its scale, as `Encoding.title` describes.
   Title title = 2;
@@ -90,7 +90,7 @@ message Axis {
 message NestedAxisLevel {
   // The labels of the level: whether the axis shows them, their angle, and the pattern of the
   // numeric and temporal values of the level, as for `Labels.format`, which takes the pattern of
-  // the axis when it is empty. A leaf without labels has no ticks either. When `show` is unset,
+  // the axis when it is empty. A leaf without labels has no ticks either. When `display` is unset,
   // the axis shows them. When `angle` is unset, the leaf takes the angle of the axis's labels, and
   // the labels of an outer level are level. The markup and the font of the labels of a level are
   // invalid, since every level takes those of the axis's labels, and so are the other settings of

@@ -7,16 +7,20 @@ use avenger_chart::proto::{
     self, cartesian_layer, geo_layer, polar_layer, Align, Side, TextAlign, TextBaseline,
     TextWidthMode,
 };
-use avenger_style::{NodeId, Property, StyleTree};
+use avenger_style::{Element, NodeId, Property, StyleTree};
 
 use crate::EvalWarning;
 
-/// The style fields that this module maps, by message: every field of the format that is neither
-/// content nor deferred to a later evaluator, which `tests/style_fields.rs` checks.
+/// The style fields that this module maps, by message, with the elements of the nodes that the
+/// message styles: every field of the format that is neither content nor deferred to a later
+/// evaluator, which `tests/style_fields.rs` checks. A message that holds a chart's title and its
+/// plot, as `Plot`, `Concat`, and `Wrap` do, stands for the `chart` and its `plot`, and
+/// `tests/naming.rs` checks the fields' names against the parts of these elements.
 #[doc(hidden)]
-pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
+pub const STYLE_FIELDS: &[(&str, &[Element], &[&str])] = &[
     (
         "Chart",
+        &[Element::Chart],
         &[
             "padding_top",
             "padding_right",
@@ -24,11 +28,20 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "padding_left",
         ],
     ),
-    ("Plot", &["width", "height"]),
-    ("Concat", &["gap"]),
-    ("Wrap", &["min_column_width", "max_columns", "gap"]),
+    (
+        "Plot",
+        &[Element::Chart, Element::Plot],
+        &["width", "height"],
+    ),
+    ("Concat", &[Element::Chart, Element::Plot], &["gap"]),
+    (
+        "Wrap",
+        &[Element::Chart, Element::Plot],
+        &["min_column_width", "max_columns", "gap"],
+    ),
     (
         "Facet",
+        &[Element::Facet],
         &[
             "title",
             "orient",
@@ -40,22 +53,28 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "rule_stroke_width",
         ],
     ),
-    ("Cartesian", &["aspect_ratio"]),
+    ("Cartesian", &[Element::Plot], &["aspect_ratio"]),
     (
         "Geo",
+        &[Element::Plot],
         &[
-            "aspect_ratio",
-            "free",
+            "ratio",
+            "none",
             "sphere_fill",
             "sphere_stroke",
             "sphere_stroke_width",
         ],
     ),
-    ("Graticule", &["labels", "grid_stroke", "grid_stroke_width"]),
+    (
+        "Graticule",
+        &[Element::Graticule],
+        &["labels", "grid_stroke", "grid_stroke_width"],
+    ),
     (
         "Title",
+        &[Element::Title],
         &[
-            "show",
+            "display",
             "orient",
             "text_align",
             "font_family",
@@ -67,13 +86,15 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "Subtitle",
+        &[Element::Subtitle],
         &["font_family", "font_size", "font_weight", "color"],
     ),
-    ("SymbolMark", &["filled"]),
-    ("BarMark", &["corner_radius"]),
-    ("RectMark", &["corner_radius", "inset"]),
+    ("SymbolMark", &[Element::Mark], &["filled"]),
+    ("BarMark", &[Element::Mark], &["corner_radius"]),
+    ("RectMark", &[Element::Mark], &["corner_radius", "inset"]),
     (
         "TextMark",
+        &[Element::Mark],
         &[
             "align",
             "baseline",
@@ -86,13 +107,19 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "ImageMark",
+        &[Element::Mark],
         &["align", "baseline", "object_fit", "image_rendering"],
     ),
-    ("PolarSymbolMark", &["filled"]),
-    ("PolarBarMark", &["corner_radius"]),
-    ("PolarRectMark", &["corner_radius", "inset"]),
+    ("PolarSymbolMark", &[Element::Mark], &["filled"]),
+    ("PolarBarMark", &[Element::Mark], &["corner_radius"]),
+    (
+        "PolarRectMark",
+        &[Element::Mark],
+        &["corner_radius", "inset"],
+    ),
     (
         "PolarTextMark",
+        &[Element::Mark],
         &[
             "font_family",
             "max_lines",
@@ -104,9 +131,10 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "text_orient",
         ],
     ),
-    ("GeoSymbolMark", &["filled"]),
+    ("GeoSymbolMark", &[Element::Mark], &["filled"]),
     (
         "GeoTextMark",
+        &[Element::Mark],
         &[
             "align",
             "baseline",
@@ -119,10 +147,12 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "GeoImageMark",
+        &[Element::Mark],
         &["align", "baseline", "object_fit", "image_rendering"],
     ),
     (
         "Axis",
+        &[Element::Axis],
         &[
             "title",
             "orient",
@@ -140,11 +170,12 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "angle",
         ],
     ),
-    ("NestedAxisLevel", &["labels"]),
+    ("NestedAxisLevel", &[Element::Level], &["labels"]),
     (
         "Labels",
+        &[Element::Label],
         &[
-            "show",
+            "display",
             "font_family",
             "font_size",
             "font_weight",
@@ -158,6 +189,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "Legend",
+        &[Element::Legend],
         &[
             "title",
             "labels",
@@ -184,6 +216,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ),
     (
         "Attribution",
+        &[Element::Attribution],
         &[
             "orient",
             "text_align",
@@ -200,10 +233,18 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "padding",
         ],
     ),
-    ("Scale", &["values", "scheme", "reverse"]),
-    ("BandScale", &["padding_inner", "padding_outer"]),
-    ("PointScale", &["padding"]),
-    ("NestedBandScale", &["padding_inner", "padding_outer"]),
+    ("Scale", &[Element::Scale], &["values", "scheme"]),
+    (
+        "BandScale",
+        &[Element::Scale],
+        &["padding_inner", "padding_outer"],
+    ),
+    ("PointScale", &[Element::Scale], &["padding"]),
+    (
+        "NestedBandScale",
+        &[Element::Scale],
+        &["padding_inner", "padding_outer"],
+    ),
 ];
 
 /// The values of a range as CSS text: strings as they are, such as colors and shape names,
@@ -303,8 +344,8 @@ fn keyword(tree: &mut Styled, node: NodeId, property: Property, value: Option<&s
 
 /// Whether a part shows, as `display`: `none` to hide it, and `block` to show it whatever the
 /// stylesheets say.
-fn shown(tree: &mut Styled, node: NodeId, show: Option<bool>) {
-    let display = show.map(|show| match show {
+fn shown(tree: &mut Styled, node: NodeId, display: Option<bool>) {
+    let display = display.map(|display| match display {
         true => "block",
         false => "none",
     });
@@ -405,7 +446,7 @@ fn font(tree: &mut Styled, node: NodeId, font: Font) {
 /// A guide's title on its `title` node: whether it shows, and its font.
 fn guide_title(tree: &mut Styled, node: NodeId, title: Option<&proto::Title>) {
     let Some(title) = title else { return };
-    shown(tree, node, title.show);
+    shown(tree, node, title.display);
     font(tree, node, Font::of_title(title));
 }
 
@@ -414,7 +455,7 @@ fn guide_title(tree: &mut Styled, node: NodeId, title: Option<&proto::Title>) {
 /// draw it.
 fn guide_labels(tree: &mut Styled, node: NodeId, labels: Option<&proto::Labels>) {
     let Some(labels) = labels else { return };
-    shown(tree, node, labels.show);
+    shown(tree, node, labels.display);
     font(tree, node, Font::of_labels(labels));
     deg(tree, node, Property::Angle, labels.angle);
     keyword(
@@ -475,7 +516,7 @@ pub(crate) fn chart(tree: &mut Styled, node: NodeId, chart: &proto::Chart) {
 }
 
 /// `Plot.width` and `height`, and the aspects of Cartesian and geo plots, on its `plot`: a ratio,
-/// or for `Geo.free`, `none`.
+/// or for `Geo.aspect_ratio` of `none`, `none`.
 pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
     px(tree, node, Property::Width, plot.width);
     px(tree, node, Property::Height, plot.height);
@@ -484,9 +525,9 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
             .and_then(|options| options.aspect_ratio)
             .map(|ratio| format!("{ratio} / 1")),
         Some(proto::plot::Coord::Geo(geo)) => {
-            match (geo.options.as_ref()).and_then(|options| options.aspect.as_ref()) {
-                Some(proto::geo::Aspect::AspectRatio(ratio)) => Some(format!("{ratio} / 1")),
-                Some(proto::geo::Aspect::Free(_)) => Some("none".to_string()),
+            match (geo.options.as_ref()).and_then(|options| options.aspect_ratio.as_ref()) {
+                Some(proto::geo::AspectRatio::Ratio(ratio)) => Some(format!("{ratio} / 1")),
+                Some(proto::geo::AspectRatio::None(_)) => Some("none".to_string()),
                 None => None,
             }
         }
@@ -565,16 +606,24 @@ pub(crate) fn title(
     }
 }
 
+/// Whether a symbol mark fills its symbols with `color` or outlines them with it: `true` is
+/// `fill: auto; stroke: none`, and `false` is `fill: none; stroke: currentColor`. Each writes
+/// both properties, so either one undoes the other in a stylesheet.
+fn filled(tree: &mut Styled, node: NodeId, filled: Option<bool>) {
+    let (fill, stroke) = match filled {
+        Some(true) => ("auto", "none"),
+        Some(false) => ("none", "currentColor"),
+        None => return,
+    };
+    set(tree, node, Property::Fill, fill);
+    set(tree, node, Property::Stroke, stroke);
+}
+
 /// The style fields of a Cartesian mark on its `mark` node.
 pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark) {
     use cartesian_layer::Mark;
     match mark {
-        Mark::Symbol(symbol) => {
-            if symbol.filled == Some(false) {
-                set(tree, node, Property::Fill, "none");
-                set(tree, node, Property::Stroke, "currentColor");
-            }
-        }
+        Mark::Symbol(symbol) => filled(tree, node, symbol.filled),
         Mark::Bar(bar) => px(tree, node, Property::CornerRadius, bar.corner_radius),
         Mark::Rect(rect) => {
             px(tree, node, Property::CornerRadius, rect.corner_radius);
@@ -648,12 +697,7 @@ fn image_fields(
 pub(crate) fn geo_mark(tree: &mut Styled, node: NodeId, mark: &geo_layer::Mark) {
     use geo_layer::Mark;
     match mark {
-        Mark::Symbol(symbol) => {
-            if symbol.filled == Some(false) {
-                set(tree, node, Property::Fill, "none");
-                set(tree, node, Property::Stroke, "currentColor");
-            }
-        }
+        Mark::Symbol(symbol) => filled(tree, node, symbol.filled),
         Mark::Text(text) => {
             text_fields(
                 tree,
@@ -791,12 +835,7 @@ fn polar_orient(orient: i32) -> Option<&'static str> {
 pub(crate) fn polar_mark(tree: &mut Styled, node: NodeId, mark: &polar_layer::Mark) {
     use polar_layer::Mark;
     match mark {
-        Mark::Symbol(symbol) => {
-            if symbol.filled == Some(false) {
-                set(tree, node, Property::Fill, "none");
-                set(tree, node, Property::Stroke, "currentColor");
-            }
-        }
+        Mark::Symbol(symbol) => filled(tree, node, symbol.filled),
         Mark::Bar(bar) => px(tree, node, Property::CornerRadius, bar.corner_radius),
         Mark::Rect(rect) => {
             px(tree, node, Property::CornerRadius, rect.corner_radius);
@@ -1085,7 +1124,8 @@ pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::
 }
 
 /// The range and the paddings of a scale's spec on its `scale` node: a palette as `scheme`, and a
-/// list of values as `range`, each in reverse with `reverse`. The paddings of a nested band scale,
+/// list of values as `range`. `reverse` is content, which reverses the range that the styles
+/// compute. The paddings of a nested band scale,
 /// which can differ for each level, are content.
 pub(crate) fn scale(
     tree: &mut Styled,
@@ -1095,18 +1135,9 @@ pub(crate) fn scale(
 ) {
     use proto::scale::Type;
     match &spec.range {
-        Some(proto::scale::Range::Scheme(palette)) => {
-            let text = match spec.reverse {
-                true => format!("{palette} reverse"),
-                false => palette.clone(),
-            };
-            set(tree, node, Property::Scheme, &text);
-        }
+        Some(proto::scale::Range::Scheme(palette)) => set(tree, node, Property::Scheme, palette),
         Some(proto::scale::Range::Values(values)) => {
-            let mut items = css_items(&chart.list_elements(values));
-            if spec.reverse {
-                items.reverse();
-            }
+            let items = css_items(&chart.list_elements(values));
             set(tree, node, Property::Range, &items.join(", "));
         }
         None => {}

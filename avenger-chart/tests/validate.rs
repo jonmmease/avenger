@@ -904,7 +904,7 @@ fn a_projection_takes_only_the_parameters_of_its_type() {
     // A hidden graticule is no graticule.
     read(geo_parts(geo_options(ProjectionType::Identity, |geo| {
         geo.graticule = Some(proto::Graticule {
-            show: Some(false),
+            display: Some(false),
             ..Default::default()
         });
     })))
@@ -1341,9 +1341,9 @@ fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
 
 #[test]
 fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
-    let level = |show| proto::NestedAxisLevel {
+    let level = |display| proto::NestedAxisLevel {
         labels: Some(proto::Labels {
-            show,
+            display,
             ..Default::default()
         }),
         ..Default::default()
@@ -1971,17 +1971,17 @@ fn the_title_of_a_node_has_text_and_always_shows() {
     let mut parts = base();
     plot_mut(&mut parts.0).title = Some(proto::Title {
         text: "Penguins".to_string(),
-        show: Some(false),
+        display: Some(false),
         ..Default::default()
     });
-    invalid(parts, "root.plot.title.show", "always shows");
+    invalid(parts, "root.plot.title.display", "always shows");
     // The title of a guide styles the title that its guide gives without a text of its own, and
     // hides it.
     let mut parts = base();
     x_encoding(&mut parts.0).axis = Some(proto::Axis {
         title: Some(proto::Title {
             font_size: Some(14.0),
-            show: Some(false),
+            display: Some(false),
             ..Default::default()
         }),
         ..Default::default()
@@ -2160,7 +2160,7 @@ fn a_value_step_fits_its_scale() {
 #[test]
 fn facets_and_widgets_always_show_their_labels() {
     let hidden = Some(proto::Labels {
-        show: Some(false),
+        display: Some(false),
         ..Default::default()
     });
     let mut root = concat(
@@ -2174,7 +2174,7 @@ fn facets_and_widgets_always_show_their_labels() {
     });
     invalid(
         parts(root, strings(&["female"])),
-        "root.concat.facet.labels.show",
+        "root.concat.facet.labels.display",
         "a facet always shows its labels",
     );
     invalid(
@@ -2186,7 +2186,7 @@ fn facets_and_widgets_always_show_their_labels() {
             })),
             vec![],
         ),
-        &format!("{WIDGET}.radio.labels.show"),
+        &format!("{WIDGET}.radio.labels.display"),
         "a widget always shows its labels",
     );
 }

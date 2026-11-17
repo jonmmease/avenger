@@ -81,7 +81,7 @@ const CONTENT: &[(&str, &[&str])] = &[
         ],
     ),
     ("Track", &["length", "share", "max"]),
-    ("Facet", &["column", "show", "classes", "id"]),
+    ("Facet", &["column", "display", "classes", "id"]),
     ("Empty", &["partition"]),
     (
         "Encoding",
@@ -112,7 +112,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     // Whether a scale draws its axis or legend, and the legend's type, decide which nodes the
     // style tree holds, as whether a geo plot draws its graticule and its sphere does.
-    ("Axis", &["show"]),
+    ("Axis", &["display"]),
     (
         "PartRules",
         &[
@@ -130,7 +130,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ("ValueStep", &["step", "interval", "start"]),
     (
         "Legend",
-        &["show", "type", "value_step", "values", "classes", "id"],
+        &["display", "type", "value_step", "values", "classes", "id"],
     ),
     (
         "SymbolMark",
@@ -345,7 +345,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     (
         "Graticule",
         &[
-            "show",
+            "display",
             "step",
             "extent",
             "step_major",
@@ -698,6 +698,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "domain_empty",
             "direction",
             "preferred",
+            "reverse",
             "family",
             "navigation",
         ],
@@ -837,6 +838,10 @@ fn every_field_is_mapped_content_or_deferred() {
         .iter()
         .flat_map(|(_, messages)| messages.iter().copied())
         .collect();
+    // The fields of `STYLE_FIELDS` by message, without the elements that each message styles.
+    let style_fields: Vec<(&str, &[&str])> = (avenger_chart_eval::STYLE_FIELDS.iter())
+        .map(|(message, _, fields)| (*message, *fields))
+        .collect();
     let listed = |table: &[(&str, &[&str])], message: &str, field: &str| {
         table
             .iter()
@@ -848,7 +853,7 @@ fn every_field_is_mapped_content_or_deferred() {
             continue;
         }
         for field in names {
-            let mapped = listed(avenger_chart_eval::STYLE_FIELDS, message, field);
+            let mapped = listed(&style_fields, message, field);
             let content = listed(CONTENT, message, field);
             assert!(
                 !(mapped && content),
@@ -864,10 +869,7 @@ fn every_field_is_mapped_content_or_deferred() {
         "fields that are neither mapped nor content: {unlisted:?}"
     );
     // Every listed field exists, so a renamed field cannot hide behind a stale entry.
-    for (message, names) in (avenger_chart_eval::STYLE_FIELDS.iter())
-        .chain(CONTENT)
-        .chain(DEFERRED_FIELDS)
-    {
+    for (message, names) in (style_fields.iter()).chain(CONTENT).chain(DEFERRED_FIELDS) {
         for name in *names {
             assert!(
                 fields

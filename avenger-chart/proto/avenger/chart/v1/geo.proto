@@ -23,14 +23,14 @@ message Geo {
   string family = 2;
   // The shape of the plot. When unset, the plot keeps the aspect ratio of what its view fits,
   // inside the space that the layout gives it, so the projection fills the plot.
-  oneof aspect {
+  oneof aspect_ratio {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
     // it. The view fills the plot in one direction and centers in the other.
-    float aspect_ratio = 3;
-    // All of the space that the layout gives the plot, in any shape. The view fills the plot in one
-    // direction and centers in the other, so a geo plot that fits a box shows more of the places
-    // around the box.
-    FreeAspect free = 4;
+    float ratio = 3;
+    // No aspect ratio: all of the space that the layout gives the plot, in any shape. The view
+    // fills the plot in one direction and centers in the other, so a geo plot that fits a box
+    // shows more of the places around the box.
+    NoAspectRatio none = 4;
   }
   // How a navigation moves the projection. When unset, a navigation moves the projection in its
   // own pan mode, and its zoom has no limits.
@@ -52,7 +52,7 @@ message Geo {
   TileLayer tiles = 11;
 }
 
-message FreeAspect {}
+message NoAspectRatio {}
 
 // How a navigation moves the projection of a geo plot, which every geo plot that shares the
 // projection moves alike.
@@ -253,7 +253,7 @@ enum RegionFrame {
 message Graticule {
   // Whether the plot draws the graticule. When unset, it does, so `true` draws a graticule with
   // its defaults, and `false` draws none.
-  optional bool show = 1 [(avenger.chart.v1.lift) = true];
+  optional bool display = 1 [(avenger.chart.v1.lift) = true];
   // The degrees between meridians and between parallels, as two numbers. When unset, 10 and 10.
   repeated double step = 2;
   // The box that the lines cover, as its western, southern, eastern, and northern edges in degrees.

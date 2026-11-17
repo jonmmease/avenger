@@ -425,7 +425,7 @@ fn a_map_keeps_its_aspect_and_a_free_map_fills_its_space() {
     let kept = evaluate(&chart(Geo::new(world())), [600.0, 600.0]);
     let [_, _, width, height] = kept.plots[0].rect;
     assert!(width / height > 1.5, "{width} {height}");
-    let free = evaluate(&chart(Geo::free(world())), [600.0, 600.0]);
+    let free = evaluate(&chart(Geo::none(world())), [600.0, 600.0]);
     let [_, _, width, height] = free.plots[0].rect;
     assert!((width - height).abs() < 1.0, "{width} {height}");
 }

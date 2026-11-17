@@ -139,9 +139,9 @@ fn a_message_of_one_required_field_converts_from_it() {
 
 #[test]
 fn an_encoding_takes_its_axis_and_its_legend() {
-    // An axis converts from a Boolean, its lifted `show`.
+    // An axis converts from a Boolean, its lifted `display`.
     let x = Encoding::scaled_field("a").axis(false).build().unwrap();
-    assert_eq!(x.axis.unwrap().show, Some(false));
+    assert_eq!(x.axis.unwrap().display, Some(false));
     let color = Encoding::scaled_field("c")
         .legend(Legend::builder().type_(LegendForm::Colorbar))
         .build()
@@ -151,23 +151,26 @@ fn an_encoding_takes_its_axis_and_its_legend() {
 
 #[test]
 fn a_guide_part_converts_from_a_boolean_and_from_its_other_lifted_field() {
-    // Rule F with two lifted fields of different kinds: a Boolean sets `show`, and a string or a
+    // Rule F with two lifted fields of different kinds: a Boolean sets `display`, and a string or a
     // number the other field.
     let title = TitleBuilder::from(false).build().unwrap();
-    assert_eq!((title.show, title.text.as_str()), (Some(false), ""));
+    assert_eq!((title.display, title.text.as_str()), (Some(false), ""));
     let title = TitleBuilder::from("Mass").build().unwrap();
-    assert_eq!((title.show, title.text.as_str()), (None, "Mass"));
+    assert_eq!((title.display, title.text.as_str()), (None, "Mass"));
     let labels = LabelsBuilder::from(false).build().unwrap();
-    assert_eq!((labels.show, labels.format.as_str()), (Some(false), ""));
+    assert_eq!((labels.display, labels.format.as_str()), (Some(false), ""));
     let labels = LabelsBuilder::from(",.0f").build().unwrap();
-    assert_eq!((labels.show, labels.format.as_str()), (None, ",.0f"));
-    assert_eq!(AxisBuilder::from(false).build().unwrap().show, Some(false));
+    assert_eq!((labels.display, labels.format.as_str()), (None, ",.0f"));
     assert_eq!(
-        LegendBuilder::from(false).build().unwrap().show,
+        AxisBuilder::from(false).build().unwrap().display,
+        Some(false)
+    );
+    assert_eq!(
+        LegendBuilder::from(false).build().unwrap().display,
         Some(false)
     );
     let facet = FacetBuilder::from(false).build().unwrap();
-    assert_eq!((facet.show, facet.column.as_str()), (Some(false), ""));
+    assert_eq!((facet.display, facet.column.as_str()), (Some(false), ""));
     assert_eq!(ValueStepBuilder::from(5.0).build().unwrap().step, 5.0);
 }
 
@@ -221,9 +224,9 @@ fn an_encoding_takes_strings_numbers_and_bools_by_its_channel() {
 #[test]
 fn helpers_hide_axes_and_legends() {
     let x = Encoding::scaled_field("a").no_axis().build().unwrap();
-    assert_eq!(x.axis.unwrap().show, Some(false));
+    assert_eq!(x.axis.unwrap().display, Some(false));
     let color = Encoding::scaled_field("c").no_legend().build().unwrap();
-    assert_eq!(color.legend.unwrap().show, Some(false));
+    assert_eq!(color.legend.unwrap().display, Some(false));
 
     let layer = CartesianLayer::symbol(
         points(),
@@ -234,9 +237,9 @@ fn helpers_hide_axes_and_legends() {
         .unwrap();
     let mark = symbols(&chart);
     let encoding = |encoding: &Option<Encoding>| encoding.clone().unwrap();
-    assert_eq!(encoding(&mark.x).axis.unwrap().show, Some(false));
-    assert_eq!(encoding(&mark.y).axis.unwrap().show, Some(false));
-    assert_eq!(encoding(&mark.color).legend.unwrap().show, Some(false));
+    assert_eq!(encoding(&mark.x).axis.unwrap().display, Some(false));
+    assert_eq!(encoding(&mark.y).axis.unwrap().display, Some(false));
+    assert_eq!(encoding(&mark.color).legend.unwrap().display, Some(false));
     // A direct value has no scale.
     assert!(mark.size.as_ref().unwrap().scale.is_none());
 }

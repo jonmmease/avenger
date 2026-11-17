@@ -68,6 +68,38 @@ impl Element {
         matches!(self, Element::Other | Element::Null)
     }
 
+    /// The elements of the children that a node of the element can have, its parts. A chart is a
+    /// part of a plot, as the charts of a composition stand in its plot, and the variants are
+    /// parts of the marks and the labels whose categories they style.
+    pub fn parts(self) -> &'static [Element] {
+        use Element::*;
+        match self {
+            Chart => &[Title, Plot],
+            Title => &[Subtitle],
+            Plot => &[
+                Mark,
+                Axis,
+                Legend,
+                Facet,
+                Scale,
+                Attribution,
+                Sphere,
+                Graticule,
+                Widget,
+                Chart,
+            ],
+            Mark | Label => &[Other, Null],
+            Axis => &[Title, Label, Tick, Rule, Grid, Level],
+            Level => &[Label],
+            Legend => &[Title, Swatch, Label, Ramp, Tick, Rule],
+            Facet => &[Title, Label, Tick, Rule],
+            Graticule => &[Grid, Label],
+            Widget => &[Title, Label, Rail, Thumb, Readout],
+            Subtitle | Scale | Attribution | Sphere | Tick | Rule | Grid | Swatch | Ramp | Rail
+            | Thumb | Readout | Other | Null => &[],
+        }
+    }
+
     /// Whether a node of the element can have keyboard focus, so `:focus-visible` is valid on it:
     /// a widget, which Tab focuses and which draws a ring around its control while it has focus.
     pub fn can_focus(self) -> bool {

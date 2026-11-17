@@ -300,6 +300,50 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     assert_eq!(styles[label].number(Property::Angle), Some(10.0));
 }
 
+/// `filled` writes both `fill` and `stroke`, so `true` fills the symbols that a stylesheet makes
+/// hollow, as `std:vegalite.css` makes them, and `false` makes hollow the symbols that it fills.
+#[test]
+fn filled_undoes_the_hollow_or_filled_symbols_of_a_stylesheet() {
+    let symbols = |filled: Option<bool>| {
+        let mark = SymbolMark::builder()
+            .x("flipper")
+            .y("mass")
+            .color("species");
+        let mark = match filled {
+            Some(filled) => mark.filled(filled),
+            None => mark,
+        };
+        CartesianLayer::symbol(penguins(), mark)
+    };
+    let chart = Chart::builder(Plot::cartesian([
+        symbols(None),
+        symbols(Some(true)),
+        symbols(Some(false)),
+    ]))
+    .build()
+    .unwrap();
+    let host = HostInputs::default();
+    let paints = |css: &str| {
+        let mut evaluator = evaluator(chart.clone(), cascade(css));
+        let marks = nodes_of(evaluator.style_tree(), Element::Mark);
+        let styles = evaluator.styles(&host);
+        (marks.iter())
+            .map(|mark| {
+                let style = &styles[*mark];
+                let paint = |property| style.paint(property) != avenger_style::Paint::None;
+                (paint(Property::Fill), paint(Property::Stroke))
+            })
+            .collect::<Vec<_>>()
+    };
+    // Filled symbols, as the base stylesheet draws them: unset and `true` fill, `false` outlines.
+    assert_eq!(paints(""), [(true, false), (true, false), (false, true)]);
+    // Hollow symbols, as `std:vegalite.css` draws them: unset outlines, and `true` fills again.
+    assert_eq!(
+        paints("mark[type=symbol] { fill: none; stroke: currentColor; }"),
+        [(false, true), (true, false), (false, true)]
+    );
+}
+
 #[test]
 fn a_table_without_stylesheets_gives_initial_values() {
     let empty = Arc::new(Cascade::new(&StyleTable::new()));
@@ -501,7 +545,7 @@ fn a_select_without_a_form_stores_a_box() {
     );
 }
 
-/// A Boolean hides a part of an axis through its `show`, and the title and the labels of an axis
+/// A Boolean hides a part of an axis through its `display`, and the title and the labels of an axis
 /// take their fonts without a text of their own.
 #[test]
 fn booleans_hide_the_parts_of_an_axis() {
@@ -1415,15 +1459,15 @@ fn a_geo_plot_keeps_its_aspect_ratio() {
     assert_eq!(at(&kept, "plot { aspect-ratio: auto; }"), [width, height]);
     let [width, height] = at(&kept, "plot[type=geo] { aspect-ratio: 1; }");
     assert!((width - height).abs() < 1e-3, "{width} {height}");
-    // `none` fills the space, as `Geo.free` does.
-    let free = chart(Geo::free(world()));
+    // `none` fills the space, as a `Geo.aspect_ratio` of `none` does.
+    let free = chart(Geo::none(world()));
     let filled = at(&free, "");
     assert!((filled[0] - filled[1]).abs() < 1.0, "{filled:?}");
     assert_eq!(at(&kept, "plot[type=geo] { aspect-ratio: none; }"), filled);
-    // `Geo.aspect` is an inline style, which wins over the stylesheets.
+    // `Geo.aspect_ratio` is an inline style, which wins over the stylesheets.
     assert_eq!(at(&free, "plot[type=geo] { aspect-ratio: 3; }"), filled);
     let [width, height] = at(
-        &chart(Geo::aspect_ratio(world(), 3.0)),
+        &chart(Geo::ratio(world(), 3.0)),
         "plot { aspect-ratio: 1; }",
     );
     assert!((width / height - 3.0).abs() < 1e-3, "{width} {height}");

@@ -860,7 +860,7 @@ pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>
                     (a.graticule != b.graticule, "graticules"),
                     (a.sphere != b.sphere, "spheres"),
                     (a.tiles != b.tiles, "tiles"),
-                    (a.aspect != b.aspect, "aspects"),
+                    (a.aspect_ratio != b.aspect_ratio, "aspect ratios"),
                     (a.navigation != b.navigation, "navigations"),
                 ]
                 .into_iter()

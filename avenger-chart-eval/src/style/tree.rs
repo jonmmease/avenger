@@ -331,7 +331,7 @@ fn composition(
         }
         Node::Empty(_) => unreachable!("an empty node has no nodes"),
     }
-    if let Some(facet) = facet.filter(|facet| facet.show != Some(false)) {
+    if let Some(facet) = facet.filter(|facet| facet.display != Some(false)) {
         let facet_node = tree.add(plot_node, Element::Facet);
         let facet_type = match kind {
             Node::Wrap(_) => "wrap",

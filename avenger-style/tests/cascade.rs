@@ -1422,3 +1422,13 @@ fn a_widget_takes_the_outline_of_its_focus_rule_and_nothing_else() {
     let computed = styles(&with(""), &tree, &forced);
     assert!(computed[widget].color(Property::OutlineColor).is_some());
 }
+
+/// A tree adds a node only where its element is a part of the parent's element.
+#[test]
+#[should_panic(expected = "`swatch` is not a part of `axis`")]
+fn a_tree_adds_only_the_parts_of_an_element() {
+    let mut tree = StyleTree::new(Element::Chart);
+    let plot = tree.add(tree.root(), Element::Plot);
+    let axis = tree.add(plot, Element::Axis);
+    tree.add(axis, Element::Swatch);
+}
