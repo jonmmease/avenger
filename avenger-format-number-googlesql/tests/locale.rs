@@ -200,6 +200,10 @@ fn the_empty_pattern_follows_the_locale() {
         texts(&[1234.5, -0.125, f64::NAN], PerValue),
         ["1.234,5", "\u{2212}0,125", "NaN"]
     );
+    assert_eq!(
+        texts(&[-1e-7, 0.0, 1.5e-7], Shared),
+        ["\u{2212}1,0e-07", "0", "1,5e-07"]
+    );
     assert_eq!(formatter.format(-1.5e-9).text, "\u{2212}1,5e-09");
     assert_eq!(
         formatter.format(-1.5e25).typesetting,

@@ -250,6 +250,38 @@ fn the_empty_pattern_prints_shared_ticks_with_the_decimals_of_their_step() {
 }
 
 #[test]
+fn shared_ticks_of_an_extreme_magnitude_share_the_decimals_of_their_mantissas() {
+    use PrecisionSharing::Shared;
+    assert_eq!(
+        format_all("", &[1e-7, 1.5e-7, 2e-7], Shared),
+        ["1.0e-07", "1.5e-07", "2.0e-07"]
+    );
+    // Ticks of several exponents take the decimals of the largest one's leading digit.
+    assert_eq!(
+        format_all("", &[0.0, 5e-8, 1e-7], Shared),
+        ["0", "5.0e-08", "1.0e-07"]
+    );
+    assert_eq!(
+        format_all("", &[-2e-7, -1e-30, 2e-7, 4e-7], Shared),
+        ["-2e-07", "0", "2e-07", "4e-07"]
+    );
+    assert_eq!(
+        format_all("", &[0.0, 2.5e21, 5e21, 7.5e21], Shared),
+        ["0", "2.5e+21", "5.0e+21", "7.5e+21"]
+    );
+    // Each tick holds its mantissa and its exponent, to set as a power of ten.
+    let formatter = GoogleSqlNumberFormatProvider::new().prepare("").unwrap();
+    let ticks = formatter.format_all(&[1e-7, 1.5e-7], Shared);
+    assert_eq!(
+        ticks[1].typesetting,
+        NumberTypesetting::Exponent {
+            mantissa: "1.5".into(),
+            exponent: -7
+        }
+    );
+}
+
+#[test]
 fn the_empty_pattern_prints_values_per_value_as_single_values() {
     assert_eq!(
         format_all("", &[1.0, 10.5, 1234.25, 1e-9], PrecisionSharing::PerValue),

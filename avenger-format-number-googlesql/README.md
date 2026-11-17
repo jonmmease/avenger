@@ -40,7 +40,7 @@ GoogleSQL applies the integer conversions to `INT64` values only, but a chart's 
 The empty pattern stands for no pattern, as for an axis or a label without a format:
 
 - `format` prints a single value, such as a tooltip's, grouped, with the fewest decimals that read back as the value, as `1,234,567.891`. A magnitude of at least 1e21, or above zero and below 1e-6, prints as `%g`, as `1e+25` and `1e-09`.
-- `format_all` with `PrecisionSharing::Shared`, as for evenly spaced ticks, prints each tick as `%'.Nf`, with N decimals from the resolution of the ticks' step, as `TickStep::infer` finds it. So ticks from 0 to 1 by 0.25 print `0.00`, `0.25`, and on to `1.00`, and ticks 0, 20000, and 40000 print `0`, `20,000`, and `40,000`. A tick that rounds to zero prints `0` without a sign. Ticks whose largest magnitude is extreme, as above, print one by one as `format` prints them.
+- `format_all` with `PrecisionSharing::Shared`, as for evenly spaced ticks, prints each tick as `%'.Nf`, with N decimals from the resolution of the ticks' step, as `TickStep::infer` finds it. So ticks from 0 to 1 by 0.25 print `0.00`, `0.25`, and on to `1.00`, and ticks 0, 20000, and 40000 print `0`, `20,000`, and `40,000`. A tick that rounds to zero prints `0` without a sign. Ticks whose largest magnitude is extreme, as above, share the decimals of their mantissas in scientific notation, as `%.Ne`, with N the places from the leading digit of the largest tick to the resolution of their step, so ticks 1e-7, 1.5e-7, and 2e-7 print `1.0e-07`, `1.5e-07`, and `2.0e-07`, and a zero tick prints `0`.
 - `format_all` with `PrecisionSharing::PerValue` prints each value as `format` does.
 
 A written pattern formats as written in `format` and in `format_all`, since GoogleSQL's precision defaults to 6 and never leaves the precision open.
@@ -87,4 +87,4 @@ The recordings do not cover `0` together with the precision of an integer, nor `
 
 ## Tests
 
-The tests compare each case of `tests/data/format.tsv`, which GoogleSQL's `execute_query` recorded, with the provider's text. The float conversions ran on `FLOAT64` values, and the integer conversions on `INT64` values. The cases run without a locale; `tests/locale.rs` checks the symbols of d3's de-DE, en-IN, fr-FR, and ar-EG locales and of custom ones.
+The tests compare each case of `tests/data/format.tsv`, which GoogleSQL's `execute_query` recorded, with the provider's text. The float conversions ran on `FLOAT64` values, and the integer conversions on `INT64` values. The cases run without a locale, and `tests/locale.rs` checks the symbols of d3's de-DE, en-IN, fr-FR, and ar-EG locales and of custom ones.

@@ -136,7 +136,7 @@ pub(crate) fn fixed(magnitude: f64, decimals: usize, alternate: bool) -> String 
 }
 
 /// `%e`: one digit, `decimals` decimals, and GoogleSQL's exponent, in ASCII.
-fn exponent(magnitude: f64, decimals: usize, alternate: bool, upper: bool) -> String {
+pub(crate) fn exponent(magnitude: f64, decimals: usize, alternate: bool, upper: bool) -> String {
     let text = format!("{magnitude:.decimals$e}");
     let (mantissa, exponent) = split_exponent(&text);
     let point = if alternate && decimals == 0 { "." } else { "" };

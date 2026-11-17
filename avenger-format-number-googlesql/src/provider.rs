@@ -10,7 +10,7 @@ use avenger_format::{
 use avenger_format_locales_d3::NumberLocaleSpec;
 use serde::{Deserialize, Serialize};
 
-use crate::format::{fixed, general};
+use crate::format::{exponent, fixed, general};
 use crate::{Format, Locale};
 
 /// Magnitudes at and above this print in scientific notation without a pattern.
@@ -133,15 +133,50 @@ fn format_default(value: f64, locale: &Locale) -> FormattedNumber {
         return FormattedNumber::plain(format!("{sign}{text}"));
     }
     let (scientific, _) = general(magnitude, 6, false, false);
+    scientific_number(sign, &scientific, locale)
+}
+
+/// A value in scientific notation, from its sign and its ASCII text, such as `1.5e-07`: the text
+/// with the locale's symbols, and its mantissa and exponent for a label to set as a power of ten.
+fn scientific_number(sign: &str, scientific: &str, locale: &Locale) -> FormattedNumber {
     let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
-    let mantissa = format!("{sign}{}", locale.decimal_text(mantissa, false));
     FormattedNumber {
-        text: format!("{sign}{}", locale.scientific_text(&scientific)),
+        text: format!("{sign}{}", locale.scientific_text(scientific)),
         typesetting: NumberTypesetting::Exponent {
-            mantissa,
+            mantissa: format!("{sign}{}", locale.decimal_text(mantissa, false)),
             exponent: exponent.parse().expect("an integer exponent"),
         },
     }
+}
+
+/// A shared tick without a pattern whose ticks' largest magnitude is extreme: scientific
+/// notation with `decimals` decimals in its mantissa and its own exponent, as `%.Ne`. A tick
+/// below half of the ticks' `resolution`, a power of ten, rounds to zero and prints as `0`.
+fn format_scientific_tick(
+    value: f64,
+    decimals: usize,
+    resolution: i32,
+    locale: &Locale,
+) -> FormattedNumber {
+    if !value.is_finite() {
+        return format_default(value, locale);
+    }
+    if value.abs() < 0.5 * 10_f64.powi(resolution) {
+        return FormattedNumber::plain(locale.decimal_text("0", false));
+    }
+    let sign = if value < 0.0 {
+        locale.minus.as_str()
+    } else {
+        ""
+    };
+    scientific_number(sign, &exponent(value.abs(), decimals, false, false), locale)
+}
+
+/// The power of ten of a positive finite magnitude's leading digit, as `%e` writes it.
+fn leading_exponent(magnitude: f64) -> i32 {
+    let text = format!("{magnitude:e}");
+    let (_, exponent) = text.split_once('e').expect("scientific notation");
+    exponent.parse().expect("an integer exponent")
 }
 
 /// A shared tick without a pattern: grouped with `decimals` decimals. A tick that rounds to
@@ -170,20 +205,27 @@ impl PreparedNumberFormatter for Prepared {
 
     /// A written pattern formats each value as written. Without a pattern, shared ticks print
     /// grouped with the decimals of their step, as `%'.Nf`, and values per value as `format`
-    /// prints them. Ticks whose largest magnitude is extreme print per value, and a tick that
-    /// rounds to zero prints without a sign.
+    /// prints them. Ticks whose largest magnitude is extreme share their mantissa's decimals in
+    /// scientific notation, as `%.Ne`, with N the places from the largest tick's leading digit to
+    /// the resolution of their step, and a tick that rounds to zero prints without a sign.
     fn format_all(&self, values: &[f64], sharing: PrecisionSharing) -> Vec<FormattedNumber> {
-        let shared = match (self, sharing) {
-            (Prepared::Default(locale), PrecisionSharing::Shared) => TickStep::infer(values)
-                .filter(|ticks| !is_extreme(ticks.magnitude))
-                .map(|ticks| ((-ticks.resolution).max(0) as usize, locale)),
-            _ => None,
+        let (Prepared::Default(locale), PrecisionSharing::Shared) = (self, sharing) else {
+            return values.iter().map(|&value| self.format(value)).collect();
         };
-        match shared {
-            Some((decimals, locale)) => (values.iter())
-                .map(|&value| format_tick(value, decimals, locale))
-                .collect(),
-            None => values.iter().map(|&value| self.format(value)).collect(),
+        let Some(ticks) = TickStep::infer(values) else {
+            return values.iter().map(|&value| self.format(value)).collect();
+        };
+        if is_extreme(ticks.magnitude) {
+            let decimals = (leading_exponent(ticks.magnitude) - ticks.resolution).clamp(0, 16);
+            return (values.iter())
+                .map(|&value| {
+                    format_scientific_tick(value, decimals as usize, ticks.resolution, locale)
+                })
+                .collect();
         }
+        let decimals = (-ticks.resolution).max(0) as usize;
+        (values.iter())
+            .map(|&value| format_tick(value, decimals, locale))
+            .collect()
     }
 }
