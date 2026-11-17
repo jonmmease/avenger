@@ -155,16 +155,6 @@ impl ComputedStyle {
         self.number(Property::FontSize).unwrap_or(10.0)
     }
 
-    /// The line height in pixels: `normal` is the font size plus 2 pixels, and a number multiplies
-    /// the font size.
-    pub fn line_height(&self) -> f32 {
-        match self.get(Property::LineHeight) {
-            Computed::Number(value) => *value,
-            Computed::Ratio(factor) => factor * self.font_size(),
-            _ => self.font_size() + 2.0,
-        }
-    }
-
     /// Whether `display` hides the node.
     pub fn is_hidden(&self) -> bool {
         self.keyword(Property::Display) == Some("none")

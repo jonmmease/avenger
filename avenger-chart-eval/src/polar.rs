@@ -44,7 +44,10 @@ use crate::{
     encode::{at, numbers, scalar, LayerRows, Result},
     fit::Position,
     guides::axis_style,
-    marks::{pattern_fills, row_patterns, stroke_width, symbol_mark, text_mark, Drawn, TextFormat},
+    marks::{
+        pattern_fills, row_patterns, stroke_cap, stroke_join, stroke_width, symbol_mark, text_mark,
+        Drawn, TextFormat,
+    },
     polyline::{polyline, rule_lines, series_lines, series_trails, Polyline},
     reach::Reach,
     style::{color as style_color, number as style_number, tree::GuideNodes, tree::StyleNodes},
@@ -1315,7 +1318,9 @@ impl Drawer<'_, '_> {
 
     /// The annular sector of each row between its angles and its radii: an arc mark, or with the
     /// canvas route, a path mark of polygons whose ends at one radius are straight. A path mark
-    /// has one stroke width, so the polygons take the widest of their rows.
+    /// has one stroke width, so the polygons take the widest of their rows. The computed
+    /// `pad-angle` pads each sector: the arcs take it as their pad angle beside the inset's, and
+    /// the polygons give up half of it at each side, but not past their middle.
     fn wedges(
         &self,
         angles: Vec<[f32; 2]>,
@@ -1333,8 +1338,10 @@ impl Drawer<'_, '_> {
             None => scalar(stroke_width(rows)?.unwrap_or(0.0)),
         };
         let fill_pattern = pattern_fills(row_patterns(rows)?);
-        let column =
-            |value: fn(&Wedge) -> f32| ScalarOrArray::new_array(wedges.iter().map(value).collect());
+        let pad = style_number(rows.style, Property::PadAngle).max(0.0);
+        let column = |value: &dyn Fn(&Wedge) -> f32| {
+            ScalarOrArray::new_array(wedges.iter().map(value).collect())
+        };
         let mark: SceneMark = match canvas {
             true => {
                 let widest = (width.as_vec(rows.len(), None).into_iter()).fold(0.0_f32, f32::max);
@@ -1342,11 +1349,16 @@ impl Drawer<'_, '_> {
                     name: rows.name.clone(),
                     len: rows.len() as u32,
                     path: ScalarOrArray::new_array(
-                        wedges.iter().map(|wedge| self.polygon(wedge)).collect(),
+                        wedges
+                            .iter()
+                            .map(|wedge| self.polygon(wedge, pad))
+                            .collect(),
                     ),
                     fill,
                     stroke,
                     stroke_width: scalar(widest),
+                    stroke_cap: stroke_cap(rows.style),
+                    stroke_join: stroke_join(rows.style),
                     fill_pattern,
                     ..Default::default()
                 }
@@ -1357,11 +1369,11 @@ impl Drawer<'_, '_> {
                 len: rows.len() as u32,
                 x: scalar(self.fit.frame.center[0]),
                 y: scalar(self.fit.frame.center[1]),
-                start_angle: column(|wedge| wedge.angles[0].to_radians()),
-                end_angle: column(|wedge| wedge.angles[1].to_radians()),
-                inner_radius: column(|wedge| wedge.radii[0]),
-                outer_radius: column(|wedge| wedge.radii[1]),
-                pad_angle: column(Wedge::pad_angle),
+                start_angle: column(&|wedge| wedge.angles[0].to_radians()),
+                end_angle: column(&|wedge| wedge.angles[1].to_radians()),
+                inner_radius: column(&|wedge| wedge.radii[0]),
+                outer_radius: column(&|wedge| wedge.radii[1]),
+                pad_angle: column(&|wedge| wedge.pad_angle() + pad.to_radians()),
                 corner_radius: scalar(style_number(rows.style, Property::CornerRadius)),
                 fill,
                 stroke,
@@ -1375,8 +1387,9 @@ impl Drawer<'_, '_> {
     }
 
     /// The polygon of `wedge` with straight ends at one radius, whose sides stand its gap inside
-    /// their spokes.
-    fn polygon(&self, wedge: &Wedge) -> Path {
+    /// their spokes, after it gives up half of `pad`, in degrees, at each side, but not past its
+    /// middle.
+    fn polygon(&self, wedge: &Wedge, pad: f32) -> Path {
         let corner = |angle: f32, radius: f32, side: f32| {
             let [x, y] = self.fit.frame.point(angle, radius);
             let [across_x, across_y] = clockwise(angle);
@@ -1386,6 +1399,8 @@ impl Drawer<'_, '_> {
             )
         };
         let [start, end] = wedge.angles;
+        let half = (pad / 2.0).clamp(0.0, (end - start) / 2.0);
+        let [start, end] = [start + half, end - half];
         let [inner, outer] = wedge.radii;
         let mut builder = Path::builder();
         builder.begin(corner(start, outer, 1.0));
@@ -1516,6 +1531,8 @@ impl Drawer<'_, '_> {
                         stroke_dash: (dash.as_ref())
                             .map(|dash| at(dash, first))
                             .filter(|dash| !dash.is_empty()),
+                        stroke_cap: stroke_cap(rows.style),
+                        stroke_join: stroke_join(rows.style),
                         ..Default::default()
                     }
                     .into(),

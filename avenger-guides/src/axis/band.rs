@@ -9,7 +9,7 @@ use avenger_typst_label::{bind, LabelEngine, LabelValue, LabelValues};
 use super::{label_text, CategoryLabels};
 use crate::{error::AvengerGuidesError, label_variant::vary_labels};
 
-/// The gap between the labels and the title.
+/// The gap between the labels and the title, without `AxisStyle::title_margin`.
 pub(crate) const TITLE_MARGIN: f32 = 4.0;
 
 /// The text of the label of a NULL category.

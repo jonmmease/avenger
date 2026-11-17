@@ -209,7 +209,7 @@ properties! {
     Height = "height", false, SIZE_OR_AUTO, "auto", &[Plot, Mark];
     ContainIntrinsicWidth = "contain-intrinsic-width", false, SIZE_OR_NONE, "none", PLOT;
     ContainIntrinsicHeight = "contain-intrinsic-height", false, SIZE_OR_NONE, "none", PLOT;
-    AspectRatio = "aspect-ratio", false, Syntax::Any(&[Syntax::Ratio, Syntax::Keywords(&["auto"])]), "auto", PLOT;
+    AspectRatio = "aspect-ratio", false, Syntax::Any(&[Syntax::Ratio, Syntax::Keywords(&["auto", "none"])]), "auto", PLOT;
     Step = "step", false, SIZE_OR_NONE, "none", SCALE;
     PaddingTop = "padding-top", false, SIZE, "0", BOXES;
     PaddingRight = "padding-right", false, SIZE, "0", BOXES;
@@ -239,7 +239,7 @@ properties! {
     Size = "size", false, Syntax::Any(&[NON_NEGATIVE, Syntax::Percentage]), "30", MARK;
     ContinuousSize = "continuous-size", false, SIZE, "5", MARK;
     BinSpacing = "bin-spacing", false, SIZE, "0", MARK;
-    BandPosition = "band-position", false, UNIT, "0.5", &[Mark, Axis];
+    BandPosition = "band-position", false, UNIT, "0.5", MARK;
     CornerRadius = "corner-radius", false, SIZE, "0", MARK;
     PadAngle = "pad-angle", false, Syntax::Angle, "0", MARK;
     Inset = "inset", false, SIZE, "0", MARK;

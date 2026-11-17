@@ -217,7 +217,7 @@ fn keywords_and_the_values_of_scales() {
     rejects(Property::StrokeDasharray, &["4, 2", "-1 2"]);
     accepts(Property::FontWeight, &["normal", "bold", "300", "700"]);
     rejects(Property::FontWeight, &["heavy", "0", "1001"]);
-    accepts(Property::AspectRatio, &["auto", "1.5", "16 / 9"]);
+    accepts(Property::AspectRatio, &["auto", "none", "1.5", "16 / 9"]);
     accepts(Property::Shape, &["circle", "\"M0,0 L1,1 Z\""]);
     accepts(Property::Pattern, &["none", "\"stripes 45 8 2\""]);
     rejects(Property::Pattern, &["stripes", "\"zigzag\""]);

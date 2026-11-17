@@ -15,6 +15,11 @@ chart > title { font-size: 1.3rem; font-weight: bold; offset: 10; }
 chart > title > subtitle { font-size: 1.2rem; font-weight: normal; }
 attribution { font-size: 1rem; }
 axis > title, legend > title, facet > title { font-size: 1.1rem; font-weight: bold; }
+/* The titles of guides stand apart from their labels: 2 on a continuous axis, 4 on a discrete
+   one, and 5 on a facet. */
+axis > title { margin: 2; }
+axis:is([kind=categorical], [kind=ordinal]) > title { margin: 4; }
+facet > title { margin: 5; }
 label { font-size: 1rem; }
 
 /* Legends stand apart from the axes of their plot and from each other, and a symbol legend of a

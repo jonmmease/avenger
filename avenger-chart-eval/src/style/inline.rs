@@ -41,6 +41,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Cartesian", &["aspect"]),
+    ("Geo", &["aspect_ratio", "free"]),
     ("SphereStyle", &["fill", "stroke", "stroke_width"]),
     (
         "Graticule",
@@ -432,18 +433,26 @@ pub(crate) fn chart(tree: &mut Styled, node: NodeId, chart: &proto::Chart) {
     px(tree, node, Property::PaddingLeft, chart.padding_left);
 }
 
-/// `Plot.width` and `height`, and the options of a Cartesian plot, on its `plot`.
+/// `Plot.width` and `height`, and the aspects of Cartesian and geo plots, on its `plot`: a ratio,
+/// or for `Geo.free`, `none`.
 pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
     px(tree, node, Property::Width, plot.width);
     px(tree, node, Property::Height, plot.height);
-    if let Some(proto::plot::Coord::Cartesian(cartesian)) = &plot.coord {
-        if let Some(ratio) = cartesian
-            .options
-            .as_ref()
+    let aspect = match &plot.coord {
+        Some(proto::plot::Coord::Cartesian(cartesian)) => (cartesian.options.as_ref())
             .and_then(|options| options.aspect)
-        {
-            set(tree, node, Property::AspectRatio, &format!("{ratio} / 1"));
+            .map(|ratio| format!("{ratio} / 1")),
+        Some(proto::plot::Coord::Geo(geo)) => {
+            match (geo.options.as_ref()).and_then(|options| options.aspect.as_ref()) {
+                Some(proto::geo::Aspect::AspectRatio(ratio)) => Some(format!("{ratio} / 1")),
+                Some(proto::geo::Aspect::Free(_)) => Some("none".to_string()),
+                None => None,
+            }
         }
+        _ => None,
+    };
+    if let Some(aspect) = aspect {
+        set(tree, node, Property::AspectRatio, &aspect);
     }
 }
 

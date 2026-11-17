@@ -983,6 +983,12 @@ fn node_initial(tree: &StyleTree, node: NodeId, property: Property) -> Option<&'
         },
         (Property::Size, Element::Mark) if kind() == Some("text") => Some("11"),
         (Property::StrokeWidth, Element::Mark) if kind() == Some("line") => Some("2"),
+        // The outlines of a shape mark's geometries are round at their ends and corners.
+        (Property::StrokeLinecap | Property::StrokeLinejoin, Element::Mark)
+            if kind() == Some("shape") =>
+        {
+            Some("round")
+        }
         (Property::Margin, Element::Label) => Some("2"),
         (Property::Margin, Element::Title) => Some("4"),
         // The labels of an axis keep apart by the axis's scale.

@@ -119,6 +119,7 @@ The initial values of the table hold on every node except these, where they depe
 - `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet, a title, and a widget
 - `columns`: `none` on an `hconcat`
 - `size`: `11` on a text mark, and `stroke-width`: `2` on a line mark
+- `stroke-linecap` and `stroke-linejoin`: `round` on a shape mark
 - `margin`: `2` on a label, and `4` on a title
 - `overlap`: `greedy` on the labels of the axis of a log scale, and `parity` on the labels of the axis of a sequential or a diverging scale
 - `padding-outer`: `0.5` on a point scale
@@ -127,6 +128,10 @@ The initial values of the table hold on every node except these, where they depe
 
 `margin` is the space between a part and what it labels: labels and the ticks, the swatches, the lines, or the edge that they label, a title and the rest of its guide, and a colorbar's ramp and its axis.
 
+`aspect-ratio: auto` keeps a plot's natural aspect: the aspect of what a geo plot's projection fits, and none for a Cartesian plot. `none` keeps no aspect. A polar plot keeps the shape of its sector, whatever its `aspect-ratio`.
+
+On marks, `stroke-linecap` styles the ends of the lines and outlines of line, area, path, shape, and rule marks and of polar bars and rects on the canvas route, and `stroke-linejoin` styles their corners, which a Cartesian rule does not have. `pad-angle` pads the sectors of polar bars and rects. A number of `line-height` multiplies the font size of a text, and `max-width` is the most width of a text mark without a `width` channel. `band-position` places a mark in a band where its encoding does not.
+
 <!-- properties -->
 | Property | Values | Initial | Inherited | Elements |
 |---|---|---|---|---|
@@ -134,7 +139,7 @@ The initial values of the table hold on every node except these, where they depe
 | `height` | `<length [0,∞]> \| auto` | `auto` | no | `plot`, `mark` |
 | `contain-intrinsic-width` | `<length [0,∞]> \| none` | `none` | no | `plot` |
 | `contain-intrinsic-height` | `<length [0,∞]> \| none` | `none` | no | `plot` |
-| `aspect-ratio` | `<ratio> \| auto` | `auto` | no | `plot` |
+| `aspect-ratio` | `<ratio> \| auto \| none` | `auto` | no | `plot` |
 | `step` | `<length [0,∞]> \| none` | `none` | no | `scale` |
 | `padding-top` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `padding-right` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
@@ -162,7 +167,7 @@ The initial values of the table hold on every node except these, where they depe
 | `size` | `<number [0,∞]> \| <percentage>` | `30` | no | `mark` |
 | `continuous-size` | `<length [0,∞]>` | `5` | no | `mark` |
 | `bin-spacing` | `<length [0,∞]>` | `0` | no | `mark` |
-| `band-position` | `<number [0,1]>` | `0.5` | no | `mark`, `axis` |
+| `band-position` | `<number [0,1]>` | `0.5` | no | `mark` |
 | `corner-radius` | `<length [0,∞]>` | `0` | no | `mark` |
 | `pad-angle` | `<angle>` | `0` | no | `mark` |
 | `inset` | `<length [0,∞]>` | `0` | no | `mark` |

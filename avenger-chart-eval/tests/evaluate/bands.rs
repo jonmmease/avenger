@@ -7,7 +7,7 @@ use arrow::array::{RecordBatch, StringArray};
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, Registry};
 use avenger_scenegraph::marks::mark::SceneMark;
-use avenger_style::HostInputs;
+use avenger_style::{Element, HostInputs, Property};
 
 use crate::support::*;
 
@@ -283,4 +283,19 @@ fn a_custom_scale_of_categories_runs_down_the_plot() {
         .map(|(_, y, _)| *y)
         .collect();
     assert!(ys.windows(2).all(|pair| pair[0] < pair[1]), "{ys:?}");
+    // Its axis is the axis of a point scale, whose title the base stylesheet stands 4 from its
+    // labels, as on the axes of other scales of categories.
+    let tree = evaluator.style_tree();
+    let title = (tree.nodes())
+        .find(|node| {
+            let data = tree.node(*node);
+            data.element == Element::Title
+                && (tree.parent(*node)).is_some_and(|axis| {
+                    let axis = tree.node(axis);
+                    axis.element == Element::Axis && axis.attribute_str("channel") == Some("y")
+                })
+        })
+        .expect("the title of the y axis");
+    let styles = evaluator.styles(&host([320.0, 240.0]));
+    assert_eq!(styles[title].number(Property::Margin), Some(4.0));
 }

@@ -234,11 +234,12 @@ impl Axis {
         scale: FittingScale,
         kind: Kind,
         title: &str,
-        title_margin: f32,
+        default_title_margin: f32,
         config: &AxisConfig,
         engine: &LabelEngine,
     ) -> Result<Self, AvengerGuidesError> {
         let style = &config.style;
+        let title_margin = style.title_margin.unwrap_or(default_title_margin);
         let title = if style.title_visible && !title.is_empty() {
             let mark = title_mark(title, 0.0, 0.0, config.side, style);
             let bounds = mark

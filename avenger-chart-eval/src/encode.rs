@@ -588,11 +588,14 @@ impl<'a> LayerRows<'a> {
     }
 
     /// Where the mark of each row stands in its band along `channel`: the encoding's
-    /// `band_position`, or the middle of the band without one.
+    /// `band_position`, or without one the mark's computed `band-position`.
     pub(crate) fn band_position(&self, channel: Channel) -> f32 {
         (self.encoding(channel))
             .and_then(|encoding| encoding.band_position)
-            .map_or(0.5, |position| position as f32)
+            .map_or_else(
+                || crate::style::number(self.style, Property::BandPosition),
+                |position| position as f32,
+            )
     }
 
     /// The pixel position of each row along `channel`: at its band position in its band on a band
