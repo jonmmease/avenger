@@ -503,7 +503,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
     // Other values, as the text of a title, and no forms without constructors.
     let title = forms(&library, "axis", "title").unwrap();
     assert!(
-        title.contains("title => STRING\ntitle => title("),
+        title.contains("title => BOOL | STRING\ntitle => title("),
         "{title}"
     );
     assert_eq!(forms(&library, "scale", "zero"), None);

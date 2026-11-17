@@ -12,8 +12,8 @@ use arrow::{
 use avenger_chart::{
     prelude::*,
     proto::{
-        cartesian_layer, conditional_value, encoding, legend_wrap, node, plot, predicate, scale,
-        spherical,
+        cartesian_layer, conditional_value, encoding, navigation_limits, node, plot, predicate,
+        scale, spherical,
     },
     FORMAT_VERSION,
 };
@@ -144,10 +144,32 @@ fn a_scale_converts_from_its_lifted_fields() {
         .build()
         .unwrap();
     assert_eq!(spec.axis.unwrap().show, Some(false));
-    let spec = ScaleBuilder::from(Legend::builder().form(LegendForm::Colorbar))
+    let spec = ScaleBuilder::from(Legend::builder().type_(LegendForm::Colorbar))
         .build()
         .unwrap();
-    assert_eq!(spec.legend.unwrap().form, LegendForm::Colorbar as i32);
+    assert_eq!(spec.legend.unwrap().r#type, LegendForm::Colorbar as i32);
+}
+
+#[test]
+fn a_guide_part_converts_from_a_boolean_and_from_its_other_lifted_field() {
+    // Rule F with two lifted fields of different kinds: a Boolean sets `show`, and a string or a
+    // number the other field.
+    let title = TitleBuilder::from(false).build().unwrap();
+    assert_eq!((title.show, title.text.as_str()), (Some(false), ""));
+    let title = TitleBuilder::from("Mass").build().unwrap();
+    assert_eq!((title.show, title.text.as_str()), (None, "Mass"));
+    let labels = LabelsBuilder::from(false).build().unwrap();
+    assert_eq!((labels.show, labels.format.as_str()), (Some(false), ""));
+    let labels = LabelsBuilder::from(",.0f").build().unwrap();
+    assert_eq!((labels.show, labels.format.as_str()), (None, ",.0f"));
+    assert_eq!(AxisBuilder::from(false).build().unwrap().show, Some(false));
+    assert_eq!(
+        LegendBuilder::from(false).build().unwrap().show,
+        Some(false)
+    );
+    let facet = FacetBuilder::from(false).build().unwrap();
+    assert_eq!((facet.show, facet.column.as_str()), (Some(false), ""));
+    assert_eq!(TickStepBuilder::from(5.0).build().unwrap().step, 5.0);
 }
 
 #[test]
@@ -226,18 +248,21 @@ fn helpers_hide_axes_and_legends() {
 #[test]
 fn a_wrapper_converts_from_its_members() {
     // Rule B: a message with one oneof converts from the builder of a member.
-    let wrap = LegendWrapBuilder::from(LegendGrid::builder().columns(2))
+    let limits = NavigationLimitsBuilder::from(Interval::builder().low(0.0).high(2.0))
         .build()
         .unwrap();
-    let Some(legend_wrap::Wrap::Grid(grid)) = wrap.wrap else {
-        panic!("the wrap is a grid")
+    let Some(navigation_limits::Bounds::Extent(extent)) = limits.bounds else {
+        panic!("the bounds are an extent")
     };
-    assert_eq!(grid.columns, Some(2));
+    assert_eq!(extent.high, 2.0);
     // A message converts as its builder does.
-    let wrap = LegendWrapBuilder::from(LegendGrid::default())
+    let limits = NavigationLimitsBuilder::from(Interval::default())
         .build()
         .unwrap();
-    assert!(matches!(wrap.wrap, Some(legend_wrap::Wrap::Grid(_))));
+    assert!(matches!(
+        limits.bounds,
+        Some(navigation_limits::Bounds::Extent(_))
+    ));
 }
 
 #[test]
@@ -245,8 +270,8 @@ fn a_member_without_fields_takes_no_argument() {
     let spec = Scale::builder().quantile().build().unwrap();
     assert!(matches!(spec.r#type, Some(scale::Type::Quantile(_))));
     assert!(matches!(
-        LegendWrap::flow().build().unwrap().wrap,
-        Some(legend_wrap::Wrap::Flow(_))
+        NavigationLimits::data().build().unwrap().bounds,
+        Some(navigation_limits::Bounds::Data(_))
     ));
 }
 
@@ -369,12 +394,12 @@ fn a_conditional_value_takes_its_predicate_and_value() {
 
 #[test]
 fn a_replaced_value_leaves_no_trace_in_the_chart() {
-    let ticked = |ticks: TicksBuilder| {
-        let x = Encoding::scaled_field("a").scale(Axis::builder().ticks(ticks));
+    let ticked = |axis: AxisBuilder| {
+        let x = Encoding::scaled_field("a").scale(axis);
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x(x).y("b"));
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };
-    let replaced = ticked(Ticks::values([1.0, 2.0]).count(3.0));
-    let once = ticked(Ticks::count(3.0));
+    let replaced = ticked(Axis::builder().values([1.0, 2.0]).tick_count(3.0));
+    let once = ticked(Axis::builder().tick_count(3.0));
     assert_eq!(replaced, once);
 }

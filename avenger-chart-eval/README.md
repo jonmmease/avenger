@@ -183,8 +183,9 @@ axis[channel=y] > grid { display: none; }
 legend { orient: bottom; }
 ```
 
-`display: none` hides an axis, a legend, or a part of one, as the `show` and `show_*` fields of
-`Axis` and `Legend` do, and a layer whose `mark` computes it draws nothing and has no rows. A hidden
+`display: none` hides an axis, a legend, or a part of one, as the `show` fields of `Axis`,
+`Legend`, `Title`, and `Labels` and the Boolean parts of an axis or a legend, such as `ticks`, do,
+and a layer whose `mark` computes it draws nothing and has no rows. A hidden
 layer's values still fit its scales, so a breakpoint that hides a layer does not rescale the others.
 
 `ChartEvaluator::styles` returns the computed styles for host inputs, and their warnings are in the

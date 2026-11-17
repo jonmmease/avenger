@@ -11,8 +11,8 @@ use prost::Message;
 /// selections.
 const CONTENT: &[(&str, &[&str])] = &[
     ("Attribution", &["credits"]),
-    ("Axis", &["classes", "id", "route"]),
-    ("NestedAxisLevel", &["title", "format"]),
+    ("Axis", &["classes", "id", "route", "tick_step", "values"]),
+    ("NestedAxisLevel", &["title"]),
     (
         "Chart",
         &[
@@ -115,17 +115,16 @@ const CONTENT: &[(&str, &[&str])] = &[
             "scaled_value",
         ],
     ),
-    // Whether a scale draws its axis or legend, and the legend's form, decide which nodes the
+    // Whether a scale draws its axis or legend, and the legend's type, decide which nodes the
     // style tree holds.
     ("Axis", &["show"]),
     ("PartRule", &["part", "rule"]),
     ("Labels", &["format", "markup"]),
-    ("Ticks", &["interval", "values"]),
-    ("TickInterval", &["numeric", "calendar"]),
-    ("NumericTicks", &["start", "step"]),
-    ("CalendarTicks", &["start", "count", "unit"]),
-    ("Legend", &["show", "form", "values", "classes", "id"]),
-    ("LegendWrap", &["flow", "grid"]),
+    ("TickStep", &["step", "interval", "start"]),
+    (
+        "Legend",
+        &["show", "type", "tick_step", "values", "classes", "id"],
+    ),
     (
         "SymbolMark",
         &[

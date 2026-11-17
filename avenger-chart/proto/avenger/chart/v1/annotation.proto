@@ -15,9 +15,10 @@ extend google.protobuf.FieldOptions {
   // member of a oneof, the rule applies when the oneof holds the member.
   bool required = 50001;
   // A builder of the field's message converts from the field's type, with only this field set,
-  // so `.scale(Axis::builder())` builds a scale with that axis and `.facet("genre")` a
-  // facet of that column. A repeated field is not lifted. A type that two lifted fields of one
-  // message take converts to neither.
+  // so `.title("Mass")` builds a title of that text, `.axis(false)` an axis that does not show,
+  // and `.facet("genre")` a facet of that column. A repeated field is not lifted. A type that two
+  // lifted fields of one message take converts to neither, so the lifted fields of a message take
+  // different kinds of values, such as a string and a Boolean.
   bool lift = 50003;
 }
 

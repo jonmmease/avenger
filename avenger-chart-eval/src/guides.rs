@@ -12,7 +12,7 @@ use arrow::{
 };
 use avenger_chart::{
     layer::MarkType,
-    proto::{self, encoding, tick_interval, ticks, CalendarUnit, Channel},
+    proto::{self, encoding, CalendarUnit, Channel},
     resolve::{scale_channel, Resolved, ScaleGroup},
     Chart,
 };
@@ -319,11 +319,11 @@ pub(crate) fn visible(style: &ComputedStyle) -> bool {
     !style.is_hidden()
 }
 
-/// The syntax of a title: a `Title`, which the producer writes, reads its syntax, Typst markup when
-/// it is unset, and a title from the data, such as the titles of an axis's encodings or a facet's
-/// column, has no `Title` and is plain.
+/// The syntax of a title: a `Title` with a text, which the producer writes, reads its syntax, Typst
+/// markup when it is unset, and a title from the data, such as the titles of an axis's encodings or
+/// a facet's column, has no `Title`, or one without a text, and is plain.
 pub(crate) fn title_syntax(title: Option<&proto::Title>) -> TextSyntaxMode {
-    let Some(title) = title else {
+    let Some(title) = authored(title) else {
         return TextSyntaxMode::Plain;
     };
     match proto::TextSyntax::try_from(title.syntax).unwrap_or_default() {
@@ -366,12 +366,18 @@ fn default_title(resolved: &Resolved, group: &ScaleGroup, columns: bool) -> Stri
     titles.join(", ")
 }
 
-/// The title of a guide: its own text, or the default title of its scale.
+/// The title of a guide: its own text, or without one, the default title of its scale.
 fn guide_title(title: Option<&proto::Title>, default: impl FnOnce() -> String) -> String {
-    match title.map(|title| title.text.clone()) {
-        Some(text) => text,
+    match authored(title) {
+        Some(title) => title.text.clone(),
         None => default(),
     }
+}
+
+/// `title` when it has a text, which the producer writes, and not only styles the title that a
+/// part gives.
+pub(crate) fn authored(title: Option<&proto::Title>) -> Option<&proto::Title> {
+    title.filter(|title| !title.text.is_empty())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -381,36 +387,96 @@ fn axis_spec(group: &ScaleGroup) -> proto::Axis {
     group.spec.axis.clone().unwrap_or_default()
 }
 
-/// The ticks of a `Ticks` in place of the scale's: a list of values or an interval.
-fn ticks(chart: &Chart, ticks: Option<&proto::Ticks>) -> Option<AxisTicks> {
-    match ticks?.placement.as_ref()? {
-        ticks::Placement::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
-        ticks::Placement::Interval(interval) => match interval.spacing.as_ref()? {
-            tick_interval::Spacing::Numeric(numeric) => {
-                Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
-                    start: numeric.start,
-                    step: numeric.step,
-                }))
-            }
-            tick_interval::Spacing::Calendar(calendar) => {
-                let count = calendar.count;
-                let civil = i32::try_from(count).unwrap_or(i32::MAX);
-                let (months, days, nanos) = match calendar.unit() {
-                    CalendarUnit::Month => (civil, 0, 0),
-                    CalendarUnit::Day => (0, civil, 0),
-                    CalendarUnit::Millisecond => (0, 0, count.saturating_mul(1_000_000)),
-                    CalendarUnit::Unspecified => (0, 0, 0),
-                };
-                Some(AxisTicks::StartStep(AxisTickInterval::Temporal {
-                    start_millis: calendar.start,
-                    months,
-                    days,
-                    nanos,
-                }))
-            }
-        },
-        ticks::Placement::Count(_) => None,
+/// The ticks that an axis or a colorbar gives in place of the scale's: a list of values, or a step.
+#[derive(Clone, Copy)]
+pub(crate) enum SpecTicks<'a> {
+    Values(&'a proto::ValueRef),
+    Step(&'a proto::TickStep),
+}
+
+impl<'a> SpecTicks<'a> {
+    pub(crate) fn of_axis(axis: &'a proto::Axis) -> Option<Self> {
+        use proto::axis::TickPlacement;
+        match axis.tick_placement.as_ref()? {
+            TickPlacement::Values(values) => Some(SpecTicks::Values(values)),
+            TickPlacement::TickStep(step) => Some(SpecTicks::Step(step)),
+            TickPlacement::TickCount(_) => None,
+        }
     }
+
+    fn of_legend(legend: &'a proto::Legend) -> Option<Self> {
+        use proto::legend::TickPlacement;
+        match legend.tick_placement.as_ref()? {
+            TickPlacement::Values(values) => Some(SpecTicks::Values(values)),
+            TickPlacement::TickStep(step) => Some(SpecTicks::Step(step)),
+            TickPlacement::TickCount(_) => None,
+        }
+    }
+}
+
+/// The ticks of `spec` in place of the scale's: a list of values, or a start and a step, of
+/// numbers or of calendar units.
+fn ticks(chart: &Chart, spec: Option<SpecTicks>) -> Option<AxisTicks> {
+    match spec? {
+        SpecTicks::Values(values) => Some(AxisTicks::Values(chart.list_elements(values))),
+        SpecTicks::Step(step) => {
+            let start = step.start.as_ref().map(|start| chart.value(start));
+            match step.interval() {
+                CalendarUnit::Unspecified => {
+                    Some(AxisTicks::StartStep(AxisTickInterval::Numeric {
+                        start: start.and_then(start_number).unwrap_or(0.0),
+                        step: step.step,
+                    }))
+                }
+                unit => {
+                    let count = step.step as i64;
+                    let civil = i32::try_from(count).unwrap_or(i32::MAX);
+                    let (months, days, nanos) = match unit {
+                        CalendarUnit::Month => (civil, 0, 0),
+                        CalendarUnit::Day => (0, civil, 0),
+                        _ => (0, 0, count.saturating_mul(1_000_000)),
+                    };
+                    Some(AxisTicks::StartStep(AxisTickInterval::Temporal {
+                        start_millis: start.and_then(start_millis).unwrap_or(0),
+                        months,
+                        days,
+                        nanos,
+                    }))
+                }
+            }
+        }
+    }
+}
+
+/// The number of `start`, a value of one element, as a number.
+fn start_number(start: &ArrayRef) -> Option<f64> {
+    let number = cast(start, &DataType::Float64).ok()?;
+    let number = number.as_primitive::<arrow::datatypes::Float64Type>();
+    number.iter().next().flatten()
+}
+
+/// The instant of `start`, a date or a timestamp of one element, in milliseconds since the Unix
+/// epoch.
+fn start_millis(start: &ArrayRef) -> Option<i64> {
+    use arrow::datatypes::{Date64Type, TimeUnit, TimestampMillisecondType};
+    let millis = match start.data_type() {
+        DataType::Date32 | DataType::Date64 => {
+            let dates = cast(start, &DataType::Date64).ok()?;
+            let dates = dates.as_primitive::<Date64Type>();
+            dates.iter().next().flatten()
+        }
+        DataType::Timestamp(_, zone) => {
+            let instants = cast(
+                start,
+                &DataType::Timestamp(TimeUnit::Millisecond, zone.clone()),
+            )
+            .ok()?;
+            let instants = instants.as_primitive::<TimestampMillisecondType>();
+            instants.iter().next().flatten()
+        }
+        _ => None,
+    };
+    millis
 }
 
 /// The style of an axis's parts from their computed styles.
@@ -423,7 +489,7 @@ pub(crate) fn axis_style(
     tick: &ComputedStyle,
     rule: &ComputedStyle,
     grid: Option<&ComputedStyle>,
-    spec_ticks: Option<&proto::Ticks>,
+    spec_ticks: Option<SpecTicks>,
     title_syntax: TextSyntaxMode,
 ) -> AxisStyle {
     let label_align = match label.keyword(Property::TextAlign) {
@@ -443,7 +509,7 @@ pub(crate) fn axis_style(
     let mut style = AxisStyle {
         tick_count: axis.number(Property::TickCount).map(f64::from),
         tick_spacing: axis.number(Property::TickSpacing),
-        // `thin-ticks: true` thins the explicit ticks of the spec, such as `Ticks.values`, to the
+        // `thin-ticks: true` thins the explicit ticks of the spec, such as `Axis.values`, to the
         // axis's length.
         thin_ticks: axis.boolean(Property::ThinTicks).unwrap_or(false),
         ticks: ticks(chart, spec_ticks),
@@ -561,7 +627,7 @@ fn axis(
             &styles[nodes.tick],
             &styles[nodes.rule],
             Some(&styles[nodes.grid]),
-            spec.ticks.as_ref(),
+            SpecTicks::of_axis(&spec),
             title_syntax,
         );
         // The key axis of bars of bins ticks at the edges of the bins, unless the spec or the
@@ -615,8 +681,8 @@ fn axis(
                             title_visible: title.as_deref() != Some(""),
                             title: title.filter(|title| !title.is_empty()),
                             label_angle: styles[*level].number(Property::LabelAngle),
-                            tick_format: message
-                                .map(|level| level.format.clone())
+                            tick_format: (message.and_then(|level| level.labels.as_ref()))
+                                .map(|labels| labels.format.clone())
                                 .filter(|format| !format.is_empty()),
                         }
                     })
@@ -837,8 +903,8 @@ fn entries(
             Ok((values, labels, syntax))
         }
         _ => {
-            let values = match &spec.entries {
-                Some(proto::legend::Entries::Values(values)) => chart.list_elements(values),
+            let values = match &spec.tick_placement {
+                Some(proto::legend::TickPlacement::Values(values)) => chart.list_elements(values),
                 _ => scale.ticks(tick_count)?,
             };
             let (labels, syntax) = label_text(formatted(&values)?, markup)?;
@@ -1429,7 +1495,7 @@ fn colorbar(
         &styles[nodes.tick],
         &styles[nodes.rule],
         None,
-        axis_spec.ticks.as_ref(),
+        SpecTicks::of_legend(&axis_spec),
         title_syntax(axis_spec.title.as_ref()),
     );
     let labels = axis_spec.labels.as_ref();

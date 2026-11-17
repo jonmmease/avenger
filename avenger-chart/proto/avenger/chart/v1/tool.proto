@@ -132,7 +132,7 @@ message TooltipField {
   // The title of the field. Without it, the field's title is the column's name.
   optional string title = 2;
   // How the value reads: the pattern and the markup of its label, as for the labels of an axis.
-  // Its `style` is invalid, since a tooltip's text takes the tooltip's style.
+  // Its `show` and its font are invalid, since a tooltip shows each field in the tooltip's style.
   Labels labels = 3;
 }
 

@@ -4,8 +4,8 @@
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
 use super::{
-    classes, fail, keyed, named, non_negative, positive, size, title, within, Checker, Result,
-    REQUIRED,
+    classes, fail, keyed, named, non_negative, positive, shown_labels, size, title, within,
+    Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef},
@@ -78,6 +78,7 @@ impl Checker<'_> {
             facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
+            shown_labels(facet.labels.as_ref(), &format!("{path}.labels"), "a facet")?;
         }
         let scope = scope.with(&concat.partition, false);
         for (index, child) in concat.children.iter().enumerate() {
@@ -111,6 +112,7 @@ impl Checker<'_> {
             facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
+            shown_labels(facet.labels.as_ref(), &format!("{path}.labels"), "a facet")?;
         }
         let scope = scope.with(&wrap.partition, true);
         for (index, child) in wrap.children.iter().enumerate() {
@@ -129,7 +131,7 @@ impl Checker<'_> {
         if let Some(attribution) = &plot.attribution {
             let path = format!("{path}.attribution");
             if matches!(
-                proto::Side::try_from(attribution.side),
+                proto::Side::try_from(attribution.orient),
                 Ok(proto::Side::Left | proto::Side::Right)
             ) {
                 return Err(fail(
@@ -538,10 +540,18 @@ impl Checker<'_> {
             let Some(labels) = &field.labels else {
                 continue;
             };
-            if labels.style.is_some() {
+            let tooltip_styled = [
+                ("show", labels.show.is_some()),
+                ("font_family", !labels.font_family.is_empty()),
+                ("font_size", labels.font_size.is_some()),
+                ("font_weight", labels.font_weight.is_some()),
+                ("color", !labels.color.is_empty()),
+            ];
+            if let Some((name, _)) = tooltip_styled.iter().find(|(_, set)| *set) {
                 return Err(fail(
-                    format!("{path}.labels.style"),
-                    "the labels of a tooltip field have no style, since a tooltip's text takes the tooltip's style",
+                    format!("{path}.labels.{name}"),
+                    "the labels of a tooltip field always show and have no font, since a tooltip's \
+                     text takes the tooltip's style",
                 ));
             }
             if let Some(data_type) = data_type {

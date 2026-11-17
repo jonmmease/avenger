@@ -5,7 +5,6 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/side.proto";
-import "avenger/chart/v1/style.proto";
 
 // Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a geo plot.
 // Plots with equal credits merge their attributions by default, so a facet grid shows its sources
@@ -16,19 +15,32 @@ message Attribution {
   repeated string credits = 1;
   // The top or the bottom of the plot. When unset, the styles give it. A left or a right side is
   // invalid.
-  Side side = 2;
+  Side orient = 2;
   // Where the credits stand along the side.
   AttributionAlign align = 3;
   // Typst markup between two credits on a line.
   string separator = 4;
   // The space on each side of the separator, in pixels.
   optional float separator_space = 5;
-  // The style of the credits.
-  TextStyle text_style = 6;
+  // The font family of the credits, such as `Lato`.
+  string font_family = 6;
+  // The font size of the credits, in pixels.
+  optional float font_size = 7;
+  // The font weight of the credits, from 100 to 900.
+  optional float font_weight = 8;
+  // The CSS color of the credits.
+  string color = 9;
   // The space between lines of credits, in pixels.
-  optional float line_gap = 7;
-  // The box behind the credits. When unset, the credits have no background.
-  Background background = 8;
+  optional float line_gap = 10;
+  // The CSS color of the box behind the credits, such as `white`. When unset, the credits have no
+  // background.
+  string background = 11;
+  // The CSS color of the outline of the box behind the credits, a solid border.
+  string border_color = 12;
+  // The radius of the corners of the box behind the credits, in pixels.
+  optional float border_radius = 13;
+  // The space between the edges of the box behind the credits and its content, in pixels.
+  optional float padding = 14;
 }
 
 enum AttributionAlign {

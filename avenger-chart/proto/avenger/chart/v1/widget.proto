@@ -48,11 +48,10 @@ message Widget {
   // The title, Typst markup unless its syntax is plain, as for every `Title`. When unset, the
   // title is the name of the target's column, as plain text, the title of a mode widget of a
   // toggle is the toggle's label, as Typst markup, and a mode widget of a group has no title.
+  // An empty text keeps that title, and a title that does not show draws no title.
   Title title = 2;
-  // Whether the widget shows its title. When unset, the styles decide.
-  optional bool show_title = 5;
   // The side of the plot or the concat that the widget stands on. When unset, the styles give it.
-  Side side = 3;
+  Side orient = 3;
   // The class names of the widget, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 4;

@@ -9,7 +9,9 @@ use arrow::{
     record_batch::RecordBatch,
 };
 
-use super::{classes, dictionary_values, fail, title, tree::Scope, Checker, Result, REQUIRED};
+use super::{
+    classes, dictionary_values, fail, shown_labels, title, tree::Scope, Checker, Result, REQUIRED,
+};
 use crate::proto::{self, widget, widget_domain, SliderComparison};
 
 /// Whether a widget's domain is an interval, for a slider, or items, for a radio group and a check
@@ -328,6 +330,7 @@ impl Checker<'_> {
         domain: Option<&DataType>,
         path: &str,
     ) -> Result<()> {
+        shown_labels(labels, path, "a widget")?;
         match (labels, domain) {
             (Some(labels), Some(domain)) => {
                 self.pattern(&labels.format, domain, &format!("{path}.format"))

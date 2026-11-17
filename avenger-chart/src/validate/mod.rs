@@ -364,16 +364,37 @@ fn is_string(data_type: &DataType) -> bool {
     )
 }
 
-/// Checks a title at `path`: the title of a part other than a node, such as an axis, has none of
-/// the fields that place the title of a node and give its subtitle.
+/// Checks a title at `path`. The title of a node, a plot, a concat, or a wrap, has a text and
+/// always shows. The title of another part, such as an axis, has none of the fields that place the
+/// title of a node and give its subtitle.
 fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
     let Some(title) = title else { return Ok(()) };
-    if !node {
+    if node {
+        if title.text.is_empty() {
+            return Err(fail(
+                format!("{path}.text"),
+                "the title of a plot, a concat, or a wrap has a text",
+            ));
+        }
+        if title.show.is_some() {
+            return Err(fail(
+                format!("{path}.show"),
+                "the title of a plot, a concat, or a wrap always shows, so a node without a title \
+                 has none",
+            ));
+        }
+    } else {
         let fields = [
-            ("side", title.side != 0),
+            ("orient", title.orient != 0),
             ("align", title.align != 0),
             ("subtitle", !title.subtitle.is_empty()),
-            ("subtitle_style", title.subtitle_style.is_some()),
+            (
+                "subtitle_font_family",
+                !title.subtitle_font_family.is_empty(),
+            ),
+            ("subtitle_font_size", title.subtitle_font_size.is_some()),
+            ("subtitle_font_weight", title.subtitle_font_weight.is_some()),
+            ("subtitle_color", !title.subtitle_color.is_empty()),
         ];
         if let Some((field, _)) = fields.iter().find(|(_, set)| *set) {
             return Err(fail(
@@ -381,6 +402,17 @@ fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
                 "only the title of a plot, a concat, or a wrap has a side, an alignment, or a subtitle",
             ));
         }
+    }
+    Ok(())
+}
+
+/// Checks labels at `path` that always show, such as the labels of a facet: `show` is invalid.
+fn shown_labels(labels: Option<&proto::Labels>, path: &str, what: &str) -> Result<()> {
+    if labels.is_some_and(|labels| labels.show.is_some()) {
+        return Err(fail(
+            format!("{path}.show"),
+            format!("{what} always shows its labels, so `show` is invalid on them"),
+        ));
     }
     Ok(())
 }

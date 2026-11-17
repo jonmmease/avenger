@@ -168,7 +168,13 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
         .zero(false)
         .enabled(false)
         .values(vec![4.0, 140.0])
-        .legend(Legend::builder().title(Title::new("Magnitude $M_w$").syntax(TextSyntax::Typst)));
+        .legend(
+            Legend::builder().title(
+                Title::builder()
+                    .text("Magnitude $M_w$")
+                    .syntax(TextSyntax::Typst),
+            ),
+        );
     let depth = Scale::builder()
         .values(DEPTHS.to_vec())
         .legend(Legend::builder().title("Depth (km)"));

@@ -1,32 +1,37 @@
-facet(show, title, show_title, side, labels, label_angle, label_padding, tick_length, rule_color, rule_width, classes, id)
+facet(show, title, orient, labels, label_angle, label_padding, tick_size, rule_color, rule_width, classes, id)
   show: Boolean
-  title: string -> text; title(...)
-  show_title: Boolean
-  side: one of bottom, top, left, right
-  labels: labels(...)
+  title: Boolean -> show; string -> text; title(...)
+  orient: one of bottom, top, left, right
+  labels: Boolean -> show; string -> format; labels(...)
   label_angle: number
   label_padding: number
-  tick_length: number
+  tick_size: number
   rule_color: string
   rule_width: number
   classes: array of string
   id: string
-labels(format, markup, style)
+labels(format, markup, show, font_family, font_size, font_weight, color)
   format: string
   markup: string
-  style: text_style(...)
-text_style(font_family, font_size, font_weight, color)
+  show: Boolean
   font_family: string
   font_size: number
   font_weight: number
   color: string
-title(text, side, syntax, style, subtitle, subtitle_style, align)
-  text (required): string
-  side: one of top, left, right, bottom
+title(text, show, orient, syntax, font_family, font_size, font_weight, color, subtitle, subtitle_font_family, subtitle_font_size, subtitle_font_weight, subtitle_color, align)
+  text: string
+  show: Boolean
+  orient: one of bottom, top, left, right
   syntax: one of plain, plain_lines, typst
-  style: text_style(...)
+  font_family: string
+  font_size: number
+  font_weight: number
+  color: string
   subtitle: string
-  subtitle_style: text_style(...)
+  subtitle_font_family: string
+  subtitle_font_size: number
+  subtitle_font_weight: number
+  subtitle_color: string
   align: one of start, center, end
 wrap_layout(min_column_width, max_columns, row, gap, part_rules, distribute)
   min_column_width: number
@@ -81,25 +86,26 @@ tooltip(find, title, fields, anchor, hide_swatch)
 tooltip_field(column, title, labels)
   column: string
   title: string
-  labels: labels(...)
+  labels: Boolean -> show; string -> format; labels(...)
 nearest_find(max_radius, metric)
   max_radius: number
   metric: one of euclidean, along_x, along_y
 navigate(channels)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
-attribution(credits, side, align, separator, separator_space, text_style, line_gap, background)
+attribution(credits, orient, align, separator, separator_space, font_family, font_size, font_weight, color, line_gap, background, border_color, border_radius, padding)
   credits: array of string
-  side: one of bottom, top, left, right
+  orient: one of bottom, top, left, right
   align: one of start, end
   separator: string
   separator_space: number
-  text_style: text_style(...)
+  font_family: string
+  font_size: number
+  font_weight: number
+  color: string
   line_gap: number
-  background: background(...)
-background(fill, stroke, corner_radius, padding)
-  fill: string
-  stroke: string
-  corner_radius: number
+  background: string
+  border_color: string
+  border_radius: number
   padding: number
 geo(surface, family, aspect, navigation)
   surface (required): string -> a member's name; conic_conformal(...) -> conic_conformal -> spherical; conic_equal_area(...) -> conic_equal_area -> spherical; conic_equidistant(...) -> conic_equidistant -> spherical; custom_projection(...) -> custom -> spherical; cylindrical_equal_area_projection(...) -> cylindrical_equal_area -> spherical; hammer_projection(...) -> hammer -> spherical; planar(...) -> planar; spherical(...) -> spherical
@@ -131,7 +137,7 @@ sphere_style(fill, stroke, stroke_width)
   fill: string
   stroke: string
   stroke_width: number
-graticule(longitude_step, latitude_step, extent, major_longitude_step, major_latitude_step, major_extent, precision, frame, label_sides, format, label_style, label_padding, color, width)
+graticule(longitude_step, latitude_step, extent, major_longitude_step, major_latitude_step, major_extent, precision, frame, label_sides, format, label_font_family, label_font_size, label_font_weight, label_color, label_padding, color, width)
   longitude_step: number
   latitude_step: number
   extent: lon_lat_box(...)
@@ -142,7 +148,10 @@ graticule(longitude_step, latitude_step, extent, major_longitude_step, major_lat
   frame: one of outline, rectangle
   label_sides: label_sides(...)
   format: string
-  label_style: text_style(...)
+  label_font_family: string
+  label_font_size: number
+  label_font_weight: number
+  label_color: string
   label_padding: number
   color: string
   width: number
@@ -207,88 +216,75 @@ scale(type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family,
   range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
   reverse: Boolean
   family: string
-  axis: axis(...)
+  axis: Boolean -> show; axis(...)
   navigation: string -> a member's name; navigation_interval(...) -> extent; navigation_limits(...)
-  legend: legend(...)
-legend(title, labels, side, wrap, label_padding, column_gap, row_gap, background, entries, classes, id, form, thickness, axis_gap, max_length, show_labels, label_angle, label_align, label_baseline, ticks, domain_color, show, show_title, show_swatches, show_ticks, show_domain)
-  title: string -> text; title(...)
-  labels: labels(...)
-  side: one of bottom, top, left, right
-  wrap: string -> a member's name; legend_grid(...) -> grid; legend_wrap(...)
+  legend: Boolean -> show; legend(...)
+legend(show, type, title, labels, label_angle, orient, background, border_color, border_radius, padding, wrap, columns, label_padding, column_gap, row_gap, tick_placement, swatches, thickness, axis_gap, max_length, label_align, label_baseline, ticks, tick_size, tick_color, rule, rule_color, classes, id)
+  show: Boolean
+  type: one of symbol, colorbar
+  title: Boolean -> show; string -> text; title(...)
+  labels: Boolean -> show; string -> format; labels(...)
+  label_angle: number
+  orient: one of bottom, top, left, right
+  background: string
+  border_color: string
+  border_radius: number
+  padding: number
+  wrap: one of flow, grid
+  columns: integer
   label_padding: number
   column_gap: number
   row_gap: number
-  background: background(...)
-  entries: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; other -> values
-  classes: array of string
-  id: string
-  form: one of symbol, colorbar
+  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; other -> values; tick_step(...) -> tick_step
+  swatches: Boolean
   thickness: number
   axis_gap: number
   max_length: number
-  show_labels: Boolean
-  label_angle: number
   label_align: one of left, center, right
   label_baseline: one of top, middle, alphabetic, bottom
-  ticks: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval; ticks(...)
-  domain_color: string
-  show: Boolean
-  show_title: Boolean
-  show_swatches: Boolean
-  show_ticks: Boolean
-  show_domain: Boolean
-ticks(placement, length, color)
-  placement: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval
-  length: number
-  color: string
-tick_interval(spacing)
-  spacing (required): string -> a member's name; calendar_ticks(...) -> calendar; numeric_ticks(...) -> numeric
-calendar_ticks(unit, start, count)
-  unit (required): one of month, day, millisecond
-  start: integer
-  count: integer
-numeric_ticks(start, step)
-  start: number
+  ticks: Boolean
+  tick_size: number
+  tick_color: string
+  rule: Boolean
+  rule_color: string
+  classes: array of string
+  id: string
+tick_step(step, interval, start)
   step: number
-legend_wrap(wrap)
-  wrap: string -> a member's name; legend_grid(...) -> grid
-legend_grid(columns)
-  columns: integer
+  interval: one of month, day, millisecond
+  start: any constant
 navigation_limits(bounds, min_span)
   bounds: string -> a member's name; navigation_interval(...) -> extent
   min_span: number
 navigation_interval(low, high)
   low: number
   high: number
-axis(title, side, labels, show_labels, label_rotation, label_align, label_baseline, ticks, domain_color, grid, levels, classes, id, angle, show, show_title, show_ticks, show_domain, show_grid, route)
-  title: string -> text; title(...)
-  side: one of bottom, top, left, right
-  labels: labels(...)
-  show_labels: Boolean
+axis(show, title, orient, labels, label_rotation, label_align, label_baseline, tick_placement, ticks, tick_size, tick_color, rule, rule_color, grid, grid_color, grid_width, levels, angle, route, classes, id)
+  show: Boolean
+  title: Boolean -> show; string -> text; title(...)
+  orient: one of bottom, top, left, right
+  labels: Boolean -> show; string -> format; labels(...)
   label_rotation: integer -> label_angle; float -> label_angle; string -> label_orient
   label_align: one of left, center, right
   label_baseline: one of top, middle, alphabetic, bottom
-  ticks: Boolean -> values; integer -> count; float -> count; string -> values; array -> values; other -> values; calendar_ticks(...) -> calendar -> interval; numeric_ticks(...) -> numeric -> interval; tick_interval(...) -> interval; ticks(...)
-  domain_color: string
-  grid: grid(...)
+  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; other -> values; tick_step(...) -> tick_step
+  ticks: Boolean
+  tick_size: number
+  tick_color: string
+  rule: Boolean
+  rule_color: string
+  grid: Boolean
+  grid_color: string
+  grid_width: number
   levels: array of nested_axis_level(...)
+  angle: number
+  route: one of coordinate, canvas
   classes: array of string
   id: string
-  angle: number
-  show: Boolean
-  show_title: Boolean
-  show_ticks: Boolean
-  show_domain: Boolean
-  show_grid: Boolean
-  route: one of coordinate, canvas
-nested_axis_level(show_labels, title, label_angle, format)
-  show_labels: Boolean
+nested_axis_level(labels, title, label_angle)
+  labels: Boolean -> show; string -> format; labels(...)
   title: string
   label_angle: number
-  format: string
-grid(color, width)
-  color: string
-  width: number
 domain_pin(value, position)
   value (required): any constant
   position (required): one of low, mid, high
@@ -344,7 +340,7 @@ linear_scale(clamp, round)
   round: Boolean
 layer(chart, id, title, attribution, tools, resolve, width, height, classes)
   id: string
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   attribution: attribution(...)
   tools: array of tool(...)
   resolve: array of resolve(...)
@@ -355,37 +351,37 @@ hconcat(chart, id, resolve, layout, title, projection, classes)
   id: string
   resolve: array of resolve(...)
   layout: concat_layout(...)
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   projection: one of shared, independent
   classes: array of string
 vconcat(chart, id, resolve, layout, title, projection, classes)
   id: string
   resolve: array of resolve(...)
   layout: concat_layout(...)
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   projection: one of shared, independent
   classes: array of string
 facet_row(chart, key, id, resolve, layout, title, projection, facet, classes)
   id: string
   resolve: array of resolve(...)
   layout: concat_layout(...)
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   projection: one of shared, independent
-  facet: facet(...)
+  facet: Boolean -> show; facet(...)
   classes: array of string
 facet_col(chart, key, id, resolve, layout, title, projection, facet, classes)
   id: string
   resolve: array of resolve(...)
   layout: concat_layout(...)
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   projection: one of shared, independent
-  facet: facet(...)
+  facet: Boolean -> show; facet(...)
   classes: array of string
 facet_wrap(chart, key, id, resolve, layout, title, projection, facet, classes)
   id: string
   resolve: array of resolve(...)
   layout: wrap_layout(...)
-  title: string -> text; title(...)
+  title: Boolean -> show; string -> text; title(...)
   projection: one of shared, independent
-  facet: facet(...)
+  facet: Boolean -> show; facet(...)
   classes: array of string

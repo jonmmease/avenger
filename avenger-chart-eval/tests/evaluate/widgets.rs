@@ -25,7 +25,7 @@ fn cars_with(
     side: Option<Side>,
 ) -> Chart {
     let widgets = widgets.into_iter().map(|widget| match side {
-        Some(side) => widget.side(side),
+        Some(side) => widget.orient(side),
         None => widget,
     });
     let symbols = CartesianLayer::symbol(
@@ -393,8 +393,8 @@ fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
     .id("points")
     .widgets([
-        Widget::mode("drag", ModeWidget::group("drag")).side(Side::Right),
-        Widget::mode("tooltips", ModeWidget::toggle("tooltips")).side(Side::Right),
+        Widget::mode("drag", ModeWidget::group("drag")).orient(Side::Right),
+        Widget::mode("tooltips", ModeWidget::toggle("tooltips")).orient(Side::Right),
     ]);
     let tools = [
         ToolBuilder::from(Navigate::builder()).modes(["pan"]),

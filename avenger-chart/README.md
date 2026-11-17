@@ -133,8 +133,8 @@ An encoding holds one of four kinds of values: a `scaled_field` or a `direct_fie
 A builder converts from other types where the conversion is unambiguous:
 
 - A message whose only required content is one field converts from that field's argument, so `Plot::cartesian([layer])`, `Predicate::selected("brush")`, and `Scale::custom("dots")` build the message with that field.
-- A message with one oneof and no required field converts from each member that is a message of its own type, so `.wrap(LegendGrid::builder())` and `Chart::builder(plot)` set the member.
-- A scale converts from its axis and its legend, the fields that the `lift` option marks, so `.scale(Axis::builder().show_grid(true))` sets that field. A facet converts from its column, which the option also marks, so `.facet("genre")` facets the column `genre`. A conversion is one step, so it takes part in no other conversion.
+- A message with one oneof and no required field converts from each member that is a message of its own type, so `.navigation(Interval::builder().low(0.0).high(10.0))` and `Chart::builder(plot)` set the member.
+- A message without required content converts from the type of each field that the `lift` option marks. A scale converts from its axis and its legend, so `.scale(Axis::builder().grid(true))` sets that field. A title converts from its text and from whether it shows, so `.title("Mass")` sets its text and `.title(false)` hides it. Labels convert from their format and from whether they show. An axis, a legend, and a facet convert from whether they show, so `.axis(false)` on a scale hides its axis, and a facet also converts from its column, so `.facet("genre")` facets the column `genre`. A conversion is one step, so it takes part in no other conversion, and a bool converts to no scale, whose axis and legend both take one.
 
 `EncodingBuilder::no_axis`, `EncodingBuilder::no_legend`, and the same methods of `ScaleBuilder` hide the axis or the legend of a scale, and `no_guides` on the builders of Cartesian, polar, and geo plots hides the axes and the legends of the scales of the plot's layers.
 
