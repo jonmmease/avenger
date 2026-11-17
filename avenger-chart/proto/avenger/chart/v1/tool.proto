@@ -13,6 +13,7 @@ import "avenger/chart/v1/element.proto";
 message Tool {
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
+    option (avenger.chart.v1.lift_oneof) = true;
     Navigate navigate = 1;
     Tooltip tooltip = 2;
     Select select = 3;
@@ -93,7 +94,7 @@ message Tooltip {
   TooltipTitle title = 4;
   // The fields of the rows of the tooltip, in order. Empty shows a row for each column of the
   // instance's row.
-  repeated TooltipField fields = 5;
+  repeated TooltipField fields = 5 [(avenger.chart.v1.element) = "field"];
   // Where the tooltip stands.
   TooltipAnchor anchor = 6;
   // Whether the title leaves out the swatch of the instance's color, for marks whose color says
@@ -160,7 +161,7 @@ enum TooltipAnchor {
 // another, and each replaces the owner's clause.
 message Select {
   // The name of the selection, which the chart defines.
-  string selection = 1 [(avenger.chart.v1.required) = true];
+  string selection = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // The gesture and what it selects. Without a type, the selection is an interval on the plot's
   // positional channels, as an `IntervalSelect` without channels selects.
   oneof type {
@@ -200,7 +201,7 @@ message PointSelect {
   // of the plot, or partition columns of the plot. The selection holds a set of the tuples of the
   // selected instances' values, so a click on a bar of a chart grouped by two columns selects
   // that pair.
-  repeated PointKey keys = 1;
+  repeated PointKey keys = 1 [(avenger.chart.v1.element) = "key"];
   // Whether a click with Shift adds the instance to the selection, or removes it when the
   // selection holds it, instead of replacing the selection.
   bool toggle = 2;
@@ -209,7 +210,7 @@ message PointSelect {
 // A key column of a point selection.
 message PointKey {
   // The column.
-  string column = 1 [(avenger.chart.v1.required) = true];
+  string column = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // The column that a query derived `column` from, which the selection's conditions name in place
   // of `column`, so other plots and the query itself can filter the source's rows. The type of
   // `column` decides how a click selects its source, and a key with a source is the point

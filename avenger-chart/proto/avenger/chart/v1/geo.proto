@@ -85,6 +85,7 @@ message Projection {
   // The type of the projection, a projection of the renderer or one that an app adds.
   oneof type {
     option (avenger.chart.v1.required_oneof) = true;
+    option (avenger.chart.v1.lift_oneof) = true;
     // A projection of the renderer.
     ProjectionType builtin = 1 [(avenger.chart.v1.required) = true];
     // A projection that an app adds to its renderer.
@@ -190,7 +191,7 @@ enum ProjectionType {
 // reports an error that names it.
 message CustomProjection {
   // The name of the projection.
-  string name = 1 [(avenger.chart.v1.required) = true];
+  string name = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // The options of the projection, by name. The projection checks their names and their values.
   map<string, OptionValue> options = 2;
 }
@@ -204,11 +205,12 @@ message FitBox {
   // The western, southern, eastern, and northern edges of the box, in degrees east and north, as
   // the bounding box of GeoJSON orders them. The box crosses the antimeridian when its east is less
   // than its west.
-  repeated double bounds = 1 [(avenger.chart.v1.required) = true];
+  repeated double bounds = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
 }
 
 message SphericalClip {
   oneof clip {
+    option (avenger.chart.v1.lift_oneof) = true;
     // A cut at the antimeridian.
     Antimeridian antimeridian = 1;
     // The cap within this many degrees of the center of the view, strictly between 0 and 180.
@@ -324,7 +326,7 @@ message SphereStyle {
 message TileLayer {
   // The URL of each tile, with `{z}`, `{x}`, and `{y}` for its zoom, column, and row, such as
   // `https://tile.openstreetmap.org/{z}/{x}/{y}.png`.
-  string url_template = 1 [(avenger.chart.v1.required) = true];
+  string url_template = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // The lowest zoom that the server has. When unset, 0.
   optional uint32 min_zoom = 2;
   // The highest zoom that the server has. When unset, 19.

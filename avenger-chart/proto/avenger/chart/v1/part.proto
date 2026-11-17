@@ -16,7 +16,6 @@ import "avenger/chart/v1/annotation.proto";
 // the concat or the wrap keeps, collapses, or merges. A part whose rule is unset takes the default
 // of its node.
 message PartRules {
-  option (avenger.chart.v1.constructor) = "parts";
   // The ticks of an axis.
   PartRuleKind axis_ticks = 1;
   // The tick labels of an axis.

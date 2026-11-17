@@ -1,11 +1,15 @@
-//! avenger's own functions: the marks, compositions, constructors, `scaled`, and `direct` of
-//! avenger-chart, the window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table
-//! function `impute`.
+//! avenger's own functions: the marks, compositions, `scaled`, and `direct` of avenger-chart, the
+//! window transforms `bin`, `stack`, and `timeunit`, `lump`, and the table function `impute`, and
+//! the constructors of avenger-chart, which the library holds apart from its functions.
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
 //! composition aggregate composes the charts of a group, as in `facet_column(chart, island)`. A
-//! constructor returns the fragment of its message. The transforms take their options as named
+//! constructor returns the fragment of its message, and only an argument of a chart function
+//! calls it, by the name that the argument's parameter gives it, as [`context`](super::context)
+//! describes. Each parameter records what it takes in its [`Takes`]: its own constructor, named
+//! after the parameter, and the constructors one level down, named after the parameters of its
+//! own constructor. The transforms take their options as named
 //! arguments, as in `bin(x, maxbins => 30)`: literals or script variables, which stay
 //! expressions of the plan until it binds the variables. The form of each checks the literals of
 //! its call, so an error of one is at its argument, and the transform checks the value of a
@@ -20,9 +24,13 @@
 
 use std::sync::Arc;
 
-use avenger_chart::functions::{
-    compositions, constructors, encoding_options, marks, Accept as ChartAccept, Class, Composition,
-    Kind, Shape, COORD,
+use avenger_chart::{
+    functions::{
+        compositions, constructor as chart_constructor, constructors as constructors_of_chart,
+        encoding_options, marks, Accept as ChartAccept, Class, Composition, Kind,
+        Param as ChartParam, Shape, COORD,
+    },
+    CoordKind,
 };
 use avenger_datafusion_transforms::{
     bin::{self, BinOptions},
@@ -85,10 +93,10 @@ pub(super) fn functions() -> Vec<Function> {
         }
         // The properties, then the options of the mark's plot and layer, such as `tools`.
         for param in mark.properties.iter().chain(mark.options) {
-            function = function.chart_param(param.name, param.doc, takes(param.accepts));
+            function = function.chart_param(param.name, param.doc, takes(param));
             args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
-        function = function.param(COORD, COORD_DOC);
+        function = function.chart_param(COORD, COORD_DOC, coord_takes(mark.coord));
         args.push(any(COORD, false));
         let signature = Signature {
             args,
@@ -110,12 +118,23 @@ pub(super) fn functions() -> Vec<Function> {
             functions.push(scalar_composition(composition));
         }
     }
-    for constructor in constructors() {
-        let udf = Arc::new(ScalarUDF::new_from_impl(ConstructorFunction::new(
-            constructor,
-        )));
+    for constructor in [scaled(), direct()] {
+        functions.push(constructor.family(Family::Constructor));
+    }
+    for transform in [bin(), stack(), timeunit(), lump(), impute()] {
+        functions.push(transform.family(Family::Transform));
+    }
+    functions
+}
+
+/// The constructors of avenger-chart, by their unique names, which the arguments of the chart
+/// functions call by the names that their parameters give them. Each takes its first parameter
+/// by position when its message has shorthands, and every other parameter by name.
+pub(super) fn constructors() -> Vec<Function> {
+    let mut functions = Vec::new();
+    for constructor in constructors_of_chart() {
         let doc = match constructor.doc {
-            "" => format!("A fragment of the message `{}`.", constructor.message),
+            "" => format!("Builds the option `{}`.", constructor.message),
             doc => doc.to_string(),
         };
         let mut function = Function::scalar(constructor.name, summary(&doc))
@@ -123,8 +142,14 @@ pub(super) fn functions() -> Vec<Function> {
             .family(Family::Constructor);
         let mut args = Vec::new();
         for param in constructor.params {
-            function = function.chart_param(param.name, param.doc, takes(param.accepts));
-            args.push(arg(param.name, ty_of(param.accepts), param.required));
+            function = function.chart_param(param.name, param.doc, takes(param));
+            // A parameter that the first parameter fills is required of the constructor, which
+            // checks it, and not of the call.
+            let required = param.required && !constructor.fills.contains(&param.name);
+            args.push(FormArg {
+                named_only: !param.positional,
+                ..arg(param.name, ty_of(param.accepts), required)
+            });
         }
         let signature = Signature {
             args,
@@ -132,35 +157,38 @@ pub(super) fn functions() -> Vec<Function> {
             vars: Vec::new(),
         };
         functions.push(function.with_signature(signature, move |call| {
+            // The function of each call gives its errors under the name that the call writes.
+            let udf = ScalarUDF::new_from_impl(ConstructorFunction::new(constructor, &call.name));
             Ok(udf.call(positional(call.values())))
         }));
     }
-    for constructor in [scaled(), direct()] {
-        functions.push(constructor.family(Family::Constructor));
-    }
-    for transform in [bin(), stack(), timeunit(), lump(), impute()] {
-        functions.push(transform.family(Family::Transform));
-    }
-    fill_forms(&mut functions);
     functions
 }
 
-/// The forms of the constructors that the parameters of `functions` take, from the signatures of
-/// the constructors, without their results.
-fn fill_forms(functions: &mut [Function]) {
-    let forms: std::collections::HashMap<String, String> = (functions.iter())
-        .filter(|function| function.family == Family::Constructor)
-        .filter_map(|function| {
-            let label = function.signatures().into_iter().next()?;
-            let (form, _) = label.text.rsplit_once(" -> ")?;
-            Some((function.name.clone(), form.to_string()))
+/// The forms of the constructors that the parameters of `functions` and `constructors` take, from
+/// the signatures of the constructors under the names that the parameters give them, without their
+/// results.
+pub(super) fn fill_forms(
+    functions: &mut [Function],
+    constructors: &mut std::collections::HashMap<String, Function>,
+) {
+    let signatures: std::collections::HashMap<String, Signature> = (constructors.iter())
+        .filter_map(|(name, function)| {
+            Some((name.clone(), function.forms.first()?.signature.clone()))
         })
         .collect();
-    let builds = (functions.iter_mut())
+    let builds = (functions.iter_mut().chain(constructors.values_mut()))
         .flat_map(|function| &mut function.params)
         .flat_map(|param| &mut param.takes.constructors);
     for builds in builds {
-        builds.form = forms.get(&builds.constructor).cloned().unwrap_or_default();
+        let Some(signature) = signatures.get(&builds.constructor) else {
+            continue;
+        };
+        let label = signature.label(&builds.name);
+        builds.form = match label.text.rsplit_once(" -> ") {
+            Some((form, _)) => form.to_string(),
+            None => label.text,
+        };
     }
 }
 
@@ -205,55 +233,24 @@ fn ty_of(accepts: &[ChartAccept]) -> Accept {
 }
 
 /// What a parameter of avenger-chart takes besides the type of its form, when it takes a
-/// constructor: the strings of its sets, the types of its other values, and its constructors,
-/// each once. Empty when it takes no constructor.
+/// constructor: the strings of its sets, the types of its other values, and its constructors by
+/// the names that they take in the parameter. Empty when it takes no constructor.
 ///
-/// A constructor of a part of the parameter's target belongs to the parameter of the target's
-/// own constructor that sets the outermost field of its chain, as `linear_scale`, which sets the
-/// member `linear` of a scale, belongs to the parameter `type` of `scale`. The constructors
-/// follow the order of those parameters.
-fn takes(accepts: &[ChartAccept]) -> Takes {
-    let target = accepts
-        .iter()
-        .find_map(|accept| match (accept.chain, accept.shape) {
-            ([], Shape::Message { constructor, .. }) => {
-                avenger_chart::functions::constructor(constructor)
-            }
-            _ => None,
-        });
-    // The parameter of the target's constructor that sets the field `step`, and its index.
-    let part = |step: &str| -> (usize, String) {
-        let params = target.map_or(&[][..], |target| target.params);
-        let index = (params.iter().position(|param| param.name == step)).or_else(|| {
-            (params.iter()).position(|param| {
-                (param.accepts.iter()).any(|accept| accept.chain.last() == Some(&step))
-            })
-        });
-        match index {
-            Some(index) => (index, params[index].name.to_string()),
-            None => (params.len(), step.to_string()),
-        }
-    };
+/// A parameter takes its own constructor, named after the parameter or its elements, and one level
+/// down, the constructors of the parameters of its own constructor, named after those parameters,
+/// as `pin` belongs to `scale` and fills its `pin`. A parameter whose elements hold only a choice,
+/// as `tools` does, takes only the choice's members.
+fn takes(param: &ChartParam) -> Takes {
     let mut takes = Takes::default();
-    let mut order = Vec::new();
-    for accept in accepts {
-        let part = accept.chain.last().map(|step| part(step));
+    let mut own: Option<(&'static str, bool)> = None;
+    for accept in param.accepts {
         let (shape, array) = match accept.shape {
             Shape::Array(element) => (*element, true),
             shape => (shape, false),
         };
         match (accept.class, shape) {
-            (_, Shape::Message { constructor, .. }) => {
-                let builds = Builds {
-                    constructor: constructor.to_string(),
-                    part: part.as_ref().map(|(_, name)| name.clone()),
-                    array,
-                    form: String::new(),
-                };
-                if !takes.constructors.contains(&builds) {
-                    takes.constructors.push(builds);
-                    order.push(part.map(|(index, _)| index));
-                }
+            (Class::Fragment | Class::Array, Shape::Message { constructor, .. }) => {
+                own = Some((constructor, array));
             }
             (Class::Str, Shape::Enum { values, .. } | Shape::Names(values)) if !array => {
                 for value in values {
@@ -283,15 +280,84 @@ fn takes(accepts: &[ChartAccept]) -> Takes {
     if takes.values.contains(&Ty::Any) {
         takes.values = vec![Ty::Any];
     }
-    // The target's own constructors first, then the parts by their parameters, a stable sort.
-    let mut constructors: Vec<(Option<usize>, Builds)> =
-        order.into_iter().zip(takes.constructors).collect();
-    constructors.sort_by_key(|(index, _)| *index);
-    takes.constructors = constructors.into_iter().map(|(_, builds)| builds).collect();
+    // A message without fields has no constructor, and a string names it.
+    let Some((target, array)) = own.filter(|(target, _)| chart_constructor(target).is_some())
+    else {
+        return Takes::default();
+    };
+    if let Some(name) = param.constructor {
+        takes.constructors.push(own_builds(name, target, array));
+    }
+    down(&mut takes, target, array);
     match takes.constructors.is_empty() {
         true => Takes::default(),
         false => takes,
     }
+}
+
+/// The constructor that a parameter takes under `name`, which builds the parameter itself.
+fn own_builds(name: &str, constructor: &str, array: bool) -> Builds {
+    Builds {
+        name: name.to_string(),
+        constructor: constructor.to_string(),
+        part: None,
+        array,
+        form: String::new(),
+    }
+}
+
+/// Adds to `takes` the constructors one level down from the constructor `target`: those of its
+/// parameters, each under the name that its parameter gives it, which `target` wraps, and sets
+/// `target` as the constructor that wraps them.
+fn down(takes: &mut Takes, target: &str, array: bool) {
+    takes.target = Some(target.to_string());
+    let Some(target) = chart_constructor(target) else {
+        return;
+    };
+    for param in target.params {
+        let Some(name) = param.constructor.filter(|_| !param.positional) else {
+            continue;
+        };
+        let own = param.accepts.iter().find_map(|accept| match accept {
+            ChartAccept {
+                class: Class::Fragment,
+                shape: Shape::Message { constructor, .. },
+                ..
+            } => Some(*constructor),
+            _ => None,
+        });
+        // A member without fields has no constructor, and a string names it.
+        let Some(constructor) = own.filter(|own| chart_constructor(own).is_some()) else {
+            continue;
+        };
+        if takes.find(name).is_some() {
+            continue;
+        }
+        takes.constructors.push(Builds {
+            name: name.to_string(),
+            constructor: constructor.to_string(),
+            part: Some(param.name.to_string()),
+            array,
+            form: String::new(),
+        });
+    }
+}
+
+/// What `coord` of a mark of the coordinate system `kind` takes: the constructor of the options of
+/// the coordinate system, named after it, such as `polar(...)`, and the constructors one level
+/// down.
+fn coord_takes(kind: CoordKind) -> Takes {
+    let name = match kind {
+        CoordKind::Cartesian => "cartesian",
+        CoordKind::Polar => "polar",
+        CoordKind::Geo => "geo",
+    };
+    let mut takes = Takes {
+        constructors: vec![own_builds(name, name, false)],
+        ..Takes::default()
+    };
+    down(&mut takes, name, false);
+    takes
 }
 
 fn shape_ty(shape: &Shape) -> Ty {
@@ -344,7 +410,7 @@ fn aggregate_composition(spec: &'static Composition) -> Function {
         args.push(any("key", true));
     }
     for param in spec.params {
-        function = function.chart_param(param.name, param.doc, takes(param.accepts));
+        function = function.chart_param(param.name, param.doc, takes(param));
         args.push(arg(param.name, ty_of(param.accepts), param.required));
     }
     let signature = Signature {
@@ -382,7 +448,7 @@ fn scalar_composition(spec: &'static Composition) -> Function {
         ..any("chart", true)
     }];
     for param in spec.params {
-        function = function.chart_param(param.name, param.doc, takes(param.accepts));
+        function = function.chart_param(param.name, param.doc, takes(param));
         args.push(FormArg {
             named_only: true,
             ..arg(param.name, ty_of(param.accepts), false)
@@ -420,7 +486,7 @@ fn scaled() -> Function {
     .param("value", "The value of the channel.");
     let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
     for option in encoding_options() {
-        function = function.chart_param(option.name, option.doc, takes(option.accepts));
+        function = function.chart_param(option.name, option.doc, takes(option));
         args.push(FormArg {
             named_only: true,
             ..arg(option.name, ty_of(option.accepts), false)

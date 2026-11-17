@@ -20,6 +20,20 @@ pub struct Model {
     pub places: Vec<Place>,
     /// The type of the expression before each `.` of a field access.
     pub field_bases: Vec<FieldBase>,
+    /// Each call of a constructor of a chart's option, by the name that its place gives it.
+    pub constructors: Vec<ConstructorUse>,
+}
+
+/// A call of a constructor of a chart's option, by the name of its function, such as `log` in
+/// `type => log(base => 2)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConstructorUse {
+    /// The range of the name of the call.
+    pub range: TextRange,
+    /// The unique name of the constructor in the library, such as `log_scale`.
+    pub constructor: String,
+    /// The place that the constructor fills, in words, such as `` the `type` of `scale(...)` ``.
+    pub place: String,
 }
 
 /// A place of the text where the pass plans expressions, as the condition of a `WHERE` or the

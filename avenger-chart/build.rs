@@ -142,8 +142,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|message| tree.contains(&message.name) && !functions_own.contains(&message.name))
         .filter(|message| !message.message.field.is_empty())
         .collect();
-    model::check_names(&constructors)?;
+    model::check_elements(&model)?;
     let constructor_names: Vec<String> = constructors.iter().map(|m| m.name.clone()).collect();
+    // The lifted fields and oneofs, each as `Message.field`, which the table of the constructors
+    // lists.
+    let mut lifts: Vec<String> = (annotations.lift.iter())
+        .map(|(message, field)| {
+            format!("{}.{field}", message.rsplit('.').next().unwrap_or(message))
+        })
+        .chain((annotations.lift_oneof.iter()).map(|(message, oneof)| {
+            format!(
+                "{}.{oneof} (oneof)",
+                message.rsplit('.').next().unwrap_or(message)
+            )
+        }))
+        .collect();
+    lifts.sort();
     annotations::required_visitors(&mut walk, &set, &messages, &annotations)?;
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
@@ -166,7 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
         std::fs::write(
             out.join("constructors.rs"),
-            constructors::constructors(&model, &comments, &constructor_names)?,
+            constructors::constructors(&model, &comments, &constructor_names, &lifts)?,
         )?;
         std::fs::write(
             out.join("compositions.rs"),
@@ -422,6 +436,14 @@ fn check_annotations(annotations: &annotations::Annotations) -> Result<(), Strin
         (
             annotations.lift.contains(&field("Facet", "column")),
             "`lift` on `Facet.column`",
+        ),
+        (
+            annotations.lift_oneof.contains(&field("Scale", "type")),
+            "`lift_oneof` on `Scale.type`",
+        ),
+        (
+            annotations.element.contains_key(&field("Axis", "levels")),
+            "`element` on `Axis.levels`",
         ),
         (
             annotations.channel_scale.contains_key("CHANNEL_X"),

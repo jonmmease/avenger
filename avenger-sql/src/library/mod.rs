@@ -29,6 +29,7 @@ mod avenger;
 mod bytes;
 mod cast_string;
 mod conditional;
+pub mod context;
 mod datetime;
 mod datetime_format;
 mod encoding;
@@ -84,8 +85,9 @@ pub enum Family {
     GoogleSql,
     /// A mark of avenger-chart, an aggregate that builds a chart of the rows of its group.
     Mark,
-    /// A constructor of avenger-chart, or `scaled` or `direct`, which returns a fragment of a
-    /// chart's message.
+    /// A constructor of avenger-chart, which returns a fragment of a chart's message and which only
+    /// an argument of a chart function calls, by the name that the argument's parameter gives it,
+    /// or `scaled` or `direct`.
     Constructor,
     /// A transform of avenger-datafusion-transforms: `bin`, `stack`, `timeunit`, `lump`, or
     /// `impute`.
@@ -119,7 +121,13 @@ pub struct Param {
 }
 
 /// What a parameter of a chart function takes besides the type of its form: the strings of a
-/// set, the types of its other values, and the constructors whose fragments it takes.
+/// set, the types of its other values, and the constructors that build its option, by the names
+/// that they take there.
+///
+/// A parameter takes a constructor named after itself, such as `scale => scale(...)`, the element
+/// name of a repeated field for each element, such as `levels => [level(...)]`, and one level
+/// down, a constructor named after a parameter of that constructor, such as `scale =>
+/// pin(1000, position => 'low')`, which the analysis wraps in the parameter's own constructor.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Takes {
     /// The strings of the set that the parameter takes, such as the types of a scale.
@@ -127,23 +135,34 @@ pub struct Takes {
     /// The types of the other values that the parameter takes, such as `STRING` for the text of
     /// a title.
     pub values: Vec<Ty>,
-    /// The constructors, each once: those of the target itself, then those of its parts in the
-    /// order of the parameters of the target's constructor.
+    /// The constructors, each name once: the parameter's own, then those of the parameters of its
+    /// own constructor, in their order.
     pub constructors: Vec<Builds>,
+    /// The unique name of the parameter's own constructor, or of its elements', which wraps a
+    /// constructor one level down.
+    pub target: Option<String>,
 }
 
-/// A constructor that a parameter takes, by its name in SQL, with the part of the parameter's
-/// target that its fragment sets: the parameter of the target's constructor that sets the
-/// outermost field of its chain, such as `type` for `linear_scale` and `legend` for `legend` in
-/// the `scale` of `scaled`, or `None` for the target itself.
+impl Takes {
+    /// The constructor that the name `name` calls in the parameter.
+    pub fn find(&self, name: &str) -> Option<&Builds> {
+        (self.constructors.iter()).find(|builds| builds.name.eq_ignore_ascii_case(name))
+    }
+}
+
+/// A constructor that a parameter takes: its name in the parameter, such as `log`, and its unique
+/// name, such as `log_scale`, with the parameter of the parameter's own constructor that it fills
+/// one level down, such as `pin` for `scale => pin(...)`, or `None` for the parameter's own
+/// constructor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Builds {
+    pub name: String,
     pub constructor: String,
     pub part: Option<String>,
     /// Whether the parameter takes an array of the constructor's fragments, as `tools` does.
     pub array: bool,
-    /// The form of the constructor without its result, such as
-    /// `domain_pin(value: ANY, position: 'low' | 'mid' | 'high')`.
+    /// The form of the constructor under its name in the parameter, without its result, such as
+    /// `pin(value: ANY[, position => 'low' | 'mid' | 'high'])`.
     pub form: String,
 }
 
@@ -155,11 +174,11 @@ pub const FORM: usize = 100;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Forms {
     /// The lines of what the parameter takes, such as
-    /// `pin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')`: its strings, its other
-    /// values, and the constructors of its target itself.
+    /// `pin => pin(value: ANY[, position => 'low' | 'mid' | 'high'])`: its strings, its other
+    /// values, and its own constructor.
     pub lines: Vec<String>,
-    /// The constructors of the parts of its target, by part, such as
-    /// `("Its type", ["band_scale(...)", ...])`.
+    /// The constructors one level down, which fill the parameters of its own constructor, as
+    /// `("One level down", ["type(...)", ...])`.
     pub groups: Vec<(String, Vec<String>)>,
 }
 
@@ -173,8 +192,8 @@ impl Forms {
         }
     }
 
-    /// The groups as a Markdown list, such as `- Its type: `band_scale(...)`, ...`, or
-    /// `None` without groups.
+    /// The groups as a Markdown list, such as `- One level down: `type(...)`, ...`, or `None`
+    /// without groups.
     pub fn groups(&self) -> Option<String> {
         let items: Vec<String> = (self.groups.iter())
             .map(|(label, constructors)| {
@@ -184,14 +203,28 @@ impl Forms {
             .collect();
         (!items.is_empty()).then(|| items.join("\n"))
     }
+
+    /// The forms in the words of an error, as ``` `scale => scale(...)`, or one level down
+    /// `type(...)`, `domain(...)` ```.
+    pub fn sentence(&self) -> String {
+        let mut parts: Vec<String> = self.lines.iter().map(|line| format!("`{line}`")).collect();
+        for (label, constructors) in &self.groups {
+            let names: Vec<String> = constructors.iter().map(|c| format!("`{c}`")).collect();
+            parts.push(format!("{} {}", label.to_lowercase(), names.join(", ")));
+        }
+        match parts.as_slice() {
+            [rest @ .., last] if !rest.is_empty() => format!("{}, or {last}", rest.join(", ")),
+            _ => parts.join(""),
+        }
+    }
 }
 
 impl Param {
     /// The forms of the parameter when it takes constructors: a line of its strings, at most
     /// `strings` of them and then `…` when `strings` is given, a line of its other values, and a
-    /// line for each constructor of its target itself, with the full form of a constructor when it
-    /// is the only one and no longer than [`FORM`], else `name(...)`. The constructors of the
-    /// parts of its target follow in groups.
+    /// line of its own constructor, with its full form when it is no longer than [`FORM`], else
+    /// `name(...)`. The constructors one level down follow in a group, or as lines of their own
+    /// when the parameter has no constructor of its own, as `tools` does.
     pub fn forms(&self, strings: Option<usize>) -> Option<Forms> {
         let takes = &self.takes;
         if takes.constructors.is_empty() {
@@ -213,32 +246,32 @@ impl Param {
             let values: Vec<String> = takes.values.iter().map(Ty::to_string).collect();
             lines.push(format!("{name} => {}", values.join(" | ")));
         }
-        let direct: Vec<&Builds> = (takes.constructors.iter())
-            .filter(|builds| builds.part.is_none())
-            .collect();
-        let only = direct.len() == 1;
-        for builds in direct {
-            let form = match only && builds.form.chars().count() <= FORM {
+        let own = takes
+            .constructors
+            .iter()
+            .any(|builds| builds.part.is_none());
+        let line = |builds: &Builds, full: bool| {
+            let form = match full && builds.form.chars().count() <= FORM {
                 true => builds.form.clone(),
-                false => format!("{}(...)", builds.constructor),
+                false => format!("{}(...)", builds.name),
             };
-            lines.push(match builds.array {
+            match builds.array {
                 true => format!("{name} => [{form}, ...]"),
                 false => format!("{name} => {form}"),
-            });
-        }
-        let mut groups: Vec<(String, Vec<String>)> = Vec::new();
+            }
+        };
+        let mut down = Vec::new();
         for builds in &takes.constructors {
-            let Some(part) = &builds.part else {
-                continue;
-            };
-            let label = format!("Its {}", part.replace('_', " "));
-            let form = format!("{}(...)", builds.constructor);
-            match groups.iter_mut().find(|(other, _)| *other == label) {
-                Some((_, forms)) => forms.push(form),
-                None => groups.push((label, vec![form])),
+            match (&builds.part, own) {
+                (None, _) => lines.push(line(builds, true)),
+                (Some(_), false) => lines.push(line(builds, false)),
+                (Some(_), true) => down.push(format!("{}(...)", builds.name)),
             }
         }
+        let groups = match down.is_empty() {
+            true => Vec::new(),
+            false => vec![("One level down".to_string(), down)],
+        };
         Some(Forms { lines, groups })
     }
 }
@@ -414,6 +447,8 @@ pub struct Call<'a> {
     /// Whether the call's only argument is `*`, as in `COUNT(*)`.
     pub star: bool,
     pub context: PlanContext<'a>,
+    /// The name of the function as the call writes it, which a constructor's errors give.
+    pub name: String,
 }
 
 impl<'a> Call<'a> {
@@ -739,10 +774,35 @@ impl Function {
 
     /// The forms as signature help shows them, each with the ranges of its arguments.
     pub fn signatures(&self) -> Vec<Label> {
+        self.signatures_named(&self.name)
+    }
+
+    /// The forms under the name `name`, as a constructor's call writes it, each with the ranges of
+    /// its arguments.
+    pub fn signatures_named(&self, name: &str) -> Vec<Label> {
         self.forms
             .iter()
-            .map(|form| form.signature.label(&self.name))
+            .map(|form| form.signature.label(name))
             .collect()
+    }
+
+    /// The parameter of the positional argument at `position` in the function's first form, or of
+    /// its repeated argument past its positional ones.
+    pub fn positional_param(&self, position: usize) -> Option<String> {
+        let signature = &self.forms.first()?.signature;
+        let index = (signature.positional().nth(position)).or_else(|| signature.repeated())?;
+        Some(signature.args[index].param.clone())
+    }
+
+    /// Whether some form of the function binds arguments with the names `names`, `None` for a
+    /// positional argument, in the order of a call, whatever their types.
+    pub fn binds(&self, names: &[Option<String>]) -> bool {
+        let args: Vec<(Option<String>, Arg)> = (names.iter())
+            .map(|name| (name.clone(), Arg::Value(null())))
+            .collect();
+        self.check_names(&args).is_ok()
+            && (self.forms.iter())
+                .any(|form| bind(&self.name, &form.signature, &args, false).is_ok())
     }
 
     /// The parameter named `name`, without regard to case.
@@ -1051,6 +1111,7 @@ impl Function {
             safe,
             star,
             context,
+            name: self.name.clone(),
         })
     }
 
@@ -1181,14 +1242,26 @@ fn bind(
                 }
                 (None, Some(index)) => index,
                 (None, None) => {
-                    return Err(CallError::arg(
-                        at,
-                        format!(
-                            "{name} takes {} positional argument{}",
-                            positional.len(),
-                            if positional.len() == 1 { "" } else { "s" }
+                    // The parameters that a call gives by name, as the parameters of a
+                    // constructor after its first.
+                    let named: Vec<String> = (form_args.iter())
+                        .filter(|arg| arg.named_only)
+                        .map(|arg| format!("`{} => ...`", arg.param))
+                        .take(4)
+                        .collect();
+                    let count = match positional.len() {
+                        0 => "no positional argument".to_string(),
+                        1 => "1 positional argument".to_string(),
+                        n => format!("{n} positional arguments"),
+                    };
+                    let others = match named.is_empty() {
+                        true => String::new(),
+                        false => format!(
+                            ", and its other parameters by name, as {}",
+                            named.join(", ")
                         ),
-                    ))
+                    };
+                    return Err(CallError::arg(at, format!("{name} takes {count}{others}")));
                 }
             },
             Some(arg_name) => {
@@ -1287,12 +1360,18 @@ impl Resolved {
     }
 }
 
-/// GoogleSQL's functions and avenger's, by name.
+/// GoogleSQL's functions and avenger's, by name, and the constructors of avenger's charts, which
+/// only the arguments of a chart function take, by their unique names.
 pub struct Library {
     functions: Vec<Function>,
     index: HashMap<String, usize>,
     /// The operators, by their names in GoogleSQL's resolved tree, such as `$add`.
     operators: HashMap<String, Function>,
+    /// The constructors, by their unique names, such as `log_scale` and `scale.type`.
+    constructors: HashMap<String, Function>,
+    /// The places of each name of a constructor, such as ``pin => pin(...)` in `scale(...)``,
+    /// the first places that a walk from the chart functions finds.
+    places: HashMap<String, Vec<String>>,
 }
 
 impl fmt::Debug for Library {
@@ -1310,8 +1389,9 @@ impl Default for Library {
 }
 
 impl Library {
-    /// The library of GoogleSQL's functions and avenger's: the marks, constructors, `scaled`,
-    /// and `direct` of avenger-chart, and the transforms `bin`, `stack`, and `timeunit`.
+    /// The library of GoogleSQL's functions and avenger's: the marks, compositions, `scaled`, and
+    /// `direct` of avenger-chart, and the transforms `bin`, `stack`, and `timeunit`, with the
+    /// constructors of avenger-chart apart from them.
     pub fn new() -> Self {
         let mut library = Self {
             functions: Vec::new(),
@@ -1319,6 +1399,10 @@ impl Library {
             operators: (operator::operators().into_iter())
                 .map(|function| (function.name.clone(), function))
                 .collect(),
+            constructors: (avenger::constructors().into_iter())
+                .map(|function| (function.name.clone(), function))
+                .collect(),
+            places: HashMap::new(),
         };
         for function in (aggregate::functions().into_iter())
             .chain(aggregate::window_functions())
@@ -1332,7 +1416,67 @@ impl Library {
         {
             library.add(function);
         }
+        avenger::fill_forms(&mut library.functions, &mut library.constructors);
+        library.places = library.find_places();
         library
+    }
+
+    /// The places of the names of the constructors: for each name, where a walk from the chart
+    /// functions first finds a parameter that takes it, as ``pin => pin(...)` in `scale(...)``.
+    fn find_places(&self) -> HashMap<String, Vec<String>> {
+        let mut places: HashMap<String, Vec<String>> = HashMap::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut queue: std::collections::VecDeque<(&Function, String)> = (self.functions.iter())
+            .filter(|function| {
+                function
+                    .params
+                    .iter()
+                    .any(|p| !p.takes.constructors.is_empty())
+            })
+            .map(|function| (function, function.name.clone()))
+            .collect();
+        while let Some((function, name)) = queue.pop_front() {
+            for param in &function.params {
+                let own = param.takes.constructors.iter().any(|b| b.part.is_none());
+                for builds in &param.takes.constructors {
+                    if builds.part.is_some() && own {
+                        continue;
+                    }
+                    let call = match builds.array {
+                        true => format!("[{}(...)]", builds.name),
+                        false => format!("{}(...)", builds.name),
+                    };
+                    let place = format!("`{} => {call}` in `{name}(...)`", param.name);
+                    let list = places.entry(builds.name.to_ascii_lowercase()).or_default();
+                    if list.len() < 3 && !list.contains(&place) {
+                        list.push(place);
+                    }
+                    if seen.insert(builds.constructor.clone()) {
+                        if let Some(constructor) = self.constructors.get(&builds.constructor) {
+                            queue.push_back((constructor, builds.name.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        places
+    }
+
+    /// The constructors of avenger's charts, by their unique names, in no order.
+    pub fn constructors(&self) -> impl Iterator<Item = &Function> {
+        self.constructors.values()
+    }
+
+    /// The constructor with the unique name `name`, such as `log_scale` or `scale.type`, which
+    /// an argument of a chart function calls by the name that its parameter gives it.
+    pub fn constructor(&self, name: &str) -> Option<&Function> {
+        self.constructors.get(name)
+    }
+
+    /// The places where a parameter of a chart function takes a constructor named `name`, such as
+    /// ``pin => pin(...)` in `scale(...)``, or none when no constructor has the name.
+    pub fn constructor_places(&self, name: &str) -> &[String] {
+        (self.places.get(&name.to_ascii_lowercase())).map_or(&[], Vec::as_slice)
     }
 
     fn add(&mut self, function: Function) {

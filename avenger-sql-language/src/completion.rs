@@ -648,8 +648,8 @@ impl Document {
                 else {
                     return false;
                 };
-                let windowed = (callee(&call).and_then(|name| self.library.get(&name)))
-                    .is_some_and(|function| function.clauses.over != Over::Forbidden);
+                let windowed = (self.called(&call))
+                    .is_some_and(|called| called.function.clauses.over != Over::Forbidden);
                 let place = self.analysis.model.place_at(call.text_range().start());
                 windowed && place.is_some_and(|place| place.windows)
             }
@@ -659,9 +659,8 @@ impl Document {
                     .and_then(|spec| spec.parent())
                     .filter(|over| over.kind() == SyntaxKind::OVER_CLAUSE)
                     .and_then(|over| over.parent())
-                    .and_then(|call| callee(&call))
-                    .and_then(|name| self.library.get(&name));
-                match function.map(|function| function.clauses.over) {
+                    .and_then(|call| self.called(&call));
+                match function.map(|called| called.function.clauses.over) {
                     Some(Over::Required { order_by, .. }) if kind == SyntaxKind::ORDER_KW => {
                         order_by != Need::Forbidden
                     }
@@ -762,11 +761,14 @@ impl Document {
         }
     }
 
-    /// Whether `before` is in the arguments of a mark or a composition, whose options the
-    /// constructors build.
+    /// Whether `before` is in the arguments of a chart function: a mark, a composition, or a
+    /// constructor, whose options the constructors build.
     fn in_chart_call(&self, before: &SyntaxToken) -> bool {
         self.argument_list(before).is_some_and(|(_, function)| {
-            matches!(function.family, Family::Mark | Family::Composition)
+            matches!(
+                function.family,
+                Family::Mark | Family::Composition | Family::Constructor
+            )
         })
     }
 
@@ -803,25 +805,28 @@ impl Document {
         }
     }
 
-    /// The constructors that `param` of `function` takes, in the order of its forms, each with a
-    /// detail that names the parameter and the part that it builds.
+    /// The constructors that `param` of `function` takes under the names that the parameter gives
+    /// them, before the values of the parameter: the constructor named after the parameter, then
+    /// those one level down, each with a detail that names what it builds.
     fn push_constructors(&self, function: &Function, param: &str, items: &mut Items) {
         let Some(named) = function.param_named(param) else {
             return;
         };
         for (index, builds) in named.takes.constructors.iter().enumerate() {
-            let Some(constructor) = self.library.get(&builds.constructor) else {
+            let Some(constructor) = self.library.constructor(&builds.constructor) else {
                 continue;
             };
             let detail = match &builds.part {
                 None => format!("builds `{}`", named.name),
-                Some(part) => format!("builds the {} of `{}`", part.replace('_', " "), named.name),
+                Some(part) => format!("builds the `{part}` of `{}`", named.name),
             };
+            let mut renamed = constructor.clone();
+            renamed.name = builds.name.clone();
             items.push(CompletionItem {
-                // After the values of the parameter, whose labels are letters.
-                sort: format!("{}~{index:03}", rank::ARGUMENT),
+                // Before the values of the parameter, whose labels are letters.
+                sort: format!("{}!{index:03}", rank::ARGUMENT),
                 detail: Some(detail),
-                ..self.function_item(constructor)
+                ..self.function_item(&renamed)
             });
         }
     }
@@ -839,8 +844,8 @@ impl Document {
             return;
         };
         let Some(function) = (list.syntax().parent())
-            .and_then(|call| callee(&call))
-            .and_then(|name| self.library.get(&name))
+            .and_then(|call| self.called(&call))
+            .map(|called| called.function)
         else {
             return;
         };
@@ -870,7 +875,7 @@ impl Document {
                 )
             })
             .and_then(ast::ArgList::cast)?;
-        let function = self.library.get(&callee(&list.syntax().parent()?)?)?;
+        let function = self.called(&list.syntax().parent()?)?.function;
         Some((list, function))
     }
 }

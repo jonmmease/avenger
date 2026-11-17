@@ -113,7 +113,7 @@ async fn facet_wrap_takes_the_options_of_a_wrap() {
            chart, \
            species, \
            max_columns => 2, \
-           row_height => track(share => 1, max => 300), \
+           row_height => row_height(share => 1, max => 300), \
          ) AS chart",
         scatter("species")
     ))

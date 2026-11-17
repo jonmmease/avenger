@@ -72,13 +72,17 @@ impl Document {
         let call = list.syntax().parent()?;
         let name = callee(&call)?;
         let at = at(&list, offset);
-        if let Some(create) = temporary_function(&root, &name, offset) {
+        // A constructor of a chart's option comes before a temporary function of its name.
+        let called = self.called(&call);
+        let contextual = called.as_ref().is_some_and(|called| called.fills.is_some());
+        if let (false, Some(create)) = (contextual, temporary_function(&root, &name, offset)) {
             return Some(SignatureHelp {
                 signatures: vec![temporary_signature(&create, &at)],
                 active_signature: 0,
             });
         }
-        let function = self.library.get(&name)?;
+        let called = called?;
+        let function = called.function;
         let resolved = (self.analysis.model.calls.iter())
             .rfind(|form| form.range == call.text_range())
             .and_then(|form| form.index);
@@ -86,7 +90,7 @@ impl Document {
             .or_else(|| (function.forms.iter()).position(|form| takes(&form.signature.args, &at)))
             .unwrap_or(0);
         let signatures = (function.forms.iter())
-            .zip(function.signatures())
+            .zip(function.signatures_named(&called.name))
             .map(|(form, label)| SignatureInfo {
                 parameters: (form.signature.args.iter())
                     .zip(label.args)

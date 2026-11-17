@@ -58,11 +58,11 @@ FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y 
 constructors
 FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
 constructors
-FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => pin(1000, position => 'low')), y => flipper_length_mm) AS chart
 constructors
-FROM one |> SELECT axis(title => 'Mass') AS a
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, axis => axis(title => title('Mass', font_size => 14), labels => labels(font_size => 9))), y => species) AS chart
 constructors
-FROM one |> SELECT axis() AS a
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => log(base => 2))), y => species, tools => [navigate(), tooltip(nearest => TRUE)]) AS chart
 scripts
 CREATE TEMP TABLE w (a INT64, b STRING); FROM w |> AGGREGATE COUNT(*) AS n
 scripts

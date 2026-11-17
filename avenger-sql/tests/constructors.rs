@@ -1,50 +1,106 @@
-//! The arguments of the constructors of avenger-chart through avenger-sql: each kind of parameter
-//! builds the fragment that its builder builds, an argument of a oneof picks its member,
-//! conversions reach messages through chains, and the errors of a constant call fail at planning.
+//! The arguments of the constructors of avenger-chart through avenger-sql: a constructor is valid
+//! only in an argument of a chart function, where the argument's parameter names it, each kind of
+//! parameter builds the fragment that its builder builds, an argument of a oneof picks its member,
+//! a constructor one level down fills the parameter's own constructor, and the errors of a
+//! constant call fail at planning at their argument.
 
 mod common;
 
-use arrow::array::AsArray;
+use arrow::array::{Array, AsArray};
 use avenger_chart::{prelude::*, proto::Fragment};
+use datafusion::{
+    common::{
+        tree_node::{TreeNode, TreeNodeRecursion},
+        ScalarValue,
+    },
+    logical_expr::{Expr, ExprSchemable, LogicalPlan},
+};
 use prost::Message;
 
-/// The fragment of the one value of `FROM one |> SELECT <expression>`.
-async fn fragment(expression: &str) -> Fragment {
+/// The plan of `FROM one |> SELECT scaled(one, <place> => <expression>)`, optimized or not.
+async fn scaled_plan(
+    place: &str,
+    expression: &str,
+    optimized: bool,
+) -> Result<LogicalPlan, String> {
     let ctx = common::session();
-    let batches = avenger_sql::sql(&ctx, &format!("FROM one |> SELECT {expression} AS value"))
+    let query = format!("FROM one |> SELECT scaled(one, {place} => {expression}) AS value");
+    let frame = avenger_sql::sql(&ctx, &query)
         .await
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    let bytes = batches[0].column(0).as_binary_view().value(0);
-    Fragment::decode(bytes).unwrap()
+        .map_err(|error| error.to_string())?;
+    match optimized {
+        true => frame
+            .into_optimized_plan()
+            .map_err(|error| error.to_string()),
+        false => Ok(frame.into_unoptimized_plan()),
+    }
 }
 
-/// Fails unless `expression` builds the fragment `expected`.
-async fn builds(expression: &str, expected: Fragment) {
-    let actual = fragment(expression).await;
+/// The calls of the function `name` in `plan`.
+fn calls(plan: &LogicalPlan, name: &str) -> Vec<Vec<Expr>> {
+    let mut found = Vec::new();
+    plan.apply(|node| {
+        node.apply_expressions(|expr| {
+            expr.apply(|expr| {
+                if let Expr::ScalarFunction(call) = expr {
+                    if call.func.name() == name {
+                        found.push(call.args.clone());
+                    }
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+        })
+    })
+    .unwrap();
+    found
+}
+
+/// The fragment that `expression` builds as the option `place` of an encoding, through `scaled`.
+async fn option(place: &str, expression: &str) -> Fragment {
+    let plan = scaled_plan(place, expression, true).await.unwrap();
+    let calls = calls(&plan, "scaled");
+    let args = calls.first().expect("a call of scaled");
+    let bytes = (args.iter().skip(1))
+        .find_map(|arg| match arg {
+            Expr::Literal(ScalarValue::BinaryView(Some(bytes)), _) => Some(bytes.clone()),
+            _ => None,
+        })
+        .expect("a fragment");
+    Fragment::decode(bytes.as_slice()).unwrap()
+}
+
+/// Fails unless `expression` builds the fragment `expected` as the option `place` of an encoding.
+async fn builds(place: &str, expression: &str, expected: Fragment) {
+    let actual = option(place, expression).await;
     assert_eq!(
         actual.encode_to_vec(),
         expected.encode_to_vec(),
-        "{expression}: {actual:?} and {expected:?}"
+        "{place} => {expression}: {actual:?} and {expected:?}"
     );
 }
 
-/// The planning error of `FROM one |> SELECT <expression>`.
-async fn error(expression: &str) -> String {
+/// The planning error of `expression` as the option `place` of an encoding.
+async fn error(place: &str, expression: &str) -> String {
+    scaled_plan(place, expression, true)
+        .await
+        .expect_err("the call fails to plan")
+}
+
+/// The planning error of `query`.
+async fn query_error(query: &str) -> String {
     let ctx = common::session();
-    let planned = match avenger_sql::sql(&ctx, &format!("FROM one |> SELECT {expression}")).await {
+    let planned = match avenger_sql::sql(&ctx, query).await {
         Ok(frame) => frame.into_optimized_plan().map(|_| ()),
         Err(error) => Err(error),
     };
-    planned.expect_err("the call fails to plan").to_string()
+    planned.expect_err("the query fails to plan").to_string()
 }
 
 #[tokio::test]
 async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // A Boolean, a number, a string, an enum, and an array.
     builds(
+        "axis",
         "axis(grid => TRUE, angle => 30, rule_color => 'gray', orient => 'left', classes => ['a', 'b'])",
         Axis::builder()
             .grid(true)
@@ -56,9 +112,11 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
             .unwrap(),
     )
     .await;
-    // A message by a fragment and by rule A, and a repeated message.
+    // A message by its constructor and by its shorthand, and a repeated message by the
+    // constructor of its elements.
     builds(
-        "axis(title => title('Mass', subtitle => 'grams'), levels => [nested_axis_level(labels => FALSE)])",
+        "axis",
+        "axis(title => title('Mass', subtitle => 'grams'), levels => [level(labels => FALSE)])",
         Axis::builder()
             .title(Title::builder().text("Mass").subtitle("grams"))
             .levels([NestedAxisLevel::builder().labels(false)])
@@ -67,6 +125,7 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     )
     .await;
     builds(
+        "axis",
         "axis(title => 'Mass')",
         Axis::builder().title("Mass").to_fragment().unwrap(),
     )
@@ -74,6 +133,7 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // A Boolean shows or hides a part, through its lifted `show`, and a string fills the other
     // lifted field of a title or labels.
     builds(
+        "axis",
         "axis(title => FALSE, labels => ',.0f', ticks => FALSE, tick_placement => tick_step(5))",
         Axis::builder()
             .title(false)
@@ -85,6 +145,7 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     )
     .await;
     builds(
+        "legend",
         "legend(labels => FALSE, columns => 2, background => 'white')",
         Legend::builder()
             .labels(false)
@@ -94,10 +155,12 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
             .unwrap(),
     )
     .await;
-    // A `ValueRef` and a required content first, by position.
+    // A pin takes its value by position and its position by name.
     builds(
-        "domain_pin(0, 'mid')",
-        DomainPin::new(0i64, PinPosition::Mid)
+        "scale",
+        "scale(pin => pin(0, position => 'mid'))",
+        Scale::builder()
+            .pin(DomainPin::new(0i64, PinPosition::Mid))
             .to_fragment()
             .unwrap(),
     )
@@ -105,44 +168,120 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
 }
 
 #[tokio::test]
+async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
+    for (place, bare, wrapped) in [
+        (
+            "axis",
+            "axis(title => 'Mass')",
+            "axis(title => title('Mass'))",
+        ),
+        ("axis", "FALSE", "axis(FALSE)"),
+        ("scale", "'log'", "scale('log')"),
+        (
+            "scale",
+            "scale(type => 'log')",
+            "scale(type => type('log'))",
+        ),
+    ] {
+        let chart = |value: &str| {
+            format!(
+                "FROM penguins
+                 |> AGGREGATE symbol(x => scaled(body_mass_g, {place} => {value}), y => species)
+                      AS chart"
+            )
+        };
+        assert_eq!(
+            chart_of(&chart(bare)).await,
+            chart_of(&chart(wrapped)).await,
+            "{place} => {bare} and {place} => {wrapped}"
+        );
+    }
+    for (place, bare, wrapped) in [
+        (
+            "legend",
+            "legend(labels => ',.0f')",
+            "legend(labels => labels(',.0f'))",
+        ),
+        (
+            "scale",
+            "scale(range => 'viridis')",
+            "scale(range => range('viridis'))",
+        ),
+    ] {
+        let chart = |value: &str| {
+            format!(
+                "FROM penguins
+                 |> AGGREGATE symbol(
+                      x => body_mass_g,
+                      y => species,
+                      color => scaled(island, {place} => {value}),
+                    ) AS chart"
+            )
+        };
+        assert_eq!(
+            chart_of(&chart(bare)).await,
+            chart_of(&chart(wrapped)).await,
+            "{place} => {bare} and {place} => {wrapped}"
+        );
+    }
+}
+
+/// The one chart of `query`.
+async fn chart_of(query: &str) -> Chart {
+    chart(query).await
+}
+
+#[tokio::test]
 async fn two_orders_of_arguments_give_equal_bytes() {
-    let first = fragment("scale(zero => FALSE, domain_empty => [0, 10])").await;
-    let second = fragment("scale(domain_empty => [0, 10], zero => FALSE)").await;
+    let first = option("scale", "scale(zero => FALSE, domain_empty => [0, 10])").await;
+    let second = option("scale", "scale(domain_empty => [0, 10], zero => FALSE)").await;
     assert_eq!(first.encode_to_vec(), second.encode_to_vec());
 }
 
 #[tokio::test]
 async fn an_argument_picks_the_member_of_its_oneof() {
-    // A member's name, and a fragment of a member's message.
+    // A member's name, a member's constructor one level down, and the constructor of the oneof.
     builds(
+        "scale",
         "scale(type => 'log')",
         Scale::log(LogScale::builder()).to_fragment().unwrap(),
     )
     .await;
-    builds(
-        "scale(type => log_scale(base => 2))",
-        Scale::log(LogScale::builder().base(2.0))
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
+    for expression in [
+        "scale(type => log(base => 2))",
+        "scale(type => type(log => log(base => 2)))",
+        "type(log => log(base => 2))",
+    ] {
+        builds(
+            "scale",
+            expression,
+            Scale::log(LogScale::builder().base(2.0))
+                .to_fragment()
+                .unwrap(),
+        )
+        .await;
+    }
     // A value of a member's type, where an integer sets a floating-point member.
     builds(
+        "scale",
         "scale(nice => 5)",
         Scale::builder().tick_count(5.0).to_fragment().unwrap(),
     )
     .await;
     builds(
+        "scale",
         "scale(nice => TRUE)",
         Scale::builder().enabled(true).to_fragment().unwrap(),
     )
     .await;
     builds(
+        "axis",
         "axis(label_rotation => 45)",
         Axis::builder().label_angle(45.0).to_fragment().unwrap(),
     )
     .await;
     builds(
+        "axis",
         "axis(label_rotation => 'radial')",
         Axis::builder()
             .label_orient(PolarTextOrient::Radial)
@@ -152,11 +291,13 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     // A string member before a `ValueRef` member, which takes the rest.
     builds(
+        "scale",
         "scale(range => 'viridis')",
         Scale::builder().palette("viridis").to_fragment().unwrap(),
     )
     .await;
     builds(
+        "scale",
         "scale(range => ['#e45756', '#4c78a8'])",
         Scale::builder()
             .values(["#e45756", "#4c78a8"])
@@ -165,8 +306,9 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     )
     .await;
     // The first `ValueRef` member of a oneof takes a constant: the explicit domain, not the
-    // summary.
+    // summary, which the oneof's constructor names.
     builds(
+        "scale",
         "scale(domain => [0, 100])",
         Scale::builder()
             .explicit([0i64, 100])
@@ -174,66 +316,111 @@ async fn an_argument_picks_the_member_of_its_oneof() {
             .unwrap(),
     )
     .await;
-}
-
-#[tokio::test]
-async fn a_tool_holds_its_kind_with_its_options_and_modes() {
-    // A selection tool takes the type of its gesture, with Vega-Lite's nesting.
     builds(
-        "select(selection => 'brush', type => interval_select(channels => ['x']), modes => ['box'])",
-        Select::interval("brush", IntervalSelect::builder().channels([Channel::X]))
-            .modes(["box"])
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    builds(
-        "select(selection => 'brush', type => 'interval')",
-        Select::interval("brush", IntervalSelect::builder())
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    builds(
-        "select(selection => 'pick', type => point_select(keys => ['carrier'], toggle => TRUE))",
-        Select::point(
-            "pick",
-            PointSelect::builder().keys(["carrier"]).toggle(true),
-        )
-        .to_fragment()
-        .unwrap(),
-    )
-    .await;
-    // A tooltip finds the nearest instance by its own fields, and its title lifts a column.
-    builds(
-        "tooltip(nearest => TRUE, max_radius => 20, metric => 'along_x', title => 'name', \
-         fields => [tooltip_field(column => 'price', format => '$,.2f')], modes => ['tips'])",
-        Tooltip::builder()
-            .nearest(true)
-            .max_radius(20.0)
-            .metric(NearestMetric::AlongX)
-            .title("name")
-            .fields([TooltipField::builder().column("price").format("$,.2f")])
-            .modes(["tips"])
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    // A tool holds only its kind, which names its modes.
-    builds(
-        "tool(kind => navigate(modes => ['pan']))",
-        ToolBuilder::from(Navigate::builder().modes(["pan"]))
-            .to_fragment()
-            .unwrap(),
+        "scale",
+        "scale(domain => domain(summary => [0, 100]))",
+        Scale::builder().summary([0i64, 100]).to_fragment().unwrap(),
     )
     .await;
 }
 
 #[tokio::test]
-async fn conversions_reach_a_message_through_a_chain() {
-    // Rule O: a string names a member of the leading oneof of the navigation limits, and a
-    // fragment of an interval sets their extent.
+async fn one_name_builds_the_message_of_its_place() {
+    // `point` is a point scale in the type of a scale.
     builds(
+        "scale",
+        "scale(type => point(padding => 0.5))",
+        Scale::point(PointScale::builder().padding(0.5))
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    // `log` is a log scale in the type of a scale, and GoogleSQL's logarithm elsewhere.
+    builds(
+        "scale",
+        "scale(type => log(base => 2))",
+        Scale::log(LogScale::builder().base(2.0))
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    let ctx = common::session();
+    let batches = avenger_sql::sql(&ctx, "FROM one |> SELECT LOG(8, 2) AS value")
+        .await
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+    let value = batches[0]
+        .column(0)
+        .as_primitive::<arrow::datatypes::Float64Type>()
+        .value(0);
+    assert!((value - 3.0).abs() < 1e-9, "{value}");
+    // In a chart function, a call that GoogleSQL's function takes is GoogleSQL's, beside a
+    // constructor of the same name.
+    let chart = chart_of(
+        "FROM penguins
+         |> WHERE body_mass_g IS NOT NULL
+         |> AGGREGATE symbol(
+              x => scaled(LOG(body_mass_g), scale => scale(type => log(base => 2))),
+              y => species,
+            ) AS chart",
+    )
+    .await;
+    let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
+    let encoding = layer.mark().unwrap().encoding(Channel::X).unwrap();
+    assert!(matches!(
+        encoding.scale.as_ref().and_then(|scale| scale.r#type.as_ref()),
+        Some(avenger_chart::proto::scale::Type::Log(log)) if log.base == Some(2.0)
+    ));
+    builds(
+        "scale",
+        "scale(domain => [1, POW(10, 6)], domain_empty => LOG(100, 10))",
+        Scale::builder()
+            .explicit([1.0, 1e6])
+            .domain_empty(2.0)
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_constructor_one_level_down_fills_the_constructor_of_its_parameter() {
+    for (expression, scale) in [
+        (
+            "pin(1000, position => 'low')",
+            Scale::builder().pin(DomainPin::new(1000i64, PinPosition::Low)),
+        ),
+        ("type('log')", Scale::log(LogScale::builder())),
+        (
+            "navigation('data')",
+            Scale::builder().navigation(NavigationLimits::data()),
+        ),
+    ] {
+        builds("scale", expression, scale.to_fragment().unwrap()).await;
+    }
+    builds(
+        "axis",
+        "labels(font_size => 9)",
+        Axis::builder()
+            .labels(Labels::builder().font_size(9.0))
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "axis",
+        "title('Bill length')",
+        Axis::builder().title("Bill length").to_fragment().unwrap(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn the_navigation_limits_take_their_bounds() {
+    builds(
+        "scale",
         "scale(navigation => 'data')",
         Scale::builder()
             .navigation(NavigationLimits::data())
@@ -241,120 +428,46 @@ async fn conversions_reach_a_message_through_a_chain() {
             .unwrap(),
     )
     .await;
-    builds(
-        "scale(navigation => navigation_interval(0, 10))",
-        Scale::builder()
-            .navigation(NavigationLimits::extent(
-                Interval::builder().low(0.0).high(10.0),
-            ))
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    // Rule O over the leading oneof of a projection: a string names its type.
-    builds(
-        "geo(projection => 'mercator')",
-        Geo::new(Projection::builtin(ProjectionType::Mercator))
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
+    let extent = Scale::builder()
+        .navigation(NavigationLimits::extent(
+            Interval::builder().low(0.0).high(10.0),
+        ))
+        .to_fragment()
+        .unwrap();
+    for expression in [
+        "scale(navigation => navigation(bounds => extent(low => 0, high => 10)))",
+        "scale(navigation => bounds(extent => extent(low => 0, high => 10)))",
+    ] {
+        builds("scale", expression, extent.clone()).await;
+    }
 }
 
 #[tokio::test]
-async fn a_projection_takes_arrays_of_numbers_and_shows_its_parts_with_a_boolean() {
-    builds(
-        "projection(type => 'conic_conformal', parallels => [33, 45], rotate => [96, 0])",
-        Projection::builtin(ProjectionType::ConicConformal)
-            .parallels([33.0, 45.0])
-            .rotate([96.0, 0.0])
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    builds(
-        "projection(type => 'mercator', center => [-96, 38], fit => [-125, 24, -66, 50])",
-        Projection::builtin(ProjectionType::Mercator)
-            .center([-96.0, 38.0])
-            .box_([-125.0, 24.0, -66.0, 50.0])
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    builds(
-        "projection(type => 'identity', reflect_x => TRUE, reflect_y => TRUE)",
-        Projection::builtin(ProjectionType::Identity)
-            .reflect_x(true)
-            .reflect_y(true)
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    // A Boolean shows a graticule or a sphere with its defaults.
-    builds(
-        "geo(projection => 'equal_earth', graticule => TRUE, sphere => TRUE)",
-        Geo::new(Projection::builtin(ProjectionType::EqualEarth))
-            .graticule(true)
-            .sphere(true)
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    builds(
-        "graticule(step => [15, 15], stroke => '#ccc', stroke_width => 0.5)",
-        Graticule::builder()
-            .step([15.0, 15.0])
-            .stroke("#ccc")
-            .stroke_width(0.5)
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn a_struct_sets_the_named_options_of_a_custom_projection_and_a_custom_scale() {
-    let value = |value| OptionValue { value: Some(value) };
+async fn a_struct_sets_the_named_options_of_a_custom_scale() {
     use avenger_chart::proto::option_value::Value;
+    let value = |value| OptionValue { value: Some(value) };
     builds(
-        "custom_projection(name => 'healpix', options => STRUCT(4 AS lobes, 'polar' AS mode, [1, 2.5] AS ratios, ['a', 'b'] AS names, TRUE AS flipped, NULL AS unset))",
-        CustomProjection::new("healpix")
-            .options([
-                ("lobes", value(Value::Integer(4))),
-                ("mode", value(Value::String("polar".to_string()))),
-                (
-                    "ratios",
-                    value(Value::Floats(FloatList {
-                        values: vec![1.0, 2.5],
-                    })),
-                ),
-                (
-                    "names",
-                    value(Value::Strings(StringList {
-                        values: vec!["a".to_string(), "b".to_string()],
-                    })),
-                ),
-                ("flipped", value(Value::Boolean(true))),
-            ])
+        "scale",
+        "scale(type => custom('warp', options => STRUCT(2.5 AS exponent)))",
+        Scale::custom(CustomScale::new("warp").options([("exponent", value(Value::Float(2.5)))]))
             .to_fragment()
             .unwrap(),
     )
     .await;
-    builds(
-        "custom_scale(name => 'warp', options => STRUCT(2.5 AS exponent))",
-        CustomScale::new("warp")
-            .options([("exponent", value(Value::Float(2.5)))])
-            .to_fragment()
-            .unwrap(),
+    let message = error(
+        "scale",
+        "scale(type => custom('warp', options => STRUCT(DATE '2024-01-01' AS start)))",
     )
     .await;
-    let message =
-        error("custom_scale(name => 'warp', options => STRUCT(DATE '2024-01-01' AS start))").await;
     assert!(
         message.contains("`options` takes for the option `start` a Boolean, a number, a string"),
         "{message}"
     );
-    let message = error("custom_scale(name => 'warp', options => STRUCT(1 AS a, 2 AS a))").await;
+    let message = error(
+        "scale",
+        "scale(type => custom('warp', options => STRUCT(1 AS a, 2 AS a)))",
+    )
+    .await;
     assert!(
         message.contains("`options` takes each option once, and the struct names `a` twice"),
         "{message}"
@@ -363,51 +476,146 @@ async fn a_struct_sets_the_named_options_of_a_custom_projection_and_a_custom_sca
 
 #[tokio::test]
 async fn errors_of_a_constant_call_fail_at_planning() {
-    for (expression, expected) in [
+    for (place, expression, expected) in [
         (
+            "axis",
             "axis(orient => 'up')",
             "`orient` takes one of 'bottom', 'top', 'left', 'right'",
         ),
-        ("scale(type => 'cubic')", "`type` takes one of linear"),
-        ("scale(type => axis())", "`type` takes"),
         (
-            "axis(title => scale())",
-            "`title` takes a Boolean, a string, or `title(...)`, not `scale(...)`",
+            "scale",
+            "scale(type => 'cubic')",
+            "`type` takes `type => 'linear' | 'log' | 'pow' | …`",
         ),
+        (
+            "scale",
+            "scale(type => axis())",
+            "`type` takes `type => 'linear' | 'log' | 'pow' | …`",
+        ),
+        ("axis", "axis(title => scale())", "`title` takes"),
         // A name picks only a member without required content.
-        ("scale(type => 'custom')", "not `custom`"),
+        ("scale", "scale(type => 'custom')", "not 'custom'"),
+        ("scale", "scale(type => 5)", "not a number"),
         (
-            "projection(type => 'mercator', fit => 'box')",
-            "`fit` takes one of data, whole_sphere, not `box`",
+            "scale",
+            "scale(pin => pin())",
+            "pin needs its argument `value`",
+        ),
+        // A value alone is no pin, whose position is required.
+        (
+            "scale",
+            "scale(pin => 1000)",
+            "`pin` takes `pin => pin(value: ANY, position => 'low' | 'mid' | 'high')`, not a \
+             number",
+        ),
+        ("axis", "axis(grid => 'yes')", "no form of axis takes"),
+        // A constructor takes its shorthand by position and its other parameters by name.
+        (
+            "scale",
+            "scale(pin => pin(1000, 'low'))",
+            "pin takes 1 positional argument, and its other parameters by name, as \
+             `position => ...`",
         ),
         (
-            "projection(type => 'mercater')",
-            "`type` takes identity, equal_earth, natural_earth1",
+            "scale",
+            "scale(type => log(2))",
+            "log takes no positional argument, and its other parameters by name, as \
+             `base => ...`",
         ),
+        // A plain value fills a field of the argument's own message, and a constructor one level
+        // down fills a field of a part.
         (
-            "scale(type => 5)",
-            "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), `band_scale(...)`",
+            "axis",
+            "'Bill length'",
+            "Did you mean `axis => title('Bill length')`?",
         ),
-        ("domain_pin()", "domain_pin needs its argument `value`"),
+        // A constructor in the wrong argument names the argument that takes it.
         (
-            "axis(grid => 'yes')",
-            "no form of axis takes (STRING)",
+            "scale",
+            "scale(domain => log())",
+            "not `log(...)`. Did you mean `type => log(...)`?",
         ),
-        ("cartesian(1, 2)", "cartesian takes 1 positional argument"),
+        // A constructor two levels down.
+        (
+            "scale",
+            "log(base => 2)",
+            "Did you mean `scale => scale(type => log(...))`?",
+        ),
         // The error of a call whose arguments are calls of other constructors.
         (
-            "scale(domain => linear_scale())",
-            "scale(): `domain` takes",
-        ),
-        (
-            "scale(navigation => navigation_limits(bounds => linear_scale()))",
-            "navigation_limits(): `bounds` takes",
+            "scale",
+            "scale(navigation => navigation(bounds => 'everywhere'))",
+            "`bounds` takes `bounds => 'data' | 'extent'`",
         ),
     ] {
-        let message = error(expression).await;
-        assert!(message.contains(expected), "{expression}: {message}");
+        let message = error(place, expression).await;
+        assert!(
+            message.contains(expected),
+            "{place} => {expression}: {message}"
+        );
         assert!(!message.contains("BinaryView"), "{expression}: {message}");
     }
+}
+
+#[tokio::test]
+async fn a_constructor_is_valid_only_in_an_argument_of_a_chart_function() {
+    let message = query_error("FROM one |> SELECT pin(1000, position => 'low') AS a").await;
+    assert!(
+        message.contains(
+            "`pin(...)` builds an option of a chart, so only a chart function's options hold \
+             it, as `pin => pin(...)` in `scale(...)`"
+        ),
+        "{message}"
+    );
+    let message = query_error("FROM one |> SELECT CONCAT('a', title('b')) AS a").await;
+    assert!(
+        message.contains("`title(...)` builds an option of a chart"),
+        "{message}"
+    );
+    // A constructor is no function of the library.
+    let library = avenger_sql::library::Library::new();
+    for constructor in avenger_chart::functions::constructors() {
+        if constructor.name.contains('.') {
+            continue;
+        }
+        let function = library.get(constructor.name);
+        assert!(
+            function.is_none_or(|function| function.family != avenger_sql::library::Family::Constructor),
+            "`{}` is a function of the library",
+            constructor.name
+        );
+        assert!(library.constructor(constructor.name).is_some());
+    }
+}
+
+#[tokio::test]
+async fn a_constant_call_folds_to_a_literal() {
+    let plan = scaled_plan("axis", "axis(title => 'Mass')", true)
+        .await
+        .unwrap();
+    let display = plan.display_indent().to_string();
+    assert!(!display.contains("axis("), "the call folds: {display}");
+}
+
+#[tokio::test]
+async fn a_fragment_has_the_extension_of_fragments() {
+    let plan = scaled_plan("axis", "axis(title => 'Mass')", false)
+        .await
+        .unwrap();
+    let args = calls(&plan, "scaled").remove(0);
+    let axis = (args.iter())
+        .find(|arg| matches!(arg, Expr::ScalarFunction(call) if call.func.name() == "axis"))
+        .expect("a call of the constructor of an axis");
+    let (_, field) = axis.to_field(plan.schema()).unwrap();
+    let metadata = field.metadata();
+    assert_eq!(
+        metadata.get("ARROW:extension:name").map(String::as_str),
+        Some(avenger_chart::functions::FRAGMENT_EXTENSION_NAME)
+    );
+    assert_eq!(
+        metadata.get("ARROW:extension:metadata").map(String::as_str),
+        Some("avenger.chart.v1.Axis")
+    );
 }
 
 /// The one chart of `query`.
@@ -609,12 +817,12 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         ),
         // A wrong constructor inside an option fails with its own error, not the mark's.
         (
-            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(domain => linear_scale())), y => flipper_length_mm)",
-            "scale(): `domain` takes",
+            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(domain => linear())), y => flipper_length_mm)",
+            "`domain` takes",
         ),
         (
             "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))",
-            "`coord` takes `cartesian(...)`, not `geo(...)`",
+            "`coord` takes `coord => cartesian([aspect => ANY])`, not `geo(...)`",
         ),
     ] {
         let ctx = common::session();
@@ -627,49 +835,233 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
     }
 }
 
-#[tokio::test]
-async fn a_constant_call_folds_to_a_literal() {
+/// The tools that the argument `tools` of the mark call of `query` builds, before the mark places
+/// them, which a chart with a selection tool needs the selections of.
+async fn tools(query: &str) -> Vec<avenger_chart::proto::Tool> {
     let ctx = common::session();
-    let plan = avenger_sql::sql(&ctx, "FROM one |> SELECT axis(title => 'Mass') AS a")
+    let plan = avenger_sql::sql(&ctx, query)
         .await
         .unwrap()
-        .into_optimized_plan()
-        .unwrap();
-    let display = plan.display_indent().to_string();
-    assert!(!display.contains("axis("), "the call folds: {display}");
-}
-
-#[test]
-fn every_constructor_is_a_function_of_the_library_that_a_call_can_name() {
+        .into_unoptimized_plan();
     let library = avenger_sql::library::Library::new();
-    for name in avenger_chart::functions::constructors()
-        .iter()
-        .map(|c| c.name)
-    {
-        // A constructor keeps its name when it is a reserved word, as `select` does.
-        assert!(library.get(name).is_some(), "`{name}` is in the library");
-        let text = format!("FROM one |> SELECT {name}()");
-        assert!(avenger_sql_syntax::parse(&text).ok(), "{text}");
-    }
+    let index = (library.get("symbol").unwrap().forms[0]
+        .signature
+        .args
+        .iter())
+    .position(|arg| arg.param == "tools")
+    .unwrap();
+    let mut found = None;
+    plan.apply(|node| {
+        node.apply_expressions(|expr| {
+            expr.apply(|expr| {
+                if let Expr::AggregateFunction(call) = expr {
+                    if call.func.name() == "symbol" {
+                        found = call.params.args.get(index).cloned();
+                    }
+                }
+                Ok(TreeNodeRecursion::Continue)
+            })
+        })
+    })
+    .unwrap();
+    let schema = datafusion::common::DFSchema::empty();
+    let physical = ctx
+        .state()
+        .create_physical_expr(found.expect("the tools of symbol"), &schema)
+        .unwrap();
+    let batch = arrow::array::RecordBatch::try_new_with_options(
+        std::sync::Arc::new(arrow::datatypes::Schema::empty()),
+        vec![],
+        &arrow::array::RecordBatchOptions::new().with_row_count(Some(1)),
+    )
+    .unwrap();
+    let array = physical.evaluate(&batch).unwrap().into_array(1).unwrap();
+    let list = array.as_list::<i32>().value(0);
+    let items = arrow::compute::cast(&list, &arrow::datatypes::DataType::Binary).unwrap();
+    let items = items.as_binary::<i32>();
+    (0..items.len())
+        .map(|index| message(Fragment::decode(items.value(index)).unwrap()))
+        .collect()
+}
+
+/// The message of `fragment`.
+fn message<M: Message + Default>(fragment: Fragment) -> M {
+    M::decode(fragment.message).unwrap()
+}
+
+/// A tool of the kind `kind`.
+fn tool(kind: avenger_chart::proto::tool::Kind) -> avenger_chart::proto::Tool {
+    avenger_chart::proto::Tool { kind: Some(kind) }
 }
 
 #[tokio::test]
-async fn a_column_of_fragments_has_the_extension_of_fragments() {
-    let ctx = common::session();
-    let batches = avenger_sql::sql(&ctx, "FROM one |> SELECT axis() AS a")
-        .await
-        .unwrap()
-        .collect()
-        .await
+async fn the_tools_of_a_mark_take_the_members_of_the_choice_of_a_tool() {
+    use avenger_chart::proto::tool::Kind;
+    let built = tools(
+        "FROM penguins
+         |> AGGREGATE symbol(
+              x => body_mass_g,
+              y => flipper_length_mm,
+              tools => [
+                navigate(modes => ['pan']),
+                select('brush', type => interval(channels => ['x']), modes => ['box']),
+                tooltip(
+                  nearest => TRUE,
+                  max_radius => 20,
+                  metric => 'along_x',
+                  title => 'species',
+                  fields => [field(column => 'island', format => 'x')],
+                ),
+              ],
+            ) AS chart",
+    )
+    .await;
+    let navigate = Navigate::builder().modes(["pan"]).to_fragment().unwrap();
+    let select = Select::interval("brush", IntervalSelect::builder().channels([Channel::X]))
+        .modes(["box"])
+        .to_fragment()
         .unwrap();
-    let schema = batches[0].schema();
-    let metadata = schema.field(0).metadata();
+    let tooltip = Tooltip::builder()
+        .nearest(true)
+        .max_radius(20.0)
+        .metric(NearestMetric::AlongX)
+        .title("species")
+        .fields([TooltipField::builder().column("island").format("x")])
+        .to_fragment()
+        .unwrap();
     assert_eq!(
-        metadata.get("ARROW:extension:name").map(String::as_str),
-        Some(avenger_chart::functions::FRAGMENT_EXTENSION_NAME)
+        built,
+        [
+            tool(Kind::Navigate(message(navigate))),
+            tool(Kind::Select(message(select))),
+            tool(Kind::Tooltip(message(tooltip))),
+        ]
     );
+    // A string names a tool without required content.
+    let chart = chart(
+        "FROM penguins
+         |> AGGREGATE symbol(x => body_mass_g, y => flipper_length_mm, tools => ['navigate']) AS chart",
+    )
+    .await;
+    let navigate = Navigate::builder().to_fragment().unwrap();
     assert_eq!(
-        metadata.get("ARROW:extension:metadata").map(String::as_str),
-        Some("avenger.chart.v1.Axis")
+        plot(&chart).tools,
+        [tool(Kind::Navigate(message(navigate)))]
     );
+}
+
+#[tokio::test]
+async fn one_name_builds_a_point_scale_and_a_point_selection() {
+    use avenger_chart::proto::tool::Kind;
+    let built = tools(
+        "FROM penguins
+         |> AGGREGATE symbol(
+              x => scaled(species, scale => scale(type => point(padding => 0.5))),
+              y => flipper_length_mm,
+              tools => [select('pick', type => point(keys => ['species'], toggle => TRUE))],
+            ) AS chart",
+    )
+    .await;
+    let select = Select::point(
+        "pick",
+        PointSelect::builder().keys(["species"]).toggle(true),
+    )
+    .to_fragment()
+    .unwrap();
+    assert_eq!(built, [tool(Kind::Select(message(select)))]);
+    builds(
+        "scale",
+        "scale(type => point(padding => 0.5))",
+        Scale::point(PointScale::builder().padding(0.5))
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+}
+
+/// The projection of the geo plot of `chart`.
+fn projection(chart: &Chart) -> avenger_chart::proto::Projection {
+    let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(chart).coord else {
+        panic!("a geo plot")
+    };
+    geo.options.as_ref().unwrap().projection.clone().unwrap()
+}
+
+#[tokio::test]
+async fn a_projection_takes_arrays_of_numbers_and_shows_its_parts_with_a_boolean() {
+    for (coord, expected) in [
+        (
+            "coord => geo(projection => projection('conic_conformal', parallels => [33, 45], rotate => [96, 0]))",
+            Projection::builtin(ProjectionType::ConicConformal)
+                .parallels([33.0, 45.0])
+                .rotate([96.0, 0.0]),
+        ),
+        (
+            "coord => geo(projection => projection(type => 'mercator', center => [-96, 38], fit => [-125, 24, -66, 50]))",
+            Projection::builtin(ProjectionType::Mercator)
+                .center([-96.0, 38.0])
+                .box_([-125.0, 24.0, -66.0, 50.0]),
+        ),
+        (
+            "coord => geo(projection => projection('identity', reflect_x => TRUE, reflect_y => TRUE))",
+            Projection::builtin(ProjectionType::Identity)
+                .reflect_x(true)
+                .reflect_y(true),
+        ),
+        (
+            "coord => projection('mercator')",
+            Projection::builtin(ProjectionType::Mercator),
+        ),
+    ] {
+        let chart = chart_of_geo(coord).await;
+        assert_eq!(
+            projection(&chart),
+            message(expected.to_fragment().unwrap()),
+            "{coord}"
+        );
+    }
+    // A Boolean shows a graticule or a sphere with its defaults.
+    let chart = chart_of_geo(
+        "coord => geo(projection => 'equal_earth', graticule => TRUE, sphere => TRUE)",
+    )
+    .await;
+    let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(&chart).coord else {
+        panic!("a geo plot")
+    };
+    let expected: Geo = message(
+        Geo::new(Projection::builtin(ProjectionType::EqualEarth))
+            .graticule(true)
+            .sphere(true)
+            .to_fragment()
+            .unwrap(),
+    );
+    assert_eq!(geo.options.as_ref().unwrap(), &expected);
+}
+
+#[tokio::test]
+async fn a_struct_sets_the_named_options_of_a_custom_projection() {
+    use avenger_chart::proto::option_value::Value;
+    let value = |value| OptionValue { value: Some(value) };
+    let chart = chart_of_geo(
+        "coord => geo(projection => projection(type => custom('healpix', options => STRUCT(4 AS lobes, 'polar' AS mode, [1, 2.5] AS ratios, ['a', 'b'] AS names, TRUE AS flipped, NULL AS unset))))",
+    )
+    .await;
+    let expected = Projection::custom(CustomProjection::new("healpix").options([
+        ("lobes", value(Value::Integer(4))),
+        ("mode", value(Value::String("polar".to_string()))),
+        (
+            "ratios",
+            value(Value::Floats(FloatList {
+                values: vec![1.0, 2.5],
+            })),
+        ),
+        (
+            "names",
+            value(Value::Strings(StringList {
+                values: vec!["a".to_string(), "b".to_string()],
+            })),
+        ),
+        ("flipped", value(Value::Boolean(true))),
+    ]));
+    assert_eq!(projection(&chart), message(expected.to_fragment().unwrap()));
 }

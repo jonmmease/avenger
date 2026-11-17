@@ -322,7 +322,7 @@ message Concat {
   // has no size, and its own tracks size its children's tracks. The fixed lengths that concats and
   // plots give one track of the table take the largest, as `Plot.width` describes, and the shares
   // that concats give one track must be equal, with equal maximums.
-  repeated Track tracks = 6;
+  repeated Track tracks = 6 [(avenger.chart.v1.element) = "track"];
   // The rules of the parts whose rule differs from the default. The default collapses the ticks
   // and the labels of an axis, merges the title of an axis, legends, attributions, and widgets,
   // and collapses the labels and the title of a facet. The rules apply to the axes and legends of

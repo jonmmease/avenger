@@ -1,5 +1,5 @@
 facet(show, title, orient, labels, label_angle, label_padding, tick_size, rule_color, rule_width, classes, id)
-  show: Boolean
+  show (positional): Boolean
   title: Boolean -> show; string -> text; title(...)
   orient: one of bottom, top, left, right
   labels: Boolean -> show; string -> format; labels(...)
@@ -10,7 +10,8 @@ facet(show, title, orient, labels, label_angle, label_padding, tick_size, rule_c
   rule_width: number
   classes: array of string
   id: string
-labels(format, markup, show, font_family, font_size, font_weight, color)
+labels(value, format, markup, show, font_family, font_size, font_weight, color)
+  value (positional): Boolean -> show; string -> format
   format: string
   markup: string
   show: Boolean
@@ -18,7 +19,8 @@ labels(format, markup, show, font_family, font_size, font_weight, color)
   font_size: number
   font_weight: number
   color: string
-title(text, show, orient, syntax, font_family, font_size, font_weight, color, subtitle, subtitle_font_family, subtitle_font_size, subtitle_font_weight, subtitle_color, align)
+title(value, text, show, orient, syntax, font_family, font_size, font_weight, color, subtitle, subtitle_font_family, subtitle_font_size, subtitle_font_weight, subtitle_color, align)
+  value (positional): Boolean -> show; string -> text
   text: string
   show: Boolean
   orient: one of bottom, top, left, right
@@ -33,7 +35,7 @@ title(text, show, orient, syntax, font_family, font_size, font_weight, color, su
   subtitle_font_weight: number
   subtitle_color: string
   align: one of start, center, end
-parts(axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, attribution, widget)
+part_rules(axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, attribution, widget)
   axis_ticks: one of keep, collapse, merge
   axis_labels: one of keep, collapse, merge
   axis_title: one of keep, collapse, merge
@@ -42,7 +44,8 @@ parts(axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, at
   facet_title: one of keep, collapse, merge
   attribution: one of keep, collapse, merge
   widget: one of keep, collapse, merge
-track(length, share, max)
+track(value, length, share, max)
+  value (positional): integer -> length; float -> length
   length: number
   share: number
   max: number
@@ -65,20 +68,23 @@ resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_
   pattern: one of shared, independent
   projection: one of shared, independent
   independent_widgets: array of string
-tool(kind)
-  kind (required): string -> a member's name; navigate(...) -> navigate; select(...) -> select; tooltip(...) -> tooltip
+tool(value, navigate, tooltip, select)
+  value (positional): one of navigate, tooltip
+  navigate: navigate(...)
+  tooltip: tooltip(...)
+  select: string -> selection; select(...)
 select(selection, type, scope, modes)
-  selection (required): string
-  type: string -> a member's name; interval_select(...) -> interval; lasso_select(...) -> lasso; point_select(...) -> point
+  selection (positional, required): string
+  type: string -> a member's name; type(...)
   scope: array of string
   modes: array of string
 lasso_select(keys)
   keys: array of string
 point_select(keys, toggle)
-  keys: array of point_key(...); array of string -> column
+  keys: array of key(...); array of string -> column
   toggle: Boolean
 point_key(column, source)
-  column (required): string
+  column (positional, required): string
   source: string
 interval_select(channels, cell)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
@@ -87,8 +93,8 @@ tooltip(nearest, max_radius, metric, title, fields, anchor, hide_swatch, modes)
   nearest: Boolean
   max_radius: number
   metric: one of euclidean, along_x, along_y
-  title: string -> column; tooltip_title(...)
-  fields: array of tooltip_field(...)
+  title: string -> column; title(...)
+  fields: array of field(...)
   anchor: one of data, pointer, instance
   hide_swatch: Boolean
   modes: array of string
@@ -98,7 +104,7 @@ tooltip_field(column, title, format, markup)
   format: string
   markup: string
 tooltip_title(column, format, markup)
-  column: string
+  column (positional): string
   format: string
   markup: string
 navigate(channels, modes)
@@ -120,25 +126,25 @@ attribution(credits, orient, align, separator, separator_space, font_family, fon
   border_radius: number
   padding: number
 geo(projection, family, aspect, navigation, graticule, sphere, tiles)
-  projection (required): string -> builtin; custom_projection(...) -> custom; projection(...)
+  projection (required): string -> builtin; projection(...)
   family: string
-  aspect: integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name
-  navigation: geo_navigation(...)
+  aspect: integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name; aspect(...)
+  navigation: navigation(...)
   graticule: Boolean -> show; graticule(...)
-  sphere: Boolean -> show; sphere_style(...)
-  tiles: string -> url_template; tile_layer(...)
+  sphere: Boolean -> show; sphere(...)
+  tiles: string -> url_template; tiles(...)
 tile_layer(url_template, min_zoom, max_zoom, tile_size)
-  url_template (required): string
+  url_template (positional, required): string
   min_zoom: integer
   max_zoom: integer
   tile_size: integer
 sphere_style(show, fill, stroke, stroke_width)
-  show: Boolean
+  show (positional): Boolean
   fill: string
   stroke: string
   stroke_width: number
 graticule(show, step, extent, step_major, extent_major, precision, label_frame, label_sides, format, label_font_family, label_font_size, label_font_weight, label_color, label_padding, stroke, stroke_width)
-  show: Boolean
+  show (positional): Boolean
   step: array of number
   extent: array of number
   step_major: array of number
@@ -160,8 +166,9 @@ geo_navigation(pan_mode, min_zoom, max_zoom)
   pan_mode: one of translate, longitude, sphere
   min_zoom: number
   max_zoom: number
-projection(type, parallels, parallel, coefficient, reflect_x, reflect_y, rotate, center, clip, precision, fit)
-  type (required): string -> builtin; custom_projection(...) -> custom
+projection(value, type, parallels, parallel, coefficient, reflect_x, reflect_y, rotate, center, clip, precision, fit)
+  value (positional): string -> builtin
+  type (required): string -> builtin; type(...)
   parallels: array of number
   parallel: number
   coefficient: number
@@ -169,18 +176,21 @@ projection(type, parallels, parallel, coefficient, reflect_x, reflect_y, rotate,
   reflect_y: Boolean
   rotate: array of number
   center: array of number
-  clip: integer -> circle_angle; float -> circle_angle; string -> a member's name; region_clip(...) -> region; spherical_clip(...)
+  clip: integer -> circle_angle; float -> circle_angle; string -> a member's name; clip(...)
   precision: number
-  fit: string -> a member's name; array of number -> bounds -> box; fit_box(...) -> box
+  fit: string -> a member's name; array of number -> bounds -> box; fit(...)
 fit_box(bounds)
-  bounds (required): array of number
-spherical_clip(clip)
-  clip: integer -> circle_angle; float -> circle_angle; string -> a member's name; region_clip(...) -> region
+  bounds (positional, required): array of number
+spherical_clip(value, antimeridian, circle_angle, region)
+  value (positional): integer -> circle_angle; float -> circle_angle; string -> a member's name
+  antimeridian: antimeridian(...)
+  circle_angle: number
+  region: region(...)
 region_clip(polygon, frame)
   polygon: bytes
   frame: one of earth, view
 custom_projection(name, options)
-  name (required): string
+  name (positional, required): string
   options: struct of named options
 polar(start_angle, end_angle, inner_radius)
   start_angle: number
@@ -189,7 +199,7 @@ polar(start_angle, end_angle, inner_radius)
 cartesian(aspect)
   aspect: number
 legend(show, type, title, labels, label_angle, orient, background, border_color, border_radius, padding, wrap, columns, label_padding, column_gap, row_gap, tick_placement, swatches, thickness, axis_gap, max_length, label_align, label_baseline, ticks, tick_size, tick_color, rule, rule_color, classes, id)
-  show: Boolean
+  show (positional): Boolean
   type: one of symbol, colorbar
   title: Boolean -> show; string -> text; title(...)
   labels: Boolean -> show; string -> format; labels(...)
@@ -204,7 +214,7 @@ legend(show, type, title, labels, label_angle, orient, background, border_color,
   label_padding: number
   column_gap: number
   row_gap: number
-  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values; tick_step(...) -> tick_step
+  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values; tick_placement(...)
   swatches: Boolean
   thickness: number
   axis_gap: number
@@ -219,18 +229,18 @@ legend(show, type, title, labels, label_angle, orient, background, border_color,
   classes: array of string
   id: string
 tick_step(step, interval, start)
-  step: number
+  step (positional): number
   interval: one of month, day, millisecond
   start: any constant
 axis(show, title, orient, labels, label_rotation, label_align, label_baseline, tick_placement, ticks, tick_size, tick_color, rule, rule_color, grid, grid_color, grid_width, levels, angle, route, classes, id)
-  show: Boolean
+  show (positional): Boolean
   title: Boolean -> show; string -> text; title(...)
   orient: one of bottom, top, left, right
   labels: Boolean -> show; string -> format; labels(...)
-  label_rotation: integer -> label_angle; float -> label_angle; string -> label_orient
+  label_rotation: integer -> label_angle; float -> label_angle; string -> label_orient; label_rotation(...)
   label_align: one of left, center, right
   label_baseline: one of top, middle, alphabetic, bottom
-  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values; tick_step(...) -> tick_step
+  tick_placement: Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values; tick_placement(...)
   ticks: Boolean
   tick_size: number
   tick_color: string
@@ -239,7 +249,7 @@ axis(show, title, orient, labels, label_rotation, label_align, label_baseline, t
   grid: Boolean
   grid_color: string
   grid_width: number
-  levels: array of nested_axis_level(...)
+  levels: array of level(...)
   angle: number
   route: one of coordinate, canvas
   classes: array of string
@@ -248,33 +258,35 @@ nested_axis_level(labels, title, label_angle)
   labels: Boolean -> show; string -> format; labels(...)
   title: string
   label_angle: number
-scale(type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, navigation)
-  type: string -> a member's name; band_scale(...) -> band; custom_scale(...) -> custom; linear_scale(...) -> linear; log_scale(...) -> log; nested_band_scale(...) -> nested_band; ordinal_scale(...) -> ordinal; point_scale(...) -> point; pow_scale(...) -> pow; symlog_scale(...) -> symlog; time_scale(...) -> time
-  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit; selection_domain(...) -> selection
+scale(value, type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, navigation)
+  value (positional): one of linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold
+  type: string -> a member's name; type(...)
+  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit; domain(...)
   zero: Boolean
-  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
-  pin: domain_pin(...)
+  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count; nice(...)
+  pin: pin(...)
   domain_empty: any constant
-  sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; struct -> preferred; other -> preferred
-  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; struct -> values; other -> values
+  sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; struct -> preferred; other -> preferred; sort(...)
+  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; struct -> values; other -> values; range(...)
   reverse: Boolean
   family: string
-  navigation: string -> a member's name; navigation_interval(...) -> extent; navigation_limits(...)
-navigation_limits(bounds, min_span)
-  bounds: string -> a member's name; navigation_interval(...) -> extent
+  navigation: string -> a member's name; navigation(...)
+navigation_limits(value, bounds, min_span)
+  value (positional): one of data, extent
+  bounds: string -> a member's name; bounds(...)
   min_span: number
-navigation_interval(low, high)
+interval(low, high)
   low: number
   high: number
 domain_pin(value, position)
-  value (required): any constant
+  value (positional, required): any constant
   position (required): one of low, mid, high
 selection_domain(selection, channel, fallback)
   selection (required): string
   channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
-  fallback: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit
+  fallback: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit; fallback(...)
 custom_scale(name, options)
-  name (required): string
+  name (positional, required): string
   options: struct of named options
 ordinal_scale(kind)
   kind: one of categorical, ordinal
@@ -319,11 +331,76 @@ log_scale(base, clamp, round)
 linear_scale(clamp, round)
   clamp: Boolean
   round: Boolean
+select.type(value, interval, point, lasso)
+  value (positional): one of interval, point, lasso
+  interval: interval(...)
+  point: point(...)
+  lasso: lasso(...)
+geo.aspect(value, aspect_ratio)
+  value (positional): integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name
+  aspect_ratio: number
+projection.type(value, builtin, custom)
+  value (positional): string -> builtin
+  builtin: one of identity, equal_earth, natural_earth1, robinson, mollweide, eckert4, winkel_tripel, aitoff, sinusoidal, equirectangular, mercator, transverse_mercator, miller, orthographic, stereographic, gnomonic, azimuthal_equal_area, azimuthal_equidistant, conic_conformal, conic_equal_area, conic_equidistant, cylindrical_equal_area, hammer
+  custom: string -> name; custom(...)
+projection.fit(value, box)
+  value (positional): string -> a member's name; array of number -> bounds -> box
+  box: array of number -> bounds; box(...)
+legend.tick_placement(value, tick_count, tick_step, values)
+  value (positional): Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values
+  tick_count: number
+  tick_step: integer -> step; float -> step; tick_step(...)
+  values: any constant
+axis.label_rotation(value, label_angle, label_orient)
+  value (positional): integer -> label_angle; float -> label_angle; string -> label_orient
+  label_angle: number
+  label_orient: one of radial, tangential
+axis.tick_placement(value, tick_count, tick_step, values)
+  value (positional): Boolean -> values; integer -> tick_count; float -> tick_count; string -> values; array -> values; struct -> values; other -> values
+  tick_count: number
+  tick_step: integer -> step; float -> step; tick_step(...)
+  values: any constant
+scale.type(value, linear, log, pow, symlog, time, band, point, nested_band, ordinal, custom)
+  value (positional): one of linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold
+  linear: linear(...)
+  log: log(...)
+  pow: pow(...)
+  symlog: symlog(...)
+  time: time(...)
+  band: band(...)
+  point: point(...)
+  nested_band: nested_band(...)
+  ordinal: ordinal(...)
+  custom: string -> name; custom(...)
+scale.domain(value, explicit, summary, selection)
+  value (positional): Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit
+  explicit: any constant
+  summary: any constant
+  selection: selection(...)
+scale.nice(value, enabled, tick_count)
+  value (positional): Boolean -> enabled; integer -> tick_count; float -> tick_count
+  enabled: Boolean
+  tick_count: number
+scale.sort(value, direction, preferred)
+  value (positional): Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; struct -> preferred; other -> preferred
+  direction: one of ascending, descending
+  preferred: any constant
+scale.range(value, values, palette)
+  value (positional): Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; struct -> values; other -> values
+  values: any constant
+  palette: string
+navigation_limits.bounds(value, extent)
+  value (positional): one of data, extent
+  extent: extent(...)
+selection_domain.fallback(value, explicit, summary)
+  value (positional): Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit
+  explicit: any constant
+  summary: any constant
 layer(chart, id, title, attribution, tools, resolve, width, height, classes)
   id: string
   title: Boolean -> show; string -> text; title(...)
   attribution: attribution(...)
-  tools: array of tool(...)
+  tools: array of a member of tool(...); array of one of navigate, tooltip
   resolve: resolve(...)
   width: number
   height: number
@@ -375,10 +452,36 @@ facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, g
   resolve: resolve(...)
   min_column_width: number
   max_columns: integer
-  row_height: integer -> length; float -> length; track(...)
+  row_height: integer -> length; float -> length; row_height(...)
   gap: number
   parts: parts(...)
   distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
   facet: Boolean -> show; facet(...)
   classes: array of string
+lifts
+  Axis.show
+  CustomProjection.name
+  CustomScale.name
+  DomainPin.value
+  Facet.column
+  Facet.show
+  FitBox.bounds
+  Graticule.show
+  Labels.format
+  Labels.show
+  Legend.show
+  NavigationLimits.bounds (oneof)
+  PointKey.column
+  Projection.type (oneof)
+  Scale.type (oneof)
+  Select.selection
+  SphereStyle.show
+  SphericalClip.clip (oneof)
+  TickStep.step
+  TileLayer.url_template
+  Title.show
+  Title.text
+  Tool.kind (oneof)
+  TooltipTitle.column
+  Track.length

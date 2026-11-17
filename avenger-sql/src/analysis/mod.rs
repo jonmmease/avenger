@@ -32,8 +32,8 @@ use datafusion::{
 };
 
 pub use model::{
-    match_recognize_part, CallForm, Column, Definition, EnumValue, FieldBase, MatchRecognizePart,
-    Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
+    match_recognize_part, CallForm, Column, ConstructorUse, Definition, EnumValue, FieldBase,
+    MatchRecognizePart, Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
 };
 pub use print::{Lifted, LiftedOperator};
 

@@ -96,6 +96,21 @@ pub enum Source {
 }
 
 impl Document {
+    /// The function of the call, table function source, or pipe `CALL` `call`: a constructor of a
+    /// chart's option, by the name that the parameter of its argument gives it, or a function of
+    /// the library.
+    fn called(&self, call: &SyntaxNode) -> Option<avenger_sql::library::context::Called<'_>> {
+        use avenger_sql::library::context::{called, Called};
+        called(&self.library, call).or_else(|| {
+            let function = self.library.get(&hover::callee(call)?)?;
+            Some(Called {
+                function,
+                name: function.name.clone(),
+                fills: None,
+            })
+        })
+    }
+
     /// Parses and analyzes `text`, whose tables come from `catalog` and whose functions come
     /// from `library`.
     pub fn new(

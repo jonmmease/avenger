@@ -32,13 +32,13 @@ use datafusion::{
 use super::{
     build::{self, cast, int, subquery},
     lifting,
-    model::{CallForm, Definition, EnumValue, FieldBase, PlaceKind},
+    model::{self, CallForm, Definition, EnumValue, FieldBase, PlaceKind},
     rows::{Col, RangeVar, Rows},
     Pass,
 };
 use crate::{
     library::{
-        self, form::supertype, operator, Arg, CallError, DatePart, DefaultWindow, ErrorAt,
+        self, context, form::supertype, operator, Arg, CallError, DatePart, DefaultWindow, ErrorAt,
         Function, Need, Over, PlanContext, Planned, Subscript, Ty,
     },
     types,
@@ -1535,8 +1535,17 @@ impl Pass<'_> {
         let path = call.path()?;
         let refs: Vec<ast::NameRef> = path.name_refs().collect();
         let names = path.names()?;
+        let library = self.library;
+        // A constructor of a chart's option, by the name that the parameter of its argument gives
+        // it, before a temporary function and the library's functions.
+        let argument = match names.as_slice() {
+            [_] => context::argument(library, call.syntax()),
+            _ => None,
+        };
+        let contextual = (argument.as_ref())
+            .and_then(|argument| context::contextual(library, argument, &names[0]));
         // A temporary function, or a function of a module.
-        if let Some(function) = self.temp_function(&names) {
+        if let (None, Some(function)) = (&contextual, self.temp_function(&names)) {
             return self.call_temp(function, call, scope, path.syntax().text_range());
         }
         let (safe, name, name_range) = match names.as_slice() {
@@ -1552,10 +1561,59 @@ impl Pass<'_> {
                 return None;
             }
         };
-        let library = self.library;
-        let Some(function) = library.get(&name) else {
-            self.error(name_range, format!("Function not found: {name}"));
-            return None;
+        // The constructor of a place, under the name that the call writes, or the library's
+        // function.
+        let constructed: Function;
+        let (function, fills) = match contextual {
+            Some(called) => {
+                let fills = called.fills.expect("a constructor fills a place");
+                if fills.builds.array != fills.element {
+                    let param = &argument.as_ref().expect("an argument").param.name;
+                    let message = match fills.builds.array {
+                        true => format!(
+                            "`{param}` takes an array of its elements, as `{param} => [{name}(...)]`"
+                        ),
+                        false => format!(
+                            "`{param}` takes one `{name}(...)`, not an array of them"
+                        ),
+                    };
+                    self.error(range, message);
+                    return None;
+                }
+                self.model.constructors.push(model::ConstructorUse {
+                    range: name_range,
+                    constructor: fills.builds.constructor.clone(),
+                    place: fills.describe(),
+                });
+                let mut renamed = called.function.clone();
+                renamed.name = called.name.clone();
+                constructed = renamed;
+                (&constructed, Some(fills))
+            }
+            None => {
+                if let Some(message) =
+                    (argument.as_ref()).and_then(|argument| self.misplaced(argument, call, &name))
+                {
+                    self.error(range, message);
+                    return None;
+                }
+                match library.get(&name) {
+                    Some(function) => (function, None),
+                    None => {
+                        let places = library.constructor_places(&name);
+                        let message = match places.is_empty() {
+                            true => format!("Function not found: {name}"),
+                            false => format!(
+                                "`{name}(...)` builds an option of a chart, so only a chart \
+                                 function's options hold it, as {}",
+                                places.join(" or ")
+                            ),
+                        };
+                        self.error(name_range, message);
+                        return None;
+                    }
+                }
+            }
         };
         self.use_name(
             name_range,
@@ -1703,6 +1761,8 @@ impl Pass<'_> {
         // arguments so far, which name their channels in the order of the form.
         let mut written = Vec::new();
         let mut positional = 0;
+        // The count of the positional arguments before each, which names their parameters.
+        let mut before = 0;
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1719,10 +1779,26 @@ impl Pass<'_> {
                     continue;
                 }
             };
+            let param = match &named {
+                Some(name) => Some(name.clone()),
+                None => {
+                    before += 1;
+                    function.positional_param(before - 1)
+                }
+            };
             let Some(value) = value else {
                 ok = false;
                 continue;
             };
+            // A literal that a parameter of a chart function does not take.
+            let unaccepted = (param.as_deref())
+                .and_then(|param| function.param_named(param))
+                .and_then(|param| self.unaccepted(param, &value));
+            if let Some(message) = unaccepted {
+                self.error(value.syntax().text_range(), message);
+                ok = false;
+                continue;
+            }
             if function.takes_date_part(position, named.as_deref()) {
                 match date_part(&value) {
                     Some(part) => {
@@ -1812,7 +1888,11 @@ impl Pass<'_> {
             None => expr,
         };
         match planned {
-            Planned::Scalar(expr) => Some(expr),
+            Planned::Scalar(expr) => match fills {
+                // A constructor one level down, in the parameter's own constructor.
+                Some(fills) => self.wrap(expr, &fills, argument.as_ref(), range, schema),
+                None => Some(expr),
+            },
             Planned::Aggregate {
                 func,
                 args,
@@ -1954,6 +2034,162 @@ impl Pass<'_> {
                 Some(typed(over.window(func, args, null_treatment), result))
             }
         }
+    }
+
+    /// `expr`, the fragment of a constructor that `fills` one level down from its parameter, in the
+    /// call of the parameter's own constructor that it fills, as `scale => pin(...)` is
+    /// `scale => scale(pin => pin(...))`. A constructor of the parameter itself is `expr`.
+    fn wrap(
+        &mut self,
+        expr: Expr,
+        fills: &context::Fills,
+        argument: Option<&context::Argument>,
+        range: TextRange,
+        schema: &DFSchema,
+    ) -> Option<Expr> {
+        let (Some(part), Some(target)) = (&fills.builds.part, fills.target) else {
+            return Some(expr);
+        };
+        let library = self.library;
+        let mut function = library.constructor(target)?.clone();
+        // The wrapper's errors name it as the parameter does.
+        let own = (argument.into_iter())
+            .flat_map(|argument| &argument.param.takes.constructors)
+            .find(|builds| builds.part.is_none());
+        if let Some(own) = own {
+            function.name = own.name.clone();
+        }
+        let args = vec![(Some(part.clone()), Arg::Value(expr))];
+        match function.plan(args, false, false, self.context(schema)) {
+            Ok(Planned::Scalar(expr)) => Some(expr),
+            Ok(_) => None,
+            Err(error) => {
+                self.error(range, error.message);
+                None
+            }
+        }
+    }
+
+    /// The error of a call of a constructor named `name` in `argument`, whose parameter does not
+    /// take it: what the parameter takes, and a parameter that takes the constructor, or where
+    /// the constructor belongs. `None` for a name that no constructor has, and for a function of
+    /// the library that no parameter near the argument takes as a constructor, as `LOG(x)`.
+    fn misplaced(
+        &self,
+        argument: &context::Argument,
+        call: &ast::CallExpr,
+        name: &str,
+    ) -> Option<String> {
+        let library = self.library;
+        let places = library.constructor_places(name);
+        if places.is_empty() {
+            return None;
+        }
+        // A call that the library's function of the name takes is that function's, as
+        // `POW(10, 6)` in an explicit domain.
+        let names: Vec<Option<String>> = (call.arg_list().iter())
+            .flat_map(|list| list.arguments())
+            .map(|argument| match argument {
+                ast::Argument::NamedArg(named) => named.name_ref().and_then(|name| name.text()),
+                _ => None,
+            })
+            .collect();
+        if library
+            .get(name)
+            .is_some_and(|function| function.binds(&names))
+        {
+            return None;
+        }
+        // An argument of a function of GoogleSQL, as `CONCAT`, is outside the chart functions.
+        let chart = matches!(
+            argument.owner.function.family,
+            library::Family::Mark | library::Family::Composition | library::Family::Constructor
+        );
+        if !chart {
+            return None;
+        }
+        let suggestion = context::suggestion(argument, name, library);
+        if suggestion.is_none() && library.get(name).is_some() {
+            return None;
+        }
+        let param = &argument.param;
+        let takes = match param.forms(Some(3)) {
+            Some(forms) => format!("`{}` takes {}", param.name, forms.sentence()),
+            None => format!("`{}` takes no constructor", param.name),
+        };
+        Some(match suggestion {
+            Some(suggestion) => {
+                format!("{takes}, not `{name}(...)`. Did you mean {suggestion}?")
+            }
+            None => format!(
+                "{takes}, not `{name}(...)`, which belongs in {}",
+                places.join(" or ")
+            ),
+        })
+    }
+
+    /// The error of a literal `value` of `param`, a parameter of a chart function that takes
+    /// constructors, when the parameter does not take its kind of value: what the parameter takes,
+    /// and a constructor one level down whose first parameter takes the value, as
+    /// `axis => title('Bill length')` for `axis => 'Bill length'`.
+    fn unaccepted(&self, param: &library::Param, value: &ast::Expr) -> Option<String> {
+        let takes = &param.takes;
+        if takes.constructors.is_empty() {
+            return None;
+        }
+        let ast::Expr::Literal(literal) = value else {
+            return None;
+        };
+        let text = literal.syntax().to_string();
+        let string = literal.string_value();
+        let kind = literal.kind()?;
+        // Whether a type of a value takes the literal.
+        let fits = |ty: &Ty| match kind {
+            ast::LiteralKind::String => matches!(ty, Ty::String | Ty::Any),
+            ast::LiteralKind::True | ast::LiteralKind::False => matches!(ty, Ty::Bool | Ty::Any),
+            ast::LiteralKind::Int | ast::LiteralKind::Float => {
+                matches!(ty, Ty::Int64 | Ty::Float64 | Ty::Any)
+            }
+            _ => true,
+        };
+        let found = match kind {
+            ast::LiteralKind::String => text.clone(),
+            ast::LiteralKind::True | ast::LiteralKind::False => "a Boolean".to_string(),
+            ast::LiteralKind::Int | ast::LiteralKind::Float => "a number".to_string(),
+            _ => return None,
+        };
+        let named = string
+            .as_ref()
+            .is_some_and(|string| takes.strings.iter().any(|value| value == string));
+        if named || takes.values.iter().any(fits) {
+            return None;
+        }
+        let forms = param.forms(Some(3))?;
+        let mut message = format!("`{}` takes {}, not {found}", param.name, forms.sentence());
+        // A constructor one level down whose first parameter takes the literal.
+        let library = self.library;
+        let hint = (takes.constructors.iter())
+            .filter(|builds| builds.part.is_some() && !builds.array)
+            .find(|builds| {
+                let first = (library.constructor(&builds.constructor))
+                    .and_then(|constructor| constructor.forms.first())
+                    .and_then(|form| form.signature.args.first())
+                    .filter(|first| !first.named_only);
+                match first.map(|first| &first.accept) {
+                    Some(library::Accept::OneOf(values)) => string
+                        .as_ref()
+                        .is_some_and(|string| values.contains(string)),
+                    Some(library::Accept::Value(ty)) => fits(ty),
+                    _ => false,
+                }
+            });
+        if let Some(builds) = hint {
+            message.push_str(&format!(
+                ". Did you mean `{} => {}({text})`?",
+                param.name, builds.name
+            ));
+        }
+        Some(message)
     }
 
     /// The `OVER` clause of a call of the function `name`.
