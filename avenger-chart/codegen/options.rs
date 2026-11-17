@@ -12,9 +12,10 @@
 //!
 //! The tree stops at `ValueRef`, `TableRef`, `Table`, and `Encoding`, which are values, tables,
 //! and channels, not options. build.rs fails, in every build, when a oneof of the tree has two
-//! members that its argument cannot tell apart, when a member without fields, which its name
-//! picks, shares its oneof with a member that takes a string, or when a message field outside a
-//! oneof has a message without fields, which no argument sets.
+//! members that its argument cannot tell apart, except for `ValueRef` members, of which the first
+//! by number takes the values, when a member without fields, which its name picks, shares its
+//! oneof with a member that takes a string, or when a message field outside a oneof has a message
+//! without fields, which no argument sets.
 
 use std::collections::BTreeSet;
 
@@ -239,7 +240,10 @@ fn check_oneof(
         let name = member.name();
         match argument_kind(member) {
             Some(kind) => {
-                if let Some((other, _)) = kinds.iter().find(|(_, known)| *known == kind) {
+                // The first `ValueRef` member by number takes the values, as an explicit domain
+                // does before a summary, so a oneof can hold more of them.
+                let known = (kinds.iter()).find(|(_, known)| *known == kind && kind != "ValueRef");
+                if let Some((other, _)) = known {
                     return Err(format!(
                         "the members `{other}` and `{name}` of the oneof {at} both take a \
                          {kind} argument, so an argument cannot pick one"

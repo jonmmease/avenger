@@ -88,9 +88,9 @@ pub struct Param {
 
 /// One input of a parameter: an argument of a class, the field and member names of the chain
 /// from the parameter's target to the field that the argument sets, innermost first, and the shape
-/// of that field. `interval_fit(...) -> interval -> fit -> data` of a domain is a fragment of
-/// `IntervalFit` in the member `interval` of `DomainFit`, which is the `fit` of a `DataDomain`,
-/// which is the member `data` of the domain.
+/// of that field. `calendar_ticks(...) -> calendar -> interval` of a legend's ticks is a fragment
+/// of `CalendarTicks` in the member `calendar` of `TickInterval`, which is the member `interval` of
+/// the ticks.
 #[derive(Clone, Copy, Debug)]
 pub struct Accept {
     pub class: Class,

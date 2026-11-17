@@ -161,7 +161,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "background",
         ],
     ),
-    ("Range", &["values", "palette", "reverse"]),
+    ("Scale", &["values", "palette", "reverse"]),
     ("BandScale", &["padding_inner", "padding_outer"]),
     ("PointScale", &["padding"]),
     ("NestedBandScale", &["padding_inner", "padding_outer"]),
@@ -973,24 +973,22 @@ pub(crate) fn scale(
     chart: &avenger_chart::Chart,
 ) {
     use proto::scale::Type;
-    if let Some(range) = &spec.range {
-        match &range.range {
-            Some(proto::range::Range::Palette(palette)) => {
-                let text = match range.reverse {
-                    true => format!("{palette} reverse"),
-                    false => palette.clone(),
-                };
-                set(tree, node, Property::Scheme, &text);
-            }
-            Some(proto::range::Range::Values(values)) => {
-                let mut items = css_items(&chart.list_elements(values));
-                if range.reverse {
-                    items.reverse();
-                }
-                set(tree, node, Property::Range, &items.join(", "));
-            }
-            None => {}
+    match &spec.range {
+        Some(proto::scale::Range::Palette(palette)) => {
+            let text = match spec.reverse {
+                true => format!("{palette} reverse"),
+                false => palette.clone(),
+            };
+            set(tree, node, Property::Scheme, &text);
         }
+        Some(proto::scale::Range::Values(values)) => {
+            let mut items = css_items(&chart.list_elements(values));
+            if spec.reverse {
+                items.reverse();
+            }
+            set(tree, node, Property::Range, &items.join(", "));
+        }
+        None => {}
     }
     let number = |tree: &mut Styled, property: Property, value: Option<f64>| {
         if let Some(value) = value {

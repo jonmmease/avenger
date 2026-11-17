@@ -19,7 +19,7 @@ fn a_continuous_y_runs_up_the_plot_and_a_reversed_one_down_it() {
             cars(),
             SymbolMark::builder()
                 .x("weight")
-                .y(Encoding::scaled_field("mpg").scale(Range::builder().reverse(reverse))),
+                .y(Encoding::scaled_field("mpg").scale(Scale::builder().reverse(reverse))),
         );
         let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
         let evaluated = evaluate(&chart, [320.0, 240.0]);
@@ -111,7 +111,7 @@ fn an_explicit_domain_that_excludes_data_clips_its_plot() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(Domain::explicit([2500.0, 4000.0])))
+            .x(Encoding::scaled_field("weight").scale(Scale::explicit([2500.0, 4000.0])))
             .y("mpg")
             .size(200.0),
     );
@@ -175,11 +175,8 @@ fn a_summary_domain_covers_more_values_than_the_rows() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(
-                Encoding::scaled_field("weight").scale(Domain::summary(SummaryDomain::new(
-                    linear_summary(&[0.0, 10_000.0]),
-                ))),
-            )
+            .x(Encoding::scaled_field("weight")
+                .scale(Scale::summary(linear_summary(&[0.0, 10_000.0]))))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -195,10 +192,11 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(Domain::summary(
-                SummaryDomain::new(linear_summary(&[1800.0, 4790.0]))
-                    .fit(IntervalFit::builder().zero(false).enabled(false)),
-            )))
+            .x(Encoding::scaled_field("weight").scale(
+                Scale::summary(linear_summary(&[1800.0, 4790.0]))
+                    .zero(false)
+                    .enabled(false),
+            ))
             .y("mpg")
             .size(400.0),
     );
@@ -214,15 +212,13 @@ fn a_summary_without_the_reach_of_the_drawn_symbols_warns() {
 fn the_axis_of_a_selection_with_one_open_end_starts_at_the_selection() {
     // The cars, whose `x` has a selection domain over a fit of the data, and a brush whose range
     // starts at a weight of 2500 and has no end.
-    let symbols =
-        CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(Domain::selection(
-                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )))
-                .y("mpg"),
-        );
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight")
+                .scale(Scale::selection(SelectionDomain::new("brush", Channel::X))))
+            .y("mpg"),
+    );
     let plot = Plot::cartesian([symbols])
         .id("plot")
         .tools([Select::interval("brush", IntervalSelect::builder())]);
@@ -252,9 +248,7 @@ fn a_pinned_middle_centers_the_domain() {
         cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight")
-                .scale(Domain::data(DataDomain::builder().fit(
-                    IntervalFit::builder().pin(DomainPin::new(3000.0, PinPosition::Mid)),
-                ))))
+                .scale(Scale::builder().pin(DomainPin::new(3000.0, PinPosition::Mid))))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();

@@ -1,4 +1,4 @@
-//! The inference of the scale types and domains that marks and the types of their values imply.
+//! The inference of the scale types that marks and the types of their values imply.
 
 mod support;
 
@@ -14,7 +14,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{domain, node, plot, scale},
+    proto::{node, plot, scale},
     MarkMessage,
 };
 
@@ -141,16 +141,12 @@ fn scale_types_follow_values_channels_and_marks() {
             Some(expected),
             "{channel:?} of `{column}`"
         );
+        // The domain stays unset, which is the data domain.
         assert!(
-            matches!(
-                encoding
-                    .scale
-                    .as_ref()
-                    .and_then(|spec| spec.domain.as_ref()),
-                Some(Domain {
-                    domain: Some(domain::Domain::Data(_))
-                })
-            ),
+            encoding
+                .scale
+                .as_ref()
+                .is_some_and(|spec| spec.domain.is_none()),
             "the domain of {channel:?} of `{column}`"
         );
     }
@@ -181,11 +177,8 @@ fn present_fields_and_plain_values_stay() {
             ..
         }))
     ));
-    // The domain was absent, so it is the data domain.
-    assert!(matches!(
-        x.domain.unwrap().domain,
-        Some(domain::Domain::Data(_))
-    ));
+    // The domain was absent, so it stays absent, which is the data domain.
+    assert!(x.domain.is_none());
     // `y`, a scaled column without a scale, gets one, and `color`, a plain column, has none.
     assert_eq!(type_name(&encoding(message, Channel::Y)), Some("linear"));
     assert!(encoding(message, Channel::Color).scale.is_none());

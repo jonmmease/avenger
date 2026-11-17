@@ -13,7 +13,7 @@ use arrow::{
 };
 use avenger_chart::{
     charts_from_arrow, charts_to_arrow, list_value, proto, values_from_ipc, values_to_ipc, Chart,
-    ChartError, Decode,
+    ChartError, Decode, FORMAT_VERSION,
 };
 use support::*;
 
@@ -47,9 +47,7 @@ fn the_fields_after_the_values_round_trip() {
     if let Some(proto::cartesian_layer::Mark::Symbol(mark)) = &mut layer.mark {
         mark.x = Some(column(
             "a",
-            linear(proto::domain::Domain::Explicit(proto::ValueRef {
-                index: 0,
-            })),
+            linear(proto::scale::Domain::Explicit(proto::ValueRef { index: 0 })),
         ));
     }
     message.root = Some(plot(vec![layer]));
@@ -165,15 +163,15 @@ fn a_compressed_stream_fails() {
 }
 
 #[test]
-fn versions_other_than_1_fail() {
+fn versions_other_than_the_format_version_fail() {
     let mut message = chart(plot(vec![symbols(0)]));
     message.version = 0;
     let error = Chart::from_parts(message.clone(), vec![points()], vec![]).unwrap_err();
     assert!(matches!(error, ChartError::NotAChart(_)), "{error}");
-    message.version = 2;
+    message.version = FORMAT_VERSION + 1;
     let error = Chart::from_parts(message, vec![points()], vec![]).unwrap_err();
     assert!(
-        matches!(error, ChartError::UnsupportedVersion(2)),
+        matches!(error, ChartError::UnsupportedVersion(version) if version == FORMAT_VERSION + 1),
         "{error}"
     );
 }

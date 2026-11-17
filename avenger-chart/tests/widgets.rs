@@ -325,20 +325,16 @@ fn the_copies_of_one_widget_agree() {
         "an explicit domain and a summary or a data domain",
     );
 
-    // The fits of data domains merge field by field.
+    // The fit fields of data domains merge field by field.
     let nice = |count: Option<f64>, zero: Option<bool>| {
         let mut widget = range_slider();
         if let Some(proto::widget::Kind::RangeSlider(slider)) = widget.kind.as_mut() {
             slider.domain = Some(proto::WidgetDomain {
                 domain: Some(proto::widget_domain::Domain::Data(
                     proto::WidgetDataDomain {
-                        fit: Some(proto::DomainFit {
-                            fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                                nice: count.map(proto::interval_fit::Nice::TickCount),
-                                zero,
-                                ..Default::default()
-                            })),
-                        }),
+                        nice: count.map(proto::widget_data_domain::Nice::TickCount),
+                        zero,
+                        ..Default::default()
                     },
                 )),
             });
@@ -358,14 +354,12 @@ fn the_copies_of_one_widget_agree() {
         panic!("a data domain");
     };
     assert_eq!(
-        data.fit,
-        Some(proto::DomainFit {
-            fit: Some(proto::domain_fit::Fit::Interval(proto::IntervalFit {
-                nice: Some(proto::interval_fit::Nice::TickCount(6.0)),
-                zero: Some(true),
-                ..Default::default()
-            })),
-        })
+        *data,
+        proto::WidgetDataDomain {
+            nice: Some(proto::widget_data_domain::Nice::TickCount(6.0)),
+            zero: Some(true),
+            ..Default::default()
+        }
     );
     invalid(
         pair(nice(Some(6.0), None), nice(Some(4.0), None), vec![]),

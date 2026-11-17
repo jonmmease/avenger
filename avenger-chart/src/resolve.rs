@@ -15,7 +15,7 @@ use arrow::{
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage},
     merge,
-    proto::{self, domain, node::Node, plot::Coord, Channel, Sharing},
+    proto::{self, node::Node, plot::Coord, scale, Channel, Sharing},
     table::{self, Matches, Tables},
     validate::{is_position, value_key},
     Chart, ChartError,
@@ -709,13 +709,8 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     let mut entries_of: Vec<Vec<usize>> = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let layer = &tree.layers[entry.layer];
-        let summary = match entry
-            .spec
-            .domain
-            .as_ref()
-            .and_then(|domain| domain.domain.as_ref())
-        {
-            Some(domain::Domain::Summary(summary)) => summary.value,
+        let summary = match &entry.spec.domain {
+            Some(scale::Domain::Summary(summary)) => Some(*summary),
             _ => None,
         };
         let member = Member {

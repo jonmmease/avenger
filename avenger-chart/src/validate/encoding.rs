@@ -20,9 +20,8 @@ use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
     lump,
     proto::{
-        self, axis, category_fit, conditional_value, domain, domain_fit, encoding, interval_fit,
-        legend, navigation_limits, polar_layer, range, scale, selection_domain, ticks, Channel,
-        LegendForm,
+        self, axis, conditional_value, encoding, legend, navigation_limits, polar_layer, scale,
+        selection_domain, ticks, Channel, LegendForm,
     },
     resolve::scale_channel,
     span,
@@ -425,30 +424,20 @@ impl Checker<'_> {
                 ),
             ));
         }
-        let domain = spec
-            .domain
-            .as_ref()
-            .and_then(|domain| domain.domain.as_ref());
-        let explicit = match domain {
+        let explicit = match &spec.domain {
             None => {
-                return Err(fail(
-                    format!("{path}.domain"),
-                    "the domain of a scale is required",
-                ))
-            }
-            Some(domain::Domain::Explicit(value)) => {
-                Some(self.explicit(value, scale_type, &format!("{path}.domain.explicit"))?)
-            }
-            Some(domain::Domain::Summary(summary)) => {
-                self.summary(summary, scale_type, &format!("{path}.domain.summary"))?;
+                data_domain(scale_type, &format!("{path}.domain"))?;
                 None
             }
-            Some(domain::Domain::Data(data)) => {
-                self.data(data, scale_type, &format!("{path}.domain.data"))?;
+            Some(scale::Domain::Explicit(value)) => {
+                Some(self.explicit(value, scale_type, &format!("{path}.explicit"))?)
+            }
+            Some(scale::Domain::Summary(summary)) => {
+                self.summary(summary, scale_type, &format!("{path}.summary"))?;
                 None
             }
-            Some(domain::Domain::Selection(selection)) => {
-                let path = format!("{path}.domain.selection");
+            Some(scale::Domain::Selection(selection)) => {
+                let path = format!("{path}.selection");
                 self.selection(&selection.selection, &format!("{path}.selection"))?;
                 match selection.fallback.as_ref() {
                     Some(selection_domain::Fallback::Explicit(value)) => {
@@ -458,34 +447,33 @@ impl Checker<'_> {
                         self.summary(summary, scale_type, &format!("{path}.summary"))?;
                         None
                     }
-                    Some(selection_domain::Fallback::Data(data)) => {
-                        self.data(data, scale_type, &format!("{path}.data"))?;
+                    None => {
+                        data_domain(scale_type, &format!("{path}.fallback"))?;
                         None
                     }
-                    None => unreachable!("{REQUIRED}"),
                 }
             }
         };
+        self.fit(spec, scale_type, path)?;
         if let Some(range) = &spec.range {
-            let path = format!("{path}.range");
-            match &range.range {
-                Some(_) if is_position(channel) => {
+            match range {
+                _ if is_position(channel) => {
                     return Err(fail(
-                        &path,
-                        "the plot gives the range of a position channel, which sets only `reverse`",
+                        format!("{path}.range"),
+                        "the plot gives the range of a position channel, which takes only \
+                         `reverse`",
                     ))
                 }
-                Some(range::Range::Values(value)) => {
+                scale::Range::Values(value) => {
                     self.values.list(value, &format!("{path}.values"))?;
                 }
-                Some(range::Range::Palette(name)) => {
+                scale::Range::Palette(name) => {
                     named(name, &format!("{path}.palette"), "the name of a palette")?
                 }
-                None => {}
             }
         }
-        if let Some(navigation) = &spec.navigation_limits {
-            let path = format!("{path}.navigation_limits");
+        if let Some(navigation) = &spec.navigation {
+            let path = format!("{path}.navigation");
             let continuous = ticked(scale_type) || matches!(scale_type, scale::Type::Custom(_));
             if !(matches!(channel, Channel::X | Channel::Y) && continuous) {
                 return Err(fail(
@@ -493,13 +481,11 @@ impl Checker<'_> {
                     "a navigation is valid only on a continuous scale of `x` or `y`",
                 ));
             }
-            if let Some(navigation_limits::Bounds::Interval(interval)) = &navigation.bounds {
-                if !(interval.low.is_finite()
-                    && interval.high.is_finite()
-                    && interval.low < interval.high)
+            if let Some(navigation_limits::Bounds::Extent(extent)) = &navigation.bounds {
+                if !(extent.low.is_finite() && extent.high.is_finite() && extent.low < extent.high)
                 {
                     return Err(fail(
-                        format!("{path}.interval"),
+                        format!("{path}.extent"),
                         "the bounds of a navigation run from `low` up to `high`",
                     ));
                 }
@@ -556,19 +542,13 @@ impl Checker<'_> {
     }
 
     /// Checks the layout of a summary domain against the kind of its scale.
-    /// Checks a summary domain: its summary and its fit.
     fn summary(
         &self,
-        summary: &proto::SummaryDomain,
+        summary: &proto::ValueRef,
         scale_type: &scale::Type,
         path: &str,
     ) -> Result<()> {
-        if let Some(fit) = &summary.fit {
-            self.fit(fit, scale_type, &format!("{path}.fit"))?;
-        }
-        let path = format!("{path}.value");
-        let path = path.as_str();
-        let summary = self.values.scalar(summary.value.as_ref(), path)?;
+        let summary = self.values.scalar(Some(summary), path)?;
         let DataType::Struct(fields) = summary.data_type() else {
             return Err(fail(
                 path,
@@ -606,76 +586,100 @@ impl Checker<'_> {
         Ok(())
     }
 
-    /// Checks a data domain: its scale summarizes data, and its fit.
-    fn data(&self, data: &proto::DataDomain, scale_type: &scale::Type, path: &str) -> Result<()> {
-        data_domain(scale_type, path)?;
-        match &data.fit {
-            Some(fit) => self.fit(fit, scale_type, &format!("{path}.fit")),
-            None => Ok(()),
-        }
-    }
-
-    fn fit(&self, fit: &proto::DomainFit, scale_type: &scale::Type, path: &str) -> Result<()> {
-        let kind = FitKind::of(scale_type);
-        match fit.fit.as_ref() {
-            Some(domain_fit::Fit::Interval(interval))
-                if kind.is_none_or(|kind| kind == FitKind::Interval) =>
-            {
-                let path = format!("{path}.interval");
-                if let Some(interval_fit::Nice::TickCount(count)) = interval.nice {
-                    positive(Some(count), &format!("{path}.tick_count"))?;
-                }
-                if let Some(empty) = &interval.empty {
-                    self.values.list(empty, &format!("{path}.empty"))?;
-                }
-                if let Some(pin) = &interval.pin {
-                    let value = pin.value.as_ref().expect(REQUIRED);
-                    let path = format!("{path}.pin.value");
-                    let pin = self.values.scalar(value, &path)?;
-                    if !takes_values(domain_values(scale_type), pin.data_type()) {
-                        return Err(fail(
-                            &path,
-                            format!(
-                                "a pin of type {} is invalid on a {} scale",
-                                pin.data_type(),
-                                type_name(scale_type)
-                            ),
-                        ));
-                    }
-                }
-                Ok(())
-            }
-            Some(domain_fit::Fit::Categories(categories))
-                if kind.is_none_or(|kind| kind == FitKind::Categories) =>
-            {
-                let path = format!("{path}.categories");
-                match categories.ordering.as_ref() {
-                    Some(category_fit::Ordering::Sort(_)) => Ok(()),
-                    Some(category_fit::Ordering::Preferred(value)) => {
-                        if matches!(scale_type, scale::Type::NestedBand(_)) {
-                            return Err(fail(
-                                &path,
-                                "a preferred order is invalid on a nested band scale",
-                            ));
-                        }
-                        self.values
-                            .list(value, &format!("{path}.preferred"))
-                            .map(|_| ())
-                    }
-                    // An unset order is ascending, the default of a category fit.
-                    None => Ok(()),
-                }
-            }
-            Some(_) => Err(fail(
-                path,
+    /// Checks the fit fields of `spec`: the renderer fits its domain, they are of one kind, which
+    /// its type fits, and their values.
+    fn fit(&self, spec: &proto::Scale, scale_type: &scale::Type, path: &str) -> Result<()> {
+        let interval = [
+            ("zero", spec.zero.is_some()),
+            ("nice", spec.nice.is_some()),
+            ("pin", spec.pin.is_some()),
+            ("domain_empty", spec.domain_empty.is_some()),
+        ];
+        let interval = interval.iter().find(|(_, set)| *set).map(|(name, _)| *name);
+        let sort = spec.sort.is_some().then_some("sort");
+        let Some(first) = interval.or(sort) else {
+            return Ok(());
+        };
+        let fitted = match &spec.domain {
+            Some(scale::Domain::Explicit(_)) => false,
+            Some(scale::Domain::Selection(selection)) => !matches!(
+                selection.fallback,
+                Some(selection_domain::Fallback::Explicit(_))
+            ),
+            Some(scale::Domain::Summary(_)) | None => true,
+        };
+        if !fitted {
+            return Err(fail(
+                format!("{path}.{first}"),
                 format!(
-                    "the fit is not of the kind that a {} scale fits",
-                    type_name(scale_type)
+                    "`{first}` is invalid with an explicit domain or an explicit fallback, which \
+                     the renderer does not fit"
                 ),
-            )),
-            // A fit without a kind is the fit of the scale's kind with no field set.
-            None => Ok(()),
+            ));
         }
+        if let (Some(interval), Some(_)) = (interval, sort) {
+            return Err(fail(
+                format!("{path}.sort"),
+                format!(
+                    "`sort` fits categories and `{interval}` an interval, and a scale takes the \
+                     fit fields of one kind"
+                ),
+            ));
+        }
+        let kind = FitKind::of(scale_type);
+        if let Some(field) = interval {
+            if kind.is_some_and(|kind| kind != FitKind::Interval) {
+                return Err(fail(
+                    format!("{path}.{field}"),
+                    format!(
+                        "`{field}` fits an interval, which a {} scale does not fit",
+                        type_name(scale_type)
+                    ),
+                ));
+            }
+            if let Some(scale::Nice::TickCount(count)) = spec.nice {
+                positive(Some(count), &format!("{path}.tick_count"))?;
+            }
+            if let Some(empty) = &spec.domain_empty {
+                self.values.list(empty, &format!("{path}.domain_empty"))?;
+            }
+            if let Some(pin) = &spec.pin {
+                let value = pin.value.as_ref().expect(REQUIRED);
+                let path = format!("{path}.pin.value");
+                let pin = self.values.scalar(Some(value), &path)?;
+                if !takes_values(domain_values(scale_type), pin.data_type()) {
+                    return Err(fail(
+                        &path,
+                        format!(
+                            "a pin of type {} is invalid on a {} scale",
+                            pin.data_type(),
+                            type_name(scale_type)
+                        ),
+                    ));
+                }
+            }
+        }
+        if let Some(sort) = &spec.sort {
+            if kind.is_some_and(|kind| kind != FitKind::Categories) {
+                return Err(fail(
+                    format!("{path}.sort"),
+                    format!(
+                        "`sort` fits categories, which a {} scale does not fit",
+                        type_name(scale_type)
+                    ),
+                ));
+            }
+            if let scale::Sort::Preferred(value) = sort {
+                if matches!(scale_type, scale::Type::NestedBand(_)) {
+                    return Err(fail(
+                        format!("{path}.preferred"),
+                        "a preferred order is invalid on a nested band scale",
+                    ));
+                }
+                self.values.list(value, &format!("{path}.preferred"))?;
+            }
+        }
+        Ok(())
     }
 
     /// Checks an axis: valid on `x` or `y` of a Cartesian plot and on `theta` or `radius` of a polar
@@ -1035,9 +1039,9 @@ fn scale_options(scale_type: &scale::Type, value_type: &DataType, path: &str) ->
         }
         Type::Custom(custom) => {
             named(
-                &custom.r#type,
-                &format!("{path}.custom.type"),
-                "the type of a custom scale",
+                &custom.name,
+                &format!("{path}.custom.name"),
+                "the name of a custom scale",
             )?;
             keyed(
                 &custom.options,

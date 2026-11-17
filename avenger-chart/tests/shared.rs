@@ -356,9 +356,8 @@ fn chart_message(layers: Vec<CartesianLayer>) -> proto::Chart {
 #[test]
 fn explicit_and_data_domains_do_not_share_a_scale() {
     let mut explicit = symbols(0);
-    scale_of(&mut explicit, true).domain = Some(proto::Domain {
-        domain: Some(proto::domain::Domain::Explicit(ValueRef { index: 0 })),
-    });
+    scale_of(&mut explicit, true).domain =
+        Some(proto::scale::Domain::Explicit(ValueRef { index: 0 }));
     let values = vec![avenger_chart::list_value(Arc::new(Float64Array::from(
         vec![0.0, 10.0],
     )))];
@@ -580,52 +579,48 @@ fn the_clauses_of_joined_selections_agree() {
 
 #[test]
 fn shared_fits_merge_field_by_field() {
-    let fitted = |fit: proto::IntervalFit| {
+    let fitted = |fit: proto::Scale| {
         let mut layer = symbols(0);
-        *data_fit(scale_of(&mut layer, false)) = Some(proto::DomainFit {
-            fit: Some(proto::domain_fit::Fit::Interval(fit)),
-        });
+        let spec = scale_of(&mut layer, false);
+        spec.zero = fit.zero;
+        spec.nice = fit.nice;
+        spec.pin = fit.pin;
         plot(vec![layer])
     };
-    let zero = proto::IntervalFit {
+    let zero = proto::Scale {
         zero: Some(true),
         ..Default::default()
     };
-    let nice = proto::IntervalFit {
-        nice: Some(proto::interval_fit::Nice::TickCount(5.0)),
+    let nice = proto::Scale {
+        nice: Some(proto::scale::Nice::TickCount(5.0)),
         ..Default::default()
     };
-    let chart = read(parts(shared_row(vec![fitted(zero), fitted(nice)]), vec![])).unwrap();
+    let chart = read(parts(
+        shared_row(vec![fitted(zero.clone()), fitted(nice.clone())]),
+        vec![],
+    ))
+    .unwrap();
     let groups = chart.resolve().scales;
-    let mut x = groups
+    let x = groups
         .into_iter()
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
     assert_eq!(x.members.len(), 2);
-    let merged = proto::IntervalFit {
-        zero: Some(true),
-        nice: Some(proto::interval_fit::Nice::TickCount(5.0)),
-        empty: None,
-        pin: None,
-    };
-    assert_eq!(
-        *data_fit(&mut x.spec),
-        Some(proto::DomainFit {
-            fit: Some(proto::domain_fit::Fit::Interval(merged)),
-        })
-    );
-    let other_zero = proto::IntervalFit {
+    assert_eq!(x.spec.zero, Some(true));
+    assert_eq!(x.spec.nice, Some(proto::scale::Nice::TickCount(5.0)));
+    assert_eq!((x.spec.pin, x.spec.domain_empty), (None, None));
+    let other_zero = proto::Scale {
         zero: Some(false),
         ..Default::default()
     };
     invalid(
         parts(shared_row(vec![fitted(zero), fitted(other_zero)]), vec![]),
         "root.concat.children[1].plot.cartesian.layers[0]",
-        "fit",
+        "zero",
     );
     // Fits that pin different places of the domain disagree.
     let value = proto::ValueRef { index: 0 };
-    let pinned = |position: proto::PinPosition| proto::IntervalFit {
+    let pinned = |position: proto::PinPosition| proto::Scale {
         pin: Some(proto::DomainPin {
             value: Some(value),
             position: position as i32,
@@ -635,11 +630,51 @@ fn shared_fits_merge_field_by_field() {
     let values = || -> Vec<ArrayRef> { vec![Arc::new(Float64Array::from(vec![0.0]))] };
     let low = pinned(proto::PinPosition::Low);
     let mid = pinned(proto::PinPosition::Mid);
-    read(parts(shared_row(vec![fitted(low), fitted(nice)]), values())).unwrap();
+    read(parts(
+        shared_row(vec![fitted(low.clone()), fitted(nice)]),
+        values(),
+    ))
+    .unwrap();
     invalid(
         parts(shared_row(vec![fitted(low), fitted(mid)]), values()),
         "root.concat.children[1].plot.cartesian.layers[0]",
-        "fit",
+        "pin",
+    );
+}
+
+/// A range that one spec sets is the range of both, and a reversed spec reverses the shared
+/// scale, so a palette and a reversed spec without a range share a reversed palette.
+#[test]
+fn a_shared_range_and_its_reverse_merge() {
+    let colored = |range: Option<proto::scale::Range>, reverse: bool| {
+        let mut layer = symbols(0);
+        if let Some(proto::cartesian_layer::Mark::Symbol(mark)) = &mut layer.mark {
+            let mut scale = linear_data();
+            scale.range = range;
+            scale.reverse = reverse;
+            mark.color = Some(column("b", scale));
+        }
+        layer
+    };
+    let palette = || Some(proto::scale::Range::Palette("viridis".to_string()));
+    let chart = read(parts(
+        plot(vec![colored(palette(), false), colored(None, true)]),
+        vec![],
+    ))
+    .unwrap();
+    let color = (chart.resolve().scales.into_iter())
+        .find(|group| group.channel == proto::Channel::Color)
+        .unwrap();
+    assert_eq!(color.spec.range, palette());
+    assert!(color.spec.reverse);
+    let other = Some(proto::scale::Range::Palette("magma".to_string()));
+    invalid(
+        parts(
+            plot(vec![colored(palette(), false), colored(other, false)]),
+            vec![],
+        ),
+        "root.plot.cartesian.layers[1]",
+        "range",
     );
 }
 
@@ -822,9 +857,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
             kind: kind as i32,
             ..Default::default()
         }));
-        spec.domain = Some(proto::Domain {
-            domain: Some(proto::domain::Domain::Data(proto::DataDomain::default())),
-        });
+        spec.domain = None;
         spec.axis = Some(proto::Axis {
             classes: classes.iter().map(|class| class.to_string()).collect(),
             ..Default::default()

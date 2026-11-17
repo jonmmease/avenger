@@ -1112,14 +1112,8 @@ impl ChartEvaluator {
     pub fn domain_selection(&self, plot: usize, channel: Channel) -> Option<String> {
         let group = self.plot_group(plot, channel)?;
         let resolved = self.chart.resolve();
-        match resolved.scales[group]
-            .spec
-            .domain
-            .as_ref()?
-            .domain
-            .as_ref()?
-        {
-            avenger_chart::proto::domain::Domain::Selection(selection) => {
+        match resolved.scales[group].spec.domain.as_ref()? {
+            avenger_chart::proto::scale::Domain::Selection(selection) => {
                 Some(selection.selection.clone())
             }
             _ => None,
@@ -1232,7 +1226,7 @@ impl ChartEvaluator {
         let group = self.plot_group(plot, channel)?;
         let resolved = self.chart.resolve();
         let spec = &resolved.scales[group].spec;
-        let Some(limits) = &spec.navigation_limits else {
+        let Some(limits) = &spec.navigation else {
             return Some(ScaleNavigation::default());
         };
         let bounds = match &limits.bounds {
@@ -1240,7 +1234,7 @@ impl ChartEvaluator {
                 .home_scale(plot, channel)
                 .and_then(|home| home.numeric_interval_domain().ok())
                 .map(|(start, end)| [start.min(end), start.max(end)]),
-            Some(Bounds::Interval(interval)) => Some([interval.low, interval.high]),
+            Some(Bounds::Extent(extent)) => Some([extent.low, extent.high]),
             Some(Bounds::Data(_)) | None => None,
         };
         Some(ScaleNavigation {
@@ -1708,7 +1702,7 @@ fn layer_scales<'a>(
 /// quantitative `x` or `y` scale has nice ends at a count of 10. The key of bars of bins takes
 /// neither.
 pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind]) -> FitDefaults {
-    use avenger_chart::proto::{domain, scale::Type};
+    use avenger_chart::proto::scale::{Domain, Type};
     let group = &resolved.scales[index];
     let scale_type = group.spec.r#type.as_ref();
     let linear = matches!(
@@ -1716,10 +1710,7 @@ pub(crate) fn fit_defaults(resolved: &Resolved, index: usize, kinds: &[FitKind])
         Some(Type::Linear(_) | Type::Pow(_) | Type::Symlog(_))
     );
     let quantitative = linear || matches!(scale_type, Some(Type::Log(_)));
-    let selection = matches!(
-        (group.spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()),
-        Some(domain::Domain::Selection(_))
-    );
+    let selection = matches!(group.spec.domain, Some(Domain::Selection(_)));
     let asks = |member: &avenger_chart::resolve::Member| {
         let layer = &resolved.tree.layers[member.layer];
         let layer_kinds = layer_kinds(resolved, member.layer, kinds);

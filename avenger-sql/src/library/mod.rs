@@ -134,8 +134,8 @@ pub struct Takes {
 
 /// A constructor that a parameter takes, by its name in SQL, with the part of the parameter's
 /// target that its fragment sets: the parameter of the target's constructor that sets the
-/// outermost field of its chain, such as `type` for `linear_scale` and `domain` for
-/// `interval_fit` in the `scale` of `scaled`, or `None` for the target itself.
+/// outermost field of its chain, such as `type` for `linear_scale` and `legend` for `legend` in
+/// the `scale` of `scaled`, or `None` for the target itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Builds {
     pub constructor: String,
@@ -159,7 +159,7 @@ pub struct Forms {
     /// values, and the constructors of its target itself.
     pub lines: Vec<String>,
     /// The constructors of the parts of its target, by part, such as
-    /// `("Its domain", ["category_fit(...)", ...])`.
+    /// `("Its type", ["band_scale(...)", ...])`.
     pub groups: Vec<(String, Vec<String>)>,
 }
 
@@ -173,7 +173,7 @@ impl Forms {
         }
     }
 
-    /// The groups as a Markdown list, such as `- Its domain: `scale_domain(...)`, ...`, or
+    /// The groups as a Markdown list, such as `- Its type: `band_scale(...)`, ...`, or
     /// `None` without groups.
     pub fn groups(&self) -> Option<String> {
         let items: Vec<String> = (self.groups.iter())

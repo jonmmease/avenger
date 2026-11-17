@@ -6,18 +6,18 @@ use arrow::{
 use crate::{
     layer::{MarkMessage, MarkType},
     lump,
-    proto::{self, conditional_value, domain, encoding, node::Node, plot::Coord, scale, Channel},
+    proto::{self, conditional_value, encoding, node::Node, plot::Coord, scale, Channel},
     span,
     validate::{dictionary_values, scaled, takes_scale},
 };
 
 /// Infers the scales of the encodings of `message` from their marks and the types of their values,
-/// with the tables and the values that `message` refers to: the absent scale types and domains. It
-/// never changes a field that is present, so a producer sets a field to override an inference.
+/// with the tables and the values that `message` refers to: the absent scale types. It never
+/// changes a field that is present, so a producer sets a field to override an inference.
 ///
 /// It infers the scale of each encoding whose value or one of whose conditional values is a
-/// `scaled_field` or a `scaled_value`: the scale when the encoding has none, its type when it
-/// is absent, and its domain when it is absent. An encoding of plain values has no scale, and the
+/// `scaled_field` or a `scaled_value`: the scale when the encoding has none, and its type when it
+/// is absent. An encoding of plain values has no scale, and the
 /// mark draws its values as they are.
 ///
 /// A column of spans on a first position channel, such as `x`, also gives the channel's partner,
@@ -34,10 +34,11 @@ use crate::{
 /// | strings and booleans | band for bars and rects, point otherwise | ordinal | point on `size`, the opacities, and `stroke_width`, ordinal otherwise | ordinal |
 /// | structs of paths | nested band | none | none | none |
 ///
-/// A scale with a type whose domain is absent gets the layer's data domain. Values of another type,
-/// such as times of day and durations, and a column that the layer's table lacks, get no scale
-/// type, and the reader reports the encoding. Fits, axes, legends, titles, styles, and the kinds of
-/// discrete scales stay absent: they are the choice of the producer and the renderer's stylesheets.
+/// A scale whose domain is absent takes the layer's data domain, which needs no inference. Values
+/// of another type, such as times of day and durations, and a column that the layer's table lacks,
+/// get no scale type, and the reader reports the encoding. Fits, axes, legends, titles, styles, and
+/// the kinds of discrete scales stay absent: they are the choice of the producer and the renderer's
+/// stylesheets.
 pub(crate) fn infer_scales(
     message: &mut proto::Chart,
     tables: &[RecordBatch],
@@ -135,11 +136,6 @@ fn mark(mark: &mut dyn MarkMessage, table: Option<&RecordBatch>, values: &[Array
         if spec.r#type.is_none() {
             spec.r#type =
                 data_type.and_then(|data_type| scale_type(&data_type, *channel, mark_type));
-        }
-        if spec.r#type.is_some() && spec.domain.is_none() {
-            spec.domain = Some(proto::Domain {
-                domain: Some(domain::Domain::Data(proto::DataDomain::default())),
-            });
         }
     }
 }

@@ -12,8 +12,8 @@ use arrow::{
 use avenger_chart::{
     prelude::*,
     proto::{
-        cartesian_layer, conditional_value, domain, domain_fit, encoding, legend_wrap, node, plot,
-        predicate, scale,
+        cartesian_layer, conditional_value, encoding, legend_wrap, node, plot, predicate, scale,
+        spherical,
     },
     FORMAT_VERSION,
 };
@@ -60,8 +60,8 @@ fn scalar_optional_and_enum_fields_take_their_rust_types() {
     // An optional field that the caller does not set stays absent.
     assert_eq!(BarMark::builder().build().unwrap().corner_radius, None);
     // `false` is an explicit setting of an optional field.
-    let fit = IntervalFit::builder().zero(false).build().unwrap();
-    assert_eq!(fit.zero, Some(false));
+    let spec = Scale::builder().zero(false).build().unwrap();
+    assert_eq!(spec.zero, Some(false));
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn a_message_of_one_required_field_converts_from_it() {
     let Some(scale::Type::Custom(custom)) = custom.r#type else {
         panic!("the scale is custom")
     };
-    assert_eq!(custom.r#type, "warp");
+    assert_eq!(custom.name, "warp");
     let Some(predicate::Predicate::Selected(selected)) =
         Predicate::selected("brush").build().unwrap().predicate
     else {
@@ -138,18 +138,8 @@ fn a_message_of_one_required_field_converts_from_it() {
 }
 
 #[test]
-fn a_scale_converts_from_its_types_and_its_lifted_fields() {
-    // Rule B: the members of the scale's type.
-    assert!(matches!(
-        ScaleBuilder::from(BandScale::builder())
-            .build()
-            .unwrap()
-            .r#type,
-        Some(scale::Type::Band(_))
-    ));
-    // Rule F: the domain, the range, the axis, and the legend.
-    let spec = ScaleBuilder::from(Domain::explicit([0.0, 1.0]));
-    invalid(spec.build(), "domain.explicit", "builds only in a chart");
+fn a_scale_converts_from_its_lifted_fields() {
+    // Rule F: the axis and the legend.
     let spec = ScaleBuilder::from(Axis::builder().show(false))
         .build()
         .unwrap();
@@ -158,10 +148,6 @@ fn a_scale_converts_from_its_types_and_its_lifted_fields() {
         .build()
         .unwrap();
     assert_eq!(spec.legend.unwrap().form, LegendForm::Colorbar as i32);
-    let spec = ScaleBuilder::from(Range::builder().reverse(true))
-        .build()
-        .unwrap();
-    assert!(spec.range.unwrap().reverse);
 }
 
 #[test]
@@ -239,26 +225,19 @@ fn helpers_hide_axes_and_legends() {
 
 #[test]
 fn a_wrapper_converts_from_its_members() {
-    let spec = Scale::builder()
-        .domain(DataDomain::builder().fit(IntervalFit::builder().zero(true)))
+    // Rule B: a message with one oneof converts from the builder of a member.
+    let wrap = LegendWrapBuilder::from(LegendGrid::builder().columns(2))
         .build()
         .unwrap();
-    let Some(Domain {
-        domain: Some(domain::Domain::Data(data)),
-    }) = spec.domain
-    else {
-        panic!("the domain is a data domain")
+    let Some(legend_wrap::Wrap::Grid(grid)) = wrap.wrap else {
+        panic!("the wrap is a grid")
     };
-    let Some(DomainFit {
-        fit: Some(domain_fit::Fit::Interval(fit)),
-    }) = data.fit
-    else {
-        panic!("the fit is an interval fit")
-    };
-    assert_eq!(fit.zero, Some(true));
+    assert_eq!(grid.columns, Some(2));
     // A message converts as its builder does.
-    let domain = DomainBuilder::from(DataDomain::default()).build().unwrap();
-    assert!(matches!(domain.domain, Some(domain::Domain::Data(_))));
+    let wrap = LegendWrapBuilder::from(LegendGrid::default())
+        .build()
+        .unwrap();
+    assert!(matches!(wrap.wrap, Some(legend_wrap::Wrap::Grid(_))));
 }
 
 #[test]
@@ -282,9 +261,12 @@ fn a_member_of_one_repeated_field_takes_its_items() {
 }
 
 #[test]
-fn a_keyword_field_is_a_raw_identifier_in_a_constructor() {
-    let custom = CustomScale::new("warp").build().unwrap();
-    assert_eq!(custom.r#type, "warp");
+fn a_keyword_member_has_a_trailing_underscore() {
+    let spherical = Spherical::robinson()
+        .box_(LonLatBox::builder().west(-10.0))
+        .build()
+        .unwrap();
+    assert!(matches!(spherical.fit, Some(spherical::Fit::Box(_))));
 }
 
 #[test]
@@ -324,13 +306,13 @@ fn a_list_value_is_one_element_of_a_list() {
         points(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a")
-                .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
+                .scale(Scale::linear(LinearScale::builder()).explicit([0.0, 10.0])))
             .y("b"),
     )]))
     .build()
     .unwrap();
     let spec = symbols(&chart).x.as_ref().unwrap().scale.as_ref().unwrap();
-    let Some(domain::Domain::Explicit(value)) = spec.domain.as_ref().unwrap().domain else {
+    let Some(scale::Domain::Explicit(value)) = spec.domain else {
         panic!("the domain is explicit")
     };
     let ends = chart.list_elements(&value);
@@ -340,13 +322,15 @@ fn a_list_value_is_one_element_of_a_list() {
 #[test]
 fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
     let dates = || Arc::new(Date32Array::from(vec![0, 10])) as ArrayRef;
-    let fit = IntervalFit::builder().empty(Value::list(dates()));
+    let fit = Scale::builder().domain_empty(Value::list(dates()));
     // A value gets its reference only in a chart.
-    invalid(fit.build(), "empty", "builds only in a chart");
+    invalid(fit.build(), "domain_empty", "builds only in a chart");
     // A scalar is one element.
     invalid(
-        IntervalFit::builder().empty(Value::scalar(dates())).build(),
-        "empty",
+        Scale::builder()
+            .domain_empty(Value::scalar(dates()))
+            .build(),
+        "domain_empty",
         "this one has 2",
     );
 }
@@ -354,13 +338,13 @@ fn a_value_of_any_arrow_type_is_a_scalar_or_a_list() {
 #[test]
 fn an_error_of_a_setter_names_its_path_in_the_chart() {
     // An explicit domain of a scalar of two elements.
-    let size = Encoding::scaled_field("a").scale(Domain::explicit(Value::scalar(Arc::new(
+    let size = Encoding::scaled_field("a").scale(Scale::explicit(Value::scalar(Arc::new(
         Float64Array::from(vec![1.0, 2.0]),
     ))));
     let layer = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b").size(size));
     invalid(
         Chart::builder(Plot::cartesian([layer])).build(),
-        "root.plot.cartesian.layers[0].symbol.size.scale.domain.explicit",
+        "root.plot.cartesian.layers[0].symbol.size.scale.explicit",
         "one element",
     );
 }

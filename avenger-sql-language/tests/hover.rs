@@ -145,14 +145,14 @@ fn hover_shows_the_parameter_of_an_argument_name() {
 fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     let document = common::document(
         "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
-         scale => scale(domain => interval_fit(pin => domain_pin(0, 'low'))))) AS chart",
+         scale => scale(pin => domain_pin(0, 'low')))) AS chart",
     );
     let (range, markdown) = hover(&document, "pin =>", 0).unwrap();
     assert_eq!(range, "pin");
     assert!(
         markdown.starts_with(
             "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```\n\n\
-             A parameter of `interval_fit`: "
+             A parameter of `scale`: "
         ),
         "{markdown}"
     );
@@ -166,7 +166,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
         "{markdown}"
     );
     assert!(
-        markdown.contains("\n- Its domain: `category_fit(...)`"),
+        markdown.contains("\n- Its type: `band_scale(...)`"),
         "{markdown}"
     );
     assert!(!markdown.contains("BYTES"), "{markdown}");

@@ -83,8 +83,8 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
 
 #[tokio::test]
 async fn two_orders_of_arguments_give_equal_bytes() {
-    let first = fragment("interval_fit(zero => FALSE, empty => [0, 10])").await;
-    let second = fragment("interval_fit(empty => [0, 10], zero => FALSE)").await;
+    let first = fragment("scale(zero => FALSE, domain_empty => [0, 10])").await;
+    let second = fragment("scale(domain_empty => [0, 10], zero => FALSE)").await;
     assert_eq!(first.encode_to_vec(), second.encode_to_vec());
 }
 
@@ -105,16 +105,13 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     // A value of a member's type, where an integer sets a floating-point member.
     builds(
-        "interval_fit(nice => 5)",
-        IntervalFit::builder()
-            .tick_count(5.0)
-            .to_fragment()
-            .unwrap(),
+        "scale(nice => 5)",
+        Scale::builder().tick_count(5.0).to_fragment().unwrap(),
     )
     .await;
     builds(
-        "interval_fit(nice => TRUE)",
-        IntervalFit::builder().enabled(true).to_fragment().unwrap(),
+        "scale(nice => TRUE)",
+        Scale::builder().enabled(true).to_fragment().unwrap(),
     )
     .await;
     builds(
@@ -132,41 +129,48 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     // A string member before a `ValueRef` member, which takes the rest.
     builds(
-        "scale_range(range => 'viridis')",
-        Range::palette("viridis").to_fragment().unwrap(),
+        "scale(range => 'viridis')",
+        Scale::builder().palette("viridis").to_fragment().unwrap(),
     )
     .await;
     builds(
-        "scale_range(range => ['#e45756', '#4c78a8'])",
-        Range::values(["#e45756", "#4c78a8"]).to_fragment().unwrap(),
+        "scale(range => ['#e45756', '#4c78a8'])",
+        Scale::builder()
+            .values(["#e45756", "#4c78a8"])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    // The first `ValueRef` member of a oneof takes a constant: the explicit domain, not the
+    // summary.
+    builds(
+        "scale(domain => [0, 100])",
+        Scale::builder()
+            .explicit([0i64, 100])
+            .to_fragment()
+            .unwrap(),
     )
     .await;
 }
 
 #[tokio::test]
 async fn conversions_reach_a_message_through_a_chain() {
-    // Rule O: a constant sets the explicit domain, and a string the palette of a range.
+    // Rule O: a string names a member of the leading oneof of the navigation limits, and a
+    // fragment of an interval sets their extent.
     builds(
-        "scale(domain => [0, 100])",
+        "scale(navigation => 'data')",
         Scale::builder()
-            .domain(Domain::explicit([0i64, 100]))
+            .navigation(NavigationLimits::data())
             .to_fragment()
             .unwrap(),
     )
     .await;
     builds(
-        "scale(range => 'viridis')",
+        "scale(navigation => navigation_interval(0, 10))",
         Scale::builder()
-            .range(Range::palette("viridis"))
-            .to_fragment()
-            .unwrap(),
-    )
-    .await;
-    // A fit reaches the domain of a scale through its data domain.
-    builds(
-        "scale(domain => interval_fit(zero => FALSE))",
-        Scale::builder()
-            .domain(DataDomain::builder().fit(IntervalFit::builder().zero(false)))
+            .navigation(NavigationLimits::extent(
+                Interval::builder().low(0.0).high(10.0),
+            ))
             .to_fragment()
             .unwrap(),
     )
@@ -214,8 +218,8 @@ async fn errors_of_a_constant_call_fail_at_planning() {
             "scale(): `domain` takes",
         ),
         (
-            "scale(domain => interval_fit(pin => linear_scale()))",
-            "interval_fit(): `pin` takes `domain_pin(...)`, not `linear_scale(...)`",
+            "scale(navigation => navigation_limits(bounds => linear_scale()))",
+            "navigation_limits(): `bounds` takes",
         ),
     ] {
         let message = error(expression).await;

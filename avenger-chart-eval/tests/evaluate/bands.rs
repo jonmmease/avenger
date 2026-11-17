@@ -20,9 +20,7 @@ fn a_band_position_places_points_and_keeps_bars_across_their_bands() {
             categories(),
             BarMark::builder()
                 .x(x)
-                .y(Encoding::scaled_field("amount").scale(Domain::data(
-                    DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-                ))),
+                .y(Encoding::scaled_field("amount").scale(Scale::builder().zero(true))),
         );
         Chart::builder(Plot::cartesian([bars])).build().unwrap()
     };
@@ -82,9 +80,7 @@ fn a_percentage_size_is_a_fraction_of_the_band() {
         categories(),
         BarMark::builder()
             .x("category")
-            .y(Encoding::scaled_field("amount").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            ))),
+            .y(Encoding::scaled_field("amount").scale(Scale::builder().zero(true))),
     );
     let bars = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     let full = rect_spans(&styled(&bars, ""));
@@ -151,11 +147,7 @@ fn group_totals_span_their_groups_behind_their_members() {
             NestedBandScale::builder().padding_inner([1.0, 0.1]),
         ))
     };
-    let zeroed_sales = || {
-        Encoding::scaled_field("sales").scale(Domain::data(
-            DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-        ))
-    };
+    let zeroed_sales = || Encoding::scaled_field("sales").scale(Scale::builder().zero(true));
     let groups = CartesianLayer::bar(
         totals,
         BarMark::builder()

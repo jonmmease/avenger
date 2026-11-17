@@ -196,20 +196,20 @@ polar(start_angle, end_angle, inner_radius)
   inner_radius: number
 cartesian(aspect_ratio)
   aspect_ratio: number
-scale(type, domain, range, family, axis, navigation_limits, legend)
+scale(type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, axis, navigation, legend)
   type: string -> a member's name; band_scale(...) -> band; custom_scale(...) -> custom; linear_scale(...) -> linear; log_scale(...) -> log; nested_band_scale(...) -> nested_band; ordinal_scale(...) -> ordinal; point_scale(...) -> point; pow_scale(...) -> pow; symlog_scale(...) -> symlog; time_scale(...) -> time
-  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; scale_domain(...); domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; selection_domain(...) -> selection; summary_domain(...) -> summary
-  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values; scale_range(...)
+  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; selection_domain(...) -> selection
+  zero: Boolean
+  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
+  pin: domain_pin(...)
+  domain_empty: any constant
+  sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; other -> preferred
+  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
+  reverse: Boolean
   family: string
   axis: axis(...)
-  navigation_limits: string -> a member's name; navigation_interval(...) -> interval; navigation_limits(...)
+  navigation: string -> a member's name; navigation_interval(...) -> extent; navigation_limits(...)
   legend: legend(...)
-navigation_limits(bounds, min_span)
-  bounds: string -> a member's name; navigation_interval(...) -> interval
-  min_span: number
-navigation_interval(low, high)
-  low: number
-  high: number
 legend(title, labels, side, wrap, label_padding, column_gap, row_gap, background, entries, classes, id, form, thickness, axis_gap, max_length, show_labels, label_angle, label_align, label_baseline, ticks, domain_color, show, show_title, show_swatches, show_ticks, show_domain)
   title: string -> text; title(...)
   labels: labels(...)
@@ -254,6 +254,12 @@ legend_wrap(wrap)
   wrap: string -> a member's name; legend_grid(...) -> grid
 legend_grid(columns)
   columns: integer
+navigation_limits(bounds, min_span)
+  bounds: string -> a member's name; navigation_interval(...) -> extent
+  min_span: number
+navigation_interval(low, high)
+  low: number
+  high: number
 axis(title, side, labels, show_labels, label_rotation, label_align, label_baseline, ticks, domain_color, grid, levels, classes, id, angle, show, show_title, show_ticks, show_domain, show_grid, route)
   title: string -> text; title(...)
   side: one of bottom, top, left, right
@@ -283,34 +289,15 @@ nested_axis_level(show_labels, title, label_angle, format)
 grid(color, width)
   color: string
   width: number
-scale_range(range, reverse)
-  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
-  reverse: Boolean
-scale_domain(domain)
-  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; selection_domain(...) -> selection; summary_domain(...) -> summary
-selection_domain(selection, channel, fallback)
-  selection (required): string
-  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
-  fallback (required): Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; category_fit(...) -> categories -> fit -> data; data_domain(...) -> data; domain_fit(...) -> fit -> data; interval_fit(...) -> interval -> fit -> data; summary_domain(...) -> summary
-data_domain(fit)
-  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; domain_fit(...); interval_fit(...) -> interval
-domain_fit(fit)
-  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; interval_fit(...) -> interval
-category_fit(ordering)
-  ordering: Boolean -> preferred; integer -> preferred; float -> preferred; string -> sort; array -> preferred; other -> preferred
-interval_fit(zero, nice, empty, pin)
-  zero: Boolean
-  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
-  empty: any constant
-  pin: domain_pin(...)
 domain_pin(value, position)
   value (required): any constant
   position (required): one of low, mid, high
-summary_domain(value, fit)
-  value (required): any constant
-  fit: Boolean -> preferred -> categories; integer -> preferred -> categories; float -> preferred -> categories; string -> a member's name; array -> preferred -> categories; other -> preferred -> categories; category_fit(...) -> categories; domain_fit(...); interval_fit(...) -> interval
-custom_scale(type, options)
-  type (required): string
+selection_domain(selection, channel, fallback)
+  selection (required): string
+  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
+  fallback: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit
+custom_scale(name, options)
+  name (required): string
   options: array of named_option(...)
 ordinal_scale(kind)
   kind: one of categorical, ordinal

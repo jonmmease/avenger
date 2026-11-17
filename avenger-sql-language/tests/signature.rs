@@ -144,7 +144,7 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         let parameter = &signature.parameters[signature.active_parameter.unwrap()];
         parameter.documentation.clone().unwrap()
     };
-    let pin = doc("FROM penguins |> SELECT interval_fit(pin => $0) AS f");
+    let pin = doc("FROM penguins |> SELECT scale(pin => $0) AS f");
     assert!(
         pin.ends_with(
             "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
@@ -152,8 +152,5 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         "{pin}"
     );
     let scale = doc("FROM penguins |> SELECT scaled(1, scale => $0) AS s");
-    assert!(
-        scale.contains("\n- Its domain: `category_fit(...)`"),
-        "{scale}"
-    );
+    assert!(scale.contains("\n- Its type: `band_scale(...)`"), "{scale}");
 }

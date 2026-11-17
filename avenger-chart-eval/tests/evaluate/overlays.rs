@@ -12,14 +12,12 @@ fn bars_with_a_line_on_an_independent_y() {
     // Both layers keep the months in their order. The bars' band scale and the line's point
     // scale merge into a band scale, and the line stands at the middle of each band.
     let months_in_order =
-        || Encoding::scaled_field("month").scale(Domain::explicit(Value::list(Arc::new(months()))));
+        || Encoding::scaled_field("month").scale(Scale::explicit(Value::list(Arc::new(months()))));
     let bars = CartesianLayer::bar(
         weather(),
         BarMark::builder()
             .x(months_in_order())
-            .y(Encoding::scaled_field("precipitation").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            ))),
+            .y(Encoding::scaled_field("precipitation").scale(Scale::builder().zero(true))),
     );
     let line = CartesianLayer::line(
         weather(),
@@ -93,9 +91,7 @@ fn bars_share_y_with_a_rule_of_their_mean() {
             categories(),
             BarMark::builder()
                 .x("category")
-                .y(Encoding::scaled_field("amount").scale(Domain::data(
-                    DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-                ))),
+                .y(Encoding::scaled_field("amount").scale(Scale::builder().zero(true))),
         )
     };
     let mean = || {
@@ -129,11 +125,7 @@ fn a_shared_y_of_a_summary_and_a_data_domain_fits_the_merge_of_both() {
         cars(),
         SymbolMark::builder()
             .x("weight")
-            .y(
-                Encoding::scaled_field("mpg").scale(Domain::summary(SummaryDomain::new(
-                    linear_summary(&[0.0, 30.0]),
-                ))),
-            ),
+            .y(Encoding::scaled_field("mpg").scale(Scale::summary(linear_summary(&[0.0, 30.0])))),
     );
     let rows = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
     let chart = Chart::builder(Plot::cartesian([summarized, rows]))

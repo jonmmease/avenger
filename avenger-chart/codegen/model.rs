@@ -19,7 +19,8 @@
 //! An argument of a oneof sets a member by the same steps: a name of a member without required
 //! content in a oneof whose members take no strings, a fragment, or a value of a member's class.
 //! A message or a oneof accepts an argument when exactly one shortest chain leads to it, where a
-//! value that a member takes by its type precedes one that a `ValueRef` member takes.
+//! value that a member takes by its type precedes one that a `ValueRef` member takes, and the first
+//! `ValueRef` member of a oneof by number precedes its other `ValueRef` members.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -326,9 +327,24 @@ impl<'a> Model<'a> {
                 if !pickable.is_empty() {
                     named_members.insert((name.clone(), *index), pickable.clone());
                 }
+                // The first `ValueRef` member by number takes values before the other `ValueRef`
+                // members, as an explicit domain does before a summary.
+                let first_value = (members.iter())
+                    .filter(|(_, shape)| matches!(shape, Shape::Value))
+                    .map(|(member, _)| member.number())
+                    .min();
                 for target in targets {
                     for (member, shape) in members {
-                        edges.extend(field_edges(target.clone(), shape, Set::Member(member)));
+                        let later =
+                            matches!(shape, Shape::Value) && Some(member.number()) != first_value;
+                        let mut member_edges =
+                            field_edges(target.clone(), shape, Set::Member(member));
+                        if later {
+                            for edge in &mut member_edges {
+                                edge.precedence += 1;
+                            }
+                        }
+                        edges.extend(member_edges);
                     }
                     if !pickable.is_empty() {
                         edges.push(Edge {

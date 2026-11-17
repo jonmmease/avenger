@@ -156,7 +156,7 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
             .stroke(
                 Encoding::scaled_field("boundary").scale(
                     Scale::builder()
-                        .range(Range::values(vec!["#b32929", "#e39a9a"]))
+                        .values(vec!["#b32929", "#e39a9a"])
                         .legend(Legend::builder().title("Plate boundary")),
                 ),
             )
@@ -165,13 +165,12 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
     // A selection without clauses selects no earthquake, so no ring draws before the first box.
     let selected = || Predicate::selected(Selected::new(QUAKES).empty_selects_none(true));
     let magnitude = Scale::builder()
-        .domain(Domain::data(DataDomain::builder().fit(
-            DomainFit::interval(IntervalFit::builder().zero(false).enabled(false)),
-        )))
-        .range(Range::values(vec![4.0, 140.0]))
+        .zero(false)
+        .enabled(false)
+        .values(vec![4.0, 140.0])
         .legend(Legend::builder().title(Title::new("Magnitude $M_w$").syntax(TextSyntax::Typst)));
     let depth = Scale::builder()
-        .range(Range::values(DEPTHS.to_vec()))
+        .values(DEPTHS.to_vec())
         .legend(Legend::builder().title("Depth (km)"));
     let earthquakes = GeoLayer::symbol(
         quakes.clone(),

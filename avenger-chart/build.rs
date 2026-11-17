@@ -437,8 +437,8 @@ fn check_annotations(annotations: &annotations::Annotations) -> Result<(), Strin
             "`required_oneof` on `Node.node`",
         ),
         (
-            annotations.lift.contains(&field("Scale", "domain")),
-            "`lift` on `Scale.domain`",
+            annotations.lift.contains(&field("Facet", "column")),
+            "`lift` on `Facet.column`",
         ),
         (
             annotations.channel_scale.contains_key("CHANNEL_X"),
@@ -556,9 +556,10 @@ impl<'a> Messages<'a> {
     }
 
     /// The messages that the specs of a shared scale merge field by field: the axes, the legends,
-    /// the messages of the scale types, and the fits, with the messages that they hold.
+    /// the messages of the scale types, the pins of the fits, and the widgets, with the messages
+    /// that they hold.
     fn merged(&self) -> BTreeSet<String> {
-        let mut merged: BTreeSet<String> = ["Axis", "Legend", "DomainFit", "Widget"]
+        let mut merged: BTreeSet<String> = ["Axis", "Legend", "DomainPin", "Widget"]
             .iter()
             .map(|name| format!("{PACKAGE}.{name}"))
             .collect();

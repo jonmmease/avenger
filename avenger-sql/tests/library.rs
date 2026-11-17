@@ -469,7 +469,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
     let library = Library::new();
     // One constructor of the target itself writes its full form.
     assert_eq!(
-        forms(&library, "interval_fit", "pin").unwrap(),
+        forms(&library, "scale", "pin").unwrap(),
         "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
     );
     // An array of fragments of a constructor.
@@ -488,21 +488,11 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         .filter_map(|line| line.strip_prefix("- "))
         .map(|line| line.split(':').next().unwrap())
         .collect();
-    assert_eq!(
-        groups,
-        [
-            "Its type",
-            "Its domain",
-            "Its range",
-            "Its axis",
-            "Its legend"
-        ]
-    );
+    assert_eq!(groups, ["Its type", "Its axis", "Its legend"]);
     assert!(
         scale.contains("- Its type: `band_scale(...)`, `custom_scale(...)`, `linear_scale(...)`"),
         "{scale}"
     );
-    assert!(scale.contains("`interval_fit(...)`"), "{scale}");
     // The strings of the parameter are the values of its set, each of them.
     let scaled = library.get("scaled").unwrap();
     let values = scaled.values_of("scale");
@@ -516,7 +506,7 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         title.contains("title => STRING\ntitle => title("),
         "{title}"
     );
-    assert_eq!(forms(&library, "interval_fit", "zero"), None);
+    assert_eq!(forms(&library, "scale", "zero"), None);
     assert_eq!(forms(&library, "SUBSTR", "value"), None);
 }
 
@@ -529,8 +519,5 @@ fn the_reference_writes_the_forms_of_a_parameter_with_its_every_string() {
         "{entry}"
     );
     assert!(!entry.contains('…'), "{entry}");
-    assert!(
-        entry.contains("  - Its domain: `category_fit(...)`"),
-        "{entry}"
-    );
+    assert!(entry.contains("  - Its type: `band_scale(...)`"), "{entry}");
 }

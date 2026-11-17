@@ -130,7 +130,7 @@ fn an_argument_completes_the_values_of_its_set() {
 #[test]
 fn an_argument_completes_the_constructors_of_its_parameter_first() {
     let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
-                scale => scale(domain => interval_fit(pin => $0)))) AS chart";
+                scale => scale(pin => $0))) AS chart";
     let (completions, _) = complete(text);
     let first = &completions.items[0];
     assert_eq!(first.label, "domain_pin");
@@ -166,7 +166,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     );
     // A parameter that takes no constructor has none first.
     let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
-                scale => scale(domain => interval_fit(zero => $0)))) AS chart";
+                scale => scale(zero => $0))) AS chart";
     let (completions, _) = complete(text);
     let detail = completions.items[0].detail.as_deref().unwrap_or_default();
     assert!(!detail.starts_with("builds"), "{detail}");
