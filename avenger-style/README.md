@@ -56,7 +56,7 @@ The attributes have these values:
 | `facet[type]` | `row`, `column`, or `wrap`, the kind of the facet: rows, columns, or a wrapped grid |
 | `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, `checkbox`, or `mode` |
 | `widget[key]` | The key of the widget, which its copies share |
-| `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dash` |
+| `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dasharray` |
 | `axis[scale]`, `legend[scale]`, `scale[type]` | The type of the scale, such as `linear`, `log`, `band`, or `ordinal` |
 | `kind` | The kind of the scale: `categorical`, `ordinal`, `sequential`, or `diverging` |
 | `scale[marks]` | The types of the marks that use the scale, separated by spaces, in the two forms of `mark[type]` |

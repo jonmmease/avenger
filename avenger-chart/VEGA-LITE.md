@@ -21,11 +21,11 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `xOffset`, `yOffset` | `Scale.type.nested_band`, with `Encoding.band_level` | `type => nested_band(padding_inner => [0.4, 0.1])`, `x(..., band_level => 1)` | One scale of nested paths, with paddings for each level |
 | `domain` as an array | `Scale.domain.explicit` | `scale => scale(domain => [0, 100])` | |
 | `domain` as `{param, encoding}` | `Scale.domain.selection` | `domain => selection(selection => 'brush', channel => 'x')` | Without a `fallback`, a selection without values gives the data domain |
-| `zero`, `nice`, `reverse` | `Scale.zero`, `Scale.nice`, `Scale.reverse` | `scale(zero => FALSE, nice => 5, reverse => TRUE)` | `nice` takes a Boolean or a tick count, not a time interval |
+| `zero`, `nice`, `reverse` | `Scale.zero`, `Scale.nice`, `Scale.reverse` | `scale(zero => FALSE, nice => 5, reverse => TRUE)` | `nice` takes a Boolean or `nice_count`, a count of values to round to, not a time interval |
 | `domainMin`, `domainMax` | `Scale.pin` at `low` or `high` | `scale => pin(0, position => 'low')` | A fit pins one value and finds the other end |
 | `domainMid` | None | None | `pin(0, position => 'mid')` gives a domain symmetric about the value, which differs from a midpoint of a color ramp |
 | `range` as an array | `Scale.range.values` | `scale(range => [2, 120])` | |
-| `scheme` | `Scale.range.palette` | `scale(range => 'tableau10')` | A built-in palette, or one that a stylesheet defines with `@palette` |
+| `scheme` | `Scale.range.scheme` | `scale(range => 'tableau10')` | A built-in palette, or one that a stylesheet defines with `@palette`, which `scale { scheme }` also sets |
 | `sort` of a field: `ascending`, `descending`, an array | `Scale.sort` | `scale(sort => 'descending')`, `scale(sort => ['Gentoo', 'Adelie'])` | On the scale. The categories that an array leaves out follow it, ascending, and a listed category without data is not in the domain |
 | `scale: null` | `direct_field` or `direct_value` of `Encoding` | `fill => value(css_color)` | `value(...)` draws a column or a constant as it is |
 | `bins`, `interpolate`, `rangeMin`, `rangeMax`, `domainRaw`, `unionWith`, `sequential`, `bin-ordinal`, sorting by another channel | None | None | |
@@ -93,7 +93,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `bandPosition` | `Encoding.band_position` | `x(species, band_position => 0)` | Through a band or a nested band scale |
 | `condition` | `Encoding.conditional` | Format only | The first matching predicate gives the value |
 | `x2`, `y2`, `theta2`, `radius2` | The same channels | `x2 => end_column` | They follow the scale of the first position and take no options |
-| `color`, `fill`, `stroke`, `opacity`, `fillOpacity`, `strokeOpacity`, `strokeWidth`, `strokeDash`, `size`, `shape`, `angle` | The same channels in snake case | `stroke_width => 2` | `shape` also takes SVG path data |
+| `color`, `fill`, `stroke`, `opacity`, `fillOpacity`, `strokeOpacity`, `strokeWidth`, `strokeDash`, `size`, `shape`, `angle` | The same channels in snake case, with `strokeDash` as CSS's `stroke_dasharray` | `stroke_width => 2`, `stroke_dasharray => '4 2'` | `shape` also takes SVG path data |
 | `text`, `url` | `text`, `image` | `text => species` | An image is a URL or a struct of RGBA pixels |
 | `detail` | `detail` | `detail => island` | One encoding |
 | `order` | The `ORDER BY` of the mark call, and the `order` channel | `line(x => day, y => price, order => step ORDER BY symbol)` | `ORDER BY` gives the draw order of the rows, and `order` only the order of the rows along the path of a line or an area |
@@ -107,8 +107,8 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `geoshape` | `GeoShapeMark` | `geo_shape(...)` | |
 | `tick` | `RuleMark` or `BarMark` | `rule(...)` | The nearest marks |
 | `filled`, `orient`, `cornerRadius` | `filled`, `orient`, `corner_radius` | `bar(..., corner_radius => 4)` | Properties of the mark |
-| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `ellipsis`, `format` | `text(..., font_family => 'Lato')` | `ellipsis` is a Boolean, and `format` is a property of the mark, a GoogleSQL pattern as on an axis |
-| `aspect`, `smooth` of `image` | `ImageMark.aspect`, `smooth` | `image(..., smooth => FALSE)` | |
+| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `text_overflow`, `format` | `text(..., font_family => 'Lato')` | `text_overflow` takes CSS's `clip` or `ellipsis`, `white_space` takes `normal` or `nowrap`, and `format` is a property of the mark, a GoogleSQL pattern as on an axis |
+| `aspect`, `smooth` of `image` | `ImageMark.object_fit`, `image_rendering` | `image(..., image_rendering => 'pixelated')` | CSS's keywords: `object_fit` takes `contain` or `fill`, and `image_rendering` takes `auto`, `smooth`, or `pixelated` |
 | Mark constants, such as `color` and `strokeWidth` | Direct values of the channels | `stroke => 'black'` | |
 | `innerRadius` | `Polar.inner_radius` | `coord => polar(inner_radius => 0.5)` | A fraction of the outer radius |
 | `style` | `classes` of a layer | `classes => ['dots']` | |
@@ -170,7 +170,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `lobes`, `ratio`, `tilt`, and the parameters of other projections | `CustomProjection.options` | `projection(type => custom('healpix', options => STRUCT(4 AS lobes)))` | A projection that an app adds |
 | The `graticule` generator | `Geo.graticule` | `geo(..., graticule => TRUE)` | |
 | `stepMinor`, `stepMajor`, `extentMinor`, `extentMajor`, `precision` | `Graticule.step`, `step_major`, `extent`, `extent_major`, `precision` | `graticule => graticule(step => [30, 30])` | A graticule also labels its lines, as `labels => labels(format => '%.0f', frame => 'outline', sides => ...)` sets, and `grid_stroke` and `grid_stroke_width` style its lines |
-| The `sphere` generator | `Geo.sphere` | `geo(..., sphere => sphere(fill => '#def'))` | |
+| The `sphere` generator | `Geo.sphere`, with `sphere_fill`, `sphere_stroke`, and `sphere_stroke_width` | `geo(..., sphere => TRUE, sphere_fill => '#def')` | A stylesheet styles it as `plot[type=geo] > sphere` |
 | `arc` with `theta` and `radius` | A polar plot, `Polar` | `coord => polar(start_angle => -90, end_angle => 90)` | Angles in degrees, clockwise from the top |
 
 ## Concepts that Vega-Lite doesn't have

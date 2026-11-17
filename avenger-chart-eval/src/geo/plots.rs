@@ -520,7 +520,7 @@ impl GeoGroup {
             _ => (None, false, Vec::new()),
         };
         // A plot draws its sphere from the computed style of its `sphere`, unless it hides it.
-        let sphere = (crate::geo::sphere(spec).and(nodes.sphere))
+        let sphere = (nodes.sphere.filter(|_| crate::geo::draws_sphere(spec)))
             .map(|node| &styles[node])
             .filter(|style| !style.is_hidden())
             .map(sphere_style);

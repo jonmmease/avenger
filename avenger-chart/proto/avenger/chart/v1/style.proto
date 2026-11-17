@@ -39,3 +39,19 @@ enum TextBaseline {
   TEXT_BASELINE_ALPHABETIC = 3;
   TEXT_BASELINE_BOTTOM = 4;
 }
+
+// Whether the lines of a text wrap, as CSS's `white-space`.
+enum WhiteSpace {
+  // Unset, so the field or the styles give it.
+  WHITE_SPACE_UNSPECIFIED = 0;
+  WHITE_SPACE_NORMAL = 1;
+  WHITE_SPACE_NOWRAP = 2;
+}
+
+// How a text that is cut ends, as CSS's `text-overflow`.
+enum TextOverflow {
+  // Unset, so the styles give it.
+  TEXT_OVERFLOW_UNSPECIFIED = 0;
+  TEXT_OVERFLOW_CLIP = 1;
+  TEXT_OVERFLOW_ELLIPSIS = 2;
+}

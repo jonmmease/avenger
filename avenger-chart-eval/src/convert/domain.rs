@@ -317,7 +317,7 @@ fn interval_options(chart: &Chart, fit: &proto::Scale, defaults: FitDefaults) ->
         nice: match fit.nice {
             None => defaults.nice,
             Some(scale::Nice::Enabled(nice)) => nice.then_some(FitDefaults::NICE),
-            Some(scale::Nice::TickCount(count)) => Some(count),
+            Some(scale::Nice::NiceCount(count)) => Some(count),
         },
         empty: (fit.domain_empty.as_ref()).map(|empty| chart.list_elements(empty)),
         pin: fit.pin.as_ref().map(|pin| {

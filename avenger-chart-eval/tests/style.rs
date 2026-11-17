@@ -795,7 +795,7 @@ fn a_subtitle_takes_the_text_styles_of_its_title() {
     );
 }
 
-/// A geo plot draws its sphere from its `sphere` node, with the inline styles of `SphereStyle` over
+/// A geo plot draws its sphere from its `sphere` node, with the inline styles of its `sphere_` fields over
 /// the stylesheets, and its box from its own `background` and border, as a Cartesian plot does.
 #[cfg(feature = "geo")]
 #[test]
@@ -814,7 +814,8 @@ fn a_geo_plot_draws_its_sphere_and_its_box_from_their_nodes() {
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
     let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere())
-        .sphere(SphereStyle::builder().fill("red"));
+        .sphere(true)
+        .sphere_fill("red");
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
         .build()
         .unwrap();

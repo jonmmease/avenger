@@ -156,11 +156,11 @@ impl Checker<'_> {
             Coord::Cartesian(cartesian) => {
                 if let Some(options) = &cartesian.options {
                     positive(
-                        options.aspect.map(f64::from),
-                        &format!("{coord_path}.options.aspect"),
+                        options.aspect_ratio.map(f64::from),
+                        &format!("{coord_path}.options.aspect_ratio"),
                     )?;
                     // A reader ignores the size of a plot in a cell of a wrap.
-                    if options.aspect.is_some()
+                    if options.aspect_ratio.is_some()
                         && !scope.cell
                         && plot.width.is_some()
                         && plot.height.is_some()
@@ -759,11 +759,7 @@ const PROJECTION_PARAMETERS: [(&str, fn(&proto::Geo) -> bool, Takers); 15] = {
             |geo| (geo.graticule.as_ref()).is_some_and(|graticule| graticule.show != Some(false)),
             Takers::Sphere,
         ),
-        (
-            "sphere",
-            |geo| (geo.sphere.as_ref()).is_some_and(|sphere| sphere.show != Some(false)),
-            Takers::Sphere,
-        ),
+        ("sphere", |geo| geo.sphere == Some(true), Takers::Sphere),
         ("tiles", |geo| geo.tiles.is_some(), Takers::Sphere),
         (
             "navigation.pan_mode",
@@ -783,6 +779,20 @@ const PROJECTION_PARAMETERS: [(&str, fn(&proto::Geo) -> bool, Takers); 15] = {
 /// Checks that the options of a geo plot at `path` set only the parameters that its projection's
 /// type takes, as `PROJECTION_PARAMETERS` lists them.
 fn projection_takes(geo: &proto::Geo, path: &str) -> Result<()> {
+    // The sphere's styles style the sphere that `sphere` draws, so they need it.
+    let sphere_styles = [
+        ("sphere_fill", !geo.sphere_fill.is_empty()),
+        ("sphere_stroke", !geo.sphere_stroke.is_empty()),
+        ("sphere_stroke_width", geo.sphere_stroke_width.is_some()),
+    ];
+    if let Some((field, _)) = sphere_styles.iter().find(|(_, set)| *set) {
+        if geo.sphere != Some(true) {
+            return Err(fail(
+                format!("{path}.{field}"),
+                "the styles of the sphere need `sphere`, which draws it",
+            ));
+        }
+    }
     let projection = geo.projection.as_ref().expect(REQUIRED);
     // The type of a built-in projection, or `None` for a custom projection.
     let builtin = match projection.r#type.as_ref().expect(REQUIRED) {

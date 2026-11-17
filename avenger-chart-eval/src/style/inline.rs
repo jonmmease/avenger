@@ -40,9 +40,17 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "rule_stroke_width",
         ],
     ),
-    ("Cartesian", &["aspect"]),
-    ("Geo", &["aspect_ratio", "free"]),
-    ("SphereStyle", &["fill", "stroke", "stroke_width"]),
+    ("Cartesian", &["aspect_ratio"]),
+    (
+        "Geo",
+        &[
+            "aspect_ratio",
+            "free",
+            "sphere_fill",
+            "sphere_stroke",
+            "sphere_stroke_width",
+        ],
+    ),
     ("Graticule", &["labels", "grid_stroke", "grid_stroke_width"]),
     (
         "Title",
@@ -71,12 +79,15 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "baseline",
             "font_family",
             "max_lines",
-            "wrap",
-            "ellipsis",
+            "white_space",
+            "text_overflow",
             "width_mode",
         ],
     ),
-    ("ImageMark", &["align", "baseline", "aspect", "smooth"]),
+    (
+        "ImageMark",
+        &["align", "baseline", "object_fit", "image_rendering"],
+    ),
     ("PolarSymbolMark", &["filled"]),
     ("PolarBarMark", &["corner_radius"]),
     ("PolarRectMark", &["corner_radius", "inset"]),
@@ -85,12 +96,12 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         &[
             "font_family",
             "max_lines",
-            "wrap",
-            "ellipsis",
+            "white_space",
+            "text_overflow",
             "width_mode",
             "radius_side",
             "theta_side",
-            "orient",
+            "text_orient",
         ],
     ),
     ("GeoSymbolMark", &["filled"]),
@@ -101,12 +112,15 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "baseline",
             "font_family",
             "max_lines",
-            "wrap",
-            "ellipsis",
+            "white_space",
+            "text_overflow",
             "width_mode",
         ],
     ),
-    ("GeoImageMark", &["align", "baseline", "aspect", "smooth"]),
+    (
+        "GeoImageMark",
+        &["align", "baseline", "object_fit", "image_rendering"],
+    ),
     (
         "Axis",
         &[
@@ -186,7 +200,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "padding",
         ],
     ),
-    ("Scale", &["values", "palette", "reverse"]),
+    ("Scale", &["values", "scheme", "reverse"]),
     ("BandScale", &["padding_inner", "padding_outer"]),
     ("PointScale", &["padding"]),
     ("NestedBandScale", &["padding_inner", "padding_outer"]),
@@ -467,7 +481,7 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
     px(tree, node, Property::Height, plot.height);
     let aspect = match &plot.coord {
         Some(proto::plot::Coord::Cartesian(cartesian)) => (cartesian.options.as_ref())
-            .and_then(|options| options.aspect)
+            .and_then(|options| options.aspect_ratio)
             .map(|ratio| format!("{ratio} / 1")),
         Some(proto::plot::Coord::Geo(geo)) => {
             match (geo.options.as_ref()).and_then(|options| options.aspect.as_ref()) {
@@ -573,8 +587,8 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
                 TextFields {
                     font_family: &text.font_family,
                     max_lines: text.max_lines,
-                    wrap: text.wrap,
-                    ellipsis: text.ellipsis,
+                    white_space: text.white_space,
+                    text_overflow: text.text_overflow,
                     width_mode: text.width_mode,
                 },
             );
@@ -585,8 +599,8 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
             node,
             image.align,
             image.baseline,
-            image.aspect,
-            image.smooth,
+            image.object_fit,
+            image.image_rendering,
         ),
         Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) | Mark::Path(_) => {}
     }
@@ -604,8 +618,8 @@ fn image_fields(
     node: NodeId,
     align: i32,
     baseline: i32,
-    aspect: Option<bool>,
-    smooth: Option<bool>,
+    object_fit: i32,
+    image_rendering: i32,
 ) {
     keyword(tree, node, Property::Align, self::align(align));
     let baseline = match proto::ImageBaseline::try_from(baseline).unwrap_or_default() {
@@ -615,14 +629,19 @@ fn image_fields(
         proto::ImageBaseline::Bottom => Some("bottom"),
     };
     keyword(tree, node, Property::Baseline, baseline);
-    if let Some(aspect) = aspect {
-        let fit = if aspect { "contain" } else { "fill" };
-        set(tree, node, Property::ObjectFit, fit);
-    }
-    if let Some(smooth) = smooth {
-        let rendering = if smooth { "smooth" } else { "pixelated" };
-        set(tree, node, Property::ImageRendering, rendering);
-    }
+    let fit = match proto::ObjectFit::try_from(object_fit).unwrap_or_default() {
+        proto::ObjectFit::Unspecified => None,
+        proto::ObjectFit::Contain => Some("contain"),
+        proto::ObjectFit::Fill => Some("fill"),
+    };
+    keyword(tree, node, Property::ObjectFit, fit);
+    let rendering = match proto::ImageRendering::try_from(image_rendering).unwrap_or_default() {
+        proto::ImageRendering::Unspecified => None,
+        proto::ImageRendering::Auto => Some("auto"),
+        proto::ImageRendering::Smooth => Some("smooth"),
+        proto::ImageRendering::Pixelated => Some("pixelated"),
+    };
+    keyword(tree, node, Property::ImageRendering, rendering);
 }
 
 /// The style fields of a geo mark on its `mark` node.
@@ -642,8 +661,8 @@ pub(crate) fn geo_mark(tree: &mut Styled, node: NodeId, mark: &geo_layer::Mark) 
                 TextFields {
                     font_family: &text.font_family,
                     max_lines: text.max_lines,
-                    wrap: text.wrap,
-                    ellipsis: text.ellipsis,
+                    white_space: text.white_space,
+                    text_overflow: text.text_overflow,
                     width_mode: text.width_mode,
                 },
             );
@@ -654,19 +673,19 @@ pub(crate) fn geo_mark(tree: &mut Styled, node: NodeId, mark: &geo_layer::Mark) 
             node,
             image.align,
             image.baseline,
-            image.aspect,
-            image.smooth,
+            image.object_fit,
+            image.image_rendering,
         ),
         Mark::Line(_) | Mark::Trail(_) | Mark::Rule(_) | Mark::Path(_) | Mark::Shape(_) => {}
     }
 }
 
-/// A `SphereStyle` on the `sphere` of its geo plot: its `fill`, its `stroke`, and its
-/// `stroke-width`.
-pub(crate) fn sphere(tree: &mut Styled, node: NodeId, sphere: &proto::SphereStyle) {
-    color(tree, node, Property::Fill, &sphere.fill);
-    color(tree, node, Property::Stroke, &sphere.stroke);
-    px(tree, node, Property::StrokeWidth, sphere.stroke_width);
+/// The sphere's fields of a `Geo` on the `sphere` of its geo plot: `sphere_fill`,
+/// `sphere_stroke`, and `sphere_stroke_width` as its `fill`, its `stroke`, and its `stroke-width`.
+pub(crate) fn sphere(tree: &mut Styled, node: NodeId, geo: &proto::Geo) {
+    color(tree, node, Property::Fill, &geo.sphere_fill);
+    color(tree, node, Property::Stroke, &geo.sphere_stroke);
+    px(tree, node, Property::StrokeWidth, geo.sphere_stroke_width);
 }
 
 /// The nodes of a widget and of the parts that its kind draws.
@@ -726,8 +745,8 @@ pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &p
 struct TextFields<'a> {
     font_family: &'a str,
     max_lines: Option<u32>,
-    wrap: Option<bool>,
-    ellipsis: Option<bool>,
+    white_space: i32,
+    text_overflow: i32,
     width_mode: i32,
 }
 
@@ -739,14 +758,18 @@ fn text_fields(tree: &mut Styled, node: NodeId, text: TextFields) {
     if let Some(lines) = text.max_lines {
         set(tree, node, Property::MaxLines, &lines.to_string());
     }
-    if let Some(wrap) = text.wrap {
-        let white_space = if wrap { "normal" } else { "nowrap" };
-        set(tree, node, Property::WhiteSpace, white_space);
-    }
-    if let Some(ellipsis) = text.ellipsis {
-        let overflow = if ellipsis { "ellipsis" } else { "clip" };
-        set(tree, node, Property::TextOverflow, overflow);
-    }
+    let white_space = match proto::WhiteSpace::try_from(text.white_space).unwrap_or_default() {
+        proto::WhiteSpace::Unspecified => None,
+        proto::WhiteSpace::Normal => Some("normal"),
+        proto::WhiteSpace::Nowrap => Some("nowrap"),
+    };
+    keyword(tree, node, Property::WhiteSpace, white_space);
+    let overflow = match proto::TextOverflow::try_from(text.text_overflow).unwrap_or_default() {
+        proto::TextOverflow::Unspecified => None,
+        proto::TextOverflow::Clip => Some("clip"),
+        proto::TextOverflow::Ellipsis => Some("ellipsis"),
+    };
+    keyword(tree, node, Property::TextOverflow, overflow);
     let mode = match TextWidthMode::try_from(text.width_mode).unwrap_or_default() {
         TextWidthMode::Unspecified => None,
         TextWidthMode::Max => Some("max"),
@@ -786,8 +809,8 @@ pub(crate) fn polar_mark(tree: &mut Styled, node: NodeId, mark: &polar_layer::Ma
                 TextFields {
                     font_family: &text.font_family,
                     max_lines: text.max_lines,
-                    wrap: text.wrap,
-                    ellipsis: text.ellipsis,
+                    white_space: text.white_space,
+                    text_overflow: text.text_overflow,
                     width_mode: text.width_mode,
                 },
             );
@@ -805,7 +828,12 @@ pub(crate) fn polar_mark(tree: &mut Styled, node: NodeId, mark: &polar_layer::Ma
                 _ => None,
             };
             keyword(tree, node, Property::ThetaSide, theta_side);
-            keyword(tree, node, Property::TextOrient, polar_orient(text.orient));
+            keyword(
+                tree,
+                node,
+                Property::TextOrient,
+                polar_orient(text.text_orient),
+            );
         }
         Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) => {}
     }
@@ -1067,7 +1095,7 @@ pub(crate) fn scale(
 ) {
     use proto::scale::Type;
     match &spec.range {
-        Some(proto::scale::Range::Palette(palette)) => {
+        Some(proto::scale::Range::Scheme(palette)) => {
             let text = match spec.reverse {
                 true => format!("{palette} reverse"),
                 false => palette.clone(),

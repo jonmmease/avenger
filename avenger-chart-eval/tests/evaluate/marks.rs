@@ -28,7 +28,7 @@ fn symbols_with_a_size_and_a_shape() {
         cars(),
         SymbolMark::builder()
             .x("weight")
-            .y(Encoding::scaled_field("mpg").scale(Scale::tick_count(5.0)))
+            .y(Encoding::scaled_field("mpg").scale(Scale::nice_count(5.0)))
             .shape("cylinders")
             .size("count"),
     );
@@ -278,7 +278,7 @@ fn rules() {
             .y("mpg")
             .y2(15.0)
             .color("origin")
-            .stroke_dash(Encoding::direct_value("4 2")),
+            .stroke_dasharray(Encoding::direct_value("4 2")),
     );
     let chart = Chart::builder(Plot::cartesian([rules])).build().unwrap();
     render_both(&chart, "rules");
@@ -354,7 +354,7 @@ fn image_marks() {
     let icons = CartesianLayer::image(
         images(),
         ImageMark::new(Encoding::direct_field("image"))
-            .smooth(false)
+            .image_rendering(ImageRendering::Pixelated)
             .x("x")
             .y("y")
             .width(24.0)
@@ -369,7 +369,7 @@ fn images_with_sizes_from_columns() {
     let icons = CartesianLayer::image(
         images(),
         ImageMark::new(Encoding::direct_field("image"))
-            .smooth(false)
+            .image_rendering(ImageRendering::Pixelated)
             .x("x")
             .y("y")
             .width("size")
@@ -411,7 +411,7 @@ fn texts_wrap_at_their_widths() {
         TextMark::new(Encoding::direct_field("name"))
             .width_mode(TextWidthMode::Fixed)
             .max_lines(1)
-            .ellipsis(true)
+            .text_overflow(TextOverflow::Ellipsis)
             .x("x")
             .y("y")
             .width(70.0),
@@ -593,7 +593,7 @@ fn a_range_of_dash_lists_draws_its_dashes() {
             .x("date")
             .y("value")
             .detail("symbol")
-            .stroke_dash(
+            .stroke_dasharray(
                 Encoding::scaled_field("symbol").scale(Scale::values(Value::list(dashes))),
             ),
     );

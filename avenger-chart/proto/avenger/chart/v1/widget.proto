@@ -238,8 +238,8 @@ message WidgetSummaryDomain {
   oneof nice {
     // As for `Scale.enabled`.
     bool enabled = 3;
-    // As for `Scale.tick_count`.
-    double tick_count = 4;
+    // As for `Scale.nice_count`.
+    double nice_count = 4;
   }
   // A value that the domain holds exactly, as for `Scale.pin`.
   DomainPin pin = 5;
@@ -263,8 +263,8 @@ message WidgetDataDomain {
   oneof nice {
     // As for `Scale.enabled`.
     bool enabled = 2;
-    // As for `Scale.tick_count`.
-    double tick_count = 3;
+    // As for `Scale.nice_count`.
+    double nice_count = 3;
   }
   // As for `WidgetSummaryDomain.pin`.
   DomainPin pin = 4;

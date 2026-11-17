@@ -206,7 +206,7 @@ fn a_sunburst_curves_the_names_of_its_rings() {
     let names = PolarLayer::text(
         hierarchy(),
         PolarTextMark::new("name")
-            .orient(PolarTextOrient::Tangential)
+            .text_orient(PolarTextOrient::Tangential)
             .radius_side(RadiusSide::Middle)
             .theta("middle")
             .radius(Encoding::direct_field("ring"))
@@ -261,7 +261,7 @@ fn a_polar_text_turns_by_its_angle() {
     let flat = evaluate(&chart(PolarTextMark::new("category")), [320.0, 240.0]);
     assert!(text_angles(&flat).iter().all(|angle| *angle == 0.0));
     let radial = evaluate(
-        &chart(PolarTextMark::new("category").orient(PolarTextOrient::Radial)),
+        &chart(PolarTextMark::new("category").text_orient(PolarTextOrient::Radial)),
         [320.0, 240.0],
     );
     assert_ne!(text_angles(&radial), text_angles(&flat));

@@ -36,8 +36,8 @@ message Resolve {
   Sharing stroke_opacity = 22;
   // The sharing of the scale of `stroke_width`.
   Sharing stroke_width = 23;
-  // The sharing of the scale of `stroke_dash`.
-  Sharing stroke_dash = 24;
+  // The sharing of the scale of `stroke_dasharray`.
+  Sharing stroke_dasharray = 24;
   // The sharing of the scale of `size`.
   Sharing size = 25;
   // The sharing of the scale of `shape`.

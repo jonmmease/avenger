@@ -65,7 +65,7 @@ const SERIES: &[&str] = &[
     "color",
     "fill",
     "stroke",
-    "stroke_dash",
+    "stroke_dasharray",
     "pattern",
     "detail",
 ];

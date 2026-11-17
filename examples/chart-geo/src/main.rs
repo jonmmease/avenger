@@ -232,7 +232,7 @@ fn map(
 ) -> PlotBuilder {
     let options = Geo::new(projection)
         .graticule(graticule)
-        .sphere(SphereStyle::builder())
+        .sphere(true)
         .tiles(TileLayer::new(OSM_TILES))
         .navigation(
             GeoNavigation::builder()

@@ -38,12 +38,18 @@ message Geo {
   // The lines of longitude and latitude. When unset, the plot has no graticule. A projection of
   // the type `identity` has none.
   Graticule graticule = 6;
-  // The sphere, the whole world of the projection, filled behind the data and outlined. When
-  // unset, the plot does not draw the sphere. A projection of the type `identity` has none.
-  SphereStyle sphere = 7;
+  // Whether the plot draws the sphere, the whole world of the projection, filled behind the data
+  // and outlined. When unset, it does not. A projection of the type `identity` has none.
+  optional bool sphere = 7;
+  // The CSS color of the sphere behind the data. When it is empty, the styles give it.
+  string sphere_fill = 8;
+  // The CSS color of the sphere's outline. When it is empty, the styles give it.
+  string sphere_stroke = 9;
+  // The width of the sphere's outline, in pixels. When unset, the styles give it.
+  optional float sphere_stroke_width = 10;
   // Raster tiles behind the data, such as a street map. When unset, the map has no tiles. A
   // projection of the type `identity` has none.
-  TileLayer tiles = 8;
+  TileLayer tiles = 11;
 }
 
 message FreeAspect {}
@@ -269,19 +275,6 @@ message Graticule {
   string grid_stroke = 8;
   // The width of the lines, in pixels.
   optional float grid_stroke_width = 9;
-}
-
-// The look of the sphere. A field that is unset takes its value from the styles.
-message SphereStyle {
-  // Whether the plot draws the sphere. When unset, it does, so `true` draws the sphere with its
-  // defaults, and `false` draws none.
-  optional bool show = 1 [(avenger.chart.v1.lift) = true];
-  // The CSS color behind the data.
-  string fill = 2;
-  // The CSS color of the outline.
-  string stroke = 3;
-  // The width of the outline, in pixels.
-  optional float stroke_width = 4;
 }
 
 // Raster tiles in Web Mercator, which the renderer loads by URL through the image resolver of its

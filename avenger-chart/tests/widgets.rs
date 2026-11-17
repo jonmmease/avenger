@@ -342,7 +342,7 @@ fn the_copies_of_one_widget_agree() {
             slider.domain = Some(proto::WidgetDomain {
                 domain: Some(proto::widget_domain::Domain::Data(
                     proto::WidgetDataDomain {
-                        nice: count.map(proto::widget_data_domain::Nice::TickCount),
+                        nice: count.map(proto::widget_data_domain::Nice::NiceCount),
                         zero,
                         ..Default::default()
                     },
@@ -366,7 +366,7 @@ fn the_copies_of_one_widget_agree() {
     assert_eq!(
         *data,
         proto::WidgetDataDomain {
-            nice: Some(proto::widget_data_domain::Nice::TickCount(6.0)),
+            nice: Some(proto::widget_data_domain::Nice::NiceCount(6.0)),
             zero: Some(true),
             ..Default::default()
         }

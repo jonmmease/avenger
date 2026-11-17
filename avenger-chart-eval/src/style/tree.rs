@@ -429,9 +429,9 @@ fn geo_plot(
     if let Some(name) = spec.projection.as_ref().and_then(projection_name) {
         tree.set_attribute(plot_node, "projection", name);
     }
-    let sphere = crate::geo::sphere(spec).map(|sphere| {
+    let sphere = crate::geo::draws_sphere(spec).then(|| {
         let node = tree.add(plot_node, Element::Sphere);
-        inline::sphere(tree, node, sphere);
+        inline::sphere(tree, node, spec);
         node
     });
     let graticule = crate::geo::graticule(spec).map(|graticule| {

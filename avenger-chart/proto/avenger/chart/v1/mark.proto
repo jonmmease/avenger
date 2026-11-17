@@ -52,7 +52,7 @@ message LineMark {
   Encoding opacity = 120;
   Encoding stroke_opacity = 122;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
   Encoding detail = 133;
   Encoding order = 134;
 }
@@ -94,7 +94,7 @@ message AreaMark {
   Encoding fill_opacity = 121;
   Encoding stroke_opacity = 122;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
   Encoding order = 134;
@@ -158,7 +158,7 @@ message RuleMark {
   Encoding stroke = 119;
   Encoding opacity = 120;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
 }
 
 // The `text` value of each row.
@@ -179,12 +179,14 @@ message TextMark {
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 6;
-  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
-  optional bool wrap = 7;
+  // Whether the lines of each text wrap at its `width`: `normal` wraps them and `nowrap` keeps
+  // each line whole. When unset, a text with a `width` wraps.
+  WhiteSpace white_space = 7;
   // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 8;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
-  optional bool ellipsis = 9;
+  // How a text that its `width` or `max_lines` cuts ends: `clip` cuts it, and `ellipsis` marks
+  // the cut with an ellipsis. When unset, it is clipped.
+  TextOverflow text_overflow = 9;
 
   Encoding x = 101;
   Encoding y = 102;
@@ -209,10 +211,12 @@ message ImageMark {
   Align align = 1;
   // The side of each image at its `y`.
   ImageBaseline baseline = 2;
-  // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
-  optional bool aspect = 3;
-  // Whether each image is filtered smoothly when it is scaled. When unset, it is.
-  optional bool smooth = 4;
+  // How each image fills its box: `contain` keeps its own aspect ratio inside the box, and `fill`
+  // stretches it to the box. When unset, it is contained.
+  ObjectFit object_fit = 3;
+  // How each image is filtered when it is scaled: `smooth` filters it, and `pixelated` keeps its
+  // pixels sharp. When unset, or `auto`, it is filtered smoothly.
+  ImageRendering image_rendering = 4;
 
   Encoding x = 101;
   Encoding y = 102;
@@ -282,7 +286,7 @@ message PolarLineMark {
   Encoding opacity = 120;
   Encoding stroke_opacity = 122;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
   Encoding detail = 133;
   Encoding order = 134;
 }
@@ -325,7 +329,7 @@ message PolarAreaMark {
   Encoding fill_opacity = 121;
   Encoding stroke_opacity = 122;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
   Encoding order = 134;
@@ -407,7 +411,7 @@ message PolarRuleMark {
   Encoding stroke = 119;
   Encoding opacity = 120;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
 }
 
 // The `text` value of each row of a polar plot.
@@ -430,15 +434,17 @@ message PolarTextMark {
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 4;
-  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
-  optional bool wrap = 5;
+  // Whether the lines of each text wrap at its `width`: `normal` wraps them and `nowrap` keeps
+  // each line whole. When unset, a text with a `width` wraps.
+  WhiteSpace white_space = 5;
   // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 6;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
-  optional bool ellipsis = 7;
+  // How a text that its `width` or `max_lines` cuts ends: `clip` cuts it, and `ellipsis` marks
+  // the cut with an ellipsis. When unset, it is clipped.
+  TextOverflow text_overflow = 7;
   // How each text runs: along the circle or a spoke. Invalid with an `angle`, which turns each
   // text by the angle of its row. When both are unset, each text is horizontal.
-  PolarTextOrient orient = 8;
+  PolarTextOrient text_orient = 8;
   // Where each text lies from the radius of its point.
   RadiusSide radius_side = 9;
   // Where each text lies from the angle of its point.
@@ -498,7 +504,7 @@ message GeoLineMark {
   Encoding opacity = 120;
   Encoding stroke_opacity = 122;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
   Encoding detail = 133;
 }
 
@@ -538,7 +544,7 @@ message GeoRuleMark {
   Encoding stroke = 119;
   Encoding opacity = 120;
   Encoding stroke_width = 123;
-  Encoding stroke_dash = 124;
+  Encoding stroke_dasharray = 124;
 }
 
 // The `text` value of each row of a geo plot.
@@ -559,12 +565,14 @@ message GeoTextMark {
   // Whether `width` is the most that the box of each text takes, or exactly its width. When unset,
   // the width is a maximum.
   TextWidthMode width_mode = 6;
-  // Whether the lines of each text wrap at its `width`. When unset, a text with a `width` wraps.
-  optional bool wrap = 7;
+  // Whether the lines of each text wrap at its `width`: `normal` wraps them and `nowrap` keeps
+  // each line whole. When unset, a text with a `width` wraps.
+  WhiteSpace white_space = 7;
   // The most lines that each text keeps. When unset, it keeps all of them.
   optional uint32 max_lines = 8;
-  // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
-  optional bool ellipsis = 9;
+  // How a text that its `width` or `max_lines` cuts ends: `clip` cuts it, and `ellipsis` marks
+  // the cut with an ellipsis. When unset, it is clipped.
+  TextOverflow text_overflow = 9;
 
   Encoding longitude = 109;
   Encoding latitude = 110;
@@ -589,10 +597,12 @@ message GeoImageMark {
   Align align = 1;
   // The side of each image at its `latitude`.
   ImageBaseline baseline = 2;
-  // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
-  optional bool aspect = 3;
-  // Whether each image is filtered smoothly when it is scaled. When unset, it is.
-  optional bool smooth = 4;
+  // How each image fills its box: `contain` keeps its own aspect ratio inside the box, and `fill`
+  // stretches it to the box. When unset, it is contained.
+  ObjectFit object_fit = 3;
+  // How each image is filtered when it is scaled: `smooth` filters it, and `pixelated` keeps its
+  // pixels sharp. When unset, or `auto`, it is filtered smoothly.
+  ImageRendering image_rendering = 4;
 
   Encoding longitude = 109;
   Encoding latitude = 110;
@@ -655,6 +665,23 @@ enum TextWidthMode {
   TEXT_WIDTH_MODE_MAX = 1;
   // The box is exactly as wide as the width.
   TEXT_WIDTH_MODE_FIXED = 2;
+}
+
+// How an image fills its box, as CSS's `object-fit`.
+enum ObjectFit {
+  // Unset, so the styles give it.
+  OBJECT_FIT_UNSPECIFIED = 0;
+  OBJECT_FIT_CONTAIN = 1;
+  OBJECT_FIT_FILL = 2;
+}
+
+// How an image is filtered when it is scaled, as CSS's `image-rendering`.
+enum ImageRendering {
+  // Unset, so the styles give it.
+  IMAGE_RENDERING_UNSPECIFIED = 0;
+  IMAGE_RENDERING_AUTO = 1;
+  IMAGE_RENDERING_SMOOTH = 2;
+  IMAGE_RENDERING_PIXELATED = 3;
 }
 
 // A side of a text or an image at its horizontal position, as the keywords of the `align`

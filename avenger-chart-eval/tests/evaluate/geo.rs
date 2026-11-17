@@ -159,7 +159,7 @@ fn an_equal_earth_world_map_draws_its_sphere_graticule_shapes_and_cities() {
     );
     let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere())
         .graticule(Graticule::builder().step([30.0, 30.0]))
-        .sphere(SphereStyle::builder());
+        .sphere(true);
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -188,7 +188,7 @@ fn a_globe_draws_the_places_of_its_near_side() {
             .whole_sphere(),
     )
     .graticule(Graticule::builder())
-    .sphere(SphereStyle::builder());
+    .sphere(true);
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -258,7 +258,7 @@ fn routes_follow_the_great_circle_the_canvas_and_the_parallel() {
         flights().slice(0, 1),
         GeoRuleMark::new(-120.0, 40.0)
             .longitude2(20.0)
-            .stroke_dash(Encoding::direct_value("4 2")),
+            .stroke_dasharray(Encoding::direct_value("4 2")),
     );
     let land = GeoLayer::shape(
         countries(),
@@ -383,7 +383,7 @@ fn maps_of_one_family_share_one_projection() {
             GeoSymbolMark::builder().longitude("lon").latitude("lat"),
         );
         let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).data())
-            .sphere(SphereStyle::builder())
+            .sphere(true)
             .family("world");
         Plot::geo(GeoPlot::new(options, [places]))
     };
@@ -525,7 +525,7 @@ fn city_plot(table: RecordBatch) -> Chart {
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
     let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth))
-        .sphere(SphereStyle::builder())
+        .sphere(true)
         .family("world")
         .navigation(GeoNavigation::builder().min_zoom(1.0).max_zoom(8.0));
     Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
@@ -811,9 +811,7 @@ fn a_shown_graticule_and_sphere_draw_their_defaults_and_hidden_ones_draw_nothing
     };
     let world = || Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere());
     let bare = svg(world());
-    let defaults = svg(world()
-        .graticule(Graticule::builder())
-        .sphere(SphereStyle::builder()));
+    let defaults = svg(world().graticule(Graticule::builder()).sphere(true));
     assert_ne!(defaults, bare);
     assert_eq!(svg(world().graticule(true).sphere(true)), defaults);
     assert_eq!(svg(world().graticule(false).sphere(false)), bare);

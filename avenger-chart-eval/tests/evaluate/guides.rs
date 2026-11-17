@@ -269,7 +269,7 @@ fn legends_draw_the_constant_colors_of_their_marks() {
             .x("year")
             .y("mpg")
             .detail("origin")
-            .stroke_dash("origin")
+            .stroke_dasharray("origin")
             .color(Encoding::direct_value("#54a24b")),
     );
     let lines = Chart::builder(Plot::cartesian([lines])).build().unwrap();
