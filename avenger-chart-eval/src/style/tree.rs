@@ -305,7 +305,7 @@ fn composition(
             let name = match (row, concat.facet.is_some()) {
                 (true, false) => "hconcat",
                 (false, false) => "vconcat",
-                (true, true) => "facet_col",
+                (true, true) => "facet_column",
                 (false, true) => "facet_row",
             };
             tree.set_attribute(plot_node, "type", name);

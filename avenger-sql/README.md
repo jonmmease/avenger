@@ -104,12 +104,13 @@ The composition aggregates of avenger-chart's `functions` feature compose the ch
 FROM penguins
 |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart
    GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 ```
 
 - `layer_agg(chart)` overlays the plots of the charts of a group, `hconcat_agg(chart)` places them in a row, and `vconcat_agg(chart)` in a column, in the order of the `ORDER BY` of the call, such as `layer_agg(chart ORDER BY k)`. Without an `ORDER BY`, their order is unspecified, as for `ARRAY_AGG`.
-- `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY` of the call. A facet labels each chart with its value, and its column is the name of the key's column. Two rows of a group with one key value are an error, and a `NULL` chart is an empty cell. A `facet_row` of `facet_col` charts is a grid, whose rows each get a cell for every column.
-- The options of a composition are those of its node, by name, such as `layout => wrap_layout(max_columns => 2)` of a `facet_wrap`, and they are constants, as the properties of a mark are. A `NULL` chart is no child of a layer or a concat, and a composition without children is the empty chart.
+- `facet_row(chart, key)`, `facet_column(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of the key, ascending with `NULL` last, or in the order of their first rows in the `ORDER BY` of the call. A facet labels each chart with its value, and its column is the name of the key's column. Two rows of a group with one key value are an error, and a `NULL` chart is an empty cell. A `facet_row` of `facet_column` charts is a grid, whose rows each get a cell for every column.
+- The options of a composition are those of its node, by name, such as `max_columns => 2` of a `facet_wrap`, and they are constants, as the properties of a mark are. A `NULL` chart is no child of a layer or a concat, and a composition without children is the empty chart.
+- `resolve => resolve(y => 'independent')` gives each child of a concat or a wrap its own scale of `y`, and `resolve(projection => 'shared')` gives its maps one projection. `parts => parts(legend => 'keep')` draws a legend beside each plot in place of one for the concat. `tracks => [200, 400]` sets the length of each child's track along a concat, and a track takes a share of the free length in place of a length, as in `tracks => [track(200), track(share => 2, max => 600)]`, where an array that mixes the two writes `track(...)` for each element.
 
 The scalar functions `layer`, `hconcat`, and `vconcat` compose the charts of a row, the charts that a query writes as columns, so the query authors the structure:
 
@@ -119,11 +120,11 @@ FROM penguins
      symbol(x => bill_length_mm, y => bill_depth_mm),
      symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
    GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 ```
 
 - `layer(chart, ...)` overlays the plots of its charts, `hconcat(chart, ...)` places them in a row, and `vconcat(chart, ...)` in a column, in the order of the arguments, so the first layer draws first and the first child of a concat is the leftmost or the topmost. A call takes one chart or more, and calls nest, as in `vconcat(top, hconcat(main, side))`.
-- The options of a scalar are those of its aggregate, by name, after the charts, such as `hconcat(a, b, layout => concat_layout(gap => 24))`. A `NULL` chart is no child, and a scalar over mark aggregates, such as the `layer` above, composes the marks of each group.
+- The options of a scalar are those of its aggregate, by name, after the charts, such as `hconcat(a, b, gap => 24)`. A `NULL` chart is no child, and a scalar over mark aggregates, such as the `layer` above, composes the marks of each group.
 
 The aggregates of a layer and the concats take the `_agg` names, as GoogleSQL names `STRING_AGG` and `ARRAY_CONCAT_AGG`, because an aggregate and a scalar function cannot share a name. The facets keep their names, since they compose only rows.
 

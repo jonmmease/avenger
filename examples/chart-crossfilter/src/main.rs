@@ -149,7 +149,7 @@ fn chart(movies: &RecordBatch) -> Chart {
         Select::lasso(FILTER, Vec::<String>::new()),
     );
     let by_year = Concat::new(Direction::Column)
-        .resolve([Resolve::channel(Sharing::Shared, Channel::X)])
+        .resolve(Resolve::builder().x(Sharing::Shared))
         .children([imdb_by_year, tomatoes_by_year]);
     Chart::builder(
         Concat::new(Direction::Row).children([NodeBuilder::from(ratings), by_year.into()]),

@@ -26,7 +26,7 @@ use std::{
 };
 
 use avenger_chart::{
-    proto::{self, node::Node, track, Part, PartRuleKind},
+    proto::{self, node::Node, track, PartRuleKind},
     resolve::Resolved,
     table::Place,
     Chart,
@@ -53,6 +53,20 @@ use crate::{
 
 /// The parts of an axis, from the plot outward, which stand in a slab each.
 pub(crate) const AXIS_PARTS: [AxisPart; 3] = [AxisPart::Ticks, AxisPart::Labels, AxisPart::Title];
+
+/// A part that the part rules of a concat or a wrap keep, collapse, or merge, as the fields of
+/// `PartRules` name them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Part {
+    AxisTicks,
+    AxisLabels,
+    AxisTitle,
+    Legend,
+    FacetLabels,
+    FacetTitle,
+    Attribution,
+    Widget,
+}
 
 /// The parts of the format for the axis parts of [`AXIS_PARTS`], in their order.
 const AXIS_RULE_PARTS: [Part; 3] = [Part::AxisTicks, Part::AxisLabels, Part::AxisTitle];
@@ -189,10 +203,20 @@ pub(crate) fn natural_length(scale: &ConfiguredScale, step: f32) -> Option<f32> 
 /// default, which collapses the ticks and the labels of an axis and the labels and the title of a
 /// facet, and merges the title of an axis, legends, colorbars, and attributions. A wrap merges the
 /// titles of its children's facets by default, because each child has a label of its own.
-fn rule(rules: &[proto::PartRule], part: Part, wrap: bool) -> PartRuleKind {
-    let set = (rules.iter())
-        .find(|rule| rule.part == part as i32)
-        .and_then(|rule| PartRuleKind::try_from(rule.rule).ok());
+fn rule(rules: Option<&proto::PartRules>, part: Part, wrap: bool) -> PartRuleKind {
+    let set = rules.map_or(0, |rules| match part {
+        Part::AxisTicks => rules.axis_ticks,
+        Part::AxisLabels => rules.axis_labels,
+        Part::AxisTitle => rules.axis_title,
+        Part::Legend => rules.legend,
+        Part::FacetLabels => rules.facet_labels,
+        Part::FacetTitle => rules.facet_title,
+        Part::Attribution => rules.attribution,
+        Part::Widget => rules.widget,
+    });
+    let set = PartRuleKind::try_from(set)
+        .ok()
+        .filter(|rule| *rule != PartRuleKind::Unspecified);
     match (set, part) {
         (Some(rule), _) => rule,
         (None, Part::FacetTitle) if wrap => PartRuleKind::Merge,
@@ -296,29 +320,20 @@ fn node_at<'a>(chart: &'a Chart, path: &str) -> Option<&'a proto::Node> {
 
 /// The part rules of the concat or the wrap at `path`, and whether it is a wrap, or `None` for
 /// another node.
-fn node_rules<'a>(chart: &'a Chart, path: &str) -> Option<(&'a [proto::PartRule], bool)> {
+fn node_rules<'a>(chart: &'a Chart, path: &str) -> Option<(Option<&'a proto::PartRules>, bool)> {
     match &node_at(chart, path)?.node {
-        Some(Node::Concat(concat)) => Some((
-            (concat.layout.as_ref()).map_or(&[][..], |layout| &layout.part_rules[..]),
-            false,
-        )),
-        Some(Node::Wrap(wrap)) => Some((
-            (wrap.layout.as_ref()).map_or(&[][..], |layout| &layout.part_rules[..]),
-            true,
-        )),
+        Some(Node::Concat(concat)) => Some((concat.parts.as_ref(), false)),
+        Some(Node::Wrap(wrap)) => Some((wrap.parts.as_ref(), true)),
         _ => None,
     }
 }
 
-/// The track that a size of the format lowers to.
-fn track(size: Option<&track::Size>) -> Track {
-    match size {
-        Some(track::Size::Length(length)) => Track::px(*length),
-        Some(track::Size::Share(proto::Share {
-            weight,
-            max: Some(max),
-        })) => Track::fr_max(weight.unwrap_or(1.0), *max),
-        Some(track::Size::Share(share)) => Track::fr(share.weight.unwrap_or(1.0)),
+/// The layout track that a track of the format lowers to.
+fn track(track: Option<&proto::Track>) -> Track {
+    match track.and_then(|track| track.size.as_ref().map(|size| (size, track.max))) {
+        Some((track::Size::Length(length), _)) => Track::px(*length),
+        Some((track::Size::Share(share), Some(max))) => Track::fr_max(*share, max),
+        Some((track::Size::Share(share), None)) => Track::fr(*share),
         None => Track::fr(1.0),
     }
 }
@@ -585,20 +600,15 @@ impl Lowering<'_> {
                 tracks.push((offset, track));
             }
         }
-        let layout = concat.layout.as_ref();
-        let rules = self.rules(
-            path,
-            layout.map_or(&[][..], |layout| &layout.part_rules[..]),
-            false,
-        );
+        let rules = self.rules(path, concat.parts.as_ref(), false);
         let matched = self.matched(path);
         // Only the outermost sequence of a table sizes its tracks, so only it distributes.
-        let distributions = match (table_root, layout) {
-            (true, Some(layout)) => [
-                distribute(layout.horizontal_distribute),
-                distribute(layout.vertical_distribute),
+        let distributions = match table_root {
+            true => [
+                distribute(concat.horizontal_distribute),
+                distribute(concat.vertical_distribute),
             ],
-            _ => [None, None],
+            false => [None, None],
         };
         let slabs = self.host_slabs(path, ids);
         macro_rules! sequence {
@@ -655,20 +665,13 @@ impl Lowering<'_> {
         if let Computed::Number(columns) = style.get(Property::MaxColumns) {
             node = node.max_columns(*columns as usize);
         }
-        let layout = wrap.layout.as_ref();
-        if let Some(layout) = layout {
-            if let Some(row) = &layout.row {
-                node = node.rows(track(row.size.as_ref()));
-            }
-            if let Some(distribute) = distribute(layout.distribute) {
-                node = node.distribute(distribute);
-            }
+        if let Some(row) = &wrap.row_height {
+            node = node.rows(track(Some(row)));
         }
-        let rules = self.rules(
-            path,
-            layout.map_or(&[][..], |layout| &layout.part_rules[..]),
-            true,
-        );
+        if let Some(distribute) = distribute(wrap.distribute) {
+            node = node.distribute(distribute);
+        }
+        let rules = self.rules(path, wrap.parts.as_ref(), true);
         for (tag, rule) in rules {
             node = match rule {
                 Rule::Kind(PartRuleKind::Collapse) => node.collapse_tag(tag),
@@ -703,7 +706,12 @@ impl Lowering<'_> {
     /// of the scales that it owns and of the facets that it owns, and of the axis titles and the
     /// attributions of the plots below it. It matches the thickness of the labels of the facets
     /// that it owns, so the titles beyond facets with and without a rule line up.
-    fn rules(&self, path: &str, rules: &[proto::PartRule], wrap: bool) -> Vec<(TagKey, Rule)> {
+    fn rules(
+        &self,
+        path: &str,
+        rules: Option<&proto::PartRules>,
+        wrap: bool,
+    ) -> Vec<(TagKey, Rule)> {
         // Each tag with at most one rule of a kind and one match, in the order of their names.
         let mut declared: BTreeMap<(String, bool), (TagKey, Rule)> = BTreeMap::new();
         let mut declare = |tag: TagKey, matched: bool, rule: Rule| {

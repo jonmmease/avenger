@@ -4,7 +4,8 @@
 //! A message's parameters are its required content, then each other field outside a oneof and
 //! each oneof, in the order of their first field numbers. A field of `Encoding` type is a channel
 //! and a `TableRef` is a table, so neither is a parameter, and a oneof loses its members of
-//! either kind.
+//! either kind. A oneof whose members all take one kind of plain argument, as `options::splits`
+//! describes, gives a parameter for each member, of which a call gives at most one.
 //!
 //! The conversions turn an argument, a SQL value of one class or a fragment of a message, into a
 //! message, one step at a time. Each step builds a default builder of a message and calls one
@@ -151,6 +152,9 @@ pub(super) struct Param<'a> {
     pub(super) name: String,
     pub(super) required: bool,
     pub(super) kind: ParamKind<'a>,
+    /// The index of the oneof of a member that is a parameter of its own, as `options::splits`
+    /// describes: a call gives at most one of the parameters of one oneof.
+    pub(super) exclusive: Option<usize>,
 }
 
 pub(super) enum ParamKind<'a> {
@@ -254,7 +258,7 @@ impl<'a> Model<'a> {
                 name: name.clone(),
                 message,
                 function,
-                params: params(name, message, annotations, excluded),
+                params: params(name, message, annotations, excluded)?,
             });
         }
         let mut model = Model {
@@ -532,7 +536,7 @@ fn params<'a>(
     message: &'a DescriptorProto,
     annotations: &Annotations,
     excluded: &BTreeSet<(String, String)>,
-) -> Vec<Param<'a>> {
+) -> Result<Vec<Param<'a>>, String> {
     let excluded = |field: &FieldDescriptorProto| {
         excluded.contains(&(name.to_string(), field.name().to_string()))
     };
@@ -557,9 +561,32 @@ fn params<'a>(
                 if members.is_empty() {
                     continue;
                 }
-                let first = members.iter().map(|(m, _)| m.number()).min().unwrap_or(0);
                 let oneof = message.oneof_decl[index].name();
                 let required = annotations.is_required_oneof(name, oneof);
+                let fields: Vec<&FieldDescriptorProto> = members.iter().map(|(m, _)| *m).collect();
+                let splits = super::options::splits(&fields);
+                if required && splits {
+                    return Err(format!(
+                        "the required oneof `{oneof}` of `{name}` has members that one value \
+                         cannot tell apart, so no argument sets it"
+                    ));
+                }
+                if splits {
+                    for (member, shape) in members {
+                        params.push((
+                            false,
+                            member.number(),
+                            Param {
+                                name: member.name().to_string(),
+                                required: false,
+                                kind: ParamKind::Field(member, shape),
+                                exclusive: Some(index),
+                            },
+                        ));
+                    }
+                    continue;
+                }
+                let first = members.iter().map(|(m, _)| m.number()).min().unwrap_or(0);
                 params.push((
                     required,
                     first,
@@ -567,6 +594,7 @@ fn params<'a>(
                         name: oneof.to_string(),
                         required,
                         kind: ParamKind::Oneof(index, members),
+                        exclusive: None,
                     },
                 ));
             }
@@ -582,13 +610,14 @@ fn params<'a>(
                         name: field.name().to_string(),
                         required,
                         kind: ParamKind::Field(field, shape),
+                        exclusive: None,
                     },
                 ));
             }
         }
     }
     params.sort_by_key(|(required, number, _)| (!*required, *number));
-    params.into_iter().map(|(_, _, param)| param).collect()
+    Ok(params.into_iter().map(|(_, _, param)| param).collect())
 }
 
 /// The full names of the messages whose parameters SQL arguments set: the messages of the option

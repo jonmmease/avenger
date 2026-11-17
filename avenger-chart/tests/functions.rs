@@ -364,18 +364,22 @@ fn the_rules_of_a_mark_fail_its_call() {
 
 #[test]
 fn the_options_of_the_composition_nodes_have_constructors() {
-    let track = call("track", vec![("size", Arg::Int(120))]).unwrap();
-    let layout = call(
-        "concat_layout",
-        vec![
-            ("gap", Arg::Int(8)),
-            ("tracks", Arg::List(vec![Some(Arg::Fragment(track))])),
-        ],
+    // A number is a track's length, and a track takes a share and a maximum by name.
+    let length = call("track", vec![("length", Arg::Int(120))]).unwrap();
+    let length = proto::Track::decode(length.message).unwrap();
+    assert_eq!(length.size, Some(proto::track::Size::Length(120.0)));
+    let share = call(
+        "track",
+        vec![("share", Arg::Int(2)), ("max", Arg::Int(600))],
     )
     .unwrap();
-    let layout = proto::ConcatLayout::decode(layout.message).unwrap();
-    assert_eq!(layout.gap, Some(8.0));
-    assert_eq!(layout.tracks.len(), 1);
+    let share = proto::Track::decode(share.message).unwrap();
+    assert_eq!(share.size, Some(proto::track::Size::Share(2.0)));
+    assert_eq!(share.max, Some(600.0));
+
+    let parts = call("parts", vec![("legend", Arg::Str("keep".into()))]).unwrap();
+    let parts = proto::PartRules::decode(parts.message).unwrap();
+    assert_eq!(parts.legend, proto::PartRuleKind::Keep as i32);
 
     // A facet constructor takes no column: the composition that builds a facet sets it from its key.
     let facet = call("facet", vec![("orient", Arg::Str("bottom".into()))]).unwrap();
@@ -387,27 +391,43 @@ fn the_options_of_the_composition_nodes_have_constructors() {
 }
 
 #[test]
-fn a_string_key_of_a_resolve_rule_names_a_channel() {
-    let sharing = ("sharing", Arg::Str("independent".into()));
-    let channel = call(
+fn a_track_takes_a_length_or_a_share() {
+    let error = call(
+        "track",
+        vec![("length", Arg::Int(200)), ("share", Arg::Int(2))],
+    )
+    .unwrap_err();
+    assert!(
+        matches!(error.reason, Reason::Exclusive { .. }),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        "`share` sets the same choice as `length`, so a call gives one of them"
+    );
+}
+
+#[test]
+fn a_resolve_names_its_channels_and_its_independent_widgets() {
+    let resolve = call(
         "resolve",
-        vec![("key", Arg::Str("y".into())), sharing.clone()],
+        vec![
+            ("y", Arg::Str("independent".into())),
+            ("projection", Arg::Str("shared".into())),
+            (
+                "independent_widgets",
+                Arg::List(vec![Some(Arg::Str("w".into()))]),
+            ),
+        ],
     )
     .unwrap();
-    let channel = proto::Resolve::decode(channel.message).unwrap();
-    assert_eq!(
-        channel.key,
-        Some(proto::resolve::Key::Channel(proto::Channel::Y as i32))
-    );
-    let widget = call("widget_key", vec![("key", Arg::Str("w".into()))]).unwrap();
-    let widget = call("resolve", vec![("key", Arg::Fragment(widget)), sharing]).unwrap();
-    let widget = proto::Resolve::decode(widget.message).unwrap();
-    assert_eq!(
-        widget.key,
-        Some(proto::resolve::Key::Widget(proto::WidgetKey {
-            key: "w".into()
-        }))
-    );
+    let resolve = proto::Resolve::decode(resolve.message).unwrap();
+    assert_eq!(resolve.y, proto::Sharing::Independent as i32);
+    assert_eq!(resolve.x, proto::Sharing::Unspecified as i32);
+    assert_eq!(resolve.projection, proto::Sharing::Shared as i32);
+    assert_eq!(resolve.independent_widgets, ["w"]);
+    let params = &constructor("resolve").unwrap().params;
+    assert!(params.iter().all(|param| param.name != "x2"));
 }
 
 /// A chart of one plot of symbols, with the id `id`.
@@ -507,13 +527,16 @@ fn layer_overlays_the_plots_of_its_charts() {
 
 #[test]
 fn a_concat_takes_the_options_of_its_node() {
-    let gap = call("concat_layout", vec![("gap", Arg::Int(8))]).unwrap();
     for (name, direction) in [("hconcat", Direction::Row), ("vconcat", Direction::Column)] {
         let concat = composition(name).unwrap();
         let mut options = vec![None; concat.params.len()];
         let at = |param: &str| concat.params.iter().position(|p| p.name == param).unwrap();
         options[at("id")] = Some(Arg::Str("pair".into()));
-        options[at("layout")] = Some(Arg::Fragment(gap.clone()));
+        options[at("gap")] = Some(Arg::Int(8));
+        options[at("tracks")] = Some(Arg::List(vec![
+            Some(Arg::Int(200)),
+            Some(Arg::Float(400.5)),
+        ]));
         let charts = vec![
             Child {
                 chart: Some(plot("a")),
@@ -532,9 +555,14 @@ fn a_concat_takes_the_options_of_its_node() {
         };
         assert_eq!(root.direction, direction as i32);
         assert_eq!(root.id, "pair");
+        assert_eq!(root.gap, Some(8.0));
+        let lengths: Vec<_> = root.tracks.iter().map(|track| track.size).collect();
         assert_eq!(
-            root.layout.as_ref().and_then(|layout| layout.gap),
-            Some(8.0)
+            lengths,
+            [
+                Some(proto::track::Size::Length(200.0)),
+                Some(proto::track::Size::Length(400.5))
+            ]
         );
         assert_eq!(root.children.len(), 2);
     }
@@ -542,7 +570,7 @@ fn a_concat_takes_the_options_of_its_node() {
 
 #[test]
 fn a_facet_orders_its_keys_with_null_last_and_draws_an_empty_cell_for_a_null_chart() {
-    let facet = composition("facet_col").unwrap();
+    let facet = composition("facet_column").unwrap();
     let charts = vec![
         child(Some(plot("p")), Some("Torgersen")),
         child(Some(plot("p")), None),
@@ -603,7 +631,7 @@ fn a_facet_takes_one_chart_for_each_key_value() {
 
 #[test]
 fn a_facet_of_facets_aligns_their_cells() {
-    let cols = composition("facet_col").unwrap();
+    let cols = composition("facet_column").unwrap();
     let row = |values: &[&str]| {
         let charts = values
             .iter()
@@ -653,7 +681,7 @@ fn a_wrapped_facet_and_an_empty_composition() {
         .collect();
     assert_eq!(order, [Some("b".to_string()), Some("a".to_string())]);
 
-    for name in ["layer", "hconcat", "facet_col"] {
+    for name in ["layer", "hconcat", "facet_column"] {
         let chart = composition(name)
             .unwrap()
             .compose(Some("k"), Vec::new(), ChildOrder::ByKey, &[])

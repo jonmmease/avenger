@@ -172,12 +172,12 @@ async fn a_facet_of_lifted_charts() {
     same(
         &format!(
             "{PENGUINS} |> AGGREGATE bar(x => species, y => COUNT(*)) AS chart GROUP BY island \
-             |> AGGREGATE facet_col(chart, island) AS chart"
+             |> AGGREGATE facet_column(chart, island) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY island, species \
              |> AGGREGATE bar(x => species, y => `COUNT(*)`) AS chart GROUP BY island \
-             |> AGGREGATE facet_col(chart, island) AS chart"
+             |> AGGREGATE facet_column(chart, island) AS chart"
         ),
     )
     .await;
@@ -677,7 +677,7 @@ async fn the_printouts_of_the_stages() {
             "facet-histograms",
             "FROM penguins\n|> WHERE body_mass_g IS NOT NULL\n\
              |> AGGREGATE bar(x => bin(body_mass_g), y => COUNT(*)) AS chart GROUP BY island\n\
-             |> AGGREGATE facet_col(chart, island) AS chart"
+             |> AGGREGATE facet_column(chart, island) AS chart"
                 .to_string(),
         ),
         (

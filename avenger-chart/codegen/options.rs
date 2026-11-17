@@ -13,9 +13,10 @@
 //! The tree stops at `ValueRef`, `TableRef`, `Table`, and `Encoding`, which are values, tables,
 //! and channels, not options. build.rs fails, in every build, when a oneof of the tree has two
 //! members that its argument cannot tell apart, except for `ValueRef` members, of which the first
-//! by number takes the values, when a member without fields, which its name picks, shares its
-//! oneof with a member that takes a string, or when a message field outside a oneof has a message
-//! without fields, which no argument sets.
+//! by number takes the values, and for a oneof whose members all take one kind of plain argument,
+//! whose members are parameters of their own, when a member without fields, which its name picks,
+//! shares its oneof with a member that takes a string, or when a message field outside a oneof has
+//! a message without fields, which no argument sets.
 
 use std::collections::BTreeSet;
 
@@ -225,14 +226,30 @@ fn message_fields(message: &DescriptorProto) -> impl Iterator<Item = &FieldDescr
     })
 }
 
+/// Whether the oneof of `members` gives a parameter for each member in place of one parameter:
+/// a oneof of two or more members that all take one kind of plain argument, such as `Track.size`,
+/// whose `length` and `share` both take numbers, so a value could not pick a member. A call gives
+/// at most one of its members.
+pub(super) fn splits(members: &[&FieldDescriptorProto]) -> bool {
+    let kinds: Vec<Option<&str>> = members.iter().map(|member| argument_kind(member)).collect();
+    members.len() > 1
+        && kinds
+            .iter()
+            .all(|kind| kind.is_some_and(|kind| !matches!(kind, "ValueRef" | "array")))
+        && kinds.windows(2).all(|pair| pair[0] == pair[1])
+}
+
 /// Checks that the argument of the oneof `oneof` of the message `message` picks at most one of
-/// `members`.
+/// `members`, unless each member is a parameter of its own.
 fn check_oneof(
     message: &str,
     oneof: &str,
     members: &[&FieldDescriptorProto],
     has_fields: &dyn Fn(&str) -> bool,
 ) -> Result<(), String> {
+    if splits(members) {
+        return Ok(());
+    }
     let at = format!("`{message}.{oneof}`");
     let mut types: Vec<(&str, &str)> = Vec::new();
     let mut kinds: Vec<(&str, &str)> = Vec::new();

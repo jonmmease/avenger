@@ -4,40 +4,64 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
-import "avenger/chart/v1/annotation.proto";
-import "avenger/chart/v1/channel.proto";
-
-// The sharing of one channel, or of the copies of one widget, among the layers of a plot, or among
-// the children of a concat or a wrap. An inner independent rule wins over an outer shared rule.
+// The sharing rules of a plot, a concat, or a wrap: the sharing of each channel with a scale of
+// its own, of the projections of geo plots, and of the copies of widgets, among the layers of a
+// plot or among the children of a concat or a wrap. A sharing that is unset takes the default of
+// its node. An inner independent rule wins over an outer shared rule.
+//
+// The fields of the channels are the channels with a scale of its own, those whose `channel_scale`
+// is `CHANNEL_SCALE_OWN`, each named after the channel's field in a mark and numbered with the
+// channel's value, which the build of avenger-chart checks.
 message Resolve {
-  // What the rule shares.
-  oneof key {
-    option (avenger.chart.v1.required_oneof) = true;
-    // A channel that can take a scale: not `x2`, `y2`, `theta2`, and `radius2`, which follow `x`,
-    // `y`, `theta`, and `radius`, and not `longitude`, `latitude`, `longitude2`, `latitude2`,
-    // `geometry`, `text`, `image`, `path`, and `detail`.
-    Channel channel = 1 [(avenger.chart.v1.required) = true];
-    // The key of a widget, as `Widget` describes. The copies of a key are shared by default on
-    // plots, concats, and wraps, with or without a facet.
-    WidgetKey widget = 3;
-  }
-  // Whether the channel's scale, or the widget, is shared.
-  Sharing sharing = 2 [(avenger.chart.v1.required) = true];
-}
-
-// The key of a widget in a resolve rule. It is a message, not a string, so that a string argument
-// of a resolve rule names a channel.
-message WidgetKey {
-  // The key, not empty.
-  string key = 1 [(avenger.chart.v1.required) = true];
+  // The sharing of the scale of `x`. The second channel of a pair, such as `x2`, follows the
+  // scale of the first.
+  Sharing x = 1;
+  // The sharing of the scale of `y`.
+  Sharing y = 2;
+  // The sharing of the scale of `theta`.
+  Sharing theta = 5;
+  // The sharing of the scale of `radius`.
+  Sharing radius = 6;
+  // The sharing of the scale of `color`.
+  Sharing color = 17;
+  // The sharing of the scale of `fill`.
+  Sharing fill = 18;
+  // The sharing of the scale of `stroke`.
+  Sharing stroke = 19;
+  // The sharing of the scale of `opacity`.
+  Sharing opacity = 20;
+  // The sharing of the scale of `fill_opacity`.
+  Sharing fill_opacity = 21;
+  // The sharing of the scale of `stroke_opacity`.
+  Sharing stroke_opacity = 22;
+  // The sharing of the scale of `stroke_width`.
+  Sharing stroke_width = 23;
+  // The sharing of the scale of `stroke_dash`.
+  Sharing stroke_dash = 24;
+  // The sharing of the scale of `size`.
+  Sharing size = 25;
+  // The sharing of the scale of `shape`.
+  Sharing shape = 26;
+  // The sharing of the scale of `angle`.
+  Sharing angle = 27;
+  // The sharing of the scale of `pattern`.
+  Sharing pattern = 28;
+  // The sharing of the projections of the geo plots below a concat or a wrap, among its children.
+  // Unset on a plot, whose layers share one projection.
+  Sharing projection = 40;
+  // The keys of the widgets whose copies are independent below the node, so each layer of a plot,
+  // or each child of a concat or a wrap, keeps its own widget, as `Widget` describes. The copies of
+  // every other key are shared, on plots, concats, and wraps, with or without a facet. Each key is
+  // not empty and appears once.
+  repeated string independent_widgets = 41;
 }
 
 enum Sharing {
-  // Unset, so the field's default applies. A resolve rule's sharing is required.
+  // Unset, so the default of the node applies.
   SHARING_UNSPECIFIED = 0;
-  // One scale, or one widget, for every layer below the node.
+  // One scale, or one projection, for every layer below the node.
   SHARING_SHARED = 1;
-  // One scale, or one widget, for each layer of a plot, or for each child of a concat or a wrap.
-  // Layers whose specs name one family still share one scale.
+  // One scale, or one projection, for each layer of a plot, or for each child of a concat or a
+  // wrap. Layers whose specs name one family still share one scale.
   SHARING_INDEPENDENT = 2;
 }

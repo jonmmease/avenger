@@ -45,7 +45,7 @@ fn facets(
     Chart::builder(
         Concat::new(Direction::Row)
             .facet("origin")
-            .resolve([Resolve::channel(Sharing::Independent, Channel::X)])
+            .resolve(Resolve::builder().x(Sharing::Independent))
             .children(panels),
     )
     .build()

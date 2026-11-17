@@ -9,6 +9,8 @@
 //!   of `annotation.proto` require, directly or through their fields, and `enum_error`, which
 //!   checks that the value of an enum field is a value that its enum declares.
 //! - `channels.rs`: `takes_scale`, from the `channel_scale` option of the values of `Channel`.
+//! - `resolve_channels.rs`: the channels of the fields of `Resolve`, which are the channels with a
+//!   scale of their own, and the access to their fields.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
 //! - `merge.rs`: an impl of `MergeFields` for each message that the encodings of a shared scale
@@ -142,6 +144,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     annotations::required_visitors(&mut walk, &set, &messages, &annotations)?;
     std::fs::write(out.join("walk.rs"), walk)?;
     std::fs::write(out.join("channels.rs"), annotations::channels(&annotations))?;
+    std::fs::write(
+        out.join("resolve_channels.rs"),
+        annotations::resolve_channels(&annotations, &set, &messages)?,
+    )?;
     std::fs::write(out.join("marks.rs"), marks(&set, &messages)?)?;
     std::fs::write(out.join("merge.rs"), messages.merges())?;
     std::fs::write(

@@ -72,13 +72,13 @@ impl Checker<'_> {
                 Some(_) => {}
             }
             let child_sharing = match child.node.as_ref() {
-                Some(Node::Plot(plot)) => Some((rules(&plot.resolve), None)),
+                Some(Node::Plot(plot)) => Some((rules(plot.resolve.as_ref()), None)),
                 Some(Node::Concat(concat)) => Some((
-                    rules(&concat.resolve),
+                    rules(concat.resolve.as_ref()),
                     concat.facet.as_ref().map(|facet| facet.column.as_str()),
                 )),
                 Some(Node::Wrap(wrap)) => Some((
-                    rules(&wrap.resolve),
+                    rules(wrap.resolve.as_ref()),
                     wrap.facet.as_ref().map(|facet| facet.column.as_str()),
                 )),
                 _ => None,
@@ -315,21 +315,17 @@ impl Checker<'_> {
 /// the identity of its owner.
 type Owner<'a> = (&'a str, Identity);
 
-/// How a child of a facet shares its channels and widgets: its resolve rules, and the column of its
+/// How a child of a facet shares its channels and widgets: its sharing rules, and the column of its
 /// own facet.
-type Sharing<'a> = (
-    Vec<(Option<crate::resolve::Shares<'a>>, i32)>,
-    Option<&'a str>,
-);
+type Sharing<'a> = (proto::Resolve, Option<&'a str>);
 
-/// The resolve rules as a sorted list of what they share and their sharings.
-fn rules(resolve: &[proto::Resolve]) -> Vec<(Option<crate::resolve::Shares<'_>>, i32)> {
-    let mut rules: Vec<(Option<crate::resolve::Shares>, i32)> = resolve
-        .iter()
-        .map(|rule| (crate::resolve::Shares::of(rule), rule.sharing))
-        .collect();
-    rules.sort_unstable();
-    rules.dedup();
+/// The sharing rules of the channels and the widgets of `resolve`, with its independent widgets
+/// sorted, so that two lists of one set of keys are equal.
+fn rules(resolve: Option<&proto::Resolve>) -> proto::Resolve {
+    let mut rules = resolve.cloned().unwrap_or_default();
+    rules.projection = 0;
+    rules.independent_widgets.sort_unstable();
+    rules.independent_widgets.dedup();
     rules
 }
 

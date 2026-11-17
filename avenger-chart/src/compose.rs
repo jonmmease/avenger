@@ -226,7 +226,9 @@ impl PlotBuilder {
     ///
     /// - the id, the title, the attribution, the sizes, and the options of the coordinate system
     ///   are those that one overlaid plot sets, where two different values are an error
-    /// - the resolve rules of the plot replace the overlaid plots' rules of their channels
+    /// - the sharing of a channel that the plot's resolve sets wins over the overlaid plots', which
+    ///   are those that one overlaid plot sets, where two different sharings are an error, and the
+    ///   independent widgets of the plot and of the overlaid plots join
     /// - the tools are those of the plot, then those of the overlaid plots, where the overlaid
     ///   plots' navigations join when they are equal and are a conflict when they differ, and give
     ///   way to a navigation of the plot itself, and the classes are those of the plot, then the
@@ -322,14 +324,34 @@ fn merge(plot: &mut proto::Plot, plots: Vec<(String, proto::Plot)>) -> Result<()
             "height",
         )?;
     }
-    let own_rules = plot.resolve.clone();
-    for (_, child) in &plots {
-        plot.resolve.extend(
-            (child.resolve.iter())
-                .filter(|rule| !own_rules.iter().any(|own| own.key == rule.key))
-                .cloned(),
-        );
+    // The plot's own sharing of a channel wins, and the overlaid plots' sharings of a channel
+    // that the plot leaves unset must agree. The independent widgets join.
+    let mut resolve = plot.resolve.take().unwrap_or_default();
+    for channel in crate::resolve::RESOLVE_CHANNELS {
+        let own = crate::resolve::resolve_sharing(&resolve, channel);
+        if own != 0 {
+            continue;
+        }
+        let sharings = (plots.iter()).map(|(path, child)| {
+            let sharing = (child.resolve.as_ref())
+                .map(|resolve| crate::resolve::resolve_sharing(resolve, channel))
+                .filter(|sharing| *sharing != 0);
+            (path, sharing)
+        });
+        let field = format!("resolve.{}", channel.field_name());
+        if let Some(sharing) = pick(sharings, &field)? {
+            *crate::resolve::resolve_sharing_mut(&mut resolve, channel)
+                .expect("a channel of `Resolve`") = sharing;
+        }
     }
+    for (_, child) in &plots {
+        for key in child.resolve.iter().flat_map(|r| &r.independent_widgets) {
+            if !resolve.independent_widgets.contains(key) {
+                resolve.independent_widgets.push(key.clone());
+            }
+        }
+    }
+    plot.resolve = (resolve != proto::Resolve::default()).then_some(resolve);
     // A plot navigates in one way: its own navigation wins, and the overlaid plots' navigations
     // join when they are equal and are a conflict when they differ.
     let is_navigation =

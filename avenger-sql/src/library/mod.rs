@@ -91,7 +91,7 @@ pub enum Family {
     /// `impute`.
     Transform,
     /// A composition of avenger-chart: an aggregate that composes the charts of a group, such as
-    /// `facet_col`.
+    /// `facet_column`.
     Composition,
 }
 

@@ -287,7 +287,7 @@ fn a_widget_writes_the_clause_that_gives_its_value() {
 
 #[test]
 fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
-    let wrapped = |rules: Vec<PartRuleBuilder>| {
+    let wrapped = |rules: PartRulesBuilder| {
         let panels = Node::partitions(
             &cars_dataset(),
             "origin",
@@ -308,7 +308,7 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
         Chart::builder(
             Wrap::builder()
                 .facet("origin")
-                .layout(WrapLayout::builder().part_rules(rules))
+                .parts(rules)
                 .children(panels),
         )
         .number_format_syntax("d3")
@@ -319,7 +319,11 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
     };
 
     // By default, the wrap merges the copies into one widget that it draws once.
-    let merged = render(&wrapped(Vec::new()), [560.0, 460.0], "widget-wrap-merged");
+    let merged = render(
+        &wrapped(PartRules::builder()),
+        [560.0, 460.0],
+        "widget-wrap-merged",
+    );
     let [widget] = &merged.widgets[..] else {
         panic!("one widget: {:#?}", merged.widgets);
     };
@@ -331,8 +335,8 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
     assert_eq!(*domain, [1613.0, 5140.0]);
 
     // A rule that keeps widgets draws the one widget beside each plot.
-    let keep = PartRule::new(Part::Widget, PartRuleKind::Keep);
-    let kept = render(&wrapped(vec![keep]), [560.0, 460.0], "widget-wrap-kept");
+    let keep = PartRules::builder().widget(PartRuleKind::Keep);
+    let kept = render(&wrapped(keep), [560.0, 460.0], "widget-wrap-kept");
     let [widget] = &kept.widgets[..] else {
         panic!("one widget: {:#?}", kept.widgets);
     };

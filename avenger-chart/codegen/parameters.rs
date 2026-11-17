@@ -115,8 +115,9 @@ fn emit_message(
         let accepts = match &param.kind {
             ParamKind::Field(_, Shape::Message(name)) => accepts_const(model, name, None),
             ParamKind::Field(_, shape) => {
+                let item = shape;
                 let shape = shape_code(shape, model, enums);
-                let accepts: Vec<String> = (shape_classes(&param.kind))
+                let mut accepts: Vec<String> = (shape_classes(&param.kind))
                     .into_iter()
                     .map(|class| {
                         format!(
@@ -125,6 +126,18 @@ fn emit_message(
                         )
                     })
                     .collect();
+                // An array of a repeated message field also takes, for each element, a value that
+                // converts to the message, as `tracks => [200, 400]` sets the length of each
+                // track.
+                if let Shape::Repeated(item) = item {
+                    if let Shape::Message(name) = item.as_ref() {
+                        for accept in element_accepts(model, name, enums) {
+                            if !accepts.contains(&accept) {
+                                accepts.push(accept);
+                            }
+                        }
+                    }
+                }
                 format!("&[{}]", accepts.join(", "))
             }
             ParamKind::Oneof(index, _) => accepts_const(model, &message.name, Some(*index)),
@@ -203,10 +216,26 @@ fn emit_message(
         .unwrap();
     }
 
-    // Every argument in the order of the parameters.
+    // Every argument in the order of the parameters, after a check that a call gives at most one
+    // of the parameters of each oneof whose members are parameters of their own.
+    let mut exclusive = String::new();
+    let oneofs: BTreeSet<usize> = message.params.iter().filter_map(|p| p.exclusive).collect();
+    for oneof in oneofs {
+        let indices: Vec<String> = (message.params.iter().enumerate())
+            .filter(|(_, param)| param.exclusive == Some(oneof))
+            .map(|(index, _)| index.to_string())
+            .collect();
+        writeln!(
+            exclusive,
+            "    let given: Vec<&'static str> = [{}].into_iter().filter(|index| matches!(args.get(*index), Some(Some(_)))).map(|index| {}[index].name).collect();\n    if let [first, second, ..] = given[..] {{\n        return Err(ArgError::exclusive(first).within(second));\n    }}",
+            indices.join(", "),
+            params_const(message)
+        )
+        .unwrap();
+    }
     writeln!(
         code,
-        "pub(crate) fn apply_all_{function}(mut builder: {builder}, args: &[Option<Arg>]) -> Result<{builder}, ArgError> {{\n    for (index, arg) in args.iter().enumerate() {{\n        let param = &{}[index];\n        match arg {{\n            Some(arg) => builder = apply_{function}(builder, index, arg).map_err(|error| error.within(param.name))?,\n            None if param.required => return Err(ArgError::required(param.name)),\n            None => {{}}\n        }}\n    }}\n    Ok(builder)\n}}\n",
+        "pub(crate) fn apply_all_{function}(mut builder: {builder}, args: &[Option<Arg>]) -> Result<{builder}, ArgError> {{\n{exclusive}    for (index, arg) in args.iter().enumerate() {{\n        let param = &{}[index];\n        match arg {{\n            Some(arg) => builder = apply_{function}(builder, index, arg).map_err(|error| error.within(param.name))?,\n            None if param.required => return Err(ArgError::required(param.name)),\n            None => {{}}\n        }}\n    }}\n    Ok(builder)\n}}\n",
         params_const(message)
     )
     .unwrap();
@@ -280,6 +309,39 @@ fn emit_message(
     emit_dispatch(code, model, &node, "", &accepts);
     code.push_str("}\n\n");
     Ok(())
+}
+
+/// The inputs of an array of the message `name` from values that convert to the message element
+/// by element: one for each shape of the values, with the chain of the conversion.
+fn element_accepts(model: &Model, name: &str, enums: &mut BTreeSet<String>) -> Vec<String> {
+    let mut accepts = Vec::new();
+    for (source, chain) in model.accepted(&Node::Message(name.to_string())) {
+        let (
+            Source::Class(_),
+            Some(Edge {
+                input: Input::Class(_, shape),
+                ..
+            }),
+        ) = (&source, chain.first())
+        else {
+            continue;
+        };
+        let steps: Vec<String> = (chain.iter())
+            .filter_map(|edge| match &edge.set {
+                Set::Field(field) | Set::Member(field) => Some(format!("{:?}", field.name())),
+                Set::Names(..) => None,
+            })
+            .collect();
+        let accept = format!(
+            "Accept {{ class: Class::Array, chain: &[{}], shape: Shape::Array(&{}) }}",
+            steps.join(", "),
+            shape_code(shape, model, enums)
+        );
+        if !accepts.contains(&accept) {
+            accepts.push(accept);
+        }
+    }
+    accepts
 }
 
 /// The comment of the member `member` of a oneof of `message`, or of its message.

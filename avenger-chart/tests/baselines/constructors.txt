@@ -33,32 +33,38 @@ title(text, show, orient, syntax, font_family, font_size, font_weight, color, su
   subtitle_font_weight: number
   subtitle_color: string
   align: one of start, center, end
-wrap_layout(min_column_width, max_columns, row, gap, part_rules, distribute)
-  min_column_width: number
-  max_columns: integer
-  row: integer -> length; float -> length; string -> a member's name; share(...) -> share; track(...)
-  gap: number
-  part_rules: array of part_rule(...)
-  distribute: one of start, center, end, space_between, space_around, space_evenly
-part_rule(part, rule)
-  part (required): one of axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, attribution, widget
-  rule (required): one of keep, collapse, merge
-track(size)
-  size: integer -> length; float -> length; string -> a member's name; share(...) -> share
-share(weight, max)
-  weight: number
+parts(axis_ticks, axis_labels, axis_title, legend, facet_labels, facet_title, attribution, widget)
+  axis_ticks: one of keep, collapse, merge
+  axis_labels: one of keep, collapse, merge
+  axis_title: one of keep, collapse, merge
+  legend: one of keep, collapse, merge
+  facet_labels: one of keep, collapse, merge
+  facet_title: one of keep, collapse, merge
+  attribution: one of keep, collapse, merge
+  widget: one of keep, collapse, merge
+track(length, share, max)
+  length: number
+  share: number
   max: number
-resolve(key, sharing)
-  key (required): string -> channel; widget_key(...) -> widget
-  sharing (required): one of shared, independent
-widget_key(key)
-  key (required): string
-concat_layout(gap, tracks, part_rules, horizontal_distribute, vertical_distribute)
-  gap: number
-  tracks: array of track(...)
-  part_rules: array of part_rule(...)
-  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
-  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
+resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, projection, independent_widgets)
+  x: one of shared, independent
+  y: one of shared, independent
+  theta: one of shared, independent
+  radius: one of shared, independent
+  color: one of shared, independent
+  fill: one of shared, independent
+  stroke: one of shared, independent
+  opacity: one of shared, independent
+  fill_opacity: one of shared, independent
+  stroke_opacity: one of shared, independent
+  stroke_width: one of shared, independent
+  stroke_dash: one of shared, independent
+  size: one of shared, independent
+  shape: one of shared, independent
+  angle: one of shared, independent
+  pattern: one of shared, independent
+  projection: one of shared, independent
+  independent_widgets: array of string
 tool(kind, modes)
   kind (required): string -> a member's name; navigate(...) -> navigate; nearest_find(...) -> nearest -> tooltip; select(...) -> select; tooltip(...) -> tooltip
   modes: array of string
@@ -69,7 +75,7 @@ select(selection, form, scope)
 lasso_select(keys)
   keys: array of string
 point_select(keys, toggle)
-  keys: array of point_key(...)
+  keys: array of point_key(...); array of string -> column
   toggle: Boolean
 point_key(column, source)
   column (required): string
@@ -341,45 +347,61 @@ layer(chart, id, title, attribution, tools, resolve, width, height, classes)
   title: Boolean -> show; string -> text; title(...)
   attribution: attribution(...)
   tools: array of tool(...)
-  resolve: array of resolve(...)
+  resolve: resolve(...)
   width: number
   height: number
   classes: array of string
-hconcat(chart, id, resolve, layout, title, projection, classes)
+hconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, classes)
   id: string
-  resolve: array of resolve(...)
-  layout: concat_layout(...)
+  resolve: resolve(...)
+  gap: number
+  tracks: array of track(...); array of number -> length
+  parts: parts(...)
+  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
+  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
-  projection: one of shared, independent
   classes: array of string
-vconcat(chart, id, resolve, layout, title, projection, classes)
+vconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, classes)
   id: string
-  resolve: array of resolve(...)
-  layout: concat_layout(...)
+  resolve: resolve(...)
+  gap: number
+  tracks: array of track(...); array of number -> length
+  parts: parts(...)
+  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
+  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
-  projection: one of shared, independent
   classes: array of string
-facet_row(chart, key, id, resolve, layout, title, projection, facet, classes)
+facet_row(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
   id: string
-  resolve: array of resolve(...)
-  layout: concat_layout(...)
+  resolve: resolve(...)
+  gap: number
+  tracks: array of track(...); array of number -> length
+  parts: parts(...)
+  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
+  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
-  projection: one of shared, independent
   facet: Boolean -> show; facet(...)
   classes: array of string
-facet_col(chart, key, id, resolve, layout, title, projection, facet, classes)
+facet_column(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
   id: string
-  resolve: array of resolve(...)
-  layout: concat_layout(...)
+  resolve: resolve(...)
+  gap: number
+  tracks: array of track(...); array of number -> length
+  parts: parts(...)
+  horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
+  vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
-  projection: one of shared, independent
   facet: Boolean -> show; facet(...)
   classes: array of string
-facet_wrap(chart, key, id, resolve, layout, title, projection, facet, classes)
+facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, gap, parts, distribute, title, facet, classes)
   id: string
-  resolve: array of resolve(...)
-  layout: wrap_layout(...)
+  resolve: resolve(...)
+  min_column_width: number
+  max_columns: integer
+  row_height: integer -> length; float -> length; track(...)
+  gap: number
+  parts: parts(...)
+  distribute: one of start, center, end, space_between, space_around, space_evenly
   title: Boolean -> show; string -> text; title(...)
-  projection: one of shared, independent
   facet: Boolean -> show; facet(...)
   classes: array of string

@@ -15,11 +15,18 @@ use crate::EvalWarning;
 /// content nor deferred to a later evaluator, which `tests/style_fields.rs` checks.
 #[doc(hidden)]
 pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
-    ("Chart", &["padding"]),
-    ("Padding", &["top", "right", "bottom", "left"]),
+    (
+        "Chart",
+        &[
+            "padding_top",
+            "padding_right",
+            "padding_bottom",
+            "padding_left",
+        ],
+    ),
     ("Plot", &["width", "height"]),
-    ("ConcatLayout", &["gap"]),
-    ("WrapLayout", &["min_column_width", "max_columns", "gap"]),
+    ("Concat", &["gap"]),
+    ("Wrap", &["min_column_width", "max_columns", "gap"]),
     (
         "Facet",
         &[
@@ -416,15 +423,13 @@ fn boxed(
     }
 }
 
-/// `Chart.padding`, as the paddings of the root `chart`.
+/// `Chart.padding_top`, `padding_right`, `padding_bottom`, and `padding_left`, as the paddings of
+/// the root `chart`.
 pub(crate) fn chart(tree: &mut Styled, node: NodeId, chart: &proto::Chart) {
-    let Some(padding) = &chart.padding else {
-        return;
-    };
-    px(tree, node, Property::PaddingTop, padding.top);
-    px(tree, node, Property::PaddingRight, padding.right);
-    px(tree, node, Property::PaddingBottom, padding.bottom);
-    px(tree, node, Property::PaddingLeft, padding.left);
+    px(tree, node, Property::PaddingTop, chart.padding_top);
+    px(tree, node, Property::PaddingRight, chart.padding_right);
+    px(tree, node, Property::PaddingBottom, chart.padding_bottom);
+    px(tree, node, Property::PaddingLeft, chart.padding_left);
 }
 
 /// `Plot.width` and `height`, and the options of a Cartesian plot, on its `plot`.
@@ -442,28 +447,18 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
     }
 }
 
-/// `ConcatLayout.gap` on the `plot` of a concat.
+/// `Concat.gap` on the `plot` of a concat.
 pub(crate) fn concat(tree: &mut Styled, node: NodeId, concat: &proto::Concat) {
-    if let Some(layout) = &concat.layout {
-        px(tree, node, Property::RowGap, layout.gap);
-        px(tree, node, Property::ColumnGap, layout.gap);
-    }
+    px(tree, node, Property::RowGap, concat.gap);
+    px(tree, node, Property::ColumnGap, concat.gap);
 }
 
-/// `WrapLayout.gap`, `min_column_width`, and `max_columns` on the `plot` of a wrap.
+/// `Wrap.gap`, `min_column_width`, and `max_columns` on the `plot` of a wrap.
 pub(crate) fn wrap(tree: &mut Styled, node: NodeId, wrap: &proto::Wrap) {
-    let Some(layout) = &wrap.layout else {
-        return;
-    };
-    px(tree, node, Property::RowGap, layout.gap);
-    px(tree, node, Property::ColumnGap, layout.gap);
-    px(
-        tree,
-        node,
-        Property::MinColumnWidth,
-        layout.min_column_width,
-    );
-    if let Some(columns) = layout.max_columns {
+    px(tree, node, Property::RowGap, wrap.gap);
+    px(tree, node, Property::ColumnGap, wrap.gap);
+    px(tree, node, Property::MinColumnWidth, wrap.min_column_width);
+    if let Some(columns) = wrap.max_columns {
         set(tree, node, Property::MaxColumns, &columns.to_string());
     }
 }

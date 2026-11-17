@@ -59,8 +59,8 @@ const SPECS: [Spec; 6] = [
               sets the labels and the title of the facet, whose column is the key's.",
     },
     Spec {
-        name: "facet_col",
-        kind: "FacetCol",
+        name: "facet_column",
+        kind: "FacetColumn",
         node: "Concat",
         omit: &[],
         doc: "A facet of a column of charts by a key: one column for each value of the key, in a \
@@ -93,6 +93,17 @@ pub(super) fn compositions(model: &Model) -> Result<String, String> {
             .filter(|(_, param)| !spec.omit.contains(&param.name.as_str()))
             .map(|(index, _)| index)
             .collect();
+        if let Some(param) = message
+            .params
+            .iter()
+            .find(|param| param.exclusive.is_some())
+        {
+            return Err(format!(
+                "`{}` has the parameter `{}` of a oneof whose members are parameters, which a \
+                 composition does not check",
+                spec.node, param.name
+            ));
+        }
         for omitted in spec.omit {
             if !message.params.iter().any(|param| param.name == *omitted) {
                 return Err(format!("`{}` has no parameter `{omitted}`", spec.node));

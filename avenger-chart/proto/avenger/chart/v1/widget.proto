@@ -21,8 +21,9 @@ import "avenger/chart/v1/value.proto";
 //
 // The declarations of one key are copies of one widget. Copies are shared by default at every
 // level: the layers of a plot, the children of a concat or a wrap, and the facets of a facet grid.
-// A resolve rule of the key, as `Resolve` describes, can make the copies below a plot, a concat, or
-// a wrap independent, so each layer or each child keeps its own widget. The copies of one widget
+// The key in the `independent_widgets` of the resolve of a plot, a concat, or a wrap, as `Resolve`
+// describes, makes the copies below it independent, so each layer or each child keeps its own
+// widget. The copies of one widget
 // are its group, and they must agree, by the rule of `Scale`: their kinds, the selections of
 // their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves unset takes
 // the set value, two that both set are equal, and their classes join. Their domains are of one
@@ -37,7 +38,7 @@ import "avenger/chart/v1/value.proto";
 // clause names its key in `Clause.widget` and its anchor in `Clause.owner` and `Clause.partition`,
 // and leaves `owner` empty for a group that anchors at the root.
 //
-// A concat's part rules for `PART_WIDGET` decide how many times it draws a widget whose
+// The `widget` rule of a concat's `parts` decides how many times it draws a widget whose
 // group it holds: once for the concat by default, once for each lane of plots that line up, or once
 // for each plot of the group, whose drawings show one value and move together. A widget whose group
 // is one plot draws beside that plot.

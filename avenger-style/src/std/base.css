@@ -64,7 +64,7 @@ plot[type=cartesian] {
             env(background, white));
 }
 /* Compositions space their children 20 apart, and a wrap's columns are at least 160 wide. */
-plot:is([type=hconcat], [type=vconcat], [type=wrap], [type=facet_row], [type=facet_col],
+plot:is([type=hconcat], [type=vconcat], [type=wrap], [type=facet_row], [type=facet_column],
         [type=facet_wrap]) { gap: 20; }
 plot:is([type=wrap], [type=facet_wrap]) { min-column-width: 160; }
 /* The titles and labels of facets stand above their columns and wraps, and to the right of

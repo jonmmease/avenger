@@ -324,7 +324,7 @@ fn pies_that_share_theta_take_one_outer_radius() {
     };
     let chart = Chart::builder(
         Concat::new(Direction::Row)
-            .resolve([Resolve::channel(Sharing::Shared, Channel::Theta)])
+            .resolve(Resolve::builder().theta(Sharing::Shared))
             .children([pie(true), pie(false)]),
     )
     .build()

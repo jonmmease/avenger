@@ -151,7 +151,7 @@ fn grid(movies: &RecordBatch) -> Chart {
         })?;
         Ok(Concat::new(Direction::Row)
             .facet(GENRE)
-            .resolve([Resolve::channel(Sharing::Independent, Channel::X)])
+            .resolve(Resolve::builder().x(Sharing::Independent))
             .children(panels))
     })
     .unwrap();

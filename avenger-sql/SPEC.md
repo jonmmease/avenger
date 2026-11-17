@@ -87,12 +87,12 @@ A composition aggregate composes the charts of the rows of a group, one chart fo
 ```sql
 FROM penguins
 |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 ```
 
-- `facet_row(chart, key)`, `facet_col(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of a key, and label them. A `facet_row` of `facet_col` charts is a grid.
+- `facet_row(chart, key)`, `facet_column(chart, key)`, and `facet_wrap(chart, key)` lay out the charts by the values of a key, and label them. A `facet_row` of `facet_column` charts is a grid.
 - `layer_agg(chart ORDER BY k)` overlays the plots of the charts, and `hconcat_agg` and `vconcat_agg` place them in a row or a column, in the order of the `ORDER BY`. Without one, their order is unspecified.
-- The options of a composition are named constants, as in `facet_wrap(chart, species, layout => wrap_layout(max_columns => 2))`.
+- The options of a composition are named constants, as in `facet_wrap(chart, species, max_columns => 2)`. `resolve => resolve(y => 'independent')` gives each child its own scale of `y`, `parts => parts(legend => 'keep')` keeps a legend beside each plot, and `tracks => [200, 400]` sets the length of each child's track. An array that mixes lengths and shares writes a constructor for each track, as in `tracks => [track(200), track(share => 2, max => 600)]`.
 - The scalars `layer(a, b, ...)`, `hconcat(...)`, and `vconcat(...)` compose the charts of one row, in the order of their arguments, such as the marks of one `AGGREGATE` item: `layer(bar(...), symbol(...))`. Their options follow the charts by name.
 
 ## Transforms

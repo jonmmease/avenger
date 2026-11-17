@@ -30,16 +30,22 @@ fn a_row_of_plots_shares_its_color_legend() {
             .y("mpg")
             .color("origin"),
     );
-    let chart = Chart::builder(
-        Concat::new(Direction::Row)
-            .children([Plot::cartesian([weights]), Plot::cartesian([powers])]),
-    )
-    .build()
-    .unwrap();
+    let row = |parts: PartRulesBuilder| {
+        Chart::builder(Concat::new(Direction::Row).parts(parts).children([
+            Plot::cartesian([weights.clone()]),
+            Plot::cartesian([powers.clone()]),
+        ]))
+        .build()
+        .unwrap()
+    };
+    let chart = row(PartRules::builder());
     render(&chart, [640.0, 300.0], "concat-row");
 
     // The color scale is shared, and the concat merges its legend into one.
     assert_eq!(count(&chart, [640.0, 300.0], "origin"), 1);
+    // A rule that keeps legends draws the legend beside each plot.
+    let kept = row(PartRules::builder().legend(PartRuleKind::Keep));
+    assert_eq!(count(&kept, [640.0, 300.0], "origin"), 2);
     let evaluated = evaluate(&chart, [640.0, 300.0]);
     assert_eq!(evaluated.plots.len(), 2);
     let [left, right] = [evaluated.plots[0].rect, evaluated.plots[1].rect];
@@ -58,17 +64,17 @@ fn a_column_with_a_shared_x_draws_one_x_axis() {
             CartesianLayer::symbol(cars_dataset(), SymbolMark::builder().x("weight").y(y));
         Plot::cartesian([symbols])
     };
-    let column = |rules: Vec<PartRuleBuilder>| {
+    let column = |rules: PartRulesBuilder| {
         Chart::builder(
             Concat::new(Direction::Column)
-                .resolve([Resolve::channel(Sharing::Shared, Channel::X)])
-                .layout(ConcatLayout::builder().part_rules(rules))
+                .resolve(Resolve::builder().x(Sharing::Shared))
+                .parts(rules)
                 .children([plot("mpg"), plot("horsepower")]),
         )
         .build()
         .unwrap()
     };
-    let collapsed = column(Vec::new());
+    let collapsed = column(PartRules::builder());
     render(&collapsed, [360.0, 420.0], "concat-column-shared-x");
     // The axes of the shared `x` collapse into one, below the column, with one title.
     assert_eq!(count(&collapsed, [360.0, 420.0], "weight"), 1);
@@ -77,11 +83,12 @@ fn a_column_with_a_shared_x_draws_one_x_axis() {
     assert_eq!(top[2], bottom[2], "the plots of a shared x have one width");
 
     // A rule that keeps the ticks and the labels draws them beside each plot.
-    let kept = column(vec![
-        PartRule::new(Part::AxisLabels, PartRuleKind::Keep),
-        PartRule::new(Part::AxisTicks, PartRuleKind::Keep),
-        PartRule::new(Part::AxisTitle, PartRuleKind::Keep),
-    ]);
+    let kept = column(
+        PartRules::builder()
+            .axis_labels(PartRuleKind::Keep)
+            .axis_ticks(PartRuleKind::Keep)
+            .axis_title(PartRuleKind::Keep),
+    );
     render(&kept, [360.0, 420.0], "concat-column-kept-axes");
     assert_eq!(count(&kept, [360.0, 420.0], "weight"), 2);
 }
@@ -208,6 +215,46 @@ fn a_wrapped_facet_labels_each_panel() {
     );
 }
 
+/// A row height that is a share with a maximum gives each row of a wrap its share of the height,
+/// up to the maximum, as a track of avenger-layout with a maximum does.
+#[test]
+fn a_wrap_with_a_row_height_share_stops_its_rows_at_the_maximum() {
+    let wrap = |row_height: Option<TrackBuilder>| {
+        let panels = Node::partitions(
+            &cars_dataset(),
+            "origin",
+            PartitionOrder::Ascending,
+            |rows| {
+                let symbols =
+                    CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"));
+                Ok(Plot::cartesian([symbols]))
+            },
+        )
+        .unwrap();
+        let wrap = Wrap::builder().facet("origin").max_columns(1);
+        let wrap = match row_height {
+            Some(row_height) => wrap.row_height(row_height),
+            None => wrap,
+        };
+        Chart::builder(wrap.children(panels)).build().unwrap()
+    };
+    let heights = |chart: &Chart| -> Vec<f32> {
+        (evaluate(chart, [400.0, 900.0]).plots.iter())
+            .map(|plot| plot.rect[3])
+            .collect()
+    };
+    let shared = heights(&wrap(Some(Track::share(1.0))));
+    let capped = heights(&wrap(Some(Track::share(1.0).max(150.0))));
+    assert_eq!(shared.len(), 3);
+    assert_eq!(capped.len(), 3);
+    for (shared, capped) in shared.iter().zip(&capped) {
+        assert!(*capped <= 150.0, "{capped}");
+        assert!(capped < shared, "{capped} {shared}");
+    }
+    // A share of weight 1 is the height of a row without a size.
+    assert_eq!(heights(&wrap(None)), shared);
+}
+
 #[test]
 fn an_empty_cell_keeps_its_track() {
     let plot = || {
@@ -242,13 +289,10 @@ fn a_plot_width_fixes_its_column_and_the_padding_surrounds_the_chart() {
     };
     let chart = |padding: f32| {
         Chart::builder(Concat::new(Direction::Row).children([plot(Some(120.0)), plot(None)]))
-            .padding(
-                Padding::builder()
-                    .top(padding)
-                    .right(padding)
-                    .bottom(padding)
-                    .left(padding),
-            )
+            .padding_top(padding)
+            .padding_right(padding)
+            .padding_bottom(padding)
+            .padding_left(padding)
             .build()
             .unwrap()
     };

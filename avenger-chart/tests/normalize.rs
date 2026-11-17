@@ -94,45 +94,23 @@ fn partition_values_rise_to_the_highest_node_that_shares_them() {
 }
 
 #[test]
-fn keyed_lists_follow_their_keys_with_one_entry_for_each() {
-    let rule = |channel: proto::Channel, sharing: proto::Sharing| proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(channel as i32)),
-        sharing: sharing as i32,
-    };
-    let part_rule = |part: proto::Part| proto::PartRule {
-        part: part as i32,
-        rule: proto::PartRuleKind::Keep as i32,
-    };
-    let chart = |resolve: Vec<proto::Resolve>, part_rules: Vec<proto::PartRule>| {
+fn independent_widgets_follow_their_keys() {
+    let chart = |keys: &[&str]| {
         let mut root = row(vec![plot(vec![symbols(0)]), plot(vec![symbols(0)])]);
-        concat_mut(&mut root).resolve = resolve;
-        concat_mut(&mut root).layout = Some(proto::ConcatLayout {
-            part_rules,
+        concat_mut(&mut root).resolve = Some(proto::Resolve {
+            y: proto::Sharing::Shared as i32,
+            independent_widgets: keys.iter().map(|key| key.to_string()).collect(),
             ..Default::default()
         });
         parts(root, vec![])
     };
-    use proto::{Channel::*, Part::*, Sharing::*};
-    let chart = same_chart(
-        chart(
-            vec![rule(Y, Shared), rule(X, Shared), rule(Y, Shared)],
-            vec![part_rule(AxisTitle), part_rule(AxisTicks)],
-        ),
-        chart(
-            vec![rule(X, Shared), rule(Y, Shared)],
-            vec![
-                part_rule(AxisTicks),
-                part_rule(AxisTitle),
-                part_rule(AxisTicks),
-            ],
-        ),
-    );
+    let chart = same_chart(chart(&["b", "a"]), chart(&["a", "b"]));
     let Some(node::Node::Concat(root)) = &chart.root().node else {
         panic!("the root is a concat")
     };
-    assert_eq!(root.resolve, vec![rule(X, Shared), rule(Y, Shared)]);
-    let rules = &root.layout.as_ref().unwrap().part_rules;
-    assert_eq!(rules, &vec![part_rule(AxisTicks), part_rule(AxisTitle)]);
+    let resolve = root.resolve.as_ref().unwrap();
+    assert_eq!(resolve.independent_widgets, vec!["a", "b"]);
+    assert_eq!(resolve.y, proto::Sharing::Shared as i32);
 }
 
 #[test]
@@ -231,10 +209,7 @@ fn ignored_fields_are_left_out() {
         });
         mark.color = Some(column("b", linear_data()));
         if ignored {
-            concat_mut(&mut inner).layout = Some(proto::ConcatLayout {
-                horizontal_distribute: proto::Distribute::Center as i32,
-                ..Default::default()
-            });
+            concat_mut(&mut inner).horizontal_distribute = proto::Distribute::Center as i32;
             plot_mut(&mut cell).width = Some(200.0);
         }
         let wrap = Node {
@@ -247,10 +222,7 @@ fn ignored_fields_are_left_out() {
             proto::Direction::Column,
             vec![inner, wrap, plot(vec![layer])],
         );
-        concat_mut(&mut root).layout = Some(proto::ConcatLayout {
-            vertical_distribute: proto::Distribute::End as i32,
-            ..Default::default()
-        });
+        concat_mut(&mut root).vertical_distribute = proto::Distribute::End as i32;
         parts(root, vec![])
     };
     let chart = same_chart(chart(true), chart(false));
@@ -258,8 +230,7 @@ fn ignored_fields_are_left_out() {
         panic!("the root is a concat")
     };
     // The outermost concat of the table distributes its free length.
-    let layout = root.layout.as_ref().unwrap();
-    assert_eq!(layout.vertical_distribute, proto::Distribute::End as i32);
+    assert_eq!(root.vertical_distribute, proto::Distribute::End as i32);
 }
 
 #[test]
@@ -272,7 +243,8 @@ fn options_at_every_default_are_left_out() {
                 cartesian.options = Some(proto::Cartesian::default());
             }
             let mut root = row(vec![left, plot(vec![layer])]);
-            concat_mut(&mut root).layout = Some(proto::ConcatLayout::default());
+            concat_mut(&mut root).resolve = Some(proto::Resolve::default());
+            concat_mut(&mut root).parts = Some(proto::PartRules::default());
             root
         } else {
             row(vec![left, plot(vec![layer])])

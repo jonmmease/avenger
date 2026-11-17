@@ -4,7 +4,7 @@
 //!
 //! A mark is an aggregate that builds a chart of the rows of its group, as in
 //! `|> AGGREGATE bar(x => species, y => n) AS chart`, and takes each channel as a parameter. A
-//! composition aggregate composes the charts of a group, as in `facet_col(chart, island)`. A
+//! composition aggregate composes the charts of a group, as in `facet_column(chart, island)`. A
 //! constructor returns the fragment of its message. The transforms take their options as named
 //! arguments, as in `bin(x, maxbins => 30)`: literals or script variables, which stay
 //! expressions of the plan until it binds the variables. The form of each checks the literals of

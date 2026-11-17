@@ -1,5 +1,5 @@
 //! The composition functions: `layer`, which overlays the plots of charts, `hconcat` and
-//! `vconcat`, which concatenate charts, and `facet_row`, `facet_col`, and `facet_wrap`, which lay
+//! `vconcat`, which concatenate charts, and `facet_row`, `facet_column`, and `facet_wrap`, which lay
 //! out charts by the values of a key. A binding collects the charts of the rows of a group, with
 //! their keys, and composes them with [`Composition::compose`].
 
@@ -28,14 +28,14 @@ pub enum CompositionKind {
     HConcat,
     VConcat,
     FacetRow,
-    FacetCol,
+    FacetColumn,
     FacetWrap,
 }
 
 impl CompositionKind {
     /// Whether the composition takes a key: the facets do.
     pub fn takes_key(self) -> bool {
-        matches!(self, Self::FacetRow | Self::FacetCol | Self::FacetWrap)
+        matches!(self, Self::FacetRow | Self::FacetColumn | Self::FacetWrap)
     }
 }
 
@@ -166,10 +166,10 @@ impl Composition {
             CompositionKind::VConcat => {
                 generated::apply_all_vconcat(proto::Concat::new(Direction::Column), &options)?;
             }
-            CompositionKind::FacetRow | CompositionKind::FacetCol => {
+            CompositionKind::FacetRow | CompositionKind::FacetColumn => {
                 let apply = match self.kind {
                     CompositionKind::FacetRow => generated::apply_all_facet_row,
-                    _ => generated::apply_all_facet_col,
+                    _ => generated::apply_all_facet_column,
                 };
                 let mut concat = apply(proto::Concat::new(Direction::Row), &options)?;
                 set_column(&mut concat.message.facet, column, self.name)?;
@@ -235,7 +235,7 @@ impl Composition {
             nodes.push(node.partition([value]));
         }
         let node: NodeBuilder = match self.kind {
-            CompositionKind::FacetRow | CompositionKind::FacetCol => {
+            CompositionKind::FacetRow | CompositionKind::FacetColumn => {
                 let direction = match self.kind {
                     CompositionKind::FacetRow => Direction::Column,
                     _ => Direction::Row,
@@ -244,7 +244,7 @@ impl Composition {
                 let concat = proto::Concat::new(direction).children(nodes);
                 let apply = match self.kind {
                     CompositionKind::FacetRow => generated::apply_all_facet_row,
-                    _ => generated::apply_all_facet_col,
+                    _ => generated::apply_all_facet_column,
                 };
                 let mut concat = apply(concat, options)?;
                 set_column(&mut concat.message.facet, column, self.name)?;

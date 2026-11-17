@@ -47,7 +47,7 @@ The attributes have these values:
 
 | Attribute | Value |
 |---|---|
-| `plot[type]` | `cartesian`, `polar`, or `geo` for a coordinate system, and `hconcat`, `vconcat`, `wrap`, `facet_row`, `facet_col`, or `facet_wrap` for a composition |
+| `plot[type]` | `cartesian`, `polar`, or `geo` for a coordinate system, and `hconcat`, `vconcat`, `wrap`, `facet_row`, `facet_column`, or `facet_wrap` for a composition |
 | `plot[projection]` | The projection of a geo plot, such as `albers_usa` |
 | `plot[discrete]` | The position channels whose scale is a band, point, or nested band scale, separated by spaces |
 | `mark[type]` | Two forms: the kind of the mark, such as `bar`, `symbol`, or `shape`, and its name with the prefix of its coordinate system, such as `polar_bar` or `geo_shape`. A Cartesian mark has the same name in both forms. |
