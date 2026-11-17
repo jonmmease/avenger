@@ -13,9 +13,8 @@ use arrow::{
 use avenger_chart::{
     list_value,
     proto::{
-        self, cartesian_layer, condition, domain, domain_fit, encoding, node, plot, predicate,
-        scale, spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark,
-        ValueRef,
+        self, cartesian_layer, condition, encoding, node, plot, predicate, scale, spherical, tool,
+        CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark, ValueRef,
     },
     Chart, ChartError,
 };
@@ -115,7 +114,7 @@ fn required_fields_and_oneofs_are_set() {
     symbol_mut(&mut parts.0).x.as_mut().unwrap().kind = None;
     invalid(parts, X, "`kind` is required");
 
-    // The reader infers an absent scale type and domain.
+    // The reader infers an absent scale type, and an absent domain is the data domain.
     let mut parts = base();
     x_scale(&mut parts.0).r#type = None;
     x_scale(&mut parts.0).domain = None;
@@ -367,67 +366,141 @@ fn a_scale_takes_values_of_its_kind() {
 #[test]
 fn an_explicit_interval_domain_holds_two_ascending_ends() {
     let mut parts = base();
-    x_scale(&mut parts.0).domain = Some(proto::Domain {
-        domain: Some(domain::Domain::Explicit(ValueRef { index: 0 })),
-    });
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Explicit(ValueRef { index: 0 }));
     parts.2 = vec![floats(vec![0.0, 5.0, 10.0])];
-    invalid(
-        parts.clone(),
-        &format!("{X}.scale.domain.explicit"),
-        "two ends",
-    );
+    invalid(parts.clone(), &format!("{X}.scale.explicit"), "two ends");
     parts.2 = vec![floats(vec![10.0, 0.0])];
-    invalid(parts, &format!("{X}.scale.domain.explicit"), "ascending");
+    invalid(parts, &format!("{X}.scale.explicit"), "ascending");
 }
 
 #[test]
 fn a_summary_has_the_layout_of_its_scale() {
     let mut parts = base();
-    x_scale(&mut parts.0).domain = Some(proto::Domain {
-        domain: Some(domain::Domain::Summary(proto::SummaryDomain {
-            value: Some(ValueRef { index: 0 }),
-            fit: None,
-        })),
-    });
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Summary(ValueRef { index: 0 }));
     parts.2 = vec![floats(vec![1.0])];
-    invalid(
-        parts,
-        &format!("{X}.scale.domain.summary.value"),
-        "is a struct",
-    );
+    invalid(parts, &format!("{X}.scale.summary"), "is a struct");
 }
 
 #[test]
-fn a_fit_is_of_the_kind_of_its_scale() {
+fn the_fit_fields_are_of_the_kind_of_its_scale() {
     let mut parts = base();
-    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
-        fit: Some(domain_fit::Fit::Categories(proto::CategoryFit::default())),
-    });
+    x_scale(&mut parts.0).sort = Some(scale::Sort::Direction(
+        proto::CategorySort::Descending as i32,
+    ));
     invalid(
         parts.clone(),
-        &format!("{X}.scale.domain.data.fit"),
-        "not of the kind",
+        &format!("{X}.scale.sort"),
+        "which a linear scale does not fit",
     );
-    // A fit is invalid on a quantile scale.
+    // A scale takes the fit fields of one kind.
+    x_scale(&mut parts.0).zero = Some(false);
+    invalid(parts.clone(), &format!("{X}.scale.sort"), "of one kind");
+    // A band scale fits categories, not an interval.
+    x_scale(&mut parts.0).sort = None;
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Band(proto::BandScale::default()));
+    invalid(
+        parts.clone(),
+        &format!("{X}.scale.zero"),
+        "which a band scale does not fit",
+    );
+    // A quantile scale takes no fit field.
     x_scale(&mut parts.0).r#type = Some(scale::Type::Quantile(proto::QuantileScale::default()));
-    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
-        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit::default())),
-    });
     invalid(
         parts,
-        &format!("{X}.scale.domain.data.fit"),
-        "not of the kind",
+        &format!("{X}.scale.zero"),
+        "which a quantile scale does not fit",
+    );
+    // A nested band scale sorts its paths, and takes no preferred order.
+    let mut banded = nested(proto::Axis::default());
+    x_scale(&mut banded.0).sort = Some(scale::Sort::Preferred(ValueRef { index: 0 }));
+    banded.2 = vec![floats(vec![1.0])];
+    invalid(
+        banded,
+        &format!("{X}.scale.preferred"),
+        "a preferred order is invalid on a nested band scale",
+    );
+}
+
+/// The fit fields say how the renderer fits a domain, so they are invalid with an explicit
+/// domain and with the explicit fallback of a selection domain, which it does not fit.
+#[test]
+fn the_fit_fields_need_a_fitted_domain() {
+    let mut parts = base();
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Explicit(ValueRef { index: 0 }));
+    x_scale(&mut parts.0).zero = Some(false);
+    parts.2 = vec![floats(vec![0.0, 10.0])];
+    invalid(
+        parts.clone(),
+        &format!("{X}.scale.zero"),
+        "invalid with an explicit domain",
+    );
+    // The data fallback of a selection domain fits.
+    parts.0.selections = vec![Selection {
+        name: "brush".to_string(),
+        resolution: proto::SelectionResolution::Global as i32,
+        ..Default::default()
+    }];
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Selection(proto::SelectionDomain {
+        selection: "brush".to_string(),
+        channel: proto::Channel::X as i32,
+        fallback: None,
+    }));
+    read(parts.clone()).unwrap();
+    // Its explicit fallback does not.
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Selection(proto::SelectionDomain {
+        selection: "brush".to_string(),
+        channel: proto::Channel::X as i32,
+        fallback: Some(proto::selection_domain::Fallback::Explicit(ValueRef {
+            index: 0,
+        })),
+    }));
+    invalid(
+        parts,
+        &format!("{X}.scale.zero"),
+        "invalid with an explicit domain or an explicit fallback",
+    );
+}
+
+/// A threshold scale takes only an explicit domain, so an unset domain and an unset fallback,
+/// which are the data domain, are invalid on it.
+#[test]
+fn a_threshold_scale_has_no_data_domain() {
+    let mut parts = base();
+    x_scale(&mut parts.0).r#type = Some(scale::Type::Threshold(proto::ThresholdScale::default()));
+    invalid(
+        parts.clone(),
+        &format!("{X}.scale.domain"),
+        "a data domain is invalid on a threshold scale",
+    );
+    parts.0.selections = vec![Selection {
+        name: "brush".to_string(),
+        resolution: proto::SelectionResolution::Global as i32,
+        ..Default::default()
+    }];
+    x_scale(&mut parts.0).domain = Some(scale::Domain::Selection(proto::SelectionDomain {
+        selection: "brush".to_string(),
+        channel: proto::Channel::X as i32,
+        fallback: None,
+    }));
+    invalid(
+        parts,
+        &format!("{X}.scale.selection.fallback"),
+        "a data domain is invalid on a threshold scale",
     );
 }
 
 #[test]
 fn the_plot_gives_the_range_of_a_position() {
     let mut parts = base();
-    x_scale(&mut parts.0).range = Some(proto::Range {
-        range: Some(proto::range::Range::Palette("tableau10".to_string())),
-        reverse: false,
-    });
-    invalid(parts, &format!("{X}.scale.range"), "sets only `reverse`");
+    x_scale(&mut parts.0).range = Some(scale::Range::Palette("tableau10".to_string()));
+    invalid(
+        parts.clone(),
+        &format!("{X}.scale.range"),
+        "takes only `reverse`",
+    );
+    x_scale(&mut parts.0).range = None;
+    x_scale(&mut parts.0).reverse = true;
+    read(parts).unwrap();
 }
 
 #[test]
@@ -838,21 +911,21 @@ fn a_predicate_names_a_selection_of_the_chart() {
 #[test]
 fn a_navigation_is_valid_only_on_a_continuous_scale_of_x_or_y() {
     let mut parts = base();
-    x_scale(&mut parts.0).navigation_limits = Some(proto::NavigationLimits::default());
+    x_scale(&mut parts.0).navigation = Some(proto::NavigationLimits::default());
     read(parts.clone()).unwrap();
     x_scale(&mut parts.0).r#type = Some(scale::Type::Band(proto::BandScale::default()));
     invalid(
         parts,
-        &format!("{X}.scale.navigation_limits"),
+        &format!("{X}.scale.navigation"),
         "valid only on a continuous scale of `x` or `y`",
     );
     let mut parts = base();
     let mut color = column("b", linear_data());
-    color.scale.as_mut().unwrap().navigation_limits = Some(proto::NavigationLimits::default());
+    color.scale.as_mut().unwrap().navigation = Some(proto::NavigationLimits::default());
     symbol_mut(&mut parts.0).color = Some(color);
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].symbol.color.scale.navigation_limits",
+        "root.plot.cartesian.layers[0].symbol.color.scale.navigation",
         "valid only on a continuous scale of `x` or `y`",
     );
 }
@@ -1089,11 +1162,10 @@ fn each_kind_of_widget_reads() {
                     domain: Some(proto::widget_domain::Domain::Summary(
                         proto::WidgetSummaryDomain {
                             values: Some(ValueRef { index: 0 }),
-                            fit: Some(proto::DomainFit {
-                                fit: Some(domain_fit::Fit::Categories(
-                                    proto::CategoryFit::default(),
-                                )),
-                            }),
+                            sort: Some(proto::widget_summary_domain::Sort::Direction(
+                                proto::CategorySort::Ascending as i32,
+                            )),
+                            ..Default::default()
                         },
                     )),
                 }),
@@ -1219,16 +1291,17 @@ fn a_widget_domain_fits_its_kind_and_its_column() {
         slider.domain = Some(proto::WidgetDomain {
             domain: Some(proto::widget_domain::Domain::Data(
                 proto::WidgetDataDomain {
-                    fit: Some(proto::DomainFit {
-                        fit: Some(domain_fit::Fit::Categories(proto::CategoryFit::default())),
-                    }),
+                    sort: Some(proto::widget_data_domain::Sort::Direction(
+                        proto::CategorySort::Ascending as i32,
+                    )),
+                    ..Default::default()
                 },
             )),
         });
     }
     invalid(
         with_widget(fit, vec![]),
-        &format!("{slider_path}.domain.data.fit"),
+        &format!("{slider_path}.domain.data.sort"),
         "fits as an interval",
     );
     // A slider runs over numbers, dates, or timestamps.
@@ -1251,9 +1324,6 @@ fn a_widget_domain_fits_its_kind_and_its_column() {
         "a",
         proto::Scale {
             r#type: Some(scale::Type::Band(proto::BandScale::default())),
-            domain: Some(proto::Domain {
-                domain: Some(domain::Domain::Data(proto::DataDomain::default())),
-            }),
             ..Default::default()
         },
     ));
@@ -1344,38 +1414,24 @@ fn a_resolve_rule_names_a_channel_or_a_widget_key() {
 #[test]
 fn a_nice_tick_count_is_more_than_zero() {
     let mut parts = base();
-    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
-        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            nice: Some(proto::interval_fit::Nice::TickCount(0.0)),
-            ..Default::default()
-        })),
-    });
-    invalid(
-        parts,
-        &format!("{X}.scale.domain.data.fit.interval.tick_count"),
-        "more than 0",
-    );
+    x_scale(&mut parts.0).nice = Some(scale::Nice::TickCount(0.0));
+    invalid(parts, &format!("{X}.scale.tick_count"), "more than 0");
 }
 
 /// A fit pins one value, a scalar that the chart's values hold.
 #[test]
 fn a_pin_of_a_fit_is_a_scalar() {
     let mut parts = base();
-    *data_fit(x_scale(&mut parts.0)) = Some(proto::DomainFit {
-        fit: Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            pin: Some(proto::DomainPin {
-                value: Some(ValueRef { index: 0 }),
-                position: proto::PinPosition::Mid as i32,
-            }),
-            ..Default::default()
-        })),
+    x_scale(&mut parts.0).pin = Some(proto::DomainPin {
+        value: Some(ValueRef { index: 0 }),
+        position: proto::PinPosition::Mid as i32,
     });
     parts.2 = vec![Arc::new(Float64Array::from(vec![0.0]))];
     read(parts.clone()).unwrap();
     parts.2 = vec![floats(vec![0.0, 1.0])];
     invalid(
         parts,
-        &format!("{X}.scale.domain.data.fit.interval.pin.value"),
+        &format!("{X}.scale.pin.value"),
         "is invalid on a linear scale",
     );
 }

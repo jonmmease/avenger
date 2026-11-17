@@ -12,9 +12,9 @@ use arrow::{
 };
 use avenger_chart::{
     proto::{
-        self, cartesian_layer, domain, encoding, node, plot, scale, select, tool, CartesianLayer,
-        CartesianPlot, Concat, DataDomain, Domain, Encoding, LinearScale, Node, Plot, Scale,
-        Selection, SymbolMark, TableRef, ValueRef,
+        self, cartesian_layer, encoding, node, plot, scale, select, tool, CartesianLayer,
+        CartesianPlot, Concat, Encoding, LinearScale, Node, Plot, Scale, Selection, SymbolMark,
+        TableRef, ValueRef,
     },
     Chart, ChartError,
 };
@@ -36,30 +36,19 @@ pub fn points() -> RecordBatch {
 }
 
 /// A linear scale whose domain is `domain`.
-pub fn linear(domain: domain::Domain) -> Scale {
+pub fn linear(domain: scale::Domain) -> Scale {
     Scale {
         r#type: Some(scale::Type::Linear(LinearScale::default())),
-        domain: Some(Domain {
-            domain: Some(domain),
-        }),
+        domain: Some(domain),
         ..Default::default()
     }
 }
 
 /// A linear scale fitted to the layer's data.
 pub fn linear_data() -> Scale {
-    linear(domain::Domain::Data(DataDomain::default()))
-}
-
-/// The fit of the data domain of `spec`, to change.
-pub fn data_fit(spec: &mut Scale) -> &mut Option<proto::DomainFit> {
-    match spec
-        .domain
-        .as_mut()
-        .and_then(|domain| domain.domain.as_mut())
-    {
-        Some(domain::Domain::Data(data)) => &mut data.fit,
-        _ => panic!("the spec has a data domain"),
+    Scale {
+        r#type: Some(scale::Type::Linear(LinearScale::default())),
+        ..Default::default()
     }
 }
 
@@ -98,10 +87,10 @@ pub fn plot(layers: Vec<CartesianLayer>) -> Node {
     }
 }
 
-/// A chart of version 1 with `root`.
+/// A chart of the format's version with `root`.
 pub fn chart(root: Node) -> proto::Chart {
     proto::Chart {
-        version: 1,
+        version: avenger_chart::FORMAT_VERSION,
         root: Some(root),
         ..Default::default()
     }

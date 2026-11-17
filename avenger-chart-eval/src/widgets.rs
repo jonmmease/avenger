@@ -784,14 +784,14 @@ pub(crate) struct WidgetInputs<'a> {
     pub(crate) engine: &'a LabelEngine,
 }
 
-/// The values that the domain of `group` fits, with its fit and whether they are explicit: its
-/// explicit values, the summaries of its copies, or its targets' columns in the drawn rows of the
-/// layers of its copies.
+/// The values that the domain of `group` fits, with whether its fit contains zero and whether they
+/// are explicit: its explicit values, the summaries of its copies, or its targets' columns in the
+/// drawn rows of the layers of its copies.
 fn domain_values(
     chart: &Chart,
     group: &WidgetGroup,
     drawn: &[RecordBatch],
-) -> Option<(ArrayRef, Option<proto::DomainFit>, bool)> {
+) -> Option<(ArrayRef, Option<bool>, bool)> {
     let joined = |values: Vec<ArrayRef>| {
         let refs: Vec<&dyn Array> = values.iter().map(|values| values.as_ref()).collect();
         concat(&refs).ok()
@@ -803,20 +803,20 @@ fn domain_values(
                 .filter_map(|member| member.summary.as_ref())
                 .map(|values| chart.list_elements(values))
                 .collect();
-            (joined(values)?, summary.fit, false)
+            (joined(values)?, summary.zero, false)
         }
         widget_domain::Domain::Data(data) => {
             let columns = (group.members.iter())
                 .filter_map(|member| drawn[member.layer].column_by_name(&member.column).cloned())
                 .collect();
-            (joined(columns)?, data.fit, false)
+            (joined(columns)?, data.zero, false)
         }
     })
 }
 
 /// The interval of `values` for a slider: the two explicit ends, or the least and the greatest
 /// number, with zero when the fit asks for it. `None` without numbers.
-fn interval(values: &ArrayRef, explicit: bool, fit: Option<&proto::DomainFit>) -> Option<[f64; 2]> {
+fn interval(values: &ArrayRef, explicit: bool, zero: Option<bool>) -> Option<[f64; 2]> {
     let numbers = numbers(values);
     if explicit {
         return (numbers.len() == 2).then(|| [numbers[0], numbers[1]]);
@@ -826,11 +826,7 @@ fn interval(values: &ArrayRef, explicit: bool, fit: Option<&proto::DomainFit>) -
     if !(low.is_finite() && high.is_finite()) {
         return None;
     }
-    let zero = match fit.and_then(|fit| fit.fit.as_ref()) {
-        Some(proto::domain_fit::Fit::Interval(interval)) => interval.zero.unwrap_or(false),
-        _ => false,
-    };
-    Some(match zero {
+    Some(match zero.unwrap_or(false) {
         true => [low.min(0.0), high.max(0.0)],
         false => [low, high],
     })
@@ -880,8 +876,7 @@ fn spec(chart: &Chart, group: &WidgetGroup, drawn: &[RecordBatch]) -> Result<Wid
         labels.map_or_else(String::new, |labels| labels.format.clone())
     };
     let interval = || {
-        (domain.as_ref())
-            .and_then(|(values, fit, explicit)| interval(values, *explicit, fit.as_ref()))
+        (domain.as_ref()).and_then(|(values, zero, explicit)| interval(values, *explicit, *zero))
     };
     let items = || (domain.as_ref()).and_then(|(values, _, explicit)| items(values, *explicit));
     Ok(match kind {

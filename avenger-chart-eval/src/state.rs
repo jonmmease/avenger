@@ -9,7 +9,7 @@ use arrow::{
     compute::{concat, filter, kernels::cmp::eq},
 };
 use avenger_chart::{
-    proto::{self, domain, Channel},
+    proto::{self, scale, Channel},
     resolve::{Identity, Resolved, ScaleGroup},
     Chart, FitKind,
 };
@@ -151,22 +151,12 @@ pub(crate) fn same_values(
 }
 
 pub(crate) fn selection_domain(spec: &proto::Scale) -> bool {
-    matches!(
-        spec.domain
-            .as_ref()
-            .and_then(|domain| domain.domain.as_ref()),
-        Some(domain::Domain::Selection(_))
-    )
+    matches!(spec.domain, Some(scale::Domain::Selection(_)))
 }
 
 /// Whether the domain of `spec` is explicit.
 pub(crate) fn explicit_domain(spec: &proto::Scale) -> bool {
-    matches!(
-        spec.domain
-            .as_ref()
-            .and_then(|domain| domain.domain.as_ref()),
-        Some(domain::Domain::Explicit(_))
-    )
+    matches!(spec.domain, Some(scale::Domain::Explicit(_)))
 }
 
 /// The navigation of a scale at the size of its plot: the bounds that its domain stays inside, and

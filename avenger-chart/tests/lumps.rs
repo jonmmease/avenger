@@ -148,10 +148,10 @@ fn a_lump_takes_only_a_categorical_scale() {
 
 #[test]
 fn the_explicit_categories_of_a_lump_are_kept_values() {
-    let domain = Domain::explicit(vec!["Hamburg", "Rotterdam"]);
+    let domain = vec!["Hamburg", "Rotterdam"];
     bars(
         Encoding::scaled_field("port")
-            .scale(Scale::builder().band(BandScale::builder()).domain(domain)),
+            .scale(Scale::builder().band(BandScale::builder()).explicit(domain)),
     )
     .unwrap();
 }

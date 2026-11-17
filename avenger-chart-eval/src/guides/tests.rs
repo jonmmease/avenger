@@ -367,9 +367,8 @@ fn a_position_fit_leaves_room_for_the_reach() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(
-                Scale::linear(LinearScale::builder()).domain(Domain::explicit([150.0, 250.0])),
-            ))
+            .x(Encoding::scaled_field("flipper")
+                .scale(Scale::linear(LinearScale::builder()).explicit([150.0, 250.0])))
             .y("mass"),
     );
     let clipped = Chart::builder(Plot::cartesian([symbols])).build().unwrap();

@@ -28,9 +28,7 @@ fn symbols_with_a_size_and_a_shape() {
         cars(),
         SymbolMark::builder()
             .x("weight")
-            .y(Encoding::scaled_field("mpg").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().tick_count(5.0)),
-            )))
+            .y(Encoding::scaled_field("mpg").scale(Scale::tick_count(5.0)))
             .shape("cylinders")
             .size("count"),
     );
@@ -79,9 +77,7 @@ fn areas() {
         series(),
         AreaMark::builder()
             .x("date")
-            .y(Encoding::scaled_field("value").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
+            .y(Encoding::scaled_field("value").scale(Scale::builder().zero(true)))
             .color("symbol")
             .opacity(0.6),
     );
@@ -95,9 +91,7 @@ fn bars() {
         categories(),
         BarMark::builder()
             .x("category")
-            .y(Encoding::scaled_field("amount").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            ))),
+            .y(Encoding::scaled_field("amount").scale(Scale::builder().zero(true))),
     );
     let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
     render_both(&chart, "bars");
@@ -108,9 +102,7 @@ fn horizontal_bars() {
     let bars = CartesianLayer::bar(
         categories(),
         BarMark::builder()
-            .x(Encoding::scaled_field("amount").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            )))
+            .x(Encoding::scaled_field("amount").scale(Scale::builder().zero(true)))
             .y("category")
             .color("category"),
     );
@@ -239,7 +231,7 @@ fn bins_tick_across_their_domain() {
     let bars = CartesianLayer::bar(
         bins,
         BarMark::builder()
-            .x(Encoding::scaled_field("start").scale(Domain::explicit([0.0, 100.0])))
+            .x(Encoding::scaled_field("start").scale(Scale::explicit([0.0, 100.0])))
             .x2("end")
             .y("count"),
     );
@@ -602,7 +594,7 @@ fn a_range_of_dash_lists_draws_its_dashes() {
             .y("value")
             .detail("symbol")
             .stroke_dash(
-                Encoding::scaled_field("symbol").scale(Range::values(Value::list(dashes))),
+                Encoding::scaled_field("symbol").scale(Scale::values(Value::list(dashes))),
             ),
     );
     let chart = Chart::builder(Plot::cartesian([lines])).build().unwrap();
@@ -633,7 +625,7 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
             SymbolMark::builder()
                 .x("weight")
                 .y("mpg")
-                .color(Encoding::scaled_field("origin").scale(Range::builder().reverse(reverse))),
+                .color(Encoding::scaled_field("origin").scale(Scale::builder().reverse(reverse))),
         );
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };

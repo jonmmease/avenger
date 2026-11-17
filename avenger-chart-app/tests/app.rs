@@ -158,7 +158,7 @@ async fn the_navigation_limits_of_a_scale_bound_its_view() {
     let limited = || {
         Scale::builder()
             .family("weight")
-            .navigation_limits(NavigationLimits::builder().data().min_span(500.0))
+            .navigation(NavigationLimits::builder().data().min_span(500.0))
     };
     let (mut app, _, _) = app(facets(&["USA"], limited, navigate_x)).await;
     let fitted = domains(&app, 0)[0];
@@ -1137,15 +1137,13 @@ async fn a_box_of_cells_reports_its_focus_under_the_pointer() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_navigation_of_a_selection_domain_moves_the_selection() {
-    let symbols =
-        CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(Domain::selection(
-                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )))
-                .y("mpg"),
-        );
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight")
+                .scale(Scale::selection(SelectionDomain::new("brush", Channel::X))))
+            .y("mpg"),
+    );
     let chart = |id: &str| {
         Chart::builder(
             Plot::cartesian([symbols.clone()])

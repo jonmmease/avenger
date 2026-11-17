@@ -58,9 +58,9 @@ pub(crate) fn scale_impl(spec: &proto::Scale, registry: &Registry) -> Result<Arc
             Type::Quantize(_) => Arc::new(QuantizeScale),
             Type::Threshold(_) => Arc::new(ThresholdScale),
             Type::Custom(custom) => registry
-                .scale(&custom.r#type)
+                .scale(&custom.name)
                 .cloned()
-                .ok_or_else(|| EvalError::UnknownScale(custom.r#type.clone()))?,
+                .ok_or_else(|| EvalError::UnknownScale(custom.name.clone()))?,
         },
     )
 }

@@ -27,9 +27,7 @@ use prost::bytes::Bytes;
 
 use crate::{
     layer::MarkMessage,
-    proto::{
-        self, domain, domain_fit, geo, node::Node, plot::Coord, scale, selection_domain, spherical,
-    },
+    proto::{self, geo, node::Node, plot::Coord, scale, spherical},
     resolve::{Identity, Tree},
     walk::{VisitTables, VisitValues},
     Chart,
@@ -336,8 +334,8 @@ fn encodings(mark: &mut dyn MarkMessage) {
 }
 
 /// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no axis or
-/// legend, orders the options of a custom scale, leaves out the empty fits of its domain, and
-/// removes the repeated classes of its axis or legend.
+/// legend, orders the options of a custom scale, and removes the repeated classes of its axis or
+/// legend.
 fn encoding(encoding: &mut proto::Encoding) {
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
@@ -353,57 +351,12 @@ fn encoding(encoding: &mut proto::Encoding) {
     if let scale::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());
     }
-    use selection_domain::Fallback;
-    match spec
-        .domain
-        .as_mut()
-        .and_then(|domain| domain.domain.as_mut())
-    {
-        Some(domain::Domain::Summary(summary))
-        | Some(domain::Domain::Selection(proto::SelectionDomain {
-            fallback: Some(Fallback::Summary(summary)),
-            ..
-        })) => empty_fit(&mut summary.fit),
-        Some(domain::Domain::Data(data))
-        | Some(domain::Domain::Selection(proto::SelectionDomain {
-            fallback: Some(Fallback::Data(data)),
-            ..
-        })) => empty_fit(&mut data.fit),
-        _ => {}
-    }
 }
 
-/// Rewrites the widgets of a layer: distinct classes, and fits that set no field left out.
+/// Rewrites the widgets of a layer: distinct classes.
 fn widgets(widgets: &mut [proto::Widget]) {
-    use proto::{widget::Kind, widget_domain::Domain};
     for widget in widgets {
         distinct(&mut widget.classes);
-        let domain = match widget.kind.as_mut() {
-            Some(Kind::Slider(slider)) => slider.domain.as_mut(),
-            Some(Kind::RangeSlider(slider)) => slider.domain.as_mut(),
-            Some(Kind::Radio(radio)) => radio.domain.as_mut(),
-            Some(Kind::Checkboxes(checkboxes)) => checkboxes.domain.as_mut(),
-            Some(Kind::Checkbox(_) | Kind::Mode(_)) | None => None,
-        };
-        match domain.and_then(|domain| domain.domain.as_mut()) {
-            Some(Domain::Summary(summary)) => empty_fit(&mut summary.fit),
-            Some(Domain::Data(data)) => empty_fit(&mut data.fit),
-            _ => {}
-        }
-    }
-}
-
-/// Leaves out a fit that sets no field, which is the fit that applies when a domain sets none.
-fn empty_fit(fit: &mut Option<proto::DomainFit>) {
-    let empty = fit.as_ref().is_some_and(|fit| match &fit.fit {
-        None => true,
-        Some(domain_fit::Fit::Interval(interval)) => *interval == proto::IntervalFit::default(),
-        Some(domain_fit::Fit::Categories(categories)) => {
-            *categories == proto::CategoryFit::default()
-        }
-    });
-    if empty {
-        *fit = None;
     }
 }
 

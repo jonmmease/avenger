@@ -126,12 +126,7 @@ fn a_band_axis_of_lumps_places_the_kept_categories_by_weight_and_other_last() {
     assert_eq!(labels[..4], ["4", "8", "6", "Other"], "{labels:?}");
 
     // An explicit sort orders the kept categories, and Other stays last.
-    let sorted = bars(
-        Scale::builder().domain(Domain::data(DataDomain::builder().fit(
-            DomainFit::categories(CategoryFit::builder().sort(CategorySort::Ascending)),
-        ))),
-        None,
-    );
+    let sorted = bars(Scale::builder().direction(CategorySort::Ascending), None);
     let labels = axis_labels(&evaluate(&sorted, [360.0, 240.0]));
     assert_eq!(labels[..4], ["4", "6", "8", "Other"], "{labels:?}");
 }
@@ -506,9 +501,7 @@ fn a_polar_axis_of_lumps_labels_the_other_group() {
                         Axis::builder().labels(Labels::builder().markup("#value (#weight)")),
                     )),
             )
-            .radius(Encoding::scaled_field("cars").scale(Domain::data(
-                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-            ))),
+            .radius(Encoding::scaled_field("cars").scale(Scale::builder().zero(true))),
     );
     let chart = Chart::builder(Plot::polar([bars]))
         .number_format_syntax("d3")
@@ -582,12 +575,7 @@ fn a_kept_null_category_of_a_lump_comes_after_the_other_group() {
         ["4", "8", "6", "Other", "null"]
     );
     // A sort orders the kept categories, and Other and the NULL category stay last.
-    let sorted = chart(
-        false,
-        Scale::builder().domain(Domain::data(DataDomain::builder().fit(
-            DomainFit::categories(CategoryFit::builder().sort(CategorySort::Descending)),
-        ))),
-    );
+    let sorted = chart(false, Scale::builder().direction(CategorySort::Descending));
     let labels = axis_labels(&evaluate(&sorted, [360.0, 240.0]));
     assert_eq!(labels[..5], ["8", "6", "4", "Other", "null"], "{labels:?}");
 
@@ -640,7 +628,7 @@ fn a_summary_of_lumps_gives_the_categories_and_the_weights_of_its_lumps() {
     let summary = Value::scalar(Arc::new(summary.to_arrow()));
     let x = Encoding::scaled_field("lumped").scale(
         Scale::builder()
-            .domain(Domain::summary(SummaryDomain::new(summary)))
+            .summary(summary)
             .axis(Axis::builder().title("cylinders")),
     );
     let bars = CartesianLayer::bar(rows, BarMark::builder().x(x).y("cars"));

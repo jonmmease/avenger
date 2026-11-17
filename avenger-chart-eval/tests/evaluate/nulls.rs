@@ -66,12 +66,7 @@ fn a_null_category_is_the_last_band_of_a_fitted_domain() {
     assert_eq!(drawn_bars(&evaluated), 4);
 
     // A descending sort keeps the NULL category last.
-    let descending = bars(
-        Scale::builder().domain(Domain::data(DataDomain::builder().fit(
-            DomainFit::categories(CategoryFit::builder().sort(CategorySort::Descending)),
-        ))),
-        None,
-    );
+    let descending = bars(Scale::builder().direction(CategorySort::Descending), None);
     let labels = axis_labels(&evaluate(&descending, [360.0, 240.0]));
     assert_eq!(labels, ["USA", "Japan", "Europe", "null"]);
 }
@@ -80,10 +75,7 @@ fn a_null_category_is_the_last_band_of_a_fitted_domain() {
 fn an_explicit_domain_draws_the_null_category_where_it_names_it() {
     let named = |values: Vec<Option<&str>>| {
         let values: ArrayRef = Arc::new(StringArray::from(values));
-        bars(
-            Scale::builder().domain(Domain::explicit(Value::list(values))),
-            None,
-        )
+        bars(Scale::builder().explicit(Value::list(values)), None)
     };
     let evaluated = evaluate(
         &named(vec![Some("USA"), None, Some("Japan")]),

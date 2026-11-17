@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use arrow::array::{ArrayRef, Float64Array};
 use avenger_chart::{
-    proto::{self, cartesian_layer, domain_fit, encoding, node, CartesianLayer, Node, ValueRef},
+    proto::{self, cartesian_layer, encoding, node, CartesianLayer, Node, ValueRef},
     Chart,
 };
 use support::*;
@@ -266,26 +266,8 @@ fn ignored_fields_are_left_out() {
 fn options_at_every_default_are_left_out() {
     let chart = |empty: bool| {
         let mut left = plot(vec![symbols(0)]);
-        let mut layer = symbols(0);
+        let layer = symbols(0);
         let mut root = if empty {
-            let x = symbol_mut(&mut layer)
-                .x
-                .as_mut()
-                .unwrap()
-                .scale
-                .as_mut()
-                .unwrap();
-            *data_fit(x) = Some(proto::DomainFit {
-                fit: Some(domain_fit::Fit::Interval(proto::IntervalFit::default())),
-            });
-            let y = symbol_mut(&mut layer)
-                .y
-                .as_mut()
-                .unwrap()
-                .scale
-                .as_mut()
-                .unwrap();
-            *data_fit(y) = Some(proto::DomainFit::default());
             if let Some(proto::plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut left).coord {
                 cartesian.options = Some(proto::Cartesian::default());
             }

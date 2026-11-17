@@ -99,7 +99,7 @@ pub(crate) fn scale_type(spec: &proto::Scale) -> String {
         Type::Quantile(_) => "quantile",
         Type::Quantize(_) => "quantize",
         Type::Threshold(_) => "threshold",
-        Type::Custom(custom) => return custom.r#type.clone(),
+        Type::Custom(custom) => return custom.name.clone(),
     }
     .to_string()
 }

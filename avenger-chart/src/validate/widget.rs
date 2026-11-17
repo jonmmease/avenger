@@ -10,7 +10,7 @@ use arrow::{
 };
 
 use super::{classes, dictionary_values, fail, title, tree::Scope, Checker, Result, REQUIRED};
-use crate::proto::{self, domain_fit, widget, widget_domain, SliderComparison};
+use crate::proto::{self, widget, widget_domain, SliderComparison};
 
 /// Whether a widget's domain is an interval, for a slider, or items, for a radio group and a check
 /// box list.
@@ -222,24 +222,43 @@ impl Checker<'_> {
                 let values = self
                     .values
                     .list(summary.values.as_ref(), &format!("{path}.summary.values"))?;
+                let interval = [
+                    ("zero", summary.zero.is_some()),
+                    ("nice", summary.nice.is_some()),
+                    ("pin", summary.pin.is_some()),
+                    ("domain_empty", summary.domain_empty.is_some()),
+                ];
                 (
                     Some(values),
-                    summary.fit.as_ref().map(|fit| (fit, "summary")),
+                    Some(("summary", interval, summary.sort.is_some())),
                 )
             }
-            widget_domain::Domain::Data(data) => (None, data.fit.as_ref().map(|fit| (fit, "data"))),
+            widget_domain::Domain::Data(data) => {
+                let interval = [
+                    ("zero", data.zero.is_some()),
+                    ("nice", data.nice.is_some()),
+                    ("pin", data.pin.is_some()),
+                    ("domain_empty", data.domain_empty.is_some()),
+                ];
+                (None, Some(("data", interval, data.sort.is_some())))
+            }
         };
-        if let Some((fit, kind)) = fit {
-            let path = format!("{path}.{kind}.fit");
-            match (family, fit.fit.as_ref()) {
-                (_, None) | (Family::Interval, Some(domain_fit::Fit::Interval(_))) => {}
-                (Family::Items, Some(domain_fit::Fit::Categories(_))) => {}
-                (Family::Interval, Some(_)) => {
-                    return Err(fail(path, "a slider's domain fits as an interval"))
+        if let Some((kind, interval, sort)) = fit {
+            let interval = interval.iter().find(|(_, set)| *set).map(|(name, _)| *name);
+            match (family, interval, sort) {
+                (Family::Interval, _, true) => {
+                    return Err(fail(
+                        format!("{path}.{kind}.sort"),
+                        "a slider's domain fits as an interval",
+                    ))
                 }
-                (Family::Items, Some(_)) => {
-                    return Err(fail(path, "the items of a widget fit as categories"))
+                (Family::Items, Some(field), _) => {
+                    return Err(fail(
+                        format!("{path}.{kind}.{field}"),
+                        "the items of a widget fit as categories",
+                    ))
                 }
+                _ => {}
             }
         }
         let domain_type = match &values {

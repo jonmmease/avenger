@@ -210,9 +210,8 @@ fn a_selection_domain_takes_the_envelope_of_a_brush_and_its_fallback_without_one
         let symbols = CartesianLayer::symbol(
             cars(),
             SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(Domain::selection(
-                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )))
+                .x(Encoding::scaled_field("weight")
+                    .scale(Scale::selection(SelectionDomain::new("brush", Channel::X))))
                 .y("mpg"),
         )
         .id("points")
@@ -279,17 +278,15 @@ fn a_conditional_value_alone_fits_its_scales_domain() {
 /// domain, which takes its fallback for both.
 #[test]
 fn a_union_open_at_both_ends_takes_the_fallback_domain() {
-    let symbols =
-        CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(Domain::selection(
-                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )))
-                .y("mpg"),
-        )
-        .id("points")
-        .tools([Select::interval("brush", IntervalSelect::builder())]);
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight")
+                .scale(Scale::selection(SelectionDomain::new("brush", Channel::X))))
+            .y("mpg"),
+    )
+    .id("points")
+    .tools([Select::interval("brush", IntervalSelect::builder())]);
     let plot = Plot::cartesian([symbols])
         .id("plot")
         .tools([Select::interval("brush", IntervalSelect::builder())]);

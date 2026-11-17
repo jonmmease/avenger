@@ -50,14 +50,14 @@ fn chart(layer: CartesianLayerBuilder) -> Chart {
 #[test]
 fn a_constructor_builds_its_fields_and_picks_a_member_by_the_type_of_its_value() {
     let fragment = call(
-        "interval_fit",
+        "scale",
         vec![("zero", Arg::Bool(false)), ("nice", Arg::Int(5))],
     )
     .unwrap();
-    assert_eq!(fragment.r#type, "avenger.chart.v1.IntervalFit");
-    let fit = proto::IntervalFit::decode(fragment.message).unwrap();
-    assert_eq!(fit.zero, Some(false));
-    assert_eq!(fit.nice, Some(proto::interval_fit::Nice::TickCount(5.0)));
+    assert_eq!(fragment.r#type, "avenger.chart.v1.Scale");
+    let scale = proto::Scale::decode(fragment.message).unwrap();
+    assert_eq!(scale.zero, Some(false));
+    assert_eq!(scale.nice, Some(proto::scale::Nice::TickCount(5.0)));
 }
 
 #[test]
@@ -69,23 +69,23 @@ fn a_name_picks_a_member_without_content() {
 
 #[test]
 fn a_fragment_reaches_its_field_through_a_chain() {
-    let fit = call("interval_fit", vec![("zero", Arg::Bool(false))]).unwrap();
-    let fragment = call("scale", vec![("domain", Arg::Fragment(fit))]).unwrap();
+    let extent = call(
+        "navigation_interval",
+        vec![("low", Arg::Float(0.0)), ("high", Arg::Float(10.0))],
+    )
+    .unwrap();
+    let fragment = call("scale", vec![("navigation", Arg::Fragment(extent))]).unwrap();
     let scale = proto::Scale::decode(fragment.message).unwrap();
-    let domain = scale.domain.and_then(|domain| domain.domain);
-    let Some(proto::domain::Domain::Data(data)) = domain else {
-        panic!("a data domain: {domain:?}");
+    let bounds = scale.navigation.and_then(|navigation| navigation.bounds);
+    let Some(proto::navigation_limits::Bounds::Extent(extent)) = bounds else {
+        panic!("an extent: {bounds:?}");
     };
-    let fit = data.fit.and_then(|fit| fit.fit);
-    let Some(proto::domain_fit::Fit::Interval(fit)) = fit else {
-        panic!("an interval fit: {fit:?}");
-    };
-    assert_eq!(fit.zero, Some(false));
+    assert_eq!((extent.low, extent.high), (0.0, 10.0));
 }
 
 #[test]
 fn an_error_holds_its_path_and_the_inputs_of_its_parameter() {
-    let error = call("interval_fit", vec![("nice", Arg::Str("x".into()))]).unwrap_err();
+    let error = call("scale", vec![("nice", Arg::Str("x".into()))]).unwrap_err();
     assert_eq!(error.path, ["nice"]);
     let Reason::Rejected {
         expected: Expected::Inputs(accepts),

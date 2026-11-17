@@ -635,8 +635,8 @@ pub(crate) fn values_type(
         encoding::Kind::ScaledValue(value) => Some(chart.value(value).data_type().clone()),
         encoding::Kind::DirectField(_) | encoding::Kind::DirectValue(_) => None,
     };
-    from_encoding.or_else(|| match group.spec.domain.as_ref()?.domain.as_ref()? {
-        proto::domain::Domain::Explicit(values) => {
+    from_encoding.or_else(|| match group.spec.domain.as_ref()? {
+        proto::scale::Domain::Explicit(values) => {
             Some(chart.list_elements(values).data_type().clone())
         }
         _ => None,
@@ -704,27 +704,10 @@ fn scale_kind(
     }
 }
 
-/// Whether the interval fit of `spec`'s domain, or of its selection domain's fallback, pins its
-/// middle, as a diverging scale's fit does.
+/// Whether the fit of `spec`'s domain, or of its selection domain's fallback, pins its middle, as
+/// a diverging scale's fit does. A valid spec pins only a domain that the renderer fits.
 fn pins_middle(spec: &proto::Scale) -> bool {
-    use proto::{domain, domain_fit, selection_domain};
-    let fit = match (spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref()) {
-        Some(domain::Domain::Summary(summary)) => summary.fit.as_ref(),
-        Some(domain::Domain::Data(data)) => data.fit.as_ref(),
-        Some(domain::Domain::Selection(selection)) => match &selection.fallback {
-            Some(selection_domain::Fallback::Summary(summary)) => summary.fit.as_ref(),
-            Some(selection_domain::Fallback::Data(data)) => data.fit.as_ref(),
-            _ => None,
-        },
-        _ => None,
-    };
-    matches!(
-        fit.and_then(|fit| fit.fit.as_ref()),
-        Some(domain_fit::Fit::Interval(proto::IntervalFit {
-            pin: Some(pin),
-            ..
-        })) if pin.position() == proto::PinPosition::Mid
-    )
+    (spec.pin.as_ref()).is_some_and(|pin| pin.position() == proto::PinPosition::Mid)
 }
 
 /// The type of the values of `data_type`, without a dictionary.

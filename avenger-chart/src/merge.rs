@@ -3,10 +3,13 @@
 //! depth, that one of them sets.
 //!
 //! build.rs generates the field-by-field merge of the axes, the legends, the options of the scale
-//! types, and the fits from the descriptors of the format, so a field that the format adds merges
-//! by the rule of its kind.
+//! types, the pins of the fits, and the widgets from the descriptors of the format, so a field that
+//! the format adds merges by the rule of its kind.
 
-use crate::proto::{self, domain, scale};
+use crate::proto::{
+    self,
+    scale::{self, Domain, Range, Sort},
+};
 
 /// Why two specs disagree, as the end of a sentence about them, such as "set `range` to
 /// different values".
@@ -127,34 +130,77 @@ fn reference(
 
 include!(concat!(env!("OUT_DIR"), "/merge.rs"));
 
-/// Merges `other` into `merged`. Their types must be equal, the custom scales of one type name,
-/// or a band and a point scale share a band scale. Summary and data domains merge, with their fits
-/// field by field into the domain of `merged`, and explicit and selection domains must be equal.
-/// The range and the navigation that one spec sets is the merged value, and those that both set
-/// must be equal. The options of the type, the axis, and the legend merge field by field.
+/// Merges `other` into `merged`. Their types must be equal, the custom scales of one name, or a
+/// band and a point scale share a band scale. Summary and data domains merge, with their fit fields
+/// field by field into `merged`, and explicit and selection domains must be equal, selection
+/// domains with their fit fields. The range and the navigation that one spec sets is the merged
+/// value, and those that both set must be equal, and a reversed spec reverses the merged one. The
+/// options of the type, the axis, and the legend merge field by field.
 pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &SameValue) -> Merged {
     merge_type(&mut merged.r#type, &other.r#type, same)?;
     merge_domain(&mut merged.domain, other.domain.as_ref(), same)?;
+    match (&merged.domain, &other.domain) {
+        (Some(Domain::Selection(_)), Some(Domain::Selection(_)))
+            if !fit_equal(merged, other, same) =>
+        {
+            return Err(differ("domain"))
+        }
+        _ => merge_fit(merged, other, same)?,
+    }
     optional(&mut merged.range, &other.range, "range").or_else(|reason| {
         // Ranges of values are equal when their values are.
-        use proto::range::Range;
         match (&merged.range, &other.range) {
-            (Some(a), Some(b))
-                if a.reverse == b.reverse
-                    && matches!((&a.range, &b.range), (Some(Range::Values(x)), Some(Range::Values(y))) if same(*x, *y)) =>
-            {
-                Ok(())
-            }
+            (Some(Range::Values(a)), Some(Range::Values(b))) if same(*a, *b) => Ok(()),
             _ => Err(reason),
         }
     })?;
-    optional(
-        &mut merged.navigation_limits,
-        &other.navigation_limits,
-        "navigation_limits",
-    )?;
+    merged.reverse |= other.reverse;
+    optional(&mut merged.navigation, &other.navigation, "navigation")?;
     optional_merged(&mut merged.axis, &other.axis, same, "axis")?;
     optional_merged(&mut merged.legend, &other.legend, same, "legend")
+}
+
+/// Merges the fit fields of `other` into `merged`, field by field.
+fn merge_fit(merged: &mut proto::Scale, other: &proto::Scale, same: &SameValue) -> Merged {
+    optional(&mut merged.zero, &other.zero, "zero")?;
+    optional(&mut merged.nice, &other.nice, "nice")?;
+    optional_merged(&mut merged.pin, &other.pin, same, "pin")?;
+    reference(
+        &mut merged.domain_empty,
+        &other.domain_empty,
+        same,
+        "domain_empty",
+    )?;
+    optional(&mut merged.sort, &other.sort, "sort").or_else(|reason| {
+        // Preferred orders are equal when their values are.
+        match (&merged.sort, &other.sort) {
+            (Some(Sort::Preferred(a)), Some(Sort::Preferred(b))) if same(*a, *b) => Ok(()),
+            _ => Err(reason),
+        }
+    })
+}
+
+/// The fit fields of `scale`, with no other field.
+fn fit_fields(scale: &proto::Scale) -> proto::Scale {
+    proto::Scale {
+        zero: scale.zero,
+        nice: scale.nice,
+        pin: scale.pin,
+        domain_empty: scale.domain_empty,
+        sort: scale.sort,
+        ..Default::default()
+    }
+}
+
+/// Whether two specs set the same fit fields to the same values.
+fn fit_equal(a: &proto::Scale, b: &proto::Scale, same: &SameValue) -> bool {
+    let (a, b) = (fit_fields(a), fit_fields(b));
+    let (mut ab, mut ba) = (a.clone(), b.clone());
+    // A field that one sets and the other does not changes the merge of the other.
+    merge_fit(&mut ab, &b, same).is_ok()
+        && merge_fit(&mut ba, &a, same).is_ok()
+        && ab == a
+        && ba == b
 }
 
 /// Merges an optional message field by field: an absent side takes the other, and two present
@@ -200,8 +246,8 @@ fn merge_type(
     };
     match (merged_type, other) {
         (Type::Custom(merged), Type::Custom(other)) => {
-            if merged.r#type != other.r#type {
-                return Err(differ("type"));
+            if merged.name != other.name {
+                return Err(differ("custom.name"));
             }
             for option in &other.options {
                 match merged
@@ -242,34 +288,22 @@ fn merge_type(
     }
 }
 
-/// Whether a domain is inferred: the producer's summary or the layer's data.
-pub(crate) fn inferred(domain: Option<&proto::Domain>) -> bool {
-    matches!(
-        domain.and_then(|domain| domain.domain.as_ref()),
-        None | Some(domain::Domain::Summary(_) | domain::Domain::Data(_))
-    )
+/// Whether a domain is inferred: the producer's summary or, when unset, the layer's data.
+pub(crate) fn inferred(domain: Option<&Domain>) -> bool {
+    matches!(domain, None | Some(Domain::Summary(_)))
 }
 
-fn domain_equal(a: Option<&proto::Domain>, b: Option<&proto::Domain>, same: &SameValue) -> bool {
-    use domain::Domain;
+fn domain_equal(a: Option<&Domain>, b: Option<&Domain>, same: &SameValue) -> bool {
     use proto::selection_domain::Fallback;
-    match (
-        a.and_then(|domain| domain.domain.as_ref()),
-        b.and_then(|domain| domain.domain.as_ref()),
-    ) {
+    match (a, b) {
         (Some(Domain::Explicit(a)), Some(Domain::Explicit(b))) => same(*a, *b),
         (Some(Domain::Selection(a)), Some(Domain::Selection(b))) => {
             a.selection == b.selection
                 && a.channel == b.channel
                 && match (&a.fallback, &b.fallback) {
-                    (Some(Fallback::Explicit(x)), Some(Fallback::Explicit(y))) => same(*x, *y),
-                    (Some(Fallback::Summary(x)), Some(Fallback::Summary(y))) => {
-                        (x.value.zip(y.value)).is_some_and(|(x, y)| same(x, y))
-                            && fit_equal(x.fit.as_ref(), y.fit.as_ref(), same)
-                    }
-                    (Some(Fallback::Data(x)), Some(Fallback::Data(y))) => {
-                        fit_equal(x.fit.as_ref(), y.fit.as_ref(), same)
-                    }
+                    (Some(Fallback::Explicit(x)), Some(Fallback::Explicit(y)))
+                    | (Some(Fallback::Summary(x)), Some(Fallback::Summary(y))) => same(*x, *y),
+                    (None, None) => true,
                     _ => false,
                 }
         }
@@ -277,55 +311,11 @@ fn domain_equal(a: Option<&proto::Domain>, b: Option<&proto::Domain>, same: &Sam
     }
 }
 
-/// The fit of a summary or a data domain, to change.
-fn fit_mut(domain: &mut Option<proto::Domain>) -> Option<&mut Option<proto::DomainFit>> {
-    match domain.as_mut()?.domain.as_mut()? {
-        domain::Domain::Summary(summary) => Some(&mut summary.fit),
-        domain::Domain::Data(data) => Some(&mut data.fit),
-        _ => None,
-    }
-}
-
-/// The fit of a summary or a data domain.
-fn fit(domain: Option<&proto::Domain>) -> Option<&proto::DomainFit> {
-    match domain?.domain.as_ref()? {
-        domain::Domain::Summary(summary) => summary.fit.as_ref(),
-        domain::Domain::Data(data) => data.fit.as_ref(),
-        _ => None,
-    }
-}
-
-/// Whether two fits set the same fields to the same values.
-fn fit_equal(a: Option<&proto::DomainFit>, b: Option<&proto::DomainFit>, same: &SameValue) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => {
-            let (mut ab, mut ba) = (*a, *b);
-            // A field that one sets and the other does not changes the merge of the other.
-            ab.merge_fields(b, same, "fit").is_ok()
-                && ba.merge_fields(a, same, "fit").is_ok()
-                && ab == *a
-                && ba == *b
-        }
-        (a, b) => a.is_none() && b.is_none(),
-    }
-}
-
-/// Merges the domain of `other` into `merged`: summary and data domains merge, with their fits
-/// field by field into the fit of `merged`, and explicit and selection domains must be equal.
-fn merge_domain(
-    merged: &mut Option<proto::Domain>,
-    other: Option<&proto::Domain>,
-    same: &SameValue,
-) -> Merged {
+/// Merges the domain of `other` into `merged`: summary and data domains merge, and `merged` keeps
+/// its own, and explicit and selection domains must be equal.
+fn merge_domain(merged: &mut Option<Domain>, other: Option<&Domain>, same: &SameValue) -> Merged {
     match (inferred(merged.as_ref()), inferred(other)) {
-        (true, true) => match (fit_mut(merged), fit(other)) {
-            (_, None) | (None, _) => Ok(()),
-            (Some(slot @ None), Some(other)) => {
-                *slot = Some(*other);
-                Ok(())
-            }
-            (Some(Some(fit)), Some(other)) => fit.merge_fields(other, same, "fit"),
-        },
+        (true, true) => Ok(()),
         (false, false) if domain_equal(merged.as_ref(), other, same) => Ok(()),
         (false, false) => Err(differ("domain")),
         _ => Err("set an explicit or a selection domain and a summary or a data domain, which is a conflict".to_string()),
@@ -334,9 +324,9 @@ fn merge_domain(
 
 /// Merges the copy `other` of a widget into `merged`, by the rule of `Widget`: their kinds are of
 /// one kind, an option that one sets is the merged value and those that both set must be equal, and
-/// their classes join. Summary and data domains merge, with their fits field by field into the
-/// domain of `merged`, and explicit domains must be equal. The columns of the copies can differ by
-/// name, so `merged` keeps its own.
+/// their classes join. Summary and data domains merge, with their fit fields field by field into
+/// the domain of `merged`, and explicit domains must be equal. The columns of the copies can differ
+/// by name, so `merged` keeps its own.
 pub(crate) fn merge_widget(
     merged: &mut proto::Widget,
     other: &proto::Widget,
@@ -415,25 +405,56 @@ fn merge_widget_domain(
         ),
         (Some(_), Some(other_domain)) => {
             let other_fit = match other_domain {
-                Domain::Summary(summary) => summary.fit,
-                Domain::Data(data) => data.fit,
+                Domain::Summary(summary) => summary_fit(summary),
+                Domain::Data(data) => *data,
                 Domain::Explicit(_) => unreachable!("explicit domains merge above"),
             };
-            let slot = match merged.as_mut().and_then(|domain| domain.domain.as_mut()) {
-                Some(Domain::Summary(summary)) => &mut summary.fit,
-                Some(Domain::Data(data)) => &mut data.fit,
-                _ => unreachable!("the merged domain is a summary or a data domain"),
-            };
-            match (slot.as_mut(), other_fit) {
-                (_, None) => Ok(()),
-                (None, Some(fit)) => {
-                    *slot = Some(fit);
+            match merged.as_mut().and_then(|domain| domain.domain.as_mut()) {
+                Some(Domain::Summary(summary)) => {
+                    let mut fit = summary_fit(summary);
+                    fit.merge_fields(&other_fit, same, "domain")?;
+                    set_summary_fit(summary, fit);
                     Ok(())
                 }
-                (Some(fit), Some(other)) => fit.merge_fields(&other, same, "fit"),
+                Some(Domain::Data(data)) => data.merge_fields(&other_fit, same, "domain"),
+                _ => unreachable!("the merged domain is a summary or a data domain"),
             }
         }
         // A check box has no domain, and a valid widget of another kind has one.
         _ => Ok(()),
     }
+}
+
+/// The fit fields of a widget's summary domain, as a data domain holds them.
+fn summary_fit(summary: &proto::WidgetSummaryDomain) -> proto::WidgetDataDomain {
+    use proto::{widget_data_domain as data, widget_summary_domain as summary_domain};
+    proto::WidgetDataDomain {
+        zero: summary.zero,
+        nice: summary.nice.map(|nice| match nice {
+            summary_domain::Nice::Enabled(enabled) => data::Nice::Enabled(enabled),
+            summary_domain::Nice::TickCount(count) => data::Nice::TickCount(count),
+        }),
+        pin: summary.pin,
+        domain_empty: summary.domain_empty,
+        sort: summary.sort.map(|sort| match sort {
+            summary_domain::Sort::Direction(direction) => data::Sort::Direction(direction),
+            summary_domain::Sort::Preferred(preferred) => data::Sort::Preferred(preferred),
+        }),
+    }
+}
+
+/// Sets the fit fields of a widget's summary domain to those of `fit`.
+fn set_summary_fit(summary: &mut proto::WidgetSummaryDomain, fit: proto::WidgetDataDomain) {
+    use proto::{widget_data_domain as data, widget_summary_domain as summary_domain};
+    summary.zero = fit.zero;
+    summary.nice = fit.nice.map(|nice| match nice {
+        data::Nice::Enabled(enabled) => summary_domain::Nice::Enabled(enabled),
+        data::Nice::TickCount(count) => summary_domain::Nice::TickCount(count),
+    });
+    summary.pin = fit.pin;
+    summary.domain_empty = fit.domain_empty;
+    summary.sort = fit.sort.map(|sort| match sort {
+        data::Sort::Direction(direction) => summary_domain::Sort::Direction(direction),
+        data::Sort::Preferred(preferred) => summary_domain::Sort::Preferred(preferred),
+    });
 }

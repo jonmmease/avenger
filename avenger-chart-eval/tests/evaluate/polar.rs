@@ -92,9 +92,7 @@ fn a_rose_chart_draws_its_theta_axis_around_the_rim() {
                 .theta(Encoding::scaled_field("category").scale(
                     Scale::band(BandScale::builder().padding_inner(0.1)).axis(Axis::builder()),
                 ))
-                .radius(Encoding::scaled_field("amount").scale(Domain::data(
-                    DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-                )))
+                .radius(Encoding::scaled_field("amount").scale(Scale::builder().zero(true)))
                 .color("category"),
         );
     let chart = Chart::builder(Plot::polar([bars])).build().unwrap();
@@ -130,13 +128,8 @@ fn a_radial_bar_chart_runs_its_bars_around_part_of_the_circle() {
                     Scale::band(BandScale::builder().padding_inner(0.2)).axis(Axis::builder()),
                 ))
                 .theta(
-                    Encoding::scaled_field("amount").scale(
-                        Scale::builder()
-                            .domain(Domain::data(
-                                DataDomain::builder().fit(IntervalFit::builder().zero(true)),
-                            ))
-                            .axis(Axis::builder()),
-                    ),
+                    Encoding::scaled_field("amount")
+                        .scale(Scale::builder().zero(true).axis(Axis::builder())),
                 ),
         );
     let plot = PolarPlot::new([bars]).options(Polar::builder().end_angle(270.0).inner_radius(0.2));
@@ -159,7 +152,7 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
     };
     let radius = || {
         Encoding::scaled_field("value").scale(
-            Scale::builder().domain(Domain::explicit([0.0, 5.0])).axis(
+            Scale::builder().explicit([0.0, 5.0]).axis(
                 Axis::builder()
                     .route(Route::Canvas)
                     .ticks(Ticks::count(5.0)),

@@ -14,7 +14,7 @@ use arrow::{
 };
 use avenger_chart::{
     prelude::*,
-    proto::{self, cartesian_layer, domain, node, plot::Coord, Table},
+    proto::{self, cartesian_layer, node, plot::Coord, scale, Table},
 };
 use support::{chart, ipc, points, symbols};
 
@@ -53,7 +53,7 @@ fn a_builder_tree_refers_to_its_own_tables_and_values() {
         points(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("a")
-                .scale(Scale::linear(LinearScale::builder()).domain(Domain::explicit([0.0, 10.0]))))
+                .scale(Scale::linear(LinearScale::builder()).explicit([0.0, 10.0])))
             .y("b"),
     )
     .partition([PartitionValue::new("sex", "female")]);
@@ -63,7 +63,7 @@ fn a_builder_tree_refers_to_its_own_tables_and_values() {
         panic!("the layer draws symbols")
     };
     let x = mark.x.as_ref().unwrap().scale.as_ref().unwrap();
-    let Some(domain::Domain::Explicit(domain)) = x.domain.as_ref().unwrap().domain else {
+    let Some(scale::Domain::Explicit(domain)) = x.domain else {
         panic!("the domain is explicit")
     };
     let ends = chart.list_elements(&domain);
@@ -78,12 +78,8 @@ fn nested_builders_refer_to_their_own_values() {
     let layer = |low: f64| {
         CartesianLayer::symbol(
             points(),
-            SymbolMark::builder()
-                .x("a")
-                .y(Encoding::scaled_field("b").scale(
-                    Scale::linear(LinearScale::builder())
-                        .domain(Domain::explicit([low, low + 10.0])),
-                )),
+            SymbolMark::builder().x("a").y(Encoding::scaled_field("b")
+                .scale(Scale::linear(LinearScale::builder()).explicit([low, low + 10.0]))),
         )
     };
     let chart = Chart::builder(
@@ -96,8 +92,7 @@ fn nested_builders_refer_to_their_own_values() {
     let lows: Vec<f64> = (chart.resolve().scales.iter())
         .filter(|group| group.channel == Channel::Y)
         .map(|group| {
-            let Some(domain::Domain::Explicit(value)) = group.spec.domain.as_ref().unwrap().domain
-            else {
+            let Some(scale::Domain::Explicit(value)) = group.spec.domain else {
                 panic!("the domain is explicit")
             };
             chart

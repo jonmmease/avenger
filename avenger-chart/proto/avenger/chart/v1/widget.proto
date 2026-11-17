@@ -212,21 +212,60 @@ message WidgetDomain {
   }
 }
 
-// A summary of the values that a widget's domain covers, and how the domain fits it.
+// A summary of the values that a widget's domain covers, and how the domain fits it. The fit
+// fields say how the domain fits the values, as the fit fields of a scale do: `zero`, `nice`,
+// `pin`, and `domain_empty` for a slider, whose domain is the extent of the values, with zero,
+// round ends, and its domain without values as they give them, and `sort` for a radio group or a
+// check box list, whose items are the distinct values in the order that it gives. A widget takes
+// the fit fields of its kind only. When they are unset, the fit of the widget's kind applies with
+// its defaults.
 message WidgetSummaryDomain {
   // A list of values in the type of the column, in any order, with repeats: for a slider, such as
   // the smallest and the largest value, and for a radio group or a check box list, the items.
   ValueRef values = 1 [(avenger.chart.v1.required) = true];
-  // How the domain fits the values, as for a scale: an `IntervalFit` for a slider, whose domain is
-  // the extent of the values, with zero, round ends, and its domain without values as the fit
-  // gives them, and a `CategoryFit` for a radio group or a check box list, whose items are the
-  // distinct values in the order that the fit gives. When unset, the fit of the widget's kind
-  // applies with its defaults.
-  DomainFit fit = 2;
+  // Whether the domain contains zero, as for `Scale.zero`. When unset, it does not.
+  optional bool zero = 2;
+  // Whether the domain has nice ends, as for `Scale.nice`.
+  oneof nice {
+    // As for `Scale.enabled`.
+    bool enabled = 3;
+    // As for `Scale.tick_count`.
+    double tick_count = 4;
+  }
+  // A value that the domain holds exactly, as for `Scale.pin`.
+  DomainPin pin = 5;
+  // The domain when there are no values, as for `Scale.domain_empty`.
+  ValueRef domain_empty = 6;
+  // The order of the items, as for `Scale.sort`.
+  oneof sort {
+    // As for `Scale.direction`.
+    CategorySort direction = 7 [(avenger.chart.v1.required) = true];
+    // As for `Scale.preferred`.
+    ValueRef preferred = 8;
+  }
 }
 
-// A domain that the renderer fits from the tables of the layers of the widget's group.
+// A domain that the renderer fits from the tables of the layers of the widget's group, with the
+// fit fields of `WidgetSummaryDomain`.
 message WidgetDataDomain {
-  // How the domain fits the values, as for `WidgetSummaryDomain.fit`.
-  DomainFit fit = 1;
+  // As for `WidgetSummaryDomain.zero`.
+  optional bool zero = 1;
+  // As for `WidgetSummaryDomain.nice`.
+  oneof nice {
+    // As for `Scale.enabled`.
+    bool enabled = 2;
+    // As for `Scale.tick_count`.
+    double tick_count = 3;
+  }
+  // As for `WidgetSummaryDomain.pin`.
+  DomainPin pin = 4;
+  // As for `WidgetSummaryDomain.domain_empty`.
+  ValueRef domain_empty = 5;
+  // As for `WidgetSummaryDomain.sort`.
+  oneof sort {
+    // As for `Scale.direction`.
+    CategorySort direction = 6 [(avenger.chart.v1.required) = true];
+    // As for `Scale.preferred`.
+    ValueRef preferred = 7;
+  }
 }

@@ -176,7 +176,7 @@ pub(crate) struct Position {
 /// that the spec reverses runs the other way.
 pub(crate) fn direction(group: &ScaleGroup, kind: FitKind) -> Direction {
     let up = group.channel == Channel::Y && kind != FitKind::Categories;
-    let reversed = (group.spec.range.as_ref()).is_some_and(|range| range.reverse);
+    let reversed = group.spec.reverse;
     match up != reversed {
         true => Direction::Reverse,
         false => Direction::Forward,
@@ -324,12 +324,9 @@ pub(crate) fn non_position(
     };
     let scale = unfitted.with_domain(domain.clone());
     let shape = range_shape(spec, domain.len());
-    // A format range that only reverses reverses the range of the styles, and one with values or a
+    // A reverse without a range reverses the range of the styles, and a range of values or a
     // palette is reversed in the styles already.
-    let reverse = spec
-        .range
-        .as_ref()
-        .is_some_and(|range| range.reverse && range.range.is_none());
+    let reverse = spec.reverse && spec.range.is_none();
     let range = match (range(style, styles, shape), reverse) {
         (Some(range), true) => Some(range.reversed()?),
         (range, _) => range,

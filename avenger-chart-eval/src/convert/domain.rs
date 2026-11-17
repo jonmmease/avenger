@@ -1,5 +1,6 @@
 //! Where the domains of scales come from: explicit values, the producer's summaries, the data of
-//! the layers, or the values of a selection, and how a summary or a data domain fits.
+//! the layers, or the values of a selection, and how a summary or a data domain fits by the fit
+//! fields of its scale.
 
 use std::collections::BTreeMap;
 
@@ -8,10 +9,7 @@ use arrow::{
     compute::{cast, concat, kernels::cmp::lt},
 };
 use avenger_chart::{
-    proto::{
-        self, category_fit, domain, domain_fit, interval_fit, selection_domain, CategorySort,
-        Channel,
-    },
+    proto::{self, scale, selection_domain, CategorySort, Channel},
     resolve::{scale_channel, ScaleGroup},
     Chart, FitKind,
 };
@@ -34,9 +32,7 @@ pub(crate) fn selection_warnings(
 ) -> Vec<EvalWarning> {
     let mut warnings = Vec::new();
     for group in groups {
-        let Some(domain::Domain::Selection(selection)) =
-            (group.spec.domain.as_ref()).and_then(|domain| domain.domain.as_ref())
-        else {
+        let Some(scale::Domain::Selection(selection)) = &group.spec.domain else {
             continue;
         };
         let Some(state) = states.get(&selection.selection) else {
@@ -72,14 +68,6 @@ impl FitDefaults {
     /// The tick count of nice ends when a fit gives none: the default nice ends of `x` and `y`,
     /// and `nice: true`.
     pub(crate) const NICE: f64 = 10.0;
-
-    fn options(self) -> IntervalOptions {
-        IntervalOptions {
-            zero: self.zero,
-            nice: self.nice,
-            ..Default::default()
-        }
-    }
 }
 
 /// Where a scale's domain comes from at one evaluation.
@@ -144,81 +132,70 @@ pub(crate) fn source(
             .collect(),
         pin: None,
     };
-    Ok(
-        match group
-            .spec
-            .domain
-            .as_ref()
-            .and_then(|domain| domain.domain.as_ref())
-        {
-            Some(domain::Domain::Explicit(values)) => {
-                DomainSource::Explicit(chart.list_elements(values))
-            }
-            Some(domain::Domain::Selection(selection)) => {
-                let fallback = match &selection.fallback {
-                    Some(selection_domain::Fallback::Explicit(values)) => {
-                        DomainSource::Explicit(chart.list_elements(values))
-                    }
-                    Some(selection_domain::Fallback::Summary(summary)) => DomainSource::Inferred {
-                        summaries: summary
-                            .value
-                            .as_ref()
-                            .map(|value| summary_of(chart, value))
-                            .into_iter()
-                            .collect(),
-                        data: vec![false; members],
-                        pin: None,
-                    },
-                    Some(selection_domain::Fallback::Data(_)) | None => DomainSource::Inferred {
-                        summaries: Vec::new(),
-                        data: vec![true; members],
-                        pin: None,
-                    },
-                };
-                let channel = Channel::try_from(selection.channel).unwrap_or_default();
-                let values = match states.get(&selection.selection) {
-                    Some(state) => domain_values(state, channel)?,
-                    None => None,
-                };
-                match values {
-                    Some(SelectionValues::Set(values)) => DomainSource::Explicit(values),
-                    Some(SelectionValues::Range {
-                        low: Some(low),
-                        high: Some(high),
-                    }) => DomainSource::Explicit(concat(&[low.as_ref(), high.as_ref()])?),
-                    // A union of ranges open at opposite ends bounds neither end, so the
-                    // fallback gives both, as it does without a selection.
-                    Some(SelectionValues::Range {
-                        low: None,
-                        high: None,
-                    }) => fallback,
-                    // Ranges that leave one end open pin the other, and the fallback gives the
-                    // open end.
-                    Some(SelectionValues::Range { low, high }) => {
-                        let pin = match (low, high) {
-                            (Some(low), _) => DomainPin::Low(low),
-                            (None, Some(high)) => DomainPin::High(high),
-                            (None, None) => unreachable!("a range open at both ends falls back"),
-                        };
-                        match fallback {
-                            DomainSource::Explicit(explicit) => {
-                                DomainSource::Explicit(pinned_explicit(&explicit, &pin)?)
-                            }
-                            DomainSource::Inferred {
-                                summaries, data, ..
-                            } => DomainSource::Inferred {
-                                summaries,
-                                data,
-                                pin: Some(pin),
-                            },
-                        }
-                    }
-                    None => fallback,
+    Ok(match &group.spec.domain {
+        Some(scale::Domain::Explicit(values)) => {
+            DomainSource::Explicit(chart.list_elements(values))
+        }
+        Some(scale::Domain::Selection(selection)) => {
+            let fallback = match &selection.fallback {
+                Some(selection_domain::Fallback::Explicit(values)) => {
+                    DomainSource::Explicit(chart.list_elements(values))
                 }
+                Some(selection_domain::Fallback::Summary(summary)) => DomainSource::Inferred {
+                    summaries: vec![summary_of(chart, summary)],
+                    data: vec![false; members],
+                    pin: None,
+                },
+                // An unset fallback is the data domain.
+                None => DomainSource::Inferred {
+                    summaries: Vec::new(),
+                    data: vec![true; members],
+                    pin: None,
+                },
+            };
+            let channel = Channel::try_from(selection.channel).unwrap_or_default();
+            let values = match states.get(&selection.selection) {
+                Some(state) => domain_values(state, channel)?,
+                None => None,
+            };
+            match values {
+                Some(SelectionValues::Set(values)) => DomainSource::Explicit(values),
+                Some(SelectionValues::Range {
+                    low: Some(low),
+                    high: Some(high),
+                }) => DomainSource::Explicit(concat(&[low.as_ref(), high.as_ref()])?),
+                // A union of ranges open at opposite ends bounds neither end, so the
+                // fallback gives both, as it does without a selection.
+                Some(SelectionValues::Range {
+                    low: None,
+                    high: None,
+                }) => fallback,
+                // Ranges that leave one end open pin the other, and the fallback gives the
+                // open end.
+                Some(SelectionValues::Range { low, high }) => {
+                    let pin = match (low, high) {
+                        (Some(low), _) => DomainPin::Low(low),
+                        (None, Some(high)) => DomainPin::High(high),
+                        (None, None) => unreachable!("a range open at both ends falls back"),
+                    };
+                    match fallback {
+                        DomainSource::Explicit(explicit) => {
+                            DomainSource::Explicit(pinned_explicit(&explicit, &pin)?)
+                        }
+                        DomainSource::Inferred {
+                            summaries, data, ..
+                        } => DomainSource::Inferred {
+                            summaries,
+                            data,
+                            pin: Some(pin),
+                        },
+                    }
+                }
+                None => fallback,
             }
-            Some(domain::Domain::Summary(_) | domain::Domain::Data(_)) | None => inferred(),
-        },
-    )
+        }
+        Some(scale::Domain::Summary(_)) | None => inferred(),
+    })
 }
 
 /// The producer's summary that `value` refers to, with the categories of a summary of lumps as
@@ -234,16 +211,16 @@ pub(crate) fn raw_summary(chart: &Chart, value: &proto::ValueRef) -> DomainSumma
 }
 
 /// How a summary or a data domain of a scale fits: the options of avenger-scales, and the order
-/// of the spec's category fit.
+/// of the spec's `sort`.
 #[derive(Clone, Debug)]
 pub(crate) struct Fit {
     pub(crate) options: DomainOptions,
-    /// The order that the spec's category fit gives, or `None` for the default order of the
-    /// domain's kind.
+    /// The order that the spec's `sort` gives, or `None` for the default order of the domain's
+    /// kind.
     pub(crate) spec_order: Option<SpecOrder>,
 }
 
-/// The order of the categories that a spec's category fit gives.
+/// The order of the categories that a spec's `sort` gives.
 #[derive(Clone, Debug)]
 pub(crate) enum SpecOrder {
     /// The categories of the data, ascending or descending, as the fit's options sort them.
@@ -301,41 +278,29 @@ impl Fit {
     }
 }
 
-/// The fit of a summary or a data domain of `spec`: the options of `kind`, the kind of fit of its
-/// type, with the fields of the spec's fit, or of a selection domain's fallback.
+/// The fit of a summary or a data domain of `spec`, or of a selection domain's fallback: the
+/// options of `kind`, the kind of fit of its type, with the fit fields of the spec.
 pub(crate) fn domain_options(
     chart: &Chart,
     spec: &proto::Scale,
     kind: FitKind,
     defaults: FitDefaults,
 ) -> Fit {
-    let fit = match spec
-        .domain
-        .as_ref()
-        .and_then(|domain| domain.domain.as_ref())
-    {
-        Some(domain::Domain::Summary(summary)) => summary.fit.as_ref(),
-        Some(domain::Domain::Data(data)) => data.fit.as_ref(),
-        Some(domain::Domain::Selection(selection)) => match &selection.fallback {
-            Some(selection_domain::Fallback::Summary(summary)) => summary.fit.as_ref(),
-            Some(selection_domain::Fallback::Data(data)) => data.fit.as_ref(),
-            _ => None,
-        },
-        _ => None,
-    };
+    // The fit fields that the spec sets decide the kind of a custom scale's fit, and the kind of
+    // its type otherwise, since a valid spec sets the fields of its type's kind.
+    let interval = spec.zero.is_some()
+        || spec.nice.is_some()
+        || spec.pin.is_some()
+        || spec.domain_empty.is_some();
     let mut spec_order = None;
-    let options = match (kind, fit.and_then(|fit| fit.fit.as_ref())) {
-        (FitKind::Sample, _) => DomainOptions::Sample,
-        (_, Some(domain_fit::Fit::Categories(categories))) => {
-            let (options, order) = category_options(chart, categories);
+    let options = match kind {
+        FitKind::Sample => DomainOptions::Sample,
+        _ if spec.sort.is_some() || (kind == FitKind::Categories && !interval) => {
+            let (options, order) = category_options(chart, spec);
             spec_order = order;
             DomainOptions::Categories(options)
         }
-        (FitKind::Categories, None) => DomainOptions::Categories(CategoryOptions::default()),
-        (_, Some(domain_fit::Fit::Interval(interval))) => {
-            DomainOptions::Interval(interval_options(chart, interval, defaults))
-        }
-        _ => DomainOptions::Interval(defaults.options()),
+        _ => DomainOptions::Interval(interval_options(chart, spec, defaults)),
     };
     Fit {
         options,
@@ -343,11 +308,7 @@ pub(crate) fn domain_options(
     }
 }
 
-fn interval_options(
-    chart: &Chart,
-    fit: &proto::IntervalFit,
-    defaults: FitDefaults,
-) -> IntervalOptions {
+fn interval_options(chart: &Chart, fit: &proto::Scale, defaults: FitDefaults) -> IntervalOptions {
     let value = |value: &proto::ValueRef| chart.value(value).clone();
     // A pinned end holds, so a pinned fit takes no default zero.
     let zero = defaults.zero && fit.pin.is_none();
@@ -355,10 +316,10 @@ fn interval_options(
         zero: fit.zero.unwrap_or(zero),
         nice: match fit.nice {
             None => defaults.nice,
-            Some(interval_fit::Nice::Enabled(nice)) => nice.then_some(FitDefaults::NICE),
-            Some(interval_fit::Nice::TickCount(count)) => Some(count),
+            Some(scale::Nice::Enabled(nice)) => nice.then_some(FitDefaults::NICE),
+            Some(scale::Nice::TickCount(count)) => Some(count),
         },
-        empty: fit.empty.as_ref().map(|empty| chart.list_elements(empty)),
+        empty: (fit.domain_empty.as_ref()).map(|empty| chart.list_elements(empty)),
         pin: fit.pin.as_ref().map(|pin| {
             let pinned = value(pin.value.as_ref().expect("a valid pin has a value"));
             match pin.position() {
@@ -370,17 +331,14 @@ fn interval_options(
     }
 }
 
-/// The category options of a fit, and its preferred categories, which the fit moves first after
-/// it sorts the categories ascending.
-fn category_options(
-    chart: &Chart,
-    fit: &proto::CategoryFit,
-) -> (CategoryOptions, Option<SpecOrder>) {
-    let spec_order = match &fit.ordering {
-        Some(category_fit::Ordering::Sort(sort)) => Some(SpecOrder::Sort(
+/// The category options of the sort of `spec`, and its preferred categories, which the fit moves
+/// first after it sorts the categories ascending.
+fn category_options(chart: &Chart, spec: &proto::Scale) -> (CategoryOptions, Option<SpecOrder>) {
+    let spec_order = match &spec.sort {
+        Some(scale::Sort::Direction(sort)) => Some(SpecOrder::Sort(
             CategorySort::try_from(*sort).unwrap_or_default(),
         )),
-        Some(category_fit::Ordering::Preferred(preferred)) => {
+        Some(scale::Sort::Preferred(preferred)) => {
             Some(SpecOrder::Preferred(chart.list_elements(preferred)))
         }
         None => None,

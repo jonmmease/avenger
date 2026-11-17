@@ -769,10 +769,8 @@ fn navigates_selection(plot: &proto::Plot, kind: CoordKind, layers: &[LayerRef])
         .collect();
     (layers.iter().filter_map(|layer| layer.mark())).any(|mark| {
         mark.encodings().any(|(channel, encoding)| {
-            let domain = (encoding.scale.as_ref())
-                .and_then(|scale| scale.domain.as_ref())
-                .and_then(|domain| domain.domain.as_ref());
-            moved.contains(&channel) && matches!(domain, Some(proto::domain::Domain::Selection(_)))
+            let domain = (encoding.scale.as_ref()).and_then(|scale| scale.domain.as_ref());
+            moved.contains(&channel) && matches!(domain, Some(proto::scale::Domain::Selection(_)))
         })
     })
 }

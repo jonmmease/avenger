@@ -82,8 +82,8 @@ async fn a_bar_chart_of_counts() {
 async fn a_chart_for_each_group() {
     let query = "FROM penguins
 |> AGGREGATE symbol(
-     x => scaled(flipper_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(body_mass_g, scale => interval_fit(zero => FALSE)),
+     x => scaled(flipper_length_mm, scale => scale(zero => FALSE)),
+     y => scaled(body_mass_g, scale => scale(zero => FALSE)),
      color => island) AS chart GROUP BY species
 |> ORDER BY species";
     let charts = charts(query).await;

@@ -144,10 +144,10 @@ fn legends() {
     // A threshold scale of the fuel economies, at 20 and 30.
     let symbols = CartesianLayer::symbol(
         cars(),
-        SymbolMark::builder().x("weight").y("mpg").color(
-            Encoding::scaled_field("mpg")
-                .scale(Scale::threshold().domain(Domain::explicit([20.0, 30.0]))),
-        ),
+        SymbolMark::builder()
+            .x("weight")
+            .y("mpg")
+            .color(Encoding::scaled_field("mpg").scale(Scale::threshold().explicit([20.0, 30.0]))),
     );
     let threshold = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     render_both(&threshold, "legend-threshold");
@@ -186,9 +186,7 @@ fn a_color_scale_that_pins_its_middle_diverges() {
         cars(),
         SymbolMark::builder().x("weight").y("mpg").color(
             Encoding::scaled_field("mpg")
-                .scale(Domain::data(DataDomain::builder().fit(
-                    IntervalFit::builder().pin(DomainPin::new(25.0, PinPosition::Mid)),
-                ))),
+                .scale(Scale::builder().pin(DomainPin::new(25.0, PinPosition::Mid))),
         ),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -411,7 +409,7 @@ fn months() -> Chart {
         ),
     ])
     .unwrap();
-    let in_order = Domain::explicit(Value::list(Arc::new(StringArray::from(names.to_vec()))));
+    let in_order = Scale::explicit(Value::list(Arc::new(StringArray::from(names.to_vec()))));
     let bars = CartesianLayer::bar(
         table,
         BarMark::builder()

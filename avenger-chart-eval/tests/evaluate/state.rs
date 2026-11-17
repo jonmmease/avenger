@@ -175,15 +175,13 @@ fn new_clauses_restyle_the_conditional_values() {
 
 #[test]
 fn new_clauses_refit_a_selection_domain() {
-    let symbols =
-        CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(Domain::selection(
-                    SelectionDomain::data("brush", Channel::X, DataDomain::builder()),
-                )))
-                .y("mpg"),
-        );
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight")
+                .scale(Scale::selection(SelectionDomain::new("brush", Channel::X))))
+            .y("mpg"),
+    );
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars"))
         .selections([Selection::new("brush", SelectionResolution::Union)])
         .build()
