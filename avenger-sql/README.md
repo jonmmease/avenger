@@ -16,7 +16,7 @@ FROM penguins
 
 A script is statements separated by `;`. `DECLARE` and `SET` give script variables, `CREATE TEMP TABLE` and `CREATE TEMP FUNCTION` define names for the statements after them, and `IMPORT MODULE` imports the public functions and constants of a module that the catalog holds. `sql` returns the rows of the last query, after the variables before it.
 
-The functions are those of the `library`: GoogleSQL's functions, avenger-chart's marks and constructors, and the transforms of avenger-datafusion-transforms. Each function declares its forms, with GoogleSQL's types and coercion, and documents itself and its parameters. `library::reference` renders the reference of every function, which notes where a function differs from GoogleSQL. A parameter whose name is a reserved word of GoogleSQL takes the name with a trailing underscore, as `range_` of `scale` does.
+The functions are those of the `library`: GoogleSQL's functions, avenger-chart's marks and constructors, and the transforms of avenger-datafusion-transforms. Each function declares its forms, with GoogleSQL's types and coercion, and documents itself and its parameters. `library::reference` renders the reference of every function, which notes where a function differs from GoogleSQL. A parameter keeps its name when it is a reserved word of GoogleSQL, as `range` of `scale` does, because the parser reads a word that `=>` follows as an argument's name.
 
 ## Row pattern recognition
 

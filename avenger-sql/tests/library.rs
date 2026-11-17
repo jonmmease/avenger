@@ -338,8 +338,8 @@ fn the_library_names_functions_without_regard_to_case() {
 
 #[test]
 fn a_call_can_name_each_function_and_parameter() {
-    // A function or a parameter whose name is a reserved word, such as `select` or `default`,
-    // takes a trailing underscore, since a call can't name it otherwise.
+    // A function or a parameter keeps its name when it is a reserved word, such as the
+    // constructor `select` or the parameter `range`, which the parser reads as names.
     let library = Library::new();
     let mut reserved = Vec::new();
     for function in library.functions() {
@@ -354,7 +354,8 @@ fn a_call_can_name_each_function_and_parameter() {
         }
     }
     assert!(reserved.is_empty(), "reserved names: {reserved:?}");
-    assert!(library.get("select_").is_some());
+    assert!(library.get("select").is_some());
+    assert!(library.get("select_").is_none());
 }
 
 #[test]

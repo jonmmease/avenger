@@ -14,11 +14,9 @@
 //! declare their options, with their docs. The pass plans the calls of `lump` and `impute` itself,
 //! since their arguments read other scopes than a row: the library holds their docs and forms.
 //!
-//! A function or a parameter whose name is a reserved word of GoogleSQL takes the name with a
-//! trailing underscore, as the constructor `select` is `select_` and the parameter `range` of
-//! `scale` is `range_`, so a call can name it: GoogleSQL takes no reserved word as the name of a
-//! function or an argument. Each binding of avenger-chart's functions follows this rule for the
-//! reserved words of its language.
+//! A function or a parameter keeps its name when the name is a reserved word of GoogleSQL, as the
+//! constructor `select` and the parameter `range` of `scale` do: avenger-sql's parser reads a
+//! word that `=>` follows as an argument's name, and `SELECT (` as a call.
 
 use std::sync::Arc;
 
@@ -74,7 +72,7 @@ pub(super) fn functions() -> Vec<Function> {
     let mut functions = Vec::new();
     for mark in marks() {
         let udaf = Arc::new(AggregateUDF::new_from_impl(MarkDeclaration::new(mark)));
-        let mut function = Function::aggregate(&sql_name(mark.name), summary(mark.doc))
+        let mut function = Function::aggregate(mark.name, summary(mark.doc))
             .description(mark.doc)
             .order_by()
             .family(Family::Mark);
@@ -82,15 +80,15 @@ pub(super) fn functions() -> Vec<Function> {
         function.clauses.having = false;
         let mut args = Vec::new();
         for channel in mark.channels {
-            function = function.param(&sql_name(channel.name), channel.doc);
+            function = function.param(channel.name, channel.doc);
             args.push(any(channel.name, channel.required));
         }
         // The properties, then the options of the mark's plot and layer, such as `tools`.
         for param in mark.properties.iter().chain(mark.options) {
-            function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
+            function = function.chart_param(param.name, param.doc, takes(param.accepts));
             args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
-        function = function.param(&sql_name(COORD), COORD_DOC);
+        function = function.param(COORD, COORD_DOC);
         args.push(any(COORD, false));
         let signature = Signature {
             args,
@@ -120,12 +118,12 @@ pub(super) fn functions() -> Vec<Function> {
             "" => format!("A fragment of the message `{}`.", constructor.message),
             doc => doc.to_string(),
         };
-        let mut function = Function::scalar(&sql_name(constructor.name), summary(&doc))
+        let mut function = Function::scalar(constructor.name, summary(&doc))
             .description(&doc)
             .family(Family::Constructor);
         let mut args = Vec::new();
         for param in constructor.params {
-            function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
+            function = function.chart_param(param.name, param.doc, takes(param.accepts));
             args.push(arg(param.name, ty_of(param.accepts), param.required));
         }
         let signature = Signature {
@@ -174,19 +172,10 @@ fn summary(doc: &str) -> &str {
     }
 }
 
-/// The name of the function or the parameter `name` in SQL: `name`, or with a trailing
-/// underscore when it is a reserved word of GoogleSQL.
-fn sql_name(name: &str) -> String {
-    match avenger_sql_syntax::is_reserved(name) {
-        true => format!("{name}_"),
-        false => name.to_string(),
-    }
-}
-
 /// The argument of a form for the parameter `name`.
 fn arg(name: &str, accept: Accept, required: bool) -> FormArg {
     FormArg {
-        param: sql_name(name),
+        param: name.to_string(),
         accept,
         arity: match required {
             true => Arity::Required,
@@ -256,7 +245,7 @@ fn takes(accepts: &[ChartAccept]) -> Takes {
         match (accept.class, shape) {
             (_, Shape::Message { constructor, .. }) => {
                 let builds = Builds {
-                    constructor: sql_name(constructor),
+                    constructor: constructor.to_string(),
                     part: part.as_ref().map(|(_, name)| name.clone()),
                     array,
                     form: String::new(),
@@ -353,7 +342,7 @@ fn aggregate_composition(spec: &'static Composition) -> Function {
         args.push(any("key", true));
     }
     for param in spec.params {
-        function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
+        function = function.chart_param(param.name, param.doc, takes(param.accepts));
         args.push(arg(param.name, ty_of(param.accepts), param.required));
     }
     let signature = Signature {
@@ -391,7 +380,7 @@ fn scalar_composition(spec: &'static Composition) -> Function {
         ..any("chart", true)
     }];
     for param in spec.params {
-        function = function.chart_param(&sql_name(param.name), param.doc, takes(param.accepts));
+        function = function.chart_param(param.name, param.doc, takes(param.accepts));
         args.push(FormArg {
             named_only: true,
             ..arg(param.name, ty_of(param.accepts), false)
@@ -428,7 +417,7 @@ fn scaled() -> Function {
     .param("value", "The value of the channel.");
     let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
     for option in encoding_options() {
-        function = function.chart_param(&sql_name(option.name), option.doc, takes(option.accepts));
+        function = function.chart_param(option.name, option.doc, takes(option.accepts));
         args.push(FormArg {
             named_only: true,
             ..arg(option.name, ty_of(option.accepts), false)

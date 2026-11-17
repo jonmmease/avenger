@@ -129,3 +129,59 @@ fn statements_read_their_modifiers() {
         .and_then(|body| body.expr())
         .is_some());
 }
+
+#[test]
+fn reserved_words_name_arguments_and_the_calls_of_avenger_constructors() {
+    // A reserved word that `=>` follows names an argument, beyond GoogleSQL.
+    for name in ["range", "select", "interval", "order", "group"] {
+        let text = format!("f({name} => 1)");
+        let ast::Expr::CallExpr(call) = expr(&text) else {
+            panic!("{text} is a call");
+        };
+        let names: Vec<String> = (call.arg_list().unwrap().arguments())
+            .filter_map(|argument| match argument {
+                ast::Argument::NamedArg(named) => named.name_ref()?.text(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, [name], "{text}");
+    }
+    // `order => k` is an argument and `ORDER BY k` the clause of the same call.
+    let ast::Expr::CallExpr(call) = expr("f(x, order => k ORDER BY k)") else {
+        panic!("a call");
+    };
+    let list = call.arg_list().unwrap();
+    assert_eq!(list.arguments().count(), 2);
+    assert!(list.order_by().is_some());
+    // `select(...)` and `interval(...)` are calls when no date part follows the parentheses.
+    for text in [
+        "select(a => 1)",
+        "interval(a => 1)",
+        "interval()",
+        "interval(0, 100)",
+    ] {
+        assert!(
+            matches!(expr(text), ast::Expr::CallExpr(_)),
+            "{text} is a call"
+        );
+    }
+    // An interval literal stays a literal, with or without parentheses.
+    for text in [
+        "INTERVAL 1 DAY",
+        "INTERVAL (1 + 1) DAY",
+        "INTERVAL (5) HOUR TO MINUTE",
+    ] {
+        assert!(
+            matches!(expr(text), ast::Expr::IntervalExpr(_)),
+            "{text} is an interval"
+        );
+    }
+}
+
+#[test]
+fn select_in_parentheses_is_a_call_when_a_parenthesis_follows_it() {
+    assert!(matches!(
+        expr("(select(selection => 'b'))"),
+        ast::Expr::ParenExpr(_)
+    ));
+}

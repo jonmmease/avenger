@@ -132,12 +132,12 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     // A string member before a `ValueRef` member, which takes the rest.
     builds(
-        "scale_range(range_ => 'viridis')",
+        "scale_range(range => 'viridis')",
         Range::palette("viridis").to_fragment().unwrap(),
     )
     .await;
     builds(
-        "scale_range(range_ => ['#e45756', '#4c78a8'])",
+        "scale_range(range => ['#e45756', '#4c78a8'])",
         Range::values(["#e45756", "#4c78a8"]).to_fragment().unwrap(),
     )
     .await;
@@ -155,7 +155,7 @@ async fn conversions_reach_a_message_through_a_chain() {
     )
     .await;
     builds(
-        "scale(range_ => 'viridis')",
+        "scale(range => 'viridis')",
         Scale::builder()
             .range(Range::palette("viridis"))
             .to_fragment()
@@ -370,13 +370,8 @@ fn every_constructor_is_a_function_of_the_library_that_a_call_can_name() {
         .iter()
         .map(|c| c.name)
     {
-        // A reserved word takes a trailing underscore, as `select_` does.
-        let name = match avenger_sql_syntax::is_reserved(name) {
-            true => format!("{name}_"),
-            false => name.to_string(),
-        };
-        assert!(library.get(&name).is_some(), "`{name}` is in the library");
-        // A keyword does not take the name of a constructor.
+        // A constructor keeps its name when it is a reserved word, as `select` does.
+        assert!(library.get(name).is_some(), "`{name}` is in the library");
         let text = format!("FROM one |> SELECT {name}()");
         assert!(avenger_sql_syntax::parse(&text).ok(), "{text}");
     }
