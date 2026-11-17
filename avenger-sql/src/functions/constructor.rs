@@ -7,7 +7,8 @@ use datafusion::{
     arrow::datatypes::{DataType, Field, FieldRef},
     common::{exec_err, plan_err, Result, ScalarValue},
     logical_expr::{
-        ColumnarValue, DocSection, Documentation, DocumentationBuilder, ReturnFieldArgs,
+        simplify::{ExprSimplifyResult, SimplifyContext},
+        ColumnarValue, DocSection, Documentation, DocumentationBuilder, Expr, ReturnFieldArgs,
         ScalarFunctionArgs, ScalarUDFImpl, Signature, Volatility,
     },
 };
@@ -127,6 +128,24 @@ impl ScalarUDFImpl for ConstructorFunction {
             }
         }
         Ok(Arc::new(fragment_field(self.spec.name, self.spec.message)))
+    }
+
+    fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
+        // A call whose arguments became constants as the plan folded, such as a call of another
+        // constructor, fails here with its own error. The constant evaluator, which folds the
+        // call, keeps a call whose evaluation fails, and the error would be lost.
+        let constants: Option<Vec<Option<ScalarValue>>> = (args.iter())
+            .map(|arg| match arg {
+                Expr::Literal(value, _) => Some(Some(value.clone())),
+                _ => None,
+            })
+            .collect();
+        if let Some(values) = constants {
+            if let Err(error) = self.build(values) {
+                return plan_err!("{}(): {error}", self.spec.name);
+            }
+        }
+        Ok(ExprSimplifyResult::Original(args))
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {

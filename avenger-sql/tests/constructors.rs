@@ -208,9 +208,19 @@ async fn errors_of_a_constant_call_fail_at_planning() {
             "no form of axis takes (STRING)",
         ),
         ("cartesian(1, 2)", "cartesian takes 1 positional argument"),
+        // The error of a call whose arguments are calls of other constructors.
+        (
+            "scale(domain => linear_scale())",
+            "scale(): `domain` takes",
+        ),
+        (
+            "scale(domain => interval_fit(pin => linear_scale()))",
+            "interval_fit(): `pin` takes `domain_pin(...)`, not `linear_scale(...)`",
+        ),
     ] {
         let message = error(expression).await;
         assert!(message.contains(expected), "{expression}: {message}");
+        assert!(!message.contains("BinaryView"), "{expression}: {message}");
     }
 }
 
@@ -320,6 +330,11 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         (
             "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)",
             "geo_symbol() needs `coord`",
+        ),
+        // A wrong constructor inside an option fails with its own error, not the mark's.
+        (
+            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(domain => linear_scale())), y => flipper_length_mm)",
+            "scale(): `domain` takes",
         ),
         (
             "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))",
