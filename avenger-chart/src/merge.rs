@@ -261,15 +261,13 @@ fn merge_type(
             if merged.name != other.name {
                 return Err(differ("custom.name"));
             }
-            for option in &other.options {
-                match merged
-                    .options
-                    .iter()
-                    .find(|known| known.name == option.name)
-                {
-                    Some(known) if known.value == option.value => {}
-                    Some(_) => return Err(differ(&format!("custom.options.{}", option.name))),
-                    None => merged.options.push(option.clone()),
+            for (name, value) in &other.options {
+                match merged.options.get(name) {
+                    Some(known) if known == value => {}
+                    Some(_) => return Err(differ(&format!("custom.options.{name}"))),
+                    None => {
+                        merged.options.insert(name.clone(), value.clone());
+                    }
                 }
             }
             Ok(())

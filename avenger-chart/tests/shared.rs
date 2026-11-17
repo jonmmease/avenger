@@ -493,14 +493,14 @@ fn a_plot_that_spans_several_tracks_fixes_no_length_along_them() {
 
 #[test]
 fn map_plots_that_share_a_projection_agree() {
-    let map = |projection: proto::spherical::Projection| Node {
+    let map = |projection: proto::ProjectionType| Node {
         node: Some(node::Node::Plot(Plot {
             coord: Some(plot::Coord::Geo(proto::GeoPlot {
                 options: Some(proto::Geo {
-                    surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
-                        projection: Some(projection),
+                    projection: Some(proto::Projection {
+                        r#type: Some(proto::projection::Type::Builtin(projection as i32)),
                         ..Default::default()
-                    })),
+                    }),
                     ..Default::default()
                 }),
                 layers: vec![proto::GeoLayer {
@@ -522,12 +522,11 @@ fn map_plots_that_share_a_projection_agree() {
             ..Default::default()
         })),
     };
-    use proto::spherical::Projection;
     let mut row = concat(
         proto::Direction::Row,
         vec![
-            map(Projection::Mercator(proto::NoParameters {})),
-            map(Projection::Robinson(proto::NoParameters {})),
+            map(proto::ProjectionType::Mercator),
+            map(proto::ProjectionType::Robinson),
         ],
     );
     read(parts(row.clone(), vec![])).unwrap();
@@ -538,7 +537,7 @@ fn map_plots_that_share_a_projection_agree() {
     invalid(
         parts(row, vec![]),
         "root.concat.children[1].plot",
-        "their surfaces differ",
+        "their projections differ",
     );
 }
 
@@ -732,9 +731,7 @@ fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
         plot_mut(&mut node).width = Some(width);
         plot_mut(&mut node).height = Some(width);
         if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
-            cartesian.options = Some(proto::Cartesian {
-                aspect_ratio: Some(1.5),
-            });
+            cartesian.options = Some(proto::Cartesian { aspect: Some(1.5) });
         }
         node
     };

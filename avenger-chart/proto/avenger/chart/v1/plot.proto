@@ -97,7 +97,7 @@ message PolarLayer {
 // A geo plot: its options and its layers. The layers share the plot's projection, because they
 // draw into one plot.
 message GeoPlot {
-  // The options of the coordinate system, which a geo plot needs, since its surface has no default.
+  // The options of the coordinate system, which a geo plot needs, since its projection has no default.
   Geo options = 1 [(avenger.chart.v1.required) = true];
   // The layers, at least one, each drawn over the ones before it.
   repeated GeoLayer layers = 2 [(avenger.chart.v1.required) = true];

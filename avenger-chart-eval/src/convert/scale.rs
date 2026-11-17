@@ -153,9 +153,8 @@ pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<Str
         }
         Type::Ordinal(_) | Type::Quantile(_) | Type::Quantize(_) | Type::Threshold(_) => {}
         Type::Custom(custom) => {
-            for option in &custom.options {
-                let value = option.value.as_ref().and_then(|value| value.value.as_ref());
-                let value = match value {
+            for (name, value) in &custom.options {
+                let value = match value.value.as_ref() {
                     Some(option_value::Value::Boolean(value)) => Scalar::from(*value),
                     Some(option_value::Value::Float(value)) => Scalar::from(*value),
                     Some(option_value::Value::Integer(value)) => Scalar::from(*value as f64),
@@ -166,7 +165,7 @@ pub(crate) fn options(spec: &proto::Scale, style: &ComputedStyle) -> HashMap<Str
                     }
                     None => continue,
                 };
-                set(&option.name, Some(value));
+                set(name, Some(value));
             }
         }
     }

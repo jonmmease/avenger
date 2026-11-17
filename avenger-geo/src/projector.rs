@@ -21,7 +21,9 @@
 //! and holes negative, as RFC 7946 specifies. The clip stages follow d3's
 //! opposite convention, so the pipeline reverses each ring before them. A
 //! reflected planar projection also reverses its rings, so exteriors keep
-//! positive area on screen, where the rectangle clip needs it.
+//! positive area on screen, where the rectangle clip needs it. A projection that
+//! reflects both axes turns its rings without reflecting them, so it keeps
+//! their order.
 
 use crate::clip::antimeridian::AntimeridianPolicy;
 use crate::clip::circle::CirclePolicy;
@@ -58,9 +60,10 @@ pub enum Surface {
     /// Longitude/latitude degrees, projected by a [`ProjectionImpl`].
     Spherical(Arc<dyn ProjectionImpl>),
     /// Planar coordinates that are already projected (d3 `geoIdentity`). They
-    /// skip rotation, antimeridian cutting, and resampling. `reflect_y` flips
+    /// skip rotation, antimeridian cutting, and resampling. `reflect_x` flips
+    /// the x axis, for data whose x grows to the left, and `reflect_y` flips
     /// the y axis, for y-up data on a y-down screen.
-    Planar { reflect_y: bool },
+    Planar { reflect_x: bool, reflect_y: bool },
 }
 
 /// Which part of the sphere a projection keeps, before it projects: the clip
@@ -334,9 +337,13 @@ impl Projection {
     }
 
     /// A planar projection for pre-projected coordinates, without a view or
-    /// clip extent.
-    pub fn planar(reflect_y: bool) -> Self {
-        Self::from_surface(Surface::Planar { reflect_y })
+    /// clip extent, which flips the x axis with `reflect_x` and the y axis
+    /// with `reflect_y`.
+    pub fn planar(reflect_x: bool, reflect_y: bool) -> Self {
+        Self::from_surface(Surface::Planar {
+            reflect_x,
+            reflect_y,
+        })
     }
 
     fn from_surface(surface: Surface) -> Self {
@@ -533,9 +540,10 @@ impl Projection {
                     fixed.rotate(self.center[0] * RADIANS, self.center[1] * RADIANS);
                 projection.project(lambda, phi)
             }
-            Surface::Planar { reflect_y } => {
-                planar_unit(*reflect_y, self.center[0], self.center[1])
-            }
+            Surface::Planar {
+                reflect_x,
+                reflect_y,
+            } => planar_unit(*reflect_x, *reflect_y, self.center[0], self.center[1]),
         };
         let k = view.scale;
         let transform = ViewTransform {
@@ -747,9 +755,13 @@ fn is_rectangle(extent: [[f64; 2]; 2]) -> bool {
 }
 
 /// Planar input in unit-scale y-up coordinates. The view flips y, so input
-/// that isn't reflected flips first. The map is its own inverse.
-fn planar_unit(reflect_y: bool, x: f64, y: f64) -> (f64, f64) {
-    (x, if reflect_y { y } else { -y })
+/// that isn't reflected on y flips first, and input that is reflected on x
+/// flips x. The map is its own inverse.
+fn planar_unit(reflect_x: bool, reflect_y: bool, x: f64, y: f64) -> (f64, f64) {
+    (
+        if reflect_x { -x } else { x },
+        if reflect_y { y } else { -y },
+    )
 }
 
 /// A view's planar transform: `x' = k·x + dx`, `y' = dy − k·y`. Projections
@@ -797,7 +809,10 @@ impl Projector {
                 let (l, p) = self.rotation.rotate(lon * RADIANS, lat * RADIANS);
                 projection.project(l, p)
             }
-            Surface::Planar { reflect_y } => planar_unit(*reflect_y, lon, lat),
+            Surface::Planar {
+                reflect_x,
+                reflect_y,
+            } => planar_unit(*reflect_x, *reflect_y, lon, lat),
         };
         let (x, y) = self.transform.apply(planar);
         (x.is_finite() && y.is_finite()).then_some((x, y))
@@ -816,7 +831,10 @@ impl Projector {
                 let (l, p) = self.rotation.invert(l, p);
                 (l * DEGREES, p * DEGREES)
             }
-            Surface::Planar { reflect_y } => planar_unit(*reflect_y, px, py),
+            Surface::Planar {
+                reflect_x,
+                reflect_y,
+            } => planar_unit(*reflect_x, *reflect_y, px, py),
         };
         (result.0.is_finite() && result.1.is_finite()).then_some(result)
     }
@@ -1062,14 +1080,19 @@ impl Projector {
                     ),
                 }
             }
-            Surface::Planar { reflect_y } => {
+            Surface::Planar {
+                reflect_x,
+                reflect_y,
+            } => {
                 let mut planar = PlanarPoints {
+                    reflect_x: *reflect_x,
                     reflect_y: *reflect_y,
                     transform: self.transform,
                     sink,
                 };
-                // Reflection flips each ring's orientation.
-                if *reflect_y {
+                // A reflection flips each ring's orientation, and a second one
+                // flips it back.
+                if reflect_x != reflect_y {
                     feed(&mut ReverseRings::new(planar));
                 } else {
                     feed(&mut planar);
@@ -1365,6 +1388,7 @@ impl<S: GeoSink> GeoSink for RotateStream<S> {
 
 /// Planar stage: input points through the view, no spherical machinery.
 struct PlanarPoints<S> {
+    reflect_x: bool,
     reflect_y: bool,
     transform: ViewTransform,
     sink: S,
@@ -1372,7 +1396,7 @@ struct PlanarPoints<S> {
 
 impl<S: GeoSink> GeoSink for PlanarPoints<S> {
     fn point(&mut self, x: f64, y: f64, m: Option<f64>) {
-        let (x, y) = self.transform.apply(planar_unit(self.reflect_y, x, y));
+        let (x, y) = (self.transform).apply(planar_unit(self.reflect_x, self.reflect_y, x, y));
         self.sink.point(x, y, m);
     }
     fn line_start(&mut self) {

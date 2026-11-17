@@ -99,10 +99,11 @@ async fn a_map_of_earthquakes() {
      latitude => latitude,
      size => scaled(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
      color => depth_km,
-     coord => geo(surface => spherical(
-       projection => 'equal_earth',
-       fit => 'whole_sphere',
-       graticule => graticule(longitude_step => 30, latitude_step => 30)))) AS chart";
+     coord => geo(
+       projection => projection(type => 'equal_earth', fit => 'whole_sphere'),
+       graticule => graticule(step => [30, 30]),
+     ),
+   ) AS chart";
     let charts = charts(query).await;
     assert_eq!(charts.len(), 1);
     render(&charts[0], "earthquakes-map");

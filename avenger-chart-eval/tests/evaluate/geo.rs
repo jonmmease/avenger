@@ -157,16 +157,9 @@ fn an_equal_earth_world_map_draws_its_sphere_graticule_shapes_and_cities() {
             .latitude("lat")
             .size("population"),
     );
-    let options = Geo::spherical(
-        Spherical::equal_earth()
-            .whole_sphere()
-            .graticule(
-                Graticule::builder()
-                    .longitude_step(30.0)
-                    .latitude_step(30.0),
-            )
-            .sphere(SphereStyle::builder()),
-    );
+    let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere())
+        .graticule(Graticule::builder().step([30.0, 30.0]))
+        .sphere(SphereStyle::builder());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -189,13 +182,13 @@ fn a_globe_draws_the_places_of_its_near_side() {
             .latitude("lat")
             .color(Encoding::direct_value("#e45756")),
     );
-    let options = Geo::spherical(
-        Spherical::orthographic()
-            .rotate(Rotation::builder().lambda(-20.0).phi(-30.0))
-            .whole_sphere()
-            .graticule(Graticule::builder())
-            .sphere(SphereStyle::builder()),
-    );
+    let options = Geo::new(
+        Projection::builtin(ProjectionType::Orthographic)
+            .rotate([-20.0, -30.0])
+            .whole_sphere(),
+    )
+    .graticule(Graticule::builder())
+    .sphere(SphereStyle::builder());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -220,18 +213,13 @@ fn a_conic_map_of_a_box_clips_to_its_plot() {
         cities(),
         GeoTextMark::new("name").longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(
-        Spherical::conic_conformal(ConicConformal::builder().parallel1(29.5).parallel2(45.5))
-            .rotate(Rotation::builder().lambda(96.0))
-            .box_(
-                LonLatBox::builder()
-                    .west(-125.0)
-                    .south(24.0)
-                    .east(-66.0)
-                    .north(50.0),
-            )
-            .graticule(Graticule::builder()),
-    );
+    let options = Geo::new(
+        Projection::builtin(ProjectionType::ConicConformal)
+            .parallels([29.5, 45.5])
+            .rotate([96.0, 0.0])
+            .box_([-125.0, 24.0, -66.0, 50.0]),
+    )
+    .graticule(Graticule::builder());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -276,13 +264,8 @@ fn routes_follow_the_great_circle_the_canvas_and_the_parallel() {
         countries(),
         GeoShapeMark::new("geometry").fill(Encoding::direct_value("#dddddd")),
     );
-    let options = Geo::spherical(
-        Spherical::equirectangular().whole_sphere().graticule(
-            Graticule::builder()
-                .longitude_step(30.0)
-                .latitude_step(30.0),
-        ),
-    );
+    let options = Geo::new(Projection::builtin(ProjectionType::Equirectangular).whole_sphere())
+        .graticule(Graticule::builder().step([30.0, 30.0]));
     let layers = [
         land,
         line(Route::Coordinate, "#4c78a8"),
@@ -306,7 +289,7 @@ fn a_planar_map_draws_projected_coordinates() {
         ("south", square(10.0, 0.0, 50.0)),
     ]);
     let land = GeoLayer::shape(parcels, GeoShapeMark::new("geometry").color("name"));
-    let options = Geo::planar(Planar::builder().reflect_y(true));
+    let options = Geo::new(Projection::builtin(ProjectionType::Identity).reflect_y(true));
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land])))
         .build()
         .unwrap();
@@ -367,17 +350,9 @@ fn a_map_draws_its_tiles_through_the_image_resolver() {
         cities(),
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(
-        Spherical::mercator()
-            .box_(
-                LonLatBox::builder()
-                    .west(-130.0)
-                    .south(15.0)
-                    .east(-60.0)
-                    .north(60.0),
-            )
-            .tiles(TileLayer::new("tiles/{z}/{x}/{y}.png")),
-    );
+    let options =
+        Geo::new(Projection::builtin(ProjectionType::Mercator).box_([-130.0, 15.0, -60.0, 60.0]))
+            .tiles(TileLayer::new("tiles/{z}/{x}/{y}.png"));
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
         .build()
         .unwrap();
@@ -407,12 +382,9 @@ fn maps_of_one_family_share_one_projection() {
             table,
             GeoSymbolMark::builder().longitude("lon").latitude("lat"),
         );
-        let options = Geo::spherical(
-            Spherical::equal_earth()
-                .data()
-                .sphere(SphereStyle::builder()),
-        )
-        .family("world");
+        let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).data())
+            .sphere(SphereStyle::builder())
+            .family("world");
         Plot::geo(GeoPlot::new(options, [places]))
     };
     let all = cities();
@@ -449,11 +421,11 @@ fn a_map_keeps_its_aspect_and_a_free_map_fills_its_space() {
             .build()
             .unwrap()
     };
-    let world = || Spherical::equal_earth().whole_sphere();
-    let kept = evaluate(&chart(Geo::spherical(world())), [600.0, 600.0]);
+    let world = || Projection::builtin(ProjectionType::EqualEarth).whole_sphere();
+    let kept = evaluate(&chart(Geo::new(world())), [600.0, 600.0]);
     let [_, _, width, height] = kept.plots[0].rect;
     assert!(width / height > 1.5, "{width} {height}");
-    let free = evaluate(&chart(Geo::spherical(world()).free()), [600.0, 600.0]);
+    let free = evaluate(&chart(Geo::free(world())), [600.0, 600.0]);
     let [_, _, width, height] = free.plots[0].rect;
     assert!((width - height).abs() < 1.0, "{width} {height}");
 }
@@ -467,7 +439,7 @@ fn symbols_at_the_edge_of_the_data_stay_inside_the_plot() {
             .latitude("lat")
             .size(400.0),
     );
-    let options = Geo::spherical(Spherical::mercator());
+    let options = Geo::new(Projection::builtin(ProjectionType::Mercator));
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
         .build()
         .unwrap();
@@ -493,7 +465,7 @@ fn the_coordinates_of_a_map_place_its_symbols() {
         cities(),
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(Spherical::robinson().whole_sphere());
+    let options = Geo::new(Projection::builtin(ProjectionType::Robinson).whole_sphere());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
         .build()
         .unwrap();
@@ -531,7 +503,7 @@ fn a_map_beside_legends_taller_than_it_keeps_its_aspect() {
             .latitude("lat")
             .size("population"),
     );
-    let options = Geo::spherical(Spherical::equal_earth().whole_sphere());
+    let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere());
     let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [land, places])))
         .build()
         .unwrap();
@@ -552,7 +524,8 @@ fn city_plot(table: RecordBatch) -> Chart {
         table,
         GeoSymbolMark::builder().longitude("lon").latitude("lat"),
     );
-    let options = Geo::spherical(Spherical::equal_earth().sphere(SphereStyle::builder()))
+    let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth))
+        .sphere(SphereStyle::builder())
         .family("world")
         .navigation(GeoNavigation::builder().min_zoom(1.0).max_zoom(8.0));
     Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
@@ -636,4 +609,212 @@ fn an_update_carries_the_view_and_the_fit_of_a_projection() {
     let panned = refit.evaluate(&host([480.0, 300.0])).unwrap();
     let carried = update(&mut refit, &UpdateOptions::new());
     assert!((origin(&carried).1 - origin(&panned).1).abs() < 1e-2);
+}
+
+/// The projection of avenger-geo that a geo plot of `projection` fits, without its view.
+fn fitted(projection: ProjectionBuilder) -> avenger_geo::Projection {
+    use avenger_chart_eval::ProjectionView;
+    let places = GeoLayer::symbol(
+        cities(),
+        GeoSymbolMark::builder().longitude("lon").latitude("lat"),
+    );
+    let chart = Chart::builder(Plot::geo(GeoPlot::new(Geo::new(projection), [places])))
+        .build()
+        .unwrap();
+    let mut evaluator = evaluator(&chart);
+    evaluator.evaluate(&host([320.0, 240.0])).unwrap();
+    match evaluator.home_projection(0) {
+        Some(ProjectionView::Geo(projection)) => projection,
+        _ => panic!("a geo plot has a projection"),
+    }
+}
+
+/// The serde form of the surface of `projection`, its type and its parameters.
+fn surface(projection: &avenger_geo::Projection) -> serde_json::Value {
+    serde_json::to_value(&projection.surface).unwrap()
+}
+
+#[test]
+fn each_projection_type_projects_with_its_parameters() {
+    use avenger_geo::{projections as p, ProjectionImpl};
+    let spherical = |projection: Box<dyn ProjectionImpl>| {
+        surface(&avenger_geo::Projection {
+            surface: avenger_geo::Surface::Spherical(Arc::from(projection)),
+            ..avenger_geo::Projection::planar(false, false)
+        })
+    };
+    let builtin = Projection::builtin;
+    let cases: Vec<(ProjectionBuilder, Box<dyn ProjectionImpl>)> = vec![
+        (builtin(ProjectionType::EqualEarth), Box::new(p::EqualEarth)),
+        (
+            builtin(ProjectionType::NaturalEarth1),
+            Box::new(p::NaturalEarth1),
+        ),
+        (builtin(ProjectionType::Robinson), Box::new(p::Robinson)),
+        (builtin(ProjectionType::Mollweide), Box::new(p::Mollweide)),
+        (builtin(ProjectionType::Eckert4), Box::new(p::Eckert4)),
+        (
+            builtin(ProjectionType::WinkelTripel),
+            Box::new(p::WinkelTripel),
+        ),
+        (builtin(ProjectionType::Aitoff), Box::new(p::Aitoff)),
+        (builtin(ProjectionType::Sinusoidal), Box::new(p::Sinusoidal)),
+        (
+            builtin(ProjectionType::Equirectangular),
+            Box::new(p::Equirectangular),
+        ),
+        (builtin(ProjectionType::Mercator), Box::new(p::Mercator)),
+        (
+            builtin(ProjectionType::TransverseMercator),
+            Box::new(p::TransverseMercator),
+        ),
+        (builtin(ProjectionType::Miller), Box::new(p::Miller)),
+        (
+            builtin(ProjectionType::Orthographic),
+            Box::new(p::Orthographic),
+        ),
+        (
+            builtin(ProjectionType::Stereographic),
+            Box::new(p::Stereographic),
+        ),
+        (builtin(ProjectionType::Gnomonic), Box::new(p::Gnomonic)),
+        (
+            builtin(ProjectionType::AzimuthalEqualArea),
+            Box::new(p::AzimuthalEqualArea),
+        ),
+        (
+            builtin(ProjectionType::AzimuthalEquidistant),
+            Box::new(p::AzimuthalEquidistant),
+        ),
+        (
+            builtin(ProjectionType::ConicConformal).parallels([33.0, 45.0]),
+            Box::new(p::ConicConformal::new([33.0, 45.0])),
+        ),
+        (
+            builtin(ProjectionType::ConicEqualArea).parallels([20.0, 50.0]),
+            Box::new(p::ConicEqualArea::new([20.0, 50.0])),
+        ),
+        (
+            builtin(ProjectionType::ConicEquidistant).parallels([40.0]),
+            Box::new(p::ConicEquidistant::new([40.0, 40.0])),
+        ),
+        (
+            builtin(ProjectionType::CylindricalEqualArea).parallel(45.0),
+            Box::new(p::CylindricalEqualArea::new(45.0)),
+        ),
+        (
+            builtin(ProjectionType::CylindricalEqualArea),
+            Box::new(p::CylindricalEqualArea::new(38.58)),
+        ),
+        (
+            builtin(ProjectionType::Hammer).coefficient(3.0),
+            Box::new(p::Hammer::new(3.0)),
+        ),
+        (
+            builtin(ProjectionType::Hammer),
+            Box::new(p::Hammer::new(2.0)),
+        ),
+    ];
+    for (projection, expected) in cases {
+        let found = fitted(projection);
+        assert_eq!(surface(&found), spherical(expected));
+    }
+
+    // The rotation takes two or three angles, and the center a longitude and a latitude.
+    let found = fitted(
+        builtin(ProjectionType::Orthographic)
+            .rotate([96.0, -30.0])
+            .center([10.0, 20.0]),
+    );
+    assert_eq!(found.rotate, [96.0, -30.0, 0.0]);
+    assert_eq!(found.center, [10.0, 20.0]);
+    let found = fitted(builtin(ProjectionType::Orthographic).rotate([96.0, -30.0, 5.0]));
+    assert_eq!(found.rotate, [96.0, -30.0, 5.0]);
+}
+
+#[test]
+fn a_conic_without_parallels_takes_the_defaults_of_its_type() {
+    use avenger_geo::projections as p;
+    for (builtin, expected) in [
+        (
+            ProjectionType::ConicConformal,
+            surface(&avenger_geo::Projection::new(p::ConicConformal::new([
+                30.0, 30.0,
+            ]))),
+        ),
+        (
+            ProjectionType::ConicEqualArea,
+            surface(&avenger_geo::Projection::new(p::ConicEqualArea::new([
+                0.0, 60.0,
+            ]))),
+        ),
+        (
+            ProjectionType::ConicEquidistant,
+            surface(&avenger_geo::Projection::new(p::ConicEquidistant::new([
+                0.0, 60.0,
+            ]))),
+        ),
+    ] {
+        assert_eq!(surface(&fitted(Projection::builtin(builtin))), expected);
+    }
+    // The surface holds the parallels, so other parallels give another surface.
+    assert_ne!(
+        surface(&fitted(Projection::builtin(ProjectionType::ConicConformal))),
+        surface(&avenger_geo::Projection::new(p::ConicConformal::new([
+            0.0, 60.0
+        ]))),
+    );
+}
+
+#[test]
+fn an_identity_projection_reflects_its_axes() {
+    let square = |x: f64, y: f64, side: f64| {
+        polygon(&[(x, y), (x + side, y), (x + side, y + side), (x, y + side)])
+    };
+    let parcels = shapes_table(&[
+        ("west", square(0.0, 0.0, 40.0)),
+        ("east", square(60.0, 60.0, 40.0)),
+    ]);
+    // The pixels of the places (10, 10) and (90, 90) in a plot of the parcels.
+    let pixels = |reflect_x: bool, reflect_y: bool| {
+        let land = GeoLayer::shape(parcels.clone(), GeoShapeMark::new("geometry"));
+        let projection = Projection::builtin(ProjectionType::Identity)
+            .reflect_x(reflect_x)
+            .reflect_y(reflect_y);
+        let chart = Chart::builder(Plot::geo(GeoPlot::new(Geo::new(projection), [land])))
+            .build()
+            .unwrap();
+        let evaluated = evaluate(&chart, [240.0, 240.0]);
+        let [x, y] = evaluated.plots[0]
+            .coords
+            .pixels([&numbers(&[10.0, 90.0]), &numbers(&[10.0, 90.0])])
+            .unwrap();
+        (x.value(0) < x.value(1), y.value(0) < y.value(1))
+    };
+    // Without a reflection, x grows to the right and y downward, as d3-geo's `geoIdentity` draws.
+    assert_eq!(pixels(false, false), (true, true));
+    assert_eq!(pixels(true, false), (false, true));
+    assert_eq!(pixels(false, true), (true, false));
+    assert_eq!(pixels(true, true), (false, false));
+}
+
+#[test]
+fn a_shown_graticule_and_sphere_draw_their_defaults_and_hidden_ones_draw_nothing() {
+    let svg = |geo: GeoBuilder| {
+        let land = GeoLayer::shape(countries(), GeoShapeMark::new("geometry"));
+        let chart = Chart::builder(Plot::geo(GeoPlot::new(geo, [land])))
+            .build()
+            .unwrap();
+        SvgRenderer::new()
+            .render_scene_graph(&evaluate(&chart, [320.0, 240.0]).scene, &engine())
+            .unwrap()
+    };
+    let world = || Geo::new(Projection::builtin(ProjectionType::EqualEarth).whole_sphere());
+    let bare = svg(world());
+    let defaults = svg(world()
+        .graticule(Graticule::builder())
+        .sphere(SphereStyle::builder()));
+    assert_ne!(defaults, bare);
+    assert_eq!(svg(world().graticule(true).sphere(true)), defaults);
+    assert_eq!(svg(world().graticule(false).sphere(false)), bare);
 }

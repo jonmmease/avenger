@@ -1,16 +1,8 @@
-// The named options of custom scales and custom projections.
+// The values of the named options of custom scales and custom projections.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
-
-// One option of a custom scale or a custom projection.
-message NamedOption {
-  // The name of the option.
-  string name = 1;
-  // The value of the option.
-  OptionValue value = 2;
-}
 
 // The value of an option: a Boolean, a number, an integer, a string, or a list of numbers or of
 // strings.

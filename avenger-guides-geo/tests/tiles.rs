@@ -239,7 +239,7 @@ fn the_layer_clips_to_the_outline() {
     // Tiles on the far side of the globe have no triangles and no instance.
     let drawn = instances(&group).len();
     assert!((1..16).contains(&drawn), "{drawn}");
-    let planar = Projection::planar(false)
+    let planar = Projection::planar(false, false)
         .with_view(1.0, [0.0, 0.0])
         .build()
         .unwrap();

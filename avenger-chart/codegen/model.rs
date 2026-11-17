@@ -5,7 +5,9 @@
 //! each oneof, in the order of their first field numbers. A field of `Encoding` type is a channel
 //! and a `TableRef` is a table, so neither is a parameter, and a oneof loses its members of
 //! either kind. A oneof whose members all take one kind of plain argument, as `options::splits`
-//! describes, gives a parameter for each member, of which a call gives at most one.
+//! describes, gives a parameter for each member, of which a call gives at most one. A map, the
+//! named options of a custom scale or a custom projection, is a parameter that takes a struct,
+//! one option for each field.
 //!
 //! The conversions turn an argument, a SQL value of one class or a fragment of a message, into a
 //! message, one step at a time. Each step builds a default builder of a message and calls one
@@ -44,18 +46,21 @@ pub(super) enum Class {
     Str,
     Array,
     Bytes,
+    /// A struct, whose fields are named values.
+    Struct,
     /// A value of another type, such as a date, which only a `ValueRef` takes.
     Other,
 }
 
 impl Class {
-    pub(super) const ALL: [Class; 7] = [
+    pub(super) const ALL: [Class; 8] = [
         Class::Bool,
         Class::Int,
         Class::Float,
         Class::Str,
         Class::Array,
         Class::Bytes,
+        Class::Struct,
         Class::Other,
     ];
 
@@ -67,6 +72,7 @@ impl Class {
             Class::Str => "Str",
             Class::Array => "Array",
             Class::Bytes => "Bytes",
+            Class::Struct => "Struct",
             Class::Other => "Other",
         }
     }
@@ -88,10 +94,24 @@ pub(super) enum Shape {
     /// A message, by its full name.
     Message(String),
     Repeated(Box<Shape>),
+    /// A map from a name to an `OptionValue`, the named options of a custom scale or a custom
+    /// projection, which a struct sets.
+    Options,
+}
+
+/// Whether the message `name` is the entry of a map field. The only nested messages of the package
+/// are the entries of maps, as build.rs checks.
+pub(super) fn is_map_entry(name: &str) -> bool {
+    (name.strip_prefix(PACKAGE)).is_some_and(|name| name.matches('.').count() > 1)
 }
 
 impl Shape {
     pub(super) fn of(field: &FieldDescriptorProto) -> Option<Shape> {
+        if field.r#type() == Type::Message && is_map_entry(field.type_name()) {
+            // The value of the entry is its field `value`, which the name of the entry type does
+            // not give, so the map's value is checked where the map is read.
+            return Some(Shape::Options);
+        }
         let item = match field.r#type() {
             Type::Bool => Shape::Bool,
             Type::Int32 | Type::Sint32 | Type::Sfixed32 => Shape::Int("i32"),
@@ -126,12 +146,14 @@ impl Shape {
             Shape::Str | Shape::Enum(_) => vec![(Class::Str, 0)],
             Shape::Bytes => vec![(Class::Bytes, 0)],
             Shape::Repeated(_) => vec![(Class::Array, 0)],
+            Shape::Options => vec![(Class::Struct, 0)],
             Shape::Value => [
                 Class::Bool,
                 Class::Int,
                 Class::Float,
                 Class::Str,
                 Class::Array,
+                Class::Struct,
                 Class::Other,
             ]
             .into_iter()

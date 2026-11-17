@@ -48,7 +48,7 @@ FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizo
 constructors
 FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart
 constructors
-FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart
+FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(projection => 'mercator')) AS chart
 constructors
 FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass', axis => axis(grid => FALSE)), y => scaled(flipper_length_mm, axis => FALSE), color => scaled(species, legend => legend(columns => 2))) AS chart
 constructors
@@ -58,7 +58,7 @@ FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y 
 constructors
 FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
 constructors
-FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))
+FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))
 constructors
 FROM one |> SELECT axis(title => 'Mass') AS a
 constructors

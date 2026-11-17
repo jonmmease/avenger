@@ -462,6 +462,7 @@ fn shape_code(shape: &Shape, model: &Model, enums: &mut BTreeSet<String>) -> Str
             function_of(model, name)
         ),
         Shape::Repeated(item) => format!("Shape::Array(&{})", shape_code(item, model, enums)),
+        Shape::Options => "Shape::Options".into(),
     }
 }
 
@@ -529,6 +530,7 @@ fn arg_variant(class: Class) -> &'static str {
         Class::Str => "Str",
         Class::Array => "List",
         Class::Bytes => "Bytes",
+        Class::Struct => "Struct",
         Class::Other => "Value",
     }
 }
@@ -581,6 +583,7 @@ fn conversion(shape: &Shape, arg: &str, model: &Model) -> String {
             "{arg}.items()?.into_iter().map(|item| Ok::<_, ArgError>({})).collect::<Result<Vec<_>, ArgError>>()?",
             conversion(item, "item", model)
         ),
+        Shape::Options => format!("{arg}.options()?"),
     }
 }
 

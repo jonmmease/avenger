@@ -802,8 +802,8 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
 
 /// One projection: the geo plots that share it, which fit one view at one size, and its options.
 pub struct ProjectionGroup<'a> {
-    /// The options of the first plot, whose surface, aspect, and navigation every plot of the
-    /// group has.
+    /// The options of the first plot, whose projection, graticule, sphere, tiles, aspect, and
+    /// navigation every plot of the group has.
     pub spec: &'a proto::Geo,
     /// The geo plots, by their index in the plots of the tree, in tree order.
     pub plots: Vec<usize>,
@@ -820,8 +820,9 @@ fn geo_options<'a>(plot: &PlotRef<'a>) -> &'a proto::Geo {
 }
 
 /// The projections of the geo plots of `tree`. The geo plots that share their projection at one
-/// node, or whose options name one share family, share one projection, and their surfaces, their
-/// aspects, and their navigation must be equal, because they show one view.
+/// node, or whose options name one share family, share one projection, and their projections, their
+/// graticules, their spheres, their tiles, their aspects, and their navigation must be equal,
+/// because they show one view.
 pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>>> {
     let geo_plots: Vec<usize> = (0..tree.plots.len())
         .filter(|plot| tree.plots[*plot].kind == CoordKind::Geo)
@@ -855,7 +856,10 @@ pub(crate) fn projections<'a>(tree: &Tree<'a>) -> Result<Vec<ProjectionGroup<'a>
                 let group = &mut groups[group];
                 let (a, b) = (group.spec, geo);
                 let differs = [
-                    (a.surface != b.surface, "surfaces"),
+                    (a.projection != b.projection, "projections"),
+                    (a.graticule != b.graticule, "graticules"),
+                    (a.sphere != b.sphere, "spheres"),
+                    (a.tiles != b.tiles, "tiles"),
                     (a.aspect != b.aspect, "aspects"),
                     (a.navigation != b.navigation, "navigations"),
                 ]

@@ -29,7 +29,7 @@ use prost::bytes::Bytes;
 
 use crate::{
     layer::MarkMessage,
-    proto::{self, geo, node::Node, plot::Coord, scale, spherical},
+    proto::{self, node::Node, plot::Coord},
     resolve::{Identity, Tree},
     walk::{VisitTables, VisitValues},
     Chart,
@@ -341,14 +341,8 @@ fn default_to_none<T: Default + PartialEq>(message: &mut Option<T>) {
 }
 
 fn geo_options(options: &mut proto::Geo) {
-    let Some(geo::Surface::Spherical(spherical)) = &mut options.surface else {
-        return;
-    };
-    if let Some(spherical::Projection::Custom(custom)) = &mut spherical.projection {
-        by_key(&mut custom.parameters, |parameter| parameter.name.clone());
-    }
     if let Some(sides) =
-        (spherical.graticule.as_mut()).and_then(|graticule| graticule.label_sides.as_mut())
+        (options.graticule.as_mut()).and_then(|graticule| graticule.label_sides.as_mut())
     {
         sides.sides.sort_unstable();
         sides.sides.dedup();
@@ -365,8 +359,7 @@ fn encodings(mark: &mut dyn MarkMessage) {
 }
 
 /// Rewrites an encoding: leaves out the title of an encoding without a scale, which has no axis or
-/// legend, orders the options of a custom scale, and removes the repeated classes of its axis or
-/// legend.
+/// legend, and removes the repeated classes of its axis or legend.
 fn encoding(encoding: &mut proto::Encoding) {
     if let Some(axis) = encoding.axis.as_mut() {
         distinct(&mut axis.classes);
@@ -374,13 +367,8 @@ fn encoding(encoding: &mut proto::Encoding) {
     if let Some(legend) = encoding.legend.as_mut() {
         distinct(&mut legend.classes);
     }
-    let Some(spec) = &mut encoding.scale else {
+    if encoding.scale.is_none() {
         encoding.title = None;
-        return;
-    };
-    let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
-    if let scale::Type::Custom(custom) = scale_type {
-        by_key(&mut custom.options, |option| option.name.clone());
     }
 }
 

@@ -251,12 +251,114 @@ async fn conversions_reach_a_message_through_a_chain() {
             .unwrap(),
     )
     .await;
-    // Rule O over the leading oneof of a geo plot's options.
+    // Rule O over the leading oneof of a projection: a string names its type.
     builds(
-        "geo(surface => spherical(projection => 'mercator'))",
-        Geo::spherical(Spherical::mercator()).to_fragment().unwrap(),
+        "geo(projection => 'mercator')",
+        Geo::new(Projection::builtin(ProjectionType::Mercator))
+            .to_fragment()
+            .unwrap(),
     )
     .await;
+}
+
+#[tokio::test]
+async fn a_projection_takes_arrays_of_numbers_and_shows_its_parts_with_a_boolean() {
+    builds(
+        "projection(type => 'conic_conformal', parallels => [33, 45], rotate => [96, 0])",
+        Projection::builtin(ProjectionType::ConicConformal)
+            .parallels([33.0, 45.0])
+            .rotate([96.0, 0.0])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "projection(type => 'mercator', center => [-96, 38], fit => [-125, 24, -66, 50])",
+        Projection::builtin(ProjectionType::Mercator)
+            .center([-96.0, 38.0])
+            .box_([-125.0, 24.0, -66.0, 50.0])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "projection(type => 'identity', reflect_x => TRUE, reflect_y => TRUE)",
+        Projection::builtin(ProjectionType::Identity)
+            .reflect_x(true)
+            .reflect_y(true)
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    // A Boolean shows a graticule or a sphere with its defaults.
+    builds(
+        "geo(projection => 'equal_earth', graticule => TRUE, sphere => TRUE)",
+        Geo::new(Projection::builtin(ProjectionType::EqualEarth))
+            .graticule(true)
+            .sphere(true)
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "graticule(step => [15, 15], stroke => '#ccc', stroke_width => 0.5)",
+        Graticule::builder()
+            .step([15.0, 15.0])
+            .stroke("#ccc")
+            .stroke_width(0.5)
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_struct_sets_the_named_options_of_a_custom_projection_and_a_custom_scale() {
+    let value = |value| OptionValue { value: Some(value) };
+    use avenger_chart::proto::option_value::Value;
+    builds(
+        "custom_projection(name => 'healpix', options => STRUCT(4 AS lobes, 'polar' AS mode, [1, 2.5] AS ratios, ['a', 'b'] AS names, TRUE AS flipped, NULL AS unset))",
+        CustomProjection::new("healpix")
+            .options([
+                ("lobes", value(Value::Integer(4))),
+                ("mode", value(Value::String("polar".to_string()))),
+                (
+                    "ratios",
+                    value(Value::Floats(FloatList {
+                        values: vec![1.0, 2.5],
+                    })),
+                ),
+                (
+                    "names",
+                    value(Value::Strings(StringList {
+                        values: vec!["a".to_string(), "b".to_string()],
+                    })),
+                ),
+                ("flipped", value(Value::Boolean(true))),
+            ])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "custom_scale(name => 'warp', options => STRUCT(2.5 AS exponent))",
+        CustomScale::new("warp")
+            .options([("exponent", value(Value::Float(2.5)))])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    let message =
+        error("custom_scale(name => 'warp', options => STRUCT(DATE '2024-01-01' AS start))").await;
+    assert!(
+        message.contains("`options` takes for the option `start` a Boolean, a number, a string"),
+        "{message}"
+    );
+    let message = error("custom_scale(name => 'warp', options => STRUCT(1 AS a, 2 AS a))").await;
+    assert!(
+        message.contains("`options` takes each option once, and the struct names `a` twice"),
+        "{message}"
+    );
 }
 
 #[tokio::test]
@@ -275,8 +377,12 @@ async fn errors_of_a_constant_call_fail_at_planning() {
         // A name picks only a member without required content.
         ("scale(type => 'custom')", "not `custom`"),
         (
-            "geo(surface => 'spherical')",
-            "takes one of planar, not `spherical`",
+            "projection(type => 'mercator', fit => 'box')",
+            "`fit` takes one of data, whole_sphere, not `box`",
+        ),
+        (
+            "projection(type => 'mercater')",
+            "`type` takes identity, equal_earth, natural_earth1",
         ),
         (
             "scale(type => 5)",
@@ -350,24 +456,51 @@ async fn coord_sets_the_options_of_the_plot() {
 
 #[tokio::test]
 async fn a_geo_mark_takes_the_options_of_its_geo_plot() {
-    let chart = chart(
-        "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart",
+    let chart = chart_of_geo("coord => geo(projection => 'mercator')").await;
+    let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(&chart).coord else {
+        panic!("a geo plot")
+    };
+    let projection = geo.options.as_ref().unwrap().projection.as_ref().unwrap();
+    assert_eq!(
+        projection.r#type,
+        Some(avenger_chart::proto::projection::Type::Builtin(
+            ProjectionType::Mercator as i32
+        ))
+    );
+}
+
+#[tokio::test]
+async fn the_reader_checks_the_parameters_of_a_projection() {
+    for (coord, expected) in [
+        (
+            "coord => geo(projection => projection(type => 'mercator', coefficient => 2))",
+            "`projection.coefficient` applies only to `hammer`, not to `mercator`",
+        ),
+        (
+            "coord => geo(projection => projection(type => 'orthographic', rotate => [96, 0, 0, 1]))",
+            "a rotation takes two or three angles",
+        ),
+    ] {
+        let ctx = common::session();
+        let query = format!(
+            "FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, {coord}) AS chart"
+        );
+        let result = match avenger_sql::sql(&ctx, &query).await {
+            Ok(frame) => frame.collect().await.map(|_| ()),
+            Err(error) => Err(error),
+        };
+        let message = result.expect_err("the chart is invalid").to_string();
+        assert!(message.contains(expected), "{coord}: {message}");
+    }
+    let chart = chart_of_geo(
+        "coord => geo(projection => projection(type => 'orthographic', rotate => [96, 0]))",
     )
     .await;
     let Some(avenger_chart::proto::plot::Coord::Geo(geo)) = &plot(&chart).coord else {
         panic!("a geo plot")
     };
-    let options = geo.options.as_ref().unwrap();
-    let Some(avenger_chart::proto::geo::Surface::Spherical(spherical)) = &options.surface else {
-        panic!("a spherical surface")
-    };
-    assert!(matches!(
-        spherical.projection,
-        Some(avenger_chart::proto::spherical::Projection::Mercator(_))
-    ));
-    // The rule of the leading oneof gives the same options from the spherical surface alone.
-    let short = chart_of_geo("coord => spherical(projection => 'mercator')").await;
-    assert_eq!(plot(&short), plot(&chart));
+    let projection = geo.options.as_ref().unwrap().projection.as_ref().unwrap();
+    assert_eq!(projection.rotate, [96.0, 0.0]);
 }
 
 /// A geo chart of the penguins with the `coord` argument `coord`.
@@ -480,7 +613,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
             "scale(): `domain` takes",
         ),
         (
-            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(surface => 'planar'))",
+            "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))",
             "`coord` takes `cartesian(...)`, not `geo(...)`",
         ),
     ] {

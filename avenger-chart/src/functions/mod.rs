@@ -88,11 +88,11 @@ pub struct Param {
 
 /// One input of a parameter: an argument of a class, the field and member names of the chain
 /// from the parameter's target to the field that the argument sets, innermost first, and the shape
-/// of that field. `conic_conformal(...) -> conic_conformal -> spherical` of a geo plot's surface is
-/// a fragment of `ConicConformal` in the member `conic_conformal` of the projection of `Spherical`,
-/// which is the member `spherical` of the surface. An array of a repeated message field can take
-/// values that each convert to the message, and its chain is the chain of each element, as
-/// `array of number -> length` of a concat's `tracks` sets the length of each track.
+/// of that field. `array of number -> bounds -> box` of a projection's `fit` is an array of numbers
+/// in the field `bounds` of `FitBox`, which is the member `box` of the fit. An array of a repeated
+/// message field can take values that each convert to the message, and its chain is the chain of
+/// each element, as `array of number -> length` of a concat's `tracks` sets the length of each
+/// track.
 #[derive(Clone, Copy, Debug)]
 pub struct Accept {
     pub class: Class,
@@ -123,6 +123,9 @@ pub enum Shape {
     /// A member of a oneof that a string names, without content of its own.
     Names(&'static [Name]),
     Array(&'static Shape),
+    /// Named options, which a struct sets: a field of the struct for each option, whose value is
+    /// a Boolean, a number, a string, or an array of numbers or of strings.
+    Options,
 }
 
 /// A name that a string argument gives, with its documentation: a value of an enum, or a member
@@ -241,6 +244,7 @@ fn describe_shape(shape: &Shape) -> String {
         Shape::Message { constructor, .. } => format!("{constructor}(...)"),
         Shape::Names(names) => format!("one of {}", error::names(names, ", ")),
         Shape::Array(item) => format!("array of {}", describe_shape(item)),
+        Shape::Options => "struct of named options".into(),
     }
 }
 
@@ -253,6 +257,7 @@ fn class_word(class: Class) -> &'static str {
         Class::Str => "string",
         Class::Array => "array",
         Class::Bytes => "bytes",
+        Class::Struct => "struct",
         Class::Other => "other",
         Class::Fragment => "fragment",
     }
