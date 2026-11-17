@@ -584,3 +584,43 @@ fn a_window_in_a_mark_channel_completes_the_windows_of_the_call() {
     let (completions, _) = complete("FROM penguins |> EXTEND ROW_NUMBER() OVER pa$0 AS n");
     assert!(item(&completions, "panel").is_none());
 }
+
+#[test]
+fn an_element_of_an_array_completes_the_constructors_of_its_elements() {
+    let labels_of = |text: &str| -> Vec<String> {
+        let (completions, _) = complete(text);
+        (completions.items.iter())
+            .map(|item| item.label.clone())
+            .collect()
+    };
+    // The tools of a mark and of a composition, at the start of the array and after an element.
+    for text in [
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => [$0]) AS chart",
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => [na$0]) AS chart",
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), \
+         tools => [navigate(), $0]) AS chart",
+        "FROM penguins |> AGGREGATE layer(bar(x => species, y => COUNT(*)), \
+         title => 'T', tools => [$0]) AS chart",
+    ] {
+        let labels = labels_of(text);
+        assert!(
+            labels.iter().any(|label| label == "navigate")
+                && labels.iter().any(|label| label == "tooltip"),
+            "{text}: {labels:?}"
+        );
+    }
+    // The levels of a nested band axis take `level`.
+    let labels = labels_of(
+        "FROM penguins |> AGGREGATE bar(x => x(species, axis => axis(levels => [$0])), \
+         y => COUNT(*)) AS chart",
+    );
+    assert!(labels.iter().any(|label| label == "level"), "{labels:?}");
+    // A bare element constructor is not the value of the array's argument.
+    let labels = labels_of(
+        "FROM penguins |> AGGREGATE bar(x => species, y => COUNT(*), tools => $0) AS chart",
+    );
+    assert!(
+        !labels.iter().any(|label| label == "navigate"),
+        "{labels:?}"
+    );
+}

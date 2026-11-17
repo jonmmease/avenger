@@ -774,7 +774,12 @@ impl Document {
 
     /// At the start of an argument whose parameter takes a value of a set, its values, and when
     /// the place takes `calls`, the constructors of a parameter that takes them, after the values.
+    /// At the start of an element of an array that an argument holds, the constructors of its
+    /// elements.
     fn argument_values(&self, before: &SyntaxToken, calls: bool, items: &mut Items) {
+        if calls && self.array_elements(before, items) {
+            return;
+        }
         if !matches!(
             before.kind(),
             SyntaxKind::L_PAREN | SyntaxKind::COMMA | SyntaxKind::FAT_ARROW
@@ -800,19 +805,60 @@ impl Document {
         if let Some(param) = param {
             push_values(function, &param, items);
             if calls {
-                self.push_constructors(function, &param, items);
+                self.push_constructors(function, &param, false, items);
             }
         }
     }
 
+    /// At the start of an element of an array that is the value of a named argument, the
+    /// constructors of the array's elements that the argument's parameter takes, as `navigate`
+    /// and `tooltip` in `tools => [‸`. Returns whether `before` starts such an element.
+    fn array_elements(&self, before: &SyntaxToken, items: &mut Items) -> bool {
+        if !matches!(before.kind(), SyntaxKind::L_BRACK | SyntaxKind::COMMA) {
+            return false;
+        }
+        let Some(array) = before
+            .parent()
+            .filter(|node| node.kind() == SyntaxKind::ARRAY_EXPR)
+        else {
+            return false;
+        };
+        let Some(named) = array.parent().and_then(ast::NamedArg::cast) else {
+            return false;
+        };
+        let Some(param) = named.name_ref().and_then(|name| name.text()) else {
+            return false;
+        };
+        let Some(function) = (named.syntax().parent())
+            .and_then(ast::ArgList::cast)
+            .and_then(|list| list.syntax().parent())
+            .and_then(|call| self.called(&call))
+            .map(|called| called.function)
+        else {
+            return false;
+        };
+        self.push_constructors(function, &param, true, items);
+        true
+    }
+
     /// The constructors that `param` of `function` takes under the names that the parameter gives
     /// them, before the values of the parameter: the constructor named after the parameter, then
-    /// those one level down, each with a detail that names what it builds.
-    fn push_constructors(&self, function: &Function, param: &str, items: &mut Items) {
+    /// those one level down, each with a detail that names what it builds. `elements` picks the
+    /// constructors of the elements of an array that the parameter takes, and otherwise those of
+    /// the parameter's own value.
+    fn push_constructors(
+        &self,
+        function: &Function,
+        param: &str,
+        elements: bool,
+        items: &mut Items,
+    ) {
         let Some(named) = function.param_named(param) else {
             return;
         };
-        for (index, builds) in named.takes.constructors.iter().enumerate() {
+        let constructors =
+            (named.takes.constructors.iter()).filter(|builds| builds.array == elements);
+        for (index, builds) in constructors.enumerate() {
             let Some(constructor) = self.library.constructor(&builds.constructor) else {
                 continue;
             };
@@ -864,14 +910,17 @@ impl Document {
         }
     }
 
-    /// The argument list that holds `before` directly, not in a subquery or a window of an
-    /// argument, of a call of a function of the library, and the function.
+    /// The argument list that holds `before` directly, not in a subquery, a window, or an array of
+    /// an argument, of a call of a function of the library, and the function.
     fn argument_list(&self, before: &SyntaxToken) -> Option<(ast::ArgList, &Function)> {
         let list = (before.parent_ancestors())
             .find(|node| {
                 matches!(
                     node.kind(),
-                    SyntaxKind::ARG_LIST | SyntaxKind::QUERY | SyntaxKind::WINDOW_SPEC
+                    SyntaxKind::ARG_LIST
+                        | SyntaxKind::QUERY
+                        | SyntaxKind::WINDOW_SPEC
+                        | SyntaxKind::ARRAY_EXPR
                 )
             })
             .and_then(ast::ArgList::cast)?;
