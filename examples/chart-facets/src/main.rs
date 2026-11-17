@@ -102,10 +102,12 @@ fn tooltip() -> TooltipBuilder {
         TooltipField::builder()
             .column(column)
             .title(title)
-            .labels(Labels::builder().format(format))
+            .format(format)
     };
-    Tooltip::nearest(NearestFind::builder().max_radius(12.0))
-        .title(TooltipField::builder().column("title"))
+    Tooltip::builder()
+        .nearest(true)
+        .max_radius(12.0)
+        .title(TooltipTitle::builder().column("title"))
         .fields([
             field(IMDB, "IMDB", ".1f"),
             field(ROTTEN_TOMATOES, "Rotten Tomatoes", "d"),

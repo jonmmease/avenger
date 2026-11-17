@@ -570,10 +570,10 @@ fn store_marks(tree: &mut Styled, plot_node: NodeId, resolved: &Resolved, plot_r
         })
         .chain(layer_selects);
     for select in selects {
-        let mark = match select.form {
+        let mark = match select.r#type {
             // A select without a form is an interval on the plot's positional channels.
-            Some(select::Form::Interval(_)) | None => "rect",
-            Some(select::Form::Lasso(_)) => "path",
+            Some(select::Type::Interval(_)) | None => "rect",
+            Some(select::Type::Lasso(_)) => "path",
             _ => continue,
         };
         let node = tree.add(plot_node, Element::Mark);

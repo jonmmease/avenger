@@ -509,10 +509,12 @@ fn a_widget_clause_and_a_brush_of_one_plot_keep_apart() {
         ("b", numbers(&[1.0, 1.0, 1.0, 1.0])),
     ])
     .unwrap();
-    let magnitude = Widget::range_slider(
-        "magnitude",
-        RangeSliderWidget::new(WidgetTarget::new("brush", "a"), WidgetDataDomain::builder()),
-    );
+    let magnitude = Widget::range_slider(RangeSliderWidget::new(
+        "brush",
+        "a",
+        WidgetDataDomain::builder(),
+    ))
+    .key("magnitude");
     let symbols =
         CartesianLayer::symbol(table, SymbolMark::builder().x("a").y("b")).widgets([magnitude]);
     let plot = Plot::cartesian([symbols])

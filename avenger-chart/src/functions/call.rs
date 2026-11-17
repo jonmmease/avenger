@@ -231,10 +231,7 @@ impl MarkCall {
                 }
                 _ => return true,
             };
-            tools.push(proto::LayerTool {
-                kind: Some(kind),
-                modes: tool.modes.clone(),
-            });
+            tools.push(proto::LayerTool { kind: Some(kind) });
             false
         });
         let (id, classes) = (layer_options.id, layer_options.classes);

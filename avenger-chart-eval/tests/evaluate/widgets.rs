@@ -8,12 +8,7 @@ use avenger_widgets::Text;
 
 use crate::support::*;
 
-/// A target of the selection `filter` over `column`.
-fn target(column: &str) -> WidgetTargetBuilder {
-    WidgetTarget::new("filter", column)
-}
-
-/// A domain that the renderer fits to the target's column.
+/// A domain that the renderer fits to the widget's column.
 fn data() -> WidgetDomainBuilder {
     WidgetDomain::data(WidgetDataDomain::builder())
 }
@@ -49,12 +44,12 @@ fn plot_rect(evaluated: &EvaluatedChart) -> [f32; 4] {
 #[test]
 fn a_slider_stands_above_its_plot_at_the_value_of_its_clause() {
     let slider = Widget::slider(
-        "weight",
-        SliderWidget::new(target("weight"), data())
+        SliderWidget::new("filter", "weight", data())
             .comparison(SliderComparison::AtLeast)
             .step(100.0)
             .readout(Labels::builder().format(",.0f")),
     )
+    .key("weight")
     .title("Weight at least");
     let clause =
         Clause::new([Condition::range(ValueRange::new("weight").low(2500.0))]).widget("weight");
@@ -89,14 +84,10 @@ fn a_slider_stands_above_its_plot_at_the_value_of_its_clause() {
 
 #[test]
 fn a_radio_group_and_a_check_box_list_list_their_items() {
-    let radio = Widget::radio(
-        "origin",
-        RadioWidget::new(target("origin"), data()).clear_label("All"),
-    );
-    let checkboxes = Widget::checkboxes(
-        "cylinders",
-        CheckboxesWidget::new(target("cylinders"), data()),
-    );
+    let radio = Widget::radio(RadioWidget::new("filter", "origin", data()).clear_label("All"))
+        .key("origin");
+    let checkboxes =
+        Widget::checkboxes(CheckboxesWidget::new("filter", "cylinders", data())).key("cylinders");
     let clause =
         Clause::new([Condition::set([SetColumn::new("origin", ["Japan"])])]).widget("origin");
     let chart = cars_with(vec![radio, checkboxes], vec![clause], Some(Side::Right));
@@ -132,17 +123,17 @@ fn a_radio_group_and_a_check_box_list_list_their_items() {
 #[test]
 fn widgets_share_a_row_until_their_side_is_full() {
     let slider = Widget::slider(
-        "weight",
-        SliderWidget::new(target("weight"), data())
+        SliderWidget::new("filter", "weight", data())
             .comparison(SliderComparison::AtLeast)
             .step(100.0),
     )
+    .key("weight")
     .title("Weight at least");
     let checkbox = |key: &str, checkbox: CheckboxWidgetBuilder, title: &str| {
-        Widget::checkbox(key, checkbox).title(title)
+        Widget::checkbox(checkbox).key(key).title(title)
     };
-    let eight = CheckboxWidget::new(target("cylinders"), 8_i64);
-    let japan = CheckboxWidget::new(target("origin"), "Japan");
+    let eight = CheckboxWidget::new("filter", "cylinders", 8_i64);
+    let japan = CheckboxWidget::new("filter", "origin", "Japan");
     let chart = cars_with(
         vec![
             slider,
@@ -180,7 +171,7 @@ fn widgets_share_a_row_until_their_side_is_full() {
 
 #[test]
 fn a_widget_without_a_title_takes_its_column_as_plain_text() {
-    let checkbox = Widget::checkbox("eight", CheckboxWidget::new(target("cylinders"), 8_i64));
+    let checkbox = Widget::checkbox(CheckboxWidget::new("filter", "cylinders", 8_i64)).key("eight");
     let chart = cars_with(vec![checkbox], Vec::new(), Some(Side::Bottom));
     let evaluated = evaluate(&chart, [360.0, 320.0]);
     let [widget] = &evaluated.widgets[..] else {
@@ -192,11 +183,12 @@ fn a_widget_without_a_title_takes_its_column_as_plain_text() {
 #[test]
 fn a_range_slider_and_a_check_box_stand_below_their_plot() {
     let range = Widget::range_slider(
-        "mpg",
-        RangeSliderWidget::new(target("mpg"), WidgetDomain::explicit(vec![10.0, 50.0])).step(1.0),
+        RangeSliderWidget::new("filter", "mpg", WidgetDomain::explicit(vec![10.0, 50.0])).step(1.0),
     )
+    .key("mpg")
     .title("Miles per gallon");
-    let checkbox = Widget::checkbox("eight", CheckboxWidget::new(target("cylinders"), 8_i64))
+    let checkbox = Widget::checkbox(CheckboxWidget::new("filter", "cylinders", 8_i64))
+        .key("eight")
         .title("Eight cylinders");
     let clauses = vec![
         Clause::new([Condition::range(
@@ -226,18 +218,18 @@ fn a_range_slider_and_a_check_box_stand_below_their_plot() {
 #[test]
 fn a_widget_writes_the_clause_that_gives_its_value() {
     let slider = Widget::slider(
-        "weight",
-        SliderWidget::new(target("weight"), data()).comparison(SliderComparison::AtMost),
-    );
-    let radio = Widget::radio("origin", RadioWidget::new(target("origin"), data()));
-    let checkboxes = Widget::checkboxes(
-        "cylinders",
-        CheckboxesWidget::new(target("cylinders"), data()),
-    );
-    let range = Widget::range_slider(
+        SliderWidget::new("filter", "weight", data()).comparison(SliderComparison::AtMost),
+    )
+    .key("weight");
+    let radio = Widget::radio(RadioWidget::new("filter", "origin", data())).key("origin");
+    let checkboxes =
+        Widget::checkboxes(CheckboxesWidget::new("filter", "cylinders", data())).key("cylinders");
+    let range = Widget::range_slider(RangeSliderWidget::new(
+        "filter",
         "mpg",
-        RangeSliderWidget::new(target("mpg"), WidgetDomain::explicit(vec![10.0, 50.0])),
-    );
+        WidgetDomain::explicit(vec![10.0, 50.0]),
+    ))
+    .key("mpg");
     let chart = cars_with(vec![slider, radio, checkboxes, range], Vec::new(), None);
     let evaluated = evaluate(&chart, [480.0, 480.0]);
     let mut evaluator = evaluator(&chart);
@@ -294,10 +286,10 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
             PartitionOrder::Ascending,
             |rows| {
                 let slider = Widget::slider(
-                    "weight",
-                    SliderWidget::new(target("weight"), data())
+                    SliderWidget::new("filter", "weight", data())
                         .comparison(SliderComparison::AtLeast),
-                );
+                )
+                .key("weight");
                 let symbols =
                     CartesianLayer::symbol(rows, SymbolMark::builder().x("weight").y("mpg"))
                         .widgets([slider]);
@@ -352,10 +344,8 @@ fn a_wrap_draws_a_shared_widget_once_or_beside_each_plot() {
 
 #[test]
 fn a_stylesheet_colors_and_places_widgets() {
-    let slider = Widget::slider(
-        "weight",
-        SliderWidget::new(target("weight"), data()).step(500.0),
-    );
+    let slider =
+        Widget::slider(SliderWidget::new("filter", "weight", data()).step(500.0)).key("weight");
     let clause = Clause::new([Condition::range(
         ValueRange::new("weight")
             .low(3000.0)
@@ -394,15 +384,21 @@ fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
         cars_dataset(),
         SymbolMark::builder().x("weight").y("mpg").color("origin"),
     )
-    .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
+    .tools([LayerToolBuilder::from(
+        Tooltip::builder().modes(["tooltips"]),
+    )])
     .id("points")
     .widgets([
-        Widget::mode("drag", ModeWidget::group("drag")).orient(Side::Right),
-        Widget::mode("tooltips", ModeWidget::toggle("tooltips")).orient(Side::Right),
+        Widget::mode(ModeWidget::group("drag"))
+            .key("drag")
+            .orient(Side::Right),
+        Widget::mode(ModeWidget::toggle("tooltips"))
+            .key("tooltips")
+            .orient(Side::Right),
     ]);
     let tools = [
-        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
-        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder()).modes(["box"])),
     ];
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
         .number_format_syntax("d3")

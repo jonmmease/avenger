@@ -7,7 +7,7 @@ use avenger_app_tools::{
     tooltips::{FieldValues, InstanceTarget, TooltipAnchor, TooltipField, Tooltips},
 };
 use avenger_chart::{
-    proto::{self, tool, tooltip, Channel, NearestMetric},
+    proto::{self, tool, Channel, NearestMetric},
     resolve::Identity,
 };
 use avenger_chart_eval::ScaleNavigation;
@@ -87,7 +87,7 @@ pub(crate) fn navigation_of<'a>(
         .tools
         .iter()
         .find_map(|declared| match &declared.kind {
-            Some(tool::Kind::Navigate(navigate)) if state.evaluator.is_active(&declared.modes) => {
+            Some(tool::Kind::Navigate(navigate)) if state.evaluator.is_active(&navigate.modes) => {
                 Some(navigate)
             }
             _ => None,
@@ -361,7 +361,7 @@ pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
                 (declared.tools.iter())
                     .filter_map(move |tool| match &tool.kind {
                         Some(tool::Kind::Tooltip(tooltip))
-                            if state.evaluator.is_active(&tool.modes) =>
+                            if state.evaluator.is_active(&tooltip.modes) =>
                         {
                             let target = target(tooltip).with_marks(marks.clone());
                             Some(target.with_titles(titles.clone()))
@@ -377,22 +377,23 @@ pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
 /// The target of `tooltip`, among the instances of every mark. The tooltip of an instance anchor
 /// stands beside the instance, as one of the data anchor does.
 fn target(tooltip: &proto::Tooltip) -> InstanceTarget {
-    let mut target = match &tooltip.find {
-        Some(tooltip::Find::Nearest(nearest)) => {
-            let metric = match NearestMetric::try_from(nearest.metric) {
+    let mut target = match tooltip.nearest {
+        true => {
+            let metric = match NearestMetric::try_from(tooltip.metric) {
                 Ok(NearestMetric::AlongX) => Metric::AlongX,
                 Ok(NearestMetric::AlongY) => Metric::AlongY,
                 _ => Metric::Euclidean,
             };
-            InstanceTarget::nearest(nearest.max_radius).with_metric(metric)
+            InstanceTarget::nearest(tooltip.max_radius.unwrap_or(0.0)).with_metric(metric)
         }
-        Some(tooltip::Find::Exact(_)) | None => InstanceTarget::exact(),
+        false => InstanceTarget::exact(),
     };
     if tooltip.anchor == proto::TooltipAnchor::Pointer as i32 {
         target = target.with_anchor(TooltipAnchor::Pointer);
     }
     if let Some(title) = &tooltip.title {
-        target = target.with_title(field(title));
+        let column = TooltipField::new(title.column.as_str());
+        target = target.with_title(labeled(column, &title.format, &title.markup));
     }
     if !tooltip.fields.is_empty() {
         target = target.with_fields(tooltip.fields.iter().map(field));
@@ -410,13 +411,17 @@ fn field(declared: &proto::TooltipField) -> TooltipField {
     if let Some(title) = &declared.title {
         field = field.with_title(title.as_str());
     }
-    if let Some(labels) = &declared.labels {
-        if !labels.format.is_empty() {
-            field = field.with_label_format(labels.format.as_str());
-        }
-        if !labels.markup.is_empty() {
-            field = field.with_label(labels.markup.as_str());
-        }
+    labeled(field, &declared.format, &declared.markup)
+}
+
+/// `field`, whose value reads with the pattern `format` and the markup `markup`, each when it is
+/// not empty.
+fn labeled(mut field: TooltipField, format: &str, markup: &str) -> TooltipField {
+    if !format.is_empty() {
+        field = field.with_label_format(format);
+    }
+    if !markup.is_empty() {
+        field = field.with_label(markup);
     }
     field
 }

@@ -65,13 +65,13 @@ resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_
   pattern: one of shared, independent
   projection: one of shared, independent
   independent_widgets: array of string
-tool(kind, modes)
-  kind (required): string -> a member's name; navigate(...) -> navigate; nearest_find(...) -> nearest -> tooltip; select(...) -> select; tooltip(...) -> tooltip
-  modes: array of string
-select(selection, form, scope)
+tool(kind)
+  kind (required): string -> a member's name; navigate(...) -> navigate; select(...) -> select; tooltip(...) -> tooltip
+select(selection, type, scope, modes)
   selection (required): string
-  form: string -> a member's name; interval_select(...) -> interval; lasso_select(...) -> lasso; point_select(...) -> points
+  type: string -> a member's name; interval_select(...) -> interval; lasso_select(...) -> lasso; point_select(...) -> point
   scope: array of string
+  modes: array of string
 lasso_select(keys)
   keys: array of string
 point_select(keys, toggle)
@@ -83,21 +83,27 @@ point_key(column, source)
 interval_select(channels, cell)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   cell: number
-tooltip(find, title, fields, anchor, hide_swatch)
-  find: string -> a member's name; nearest_find(...) -> nearest
-  title: tooltip_field(...)
+tooltip(nearest, max_radius, metric, title, fields, anchor, hide_swatch, modes)
+  nearest: Boolean
+  max_radius: number
+  metric: one of euclidean, along_x, along_y
+  title: string -> column; tooltip_title(...)
   fields: array of tooltip_field(...)
   anchor: one of data, pointer, instance
   hide_swatch: Boolean
-tooltip_field(column, title, labels)
+  modes: array of string
+tooltip_field(column, title, format, markup)
   column: string
   title: string
-  labels: Boolean -> show; string -> format; labels(...)
-nearest_find(max_radius, metric)
-  max_radius: number
-  metric: one of euclidean, along_x, along_y
-navigate(channels)
+  format: string
+  markup: string
+tooltip_title(column, format, markup)
+  column: string
+  format: string
+  markup: string
+navigate(channels, modes)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
+  modes: array of string
 attribution(credits, orient, align, separator, separator_space, font_family, font_size, font_weight, color, line_gap, background, border_color, border_radius, padding)
   credits: array of string
   orient: one of bottom, top, left, right

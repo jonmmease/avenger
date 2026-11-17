@@ -351,7 +351,7 @@ fn picked_bars(set: impl Into<ValueSetBuilder>) -> Vec<bool> {
         BarMark::builder().x("lumped").y("cars").color(color),
     )
     .id("bars")
-    .tools([Select::points("pick", pick)]);
+    .tools([Select::point("pick", pick)]);
     let selection = Selection::new("pick", SelectionResolution::Union)
         .initial([Clause::new([Condition::set(set)]).owner("bars")]);
     let chart = Chart::builder(Plot::cartesian([bars]).id("plot"))

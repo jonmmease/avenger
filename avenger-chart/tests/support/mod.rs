@@ -212,10 +212,9 @@ pub fn selecting() -> Node {
     plot_mut(&mut node).tools = vec![proto::Tool {
         kind: Some(tool::Kind::Select(proto::Select {
             selection: "brush".to_string(),
-            form: Some(select::Form::Interval(proto::IntervalSelect::default())),
+            r#type: Some(select::Type::Interval(proto::IntervalSelect::default())),
             ..Default::default()
         })),
-        ..Default::default()
     }];
     node
 }

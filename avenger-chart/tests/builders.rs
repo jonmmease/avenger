@@ -106,7 +106,7 @@ fn constructors_take_the_required_content() {
     );
     assert!(conditional.predicate.is_some());
     // The members of a oneof that is not required take the required fields first.
-    let select = Select::points("brush", PointSelect::builder().keys(["id"]))
+    let select = Select::point("brush", PointSelect::builder().keys(["id"]))
         .build()
         .unwrap();
     assert_eq!(select.selection, "brush");

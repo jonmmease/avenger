@@ -108,14 +108,12 @@ fn color() -> EncodingBuilder {
 /// click on the Other bar selects every genre outside the kept ones.
 fn bars(genres: &RecordBatch) -> PlotBuilder {
     // The label and the tooltip title of the Other bar name the number of genres it holds.
-    let genre = || {
-        Labels::builder()
-            .markup("#if other [#value (#count)] else if null [No genre] else [#value]")
-    };
-    let x = Encoding::scaled_field("lumped").axis(Axis::builder().title("Genre").labels(genre()));
+    let genre = "#if other [#value (#count)] else if null [No genre] else [#value]";
+    let labels = Labels::builder().markup(genre);
+    let x = Encoding::scaled_field("lumped").axis(Axis::builder().title("Genre").labels(labels));
     let y = Encoding::scaled_field("movies").axis(Axis::builder().title("Movies"));
-    let tooltip = Tooltip::exact()
-        .title(TooltipField::builder().column("lumped").labels(genre()))
+    let tooltip = Tooltip::builder()
+        .title(TooltipTitle::builder().column("lumped").markup(genre))
         .fields([TooltipField::builder().column("movies").title("Movies")]);
     let bars = CartesianLayer::bar(genres.clone(), BarMark::builder().x(x).y(y).color(color()))
         .id("bars")
@@ -126,7 +124,7 @@ fn bars(genres: &RecordBatch) -> PlotBuilder {
     Plot::cartesian([bars])
         .id("genres")
         .title("Click a genre, Shift+click for more")
-        .tools([Select::points(GENRES, points)])
+        .tools([Select::point(GENRES, points)])
 }
 
 /// The ratings of the movies, colored by their lumped genres.
@@ -134,15 +132,17 @@ fn ratings(movies: &RecordBatch) -> PlotBuilder {
     let x = Encoding::scaled_field("rotten_tomatoes_rating")
         .axis(Axis::builder().title("Rotten Tomatoes rating"));
     let y = Encoding::scaled_field("imdb_rating").axis(Axis::builder().title("IMDB rating"));
-    let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0))
-        .title(TooltipField::builder().column("title"))
+    let tooltip = Tooltip::builder()
+        .nearest(true)
+        .max_radius(10.0)
+        .title(TooltipTitle::builder().column("title"))
         .fields([
             TooltipField::builder().column("genre").title("Genre"),
             TooltipField::builder().column("lumped").title("Group"),
             TooltipField::builder()
                 .column("year")
                 .title("Year")
-                .labels(Labels::builder().format("d")),
+                .format("d"),
         ]);
     let symbols = CartesianLayer::symbol(
         movies.clone(),

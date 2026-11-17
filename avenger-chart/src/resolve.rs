@@ -1127,8 +1127,9 @@ pub(crate) fn widgets(chart: &Chart, tree: &Tree) -> Result<Vec<WidgetGroup>> {
                             path,
                             format!(
                                 "the copies of the widget `{}` at `{first_path}` and here share \
-                                 one widget, and their columns hold different types",
-                                declared.key
+                                 one widget, and their columns hold different types{}",
+                                declared.key,
+                                declared.default_key_hint()
                             ),
                         ));
                     }
@@ -1137,8 +1138,9 @@ pub(crate) fn widgets(chart: &Chart, tree: &Tree) -> Result<Vec<WidgetGroup>> {
                             path,
                             format!(
                                 "the copies of the widget `{}` at `{first_path}` and here share \
-                                 one widget and {reason}",
-                                declared.key
+                                 one widget and {reason}{}",
+                                declared.key,
+                                declared.default_key_hint()
                             ),
                         ));
                     }
@@ -1205,17 +1207,57 @@ pub(crate) fn widget_owner(tree: &Tree, layer: &Layer, key: &str) -> Option<Iden
 
 impl proto::Widget {
     /// The selection and the column that the widget's kind writes, or `None` for a mode widget,
-    /// which sets the chart's mode.
-    pub fn target(&self) -> Option<&proto::WidgetTarget> {
+    /// which sets the chart's modes.
+    pub fn target(&self) -> Option<(&str, &str)> {
         use proto::widget::Kind;
         match self.kind.as_ref()? {
-            Kind::Slider(slider) => slider.target.as_ref(),
-            Kind::RangeSlider(slider) => slider.target.as_ref(),
-            Kind::Radio(radio) => radio.target.as_ref(),
-            Kind::Checkboxes(checkboxes) => checkboxes.target.as_ref(),
-            Kind::Checkbox(checkbox) => checkbox.target.as_ref(),
+            Kind::Slider(slider) => Some((&slider.selection, &slider.column)),
+            Kind::RangeSlider(slider) => Some((&slider.selection, &slider.column)),
+            Kind::Radio(radio) => Some((&radio.selection, &radio.column)),
+            Kind::Checkboxes(checkboxes) => Some((&checkboxes.selection, &checkboxes.column)),
+            Kind::Checkbox(checkbox) => Some((&checkbox.selection, &checkbox.column)),
             Kind::Mode(_) => None,
         }
+    }
+
+    /// The name of the selection that the widget writes, or `None` for a mode widget.
+    pub fn selection(&self) -> Option<&str> {
+        self.target().map(|(selection, _)| selection)
+    }
+
+    /// The key that a widget without a `key` takes: the name of its selection, or for a mode
+    /// widget, the name of its group or its toggle. Empty for a widget without a kind.
+    pub fn default_key(&self) -> &str {
+        use proto::{mode_widget::Modes, widget::Kind};
+        match self.kind.as_ref() {
+            Some(Kind::Mode(mode)) => match mode.modes.as_ref() {
+                Some(Modes::Group(name) | Modes::Toggle(name)) => name,
+                None => "",
+            },
+            _ => self.selection().unwrap_or(""),
+        }
+    }
+
+    /// The end of an error about the key of this widget, when its key is its default key: what
+    /// the default stands for, and the advice to give each widget an explicit `key`. Empty for a
+    /// widget whose key is not its default.
+    pub(crate) fn default_key_hint(&self) -> String {
+        use proto::{mode_widget::Modes, widget::Kind};
+        if self.key.is_empty() || self.key != self.default_key() {
+            return String::new();
+        }
+        let of = match self.kind.as_ref() {
+            Some(Kind::Mode(mode)) => match mode.modes.as_ref() {
+                Some(Modes::Group(group)) => format!("a mode widget of the group `{group}`"),
+                Some(Modes::Toggle(toggle)) => format!("a mode widget of the toggle `{toggle}`"),
+                None => return String::new(),
+            },
+            _ => format!("a widget of the selection `{}`", self.default_key()),
+        };
+        format!(
+            ", and `{}` is the default key of {of}, so give each widget an explicit `key`",
+            self.key
+        )
     }
 
     /// The domain of the widget's kind, or `None` for a check box or a mode widget, which have
@@ -1232,8 +1274,21 @@ impl proto::Widget {
         domain?.domain.as_ref()
     }
 
-    /// The column of the widget's target, or an empty name for a widget without one.
+    /// The column that the widget's kind writes, or an empty name for a mode widget.
     pub fn column(&self) -> &str {
-        self.target().map_or("", |target| target.column.as_str())
+        self.target().map_or("", |(_, column)| column)
+    }
+
+    /// The column that the widget's kind writes, to change, or `None` for a mode widget.
+    pub(crate) fn column_mut(&mut self) -> Option<&mut String> {
+        use proto::widget::Kind;
+        match self.kind.as_mut()? {
+            Kind::Slider(slider) => Some(&mut slider.column),
+            Kind::RangeSlider(slider) => Some(&mut slider.column),
+            Kind::Radio(radio) => Some(&mut radio.column),
+            Kind::Checkboxes(checkboxes) => Some(&mut checkboxes.column),
+            Kind::Checkbox(checkbox) => Some(&mut checkbox.column),
+            Kind::Mode(_) => None,
+        }
     }
 }

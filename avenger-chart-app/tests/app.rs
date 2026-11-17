@@ -201,7 +201,7 @@ async fn a_tooltip_shows_over_the_layers_that_declare_it() {
             .tools(tools)
     };
     let (usa, japan) = (cars_of(&["USA"]), cars_of(&["Japan"]));
-    let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0));
+    let tooltip = Tooltip::builder().nearest(true).max_radius(10.0);
     let chart = Chart::builder(
         Plot::cartesian([
             layer(usa.clone(), "heavy", vec![tooltip.into()]),
@@ -246,7 +246,7 @@ async fn a_tooltip_without_fields_titles_its_columns_as_their_encodings_do() {
             .x(Encoding::scaled_field("weight").title("Weight (lb)"))
             .y("mpg"),
     )
-    .tools([Tooltip::nearest(NearestFind::builder().max_radius(10.0))]);
+    .tools([Tooltip::builder().nearest(true).max_radius(10.0)]);
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let (mut app, _, _) = app(chart).await;
     let car = first_car(&app, 0, &usa);
@@ -292,12 +292,14 @@ async fn a_tooltip_of_a_lump_shows_its_category_or_the_other_label() {
         ("x", Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0]))),
     ])
     .unwrap();
-    let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0))
-        .title(TooltipField::builder().column("port"))
+    let tooltip = Tooltip::builder()
+        .nearest(true)
+        .max_radius(10.0)
+        .title(TooltipTitle::builder().column("port"))
         .fields([TooltipField::builder()
             .column("port")
             .title("lump")
-            .labels(Labels::builder().markup("#value (#count, #weight)"))]);
+            .markup("#value (#count, #weight)")]);
     let symbols = CartesianLayer::symbol(
         ports.clone(),
         SymbolMark::builder().x("x").y("x").color("port"),
@@ -373,7 +375,7 @@ async fn a_click_of_the_other_bar_selects_the_values_outside_the_kept_categories
     let chart = Chart::builder(
         Plot::cartesian([bars])
             .id("plot")
-            .tools([Select::points("brush", points)]),
+            .tools([Select::point("brush", points)]),
     )
     .selections([Selection::new("brush", SelectionResolution::Union)])
     .build()
@@ -495,7 +497,7 @@ async fn bars_app(
     let chart = Chart::builder(
         Plot::cartesian([bars])
             .id("plot")
-            .tools([Select::points("brush", points)]),
+            .tools([Select::point("brush", points)]),
     )
     .selections([Selection::new("brush", SelectionResolution::Union)])
     .build()
@@ -683,8 +685,8 @@ async fn an_app_that_reports_settled_changes_reports_a_drag_once() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_mode_decides_whether_a_drag_pans_or_draws_a_box() {
     let tools = vec![
-        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
-        ToolBuilder::from(Select::interval("brush", IntervalSelect::builder())).modes(["box"]),
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval("brush", IntervalSelect::builder()).modes(["box"])),
     ];
     let (mut app, updates, _) = app(scatter(cars(), tools)).await;
     let fitted = domains(&app, 0);
@@ -988,7 +990,7 @@ async fn a_lasso_writes_a_polygon_of_the_recorded_columns() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_click_of_a_point_selection_writes_the_keys_of_the_instance() {
-    let points = Select::points("brush", PointSelect::builder().keys(["origin"]));
+    let points = Select::point("brush", PointSelect::builder().keys(["origin"]));
     let (mut app, _, _) = app(scatter_of(vec![points.into()], Vec::new())).await;
     let cars = cars();
     let at = first_car(&app, 0, &cars);
@@ -1033,7 +1035,7 @@ async fn a_click_of_an_instance_whose_key_is_null_selects_the_null_rows() {
     .unwrap();
     let symbols = CartesianLayer::symbol(named.clone(), SymbolMark::builder().x("weight").y("mpg"))
         .id("points");
-    let points = Select::points("brush", PointSelect::builder().keys(["name"]));
+    let points = Select::point("brush", PointSelect::builder().keys(["name"]));
     let chart = Chart::builder(Plot::cartesian([symbols]).id("plot").tools([points]))
         .selections([Selection::new("brush", SelectionResolution::Union)])
         .build()

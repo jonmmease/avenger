@@ -372,8 +372,8 @@ pub(crate) fn merge_widget(
         };
     let mut rest = other.clone();
     let column = merged.column().to_string();
-    if let Some(target) = target_mut(&mut rest) {
-        target.column = column;
+    if let Some(own) = rest.column_mut() {
+        *own = column;
     }
     let other_domain = domain(&mut rest);
     let mut merged_domain = domain(merged);
@@ -381,19 +381,6 @@ pub(crate) fn merge_widget(
     let domains = merge_widget_domain(&mut merged_domain, other_domain.as_ref(), same);
     restore(merged, merged_domain);
     fields.and(domains)
-}
-
-/// The target of a widget's kind, to change.
-fn target_mut(widget: &mut proto::Widget) -> Option<&mut proto::WidgetTarget> {
-    use proto::widget::Kind;
-    match widget.kind.as_mut()? {
-        Kind::Slider(slider) => slider.target.as_mut(),
-        Kind::RangeSlider(slider) => slider.target.as_mut(),
-        Kind::Radio(radio) => radio.target.as_mut(),
-        Kind::Checkboxes(checkboxes) => checkboxes.target.as_mut(),
-        Kind::Checkbox(checkbox) => checkbox.target.as_mut(),
-        Kind::Mode(_) => None,
-    }
 }
 
 /// Merges the domain of a widget's copy into `merged`, as `merge_domain` merges a scale's.

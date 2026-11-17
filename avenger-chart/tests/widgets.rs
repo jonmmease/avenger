@@ -28,7 +28,8 @@ fn range_slider() -> proto::Widget {
     proto::Widget {
         key: "magnitude".to_string(),
         kind: Some(proto::widget::Kind::RangeSlider(proto::RangeSliderWidget {
-            target: Some(target("filters", "a")),
+            selection: "filters".to_string(),
+            column: "a".to_string(),
             domain: Some(proto::WidgetDomain {
                 domain: Some(proto::widget_domain::Domain::Data(
                     proto::WidgetDataDomain::default(),
@@ -40,25 +41,17 @@ fn range_slider() -> proto::Widget {
     }
 }
 
-fn target(selection: &str, column: &str) -> proto::WidgetTarget {
-    proto::WidgetTarget {
-        selection: selection.to_string(),
-        column: column.to_string(),
-    }
-}
-
-/// The target of a widget's kind, to change.
-fn target_of(widget: &mut proto::Widget) -> &mut proto::WidgetTarget {
+/// The selection and the column of a widget's kind, to change.
+fn target_of(widget: &mut proto::Widget) -> (&mut String, &mut String) {
     use proto::widget::Kind;
-    let target = match widget.kind.as_mut().expect("a widget has a kind") {
-        Kind::Slider(slider) => &mut slider.target,
-        Kind::RangeSlider(slider) => &mut slider.target,
-        Kind::Radio(radio) => &mut radio.target,
-        Kind::Checkboxes(checkboxes) => &mut checkboxes.target,
-        Kind::Checkbox(checkbox) => &mut checkbox.target,
-        Kind::Mode(_) => panic!("a mode widget has no target"),
-    };
-    target.as_mut().expect("the kind has a target")
+    match widget.kind.as_mut().expect("a widget has a kind") {
+        Kind::Slider(slider) => (&mut slider.selection, &mut slider.column),
+        Kind::RangeSlider(slider) => (&mut slider.selection, &mut slider.column),
+        Kind::Radio(radio) => (&mut radio.selection, &mut radio.column),
+        Kind::Checkboxes(checkboxes) => (&mut checkboxes.selection, &mut checkboxes.column),
+        Kind::Checkbox(checkbox) => (&mut checkbox.selection, &mut checkbox.column),
+        Kind::Mode(_) => panic!("a mode widget has no selection"),
+    }
 }
 
 /// Symbols that declare `widget`.
@@ -267,7 +260,7 @@ fn the_copies_of_one_widget_agree() {
     };
     let second = "root.plot.cartesian.layers[1].widgets[0]";
     let mut other_selection = range_slider();
-    target_of(&mut other_selection).selection = "brush".to_string();
+    *target_of(&mut other_selection).0 = "brush".to_string();
     let mut both = pair(range_slider(), other_selection, vec![]);
     both.0.selections.push(proto::Selection {
         name: "brush".to_string(),
@@ -278,7 +271,8 @@ fn the_copies_of_one_widget_agree() {
 
     let mut slider = range_slider();
     slider.kind = Some(proto::widget::Kind::Slider(proto::SliderWidget {
-        target: Some(target("filters", "a")),
+        selection: "filters".to_string(),
+        column: "a".to_string(),
         domain: Some(proto::WidgetDomain {
             domain: Some(proto::widget_domain::Domain::Data(
                 proto::WidgetDataDomain::default(),
@@ -288,9 +282,26 @@ fn the_copies_of_one_widget_agree() {
         ..Default::default()
     }));
     invalid(
-        pair(range_slider(), slider, vec![]),
+        pair(range_slider(), slider.clone(), vec![]),
         second,
         "are of two kinds",
+    );
+    // Without keys, both take the name of their selection, so they are copies of one widget.
+    let mut keyless_range = range_slider();
+    keyless_range.key.clear();
+    let mut keyless_slider = slider;
+    keyless_slider.key.clear();
+    let error = read(pair(keyless_range, keyless_slider, vec![]))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains(second)
+            && error.contains("the copies of the widget `filters`")
+            && error.contains("are of two kinds")
+            && error
+                .contains("`filters` is the default key of a widget of the selection `filters`")
+            && error.contains("give each widget an explicit `key`"),
+        "{error}"
     );
 
     let explicit = |index: u32| {
@@ -372,7 +383,7 @@ fn the_copies_of_one_widget_agree() {
 #[test]
 fn copies_match_by_their_own_columns() {
     let mut renamed = range_slider();
-    target_of(&mut renamed).column = "b".to_string();
+    *target_of(&mut renamed).1 = "b".to_string();
     let chart = read(with_filters(
         plot(vec![declaring(range_slider()), declaring(renamed)]),
         vec![],
@@ -387,7 +398,8 @@ fn copies_match_by_their_own_columns() {
     // A partition column of strings against a column of numbers.
     let mut by_species = range_slider();
     by_species.kind = Some(proto::widget::Kind::Checkboxes(proto::CheckboxesWidget {
-        target: Some(target("filters", "species")),
+        selection: "filters".to_string(),
+        column: "species".to_string(),
         domain: Some(proto::WidgetDomain {
             domain: Some(proto::widget_domain::Domain::Data(
                 proto::WidgetDataDomain::default(),
@@ -396,7 +408,7 @@ fn copies_match_by_their_own_columns() {
         ..Default::default()
     }));
     let mut numbers = by_species.clone();
-    target_of(&mut numbers).column = "a".to_string();
+    *target_of(&mut numbers).1 = "a".to_string();
     invalid(
         with_filters(
             plot(vec![
@@ -414,7 +426,7 @@ fn copies_match_by_their_own_columns() {
 
     // Independent copies may disagree.
     let mut other_selection = range_slider();
-    target_of(&mut other_selection).selection = "brush".to_string();
+    *target_of(&mut other_selection).0 = "brush".to_string();
     let mut row = concat(
         proto::Direction::Row,
         vec![

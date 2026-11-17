@@ -12,8 +12,8 @@ fn modal(widgets: Vec<WidgetBuilder>) -> ChartBuilder {
     let symbols =
         CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b")).widgets(widgets);
     let tools = [
-        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
-        ToolBuilder::from(Select::interval("brush", IntervalSelect::builder())).modes(["box"]),
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval("brush", IntervalSelect::builder()).modes(["box"])),
     ];
     Chart::builder(Plot::cartesian([symbols]).id("plot").tools(tools))
         .selections([Selection::new("brush", SelectionResolution::Global)])
@@ -56,7 +56,7 @@ fn tools_name_the_modes_of_their_chart() {
     // A tool names a mode of the chart, once.
     invalid(
         modal(Vec::new()).modes([Mode::new("pan")]).build(),
-        "root.plot.tools[1].modes[0]",
+        "root.plot.tools[1].select.modes[0]",
         "the chart has no mode `box`",
     );
     let twice = Chart::builder(
@@ -65,13 +65,13 @@ fn tools_name_the_modes_of_their_chart() {
             SymbolMark::builder().x("a").y("b"),
         )])
         .id("plot")
-        .tools([ToolBuilder::from(Navigate::builder()).modes(["pan", "pan"])]),
+        .tools([ToolBuilder::from(Navigate::builder().modes(["pan", "pan"]))]),
     )
     .modes([Mode::new("pan")])
     .build();
     invalid(
         twice,
-        "root.plot.tools[0].modes[1]",
+        "root.plot.tools[0].navigate.modes[1]",
         "names the mode `pan` once",
     );
 
@@ -125,8 +125,8 @@ fn modes_with_one_name_join_at_the_first() {
 #[test]
 fn a_mode_widget_turns_a_group_or_a_toggle_of_its_chart() {
     let widgets = vec![
-        Widget::mode("drag", ModeWidget::group("drag")),
-        Widget::mode("tooltips", ModeWidget::toggle("tooltips")),
+        Widget::mode(ModeWidget::group("drag")).key("drag"),
+        Widget::mode(ModeWidget::toggle("tooltips")).key("tooltips"),
     ];
     let chart = modal(widgets).modes(drag_modes()).build().unwrap();
     for group in &chart.resolve().widgets {
@@ -134,8 +134,20 @@ fn a_mode_widget_turns_a_group_or_a_toggle_of_its_chart() {
         assert!(group.widget.domain().is_none());
     }
 
+    // Without a key, a mode widget takes the name of its group or its toggle.
+    let keyless = vec![
+        WidgetBuilder::from(ModeWidget::group("drag")),
+        WidgetBuilder::from(ModeWidget::toggle("tooltips")),
+    ];
+    let chart = modal(keyless).modes(drag_modes()).build().unwrap();
+    let resolved = chart.resolve();
+    let keys: Vec<&str> = (resolved.widgets.iter())
+        .map(|group| group.key.as_str())
+        .collect();
+    assert_eq!(keys, ["drag", "tooltips"]);
+
     // The group or the toggle is one of the chart's.
-    let one = |widget: ModeWidgetBuilder| modal(vec![Widget::mode("drag", widget)]);
+    let one = |widget: ModeWidgetBuilder| modal(vec![Widget::mode(widget).key("drag")]);
     let path = "root.plot.cartesian.layers[0].widgets[0].mode";
     invalid(
         one(ModeWidget::group("zoom")).modes(drag_modes()).build(),
@@ -171,8 +183,8 @@ fn a_box_and_a_lasso_of_one_selection_take_modes_of_one_group_apart() {
     let plot = |lasso_modes: Vec<&str>| {
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"));
         let tools = [
-            ToolBuilder::from(Select::interval("brush", IntervalSelect::builder())).modes(["box"]),
-            ToolBuilder::from(Select::lasso("brush", Vec::<String>::new())).modes(lasso_modes),
+            ToolBuilder::from(Select::interval("brush", IntervalSelect::builder()).modes(["box"])),
+            ToolBuilder::from(Select::lasso("brush", Vec::<String>::new()).modes(lasso_modes)),
         ];
         Chart::builder(Plot::cartesian([symbols]).id("plot").tools(tools))
             .selections([Selection::new("brush", SelectionResolution::Global)])
