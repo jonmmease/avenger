@@ -134,7 +134,7 @@ impl Accumulator for MarkAccumulator {
         let options = RecordBatchOptions::new().with_row_count(Some(rows));
         let table = RecordBatch::try_new_with_options(schema, columns, &options)?;
         let name = instance.template.name();
-        let chart = (instance.template.chart(table))
+        let chart = (instance.template.chart(table, super::FORMAT_SYNTAXES))
             .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
         let bytes = chart
             .to_bytes()

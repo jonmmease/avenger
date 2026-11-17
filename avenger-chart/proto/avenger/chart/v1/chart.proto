@@ -118,8 +118,9 @@ message Chart {
   // columns can have any names.
   Table values = 5;
   // The syntax of the patterns that format numbers, which the formatters of a text engine name:
-  // `d3` for d3-format patterns, such as `,.0f`, or `icu` for the number skeletons of ICU, such as
-  // `.00 group-off`. An app can add a formatter of another syntax. It is set in a chart with a
+  // `d3` for d3-format patterns, such as `,.0f`, `icu` for the number skeletons of ICU, such as
+  // `.00 group-off`, or `googlesql` for the specifiers of GoogleSQL's `FORMAT`, such as `%'.2f`,
+  // which the charts of avenger-sql name. An app can add a formatter of another syntax. It is set in a chart with a
   // pattern that formats numbers, and a reader whose text engine has no number formatter of the
   // syntax reports an error that names it. The formatter gives the locale, so a chart renders in
   // the locale of the app that draws it. Two charts that combine take the syntax of the one where
@@ -127,8 +128,9 @@ message Chart {
   string number_format_syntax = 6;
   // The syntax of the patterns that format dates and datetimes, as for `number_format_syntax`:
   // `d3` for d3-time-format patterns, such as `%Y-%m-%d`, `chrono` for the strftime
-  // patterns of Chrono 0.4, or `icu-pattern` for the date format patterns of Unicode Technical
-  // Standard 35, such as `yyyy-MM-dd`.
+  // patterns of Chrono 0.4, `icu-pattern` for the date format patterns of Unicode Technical
+  // Standard 35, such as `yyyy-MM-dd`, or `googlesql` for the format elements of GoogleSQL's
+  // `FORMAT_DATE`, such as `%b %e`, which the charts of avenger-sql name.
   string datetime_format_syntax = 7;
   // The outer width of the chart, in pixels, more than 0 and finite: the width of the canvas that
   // it draws in, with every plot, axis, legend, gap, and title inside it. A host that draws the

@@ -163,10 +163,10 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // lifted field of a title or labels.
     builds(
         "axis",
-        "axis(title => FALSE, labels => ',.0f', ticks => FALSE, tick_placement => tick_step(5))",
+        "axis(title => FALSE, labels => '%.0f', ticks => FALSE, tick_placement => tick_step(5))",
         Axis::builder()
             .title(false)
-            .labels(",.0f")
+            .labels("%.0f")
             .ticks(false)
             .tick_step(5.0)
             .to_fragment()
@@ -228,8 +228,8 @@ async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
     for (place, bare, wrapped) in [
         (
             "legend",
-            "legend(labels => ',.0f')",
-            "legend(labels => labels(',.0f'))",
+            "legend(labels => '%.0f')",
+            "legend(labels => labels('%.0f'))",
         ),
         (
             "scale",

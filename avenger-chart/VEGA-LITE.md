@@ -4,7 +4,7 @@ This page maps the names of Vega-Lite and Altair to the fields of the format and
 
 The format takes Vega-Lite's name where the concept is the same. Where Avenger's concept differs, the row's note says how. "None" means that the other side has no counterpart, and "format only" means that the format has the field and avenger-sql has no form for it yet. The last section lists the concepts of Avenger that Vega-Lite doesn't have.
 
-A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip field, needs the chart's `number_format_syntax` or `datetime_format_syntax`, which avenger-sql doesn't set yet, so a chart of avenger-sql with such a pattern is an error.
+A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a tooltip field, is GoogleSQL's, where Vega-Lite takes the patterns of d3. A pattern of numbers is a `FORMAT` specifier, such as `'%.1f'` or `"%'.2f"`, and a pattern of dates holds the format elements of `FORMAT_DATE`, such as `'%Y-%m'`. Each chart of avenger-sql sets `number_format_syntax` and `datetime_format_syntax` to `googlesql`, so the host that draws it registers the `googlesql` providers of avenger-format-number-googlesql and avenger-format-datetime-googlesql.
 
 ## Scales
 
@@ -40,7 +40,7 @@ A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip fie
 | `axis: null` | `Axis.show` | `axis => FALSE` | |
 | `title`, `titleFont`, `titleFontSize`, `titleFontWeight`, `titleColor` | `Axis.title`, a `Title` | `axis => title('Mass', font_size => 14)` | A title's text is Typst markup |
 | `orient` | `Axis.orient` | `axis(orient => 'top')` | |
-| `format`, `labelFont`, `labelFontSize`, `labelFontWeight`, `labelColor` | `Axis.labels`, a `Labels` | `axis => labels(font_size => 9, color => 'gray')` | |
+| `format`, `labelFont`, `labelFontSize`, `labelFontWeight`, `labelColor` | `Axis.labels`, a `Labels` | `axis => labels(format => '%.1f', color => 'gray')` | `format` is a GoogleSQL pattern, and `axis(labels => '%Y-%m')` sets it alone |
 | `labels: false` | `Labels.show` | `axis(labels => FALSE)` | |
 | `labelExpr` | `Labels.markup` | `axis => labels(markup => '#value mm')` | Typst markup in which `#value` is the formatted value |
 | `labelAngle` | `Axis.label_rotation.label_angle` | `axis(label_rotation => -45)` | `label_rotation => 'radial'` or `'tangential'` turns the labels of a polar axis |
@@ -59,7 +59,7 @@ A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip fie
 | `legend` of a channel | `Encoding.legend` | `color => color(species, legend => legend(orient => 'bottom'))` | Encodings that share a scale share its legend |
 | `legend: null` | `Legend.show` | `legend => FALSE` | |
 | `type`: `symbol`, `gradient` | `Legend.type`: `symbol`, `colorbar` | `legend(type => 'colorbar')` | |
-| `title`, `format`, `labelExpr`, `labelFont` and the other label fonts | `Legend.title`, `Legend.labels` | `legend => title('Species', font_size => 12)` | As on an axis |
+| `title`, `format`, `labelExpr`, `labelFont` and the other label fonts | `Legend.title`, `Legend.labels` | `legend => title('Species', font_size => 12)` | As on an axis, with GoogleSQL patterns |
 | `orient` | `Legend.orient` | `legend(orient => 'bottom')` | One of the four sides, without corners or `none` |
 | `columns` | `Legend.columns` | `legend(columns => 2)` | `wrap => 'grid'` or `'flow'` picks the layout of the entries |
 | `fillColor`, `strokeColor`, `cornerRadius`, `padding` | `Legend.background`, `border_color`, `border_radius`, `padding` | `legend(background => 'white', border_color => '#ccc')` | CSS's names |
@@ -80,7 +80,7 @@ A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip fie
 | `title` of a field | `Encoding.title` | `x(bill_length_mm, title => 'Bill length (mm)')` | Plain text. An axis or a legend without a title of its own takes the titles of its encodings |
 | `header` of a facet | `Concat.facet`, `Wrap.facet`, a `Facet` | `facet_column(chart, island, facet => facet(label_angle => 0))` | |
 | `header: null` | `Facet.show` | `facet => FALSE` | |
-| `Header.title`, `labelAngle`, `labelPadding`, `orient`, `format`, `labelExpr` | `Facet.title`, `label_angle`, `label_padding`, `orient`, `labels` | `facet => title('Island', font_size => 12)` | A facet also draws a rule with ticks, which `tick_size`, `rule_color`, and `rule_width` style |
+| `Header.title`, `labelAngle`, `labelPadding`, `orient`, `format`, `labelExpr` | `Facet.title`, `label_angle`, `label_padding`, `orient`, `labels` | `facet => title('Island', font_size => 12)` | `labels` takes a GoogleSQL pattern, as on an axis. A facet also draws a rule with ticks, which `tick_size`, `rule_color`, and `rule_width` style |
 
 ## Encodings and marks
 
@@ -107,7 +107,7 @@ A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip fie
 | `geoshape` | `GeoShapeMark` | `geo_shape(...)` | |
 | `tick` | `RuleMark` or `BarMark` | `rule(...)` | The nearest marks |
 | `filled`, `orient`, `cornerRadius` | `filled`, `orient`, `corner_radius` | `bar(..., corner_radius => 4)` | Properties of the mark |
-| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `ellipsis`, `format` | `text(..., font_family => 'Lato')` | `ellipsis` is a Boolean, and `format` is a property of the mark |
+| `font`, `align`, `baseline`, `ellipsis`, `format` of `text` | `TextMark.font_family`, `align`, `baseline`, `ellipsis`, `format` | `text(..., font_family => 'Lato')` | `ellipsis` is a Boolean, and `format` is a property of the mark, a GoogleSQL pattern as on an axis |
 | `aspect`, `smooth` of `image` | `ImageMark.aspect`, `smooth` | `image(..., smooth => FALSE)` | |
 | Mark constants, such as `color` and `strokeWidth` | Direct values of the channels | `stroke => 'black'` | |
 | `innerRadius` | `Polar.inner_radius` | `coord => polar(inner_radius => 0.5)` | A fraction of the outer radius |
@@ -145,7 +145,7 @@ A `format` pattern of numbers or dates, on labels, a text mark, or a tooltip fie
 | `select.resolve`: `global`, `union`, `intersect` | `Selection.resolution` | Format only | |
 | `value` of a selection | `Selection.initial`, its clauses | Format only | |
 | `nearest` | `Tooltip.nearest`, `max_radius`, `metric` | `tooltip(nearest => TRUE, max_radius => 20)` | For tooltips |
-| `encoding.tooltip`, `StringFieldDef` | `Tooltip.fields`, `TooltipField` | `fields => [field(column => 'island', title => 'Island')]` | |
+| `encoding.tooltip`, `StringFieldDef` | `Tooltip.fields`, `TooltipField` | `fields => [field(column => 'island', title => 'Island')]` | `format => '%.1f'` of a field takes a GoogleSQL pattern, as on an axis |
 | `condition` with a `param` | `ConditionalValue` with `Predicate.selected` | Format only | |
 | `empty: false` | `Selected.empty`: `none` | Format only | |
 | `and`, `or`, `not` | `Predicate.all`, `any`, `negate` | Format only | |

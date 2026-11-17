@@ -14,7 +14,7 @@ use arrow::{
     row::{RowConverter, SortField},
 };
 
-use super::{generated, Arg, ArgError, Param};
+use super::{generated, Arg, ArgError, FormatSyntaxes, Param};
 use crate::{
     builder::Value,
     proto::{self, node::Node, Direction, NodeBuilder, PartitionValue},
@@ -86,7 +86,8 @@ pub fn composition(name: &str) -> Option<&'static Composition> {
 
 impl Composition {
     /// The chart of `children` composed with the options `options`, one for each parameter, where
-    /// `None` leaves an option unset. A facet takes the name of its key's column, `column`, and the
+    /// `None` leaves an option unset, with the format syntaxes `syntaxes`, which each child's own
+    /// syntaxes must agree with. A facet takes the name of its key's column, `column`, and the
     /// key of each child. A `NULL` chart is not a child of a layer or a concat, and it is an empty
     /// cell at its key in a facet. Without children, the chart is empty: its root is an empty node.
     pub fn compose(
@@ -95,6 +96,7 @@ impl Composition {
         children: Vec<Child>,
         order: ChildOrder,
         options: &[Option<Arg>],
+        syntaxes: FormatSyntaxes,
     ) -> Result<Chart, ArgError> {
         if options.len() > self.params.len() {
             return Err(ArgError::arity(self.params.len(), options.len()));
@@ -106,14 +108,14 @@ impl Composition {
             let column = column.ok_or_else(|| {
                 ArgError::composition(format!("{}() takes the column of its key", self.name))
             })?;
-            return self.facet(column, children, order, &options);
+            return self.facet(column, children, order, &options, syntaxes);
         }
         let charts: Vec<Chart> = children
             .into_iter()
             .filter_map(|child| child.chart)
             .collect();
         if charts.is_empty() {
-            return empty();
+            return empty(syntaxes);
         }
         let node: NodeBuilder = match kind {
             CompositionKind::Layer => {
@@ -141,7 +143,7 @@ impl Composition {
             }
             _ => unreachable!("a composition without a key"),
         };
-        Chart::builder(node).build().map_err(ArgError::invalid)
+        syntaxes.chart(node).map_err(ArgError::invalid)
     }
 
     /// Checks the options `options` of a call, one for each parameter, as [`compose`] applies
@@ -189,9 +191,10 @@ impl Composition {
         children: Vec<Child>,
         order: ChildOrder,
         options: &[Option<Arg>],
+        syntaxes: FormatSyntaxes,
     ) -> Result<Chart, ArgError> {
         if children.is_empty() {
-            return empty();
+            return empty(syntaxes);
         }
         let mut keys = Vec::with_capacity(children.len());
         for child in &children {
@@ -258,15 +261,15 @@ impl Composition {
             }
             _ => unreachable!("a composition with a key"),
         };
-        Chart::builder(node).build().map_err(ArgError::invalid)
+        syntaxes.chart(node).map_err(ArgError::invalid)
     }
 }
 
 /// The empty chart of a composition without children, whose root is an empty node, which takes no
-/// options.
-fn empty() -> Result<Chart, ArgError> {
-    Chart::builder(proto::Empty::builder())
-        .build()
+/// options, with the format syntaxes `syntaxes`.
+fn empty(syntaxes: FormatSyntaxes) -> Result<Chart, ArgError> {
+    syntaxes
+        .chart(proto::Empty::builder())
         .map_err(ArgError::invalid)
 }
 

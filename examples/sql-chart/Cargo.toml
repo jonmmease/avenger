@@ -7,8 +7,8 @@ publish = false
 [dependencies]
 avenger-chart = { path = "../../avenger-chart" }
 avenger-chart-app = { path = "../../avenger-chart-app" }
-avenger-format-datetime-d3 = { path = "../../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../../avenger-format-number-d3" }
+avenger-format-datetime-googlesql = { path = "../../avenger-format-datetime-googlesql" }
+avenger-format-number-googlesql = { path = "../../avenger-format-number-googlesql" }
 avenger-sql = { path = "../../avenger-sql" }
 avenger-style = { path = "../../avenger-style" }
 avenger-typst-label = { path = "../../avenger-typst-label", features = ["bundled-fonts"] }

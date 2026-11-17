@@ -32,6 +32,10 @@
 //! `y => y(mass, title => 'Mass')` do. The `ORDER BY` of the call is the draw order of the rows,
 //! and `GROUP BY` gives one chart for each group.
 //!
+//! Every chart that the functions build names GoogleSQL's syntaxes for its format patterns,
+//! [`FORMAT_SYNTAXES`]: a number pattern is a `FORMAT` specifier, such as `%'.2f`, and a date
+//! pattern holds the format elements of `FORMAT_DATE`, such as `%Y-%m`.
+//!
 //! The registered function of a mark is a declaration. DataFusion's expression simplifier binds
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes
 //! only the columns of the call, so the errors of a call are planning errors.
@@ -44,7 +48,16 @@ mod instance;
 pub(crate) mod kind;
 mod rows;
 
-use avenger_chart::functions::Arg;
+use avenger_chart::functions::{Arg, FormatSyntaxes};
+
+/// The syntaxes of the format patterns of every chart that avenger-sql builds: GoogleSQL's
+/// `FORMAT` specifiers for numbers and the format elements of `FORMAT_DATE` for dates, which a
+/// host reads with the `googlesql` providers of avenger-format-number-googlesql and
+/// avenger-format-datetime-googlesql.
+pub(crate) const FORMAT_SYNTAXES: FormatSyntaxes<'static> = FormatSyntaxes {
+    number: "googlesql",
+    datetime: "googlesql",
+};
 
 /// The argument of the constant `value`, or `None` for `NULL`.
 fn arg(value: &datafusion::common::ScalarValue) -> datafusion::common::Result<Option<Arg>> {

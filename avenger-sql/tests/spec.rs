@@ -130,7 +130,7 @@ async fn check(text: &str, count: usize) {
 
 #[tokio::test]
 async fn the_examples_of_the_guide_run() {
-    check(include_str!("../SPEC.md"), 9).await;
+    check(include_str!("../SPEC.md"), 10).await;
 }
 
 #[tokio::test]

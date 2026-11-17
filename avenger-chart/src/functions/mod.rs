@@ -16,6 +16,9 @@
 //! - [`Mark::call`], which checks the arguments of a mark function and gives a
 //!   [`MarkTemplate`], which builds the chart of one layer from a table.
 //!
+//! A binding names the syntaxes of the format patterns of its charts, as [`FormatSyntaxes`], for
+//! each chart that a mark template or a composition builds.
+//!
 //! The names of the mark functions and of the parameters are the same in every interface, and a
 //! binding escapes the names that its language reserves, such as the parameter `lambda` in Python.
 //! A constructor's [`Constructor::name`] is unique, such as `log_scale` and `scale.type`, and a
@@ -46,6 +49,31 @@ use crate::{
 /// The extension name of an Arrow column of fragments, whose metadata is the full name of their
 /// message.
 pub const FRAGMENT_EXTENSION_NAME: &str = "avenger.chart.fragment";
+
+/// The syntaxes of the format patterns of the charts that a binding builds, which a
+/// [`MarkTemplate`] and a [`Composition`] set on each chart: `number` in
+/// `Chart.number_format_syntax` and `datetime` in `Chart.datetime_format_syntax`. Each names the
+/// formatters of a text engine, such as `d3` or `googlesql`, and an empty syntax leaves the field
+/// unset, so a chart with a pattern of that kind is an error.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct FormatSyntaxes<'a> {
+    pub number: &'a str,
+    pub datetime: &'a str,
+}
+
+impl FormatSyntaxes<'_> {
+    /// The chart with the root `root` and these syntaxes, which a chart that it embeds must agree
+    /// with.
+    pub(crate) fn chart(
+        self,
+        root: impl Into<proto::NodeBuilder>,
+    ) -> Result<crate::Chart, crate::ChartError> {
+        crate::Chart::builder(root)
+            .number_format_syntax(self.number)
+            .datetime_format_syntax(self.datetime)
+            .build()
+    }
+}
 
 /// The name of `datum`, whose constant argument a mark draws through the channel's scale: a
 /// `scaled_value`, as Vega-Lite's `datum` is.

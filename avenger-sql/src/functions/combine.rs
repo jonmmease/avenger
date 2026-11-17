@@ -201,7 +201,13 @@ impl ScalarUDFImpl for CombineFunction {
                 })
                 .collect();
             let chart = (self.spec)
-                .compose(None, children, ChildOrder::AsGiven, &options)
+                .compose(
+                    None,
+                    children,
+                    ChildOrder::AsGiven,
+                    &options,
+                    super::FORMAT_SYNTAXES,
+                )
                 .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
             let bytes = chart
                 .to_bytes()

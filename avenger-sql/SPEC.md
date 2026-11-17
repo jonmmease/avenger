@@ -87,6 +87,16 @@ FROM penguins
    GROUP BY species
 ```
 
+- The `format` patterns of a chart, on labels, a text mark, or a tooltip field, are GoogleSQL's: a number pattern is a `FORMAT` specifier, such as `%'.2f`, and a date pattern holds the format elements of `FORMAT_DATE`, such as `%Y-%m`. A pattern with a `'` takes a double-quoted string:
+
+```sql
+FROM penguins
+|> AGGREGATE symbol(
+     x => x(body_mass_g, axis => axis(labels => "%'.0f g")),
+     y => y(bill_length_mm, axis => labels(format => '%.1f')),
+   ) AS chart
+```
+
 - A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection tool on the mark's layer. A selection tool, `select(...)`, writes a selection that the chart declares, which avenger-sql can't declare yet, so a chart with one is an error.
 - The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them. The `order` channel of a line or an area orders the rows of its path, as in `line(x => x, y => y, order => step)`.
 - A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
