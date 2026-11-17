@@ -4,22 +4,28 @@ mod common;
 
 use std::sync::Arc;
 
-use avenger_chart::Chart;
+use avenger_chart::{
+    proto::{self, node::Node},
+    Chart, LayerRef,
+};
 use avenger_chart_eval::{ChartEvaluator, Registry};
-use avenger_format_datetime_d3::D3DateTimeFormatProvider;
-use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_format_datetime_googlesql::GoogleSqlDateTimeFormatProvider;
+use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_style::{Cascade, Env, HostInputs, ParseOptions, Sheet, SourceId, StyleTable};
 use avenger_svg::SvgRenderer;
 use avenger_typst_label::{EngineOptions, LabelEngine};
 use common::charts;
 
+/// The label engine, with the providers of GoogleSQL's patterns, which the charts of avenger-sql
+/// name.
 fn engine() -> LabelEngine {
     LabelEngine::new(EngineOptions {
         fonts: avenger_render_fixtures::scene::fonts(),
     })
-    .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
-    .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
+    .with_number_formatting(Arc::new(GoogleSqlNumberFormatProvider::new()))
+    .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()))
 }
 
 /// The cascade of the base stylesheet.
@@ -187,4 +193,171 @@ async fn a_lifted_stacked_area_with_zero_fill() {
 |> AGGREGATE area(x => body_mass_g, y => stack(COUNT(*)), color => species) AS chart";
     let charts = charts(query).await;
     render(&charts[0], "lifted-stacked-area");
+}
+
+/// The texts of the scene of `chart` evaluated at 640 by 360, through the label engine with the
+/// providers of GoogleSQL's patterns.
+fn drawn(chart: &Chart) -> Vec<String> {
+    fn walk(marks: &[SceneMark], out: &mut Vec<String>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => walk(&group.marks, out),
+                SceneMark::Text(text) => out.extend(text.text.as_vec(text.len as usize, None)),
+                _ => {}
+            }
+        }
+    }
+    let message = chart.message();
+    assert_eq!(message.number_format_syntax, "googlesql");
+    assert_eq!(message.datetime_format_syntax, "googlesql");
+    let mut evaluator =
+        ChartEvaluator::new(chart.clone(), cascade(), engine(), Registry::new()).unwrap();
+    let evaluated = evaluator
+        .evaluate(&HostInputs::sized(640.0, 360.0))
+        .unwrap();
+    let mut out = Vec::new();
+    walk(&evaluated.scene.marks, &mut out);
+    out
+}
+
+/// The one chart of `query`.
+async fn one(query: &str) -> Chart {
+    let mut charts = charts(query).await;
+    assert_eq!(charts.len(), 1);
+    charts.remove(0)
+}
+
+/// Whether `texts` holds `text`.
+fn holds(texts: &[String], text: &str) -> bool {
+    texts.iter().any(|t| t == text)
+}
+
+#[tokio::test]
+async fn an_axis_formats_its_labels_with_a_googlesql_pattern() {
+    let chart = one("FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE symbol(
+     x => x(body_mass_g, axis => axis(labels => labels(format => \"%'.0f\"))),
+     y => y(bill_length_mm, axis => axis(labels => '%.1f mm')),
+   ) AS chart")
+    .await;
+    let texts = drawn(&chart);
+    assert!(holds(&texts, "4,000"), "{texts:?}");
+    assert!(holds(&texts, "40.0 mm"), "{texts:?}");
+}
+
+#[tokio::test]
+async fn a_legend_formats_its_labels_with_a_googlesql_pattern() {
+    let chart = one("FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE symbol(
+     x => bill_length_mm,
+     y => bill_depth_mm,
+     color => color(body_mass_g, legend => legend(labels => \"%'.1f\")),
+   ) AS chart")
+    .await;
+    let texts = drawn(&chart);
+    assert!(holds(&texts, "4,000.0"), "{texts:?}");
+}
+
+#[tokio::test]
+async fn a_text_mark_formats_its_values_with_a_googlesql_pattern() {
+    let chart = one("FROM penguins
+|> AGGREGATE COUNT(*) AS n GROUP BY species
+|> AGGREGATE text(x => species, y => n, text => n, format => '%05d') AS chart")
+    .await;
+    let texts = drawn(&chart);
+    for count in ["00152", "00068", "00124"] {
+        assert!(holds(&texts, count), "{texts:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_tooltip_field_takes_a_googlesql_pattern() {
+    let chart = one("FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE symbol(
+     x => bill_length_mm,
+     y => body_mass_g,
+     tools => [tooltip(fields => [field(column => 'body_mass_g', format => \"%'.0f g\")])],
+   ) AS chart")
+    .await;
+    // The tooltip formats its values in the app, when it shows, so the chart reads and evaluates
+    // with the pattern.
+    let Some(Node::Plot(plot)) = &chart.root().node else {
+        panic!("a plot");
+    };
+    let layer = LayerRef::of(plot).remove(0);
+    let Some(proto::layer_tool::Kind::Tooltip(tooltip)) = &layer.tools()[0].kind else {
+        panic!("a tooltip");
+    };
+    assert_eq!(tooltip.fields[0].format, "%'.0f g");
+    drawn(&chart);
+}
+
+#[tokio::test]
+async fn a_date_axis_formats_its_labels_with_format_date_elements() {
+    let days = "FROM UNNEST([
+     STRUCT(DATE '2024-01-01' AS day, 3 AS n),
+     STRUCT(DATE '2024-04-01' AS day, 5 AS n),
+     STRUCT(DATE '2024-09-01' AS day, 4 AS n),
+   ])";
+    let chart = one(&format!(
+        "{days}
+|> AGGREGATE line(x => x(day, axis => axis(labels => '%Y-%m')), y => n ORDER BY day) AS chart"
+    ))
+    .await;
+    let texts = drawn(&chart);
+    assert!(holds(&texts, "2024-04"), "{texts:?}");
+
+    // Without a pattern, the provider's default ticks.
+    let chart = one(&format!(
+        "{days}\n|> AGGREGATE line(x => day, y => n ORDER BY day) AS chart"
+    ))
+    .await;
+    assert!(!drawn(&chart).is_empty());
+}
+
+#[tokio::test]
+async fn compositions_of_marks_with_patterns_name_googlesql() {
+    let marks = "bar(x => species, y => y(n, axis => axis(labels => '%.1f'))),
+     text(x => species, y => n, text => n, format => '%05d')";
+    let counts = "FROM penguins |> AGGREGATE COUNT(*) AS n GROUP BY species, island";
+    let layered = one(&format!(
+        "{counts}
+|> AGGREGATE layer(
+     {marks},
+   ) AS chart"
+    ))
+    .await;
+    let texts_of_layer = drawn(&layered);
+    assert!(holds(&texts_of_layer, "100.0"), "{texts_of_layer:?}");
+
+    let concat = one(&format!(
+        "{counts}
+|> AGGREGATE bar(x => species, y => y(n, axis => axis(labels => '%.1f'))) AS chart GROUP BY island
+|> AGGREGATE hconcat_agg(chart ORDER BY island) AS chart"
+    ))
+    .await;
+    assert!(holds(&drawn(&concat), "40.0"));
+
+    let facet = one(&format!(
+        "{counts}
+|> AGGREGATE layer({marks}) AS chart GROUP BY island
+|> AGGREGATE facet_column(chart, island) AS chart"
+    ))
+    .await;
+    let texts = drawn(&facet);
+    assert!(holds(&texts, "00052"), "{texts:?}");
+    assert!(holds(&texts, "40.0"), "{texts:?}");
+}
+
+#[tokio::test]
+async fn a_chart_without_patterns_takes_the_default_ticks() {
+    let chart = one("FROM penguins
+|> AGGREGATE COUNT(*) AS n GROUP BY species
+|> AGGREGATE bar(x => species, y => n) AS chart")
+    .await;
+    let texts = drawn(&chart);
+    assert!(holds(&texts, "0") && holds(&texts, "Adelie"), "{texts:?}");
 }

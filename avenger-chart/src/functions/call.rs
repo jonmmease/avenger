@@ -10,7 +10,7 @@ use super::{
         apply_all_encoding, apply_all_mark_options, to_cartesian, to_geo, to_polar,
         PARAMS_ENCODING, PARAMS_MARK_OPTIONS,
     },
-    Arg, ArgError, ChannelFunction, Kind, Mark, COORD,
+    Arg, ArgError, ChannelFunction, FormatSyntaxes, Kind, Mark, COORD,
 };
 use crate::{
     builder::{from_fragment, to_fragment, Build, Builder, Parts, Value},
@@ -346,8 +346,9 @@ impl MarkTemplate {
         &self.columns
     }
 
-    /// The chart of one layer whose table is `table`, in a plot with the options of the call.
-    pub fn chart(&self, table: RecordBatch) -> Result<Chart, ChartError> {
+    /// The chart of one layer whose table is `table`, in a plot with the options of the call, with
+    /// the format syntaxes `syntaxes`.
+    pub fn chart(&self, table: RecordBatch, syntaxes: FormatSyntaxes) -> Result<Chart, ChartError> {
         let decode = |bytes: &Bytes| {
             proto::Fragment::decode(bytes.clone())
                 .map_err(|error| ChartError::invalid("", error.to_string()))
@@ -391,7 +392,7 @@ impl MarkTemplate {
             plot.message.width = own.width;
             plot.message.height = own.height;
         }
-        Chart::builder(plot).build()
+        syntaxes.chart(plot)
     }
 }
 

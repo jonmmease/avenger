@@ -402,7 +402,13 @@ impl Accumulator for CompositionAccumulator {
             })
             .collect::<Result<Vec<Option<Arg>>>>()?;
         let chart = (instance.composition())
-            .compose(instance.column.as_deref(), children, order, &options)
+            .compose(
+                instance.column.as_deref(),
+                children,
+                order,
+                &options,
+                super::FORMAT_SYNTAXES,
+            )
             .map_err(|error| exec_datafusion_err!("{name}(): {error}"))?;
         let bytes = chart
             .to_bytes()

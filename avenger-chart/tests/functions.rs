@@ -11,7 +11,7 @@ use arrow::{
 use avenger_chart::{
     functions::{
         channel_function, channel_functions, composition, constructor, mark, Arg, ArgError,
-        ChannelArg, Child, ChildOrder, Class, Expected, Kind, Reason,
+        ChannelArg, Child, ChildOrder, Class, Expected, FormatSyntaxes, Kind, Reason,
     },
     prelude::*,
     proto::{self, Fragment},
@@ -42,6 +42,12 @@ fn table() -> RecordBatch {
     ];
     RecordBatch::try_new(schema, columns).unwrap()
 }
+
+/// No format syntaxes, as for charts without patterns.
+const NONE: FormatSyntaxes = FormatSyntaxes {
+    number: "",
+    datetime: "",
+};
 
 fn chart(layer: CartesianLayerBuilder) -> Chart {
     Chart::builder(Plot::cartesian([layer])).build().unwrap()
@@ -154,7 +160,7 @@ fn a_mark_call_builds_the_chart_of_its_builder() {
         table(),
         BarMark::builder().x("c").y("a"),
     ));
-    assert_eq!(template.chart(table()).unwrap(), expected);
+    assert_eq!(template.chart(table(), NONE).unwrap(), expected);
 }
 
 #[test]
@@ -199,7 +205,7 @@ fn bare_arguments_take_the_kinds_of_their_channels() {
         ))))
         .color(Encoding::direct_field("c"));
     let expected = chart(CartesianLayer::symbol(table(), symbol));
-    assert_eq!(template.chart(table()).unwrap(), expected);
+    assert_eq!(template.chart(table(), NONE).unwrap(), expected);
 }
 
 /// The arguments of the options of `symbol` from named arguments.
@@ -223,7 +229,7 @@ fn symbols_with(named: Vec<(&str, Arg)>) -> Chart {
     call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
         .unwrap();
     call.options(&mark_options(named)).unwrap();
-    call.bind().unwrap().chart(table()).unwrap()
+    call.bind().unwrap().chart(table(), NONE).unwrap()
 }
 
 /// The tools `navigate()` and `tooltip()`.
@@ -337,6 +343,7 @@ fn a_layer_composition_merges_the_options_of_its_charts() {
             vec![child(&titled), child(&plain)],
             ChildOrder::AsGiven,
             &[],
+            NONE,
         )
         .unwrap();
     let plot = root_plot(&chart);
@@ -359,7 +366,7 @@ fn a_layer_composition_merges_the_options_of_its_charts() {
     args[options] = Some(Arg::Str("both".into()));
     let charts = vec![child(&named("a")), child(&named("b"))];
     let chart = layer
-        .compose(None, charts, ChildOrder::AsGiven, &args)
+        .compose(None, charts, ChildOrder::AsGiven, &args, NONE)
         .unwrap();
     assert_eq!(root_plot(&chart).id, "both");
     let Some(proto::plot::Coord::Cartesian(cartesian)) = &root_plot(&chart).coord else {
@@ -541,7 +548,7 @@ fn layer_overlays_the_plots_of_its_charts() {
         },
     ];
     let chart = layer
-        .compose(None, charts, ChildOrder::AsGiven, &[])
+        .compose(None, charts, ChildOrder::AsGiven, &[], NONE)
         .unwrap();
     let expected = Chart::builder(Plot::overlay([plot("a"), plot("a")]))
         .build()
@@ -556,7 +563,7 @@ fn layer_overlays_the_plots_of_its_charts() {
         key: None,
     }];
     let error = layer
-        .compose(None, charts, ChildOrder::AsGiven, &[])
+        .compose(None, charts, ChildOrder::AsGiven, &[], NONE)
         .unwrap_err();
     assert!(matches!(error.reason, Reason::Composition(_)), "{error:?}");
     assert!(
@@ -588,7 +595,7 @@ fn a_concat_takes_the_options_of_its_node() {
             },
         ];
         let chart = concat
-            .compose(None, charts, ChildOrder::AsGiven, &options)
+            .compose(None, charts, ChildOrder::AsGiven, &options, NONE)
             .unwrap();
         let Some(proto::node::Node::Concat(root)) = &chart.root().node else {
             panic!("a concat");
@@ -618,7 +625,7 @@ fn a_facet_orders_its_keys_with_null_last_and_draws_an_empty_cell_for_a_null_cha
         child(Some(plot("p")), Some("Dream")),
     ];
     let chart = facet
-        .compose(Some("island"), charts, ChildOrder::ByKey, &[])
+        .compose(Some("island"), charts, ChildOrder::ByKey, &[], NONE)
         .unwrap();
     let Some(proto::node::Node::Concat(root)) = &chart.root().node else {
         panic!("a concat");
@@ -642,7 +649,7 @@ fn a_facet_takes_one_chart_for_each_key_value() {
         child(Some(plot("p")), Some("a")),
     ];
     let error = facet
-        .compose(Some("k"), charts, ChildOrder::ByKey, &[])
+        .compose(Some("k"), charts, ChildOrder::ByKey, &[], NONE)
         .unwrap_err();
     assert!(
         error.to_string().contains("two rows have the key value a"),
@@ -656,7 +663,7 @@ fn a_facet_takes_one_chart_for_each_key_value() {
     options[at] = Some(Arg::Fragment(other));
     let charts = vec![child(Some(plot("p")), Some("a"))];
     let error = facet
-        .compose(Some("k"), charts, ChildOrder::ByKey, &options)
+        .compose(Some("k"), charts, ChildOrder::ByKey, &options, NONE)
         .unwrap_err();
     assert_eq!(error.path, ["facet"]);
     assert!(
@@ -677,7 +684,7 @@ fn a_facet_of_facets_aligns_their_cells() {
             .iter()
             .map(|v| child(Some(plot("p")), Some(v)))
             .collect();
-        cols.compose(Some("island"), charts, ChildOrder::ByKey, &[])
+        cols.compose(Some("island"), charts, ChildOrder::ByKey, &[], NONE)
             .unwrap()
     };
     // The male row lacks Dream.
@@ -687,7 +694,7 @@ fn a_facet_of_facets_aligns_their_cells() {
     ];
     let grid = composition("facet_row")
         .unwrap()
-        .compose(Some("sex"), charts, ChildOrder::ByKey, &[])
+        .compose(Some("sex"), charts, ChildOrder::ByKey, &[], NONE)
         .unwrap();
     let rows = children(grid.root());
     assert_eq!(rows.len(), 2);
@@ -710,7 +717,7 @@ fn a_wrapped_facet_and_an_empty_composition() {
         child(Some(plot("p")), Some("a")),
     ];
     let chart = wrap
-        .compose(Some("k"), charts, ChildOrder::AsGiven, &[])
+        .compose(Some("k"), charts, ChildOrder::AsGiven, &[], NONE)
         .unwrap();
     let Some(proto::node::Node::Wrap(root)) = &chart.root().node else {
         panic!("a wrap");
@@ -724,13 +731,85 @@ fn a_wrapped_facet_and_an_empty_composition() {
     for name in ["layer", "hconcat", "facet_column"] {
         let chart = composition(name)
             .unwrap()
-            .compose(Some("k"), Vec::new(), ChildOrder::ByKey, &[])
+            .compose(Some("k"), Vec::new(), ChildOrder::ByKey, &[], NONE)
             .unwrap();
         assert!(matches!(
             chart.root().node,
             Some(proto::node::Node::Empty(_))
         ));
     }
+}
+
+#[test]
+fn a_binding_names_the_format_syntaxes_of_each_chart_that_it_builds() {
+    let googlesql = FormatSyntaxes {
+        number: "googlesql",
+        datetime: "googlesql",
+    };
+    let syntaxes = |chart: &Chart| {
+        let message = chart.message();
+        (
+            message.number_format_syntax.clone(),
+            message.datetime_format_syntax.clone(),
+        )
+    };
+    let named = ("googlesql".to_string(), "googlesql".to_string());
+    let mut call = mark("symbol").expect("a mark").call();
+    call.channel("x", ChannelArg::Field("a".into()), None, None, &[])
+        .unwrap();
+    call.channel("y", ChannelArg::Field("a".into()), None, None, &[])
+        .unwrap();
+    let symbols = call.bind().unwrap().chart(table(), googlesql).unwrap();
+    assert_eq!(syntaxes(&symbols), named);
+
+    // A composition names them too, with children or without, and a child's syntaxes agree.
+    let layered = composition("layer")
+        .unwrap()
+        .compose(
+            None,
+            vec![
+                child(Some(symbols.clone()), None),
+                child(Some(symbols.clone()), None),
+            ],
+            ChildOrder::AsGiven,
+            &[],
+            googlesql,
+        )
+        .unwrap();
+    assert_eq!(syntaxes(&layered), named);
+    let facet = composition("facet_column")
+        .unwrap()
+        .compose(
+            Some("k"),
+            vec![child(None, Some("a"))],
+            ChildOrder::ByKey,
+            &[],
+            googlesql,
+        )
+        .unwrap();
+    assert_eq!(syntaxes(&facet), named);
+    let empty = composition("hconcat")
+        .unwrap()
+        .compose(None, Vec::new(), ChildOrder::AsGiven, &[], googlesql)
+        .unwrap();
+    assert_eq!(syntaxes(&empty), named);
+
+    // A child of other syntaxes is a conflict.
+    let d3 = FormatSyntaxes {
+        number: "d3",
+        datetime: "d3",
+    };
+    let error = composition("vconcat")
+        .unwrap()
+        .compose(
+            None,
+            vec![child(Some(symbols), None)],
+            ChildOrder::AsGiven,
+            &[],
+            d3,
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("conflict"), "{error}");
 }
 
 #[test]
@@ -818,7 +897,7 @@ fn a_channel_function_sets_its_options_and_only_its_own_channel() {
             .contains("`fill` of symbol() takes `fill(...)`, not `color(...)`"),
         "{error}"
     );
-    let chart = call.bind().unwrap().chart(table()).unwrap();
+    let chart = call.bind().unwrap().chart(table(), NONE).unwrap();
     let plot = root_plot(&chart);
     let layer = avenger_chart::LayerRef::of(plot).remove(0);
     let encoding = (layer.mark().unwrap())

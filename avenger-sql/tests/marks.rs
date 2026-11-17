@@ -415,7 +415,12 @@ async fn a_call_builds_the_chart_of_its_builder() {
     let chart = chart("FROM t |> AGGREGATE bar(x => c, y => a ORDER BY k) AS chart").await;
     let table = table(&chart).clone();
     let layer = CartesianLayer::bar(table, BarMark::builder().x("c").y("a"));
-    let expected = Chart::builder(Plot::cartesian([layer])).build().unwrap();
+    // A chart of avenger-sql names GoogleSQL's syntaxes of format patterns.
+    let expected = Chart::builder(Plot::cartesian([layer]))
+        .number_format_syntax("googlesql")
+        .datetime_format_syntax("googlesql")
+        .build()
+        .unwrap();
     assert_eq!(chart, expected);
 }
 

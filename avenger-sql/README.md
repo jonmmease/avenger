@@ -62,6 +62,21 @@ The library binds the functions of avenger-chart's `functions` feature: the READ
 
 Each call binds at planning to an aggregate of its own, which takes only the columns of the call, so an invalid call, such as one without a required channel, fails at planning.
 
+## Format patterns
+
+Every chart of avenger-sql, a mark's or a composition's, names `googlesql` in `number_format_syntax` and `datetime_format_syntax`, with no option to change it. So a `format` pattern on labels, a text mark, or a tooltip field is GoogleSQL's: a `FORMAT` specifier for numbers, such as `%'.2f`, and the format elements of `FORMAT_DATE` for dates, such as `%Y-%m`. A host that draws the charts registers the two `googlesql` providers on its label engine, or evaluation fails with `MissingFormatter`, also for a chart without patterns:
+
+```rust
+use std::sync::Arc;
+
+use avenger_format_datetime_googlesql::GoogleSqlDateTimeFormatProvider;
+use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
+
+let engine = avenger_typst_label::bundled_label_engine()
+    .with_number_formatting(Arc::new(GoogleSqlNumberFormatProvider::new()))
+    .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()));
+```
+
 ## Statistics in channels
 
 A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, and the analysis plans it as the staged query that a user could type for it:

@@ -24,8 +24,8 @@ use arrow::{
 };
 use avenger_chart::{charts_from_arrow, Chart, Decode};
 use avenger_chart_app::ChartApp;
-use avenger_format_datetime_d3::D3DateTimeFormatProvider;
-use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_format_datetime_googlesql::GoogleSqlDateTimeFormatProvider;
+use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
 use avenger_style::{Cascade, Env, ParseOptions, Sheet, SourceId, StyleTable};
 use avenger_typst_label::LabelEngine;
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
@@ -70,10 +70,12 @@ async fn chart() -> datafusion::error::Result<Chart> {
     Ok(charts.remove(0).expect("a chart"))
 }
 
+/// The label engine, with the providers of GoogleSQL's number and date patterns, which every chart
+/// of avenger-sql names.
 fn engine() -> LabelEngine {
     avenger_typst_label::bundled_label_engine()
-        .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
-        .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
+        .with_number_formatting(Arc::new(GoogleSqlNumberFormatProvider::new()))
+        .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()))
 }
 
 /// The cascade of the base stylesheet.
