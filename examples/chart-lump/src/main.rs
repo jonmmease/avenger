@@ -97,7 +97,7 @@ async fn tables(movies: RecordBatch) -> datafusion::error::Result<Tables> {
 /// The color of a lumped genre, light gray outside the selection.
 fn color() -> EncodingBuilder {
     Encoding::scaled_field("lumped")
-        .scale(Legend::builder().title("Genre"))
+        .legend(Legend::builder().title("Genre"))
         .conditional([ConditionalValue::direct_value(
             Predicate::negate(Predicate::selected(GENRES)),
             "lightgray",
@@ -112,8 +112,8 @@ fn bars(genres: &RecordBatch) -> PlotBuilder {
         Labels::builder()
             .markup("#if other [#value (#count)] else if null [No genre] else [#value]")
     };
-    let x = Encoding::scaled_field("lumped").scale(Axis::builder().title("Genre").labels(genre()));
-    let y = Encoding::scaled_field("movies").scale(Axis::builder().title("Movies"));
+    let x = Encoding::scaled_field("lumped").axis(Axis::builder().title("Genre").labels(genre()));
+    let y = Encoding::scaled_field("movies").axis(Axis::builder().title("Movies"));
     let tooltip = Tooltip::exact()
         .title(TooltipField::builder().column("lumped").labels(genre()))
         .fields([TooltipField::builder().column("movies").title("Movies")]);
@@ -132,8 +132,8 @@ fn bars(genres: &RecordBatch) -> PlotBuilder {
 /// The ratings of the movies, colored by their lumped genres.
 fn ratings(movies: &RecordBatch) -> PlotBuilder {
     let x = Encoding::scaled_field("rotten_tomatoes_rating")
-        .scale(Axis::builder().title("Rotten Tomatoes rating"));
-    let y = Encoding::scaled_field("imdb_rating").scale(Axis::builder().title("IMDB rating"));
+        .axis(Axis::builder().title("Rotten Tomatoes rating"));
+    let y = Encoding::scaled_field("imdb_rating").axis(Axis::builder().title("IMDB rating"));
     let tooltip = Tooltip::nearest(NearestFind::builder().max_radius(10.0))
         .title(TooltipField::builder().column("title"))
         .fields([

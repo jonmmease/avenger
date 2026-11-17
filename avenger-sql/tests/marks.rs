@@ -407,6 +407,65 @@ async fn invalid_calls_fail_at_planning() {
 }
 
 #[tokio::test]
+async fn order_orders_a_path_and_order_by_draws_the_rows() {
+    // The `order` channel of a line orders its path by a column.
+    let line = chart("FROM t |> AGGREGATE line(x => a, y => b, order => k) AS chart").await;
+    assert!(matches!(
+        encoding(&line, Channel::Order),
+        Some(encoding::Kind::DirectField(field)) if field == "k"
+    ));
+    // A mark without a path has no `order`, and its error names `ORDER BY`.
+    let message = error("FROM t |> AGGREGATE symbol(x => a, y => b, order => k) AS chart").await;
+    assert!(
+        message.contains("symbol has no parameter named `order`")
+            && message.contains("`ORDER BY` of the call gives the draw order of the rows"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn a_polar_text_takes_an_orient_or_an_angle() {
+    let orient = |chart: &Chart| match layer(chart) {
+        LayerRef::Polar(avenger_chart::proto::PolarLayer {
+            mark: Some(avenger_chart::proto::polar_layer::Mark::Text(text)),
+            ..
+        }) => text.orient,
+        _ => panic!("the layer draws polar texts"),
+    };
+    let tangential = chart(
+        "FROM t
+         |> AGGREGATE polar_text(text => s, theta => a, radius => b, orient => 'tangential') AS chart",
+    )
+    .await;
+    assert_eq!(
+        orient(&tangential),
+        avenger_chart::proto::PolarTextOrient::Tangential as i32
+    );
+    let turned = chart(
+        "FROM t |> AGGREGATE polar_text(text => s, theta => a, radius => b, angle => a) AS chart",
+    )
+    .await;
+    assert!(matches!(
+        encoding(&turned, Channel::Angle),
+        Some(encoding::Kind::ScaledField(field)) if field == "a"
+    ));
+    let message = match run("FROM t
+         |> AGGREGATE polar_text(
+              text => s,
+              theta => a,
+              radius => b,
+              orient => 'radial',
+              angle => a,
+            ) AS chart")
+    .await
+    {
+        Ok(_) => panic!("a polar text with an orient and an angle is invalid"),
+        Err(error) => error.to_string(),
+    };
+    assert!(message.contains("not both"), "{message}");
+}
+
+#[tokio::test]
 async fn an_empty_group_gives_a_chart_of_no_rows() {
     let chart = chart("FROM t |> WHERE a > 100 |> AGGREGATE symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 0);

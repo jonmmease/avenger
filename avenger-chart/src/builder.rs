@@ -465,48 +465,34 @@ pub(crate) trait Finish: Renumber + Sized {
     }
 }
 
-/// Hides the axis of `scale`, keeping its other fields.
-fn hide_axis(scale: &mut proto::Scale) {
-    scale.axis.get_or_insert_with(Default::default).show = Some(false);
+/// Hides the axis of `encoding`, keeping its other fields.
+fn hide_axis(encoding: &mut proto::Encoding) {
+    encoding.axis.get_or_insert_with(Default::default).show = Some(false);
 }
 
-/// Hides the legend of `scale`, keeping its other fields.
-fn hide_legend(scale: &mut proto::Scale) {
-    scale.legend.get_or_insert_with(Default::default).show = Some(false);
+/// Hides the legend of `encoding`, keeping its other fields.
+fn hide_legend(encoding: &mut proto::Encoding) {
+    encoding.legend.get_or_insert_with(Default::default).show = Some(false);
 }
 
-impl proto::ScaleBuilder {
-    /// Draws no axis for the scale: sets `axis.show` to `false`.
+impl proto::EncodingBuilder {
+    /// Draws no axis for the encoding's scale: sets `axis.show` to `false`. The encoding has a
+    /// scaled value on `x`, `y`, `theta`, or `radius`, as every encoding with an axis does.
     pub fn no_axis(mut self) -> Self {
         hide_axis(&mut self.message);
         self
     }
 
-    /// Draws no legend for the scale: sets `legend.show` to `false`.
+    /// Draws no legend for the encoding's scale, as [`no_axis`](Self::no_axis) draws no axis. The
+    /// encoding has a scaled value on a channel other than a position.
     pub fn no_legend(mut self) -> Self {
         hide_legend(&mut self.message);
         self
     }
 }
 
-impl proto::EncodingBuilder {
-    /// Draws no axis for the encoding's scale: sets `axis.show` of its scale to `false`, and
-    /// gives the encoding a scale when it has none, whose type and domain the reader infers. The
-    /// encoding has a scaled value, as every encoding with a scale does.
-    pub fn no_axis(mut self) -> Self {
-        hide_axis(self.message.scale.get_or_insert_with(Default::default));
-        self
-    }
-
-    /// Draws no legend for the encoding's scale, as [`no_axis`](Self::no_axis) draws no axis.
-    pub fn no_legend(mut self) -> Self {
-        hide_legend(self.message.scale.get_or_insert_with(Default::default));
-        self
-    }
-}
-
-/// Hides the axes and the legends of the scales of the encodings of `mark`: the axis of each
-/// scaled position and the legend of each other scaled channel with a scale of its own.
+/// Hides the axes and the legends of the encodings of `mark`: the axis of each scaled position
+/// and the legend of each other scaled channel with a scale of its own.
 fn hide_guides(mark: &mut dyn MarkMessage) {
     for channel in mark.channels() {
         let Some(encoding) = mark.encoding_mut(*channel) else {
@@ -515,10 +501,9 @@ fn hide_guides(mark: &mut dyn MarkMessage) {
         if !takes_scale(*channel) || !scaled(encoding) {
             continue;
         }
-        let scale = encoding.scale.get_or_insert_with(Default::default);
         match is_position(*channel) {
-            true => hide_axis(scale),
-            false => hide_legend(scale),
+            true => hide_axis(encoding),
+            false => hide_legend(encoding),
         }
     }
 }

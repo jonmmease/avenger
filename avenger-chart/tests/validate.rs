@@ -47,15 +47,14 @@ fn symbol_mut(message: &mut proto::Chart) -> &mut SymbolMark {
     }
 }
 
+/// The encoding of `x`.
+fn x_encoding(message: &mut proto::Chart) -> &mut proto::Encoding {
+    symbol_mut(message).x.as_mut().unwrap()
+}
+
 /// The scale of `x`.
 fn x_scale(message: &mut proto::Chart) -> &mut proto::Scale {
-    symbol_mut(message)
-        .x
-        .as_mut()
-        .unwrap()
-        .scale
-        .as_mut()
-        .unwrap()
+    x_encoding(message).scale.as_mut().unwrap()
 }
 
 fn read(parts: (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)) -> Result<Chart, ChartError> {
@@ -506,15 +505,128 @@ fn the_plot_gives_the_range_of_a_position() {
 
 #[test]
 fn a_guide_is_of_a_kind_that_its_channel_takes() {
+    // A legend on a position.
     let mut parts = base();
-    x_scale(&mut parts.0).legend = Some(proto::Legend::default());
-    invalid(parts, &format!("{X}.scale.legend"), "other than a position");
+    x_encoding(&mut parts.0).legend = Some(proto::Legend::default());
+    invalid(
+        parts,
+        &format!("{X}.legend"),
+        "a legend is valid only on a channel other than a position",
+    );
+    // An axis on a channel other than a position.
+    let mut parts = base();
+    symbol_mut(&mut parts.0).color = Some(Encoding {
+        axis: Some(proto::Axis::default()),
+        ..column("a", linear_data())
+    });
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].symbol.color.axis",
+        "an axis is valid only on a position with a scale of its own",
+    );
+    // An axis on the second channel of a pair, which follows the scale of the first.
+    let rule = |x2: Encoding| proto::CartesianLayer {
+        table: Some(proto::TableRef { index: 0 }),
+        mark: Some(cartesian_layer::Mark::Rule(proto::RuleMark {
+            x: Some(column("a", linear_data())),
+            x2: Some(x2),
+            y: Some(column("b", linear_data())),
+            ..Default::default()
+        })),
+        ..Default::default()
+    };
+    let x2 = || Encoding {
+        kind: Some(encoding::Kind::ScaledField("b".to_string())),
+        ..Default::default()
+    };
+    read((chart(plot(vec![rule(x2())])), vec![points()], vec![])).unwrap();
+    invalid(
+        (
+            chart(plot(vec![rule(Encoding {
+                axis: Some(proto::Axis::default()),
+                ..x2()
+            })])),
+            vec![points()],
+            vec![],
+        ),
+        "root.plot.cartesian.layers[0].rule.x2.axis",
+        "an axis is valid only on a position with a scale of its own",
+    );
+    // An axis or a legend on an encoding without a scale.
+    let mut parts = base();
+    *x_encoding(&mut parts.0) = Encoding {
+        kind: Some(encoding::Kind::DirectValue(ValueRef { index: 0 })),
+        axis: Some(proto::Axis::default()),
+        ..Default::default()
+    };
+    parts.2 = vec![Arc::new(Float64Array::from(vec![0.5])) as ArrayRef];
+    invalid(
+        parts,
+        &format!("{X}.axis"),
+        "an encoding without a scale has no axis",
+    );
+    let mut parts = base();
+    symbol_mut(&mut parts.0).fill = Some(Encoding {
+        kind: Some(encoding::Kind::DirectValue(ValueRef { index: 0 })),
+        legend: Some(proto::Legend::default()),
+        ..Default::default()
+    });
+    parts.2 = vec![Arc::new(StringArray::from(vec!["red"])) as ArrayRef];
+    invalid(
+        parts,
+        "root.plot.cartesian.layers[0].symbol.fill.legend",
+        "an encoding without a scale has no legend",
+    );
+}
+
+#[test]
+fn a_polar_text_turns_by_its_orient_or_by_its_angle() {
+    let text = |orient: proto::PolarTextOrient, angle: Option<Encoding>| {
+        let layer = proto::PolarLayer {
+            table: Some(proto::TableRef { index: 0 }),
+            mark: Some(proto::polar_layer::Mark::Text(proto::PolarTextMark {
+                theta: Some(column("a", linear_data())),
+                radius: Some(column("b", linear_data())),
+                text: Some(Encoding {
+                    kind: Some(encoding::Kind::DirectField("a".to_string())),
+                    ..Default::default()
+                }),
+                orient: orient as i32,
+                angle,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+        let root = proto::Node {
+            node: Some(node::Node::Plot(Plot {
+                coord: Some(plot::Coord::Polar(proto::PolarPlot {
+                    layers: vec![layer],
+                    ..Default::default()
+                })),
+                ..Default::default()
+            })),
+        };
+        (chart(root), vec![points()], vec![])
+    };
+    let angle = || {
+        Some(Encoding {
+            kind: Some(encoding::Kind::DirectField("b".to_string())),
+            ..Default::default()
+        })
+    };
+    read(text(proto::PolarTextOrient::Radial, None)).unwrap();
+    read(text(proto::PolarTextOrient::Unspecified, angle())).unwrap();
+    invalid(
+        text(proto::PolarTextOrient::Tangential, angle()),
+        "root.plot.polar.layers[0].text.angle",
+        "by its `orient` or by its `angle`, not both",
+    );
 }
 
 #[test]
 fn a_pattern_needs_its_syntax() {
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(proto::Axis {
+    x_encoding(&mut parts.0).axis = Some(proto::Axis {
         labels: Some(proto::Labels {
             format: ",.0f".to_string(),
             ..Default::default()
@@ -523,7 +635,7 @@ fn a_pattern_needs_its_syntax() {
     });
     invalid(
         parts.clone(),
-        &format!("{X}.scale.axis.labels.format"),
+        &format!("{X}.axis.labels.format"),
         "number_format_syntax",
     );
     parts.0.number_format_syntax = "d3".to_string();
@@ -973,9 +1085,8 @@ fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
     )
     .unwrap();
     let mut parts = (chart(plot(vec![symbols(0)])), vec![table], vec![]);
-    let x = x_scale(&mut parts.0);
-    x.r#type = Some(scale::Type::NestedBand(proto::NestedBandScale::default()));
-    x.axis = Some(guide);
+    x_scale(&mut parts.0).r#type = Some(scale::Type::NestedBand(proto::NestedBandScale::default()));
+    x_encoding(&mut parts.0).axis = Some(guide);
     parts
 }
 
@@ -995,7 +1106,7 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
     read(nested(axis(vec![level(Some(false)), level(None)]))).unwrap();
     invalid(
         nested(axis(vec![level(None), level(None), level(None)])),
-        &format!("{X}.scale.axis.levels"),
+        &format!("{X}.axis.levels"),
         "the axis has 3 levels, and the paths of its scale have 2",
     );
     // A level's pattern of numbers needs its syntax, and the values of these levels are strings.
@@ -1017,14 +1128,14 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
     };
     invalid(
         nested(axis(vec![styled])),
-        &format!("{X}.scale.axis.levels[0].labels.font_size"),
+        &format!("{X}.axis.levels[0].labels.font_size"),
         "take the markup and the font of the axis's labels",
     );
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(axis(vec![level(None)]));
+    x_encoding(&mut parts.0).axis = Some(axis(vec![level(None)]));
     invalid(
         parts,
-        &format!("{X}.scale.axis.levels"),
+        &format!("{X}.axis.levels"),
         "valid only on the axis of a nested band scale",
     );
 }
@@ -1037,7 +1148,7 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     };
     invalid(
         nested(ticks(axis::TickPlacement::TickCount(3.0))),
-        &format!("{X}.scale.axis.tick_count"),
+        &format!("{X}.axis.tick_count"),
         "ticks at the bands of its leaf",
     );
     let band = |placement| {
@@ -1046,14 +1157,13 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
             ("a", vec![1.0, 2.0, 3.0]),
             ("b", vec![4.0, 6.0, 5.0]),
         ])];
-        let x = x_scale(&mut parts.0);
-        x.r#type = Some(scale::Type::Band(proto::BandScale::default()));
-        x.axis = Some(ticks(placement));
+        x_scale(&mut parts.0).r#type = Some(scale::Type::Band(proto::BandScale::default()));
+        x_encoding(&mut parts.0).axis = Some(ticks(placement));
         parts
     };
     invalid(
         band(axis::TickPlacement::TickCount(3.0)),
-        &format!("{X}.scale.axis.tick_count"),
+        &format!("{X}.axis.tick_count"),
         "only a list of ticks is valid",
     );
     let mut listed = band(axis::TickPlacement::Values(ValueRef { index: 0 }));
@@ -1077,13 +1187,13 @@ fn a_class_is_not_empty_and_holds_no_whitespace() {
     );
 
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(proto::Axis {
+    x_encoding(&mut parts.0).axis = Some(proto::Axis {
         classes: strings(&["a\tb"]),
         ..Default::default()
     });
     invalid(
         parts,
-        "root.plot.cartesian.layers[0].symbol.x.scale.axis.classes[0]",
+        "root.plot.cartesian.layers[0].symbol.x.axis.classes[0]",
         "holds no whitespace",
     );
 
@@ -1519,7 +1629,7 @@ fn the_title_of_a_node_has_text_and_always_shows() {
     // The title of a guide styles the title that its guide gives without a text of its own, and
     // hides it.
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(proto::Axis {
+    x_encoding(&mut parts.0).axis = Some(proto::Axis {
         title: Some(proto::Title {
             font_size: Some(14.0),
             show: Some(false),
@@ -1533,7 +1643,7 @@ fn the_title_of_a_node_has_text_and_always_shows() {
 #[test]
 fn a_subtitle_font_is_only_on_the_title_of_a_node() {
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(proto::Axis {
+    x_encoding(&mut parts.0).axis = Some(proto::Axis {
         title: Some(proto::Title {
             subtitle_color: "gray".to_string(),
             ..Default::default()
@@ -1542,7 +1652,7 @@ fn a_subtitle_font_is_only_on_the_title_of_a_node() {
     });
     invalid(
         parts,
-        &format!("{X}.scale.axis.title.subtitle_color"),
+        &format!("{X}.axis.title.subtitle_color"),
         "only the title of a plot",
     );
 }
@@ -1550,17 +1660,14 @@ fn a_subtitle_font_is_only_on_the_title_of_a_node() {
 /// The base chart with a color encoding of `b` through a linear scale with `legend`.
 fn with_legend(legend: proto::Legend) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
     let mut parts = base();
-    symbol_mut(&mut parts.0).color = Some(column(
-        "b",
-        proto::Scale {
-            legend: Some(legend),
-            ..linear_data()
-        },
-    ));
+    symbol_mut(&mut parts.0).color = Some(proto::Encoding {
+        legend: Some(legend),
+        ..column("b", linear_data())
+    });
     parts
 }
 
-const COLOR: &str = "root.plot.cartesian.layers[0].symbol.color.scale.legend";
+const COLOR: &str = "root.plot.cartesian.layers[0].symbol.color.legend";
 
 #[test]
 fn a_legend_takes_the_fields_of_its_type() {
@@ -1638,14 +1745,14 @@ fn a_legend_takes_the_fields_of_its_type() {
 fn a_tick_step_fits_its_scale() {
     let stepped = |step: proto::TickStep, values: Vec<ArrayRef>| {
         let mut parts = base();
-        x_scale(&mut parts.0).axis = Some(proto::Axis {
+        x_encoding(&mut parts.0).axis = Some(proto::Axis {
             tick_placement: Some(axis::TickPlacement::TickStep(step)),
             ..Default::default()
         });
         parts.2 = values;
         parts
     };
-    let path = format!("{X}.scale.axis.tick_step");
+    let path = format!("{X}.axis.tick_step");
     read(stepped(
         proto::TickStep {
             step: 0.5,
@@ -1755,7 +1862,7 @@ fn facets_and_widgets_always_show_their_labels() {
 #[test]
 fn only_the_title_of_a_node_has_a_subtitle() {
     let mut parts = base();
-    x_scale(&mut parts.0).axis = Some(proto::Axis {
+    x_encoding(&mut parts.0).axis = Some(proto::Axis {
         title: Some(proto::Title {
             text: "x".to_string(),
             subtitle: "units".to_string(),
@@ -1765,7 +1872,7 @@ fn only_the_title_of_a_node_has_a_subtitle() {
     });
     invalid(
         parts,
-        &format!("{X}.scale.axis.title.subtitle"),
+        &format!("{X}.axis.title.subtitle"),
         "only the title of a plot",
     );
 }

@@ -1,5 +1,5 @@
 //! The path order of lines and areas: each series connects its rows in ascending order of
-//! `ordering`, or without it, along the key, `x` when vertical and `y` when horizontal, with equal
+//! `order`, or without it, along the key, `x` when vertical and `y` when horizontal, with equal
 //! values in row order. The first row of each series orders the series. A row without a position
 //! breaks the path.
 
@@ -128,8 +128,8 @@ fn a_horizontal_line_and_area_connect_their_rows_along_y() {
     assert!(ascending(y) || ascending(&descending), "{y:?}");
 }
 
-/// Two quantitative positions are vertical, so a connected scatter plot writes `ordering`, and its
-/// line connects the rows in the order of `ordering`, with `NULL` last.
+/// Two quantitative positions are vertical, so a connected scatter plot writes `order`, and its
+/// line connects the rows in the order of `order`, with `NULL` last.
 #[test]
 fn order_connects_the_rows_in_its_order() {
     let rows = RecordBatch::try_from_iter([
@@ -150,7 +150,7 @@ fn order_connects_the_rows_in_its_order() {
     ])
     .unwrap();
     let evaluated = evaluate(
-        &line(rows, LineMark::builder().x("x").y("y").ordering("t")),
+        &line(rows, LineMark::builder().x("x").y("y").order("t")),
         [320.0, 240.0],
     );
     let (x, _) = &paths(&evaluated)[0];

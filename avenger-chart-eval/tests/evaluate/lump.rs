@@ -109,7 +109,7 @@ fn bars(scale: ScaleBuilder, labels: Option<LabelsBuilder>) -> Chart {
     if let Some(labels) = labels {
         axis = axis.labels(labels);
     }
-    let x = Encoding::scaled_field("lumped").scale(scale.axis(axis));
+    let x = Encoding::scaled_field("lumped").scale(scale).axis(axis);
     let bars = CartesianLayer::bar(counted_cars(), BarMark::builder().x(x).y("cars"));
     Chart::builder(Plot::cartesian([bars]))
         .number_format_syntax("d3")
@@ -187,7 +187,7 @@ fn a_label_shared_by_partitions_with_other_counts_names_no_count() {
     ])
     .unwrap();
     let color = Encoding::scaled_field("lumped")
-        .scale(Legend::builder().labels(Labels::builder().markup("#value (#count)")));
+        .legend(Legend::builder().labels(Labels::builder().markup("#value (#count)")));
     let symbols = CartesianLayer::symbol(table, SymbolMark::builder().x("x").y("x").color(color));
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let texts = scene_texts(&evaluate(&chart, [320.0, 240.0]).scene.marks);
@@ -316,8 +316,7 @@ fn a_stylesheet_draws_the_other_bar_gray_with_a_pattern() {
         ),
     ])
     .unwrap();
-    let x = Encoding::scaled_field("lumped")
-        .scale(Scale::builder().axis(Axis::builder().title("cylinders")));
+    let x = Encoding::scaled_field("lumped").axis(Axis::builder().title("cylinders"));
     let bars = CartesianLayer::bar(counted, BarMark::builder().x(x).y("cars"));
     let chart = Chart::builder(Plot::cartesian([bars]))
         .number_format_syntax("d3")
@@ -497,9 +496,8 @@ fn a_polar_axis_of_lumps_labels_the_other_group() {
         PolarBarMark::builder()
             .theta(
                 Encoding::scaled_field("lumped")
-                    .scale(Scale::band(BandScale::builder()).axis(
-                        Axis::builder().labels(Labels::builder().markup("#value (#weight)")),
-                    )),
+                    .scale(Scale::band(BandScale::builder()))
+                    .axis(Axis::builder().labels(Labels::builder().markup("#value (#weight)"))),
             )
             .radius(Encoding::scaled_field("cars").scale(Scale::builder().zero(true))),
     );
@@ -557,8 +555,9 @@ fn counted_cars_with_nulls(drop: bool) -> RecordBatch {
 #[test]
 fn a_kept_null_category_of_a_lump_comes_after_the_other_group() {
     let chart = |drop: bool, scale: ScaleBuilder| {
-        let x =
-            Encoding::scaled_field("lumped").scale(scale.axis(Axis::builder().title("cylinders")));
+        let x = Encoding::scaled_field("lumped")
+            .scale(scale)
+            .axis(Axis::builder().title("cylinders"));
         let bars = CartesianLayer::bar(
             counted_cars_with_nulls(drop),
             BarMark::builder().x(x).y("cars"),
@@ -626,11 +625,9 @@ fn a_summary_of_lumps_gives_the_categories_and_the_weights_of_its_lumps() {
         arrow::compute::take_record_batch(&all, &arrow::array::UInt32Array::from(vec![3u32, 2]))
             .unwrap();
     let summary = Value::scalar(Arc::new(summary.to_arrow()));
-    let x = Encoding::scaled_field("lumped").scale(
-        Scale::builder()
-            .summary(summary)
-            .axis(Axis::builder().title("cylinders")),
-    );
+    let x = Encoding::scaled_field("lumped")
+        .scale(Scale::builder().summary(summary))
+        .axis(Axis::builder().title("cylinders"));
     let bars = CartesianLayer::bar(rows, BarMark::builder().x(x).y("cars"));
     let chart = Chart::builder(Plot::cartesian([bars]))
         .number_format_syntax("d3")

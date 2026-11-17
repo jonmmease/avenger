@@ -5,6 +5,8 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
+import "avenger/chart/v1/axis.proto";
+import "avenger/chart/v1/legend.proto";
 import "avenger/chart/v1/scale.proto";
 import "avenger/chart/v1/selection.proto";
 import "avenger/chart/v1/value.proto";
@@ -77,7 +79,7 @@ message Encoding {
   Scale scale = 6;
   // Values for the rows that predicates select, in order. A row takes the value of the first
   // conditional value whose predicate selects it, and the value of the encoding when none does.
-  // The position channels of every coordinate system, `detail`, and `ordering` have no conditional
+  // The position channels of every coordinate system, `detail`, and `order` have no conditional
   // values. The reach of a row covers every value that the encoding and its conditional values can
   // give it, so a change of a selection does not fit the domains again.
   repeated ConditionalValue conditional = 7;
@@ -114,6 +116,21 @@ message Encoding {
   // their bands come from the scale's other paths, and a row whose group they do not hold has no
   // band and does not draw.
   optional uint32 band_level = 11;
+  // The axis of the channel's scale. Valid only on a position channel with a scale of its own,
+  // `x`, `y`, `theta`, or `radius`, in an encoding with a scale. When unset, `x` and `y` have an
+  // axis and `theta` and `radius` have none.
+  //
+  // The encodings that share a scale share its axis, and their axes merge: an axis that one
+  // encoding sets and another leaves unset is the axis of both, and each setting that both set,
+  // in the axis and in its parts, must be equal, except that the classes of the axes join. Every
+  // axis of the shared scale draws the merged axis.
+  Axis axis = 12;
+  // The legend of the channel's scale. Valid only on a channel other than a position, in an
+  // encoding with a scale. When unset, a discrete scale has a symbol legend, a quantize, quantile,
+  // or threshold scale has a symbol legend of its bins, a continuous color scale has a colorbar,
+  // another continuous scale, such as `size`, has a symbol legend of its ticks, and an `angle`
+  // scale has none. The legends of the encodings that share a scale merge as their axes do.
+  Legend legend = 13;
 }
 
 // A value of a channel for the rows that a predicate selects.

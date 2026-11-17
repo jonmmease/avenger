@@ -85,16 +85,17 @@ fn labels_outside_a_donut_shrink_its_circle() {
 
 #[test]
 fn a_rose_chart_draws_its_theta_axis_around_the_rim() {
-    let bars =
-        PolarLayer::bar(
-            categories(),
-            PolarBarMark::builder()
-                .theta(Encoding::scaled_field("category").scale(
-                    Scale::band(BandScale::builder().padding_inner(0.1)).axis(Axis::builder()),
-                ))
-                .radius(Encoding::scaled_field("amount").scale(Scale::builder().zero(true)))
-                .color("category"),
-        );
+    let bars = PolarLayer::bar(
+        categories(),
+        PolarBarMark::builder()
+            .theta(
+                Encoding::scaled_field("category")
+                    .scale(Scale::band(BandScale::builder().padding_inner(0.1)))
+                    .axis(Axis::builder()),
+            )
+            .radius(Encoding::scaled_field("amount").scale(Scale::builder().zero(true)))
+            .color("category"),
+    );
     let chart = Chart::builder(Plot::polar([bars])).build().unwrap();
     render_both(&chart, "polar-rose");
 
@@ -119,19 +120,21 @@ fn a_rose_chart_draws_its_theta_axis_around_the_rim() {
 
 #[test]
 fn a_radial_bar_chart_runs_its_bars_around_part_of_the_circle() {
-    let bars =
-        PolarLayer::bar(
-            categories(),
-            PolarBarMark::builder()
-                .orient(Orient::Horizontal)
-                .radius(Encoding::scaled_field("category").scale(
-                    Scale::band(BandScale::builder().padding_inner(0.2)).axis(Axis::builder()),
-                ))
-                .theta(
-                    Encoding::scaled_field("amount")
-                        .scale(Scale::builder().zero(true).axis(Axis::builder())),
-                ),
-        );
+    let bars = PolarLayer::bar(
+        categories(),
+        PolarBarMark::builder()
+            .orient(Orient::Horizontal)
+            .radius(
+                Encoding::scaled_field("category")
+                    .scale(Scale::band(BandScale::builder().padding_inner(0.2)))
+                    .axis(Axis::builder()),
+            )
+            .theta(
+                Encoding::scaled_field("amount")
+                    .scale(Scale::builder().zero(true))
+                    .axis(Axis::builder()),
+            ),
+    );
     let plot = PolarPlot::new([bars]).options(Polar::builder().end_angle(270.0).inner_radius(0.2));
     let chart = Chart::builder(Plot::polar(plot)).build().unwrap();
     render_both(&chart, "polar-radial-bars");
@@ -148,14 +151,13 @@ fn a_radial_bar_chart_runs_its_bars_around_part_of_the_circle() {
 fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
     let theta = || {
         Encoding::scaled_field("skill")
-            .scale(Scale::point(PointScale::builder()).axis(Axis::builder().route(Route::Canvas)))
+            .scale(Scale::point(PointScale::builder()))
+            .axis(Axis::builder().route(Route::Canvas))
     };
     let radius = || {
-        Encoding::scaled_field("value").scale(
-            Scale::builder()
-                .explicit([0.0, 5.0])
-                .axis(Axis::builder().route(Route::Canvas).tick_count(5.0)),
-        )
+        Encoding::scaled_field("value")
+            .scale(Scale::builder().explicit([0.0, 5.0]))
+            .axis(Axis::builder().route(Route::Canvas).tick_count(5.0))
     };
     let areas = PolarLayer::area(
         skills(),
@@ -164,7 +166,7 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
             .theta(theta())
             .radius(radius())
             .color("unit")
-            .ordering("step")
+            .order("step")
             .fill_opacity(0.25),
     );
     let lines = PolarLayer::line(
@@ -174,7 +176,7 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
             .theta(theta())
             .radius(radius())
             .color("unit")
-            .ordering("step"),
+            .order("step"),
     );
     let points = PolarLayer::symbol(
         skills(),
@@ -203,7 +205,8 @@ fn a_sunburst_curves_the_names_of_its_rings() {
     );
     let names = PolarLayer::text(
         hierarchy(),
-        PolarTextMark::orient("name", PolarTextOrient::Tangential)
+        PolarTextMark::new("name")
+            .orient(PolarTextOrient::Tangential)
             .radius_side(RadiusSide::Middle)
             .theta("middle")
             .radius(Encoding::direct_field("ring"))
@@ -222,6 +225,46 @@ fn a_sunburst_curves_the_names_of_its_rings() {
         .flatten()
         .any(|mark| matches!(mark, SceneMark::Text(text) if text.text_path.is_some()));
     assert!(curved);
+}
+
+/// The angles of the text marks of the scene, in degrees, one for each text.
+fn text_angles(evaluated: &EvaluatedChart) -> Vec<f32> {
+    fn walk(marks: &[SceneMark], out: &mut Vec<f32>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Text(text) => out.extend(text.angle.as_vec(text.len as usize, None)),
+                SceneMark::Group(group) => walk(&group.marks, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&evaluated.scene.marks, &mut out);
+    out
+}
+
+/// A polar text turns by its `angle` channel, which a polar text without an `orient` takes, and a
+/// radial text turns along its spoke.
+#[test]
+fn a_polar_text_turns_by_its_angle() {
+    let chart = |text: PolarTextMarkBuilder| {
+        let texts = PolarLayer::text(categories(), text.theta("category").radius(0.5));
+        Chart::builder(Plot::polar([texts])).build().unwrap()
+    };
+    let turned = evaluate(
+        &chart(PolarTextMark::new("category").angle(Encoding::direct_value(30.0))),
+        [320.0, 240.0],
+    );
+    let angles = text_angles(&turned);
+    assert_eq!(angles.len(), 6, "{angles:?}");
+    assert!(angles.iter().all(|angle| *angle == 30.0), "{angles:?}");
+    let flat = evaluate(&chart(PolarTextMark::new("category")), [320.0, 240.0]);
+    assert!(text_angles(&flat).iter().all(|angle| *angle == 0.0));
+    let radial = evaluate(
+        &chart(PolarTextMark::new("category").orient(PolarTextOrient::Radial)),
+        [320.0, 240.0],
+    );
+    assert_ne!(text_angles(&radial), text_angles(&flat));
 }
 
 #[test]

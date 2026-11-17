@@ -919,7 +919,7 @@ fn label_halo(inputs: &PolarInputs, path: &str) -> Option<TextHalo> {
 
 /// The polar axis of the scale group `group` of `theta` or `radius`, at `index`, whose first plot
 /// is `plot` with the part of the circle `sector`, from the computed styles of its nodes. It draws
-/// when the spec has an axis that the styles show.
+/// when its encodings have an axis that the styles show.
 fn polar_axis(
     inputs: &PolarInputs,
     index: usize,
@@ -929,7 +929,7 @@ fn polar_axis(
     position: &Position,
 ) -> Result<PolarAxisGuide> {
     let styles = inputs.styles;
-    let spec = group.spec.axis.clone().unwrap_or_default();
+    let spec = group.axis.clone().unwrap_or_default();
     let nodes = match inputs.nodes.guides.get(index) {
         Some(Some(GuideNodes::PolarAxis(nodes))) => Some(nodes),
         _ => None,

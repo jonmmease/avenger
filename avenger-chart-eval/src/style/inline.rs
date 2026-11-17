@@ -764,9 +764,7 @@ pub(crate) fn polar_mark(tree: &mut Styled, node: NodeId, mark: &polar_layer::Ma
                 _ => None,
             };
             keyword(tree, node, Property::ThetaSide, theta_side);
-            if let Some(proto::polar_text_mark::Turn::Orient(orient)) = text.turn {
-                keyword(tree, node, Property::TextOrient, polar_orient(orient));
-            }
+            keyword(tree, node, Property::TextOrient, polar_orient(text.orient));
         }
         Mark::Line(_) | Mark::Trail(_) | Mark::Area(_) | Mark::Rule(_) => {}
     }

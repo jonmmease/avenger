@@ -124,14 +124,12 @@ fn panel(movies: RecordBatch) -> PlotBuilder {
     let symbols = CartesianLayer::symbol(
         movies,
         SymbolMark::builder()
-            .x(Encoding::scaled_field(ROTTEN_TOMATOES).scale(
-                Scale::builder()
-                    .family(genre)
-                    .axis(Axis::builder().title("Rotten Tomatoes rating")),
-            ))
-            .y(Encoding::scaled_field(IMDB).scale(Axis::builder().title("IMDB rating")))
+            .x(Encoding::scaled_field(ROTTEN_TOMATOES)
+                .scale(Scale::builder().family(genre))
+                .axis(Axis::builder().title("Rotten Tomatoes rating")))
+            .y(Encoding::scaled_field(IMDB).axis(Axis::builder().title("IMDB rating")))
             .color(
-                Encoding::scaled_field(YEAR).scale(
+                Encoding::scaled_field(YEAR).legend(
                     Legend::builder()
                         .title("Year")
                         .labels(Labels::builder().format("d")),

@@ -74,10 +74,10 @@ FROM penguins
 ```
 
 - Marks include `bar`, `line`, `area`, `symbol`, `rule`, `rect`, `text`, `trail`, `path`, `image`, their `polar_` forms, and the `geo_` marks of maps.
-- `scaled(value, scale => ...)` and `direct(value)` choose whether a channel goes through a scale.
+- `scaled(value, scale => ...)` and `direct(value)` choose whether a channel goes through a scale. `scaled` also takes the options of its channel's encoding, such as `title`, the `axis` of a position, as in `x => scaled(body_mass_g, axis => axis(grid => FALSE))`, and the `legend` of another channel.
 - A constructor builds the options of a chart, such as `polar(inner_radius => 0.5)` for a mark's `coord`, or `scale(zero => FALSE)` for a scale. Its arguments are constants.
 - A mark call takes the options of its plot and its layer as named constants after its channels: `title`, `attribution`, `tools`, `width`, `height`, `id`, and `classes`, as in `symbol(x => a, y => b, title => 'Points', tools => [navigate(), tooltip()])`. A navigation goes on the plot, and a tooltip or a selection on the mark's layer.
-- The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them.
+- The `ORDER BY` of a mark call is the draw order of its rows, and a `WHERE` before the `AGGREGATE` selects them. The `order` channel of a line or an area orders the rows of its path, as in `line(x => x, y => y, order => step)`.
 - A channel takes aggregates, as in `bar(x => species, y => COUNT(*))`: each channel without an aggregate is a key, and the call aggregates once for each group and key. A channel's column takes the text of its value, such as `COUNT(*)`, as its title.
 - A channel takes windows on its rows too, as in `bar(x => bin(body_mass_g), y => COUNT(*))`. There `bin`, `timeunit`, and `lump` take no `OVER`, and compute over the whole input, or over each group with `OVER panel`.
 - A window that reads an aggregate runs on the aggregated rows, as `stack(COUNT(*))` does. `stack` takes no `OVER` there and stacks within `position`, the groups and the position keys. The windows `panel`, `position`, and `series` partition by the groups, and by the position or the series keys, and give an order where GoogleSQL leaves one unspecified.

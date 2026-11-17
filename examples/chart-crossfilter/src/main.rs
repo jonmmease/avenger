@@ -86,7 +86,7 @@ fn axis(column: &str, title: &str, format: &str) -> EncodingBuilder {
     if !format.is_empty() {
         labels = labels.format(format);
     }
-    Encoding::scaled_field(column).scale(Axis::builder().title(title).labels(labels))
+    Encoding::scaled_field(column).axis(Axis::builder().title(title).labels(labels))
 }
 
 fn imdb() -> EncodingBuilder {

@@ -50,7 +50,7 @@ FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, co
 constructors
 FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(surface => spherical(projection => 'mercator'))) AS chart
 constructors
-FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart
+FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass', axis => axis(grid => FALSE)), y => scaled(flipper_length_mm, axis => FALSE), color => scaled(species, legend => legend(columns => 2))) AS chart
 constructors
 FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)
 constructors

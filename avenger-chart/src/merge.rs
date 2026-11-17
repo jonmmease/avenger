@@ -1,5 +1,6 @@
-//! The merge of the scale specs of a shared scale by the agreement rule of `Scale`: the specs
-//! of the layers that share a scale must agree, and the merged spec takes each field, at every
+//! The merge of the scale specs of a shared scale by the agreement rule of `Scale`, and of the
+//! axes and the legends of its encodings by the rule of `Encoding.axis`: the specs and the guides
+//! of the layers that share a scale must agree, and the merged one takes each field, at every
 //! depth, that one of them sets.
 //!
 //! build.rs generates the field-by-field merge of the axes, the legends, the options of the scale
@@ -135,7 +136,7 @@ include!(concat!(env!("OUT_DIR"), "/merge.rs"));
 /// field by field into `merged`, and explicit and selection domains must be equal, selection
 /// domains with their fit fields. The range and the navigation that one spec sets is the merged
 /// value, and those that both set must be equal, and a reversed spec reverses the merged one. The
-/// options of the type, the axis, and the legend merge field by field.
+/// options of the type merge field by field.
 pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &SameValue) -> Merged {
     merge_type(&mut merged.r#type, &other.r#type, same)?;
     merge_domain(&mut merged.domain, other.domain.as_ref(), same)?;
@@ -155,9 +156,20 @@ pub(crate) fn merge(merged: &mut proto::Scale, other: &proto::Scale, same: &Same
         }
     })?;
     merged.reverse |= other.reverse;
-    optional(&mut merged.navigation, &other.navigation, "navigation")?;
-    optional_merged(&mut merged.axis, &other.axis, same, "axis")?;
-    optional_merged(&mut merged.legend, &other.legend, same, "legend")
+    optional(&mut merged.navigation, &other.navigation, "navigation")
+}
+
+/// Merges the axis and the legend of `other`, an encoding of a shared scale, into `axis` and
+/// `legend` by the rule of `Encoding.axis`: field by field, where a setting that one sets is the
+/// merged one, settings that both set must be equal, and the classes join.
+pub(crate) fn merge_guides(
+    axis: &mut Option<proto::Axis>,
+    legend: &mut Option<proto::Legend>,
+    other: &proto::Encoding,
+    same: &SameValue,
+) -> Merged {
+    optional_merged(axis, &other.axis, same, "axis")?;
+    optional_merged(legend, &other.legend, same, "legend")
 }
 
 /// Merges the fit fields of `other` into `merged`, field by field.

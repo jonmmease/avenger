@@ -86,7 +86,7 @@ fn the_style_tree_has_a_node_for_each_part() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().id("flippers")))
             .y("mass")
             .color("species"),
     )
@@ -212,7 +212,7 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         penguins(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Axis::builder().label_angle(-45.0).id("flippers")))
+                .axis(Axis::builder().label_angle(-45.0).id("flippers")))
             .y("mass")
             .color("species"),
     )
@@ -250,7 +250,7 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().id("flippers")))
             .y("mass")
             .color("species"),
     )
@@ -278,7 +278,7 @@ fn a_table_without_stylesheets_gives_initial_values() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().id("flippers")))
             .y("mass")
             .color("species"),
     )
@@ -306,7 +306,7 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().id("flippers")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().id("flippers")))
             .y("mass")
             .color("species"),
     )
@@ -345,9 +345,9 @@ fn style_fields_show_parts_and_border_backgrounds() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().grid(true)))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().grid(true)))
             .y("mass")
-            .color(Encoding::scaled_field("species").scale(Legend::builder().border_color("red"))),
+            .color(Encoding::scaled_field("species").legend(Legend::builder().border_color("red"))),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mut evaluator = evaluator(chart, cascade("grid { display: none; }"));
@@ -379,9 +379,9 @@ fn style_text_that_is_not_a_value_warns() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().rule_color("bluish")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().rule_color("bluish")))
             .y("mass")
-            .color(Encoding::scaled_field("species").scale(Legend::builder())),
+            .color(Encoding::scaled_field("species").legend(Legend::builder())),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let evaluator = evaluator(chart, cascade(""));
@@ -473,9 +473,9 @@ fn booleans_hide_the_parts_of_an_axis() {
         penguins(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("flipper")
-                .scale(Axis::builder().ticks(false).title(false).labels(false)))
+                .axis(Axis::builder().ticks(false).title(false).labels(false)))
             .y(Encoding::scaled_field("mass")
-                .scale(Axis::builder().title(Title::builder().font_size(17.0)))),
+                .axis(Axis::builder().title(Title::builder().font_size(17.0)))),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mut evaluator = evaluator(chart, cascade(""));

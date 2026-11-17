@@ -29,8 +29,8 @@ symbols and texts at their points, found by a fixed-point iteration because the 
 change with the radius. The polar plots that share a scale take the smallest outer radius among
 them, so a value draws at one distance from each center. A text lies beside its point as its
 computed `text-orient`, `radius-side`, and `theta-side` say, and a tangential text curves along the
-circle through its point. A scale of `theta` or `radius` draws a polar axis only when its spec sets
-one, with spokes and rings as its grid lines, and its labels have a halo of the plot's background.
+circle through its point. A scale of `theta` or `radius` draws a polar axis only when an encoding
+sets one, with spokes and rings as its grid lines, and its labels have a halo of the plot's background.
 The coordinates of a polar plot are its circle with the scale of `theta` and the scale of `radius`,
 or without a scale of `radius`, the map of fractions of the outer radius to pixels.
 
@@ -115,7 +115,7 @@ scale with a `step`, at the step times the steps of the scale, so a bar chart of
 wider than one of 3. avenger-layout places the plot and the parts of its axes and legends, each
 position scale fits its domain to the plot's length with room for the reach of its marks, and the
 marks encode their rows through the fitted scales. A line or an area connects the rows of each
-series in the order of its `ordering` channel, or without one, of their positions along its key, `x`
+series in the order of its `order` channel, or without one, of their positions along its key, `x`
 when vertical and `y` when horizontal, so the rows of its table can come in any order.
 
 ```rust

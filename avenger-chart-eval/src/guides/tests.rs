@@ -276,7 +276,7 @@ fn an_angle_scale_draws_no_legend_by_default() {
     with_guides(&symbols(Encoding::scaled_field("flipper")), |guides, _| {
         assert!(guides.legends.is_empty())
     });
-    let legend = Encoding::scaled_field("flipper").scale(Legend::builder());
+    let legend = Encoding::scaled_field("flipper").legend(Legend::builder());
     with_guides(&symbols(legend), |guides, _| {
         assert_eq!(guides.legends.len(), 1)
     });

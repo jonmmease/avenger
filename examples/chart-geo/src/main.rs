@@ -154,37 +154,39 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
         plates.clone(),
         GeoShapeMark::new("geometry")
             .stroke(
-                Encoding::scaled_field("boundary").scale(
-                    Scale::builder()
-                        .values(vec!["#b32929", "#e39a9a"])
-                        .legend(Legend::builder().title("Plate boundary")),
-                ),
+                Encoding::scaled_field("boundary")
+                    .scale(Scale::builder().values(vec!["#b32929", "#e39a9a"]))
+                    .legend(Legend::builder().title("Plate boundary")),
             )
             .stroke_width(1.2),
     );
     // A selection without clauses selects no earthquake, so no ring draws before the first box.
-    let selected = || Predicate::selected(Selected::new(QUAKES).empty_selects_none(true));
+    let selected = || Predicate::selected(Selected::new(QUAKES).empty(EmptySelection::None));
     let magnitude = Scale::builder()
         .zero(false)
         .enabled(false)
-        .values(vec![4.0, 140.0])
-        .legend(
-            Legend::builder().title(
-                Title::builder()
-                    .text("Magnitude $M_w$")
-                    .syntax(TextSyntax::Typst),
-            ),
-        );
-    let depth = Scale::builder()
-        .values(DEPTHS.to_vec())
-        .legend(Legend::builder().title("Depth (km)"));
+        .values(vec![4.0, 140.0]);
+    let magnitude_legend = Legend::builder().title(
+        Title::builder()
+            .text("Magnitude $M_w$")
+            .syntax(TextSyntax::Typst),
+    );
+    let depth = Scale::builder().values(DEPTHS.to_vec());
     let earthquakes = GeoLayer::symbol(
         quakes.clone(),
         GeoSymbolMark::builder()
             .longitude("lon")
             .latitude("lat")
-            .size(Encoding::scaled_field("magnitude").scale(magnitude))
-            .color(Encoding::scaled_field("depth_km").scale(depth))
+            .size(
+                Encoding::scaled_field("magnitude")
+                    .scale(magnitude)
+                    .legend(magnitude_legend),
+            )
+            .color(
+                Encoding::scaled_field("depth_km")
+                    .scale(depth)
+                    .legend(Legend::builder().title("Depth (km)")),
+            )
             .stroke(
                 Encoding::direct_value("white")
                     .conditional([ConditionalValue::direct_value(selected(), INK)]),

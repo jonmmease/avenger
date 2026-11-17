@@ -182,15 +182,20 @@ pub fn parts(root: Node, values: Vec<ArrayRef>) -> Parts {
     (chart(root), vec![points()], values)
 }
 
-/// The scale of `channel` of the symbols of `layer`.
-pub fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::Scale {
+/// The encoding of `x`, or of `y` when `y`, of the symbols of `layer`.
+pub fn encoding_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::Encoding {
     match layer.mark.as_mut() {
         Some(cartesian_layer::Mark::Symbol(mark)) => {
             let encoding = if y { mark.y.as_mut() } else { mark.x.as_mut() };
-            encoding.unwrap().scale.as_mut().unwrap()
+            encoding.unwrap()
         }
         _ => panic!("the layer draws symbols"),
     }
+}
+
+/// The scale of `x`, or of `y` when `y`, of the symbols of `layer`.
+pub fn scale_of(layer: &mut CartesianLayer, y: bool) -> &mut proto::Scale {
+    encoding_of(layer, y).scale.as_mut().unwrap()
 }
 
 pub fn brush(resolution: proto::SelectionResolution) -> Selection {
