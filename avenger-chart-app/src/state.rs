@@ -164,10 +164,7 @@ fn declarations(chart: &Chart) -> Vec<Declaration> {
                         layer_tool::Kind::Tooltip(tooltip) => tool::Kind::Tooltip(tooltip),
                         layer_tool::Kind::Select(select) => tool::Kind::Select(select),
                     };
-                    Some(proto::Tool {
-                        kind: Some(kind),
-                        modes: declared.modes.clone(),
-                    })
+                    Some(proto::Tool { kind: Some(kind) })
                 })
                 .collect();
             if !tools.is_empty() {

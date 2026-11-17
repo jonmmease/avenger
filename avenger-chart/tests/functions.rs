@@ -231,7 +231,6 @@ fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
         plot.tools.as_slice(),
         [proto::Tool {
             kind: Some(proto::tool::Kind::Navigate(_)),
-            ..
         }]
     ));
     let layer = first_layer(&chart);
@@ -241,7 +240,6 @@ fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
         layer.tools.as_slice(),
         [proto::LayerTool {
             kind: Some(proto::layer_tool::Kind::Tooltip(_)),
-            ..
         }]
     ));
     // Without an id, the plot and the layer have none, and their paths identify them.

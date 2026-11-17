@@ -39,7 +39,11 @@ impl Checker<'_> {
             {
                 return Err(fail(
                     format!("{path}.key"),
-                    format!("a layer declares the key `{}` at most once", declared.key),
+                    format!(
+                        "a layer declares the key `{}` at most once{}",
+                        declared.key,
+                        declared.default_key_hint()
+                    ),
                 ));
             }
             self.widget(declared, table, scope, &path)?;
@@ -61,7 +65,8 @@ impl Checker<'_> {
         if let widget::Kind::Mode(mode) = kind {
             return self.mode_widget(mode, &kind_path);
         }
-        let column = self.target(declared.target(), table, scope, &kind_path)?;
+        let (selection, column) = declared.target().expect("a widget of a selection");
+        let column = self.target(selection, column, table, scope, &kind_path)?;
         match kind {
             widget::Kind::Slider(slider) => {
                 let path = format!("{path}.slider");
@@ -172,27 +177,23 @@ impl Checker<'_> {
         Ok(())
     }
 
-    /// Checks the target of a widget's kind at `path`, the kind's path, and returns the type of its
-    /// column, or `None` for a partition column.
+    /// Checks the selection and the column of a widget's kind at `path`, the kind's path, and
+    /// returns the type of its column, or `None` for a partition column.
     fn target(
         &self,
-        target: Option<&proto::WidgetTarget>,
+        selection: &str,
+        column: &str,
         table: &RecordBatch,
         scope: &Scope,
         path: &str,
     ) -> Result<Option<DataType>> {
-        let path = format!("{path}.target");
-        let target = target.expect(REQUIRED);
-        self.selection(&target.selection, &format!("{path}.selection"))?;
-        match table.column_by_name(&target.column) {
-            Some(column) => Ok(Some(dictionary_values(column.data_type()).clone())),
-            None if scope.partition.contains(&target.column) => Ok(None),
+        self.selection(selection, &format!("{path}.selection"))?;
+        match table.column_by_name(column) {
+            Some(values) => Ok(Some(dictionary_values(values.data_type()).clone())),
+            None if scope.partition.iter().any(|known| known == column) => Ok(None),
             None => Err(fail(
                 format!("{path}.column"),
-                format!(
-                    "the layer's table and its partition have no column `{}`",
-                    target.column
-                ),
+                format!("the layer's table and its partition have no column `{column}`"),
             )),
         }
     }

@@ -154,7 +154,7 @@ impl Checker<'_> {
             let selects: Vec<(&str, &[String])> = (plot.plot.tools.iter())
                 .filter_map(|tool| match &tool.kind {
                     Some(tool::Kind::Select(select)) => {
-                        Some((select.selection.as_str(), tool.modes.as_slice()))
+                        Some((select.selection.as_str(), select.modes.as_slice()))
                     }
                     _ => None,
                 })
@@ -169,7 +169,7 @@ impl Checker<'_> {
             let selects: Vec<(&str, &[String])> = (layer.layer.tools().iter())
                 .filter_map(|tool| match &tool.kind {
                     Some(layer_tool::Kind::Select(select)) => {
-                        Some((select.selection.as_str(), tool.modes.as_slice()))
+                        Some((select.selection.as_str(), select.modes.as_slice()))
                     }
                     _ => None,
                 })
@@ -262,7 +262,7 @@ impl Checker<'_> {
                 }
         });
         fn writes(group: &resolve::WidgetGroup) -> &str {
-            (group.widget.target()).map_or("", |target| target.selection.as_str())
+            group.widget.selection().unwrap_or("")
         }
         match group {
             Some(group) if group.widget.target().is_none() => Err(fail(

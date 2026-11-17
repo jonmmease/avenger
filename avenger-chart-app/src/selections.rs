@@ -63,15 +63,15 @@ enum Form {
 /// The form of the selection that `declared` declares. A box covers the positional dimensions of
 /// the plot whose channels it names, or both when it names none.
 fn form(declared: &Declared) -> Form {
-    match &declared.select.form {
-        Some(select::Form::Points(_)) => Form::Points,
-        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Form::KeyedLasso,
-        Some(select::Form::Lasso(_)) => Form::Lasso,
-        Some(select::Form::Interval(interval)) if !interval.channels.is_empty() => {
+    match &declared.select.r#type {
+        Some(select::Type::Point(_)) => Form::Points,
+        Some(select::Type::Lasso(lasso)) if !lasso.keys.is_empty() => Form::KeyedLasso,
+        Some(select::Type::Lasso(_)) => Form::Lasso,
+        Some(select::Type::Interval(interval)) if !interval.channels.is_empty() => {
             let channels = dimensions(declared.plot);
             Form::Interval(channels.map(|channel| interval.channels.contains(&(channel as i32))))
         }
-        Some(select::Form::Interval(_)) | None => Form::Interval([true, true]),
+        Some(select::Type::Interval(_)) | None => Form::Interval([true, true]),
     }
 }
 
@@ -117,7 +117,7 @@ fn declared(state: &ChartAppState) -> impl Iterator<Item = Declared<'_>> {
                     marks: marks.clone(),
                     coords,
                     select,
-                    active: state.evaluator.is_active(&declared.modes),
+                    active: state.evaluator.is_active(&select.modes),
                 }),
                 _ => None,
             })
@@ -148,8 +148,8 @@ fn scope(declared: &Declared) -> Vec<Condition> {
 
 /// The width of the cells that the box of `declared` selects whole, when it declares one.
 fn cell(declared: &Declared) -> Option<f64> {
-    match &declared.select.form {
-        Some(select::Form::Interval(interval)) => interval.cell,
+    match &declared.select.r#type {
+        Some(select::Type::Interval(interval)) => interval.cell,
         _ => None,
     }
 }
@@ -621,11 +621,11 @@ fn write_lasso(state: &mut ChartAppState, area: &Area, lasso: &Lasso<()>, settle
 
 /// The key columns of a point selection or of a lasso with keys.
 fn keys(select: &proto::Select) -> Option<Vec<String>> {
-    match &select.form {
-        Some(select::Form::Points(points)) => {
+    match &select.r#type {
+        Some(select::Type::Point(points)) => {
             Some(points.keys.iter().map(|key| key.column.clone()).collect())
         }
-        Some(select::Form::Lasso(lasso)) if !lasso.keys.is_empty() => Some(lasso.keys.clone()),
+        Some(select::Type::Lasso(lasso)) if !lasso.keys.is_empty() => Some(lasso.keys.clone()),
         _ => None,
     }
 }
@@ -672,8 +672,8 @@ fn keyed_instances(state: &ChartAppState, area: &Area, kind: Form) -> Instances<
 /// The key of a point selection that is a column of lumps, and the source column that its sets
 /// name in its place, when the selection has one.
 fn lump_source<'a>(declared: &Declared<'a>) -> Option<(&'a str, &'a str)> {
-    match &declared.select.form {
-        Some(select::Form::Points(points)) => {
+    match &declared.select.r#type {
+        Some(select::Type::Point(points)) => {
             (points.keys.iter()).find_map(|key| Some((key.column.as_str(), key.source.as_deref()?)))
         }
         _ => None,

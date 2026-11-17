@@ -701,11 +701,11 @@ fn a_partition_column_of_every_layer_is_a_column_of_the_plot() {
         kind: Some(proto::tool::Kind::Select(proto::Select {
             selection: "brush".to_string(),
             scope: vec!["sex".to_string()],
-            form: Some(proto::select::Form::Interval(
+            r#type: Some(proto::select::Type::Interval(
                 proto::IntervalSelect::default(),
             )),
+            ..Default::default()
         })),
-        ..Default::default()
     };
     if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
         cartesian.layers.push(symbols(0));

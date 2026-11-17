@@ -970,9 +970,9 @@ pub(crate) fn widgets(
             }
         };
         let target = match group.widget.target() {
-            Some(target) => WidgetTarget::Selection {
-                selection: target.selection.clone(),
-                column: target.column.clone(),
+            Some((selection, column)) => WidgetTarget::Selection {
+                selection: selection.to_string(),
+                column: column.to_string(),
             },
             None => WidgetTarget::Modes,
         };

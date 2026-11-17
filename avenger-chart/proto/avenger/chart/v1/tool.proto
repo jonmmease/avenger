@@ -9,7 +9,7 @@ import "avenger/chart/v1/channel.proto";
 import "avenger/chart/v1/element.proto";
 
 // A tool that a plot declares, which turns gestures on the plot into changes of its views and of
-// the chart's selections.
+// the chart's selections. Each kind of tool names the modes in which it is active.
 message Tool {
   oneof kind {
     option (avenger.chart.v1.required_oneof) = true;
@@ -17,10 +17,6 @@ message Tool {
     Tooltip tooltip = 2;
     Select select = 3;
   }
-  // The names of the modes of `Chart.modes` in which the tool is active, each once: the tool is
-  // active while one of them is on. Empty makes the tool active always, as in a chart without
-  // modes.
-  repeated string modes = 4;
 }
 
 // A tool that a layer declares, which acts on the marks of the layer only: a tooltip of its
@@ -32,12 +28,10 @@ message LayerTool {
     Tooltip tooltip = 2;
     Select select = 3;
   }
-  // The names of the modes in which the tool is active, as for `Tool.modes`.
-  repeated string modes = 4;
 }
 
 // A mode of the chart, which is on or off and decides the tools that are active: a tool is active
-// while one of the modes that it names is on, or always when it names none.
+// while one of the modes that its `modes` names is on, or always when it names none.
 //
 // The modes of one group exclude each other: one of them is on at a time, the group's first until
 // a mode widget or the host turns on another. So a chart whose plot declares a navigation in a
@@ -76,40 +70,37 @@ message Navigate {
   // selection, a range of the column that the selection domain reads, as a box of that channel
   // would.
   repeated Channel channels = 1;
+  // The names of the modes of `Chart.modes` in which the navigation is active, each once: the
+  // navigation is active while one of them is on. Empty makes it active always, as in a chart
+  // without modes.
+  repeated string modes = 2;
 }
 
 // A tooltip describes the instance of a mark of the plot that the pointer finds, with values of
 // the instance's row.
 message Tooltip {
-  // How the tooltip finds its instance. Without a strategy, it finds the topmost instance under
-  // the pointer.
-  oneof find {
-    ExactFind exact = 1;
-    NearestFind nearest = 2;
-  }
-  // The field of the title, whose value is a bold first line beside a swatch of the instance's
-  // color. Its own `title` is invalid, since the title shows only the value. Without it, the
-  // tooltip has no title.
-  TooltipField title = 3;
+  // Whether the tooltip finds the instance nearest the pointer, within `max_radius` pixels of it,
+  // by `metric`. When false, it finds the topmost instance under the pointer.
+  bool nearest = 1;
+  // The distance from the pointer, in pixels, within which a nearest tooltip finds its instance,
+  // at least 0. When unset, 0. Invalid without `nearest`.
+  optional float max_radius = 2;
+  // How a nearest tooltip measures an instance's distance from the pointer. Invalid without
+  // `nearest`.
+  NearestMetric metric = 3;
+  // The title, the value of a column as a bold first line beside a swatch of the instance's color.
+  // Without it, the tooltip has no title.
+  TooltipTitle title = 4;
   // The fields of the rows of the tooltip, in order. Empty shows a row for each column of the
   // instance's row.
-  repeated TooltipField fields = 4;
+  repeated TooltipField fields = 5;
   // Where the tooltip stands.
-  TooltipAnchor anchor = 5;
+  TooltipAnchor anchor = 6;
   // Whether the title leaves out the swatch of the instance's color, for marks whose color says
   // nothing about the instance.
-  bool hide_swatch = 6;
-}
-
-// The topmost instance under the pointer.
-message ExactFind {}
-
-// The instance nearest the pointer, within `max_radius` pixels of it.
-message NearestFind {
-  // At least 0.
-  float max_radius = 1;
-  // How the distance from the pointer is measured.
-  NearestMetric metric = 2;
+  bool hide_swatch = 7;
+  // The names of the modes in which the tooltip is active, as for `Navigate.modes`.
+  repeated string modes = 8;
 }
 
 // How a nearest instance's distance from the pointer is measured.
@@ -125,15 +116,27 @@ enum NearestMetric {
   NEAREST_METRIC_ALONG_Y = 3;
 }
 
-// A column of an instance's row that a tooltip shows: its title, and the label of its value.
+// The title of a tooltip: the value of a column of the instance's row, read as the labels of an
+// axis read their values.
+message TooltipTitle {
+  // A column of the instance's row.
+  string column = 1 [(avenger.chart.v1.lift) = true];
+  // The pattern of the value, as for `Labels.format`.
+  string format = 2;
+  // Typst markup of the value, as for `Labels.markup`.
+  string markup = 3;
+}
+
+// A column of an instance's row that a tooltip shows: its title, and how its value reads.
 message TooltipField {
   // A column of the instance's row.
   string column = 1;
   // The title of the field. Without it, the field's title is the column's name.
   optional string title = 2;
-  // How the value reads: the pattern and the markup of its label, as for the labels of an axis.
-  // Its `show` and its font are invalid, since a tooltip shows each field in the tooltip's style.
-  Labels labels = 3;
+  // The pattern of the value, as for `Labels.format`.
+  string format = 3;
+  // Typst markup of the value, as for `Labels.markup`.
+  string markup = 4;
 }
 
 // Where a tooltip stands.
@@ -158,17 +161,19 @@ enum TooltipAnchor {
 message Select {
   // The name of the selection, which the chart defines.
   string selection = 1 [(avenger.chart.v1.required) = true];
-  // The gesture and what it selects. Without a form, the selection is an interval on the plot's
+  // The gesture and what it selects. Without a type, the selection is an interval on the plot's
   // positional channels, as an `IntervalSelect` without channels selects.
-  oneof form {
+  oneof type {
     IntervalSelect interval = 2;
-    PointSelect points = 3;
+    PointSelect point = 3;
     LassoSelect lasso = 4;
   }
   // Partition columns of the plot or the layer, its own or its ancestors', whose values limit each
   // clause to the rows of the plot's facet. Each clause holds the plot's value of each scope column
   // as a set, so a box in one facet selects rows of that facet alone.
   repeated string scope = 5;
+  // The names of the modes in which the tool is active, as for `Navigate.modes`.
+  repeated string modes = 6;
 }
 
 // A drag draws a box, which selects a range on the column of each channel, or a set of categories

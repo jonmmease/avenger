@@ -92,12 +92,7 @@ fn movies() -> RecordBatch {
     RecordBatch::try_from_iter(columns).unwrap()
 }
 
-/// A target of the selection `filter` over `column`.
-fn target(column: &str) -> WidgetTargetBuilder {
-    WidgetTarget::new(FILTER, column)
-}
-
-/// A domain that fits the movies' values of the target's column.
+/// A domain that fits the movies' values of the widget's column.
 fn fitted() -> WidgetDomainBuilder {
     WidgetDomain::data(WidgetDataDomain::builder())
 }
@@ -106,21 +101,22 @@ fn fitted() -> WidgetDomainBuilder {
 /// beside it.
 fn widgets() -> [WidgetBuilder; 3] {
     let years = Widget::range_slider(
-        "years",
-        RangeSliderWidget::new(target(YEAR), fitted())
+        RangeSliderWidget::new(FILTER, YEAR, fitted())
             .step(1.0)
             .readout(Labels::builder().format("d")),
     )
+    .key("years")
     .title("Years");
     let rating = Widget::slider(
-        "rating",
-        SliderWidget::new(target(IMDB), fitted())
+        SliderWidget::new(FILTER, IMDB, fitted())
             .comparison(SliderComparison::AtLeast)
             .step(0.1)
             .readout(Labels::builder().format(".1f")),
     )
+    .key("rating")
     .title("IMDB rating at least");
-    let genres = Widget::checkboxes("genres", CheckboxesWidget::new(target(GENRE), fitted()))
+    let genres = Widget::checkboxes(CheckboxesWidget::new(FILTER, GENRE, fitted()))
+        .key("genres")
         .orient(Side::Right)
         .title("Genres");
     [years, rating, genres]
@@ -143,10 +139,12 @@ fn tooltip() -> TooltipBuilder {
         TooltipField::builder()
             .column(column)
             .title(title)
-            .labels(Labels::builder().format(format))
+            .format(format)
     };
-    Tooltip::nearest(NearestFind::builder().max_radius(12.0))
-        .title(TooltipField::builder().column(TITLE))
+    Tooltip::builder()
+        .nearest(true)
+        .max_radius(12.0)
+        .title(TooltipTitle::builder().column(TITLE))
         .fields([
             field(IMDB, "IMDB", ".1f"),
             field(ROTTEN_TOMATOES, "Rotten Tomatoes", "d"),

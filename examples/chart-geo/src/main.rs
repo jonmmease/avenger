@@ -137,9 +137,9 @@ fn tooltip() -> TooltipBuilder {
         TooltipField::builder()
             .column(column)
             .title(title)
-            .labels(Labels::builder().format(format))
+            .format(format)
     };
-    Tooltip::nearest(NearestFind::builder().max_radius(10.0)).fields([
+    Tooltip::builder().nearest(true).max_radius(10.0).fields([
         field("magnitude", "Magnitude", ".1f"),
         field("depth_km", "Depth (km)", ",.0f"),
         field("time", "Date", "%Y-%m-%d"),
@@ -197,10 +197,10 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
             ),
     )
     .id(format!("{id} quakes"))
-    .tools([LayerToolBuilder::from(tooltip()).modes(["tooltips"])])
+    .tools([LayerToolBuilder::from(tooltip().modes(["tooltips"]))])
     .widgets([
-        Widget::mode("drag", ModeWidget::group("drag")),
-        Widget::mode("tooltips", ModeWidget::toggle("tooltips")),
+        Widget::mode(ModeWidget::group("drag")).key("drag"),
+        Widget::mode(ModeWidget::toggle("tooltips")).key("tooltips"),
     ]);
     [boundaries, earthquakes]
 }
@@ -209,9 +209,9 @@ fn layers(id: &str, plates: &RecordBatch, quakes: &RecordBatch) -> [GeoLayerBuil
 /// Lasso mode, which write the one selection `quakes`.
 fn tools() -> [ToolBuilder; 3] {
     [
-        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
-        ToolBuilder::from(Select::interval(QUAKES, IntervalSelect::builder())).modes(["box"]),
-        ToolBuilder::from(Select::lasso(QUAKES, Vec::<String>::new())).modes(["lasso"]),
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval(QUAKES, IntervalSelect::builder()).modes(["box"])),
+        ToolBuilder::from(Select::lasso(QUAKES, Vec::<String>::new()).modes(["lasso"])),
     ]
 }
 

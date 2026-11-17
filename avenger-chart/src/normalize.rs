@@ -8,6 +8,7 @@
 //! - joins the selections with one name, orders the selections by name, and orders the initial
 //!   clauses of each by the tree order of their owners
 //! - joins the modes with one name at the place of the first, keeping the order of the modes
+//! - gives each widget without a key its default key
 //! - orders each other keyed list by its key, with one entry for each key, and the independent
 //!   widgets of each resolve by key
 //! - leaves out the fields that a reader ignores, and the messages whose comments say that leaving
@@ -33,6 +34,41 @@ use crate::{
     walk::{VisitTables, VisitValues},
     Chart,
 };
+
+/// Writes the default key into each widget without a `key`, as `Widget.key` describes, before the
+/// rules that line copies up by their keys. A widget without a kind keeps its empty key for the
+/// rule that requires its kind.
+pub(crate) fn widget_keys(chart: &mut Chart) {
+    fn visit(node: &mut proto::Node) {
+        match node.node.as_mut() {
+            Some(Node::Plot(plot)) => {
+                let widgets: Vec<&mut proto::Widget> = match plot.coord.as_mut() {
+                    Some(Coord::Cartesian(coord)) => (coord.layers.iter_mut())
+                        .flat_map(|layer| &mut layer.widgets)
+                        .collect(),
+                    Some(Coord::Polar(coord)) => (coord.layers.iter_mut())
+                        .flat_map(|layer| &mut layer.widgets)
+                        .collect(),
+                    Some(Coord::Geo(coord)) => (coord.layers.iter_mut())
+                        .flat_map(|layer| &mut layer.widgets)
+                        .collect(),
+                    None => Vec::new(),
+                };
+                for widget in widgets {
+                    if widget.key.is_empty() {
+                        widget.key = widget.default_key().to_string();
+                    }
+                }
+            }
+            Some(Node::Concat(concat)) => concat.children.iter_mut().for_each(visit),
+            Some(Node::Wrap(wrap)) => wrap.children.iter_mut().for_each(visit),
+            Some(Node::Empty(_)) | None => {}
+        }
+    }
+    if let Some(root) = chart.message.root.as_mut() {
+        visit(root);
+    }
+}
 
 /// Rewrites what each message of `chart`, whose messages are each valid, decides alone: keyed lists
 /// in order, the fields that a reader ignores left out, and the option messages at every default

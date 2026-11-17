@@ -11,7 +11,7 @@ use crate::{
     layer::{CoordKind, LayerRef},
     proto::{
         self, geo, layer_tool, node::Node, plot::Coord, select, spherical, spherical_clip, tool,
-        tooltip, track, Channel,
+        track, Channel,
     },
 };
 
@@ -192,7 +192,6 @@ impl Checker<'_> {
             let layer_scope = scope.with(layer.partition(), false);
             for (position, tool) in layer.tools().iter().enumerate() {
                 let path = format!("{path}.tools[{position}]");
-                self.tool_modes(&tool.modes, &format!("{path}.modes"))?;
                 match tool.kind.as_ref() {
                     Some(layer_tool::Kind::Tooltip(tooltip)) => {
                         self.tooltip(tooltip, &[table], &layer_scope, &format!("{path}.tooltip"))?
@@ -225,9 +224,9 @@ impl Checker<'_> {
         let mut navigations = 0;
         for (index, tool) in plot.tools.iter().enumerate() {
             let path = format!("{path}.tools[{index}]");
-            self.tool_modes(&tool.modes, &format!("{path}.modes"))?;
             match tool.kind.as_ref() {
                 Some(tool::Kind::Navigate(navigate)) => {
+                    self.tool_modes(&navigate.modes, &format!("{path}.navigate.modes"))?;
                     navigations += 1;
                     if kind == CoordKind::Polar {
                         return Err(fail(&path, "a navigation is invalid on a polar plot"));
@@ -470,50 +469,36 @@ impl Checker<'_> {
         scope: &Scope,
         path: &str,
     ) -> Result<()> {
-        if let Some(tooltip::Find::Nearest(nearest)) = &tooltip.find {
-            non_negative(
-                Some(f64::from(nearest.max_radius)),
-                &format!("{path}.nearest.max_radius"),
-            )?;
-        }
-        if let Some(field) = &tooltip.title {
-            if field.title.is_some() {
-                return Err(fail(
-                    format!("{path}.title.title"),
-                    "the title of a tooltip shows only its value, so its field has no title",
-                ));
-            }
-        }
-        let fields = tooltip
-            .title
-            .iter()
-            .map(|field| ("title".to_string(), field));
-        let fields = fields.chain(
-            (tooltip.fields.iter().enumerate())
-                .map(|(index, field)| (format!("fields[{index}]"), field)),
-        );
-        for (at, field) in fields {
-            let path = format!("{path}.{at}");
-            let data_type = column_type(&field.column, tables, scope, &format!("{path}.column"))?;
-            let Some(labels) = &field.labels else {
-                continue;
-            };
-            let tooltip_styled = [
-                ("show", labels.show.is_some()),
-                ("font_family", !labels.font_family.is_empty()),
-                ("font_size", labels.font_size.is_some()),
-                ("font_weight", labels.font_weight.is_some()),
-                ("color", !labels.color.is_empty()),
+        self.tool_modes(&tooltip.modes, &format!("{path}.modes"))?;
+        if !tooltip.nearest {
+            let found = [
+                ("max_radius", tooltip.max_radius.is_some()),
+                ("metric", tooltip.metric != 0),
             ];
-            if let Some((name, _)) = tooltip_styled.iter().find(|(_, set)| *set) {
+            if let Some((name, _)) = found.iter().find(|(_, set)| *set) {
                 return Err(fail(
-                    format!("{path}.labels.{name}"),
-                    "the labels of a tooltip field always show and have no font, since a tooltip's \
-                     text takes the tooltip's style",
+                    format!("{path}.{name}"),
+                    "a tooltip without `nearest` finds the topmost instance under the pointer, \
+                     so it has no `max_radius` and no `metric`",
                 ));
             }
+        }
+        non_negative(
+            tooltip.max_radius.map(f64::from),
+            &format!("{path}.max_radius"),
+        )?;
+        if let Some(title) = &tooltip.title {
+            let path = format!("{path}.title");
+            let data_type = column_type(&title.column, tables, scope, &format!("{path}.column"))?;
             if let Some(data_type) = data_type {
-                self.pattern(&labels.format, &data_type, &format!("{path}.labels.format"))?;
+                self.pattern(&title.format, &data_type, &format!("{path}.format"))?;
+            }
+        }
+        for (index, field) in tooltip.fields.iter().enumerate() {
+            let path = format!("{path}.fields[{index}]");
+            let data_type = column_type(&field.column, tables, scope, &format!("{path}.column"))?;
+            if let Some(data_type) = data_type {
+                self.pattern(&field.format, &data_type, &format!("{path}.format"))?;
             }
         }
         Ok(())
@@ -551,6 +536,7 @@ impl Checker<'_> {
         scope: &Scope,
         path: &str,
     ) -> Result<()> {
+        self.tool_modes(&select.modes, &format!("{path}.modes"))?;
         self.selection(&select.selection, &format!("{path}.selection"))?;
         for (index, column) in select.scope.iter().enumerate() {
             if !scope.partition.contains(column) {
@@ -560,8 +546,8 @@ impl Checker<'_> {
                 ));
             }
         }
-        match select.form.as_ref() {
-            Some(select::Form::Interval(interval)) => {
+        match select.r#type.as_ref() {
+            Some(select::Type::Interval(interval)) => {
                 for channel in &interval.channels {
                     let channel = Channel::try_from(*channel).unwrap_or_default();
                     if !kind.positions().contains(&channel) {
@@ -577,15 +563,15 @@ impl Checker<'_> {
                 }
                 positive(interval.cell, &format!("{path}.interval.cell"))?;
             }
-            Some(select::Form::Points(points)) => {
+            Some(select::Type::Point(points)) => {
                 if points.keys.is_empty() {
                     return Err(fail(
-                        format!("{path}.points.keys"),
+                        format!("{path}.point.keys"),
                         "a point selection has a key column or more",
                     ));
                 }
                 for (index, key) in points.keys.iter().enumerate() {
-                    let path = format!("{path}.points.keys[{index}]");
+                    let path = format!("{path}.point.keys[{index}]");
                     let data_type = column_type(&key.column, tables, scope, &path)?;
                     // A source is a column of the query's input, which the chart's tables need
                     // not hold, so only its key is checked.
@@ -610,7 +596,7 @@ impl Checker<'_> {
                     }
                 }
             }
-            Some(select::Form::Lasso(lasso)) => {
+            Some(select::Type::Lasso(lasso)) => {
                 for (index, key) in lasso.keys.iter().enumerate() {
                     column_type(key, tables, scope, &format!("{path}.lasso.keys[{index}]"))?;
                 }

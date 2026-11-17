@@ -475,7 +475,8 @@ async fn an_empty_group_gives_a_chart_of_no_rows() {
 async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
     let chart = chart(
         "FROM t |> AGGREGATE symbol(x => a, y => b, title => 'Points', \
-         tools => [navigate(), tooltip()], width => 200, id => 'points') AS chart",
+         tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)], width => 200, \
+         id => 'points') AS chart",
     )
     .await;
     let Some(node::Node::Plot(plot)) = &chart.root().node else {
@@ -488,7 +489,6 @@ async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
         plot.tools.as_slice(),
         [avenger_chart::proto::Tool {
             kind: Some(avenger_chart::proto::tool::Kind::Navigate(_)),
-            ..
         }]
     ));
     let Some(avenger_chart::proto::plot::Coord::Cartesian(cartesian)) = &plot.coord else {
@@ -496,13 +496,33 @@ async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
     };
     let layer = &cartesian.layers[0];
     assert_eq!(layer.id, "points");
-    assert!(matches!(
-        layer.tools.as_slice(),
-        [avenger_chart::proto::LayerTool {
-            kind: Some(avenger_chart::proto::layer_tool::Kind::Tooltip(_)),
-            ..
-        }]
-    ));
+    let [avenger_chart::proto::LayerTool {
+        kind: Some(avenger_chart::proto::layer_tool::Kind::Tooltip(tooltip)),
+    }] = layer.tools.as_slice()
+    else {
+        panic!("the layer has one tooltip")
+    };
+    assert!(tooltip.nearest);
+    assert_eq!(tooltip.max_radius, Some(20.0));
+}
+
+#[tokio::test]
+async fn a_mark_call_places_a_select_tool_on_its_layer() {
+    // The selection tool lands on the call's layer, whose reader then names the selection that the
+    // chart does not declare.
+    let message = run(
+        "FROM t |> AGGREGATE symbol(x => a, y => b, id => 'points', \
+         tools => [select(selection => 'brush', type => interval_select(channels => ['x']))]) \
+         AS chart",
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        message.contains("root.plot.cartesian.layers[0].tools[0].select.selection")
+            && message.contains("the chart has no selection `brush`"),
+        "{message}"
+    );
 }
 
 #[tokio::test]

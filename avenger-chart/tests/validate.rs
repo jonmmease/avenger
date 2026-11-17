@@ -808,7 +808,6 @@ fn each_value_is_one_element() {
 fn tools_fit_their_plot() {
     let navigate = || proto::Tool {
         kind: Some(tool::Kind::Navigate(proto::Navigate::default())),
-        ..Default::default()
     };
     // A navigation needs no id: the plot's path identifies it.
     let mut parts = base();
@@ -829,7 +828,6 @@ fn tools_fit_their_plot() {
             selection: "brush".to_string(),
             ..Default::default()
         })),
-        ..Default::default()
     }];
     invalid(
         parts,
@@ -845,7 +843,6 @@ fn tools_fit_their_plot() {
             selection: "brush".to_string(),
             ..Default::default()
         })),
-        ..Default::default()
     }];
     invalid(
         parts.clone(),
@@ -860,67 +857,88 @@ fn tools_fit_their_plot() {
     read(parts).unwrap();
 }
 
-/// A tooltip's title shows only its field's value, and the labels of tooltip fields take the
-/// tooltip's style.
+/// A plot whose one tool is `tooltip`.
+fn with_tooltip(tooltip: proto::Tooltip) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
+    let mut parts = base();
+    let plot = plot_mut(&mut parts.0);
+    plot.id = "scatter".to_string();
+    plot.tools = vec![proto::Tool {
+        kind: Some(tool::Kind::Tooltip(tooltip)),
+    }];
+    parts
+}
+
+/// The title and the fields of a tooltip read their values with a pattern and markup, each over
+/// a column of the plot.
 #[test]
-fn a_tooltip_title_has_no_field_title_and_its_labels_no_style() {
-    let tooltip = |tooltip: proto::Tooltip| {
-        let mut parts = base();
-        let plot = plot_mut(&mut parts.0);
-        plot.id = "scatter".to_string();
-        plot.tools = vec![proto::Tool {
-            kind: Some(tool::Kind::Tooltip(tooltip)),
+fn a_tooltip_title_and_its_fields_read_their_columns() {
+    read(with_tooltip(proto::Tooltip {
+        title: Some(proto::TooltipTitle {
+            column: "a".to_string(),
+            markup: "#value km".to_string(),
             ..Default::default()
-        }];
-        parts
-    };
-    let field = |title: Option<&str>, labels: Option<proto::Labels>| proto::TooltipField {
-        column: "a".to_string(),
-        title: title.map(str::to_string),
-        labels,
-    };
-    let markup = proto::Labels {
-        markup: "#value km".to_string(),
-        ..Default::default()
-    };
-    read(tooltip(proto::Tooltip {
-        title: Some(field(None, Some(markup.clone()))),
-        fields: vec![field(Some("A"), Some(markup))],
+        }),
+        fields: vec![proto::TooltipField {
+            column: "a".to_string(),
+            title: Some("A".to_string()),
+            markup: "#value km".to_string(),
+            ..Default::default()
+        }],
         ..Default::default()
     }))
     .unwrap();
+    invalid(
+        with_tooltip(proto::Tooltip {
+            title: Some(proto::TooltipTitle {
+                column: "c".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.title.column",
+        "no table of the plot and no partition has a column `c`",
+    );
+}
 
-    invalid(
-        tooltip(proto::Tooltip {
-            title: Some(field(Some("A"), None)),
-            ..Default::default()
-        }),
-        "root.plot.tools[0].tooltip.title.title",
-        "shows only its value",
-    );
-    let styled = proto::Labels {
-        font_size: Some(12.0),
+/// A nearest tooltip takes a radius and a metric, and a tooltip without `nearest` takes neither.
+#[test]
+fn a_tooltip_takes_a_radius_and_a_metric_only_with_nearest() {
+    read(with_tooltip(proto::Tooltip {
+        nearest: true,
+        max_radius: Some(10.0),
+        metric: proto::NearestMetric::AlongX as i32,
         ..Default::default()
-    };
-    invalid(
-        tooltip(proto::Tooltip {
-            fields: vec![field(None, Some(styled))],
-            ..Default::default()
-        }),
-        "root.plot.tools[0].tooltip.fields[0].labels.font_size",
-        "takes the tooltip's style",
-    );
-    let hidden = proto::Labels {
-        show: Some(false),
+    }))
+    .unwrap();
+    read(with_tooltip(proto::Tooltip {
+        nearest: true,
         ..Default::default()
-    };
+    }))
+    .unwrap();
     invalid(
-        tooltip(proto::Tooltip {
-            fields: vec![field(None, Some(hidden))],
+        with_tooltip(proto::Tooltip {
+            max_radius: Some(0.0),
             ..Default::default()
         }),
-        "root.plot.tools[0].tooltip.fields[0].labels.show",
-        "always show",
+        "root.plot.tools[0].tooltip.max_radius",
+        "a tooltip without `nearest`",
+    );
+    invalid(
+        with_tooltip(proto::Tooltip {
+            metric: proto::NearestMetric::AlongY as i32,
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.metric",
+        "a tooltip without `nearest`",
+    );
+    invalid(
+        with_tooltip(proto::Tooltip {
+            nearest: true,
+            max_radius: Some(-1.0),
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.max_radius",
+        "at least 0",
     );
 }
 
@@ -1223,23 +1241,22 @@ fn widget(kind: proto::widget::Kind) -> proto::Widget {
         kind: Some(kind),
         ..Default::default()
     };
-    *target_of(&mut widget) = Some(proto::WidgetTarget {
-        selection: "filters".to_string(),
-        column: "a".to_string(),
-    });
+    let (selection, column) = target_of(&mut widget);
+    *selection = "filters".to_string();
+    *column = "a".to_string();
     widget
 }
 
-/// The target of a widget's kind, to change.
-fn target_of(widget: &mut proto::Widget) -> &mut Option<proto::WidgetTarget> {
+/// The selection and the column of a widget's kind, to change.
+fn target_of(widget: &mut proto::Widget) -> (&mut String, &mut String) {
     use proto::widget::Kind;
     match widget.kind.as_mut().expect("a widget has a kind") {
-        Kind::Slider(slider) => &mut slider.target,
-        Kind::RangeSlider(slider) => &mut slider.target,
-        Kind::Radio(radio) => &mut radio.target,
-        Kind::Checkboxes(checkboxes) => &mut checkboxes.target,
-        Kind::Checkbox(checkbox) => &mut checkbox.target,
-        Kind::Mode(_) => panic!("a mode widget has no target"),
+        Kind::Slider(slider) => (&mut slider.selection, &mut slider.column),
+        Kind::RangeSlider(slider) => (&mut slider.selection, &mut slider.column),
+        Kind::Radio(radio) => (&mut radio.selection, &mut radio.column),
+        Kind::Checkboxes(checkboxes) => (&mut checkboxes.selection, &mut checkboxes.column),
+        Kind::Checkbox(checkbox) => (&mut checkbox.selection, &mut checkbox.column),
+        Kind::Mode(_) => panic!("a mode widget has no selection"),
     }
 }
 
@@ -1330,35 +1347,28 @@ fn each_kind_of_widget_reads() {
 }
 
 #[test]
-fn a_widget_names_its_key_selection_column_and_kind() {
+fn a_widget_names_its_selection_column_and_kind() {
     let valid = || widget(slider(proto::SliderComparison::AtLeast, None));
-    let mut missing = valid();
-    missing.key.clear();
-    invalid(
-        with_widget(missing, vec![]),
-        &format!("{WIDGET}.key"),
-        "`key` is required and not empty",
-    );
     let mut unknown = valid();
-    target_of(&mut unknown).as_mut().unwrap().selection = "brush".to_string();
+    *target_of(&mut unknown).0 = "brush".to_string();
     invalid(
         with_widget(unknown, vec![]),
-        &format!("{WIDGET}.slider.target.selection"),
+        &format!("{WIDGET}.slider.selection"),
         "no selection `brush`",
     );
     let mut absent = valid();
-    target_of(&mut absent).as_mut().unwrap().column = "c".to_string();
+    *target_of(&mut absent).1 = "c".to_string();
     invalid(
         with_widget(absent, vec![]),
-        &format!("{WIDGET}.slider.target.column"),
+        &format!("{WIDGET}.slider.column"),
         "no column `c`",
     );
-    let mut untargeted = valid();
-    *target_of(&mut untargeted) = None;
+    let mut unselected = valid();
+    target_of(&mut unselected).0.clear();
     invalid(
-        with_widget(untargeted, vec![]),
-        &format!("{WIDGET}.slider.target"),
-        "`target` is required",
+        with_widget(unselected, vec![]),
+        &format!("{WIDGET}.slider.selection"),
+        "`selection` is required",
     );
     let mut kindless = valid();
     kindless.kind = None;
@@ -1369,6 +1379,35 @@ fn a_widget_names_its_key_selection_column_and_kind() {
         parts,
         "root.plot.cartesian.layers[0].widgets[1].key",
         "at most once",
+    );
+}
+
+#[test]
+fn a_widget_without_a_key_takes_the_name_of_its_selection() {
+    let mut keyless = widget(slider(proto::SliderComparison::AtLeast, None));
+    keyless.key.clear();
+    let chart = read(with_widget(keyless, vec![])).unwrap();
+    let mut message = chart.message().clone();
+    assert_eq!(layer_mut(&mut message).widgets[0].key, "filters");
+}
+
+#[test]
+fn two_widgets_of_one_selection_without_keys_in_one_layer_fail_at_the_default_key() {
+    let keyless = || {
+        let mut keyless = widget(slider(proto::SliderComparison::AtLeast, None));
+        keyless.key.clear();
+        keyless
+    };
+    let mut parts = with_widget(keyless(), vec![]);
+    layer_mut(&mut parts.0).widgets.push(keyless());
+    let error = read(parts).unwrap_err().to_string();
+    assert!(
+        error.contains("root.plot.cartesian.layers[0].widgets[1].key")
+            && error.contains("declares the key `filters` at most once")
+            && error
+                .contains("`filters` is the default key of a widget of the selection `filters`")
+            && error.contains("give each widget an explicit `key`"),
+        "{error}"
     );
 }
 

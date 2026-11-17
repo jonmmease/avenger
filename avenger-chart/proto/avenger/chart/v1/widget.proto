@@ -13,8 +13,8 @@ import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/value.proto";
 
 // A widget that a layer declares, as a layer declares the scale of a channel. The kinds of this
-// file write selections: each targets a column of the layer's table, as `WidgetTarget` describes,
-// and writes one clause of its selection. Such a widget is to a selection what a legend is to a
+// file write selections: each targets a column of the layer's table with its `column` and writes
+// one clause of its `selection`. Such a widget is to a selection what a legend is to a
 // scale, and the clause is its whole state, so the widget draws the clause of its identity in
 // the selection's state, its initial clause sets its first value, and a chart update keeps it as it
 // keeps the clause of a brush.
@@ -24,12 +24,11 @@ import "avenger/chart/v1/value.proto";
 // The key in the `independent_widgets` of the resolve of a plot, a concat, or a wrap, as `Resolve`
 // describes, makes the copies below it independent, so each layer or each child keeps its own
 // widget. The copies of one widget
-// are its group, and they must agree, by the rule of `Scale`: their kinds, the selections of
-// their targets, and the types of their targets' columns are equal, an option that one copy sets and another leaves unset takes
-// the set value, two that both set are equal, and their classes join. Their domains are of one
-// kind: summary and data domains merge, and explicit domains must be equal. The columns of the
-// copies' targets can differ by name, because each layer matches the clause by its own copy's
-// column.
+// are its group, and they must agree, by the rule of `Scale`: their kinds, their selections, and
+// the types of their columns are equal, an option that one copy sets and another leaves unset
+// takes the set value, two that both set are equal, and their classes join. Their domains are of
+// one kind: summary and data domains merge, and explicit domains must be equal. The columns of the
+// copies can differ by name, because each layer matches the clause by its own copy's column.
 //
 // A widget's identity is its key and the anchor of its group: the child of a concat or a wrap, or
 // the layer of a plot, that an independent rule made the group for. A group that no independent
@@ -43,11 +42,15 @@ import "avenger/chart/v1/value.proto";
 // for each plot of the group, whose drawings show one value and move together. A widget whose group
 // is one plot draws beside that plot.
 message Widget {
-  // The key, which lines the declaration up with the other copies of the widget. Keys
-  // are not unique, and they have their own namespace, apart from the ids of nodes and layers.
-  string key = 1 [(avenger.chart.v1.required) = true];
+  // The key, which lines the declaration up with the other copies of the widget. Keys are not
+  // unique, and they have their own namespace, apart from the ids of nodes and layers. When empty,
+  // the key is the name of the widget's selection, or for a mode widget, the name of its group or
+  // its toggle, which a reader writes into the canonical form. So two widgets of one selection in
+  // one layer, or two widgets of different kinds of one selection that share one widget, need
+  // their own keys.
+  string key = 1;
   // The title, Typst markup unless its syntax is plain, as for every `Title`. When unset, the
-  // title is the name of the target's column, as plain text, the title of a mode widget of a
+  // title is the name of the widget's column, as plain text, the title of a mode widget of a
   // toggle is the toggle's label, as Typst markup, and a mode widget of a group has no title.
   // An empty text keeps that title, and a title that does not show draws no title.
   Title title = 2;
@@ -60,7 +63,7 @@ message Widget {
   //
   // The sliders, whose domains are intervals, write a `ValueRange`, and the radio group, the check
   // box list, and the check box, whose domains are items, write a `ValueSet`, each with one
-  // condition over its target's column, named with `CHANNEL_UNSPECIFIED`. In its clear state, a
+  // condition over its column, named with `CHANNEL_UNSPECIFIED`. In its clear state, a
   // widget writes no clause, so it does not constrain the rows, including the rows whose value is
   // null or outside its domain.
   //
@@ -74,15 +77,6 @@ message Widget {
     CheckboxWidget checkbox = 14;
     ModeWidget mode = 15;
   }
-}
-
-// What a widget writes: a clause of a selection over a column.
-message WidgetTarget {
-  // The name of the selection that the widget writes, a selection of `Chart.selections`.
-  string selection = 1 [(avenger.chart.v1.required) = true];
-  // The column of the layer's table, or a partition column of the layer, that the widget's clause
-  // checks.
-  string column = 2 [(avenger.chart.v1.required) = true];
 }
 
 // A slider with one thumb over its domain of numbers, dates, or timestamps.
@@ -100,18 +94,21 @@ message WidgetTarget {
 // follows the end when a chart update brings a new domain. A slider without a clause draws its
 // thumb at its open end, or an `equal` slider at the start of its domain.
 message SliderWidget {
-  // The selection and the column that the slider writes.
-  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  string selection = 1 [(avenger.chart.v1.required) = true];
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
   // The extent that the thumb runs over.
-  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
+  WidgetDomain domain = 3 [(avenger.chart.v1.required) = true];
   // How the clause compares the rows' values with the thumb's.
-  SliderComparison comparison = 3;
+  SliderComparison comparison = 4;
   // The step between the values of the thumb: a number for a domain of numbers, or a duration for
   // a domain of dates or timestamps, more than 0. An `equal` slider requires it, because it writes
   // the step's bin. When unset, the thumb moves continuously.
-  ValueRef step = 4;
+  ValueRef step = 5;
   // The readout of the thumb's value. When unset, the styles give the readout.
-  Labels readout = 5;
+  Labels readout = 6;
 }
 
 enum SliderComparison {
@@ -131,50 +128,62 @@ enum SliderComparison {
 // clause: its clear state. A range slider without a clause draws its thumbs at the ends of its
 // domain.
 message RangeSliderWidget {
-  // The selection and the column that the slider writes.
-  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  string selection = 1 [(avenger.chart.v1.required) = true];
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
   // The extent that the thumbs run over.
-  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
+  WidgetDomain domain = 3 [(avenger.chart.v1.required) = true];
   // The step between the values of the thumbs, as for `SliderWidget.step`. When unset, the thumbs
   // move continuously.
-  ValueRef step = 3;
+  ValueRef step = 4;
   // The readouts of the thumbs' values. When unset, the styles give the readouts.
-  Labels readout = 4;
+  Labels readout = 5;
 }
 
 // A radio group of the items of its domain, which writes a set of the chosen item. Its clear state
 // is the item that clears, or no item chosen.
 message RadioWidget {
-  // The selection and the column that the radio group writes.
-  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  string selection = 1 [(avenger.chart.v1.required) = true];
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
   // The items, in their order.
-  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
+  WidgetDomain domain = 3 [(avenger.chart.v1.required) = true];
   // The labels of the items. When unset, the styles give them.
-  Labels labels = 3;
+  Labels labels = 4;
   // The label of an item before the others that clears the widget's clause, such as `All
   // regions`, as Typst markup, or empty for no such item.
-  string clear_label = 4;
+  string clear_label = 5;
 }
 
 // A list of check boxes, one for each item of its domain, which writes a set of the checked items.
 // With every item checked, it writes no clause, its clear state, and with none checked, it writes
 // an empty set, which matches no row.
 message CheckboxesWidget {
-  // The selection and the column that the check box list writes.
-  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  string selection = 1 [(avenger.chart.v1.required) = true];
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
   // The items, in their order.
-  WidgetDomain domain = 2 [(avenger.chart.v1.required) = true];
+  WidgetDomain domain = 3 [(avenger.chart.v1.required) = true];
   // The labels of the items. When unset, the styles give them.
-  Labels labels = 3;
+  Labels labels = 4;
 }
 
 // A check box, which writes a set of its value when checked, and no clause when unchecked, its
 // clear state. Its title is its label.
 message CheckboxWidget {
-  // The selection and the column that the check box writes.
-  WidgetTarget target = 1 [(avenger.chart.v1.required) = true];
+  // The name of the selection that the widget writes, a selection of `Chart.selections`.
+  string selection = 1 [(avenger.chart.v1.required) = true];
+  // The column of the layer's table, or a partition column of the layer, that the widget's clause
+  // checks.
+  string column = 2 [(avenger.chart.v1.required) = true];
   // The value in the type of the column, such as `true`.
-  ValueRef value = 2 [(avenger.chart.v1.required) = true];
+  ValueRef value = 3 [(avenger.chart.v1.required) = true];
 }
 
 // A widget of the chart's modes, which turns them on and off and draws whether they are on. It
@@ -193,7 +202,7 @@ message ModeWidget {
 }
 
 // Where a widget's domain comes from: the extent of a slider's thumbs, or the items of a radio
-// group or a check box list. The values of each kind are in the type of the target's column, and
+// group or a check box list. The values of each kind are in the type of the widget's column, and
 // the domain's type is the type of the widget's values. A widget domain does not depend on the size
 // of the chart, so a renderer fits it once for each chart.
 message WidgetDomain {
@@ -205,7 +214,7 @@ message WidgetDomain {
     // Values that the widget fits, which can be more than the rows of the layer's table, such as a
     // summary of a column over all of the data.
     WidgetSummaryDomain summary = 2;
-    // The renderer fits the target's column in the tables of the layers of the widget's group. A
+    // The renderer fits the widget's column in the tables of the layers of the widget's group. A
     // producer that filters its tables by the widget's own selection gives the widget a summary,
     // because a data domain over filtered rows shrinks to the rows that the widget kept.
     WidgetDataDomain data = 3;

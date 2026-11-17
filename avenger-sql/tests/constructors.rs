@@ -177,6 +177,59 @@ async fn an_argument_picks_the_member_of_its_oneof() {
 }
 
 #[tokio::test]
+async fn a_tool_holds_its_kind_with_its_options_and_modes() {
+    // A selection tool takes the type of its gesture, with Vega-Lite's nesting.
+    builds(
+        "select(selection => 'brush', type => interval_select(channels => ['x']), modes => ['box'])",
+        Select::interval("brush", IntervalSelect::builder().channels([Channel::X]))
+            .modes(["box"])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "select(selection => 'brush', type => 'interval')",
+        Select::interval("brush", IntervalSelect::builder())
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "select(selection => 'pick', type => point_select(keys => ['carrier'], toggle => TRUE))",
+        Select::point(
+            "pick",
+            PointSelect::builder().keys(["carrier"]).toggle(true),
+        )
+        .to_fragment()
+        .unwrap(),
+    )
+    .await;
+    // A tooltip finds the nearest instance by its own fields, and its title lifts a column.
+    builds(
+        "tooltip(nearest => TRUE, max_radius => 20, metric => 'along_x', title => 'name', \
+         fields => [tooltip_field(column => 'price', format => '$,.2f')], modes => ['tips'])",
+        Tooltip::builder()
+            .nearest(true)
+            .max_radius(20.0)
+            .metric(NearestMetric::AlongX)
+            .title("name")
+            .fields([TooltipField::builder().column("price").format("$,.2f")])
+            .modes(["tips"])
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    // A tool holds only its kind, which names its modes.
+    builds(
+        "tool(kind => navigate(modes => ['pan']))",
+        ToolBuilder::from(Navigate::builder().modes(["pan"]))
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn conversions_reach_a_message_through_a_chain() {
     // Rule O: a string names a member of the leading oneof of the navigation limits, and a
     // fragment of an interval sets their extent.

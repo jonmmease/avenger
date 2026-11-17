@@ -35,20 +35,17 @@ fn cars_with(cars: RecordBatch, widgets: Vec<WidgetBuilder>) -> Chart {
 
 fn radio() -> WidgetBuilder {
     let data = WidgetDomain::data(WidgetDataDomain::builder());
-    Widget::radio(
-        "origin",
-        RadioWidget::new(WidgetTarget::new("filter", "origin"), data).clear_label("All"),
-    )
+    Widget::radio(RadioWidget::new("filter", "origin", data).clear_label("All")).key("origin")
 }
 
 fn slider() -> WidgetBuilder {
     let data = WidgetDomain::data(WidgetDataDomain::builder());
     Widget::slider(
-        "weight",
-        SliderWidget::new(WidgetTarget::new("filter", "weight"), data)
+        SliderWidget::new("filter", "weight", data)
             .comparison(SliderComparison::AtLeast)
             .step(100.0),
     )
+    .key("weight")
 }
 
 /// The scene of the widgets, the highest of the app's scenes, or with `chart`, the scene of the
@@ -214,15 +211,21 @@ async fn a_new_chart_with_other_widgets_draws_them() {
 #[tokio::test(flavor = "multi_thread")]
 async fn clicks_on_mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     let tools = [
-        ToolBuilder::from(Navigate::builder()).modes(["pan"]),
-        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder())).modes(["box"]),
+        ToolBuilder::from(Navigate::builder().modes(["pan"])),
+        ToolBuilder::from(Select::interval("filter", IntervalSelect::builder()).modes(["box"])),
     ];
     let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"))
         .id("points")
-        .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
+        .tools([LayerToolBuilder::from(
+            Tooltip::builder().modes(["tooltips"]),
+        )])
         .widgets([
-            Widget::mode("drag", ModeWidget::group("drag")).orient(Side::Right),
-            Widget::mode("tooltips", ModeWidget::toggle("tooltips")).orient(Side::Right),
+            Widget::mode(ModeWidget::group("drag"))
+                .key("drag")
+                .orient(Side::Right),
+            Widget::mode(ModeWidget::toggle("tooltips"))
+                .key("tooltips")
+                .orient(Side::Right),
         ]);
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
         .selections([Selection::new("filter", SelectionResolution::Global)])

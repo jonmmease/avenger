@@ -455,7 +455,7 @@ fn a_select_without_a_form_stores_a_box() {
         ["path"]
     );
     assert_eq!(
-        stores(Select::points(
+        stores(Select::point(
             "brush",
             PointSelect::builder().keys(["species"])
         )),

@@ -513,13 +513,12 @@ fn an_overlay_joins_the_classes_of_its_plots() {
 fn combined_charts_share_the_widgets_that_they_declare() {
     // A scatter plot whose layer declares a magnitude filter over `a`, which writes `filters`.
     let filtered = || {
-        let magnitude = Widget::range_slider(
-            "magnitude",
-            RangeSliderWidget::new(
-                WidgetTarget::new("filters", "a"),
-                WidgetDataDomain::builder(),
-            ),
-        );
+        let magnitude = Widget::range_slider(RangeSliderWidget::new(
+            "filters",
+            "a",
+            WidgetDataDomain::builder(),
+        ))
+        .key("magnitude");
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x("a").y("b"))
             .widgets([magnitude]);
         Chart::builder(Plot::cartesian([symbols]))

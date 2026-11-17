@@ -161,7 +161,7 @@ fn the_explicit_categories_of_a_lump_are_kept_values() {
 fn picked(points: PointSelectBuilder, initial: Vec<ClauseBuilder>) -> Result<Chart, ChartError> {
     let bars = CartesianLayer::bar(ports(), BarMark::builder().x("port").y("tons"))
         .id("bars")
-        .tools([Select::points("pick", points)]);
+        .tools([Select::point("pick", points)]);
     Chart::builder(Plot::cartesian([bars]))
         .selections([Selection::new("pick", SelectionResolution::Union).initial(initial)])
         .build()
@@ -170,7 +170,7 @@ fn picked(points: PointSelectBuilder, initial: Vec<ClauseBuilder>) -> Result<Cha
 #[test]
 fn a_point_selection_names_the_source_of_its_lump() {
     let points = |keys: Vec<PointKeyBuilder>| PointSelect::builder().keys(keys);
-    let path = "root.plot.cartesian.layers[0].tools[0].select.points.keys[0].source";
+    let path = "root.plot.cartesian.layers[0].tools[0].select.point.keys[0].source";
     picked(
         points(vec![PointKey::new("port").source("harbor")]),
         Vec::new(),
