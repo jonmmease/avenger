@@ -1,17 +1,23 @@
-//! `scaled(value, <options>)` and `direct(value)`: a channel value of the kind that each names.
+//! The channel functions, such as `x(value, <options>)`, and the markers `datum(value)` and
+//! `value(value)`: each returns its value, and a mark function reads a channel argument that
+//! calls them as the encoding that they give.
+
+use std::any::Any;
 
 use datafusion::{
     arrow::datatypes::{DataType, FieldRef},
     common::Result,
     logical_expr::{
-        ColumnarValue, ReturnFieldArgs, ScalarFunctionArgs, ScalarUDFImpl, Signature, Volatility,
+        expr::ScalarFunction, ColumnarValue, Expr, ReturnFieldArgs, ScalarFunctionArgs,
+        ScalarUDFImpl, Signature, Volatility,
     },
 };
 
-use avenger_chart::functions::{encoding_options, Kind};
+use avenger_chart::functions::{ChannelFunction, Kind};
 
-/// `scaled(value)` or `direct(value)`, whose result is `value`. A mark function reads a channel
-/// argument that calls one of them as an encoding of its kind.
+/// `datum(value)` or `value(value)`, whose result is `value`. A mark function reads a channel
+/// argument that calls one of them, alone or as the value of a channel function, as an encoding of
+/// its kind.
 ///
 /// It is volatile, so the simplifier does not fold a call of a constant into the constant before
 /// a mark function binds its call.
@@ -23,20 +29,10 @@ pub(crate) struct KindFunction {
 
 impl KindFunction {
     pub(crate) fn new(kind: Kind) -> Self {
-        let signature = match kind {
-            // `scaled` takes the options of `Encoding` after its value.
-            Kind::Scaled => {
-                let options = encoding_options().iter();
-                let names: Vec<&str> = std::iter::once("value")
-                    .chain(options.map(|p| p.name))
-                    .collect();
-                Signature::user_defined(Volatility::Volatile)
-                    .with_parameter_names(names)
-                    .expect("the options of an encoding have distinct names")
-            }
-            Kind::Direct => Signature::any(1, Volatility::Volatile),
-        };
-        Self { kind, signature }
+        Self {
+            kind,
+            signature: Signature::any(1, Volatility::Volatile),
+        }
     }
 }
 
@@ -62,10 +58,146 @@ impl ScalarUDFImpl for KindFunction {
     }
 
     fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
-        Ok(args
-            .args
-            .into_iter()
-            .next()
-            .expect("a kind takes one argument"))
+        Ok(first(args))
+    }
+}
+
+/// The channel function of a channel with a scale, `name(value, <options>)`, whose result is
+/// `value`, and whose arguments after the value are its options, in the order of the function's
+/// options. A mark function reads a channel argument that calls it as an encoding with those
+/// options.
+///
+/// It is volatile, as [`KindFunction`] is.
+#[derive(Debug)]
+pub(crate) struct ChannelUdf {
+    function: &'static ChannelFunction,
+    signature: Signature,
+}
+
+impl ChannelUdf {
+    pub(crate) fn new(function: &'static ChannelFunction) -> Self {
+        Self {
+            function,
+            signature: Signature::user_defined(Volatility::Volatile),
+        }
+    }
+}
+
+impl PartialEq for ChannelUdf {
+    fn eq(&self, other: &Self) -> bool {
+        self.function.name == other.function.name
+    }
+}
+
+impl Eq for ChannelUdf {}
+
+impl std::hash::Hash for ChannelUdf {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.function.name.hash(state);
+    }
+}
+
+impl ScalarUDFImpl for ChannelUdf {
+    fn name(&self) -> &str {
+        self.function.name
+    }
+
+    fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
+    fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
+        Ok(arg_types.to_vec())
+    }
+
+    fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
+        Ok(arg_types[0].clone())
+    }
+
+    fn return_field_from_args(&self, args: ReturnFieldArgs) -> Result<FieldRef> {
+        Ok(args.arg_fields[0].clone())
+    }
+
+    fn invoke_with_args(&self, args: ScalarFunctionArgs) -> Result<ColumnarValue> {
+        Ok(first(args))
+    }
+}
+
+/// The value of a call of a channel function or a marker: its first argument.
+fn first(args: ScalarFunctionArgs) -> ColumnarValue {
+    args.args
+        .into_iter()
+        .next()
+        .expect("a channel function takes its value first")
+}
+
+/// A channel argument of a mark as its calls give it: the channel function that wraps it with
+/// its options, the kind that `datum` or `value` gives, and the value inside them.
+pub(crate) struct Wrapped<'e> {
+    pub function: Option<(&'static ChannelFunction, &'e [Expr])>,
+    pub kind: Option<Kind>,
+    pub value: &'e Expr,
+}
+
+/// The channel function of the call `expr`, when it calls one.
+pub(crate) fn channel_function(expr: &Expr) -> Option<&'static ChannelFunction> {
+    match expr {
+        Expr::ScalarFunction(ScalarFunction { func, args }) if !args.is_empty() => {
+            let inner: &dyn Any = func.inner().as_ref();
+            inner.downcast_ref::<ChannelUdf>().map(|udf| udf.function)
+        }
+        _ => None,
+    }
+}
+
+/// The kind that the call `expr` gives, when it calls `datum` or `value`.
+pub(crate) fn marker(expr: &Expr) -> Option<Kind> {
+    match expr {
+        Expr::ScalarFunction(ScalarFunction { func, args }) if !args.is_empty() => {
+            let inner: &dyn Any = func.inner().as_ref();
+            inner.downcast_ref::<KindFunction>().map(|udf| udf.kind)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `expr` calls a channel function, `datum`, or `value`.
+pub(crate) fn wraps(expr: &Expr) -> bool {
+    channel_function(expr).is_some() || marker(expr).is_some()
+}
+
+/// The parts of the channel argument `expr`: a channel function around it, then `datum` or
+/// `value` inside that, then the value.
+pub(crate) fn unwrap(expr: &Expr) -> Wrapped<'_> {
+    let (function, expr) = match (channel_function(expr), expr) {
+        (Some(function), Expr::ScalarFunction(call)) => {
+            (Some((function, &call.args[1..])), &call.args[0])
+        }
+        _ => (None, expr),
+    };
+    let (kind, value) = match (marker(expr), expr) {
+        (Some(kind), Expr::ScalarFunction(call)) => (Some(kind), &call.args[0]),
+        _ => (None, expr),
+    };
+    Wrapped {
+        function,
+        kind,
+        value,
+    }
+}
+
+/// The channel argument `expr` with `f` applied to its value inside its channel function and its
+/// marker.
+pub(crate) fn map_value(expr: &Expr, f: &mut impl FnMut(&Expr) -> Expr) -> Expr {
+    match expr {
+        Expr::ScalarFunction(ScalarFunction { func, args }) if wraps(expr) => {
+            let mut args = args.clone();
+            args[0] = map_value(&args[0], f);
+            Expr::ScalarFunction(ScalarFunction {
+                func: func.clone(),
+                args,
+            })
+        }
+        expr => f(expr),
     }
 }

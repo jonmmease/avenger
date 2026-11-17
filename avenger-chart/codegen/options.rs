@@ -107,7 +107,8 @@ pub(super) fn option_tree(messages: &Messages) -> Vec<String> {
 /// The fields that are not options of a message of the tree or of `Encoding`, by the message's
 /// full name and the field's name: the structural fields of the composition nodes, the column of a
 /// facet, which the composition that builds a facet sets from its key, the members of
-/// `Encoding.kind`, which `scaled` and `direct` set, and `Encoding.conditional`.
+/// `Encoding.kind`, which the value of a channel function, `datum`, and `value` set, and
+/// `Encoding.conditional`.
 pub(super) fn excluded(messages: &Messages) -> BTreeSet<(String, String)> {
     let encoding = format!("{PACKAGE}.Encoding");
     let mut excluded = BTreeSet::new();

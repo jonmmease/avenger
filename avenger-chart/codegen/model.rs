@@ -894,7 +894,7 @@ pub(super) fn check_elements(model: &Model) -> Result<(), String> {
 }
 
 /// The full names of the messages whose parameters SQL arguments set: the messages of the option
-/// tree, and `Encoding`, whose options `scaled` takes.
+/// tree, and `Encoding`, whose options the channel functions take.
 pub(super) fn parameter_messages(tree: &[String]) -> Vec<String> {
     let mut names = tree.to_vec();
     names.push(format!("{PACKAGE}.Encoding"));

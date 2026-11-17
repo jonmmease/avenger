@@ -91,9 +91,13 @@ fn an_aggregate_completes_marks_and_a_mark_its_parameters() {
         CompletionKind::Function(FunctionRole::Constructor),
     );
     assert!(
-        constructors.contains(&"scaled") && constructors.contains(&"direct"),
+        constructors.contains(&"datum") && constructors.contains(&"value"),
         "{constructors:?}"
     );
+    // The channel's own function comes first, and no other channel's.
+    assert_eq!(completions.items[0].label, "y");
+    assert_eq!(completions.items[0].detail.as_deref(), Some("builds `y`"));
+    assert!(!constructors.contains(&"x"), "{constructors:?}");
     // A mark in an item of a pipe AGGREGATE takes aggregates in its channels.
     assert!(item(&completions, "COUNT").is_some());
 }
@@ -129,7 +133,7 @@ fn an_argument_completes_the_values_of_its_set() {
 
 #[test]
 fn an_argument_completes_the_constructors_of_its_parameter_first() {
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
                 scale => scale(pin => $0))) AS chart";
     let (completions, _) = complete(text);
     let first = &completions.items[0];
@@ -138,7 +142,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     // The constructor named after the parameter, then the constructors one level down, named
     // after the parameters of `scale`, then the strings of the set.
     let text =
-        "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => $0)) AS chart";
+        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), scale => $0)) AS chart";
     let (completions, _) = complete(text);
     let first: Vec<&str> = (completions.items.iter().take(20))
         .map(|item| item.label.as_str())
@@ -152,7 +156,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
     let detail = item(&completions, "type").and_then(|item| item.detail.as_deref());
     assert_eq!(detail, Some("builds the `type` of `scale`"));
     // After `type =>`, the scale types: the constructor of the type, then each type's.
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
                 scale => scale(type => $0))) AS chart";
     let (completions, _) = complete(text);
     let first: Vec<&str> = (completions.items.iter().take(4))
@@ -166,7 +170,8 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
         "{log:?}"
     );
     // In the string, every value of the set.
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => 'l$0')) AS chart";
+    let text =
+        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), scale => 'l$0')) AS chart";
     let (completions, replaced) = complete(text);
     assert_eq!(replaced, "'l'");
     let values = labels(&completions, CompletionKind::EnumValue);
@@ -175,7 +180,7 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
         "{values:?}"
     );
     // A parameter that takes no constructor has none first.
-    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
                 scale => scale(zero => $0))) AS chart";
     let (completions, _) = complete(text);
     let detail = completions.items[0].detail.as_deref().unwrap_or_default();

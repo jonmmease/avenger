@@ -103,7 +103,7 @@ fn avengers_functions_and_their_enum_values() {
     let text = "FROM penguins\n\
                 |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share,\n\
                    lump(island, n => 2, null_category => 'drop', other => 'Rest') OVER () AS isle\n\
-                |> AGGREGATE bar(x => species, y => scaled(share.end, title => 'Share'), orient => 'vertical') AS chart;\n\
+                |> AGGREGATE bar(x => species, y => y(share.end, title => 'Share'), fill => value('red'), orient => 'vertical') AS chart;\n\
                 FROM sales |> CALL impute(isl, [sp], m, method => 'avg')";
     let analysis = pass::analysis(text);
     assert!(
@@ -122,8 +122,10 @@ fn avengers_functions_and_their_enum_values() {
         function(FunctionRole::Transform)
     );
     assert_eq!(class(&ranges, "bar", 0), function(FunctionRole::Mark));
+    // The channel function `y` after the parameter `y`, and the marker `value`.
+    assert_eq!(class(&ranges, "y", 1), function(FunctionRole::Constructor));
     assert_eq!(
-        class(&ranges, "scaled", 0),
+        class(&ranges, "value", 0),
         function(FunctionRole::Constructor)
     );
     // The strings of a set, and the strings of any value.

@@ -24,7 +24,7 @@ use datafusion::{
 
 use super::instance::MarkInstance;
 use avenger_chart::chart_field;
-use avenger_chart::functions::{Arg, ArgError, ChannelArg, Kind, Mark, Reason, COORD};
+use avenger_chart::functions::{Arg, ArgError, ChannelArg, Mark, Reason, COORD};
 
 /// The documentation section of the mark functions.
 const SECTION: DocSection = DocSection {
@@ -176,20 +176,25 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
     let options: Vec<Expr> = args.by_ref().take(spec.options.len()).collect();
     let coord = args.next();
     for (declared, argument) in spec.channels.iter().zip(channels) {
-        let (argument, explicit, options) = match kind_argument(argument) {
-            Ok((kind, inner, options)) => (inner, Some(kind), options),
-            Err(argument) => (argument, None, Vec::new()),
-        };
-        let options = constants(name, &format!("an option of `{}`", declared.name), options)?;
-        if let Some(inner) = contained_kind(&argument) {
+        let wrapped = super::kind::unwrap(&argument);
+        let (function, explicit) = (wrapped.function, wrapped.kind);
+        let what = format!("an option of `{}`", declared.name);
+        let options = constants(
+            name,
+            &what,
+            function.map_or(Vec::new(), |(_, o)| o.to_vec()),
+        )?;
+        let argument = wrapped.value.clone();
+        if let Some(inner) = contained_wrapper(&argument) {
             return plan_err!(
-                "{inner}() is the whole value of a channel of {name}(), and `{}` holds one inside \
-                 an expression",
+                "{inner}() is the whole value of a channel of {name}(), or the value of its \
+                 channel function, and `{}` holds one inside an expression",
                 declared.name
             );
         }
         // A bare value takes the default kind of its channel, which the mark call gives it.
         let argument = match argument {
+            // A `NULL` in a channel function means what it means bare.
             Expr::Literal(value, _) if value.is_null() && explicit.is_none() => continue,
             Expr::Literal(value, _) if value.data_type() == DataType::Null => {
                 let kind = explicit
@@ -214,7 +219,8 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
                 ChannelArg::Field(column)
             }
         };
-        mark.channel(declared.name, argument, explicit, &options)
+        let function = function.map(|(function, _)| function);
+        mark.channel(declared.name, argument, explicit, function, &options)
             .map_err(failed)?;
     }
     let properties = constants(name, "a property", properties)?;
@@ -237,23 +243,6 @@ fn bind(spec: &'static Mark, call: AggregateFunction, context: &SimplifyContext)
     )))
 }
 
-/// The kind, the value, and the options of `expr` when it is a call of `scaled` or `direct`, or
-/// `expr` itself.
-fn kind_argument(expr: Expr) -> std::result::Result<(Kind, Expr, Vec<Expr>), Expr> {
-    match expr {
-        Expr::ScalarFunction(ScalarFunction { func, mut args }) if !args.is_empty() => {
-            match Kind::of(func.name()) {
-                Some(kind) => {
-                    let value = args.remove(0);
-                    Ok((kind, value, args))
-                }
-                None => Err(Expr::ScalarFunction(ScalarFunction { func, args })),
-            }
-        }
-        expr => Err(expr),
-    }
-}
-
 /// The arguments of `exprs`, which are literals after folding, as the options of `what` of the
 /// mark `name`: `None` for a `NULL`, which leaves its parameter unset.
 fn constants(name: &str, what: &str, exprs: Vec<Expr>) -> Result<Vec<Option<Arg>>> {
@@ -268,12 +257,12 @@ fn constants(name: &str, what: &str, exprs: Vec<Expr>) -> Result<Vec<Option<Arg>
         .collect()
 }
 
-/// The name of the first call of `scaled` or `direct` in `expr`.
-fn contained_kind(expr: &Expr) -> Option<String> {
+/// The name of the first call of a channel function, `datum`, or `value` in `expr`.
+fn contained_wrapper(expr: &Expr) -> Option<String> {
     let mut found = None;
     expr.apply(|expr| {
         if let Expr::ScalarFunction(ScalarFunction { func, .. }) = expr {
-            if Kind::of(func.name()).is_some() {
+            if super::kind::wraps(expr) {
                 found = Some(func.name().to_string());
                 return Ok(TreeNodeRecursion::Stop);
             }

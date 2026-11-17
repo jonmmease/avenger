@@ -17,14 +17,32 @@ use datafusion::{
 };
 use prost::Message;
 
-/// The plan of `FROM one |> SELECT scaled(one, <place> => <expression>)`, optimized or not.
-async fn scaled_plan(
+/// The channel whose function takes the option `place` of an encoding: `color` for a legend, and
+/// `x` for another option.
+fn channel_of(place: &str) -> &'static str {
+    match place {
+        "legend" => "color",
+        _ => "x",
+    }
+}
+
+/// The plan of a symbol call whose channel of `place` is
+/// `<channel> => <channel>(one, <place> => <expression>)`, optimized or not.
+async fn encoding_plan(
     place: &str,
     expression: &str,
     optimized: bool,
 ) -> Result<LogicalPlan, String> {
     let ctx = common::session();
-    let query = format!("FROM one |> SELECT scaled(one, {place} => {expression}) AS value");
+    let channel = channel_of(place);
+    let others = match channel {
+        "x" => "y => one",
+        _ => "x => one, y => one",
+    };
+    let query = format!(
+        "FROM one |> AGGREGATE symbol({channel} => {channel}(one, {place} => {expression}), \
+         {others}) AS value"
+    );
     let frame = avenger_sql::sql(&ctx, &query)
         .await
         .map_err(|error| error.to_string())?;
@@ -55,12 +73,23 @@ fn calls(plan: &LogicalPlan, name: &str) -> Vec<Vec<Expr>> {
     found
 }
 
-/// The fragment that `expression` builds as the option `place` of an encoding, through `scaled`.
+/// `expr`, a constant, folded by DataFusion's simplifier, as the binding of a mark call reads it.
+fn folded(expr: &Expr) -> Expr {
+    let simplifier = datafusion::optimizer::simplify_expressions::ExprSimplifier::new(
+        datafusion::logical_expr::simplify::SimplifyContext::default(),
+    );
+    simplifier.simplify(expr.clone()).unwrap()
+}
+
+/// The fragment that `expression` builds as the option `place` of an encoding, through the
+/// function of a channel that takes it.
 async fn option(place: &str, expression: &str) -> Fragment {
-    let plan = scaled_plan(place, expression, true).await.unwrap();
-    let calls = calls(&plan, "scaled");
-    let args = calls.first().expect("a call of scaled");
-    let bytes = (args.iter().skip(1))
+    // The planning checks the call, and the options of the unbound call fold.
+    encoding_plan(place, expression, true).await.unwrap();
+    let plan = encoding_plan(place, expression, false).await.unwrap();
+    let calls = calls(&plan, channel_of(place));
+    let args = calls.first().expect("a call of the channel function");
+    let bytes = (args.iter().skip(1).map(folded))
         .find_map(|arg| match arg {
             Expr::Literal(ScalarValue::BinaryView(Some(bytes)), _) => Some(bytes.clone()),
             _ => None,
@@ -81,7 +110,7 @@ async fn builds(place: &str, expression: &str, expected: Fragment) {
 
 /// The planning error of `expression` as the option `place` of an encoding.
 async fn error(place: &str, expression: &str) -> String {
-    scaled_plan(place, expression, true)
+    encoding_plan(place, expression, true)
         .await
         .expect_err("the call fails to plan")
 }
@@ -186,7 +215,7 @@ async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
         let chart = |value: &str| {
             format!(
                 "FROM penguins
-                 |> AGGREGATE symbol(x => scaled(body_mass_g, {place} => {value}), y => species)
+                 |> AGGREGATE symbol(x => x(body_mass_g, {place} => {value}), y => species)
                       AS chart"
             )
         };
@@ -214,7 +243,7 @@ async fn a_value_means_the_same_bare_and_wrapped_in_its_constructor() {
                  |> AGGREGATE symbol(
                       x => body_mass_g,
                       y => species,
-                      color => scaled(island, {place} => {value}),
+                      color => color(island, {place} => {value}),
                     ) AS chart"
             )
         };
@@ -362,7 +391,7 @@ async fn one_name_builds_the_message_of_its_place() {
         "FROM penguins
          |> WHERE body_mass_g IS NOT NULL
          |> AGGREGATE symbol(
-              x => scaled(LOG(body_mass_g), scale => scale(type => log(base => 2))),
+              x => x(LOG(body_mass_g), scale => scale(type => log(base => 2))),
               y => species,
             ) AS chart",
     )
@@ -590,19 +619,23 @@ async fn a_constructor_is_valid_only_in_an_argument_of_a_chart_function() {
 
 #[tokio::test]
 async fn a_constant_call_folds_to_a_literal() {
-    let plan = scaled_plan("axis", "axis(title => 'Mass')", true)
+    let plan = encoding_plan("axis", "axis(title => 'Mass')", false)
         .await
         .unwrap();
-    let display = plan.display_indent().to_string();
-    assert!(!display.contains("axis("), "the call folds: {display}");
+    let args = calls(&plan, "x").remove(0);
+    let axis = folded(&args[2]);
+    assert!(
+        matches!(axis, Expr::Literal(ScalarValue::BinaryView(Some(_)), _)),
+        "the call folds: {axis}"
+    );
 }
 
 #[tokio::test]
 async fn a_fragment_has_the_extension_of_fragments() {
-    let plan = scaled_plan("axis", "axis(title => 'Mass')", false)
+    let plan = encoding_plan("axis", "axis(title => 'Mass')", false)
         .await
         .unwrap();
-    let args = calls(&plan, "scaled").remove(0);
+    let args = calls(&plan, "x").remove(0);
     let axis = (args.iter())
         .find(|arg| matches!(arg, Expr::ScalarFunction(call) if call.func.name() == "axis"))
         .expect("a call of the constructor of an axis");
@@ -720,17 +753,17 @@ async fn chart_of_geo(coord: &str) -> Chart {
 }
 
 #[tokio::test]
-async fn scaled_takes_the_options_of_its_encoding() {
+async fn a_channel_function_takes_the_options_of_its_encoding() {
     let chart = chart(
         "FROM penguins |> AGGREGATE symbol(
-           x => scaled(
+           x => x(
              body_mass_g,
              scale => scale(type => 'log'),
              title => 'Mass',
              axis => axis(label_rotation => -45, grid => FALSE),
            ),
-           y => scaled(flipper_length_mm, axis => FALSE),
-           color => scaled(species, legend => legend(orient => 'bottom', columns => 2)),
+           y => y(flipper_length_mm, axis => FALSE),
+           color => color(species, legend => legend(orient => 'bottom', columns => 2)),
          ) AS chart",
     )
     .await;
@@ -766,36 +799,62 @@ async fn scaled_takes_the_options_of_its_encoding() {
 
 #[tokio::test]
 async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
-    for (query, path, reason) in [
+    // A channel function takes only the options of its channel, so the analysis reports the
+    // option at its name, before its value.
+    for (query, option, expected) in [
         (
             "FROM penguins
              |> AGGREGATE symbol(
-                  x => scaled(body_mass_g, legend => legend(columns => 2)),
+                  x => x(body_mass_g, legend => legend(columns => 2)),
                   y => flipper_length_mm,
                 ) AS chart",
-            "symbol.x.legend",
-            "a legend is valid only on a channel other than a position",
+            "legend",
+            "x has no parameter named `legend`",
         ),
         (
             "FROM penguins
              |> AGGREGATE symbol(
                   x => body_mass_g,
                   y => flipper_length_mm,
-                  color => scaled(species, axis => FALSE),
+                  color => color(species, axis => FALSE),
                 ) AS chart",
-            "symbol.color.axis",
-            "an axis is valid only on a position with a scale of its own",
+            "axis",
+            "color has no parameter named `axis`: its parameters are `value`, `scale`, `legend`, \
+             `title`, and `selection_field`",
+        ),
+        (
+            "FROM penguins
+             |> AGGREGATE rule(x => body_mass_g, x2 => x2(flipper_length_mm, axis => FALSE)) AS chart",
+            "axis",
+            "x2 has no parameter named `axis`",
+        ),
+        (
+            "FROM penguins
+             |> AGGREGATE rule(
+                  x => body_mass_g,
+                  x2 => x2(flipper_length_mm, axis => axis(grid => FALSE)),
+                ) AS chart",
+            "axis",
+            "x2 has no parameter named `axis`",
         ),
     ] {
         let error = match avenger_sql::sql(&common::session(), query).await {
-            Ok(frame) => frame.collect().await.map(|_| ()),
-            Err(error) => Err(error),
-        }
-        .expect_err(query)
-        .to_string();
+            Ok(_) => panic!("`{query}` plans"),
+            Err(datafusion::error::DataFusionError::External(error)) => error,
+            Err(error) => panic!("{error} is no ScriptError"),
+        };
+        let error = (error.downcast_ref::<avenger_sql::ScriptError>()).expect("a ScriptError");
+        let [diagnostic] = error.diagnostics.as_slice() else {
+            panic!("{query}: one error, not {:?}", error.diagnostics);
+        };
         assert!(
-            error.contains(path) && error.contains(reason),
-            "{query}: {error}"
+            diagnostic.message.contains(expected),
+            "{query}: {diagnostic:?}"
+        );
+        let at = &query[std::ops::Range::<usize>::from(diagnostic.range)];
+        assert!(
+            at.starts_with(&format!("{option} =>")),
+            "{query}: the error is at the option's argument, not at `{at}`"
         );
     }
 }
@@ -808,7 +867,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
             "bar() needs a plan-time constant for a property",
         ),
         (
-            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, title => species), y => flipper_length_mm)",
+            "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)",
             "needs a plan-time constant for an option of `x`",
         ),
         (
@@ -817,7 +876,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         ),
         // A wrong constructor inside an option fails with its own error, not the mark's.
         (
-            "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(domain => linear())), y => flipper_length_mm)",
+            "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(domain => linear())), y => flipper_length_mm)",
             "`domain` takes",
         ),
         (
@@ -956,7 +1015,7 @@ async fn one_name_builds_a_point_scale_and_a_point_selection() {
     let built = tools(
         "FROM penguins
          |> AGGREGATE symbol(
-              x => scaled(species, scale => scale(type => point(padding => 0.5))),
+              x => x(species, scale => scale(type => point(padding => 0.5))),
               y => flipper_length_mm,
               tools => [select('pick', type => point(keys => ['species'], toggle => TRUE))],
             ) AS chart",
@@ -1064,4 +1123,70 @@ async fn a_struct_sets_the_named_options_of_a_custom_projection() {
         ("flipped", value(Value::Boolean(true))),
     ]));
     assert_eq!(projection(&chart), message(expected.to_fragment().unwrap()));
+}
+
+#[tokio::test]
+async fn a_channel_function_resolves_only_as_the_value_of_its_channel() {
+    // A channel whose name is also a parameter of a constructor, such as `size` of `resolve` and
+    // `color` of `title`, takes its function, and the constructor's parameter takes its value.
+    let chart = chart(
+        "FROM penguins
+         |> AGGREGATE symbol(
+              x => x(body_mass_g, axis => axis(title => title('Mass', color => 'gray'))),
+              y => species,
+              size => size(flipper_length_mm, legend => FALSE),
+              angle => angle(bill_depth_mm),
+              shape => shape(island),
+              opacity => opacity(value(0.5)),
+            ) AS chart
+            GROUP BY sex
+         |> AGGREGATE facet_wrap(chart, sex, resolve => resolve(size => 'independent')) AS chart",
+    )
+    .await;
+    assert!(matches!(
+        &chart.root().node,
+        Some(avenger_chart::proto::node::Node::Wrap(_))
+    ));
+    // Outside its channel, a channel function is an error that names where it belongs.
+    let message = query_error("FROM one |> SELECT size(one) AS a").await;
+    assert!(
+        message.contains(
+            "`size(...)` sets the channel `size` of a mark, so only the value of that channel \
+             holds it, as `size => size(...)` in"
+        ),
+        "{message}"
+    );
+    let message = query_error(
+        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => size(flipper_length_mm)) AS chart",
+    )
+    .await;
+    assert!(
+        message.contains("not `size(...)`. Did you mean `size => size(...)`?"),
+        "{message}"
+    );
+    // In an expression of a channel, a channel function is no function.
+    let message = query_error(
+        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => CONCAT(y(species), '')) AS chart",
+    )
+    .await;
+    assert!(
+        message.contains("`y(...)` sets the channel `y`"),
+        "{message}"
+    );
+}
+
+#[tokio::test]
+async fn datum_takes_a_constant_of_a_script_variable() {
+    let chart = chart(
+        "DECLARE s DEFAULT 'Adelie';
+         FROM penguins
+         |> AGGREGATE symbol(x => body_mass_g, y => flipper_length_mm, color => datum(s)) AS chart",
+    )
+    .await;
+    let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
+    let color = layer.mark().unwrap().encoding(Channel::Color).unwrap();
+    assert!(matches!(
+        color.kind,
+        Some(avenger_chart::proto::encoding::Kind::ScaledValue(_))
+    ));
 }

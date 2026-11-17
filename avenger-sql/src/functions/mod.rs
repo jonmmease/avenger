@@ -2,8 +2,9 @@
 //! which builds a chart of the rows of its group, an aggregate function for each composition,
 //! which composes the charts of the rows of its group, a scalar function for each layer and
 //! concat, which composes the charts of a row, a scalar function for each constructor,
-//! which returns the fragment of its message, and the scalar functions `scaled` and `direct`. They
-//! are a binding of `avenger_chart::functions`.
+//! which returns the fragment of its message, a scalar function for each channel with a scale,
+//! such as `x`, and the scalar functions `datum` and `value`. They are a binding of
+//! `avenger_chart::functions`.
 //!
 //! A mark function takes each channel of its mark as a named parameter:
 //!
@@ -22,10 +23,13 @@
 //! - A constant is a scaled value on a position with a scale, such as `y => 0` for a reference
 //!   line, and a direct value on another channel, such as `fill => 'steelblue'`.
 //!
-//! `scaled(value)` gives the scaled kind, such as `color => scaled('Adelie')` for the color of a
-//! category, and `direct(value)` the direct kind, such as `fill => direct(color)` for a column of
-//! colors, or `x => direct(0.5)` for the middle of the plot. The `ORDER BY` of the call is the
-//! draw order of the rows, and `GROUP BY` gives one chart for each group.
+//! `datum(value)` gives a constant the scaled kind, such as `color => datum('Adelie')` for the
+//! color of a category, and `value(value)` the direct kind, such as `fill => value(color)` for a
+//! column of colors, or `x => value(0.5)` for the middle of the plot. A channel with a scale also
+//! takes its channel function, which keeps the kind of its value and sets the options of the
+//! channel's encoding, as `color => color(datum('Adelie'), legend => FALSE)` and
+//! `y => y(mass, title => 'Mass')` do. The `ORDER BY` of the call is the draw order of the rows,
+//! and `GROUP BY` gives one chart for each group.
 //!
 //! The registered function of a mark is a declaration. DataFusion's expression simplifier binds
 //! each call of it, through `AggregateUDFImpl::simplify`, to an aggregate of its own that takes

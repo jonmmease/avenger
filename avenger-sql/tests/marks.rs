@@ -244,9 +244,9 @@ async fn bare_values_take_the_kinds_of_the_builders() {
 }
 
 #[tokio::test]
-async fn scaled_and_direct_give_their_kinds() {
-    let query = "FROM t |> AGGREGATE symbol(x => direct(0.5), y => b, color => scaled('p'), fill => direct(c), \
-                 stroke => direct(CAST(NULL AS STRING))) AS chart";
+async fn datum_and_value_give_their_kinds() {
+    let query = "FROM t |> AGGREGATE symbol(x => value(0.5), y => b, color => datum('p'), fill => value(c), \
+                 stroke => value(CAST(NULL AS STRING))) AS chart";
     let chart = chart(query).await;
     assert!(
         matches!(
@@ -270,6 +270,99 @@ async fn scaled_and_direct_give_their_kinds() {
         ),
         "only a bare NULL leaves its channel unset, and a typed NULL is a value"
     );
+}
+
+#[tokio::test]
+async fn a_channel_function_keeps_the_kind_of_its_value() {
+    // A bare value in a channel function takes the kind that it takes bare.
+    let bare = chart("FROM t |> AGGREGATE symbol(x => a, y => 0, fill => 'red') AS chart").await;
+    let wrapped =
+        chart("FROM t |> AGGREGATE symbol(x => x(a), y => y(0), fill => fill('red')) AS chart")
+            .await;
+    for channel in [Channel::X, Channel::Y, Channel::Fill] {
+        assert_eq!(
+            encoding(&bare, channel),
+            encoding(&wrapped, channel),
+            "{channel:?}"
+        );
+    }
+    assert!(matches!(
+        encoding(&wrapped, Channel::Fill),
+        Some(encoding::Kind::DirectValue(_))
+    ));
+    assert!(matches!(
+        encoding(&wrapped, Channel::Y),
+        Some(encoding::Kind::ScaledValue(_))
+    ));
+    // `datum` and `value` give their kinds bare and in the channel's function.
+    for color in ["datum('Adelie')", "color(datum('Adelie'))"] {
+        let query =
+            format!("FROM t |> AGGREGATE symbol(x => a, y => b, color => {color}) AS chart");
+        let chart = chart(&query).await;
+        assert!(
+            matches!(
+                encoding(&chart, Channel::Color),
+                Some(encoding::Kind::ScaledValue(_))
+            ),
+            "{color}"
+        );
+    }
+    for fill in ["value(c)", "fill(value(c))"] {
+        let query = format!("FROM t |> AGGREGATE symbol(x => a, y => b, fill => {fill}) AS chart");
+        let chart = chart(&query).await;
+        assert!(
+            matches!(
+                encoding(&chart, Channel::Fill),
+                Some(encoding::Kind::DirectField(field)) if field == "c"
+            ),
+            "{fill}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_null_means_the_same_bare_and_in_a_channel_function() {
+    for color in [
+        "NULL",
+        "color(NULL)",
+        "CAST(NULL AS STRING)",
+        "color(CAST(NULL AS STRING))",
+    ] {
+        let query =
+            format!("FROM t |> AGGREGATE symbol(x => a, y => b, color => {color}) AS chart");
+        let chart = chart(&query).await;
+        assert!(encoding(&chart, Channel::Color).is_none(), "{color}");
+    }
+    // In `datum` or `value`, a typed `NULL` is a value, alone or in a channel function.
+    for stroke in [
+        "value(CAST(NULL AS STRING))",
+        "stroke(value(CAST(NULL AS STRING)))",
+    ] {
+        let query =
+            format!("FROM t |> AGGREGATE symbol(x => a, y => b, stroke => {stroke}) AS chart");
+        let chart = chart(&query).await;
+        assert!(
+            matches!(
+                encoding(&chart, Channel::Stroke),
+                Some(encoding::Kind::DirectValue(_))
+            ),
+            "{stroke}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_channel_function_sets_the_options_of_its_encoding() {
+    let query = "FROM t |> AGGREGATE symbol(x => x(a, title => 'A', axis => FALSE), y => b, \
+                 color => color(datum('p'), legend => FALSE, title => 'P')) AS chart";
+    let chart = chart(query).await;
+    let mark = layer(&chart).mark().expect("a mark");
+    let x = mark.encoding(Channel::X).expect("x");
+    assert_eq!(x.title.as_deref(), Some("A"));
+    assert!(x.axis.is_some());
+    let color = mark.encoding(Channel::Color).expect("color");
+    assert_eq!(color.title.as_deref(), Some("P"));
+    assert!(color.legend.is_some());
 }
 
 #[tokio::test]
@@ -385,16 +478,24 @@ async fn invalid_calls_fail_at_planning() {
             "symbol does not support DISTINCT",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => direct(a) + 1, y => b)",
-            "direct() is the whole value",
+            "FROM t |> AGGREGATE symbol(x => value(a) + 1, y => b)",
+            "value() is the whole value",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => scaled(direct(a)), y => b)",
-            "direct() is the whole value",
+            "FROM t |> AGGREGATE symbol(x => datum(value(1)), y => b)",
+            "value() is the whole value",
         ),
         (
-            "FROM t |> AGGREGATE text(text => scaled(s), x => a)",
-            "scaled() needs a channel with a scale, and `text` of text() has none",
+            "FROM t |> AGGREGATE symbol(x => x(x(a)), y => b)",
+            "`value` takes no constructor, not `x(...)`",
+        ),
+        (
+            "FROM t |> AGGREGATE text(text => datum('s'), x => a)",
+            "datum() needs a channel with a scale, and `text` of text() has none",
+        ),
+        (
+            "FROM t |> AGGREGATE symbol(x => a, y => b, color => datum(c))",
+            "datum() takes a constant, and `color` of symbol() holds `c`",
         ),
         (
             "FROM t |> AGGREGATE symbol(x => 1, y => 2)",

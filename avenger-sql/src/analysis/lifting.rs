@@ -29,7 +29,7 @@
 //! rows takes the window's default order after its own, where GoogleSQL leaves the order
 //! unspecified or requires one.
 
-use avenger_chart::functions::Kind;
+use avenger_chart::functions::{channel_function, Kind};
 use avenger_datafusion_transforms::impute::{self, ImputeCall, Named};
 use avenger_sql_syntax::{ast, ast::AstNode, TextRange};
 use datafusion::{
@@ -50,7 +50,10 @@ use super::{
     query::regroup,
     rows, Pass,
 };
-use crate::library::{Library, WindowOrder};
+use crate::{
+    functions::kind,
+    library::{Library, WindowOrder},
+};
 
 /// The qualifier of the column that stands for a window of a mark call in the partition of a
 /// window that names it, until the branch resolves it.
@@ -117,7 +120,8 @@ fn names_window(expr: &Expr) -> bool {
 pub(crate) struct Lifting {
     /// The planned call, as the items of the `AGGREGATE` hold it.
     pub mark: Expr,
-    /// The name of the column of each channel value, the value inside `scaled` or `direct`.
+    /// The name of the column of each channel value, the value inside its channel function and
+    /// `datum` or `value`.
     pub names: Vec<(Expr, String)>,
     /// The keys and measures that the windows of the call read.
     pub windows: Windows,
@@ -146,11 +150,12 @@ pub(crate) struct Windows {
     rows: Vec<String>,
 }
 
-/// A channel value of a mark call as the user wrote it: its channel, the planned value inside
-/// `scaled` or `direct`, its range, the text that names its column, and its complete text.
+/// A channel value of a mark call as the user wrote it: its channel, the planned value inside its
+/// channel function and `datum` or `value`, its range, the text that names its column, and its
+/// complete text.
 pub(crate) struct Written {
     pub channel: String,
-    /// The syntax of the value, inside `scaled` or `direct`.
+    /// The syntax of the value, inside its channel function and `datum` or `value`.
     pub node: ast::Expr,
     pub value: Expr,
     pub range: TextRange,
@@ -158,30 +163,55 @@ pub(crate) struct Written {
     pub full: String,
 }
 
-/// The value of a channel argument, inside `scaled` or `direct`.
+/// The value of a channel argument, inside its channel function and `datum` or `value`.
 pub(crate) fn channel_value(arg: &Expr) -> &Expr {
-    match arg {
-        Expr::ScalarFunction(ScalarFunction { func, args })
-            if !args.is_empty() && Kind::of(func.name()).is_some() =>
-        {
-            &args[0]
-        }
-        arg => arg,
+    kind::unwrap(arg).value
+}
+
+/// The first argument of the call `value` when it wraps the value of the channel `channel`: the
+/// channel's function, which only the outermost call can be, when `function` holds, or `datum`
+/// or `value`.
+fn wrapped(value: &ast::Expr, channel: &str, function: bool) -> Option<ast::Expr> {
+    let ast::Expr::CallExpr(call) = value else {
+        return None;
+    };
+    let names = call.path()?.names()?;
+    let [name] = names.as_slice() else {
+        return None;
+    };
+    let name = name.to_ascii_lowercase();
+    let wraps = Kind::of(&name).is_some()
+        || (function && name == channel && channel_function(channel).is_some());
+    if !wraps {
+        return None;
+    }
+    match call.arg_list()?.arguments().next()? {
+        ast::Argument::Arg(arg) => arg.expr(),
+        _ => None,
     }
 }
 
-/// The text that names the column of the channel value `value`: the text inside `scaled` or
-/// `direct`, and inside each call of a function that `library` titles by its first argument, as
-/// `bin(body_mass_g)` is titled `body_mass_g`.
-pub(crate) fn channel_title(value: &ast::Expr, library: &Library) -> String {
+/// The syntax of the value `value` of the channel `channel`, inside its channel function and
+/// `datum` or `value`.
+pub(crate) fn channel_node(value: &ast::Expr, channel: &str) -> ast::Expr {
     let mut value = value.clone();
+    let mut function = true;
+    while let Some(inner) = wrapped(&value, channel, function) {
+        function = false;
+        value = inner;
+    }
+    value
+}
+
+/// The text that names the column of the value `value` of the channel `channel`: the text inside
+/// its channel function and `datum` or `value`, and inside each call of a function that `library`
+/// titles by its first argument, as `bin(body_mass_g)` is titled `body_mass_g`.
+pub(crate) fn channel_title(value: &ast::Expr, channel: &str, library: &Library) -> String {
+    let mut value = channel_node(value, channel);
     while let ast::Expr::CallExpr(call) = &value {
         let titled = (call.path().and_then(|path| path.names())).is_some_and(|names| {
             match names.as_slice() {
-                [name] => {
-                    Kind::of(&name.to_ascii_lowercase()).is_some()
-                        || library.get(name).is_some_and(|f| f.titled_by_argument)
-                }
+                [name] => library.get(name).is_some_and(|f| f.titled_by_argument),
                 _ => false,
             }
         });
@@ -206,49 +236,10 @@ fn collapsed(value: &ast::Expr) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The syntax of the channel value `value`, inside `scaled` or `direct`.
-pub(crate) fn channel_node(value: &ast::Expr) -> ast::Expr {
-    if let ast::Expr::CallExpr(call) = value {
-        let kind = (call.path().and_then(|path| path.names())).is_some_and(|names| {
-            matches!(names.as_slice(), [name] if Kind::of(&name.to_ascii_lowercase()).is_some())
-        });
-        let first =
-            (call.arg_list().and_then(|list| list.arguments().next())).and_then(|argument| {
-                match argument {
-                    ast::Argument::Arg(arg) => arg.expr(),
-                    _ => None,
-                }
-            });
-        if let (true, Some(first)) = (kind, first) {
-            return first;
-        }
-    }
-    value.clone()
-}
-
-/// The text of the channel value `value`, inside `scaled` or `direct`, with its spaces collapsed.
-pub(crate) fn channel_text(value: &ast::Expr) -> String {
-    let inner = match value {
-        ast::Expr::CallExpr(call) => {
-            let kind = (call.path().and_then(|path| path.names()))
-                .is_some_and(|names| {
-                    matches!(names.as_slice(), [name] if Kind::of(&name.to_ascii_lowercase()).is_some())
-                });
-            let first =
-                (call.arg_list().and_then(|list| list.arguments().next())).and_then(|argument| {
-                    match argument {
-                        ast::Argument::Arg(arg) => arg.expr(),
-                        _ => None,
-                    }
-                });
-            match (kind, first) {
-                (true, Some(first)) => first,
-                _ => value.clone(),
-            }
-        }
-        _ => value.clone(),
-    };
-    collapsed(&inner)
+/// The text of the value `value` of the channel `channel`, inside its channel function and
+/// `datum` or `value`, with its spaces collapsed.
+pub(crate) fn channel_text(value: &ast::Expr, channel: &str) -> String {
+    collapsed(&channel_node(value, channel))
 }
 
 /// `expr` as an error names it: a column by its name, without its qualifier.
@@ -853,20 +844,10 @@ pub(crate) fn branch(
             .map(|(_, name)| Expr::Column(Column::from_name(name.clone())))
     };
     let args = (mark.params.args.iter())
-        .map(|arg| match arg {
-            Expr::ScalarFunction(ScalarFunction { func, args })
-                if !args.is_empty() && Kind::of(func.name()).is_some() =>
-            {
-                let mut args = args.clone();
-                if let Some(column) = column(&args[0]) {
-                    args[0] = column;
-                }
-                Expr::ScalarFunction(ScalarFunction {
-                    func: func.clone(),
-                    args,
-                })
-            }
-            arg => column(arg).unwrap_or_else(|| arg.clone()),
+        .map(|arg| {
+            kind::map_value(arg, &mut |value| {
+                column(value).unwrap_or_else(|| value.clone())
+            })
         })
         .collect();
     let order_by = (mark.params.order_by.iter().enumerate())

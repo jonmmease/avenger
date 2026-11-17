@@ -87,7 +87,7 @@ pub enum Family {
     Mark,
     /// A constructor of avenger-chart, which returns a fragment of a chart's message and which only
     /// an argument of a chart function calls, by the name that the argument's parameter gives it,
-    /// or `scaled` or `direct`.
+    /// a channel function, which only the channel of its name calls, or `datum` or `value`.
     Constructor,
     /// A transform of avenger-datafusion-transforms: `bin`, `stack`, `timeunit`, `lump`, or
     /// `impute`.
@@ -955,7 +955,7 @@ impl Function {
     /// The error of an argument named `name`, which names no parameter. The error of `order` on a
     /// mark without the channel, such as a symbol, says that `ORDER BY` gives the draw order of its
     /// rows.
-    fn unknown_parameter(&self, name: &str) -> String {
+    pub(crate) fn unknown_parameter(&self, name: &str) -> String {
         let unknown = format!("{} has no parameter named `{name}`", self.name);
         match self.family == Family::Mark && name.eq_ignore_ascii_case("order") {
             true => format!(
@@ -1389,9 +1389,9 @@ impl Default for Library {
 }
 
 impl Library {
-    /// The library of GoogleSQL's functions and avenger's: the marks, compositions, `scaled`, and
-    /// `direct` of avenger-chart, and the transforms `bin`, `stack`, and `timeunit`, with the
-    /// constructors of avenger-chart apart from them.
+    /// The library of GoogleSQL's functions and avenger's: the marks, compositions, `datum`, and
+    /// `value` of avenger-chart, and the transforms `bin`, `stack`, and `timeunit`, with the
+    /// constructors and the channel functions of avenger-chart apart from them.
     pub fn new() -> Self {
         let mut library = Self {
             functions: Vec::new(),
