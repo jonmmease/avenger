@@ -9,6 +9,12 @@
 //! `IMPORT MODULE`. Within the subset, the crate accepts what GoogleSQL accepts, rejects what
 //! it rejects, and reports its first error where GoogleSQL does.
 //!
+//! The one exception reads reserved words as names where avenger's charts need them: a word
+//! that `=>` follows is an argument's name, as in `scale(range => 'tableau10')`, and `SELECT`
+//! and `INTERVAL` that `(` follows are calls, unless a date part follows the parentheses of
+//! `INTERVAL`, as in the literal `INTERVAL (x) DAY`. GoogleSQL rejects these, and every text
+//! that GoogleSQL accepts reads as it does there.
+//!
 //! # The tree
 //!
 //! [`parse`] never fails, and every text gives a tree. The tree is a `rowan` tree of

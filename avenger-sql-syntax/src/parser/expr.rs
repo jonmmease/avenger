@@ -25,8 +25,11 @@ const CONCAT_LEVEL: u8 = 10;
 const MULTIPLICATIVE: u8 = 11;
 const UNARY: u8 = 12;
 
-/// The reserved keywords that name functions when `(` follows them.
-const RESERVED_FUNCTIONS: &[&str] = &["IF", "LEFT", "RIGHT", "GROUPING", "COLLATE", "RANGE"];
+/// The reserved keywords that name functions when `(` follows them. `SELECT` names the selection
+/// tool of avenger's charts, beyond GoogleSQL, since no expression starts with `SELECT (`.
+const RESERVED_FUNCTIONS: &[&str] = &[
+    "IF", "LEFT", "RIGHT", "GROUPING", "COLLATE", "RANGE", "SELECT",
+];
 
 /// The functions that GoogleSQL calls without parentheses, as in `CURRENT_DATE`.
 const BARE_CALLS: &[&str] = &[
@@ -159,6 +162,41 @@ impl Parser<'_> {
         self.bump();
         marker.complete(self, kind);
         true
+    }
+
+    /// The call of a function whose name is a reserved word, as `IF(...)`, from the word: its
+    /// path and its arguments.
+    fn reserved_call(&mut self) {
+        let path = self.start();
+        let name = self.start();
+        self.bump();
+        name.complete(self, NAME_REF);
+        path.complete(self, PATH);
+        self.call_arguments();
+    }
+
+    /// Whether a date part follows the group in parentheses that starts at token `n`, as `DAY`
+    /// follows `(x)` in `INTERVAL (x) DAY`.
+    fn date_part_after_group(&self, n: usize) -> bool {
+        let mut depth = 0usize;
+        let mut i = n;
+        loop {
+            match self.nth(i) {
+                L_PAREN => depth += 1,
+                R_PAREN => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                EOF => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        self.nth(i + 1) == WORD
+            && (crate::INTERVAL_PARTS.iter())
+                .any(|part| part.eq_ignore_ascii_case(self.nth_text(i + 1)))
     }
 
     /// A name after a `.`, which can be a reserved keyword, as in `t.group`.
@@ -611,6 +649,12 @@ impl Parser<'_> {
                 self.extract();
                 EXTRACT_EXPR
             }
+            // `interval(...)` of avenger's charts, beyond GoogleSQL: a group in parentheses that no
+            // date part follows, as `INTERVAL (x) DAY` is an interval literal.
+            "INTERVAL" if next == L_PAREN && !self.date_part_after_group(1) => {
+                self.reserved_call();
+                CALL_EXPR
+            }
             "INTERVAL" => {
                 self.bump_keyword();
                 self.expr();
@@ -671,12 +715,7 @@ impl Parser<'_> {
                 TYPED_LITERAL
             }
             _ if RESERVED_FUNCTIONS.contains(&word.as_str()) && next == L_PAREN => {
-                let path = self.start();
-                let name = self.start();
-                self.bump();
-                name.complete(self, NAME_REF);
-                path.complete(self, PATH);
-                self.call_arguments();
+                self.reserved_call();
                 CALL_EXPR
             }
             "SELECT" => {
@@ -723,11 +762,13 @@ impl Parser<'_> {
                     p.argument();
                 }
             } else if p.current() != R_PAREN {
-                // A trailing comma can come before the clauses of an aggregate call.
+                // A trailing comma can come before the clauses of an aggregate call. A keyword that
+                // `=>` follows names an argument, as in `order => k`, and starts no clause.
                 p.comma_list_until(Self::argument, |p| {
-                    ["IGNORE", "RESPECT", "HAVING", "ORDER", "LIMIT"]
-                        .iter()
-                        .any(|keyword| p.keyword_at(0, keyword))
+                    p.nth(1) != FAT_ARROW
+                        && ["IGNORE", "RESPECT", "HAVING", "ORDER", "LIMIT"]
+                            .iter()
+                            .any(|keyword| p.keyword_at(0, keyword))
                 });
             }
             if p.at_keyword("IGNORE") || p.at_keyword("RESPECT") {
@@ -773,12 +814,16 @@ impl Parser<'_> {
         }
     }
 
-    /// An argument of a function call: a value, or `name => value`.
+    /// An argument of a function call: a value, or `name => value`. Beyond GoogleSQL, the name
+    /// can be a reserved word, as `range => 1`, since no expression starts with a keyword that
+    /// `=>` follows.
     fn argument(&mut self) {
         self.record_name(NameRole::Parameter);
         let marker = self.start();
-        if self.at_ident() && self.nth(1) == FAT_ARROW {
-            self.name_ref(NameRole::Parameter);
+        if matches!(self.current(), WORD | QUOTED_IDENT) && self.nth(1) == FAT_ARROW {
+            let name = self.start();
+            self.bump();
+            name.complete(self, NAME_REF);
             self.bump();
             self.expr();
             marker.complete(self, NAMED_ARG);

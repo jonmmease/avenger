@@ -141,3 +141,21 @@ fn the_names_of_every_operator() {
         .collect();
     assert_text_baseline("highlight", &dump);
 }
+
+#[test]
+fn a_reserved_word_that_names_an_argument_or_a_call_is_a_name() {
+    let text = "FROM t |> SELECT f(range => 1, select => 2) AS a, select(selection => 'b') AS b";
+    assert_eq!(class_of(text, "range"), (name(NameRole::Parameter), false));
+    let ranges = classes(text);
+    let selects: Vec<&Highlight> = (ranges.iter())
+        .filter(|(word, _, _)| word == "select")
+        .map(|(_, highlight, _)| highlight)
+        .collect();
+    assert_eq!(selects.len(), 2, "{ranges:?}");
+    assert_eq!(*selects[0], name(NameRole::Parameter));
+    assert!(
+        matches!(selects[1], Highlight::Name(NameRole::Function(_))),
+        "{ranges:?}"
+    );
+    assert_eq!(class_of(text, "SELECT"), (Highlight::Keyword, false));
+}

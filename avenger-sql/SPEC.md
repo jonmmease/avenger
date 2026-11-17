@@ -40,7 +40,7 @@ JOIN customers AS c USING (customer_id)
 - In `FROM`: tables, `(query)`, joins in parentheses, `UNNEST(...)`, table function calls such as `f(TABLE t, 3)`, `LATERAL`, and `WITH OFFSET`.
 - Expressions are GoogleSQL's: subqueries, `EXISTS`, `IN`, `CASE`, `CAST` and `SAFE_CAST`, `EXTRACT`, intervals, `ARRAY` and `STRUCT` literals, typed literals, window functions with named windows and a `WINDOW` clause, and `SAFE.` calls.
 - Names are case-insensitive. Quote a name that is a reserved word, or has dashes outside a table path, in backticks.
-- A call can name its arguments, as in `f(x, step => 2)`. A parameter whose name is a reserved word takes a trailing underscore, as `range_` of `scale` does.
+- A call can name its arguments, as in `f(x, step => 2)`. A parameter keeps its name when it is a reserved word, as `range` of `scale` does: beyond GoogleSQL, a word that `=>` follows is an argument's name, and `select(...)` and `interval(...)` are calls, unless a date part follows the parentheses of `INTERVAL`, as in `INTERVAL (x) DAY`.
 - GoogleSQL's syntax outside the subset, such as DDL and DML statements, is an error that names it as unsupported.
 
 ## Trailing commas

@@ -302,11 +302,11 @@ impl<'a> Parser<'a> {
         if self.nth(n) == EOF {
             self.record_at_end(Expected::Keyword(FROM_KW));
         }
-        // `WITH(` is GoogleSQL's WITH expression, not a query.
-        ["FROM", "SELECT"]
-            .iter()
-            .any(|word| self.keyword_at(n, word))
-            || (self.keyword_at(n, "WITH") && self.nth(n + 1) != L_PAREN)
+        // `WITH(` is GoogleSQL's WITH expression, and `SELECT(` the call of avenger's selection
+        // tool, not queries.
+        self.keyword_at(n, "FROM")
+            || (["SELECT", "WITH"].iter())
+                .any(|word| self.keyword_at(n, word) && self.nth(n + 1) != L_PAREN)
     }
 
     pub(crate) fn at_keyword(&self, keyword: &str) -> bool {
