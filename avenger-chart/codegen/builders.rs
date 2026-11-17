@@ -20,7 +20,8 @@
 //! - a scalar takes its exact Rust type, a string `impl Into<String>`, bytes `impl Into<Bytes>`,
 //!   an enum its Rust enum, a message `impl Into<` its builder `>`, an encoding of a channel
 //!   `impl IntoEncoding`, a `TableRef` a `RecordBatch`, and a `ValueRef` `impl IntoValue`; a
-//!   repeated field takes `impl IntoIterator` of them and appends
+//!   repeated field takes `impl IntoIterator` of them and appends, and a map of named options
+//!   takes `impl IntoIterator` of names and `OptionValue`s and inserts them
 //! - a member whose type has no fields takes no argument, and a member whose type has exactly one
 //!   field, a repeated one, takes the items of that field
 //! - rule A: a message whose only required content is one field converts from that field's
@@ -495,6 +496,27 @@ pub(super) fn builders(
                         comments.fields.get(&(name.clone(), index)),
                         field_name.to_string(),
                     ));
+                }
+                // A map, of the named options of a custom scale or projection, takes its entries,
+                // and an entry replaces the entry of its name.
+                None if super::model::is_map_entry(field.type_name()) => {
+                    let summary = format!("Adds the entries to `{field_name}`, by name.");
+                    doc(&mut setters, &summary);
+                    let value = "impl Into<crate::proto::OptionValueBuilder>";
+                    writeln!(
+                        setters,
+                        "    {vis} fn {setter}(mut self, entries: impl IntoIterator<Item = (impl Into<String>, {value})>) -> Self {{\n        for (name, value) in entries {{\n            let name = name.into();\n            let value = self.parts.embed(&format!(\"{field_name}.{{name}}\"), value.into());\n            self.message.{field_ident}.insert(name, value);\n        }}\n        self\n    }}\n"
+                    )
+                    .unwrap();
+                    parameters.insert(
+                        field_name.to_string(),
+                        Parameter {
+                            declaration: Some(format!(
+                                "{field_ident}: impl IntoIterator<Item = (impl Into<String>, {value})>"
+                            )),
+                            setter: setter.clone(),
+                        },
+                    );
                 }
                 None if field.label() == Label::Repeated => {
                     let summary = format!("Adds to `{field_name}`, in order.");

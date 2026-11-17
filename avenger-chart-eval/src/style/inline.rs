@@ -40,7 +40,7 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "rule_width",
         ],
     ),
-    ("Cartesian", &["aspect_ratio"]),
+    ("Cartesian", &["aspect"]),
     ("SphereStyle", &["fill", "stroke", "stroke_width"]),
     (
         "Graticule",
@@ -50,8 +50,8 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "label_font_weight",
             "label_color",
             "label_padding",
-            "color",
-            "width",
+            "stroke",
+            "stroke_width",
         ],
     ),
     (
@@ -440,7 +440,7 @@ pub(crate) fn plot(tree: &mut Styled, node: NodeId, plot: &proto::Plot) {
         if let Some(ratio) = cartesian
             .options
             .as_ref()
-            .and_then(|options| options.aspect_ratio)
+            .and_then(|options| options.aspect)
         {
             set(tree, node, Property::AspectRatio, &format!("{ratio} / 1"));
         }
@@ -656,8 +656,13 @@ pub(crate) struct GraticuleNodes {
 
 /// A `Graticule` on its nodes.
 pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &proto::Graticule) {
-    color(tree, nodes.grid, Property::Stroke, &graticule.color);
-    px(tree, nodes.grid, Property::StrokeWidth, graticule.width);
+    color(tree, nodes.grid, Property::Stroke, &graticule.stroke);
+    px(
+        tree,
+        nodes.grid,
+        Property::StrokeWidth,
+        graticule.stroke_width,
+    );
     font(
         tree,
         nodes.label,

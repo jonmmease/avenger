@@ -11,7 +11,7 @@
 //!   are the options of the compositions that build them
 //!
 //! The tree stops at `ValueRef`, `TableRef`, `Table`, and `Encoding`, which are values, tables,
-//! and channels, not options. build.rs fails, in every build, when a oneof of the tree has two
+//! and channels, not options, and at the entries of maps, whose values a struct sets. build.rs fails, in every build, when a oneof of the tree has two
 //! members that its argument cannot tell apart, except for `ValueRef` members, of which the first
 //! by number takes the values, and for a oneof whose members all take one kind of plain argument,
 //! whose members are parameters of their own, when a member without fields, which its name picks,
@@ -25,7 +25,7 @@ use prost_types::{
     DescriptorProto, FieldDescriptorProto,
 };
 
-use super::{Messages, PACKAGE};
+use super::{model::is_map_entry, Messages, PACKAGE};
 
 /// The messages where the tree stops.
 const STOPS: [&str; 4] = ["ValueRef", "TableRef", "Table", "Encoding"];
@@ -154,9 +154,11 @@ fn stops(name: &str) -> bool {
     STOPS.iter().any(|stop| name == format!("{PACKAGE}.{stop}"))
 }
 
-/// The type of `field` when it is a message.
+/// The type of `field` when it is a message, other than the entry of a map, whose values the tree
+/// does not reach: a struct sets the named options of a map.
 fn message_type(field: &FieldDescriptorProto) -> Option<String> {
-    (field.r#type() == Type::Message).then(|| field.type_name().to_string())
+    (field.r#type() == Type::Message && !is_map_entry(field.type_name()))
+        .then(|| field.type_name().to_string())
 }
 
 /// The kind of SQL argument that a scalar member of a oneof takes, which two members of one oneof
@@ -219,10 +221,10 @@ pub(super) fn check(messages: &Messages, tree: &[String]) -> Result<(), String> 
     Ok(())
 }
 
-/// The message fields of `message` outside its oneofs.
+/// The message fields of `message` outside its oneofs, other than maps.
 fn message_fields(message: &DescriptorProto) -> impl Iterator<Item = &FieldDescriptorProto> {
     (message.field.iter()).filter(|field| {
-        field.r#type() == Type::Message && (field.oneof_index.is_none() || field.proto3_optional())
+        message_type(field).is_some() && (field.oneof_index.is_none() || field.proto3_optional())
     })
 }
 

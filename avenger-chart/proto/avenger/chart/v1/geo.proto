@@ -13,32 +13,37 @@ import "avenger/chart/v1/side.proto";
 // plot. The chart stores the spec, and the renderer builds the projection from it and fits its view
 // at the size of each plot.
 //
-// The geo plots that share a projection merge their data and show one view, so their surfaces,
-// their fits, their aspects, and their navigation must be equal.
+// The geo plots that share a projection merge their data and show one view, so their projections,
+// their graticules, their spheres, their tiles, their aspects, and their navigation must be equal.
 message Geo {
-  // The coordinates that the projection takes.
-  oneof surface {
-    option (avenger.chart.v1.required_oneof) = true;
-    Spherical spherical = 1;
-    Planar planar = 2;
-  }
+  // The projection, with its parameters.
+  Projection projection = 1 [(avenger.chart.v1.required) = true];
   // The share family. Geo plots whose specs name one family share one projection, in addition
   // to the projections that resolve rules share.
-  string family = 3;
+  string family = 2;
   // The shape of the plot. When unset, the plot keeps the aspect ratio of what its view fits,
   // inside the space that the layout gives it, so the projection fills the plot.
   oneof aspect {
     // A fixed width over height, which the plot keeps inside the space that the layout gives
     // it. The view fills the plot in one direction and centers in the other.
-    float aspect_ratio = 4;
+    float aspect_ratio = 3;
     // All of the space that the layout gives the plot, in any shape. The view fills the plot in one
     // direction and centers in the other, so a geo plot that fits a box shows more of the places
     // around the box.
-    FreeAspect free = 5;
+    FreeAspect free = 4;
   }
   // How a navigation moves the projection. When unset, a navigation moves the projection in its
   // own pan mode, and its zoom has no limits.
-  GeoNavigation navigation = 6;
+  GeoNavigation navigation = 5;
+  // The lines of longitude and latitude. When unset, the plot has no graticule. A projection of
+  // the type `identity` has none.
+  Graticule graticule = 6;
+  // The sphere, the whole world of the projection, filled behind the data and outlined. When
+  // unset, the plot does not draw the sphere. A projection of the type `identity` has none.
+  SphereStyle sphere = 7;
+  // Raster tiles behind the data, such as a street map. When unset, the map has no tiles. A
+  // projection of the type `identity` has none.
+  TileLayer tiles = 8;
 }
 
 message FreeAspect {}
@@ -47,7 +52,7 @@ message FreeAspect {}
 // projection moves alike.
 message GeoNavigation {
   // How a drag moves the projection. Without a mode, the projection's own mode:
-  // `PAN_MODE_TRANSLATE` for a planar geo plot, `PAN_MODE_SPHERE` for a projection whose default
+  // `PAN_MODE_TRANSLATE` for a projection of the type `identity`, which takes no other mode, `PAN_MODE_SPHERE` for a projection whose default
   // clip is a circle, as an azimuthal projection's is, and `PAN_MODE_LONGITUDE` otherwise.
   PanMode pan_mode = 1;
   // How far the wheel zooms out and in, as factors of the scale of the fitted projection at the
@@ -73,110 +78,112 @@ enum PanMode {
   PAN_MODE_SPHERE = 3;
 }
 
-// Longitudes and latitudes in degrees, through a projection.
-message Spherical {
-  // The projection, with its parameters.
-  oneof projection {
+// A map projection: its type, the parameters of its type, and how it rotates, centers, clips,
+// resamples, and fits. The reader checks that each parameter is one that the projection's type
+// takes.
+message Projection {
+  // The type of the projection, a projection of the renderer or one that an app adds.
+  oneof type {
     option (avenger.chart.v1.required_oneof) = true;
-    NoParameters equal_earth = 1;
-    NoParameters natural_earth1 = 2;
-    NoParameters robinson = 3;
-    NoParameters mollweide = 4;
-    NoParameters eckert4 = 5;
-    NoParameters winkel_tripel = 6;
-    NoParameters aitoff = 7;
-    NoParameters sinusoidal = 8;
-    NoParameters equirectangular = 9;
-    NoParameters mercator = 10;
-    NoParameters transverse_mercator = 11;
-    NoParameters miller = 12;
-    NoParameters orthographic = 13;
-    NoParameters stereographic = 14;
-    NoParameters gnomonic = 15;
-    NoParameters azimuthal_equal_area = 16;
-    NoParameters azimuthal_equidistant = 17;
-    ConicConformal conic_conformal = 18;
-    ConicEqualArea conic_equal_area = 19;
-    ConicEquidistant conic_equidistant = 20;
-    CylindricalEqualAreaProjection cylindrical_equal_area = 21;
-    HammerProjection hammer = 22;
+    // A projection of the renderer.
+    ProjectionType builtin = 1 [(avenger.chart.v1.required) = true];
     // A projection that an app adds to its renderer.
-    CustomProjection custom = 31;
+    CustomProjection custom = 2;
   }
-  // The rotation of the sphere before it projects. When unset, the sphere does not rotate.
-  Rotation rotate = 32;
-  // The place at the center of the view. When unset, longitude 0 and latitude 0.
-  LonLat center = 33;
+  // The standard parallels of a conic projection, one or two, in degrees from -90 to 90. One
+  // parallel, or two equal ones, make a conic with one standard parallel. When unset, 30 and 30
+  // for `conic_conformal`, and 0 and 60 for `conic_equal_area` and `conic_equidistant`, as in
+  // d3-geo.
+  repeated double parallels = 3;
+  // The standard parallel of `cylindrical_equal_area`, in degrees from -90 to 90. When unset,
+  // 38.58, the parallel of the Hobo-Dyer projection.
+  optional double parallel = 4;
+  // The coefficient of `hammer`, at least 1: 1 gives the azimuthal equal-area projection, and 2
+  // the Hammer projection. When unset, 2.
+  optional double coefficient = 5;
+  // Whether the x axis of `identity` flips, for coordinates whose x grows to the left.
+  bool reflect_x = 6;
+  // Whether the y axis of `identity` flips, for coordinates whose y grows upward.
+  bool reflect_y = 7;
+  // The rotation of the sphere before it projects, in degrees, as d3-geo's `rotate` takes it: the
+  // yaw, the turn about the polar axis, then the pitch, and an optional roll, so two or three
+  // numbers. When unset, the sphere does not rotate.
+  repeated double rotate = 8;
+  // The place at the center of the view, as its longitude in degrees east and its latitude in
+  // degrees north. When unset, longitude 0 and latitude 0.
+  repeated double center = 9;
   // The part of the sphere that the projection keeps. When unset, the projection keeps its default
   // part, such as the near hemisphere of `orthographic`.
-  SphericalClip clip = 34;
+  SphericalClip clip = 10;
   // The resampling precision, in pixels, or 0 for no resampling. When unset, the square root of
   // 0.5, as in d3-geo.
-  optional double precision = 35;
+  optional double precision = 11;
   // What the view fits. When unset, the view fits the data of the plot's layers.
   oneof fit {
     // The data of the plot's layers. The renderer summarizes the geometry of each `geo_shape` layer
     // and the positions of the other layers, and insets the fit by the largest reach of their
     // marks, so a mark at the edge of the data stays inside the plot. The plot clips to its
     // rectangle, because its graticule, its sphere, and its tiles run past the data.
-    PlotData data = 36;
+    PlotData data = 12;
     // The whole sphere, as a world map or a globe shows it.
-    WholeSphere whole_sphere = 37;
+    WholeSphere whole_sphere = 13;
     // A box of longitudes and latitudes. The plot clips its marks, because the box can exclude
     // data.
-    LonLatBox box = 38;
+    FitBox box = 14;
   }
-  // The lines of longitude and latitude. When unset, the plot has no graticule.
-  Graticule graticule = 39;
-  // The sphere, the whole world of the projection, filled behind the data and outlined. When
-  // unset, the plot does not draw the sphere.
-  SphereStyle sphere = 40;
-  // Raster tiles behind the data, such as a street map. When unset, the map has no tiles.
-  TileLayer tiles = 41;
 }
 
-// The options of a projection without parameters.
-message NoParameters {}
-
-// The conformal conic projection, which is true to scale along its two standard parallels.
-message ConicConformal {
-  // The first standard parallel, in degrees from -90 to 90.
-  double parallel1 = 1;
-  // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
-  // standard parallel.
-  double parallel2 = 2;
-}
-
-// The equal-area conic projection, which is true to scale along its two standard parallels.
-message ConicEqualArea {
-  // The first standard parallel, in degrees from -90 to 90.
-  double parallel1 = 1;
-  // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
-  // standard parallel.
-  double parallel2 = 2;
-}
-
-// The equidistant conic projection, which is true to scale along its two standard parallels.
-message ConicEquidistant {
-  // The first standard parallel, in degrees from -90 to 90.
-  double parallel1 = 1;
-  // The second standard parallel, in degrees from -90 to 90. Equal parallels make a conic with one
-  // standard parallel.
-  double parallel2 = 2;
-}
-
-// A cylindrical equal-area projection, which is true to scale along its standard parallel.
-message CylindricalEqualAreaProjection {
-  // The standard parallel, in degrees from -90 to 90. When unset, 38.58, the parallel of the
-  // Hobo-Dyer projection.
-  optional double parallel = 1;
-}
-
-// A Hammer projection.
-message HammerProjection {
-  // The coefficient, at least 1: 1 gives the azimuthal equal-area projection, and 2 the Hammer
-  // projection. When unset, 2.
-  optional double coefficient = 1;
+// The projections of the renderer.
+enum ProjectionType {
+  // Unset, which a projection does not take.
+  PROJECTION_TYPE_UNSPECIFIED = 0;
+  // Coordinates that are already projected, as d3-geo's `geoIdentity` takes them. They do not
+  // rotate, clip to the sphere, or resample, and they fit the data of the plot's layers.
+  PROJECTION_TYPE_IDENTITY = 1;
+  // The Equal Earth projection.
+  PROJECTION_TYPE_EQUAL_EARTH = 2;
+  // The Natural Earth projection.
+  PROJECTION_TYPE_NATURAL_EARTH1 = 3;
+  // The Robinson projection.
+  PROJECTION_TYPE_ROBINSON = 4;
+  // The Mollweide projection.
+  PROJECTION_TYPE_MOLLWEIDE = 5;
+  // The Eckert IV projection.
+  PROJECTION_TYPE_ECKERT4 = 6;
+  // The Winkel tripel projection.
+  PROJECTION_TYPE_WINKEL_TRIPEL = 7;
+  // The Aitoff projection.
+  PROJECTION_TYPE_AITOFF = 8;
+  // The sinusoidal projection.
+  PROJECTION_TYPE_SINUSOIDAL = 9;
+  // The equirectangular projection.
+  PROJECTION_TYPE_EQUIRECTANGULAR = 10;
+  // The Mercator projection.
+  PROJECTION_TYPE_MERCATOR = 11;
+  // The transverse Mercator projection.
+  PROJECTION_TYPE_TRANSVERSE_MERCATOR = 12;
+  // The Miller projection.
+  PROJECTION_TYPE_MILLER = 13;
+  // The orthographic projection, which shows the near hemisphere as a globe.
+  PROJECTION_TYPE_ORTHOGRAPHIC = 14;
+  // The stereographic projection.
+  PROJECTION_TYPE_STEREOGRAPHIC = 15;
+  // The gnomonic projection.
+  PROJECTION_TYPE_GNOMONIC = 16;
+  // The azimuthal equal-area projection.
+  PROJECTION_TYPE_AZIMUTHAL_EQUAL_AREA = 17;
+  // The azimuthal equidistant projection.
+  PROJECTION_TYPE_AZIMUTHAL_EQUIDISTANT = 18;
+  // The conformal conic projection, which is true to scale along its standard parallels.
+  PROJECTION_TYPE_CONIC_CONFORMAL = 19;
+  // The equal-area conic projection, which is true to scale along its standard parallels.
+  PROJECTION_TYPE_CONIC_EQUAL_AREA = 20;
+  // The equidistant conic projection, which is true to scale along its standard parallels.
+  PROJECTION_TYPE_CONIC_EQUIDISTANT = 21;
+  // A cylindrical equal-area projection, which is true to scale along its standard parallel.
+  PROJECTION_TYPE_CYLINDRICAL_EQUAL_AREA = 22;
+  // A Hammer projection.
+  PROJECTION_TYPE_HAMMER = 23;
 }
 
 // A projection that an app adds to its renderer. A renderer without a projection of the name
@@ -184,53 +191,20 @@ message HammerProjection {
 message CustomProjection {
   // The name of the projection.
   string name = 1 [(avenger.chart.v1.required) = true];
-  // The parameters of the projection, keyed by name. The projection checks their names and their
-  // values.
-  repeated NamedOption parameters = 2;
+  // The options of the projection, by name. The projection checks their names and their values.
+  map<string, OptionValue> options = 2;
 }
-
-// Coordinates that are already projected, as d3-geo's `geoIdentity` takes them. They do not
-// rotate, clip to the sphere, or resample.
-message Planar {
-  // Whether the y axis flips, for coordinates whose y grows upward.
-  bool reflect_y = 1;
-}
-
-// A planar geo plot fits the data of its layers, as the `data` fit of `Spherical.fit` describes, and has no
-// graticule, sphere, or tiles, which belong to the sphere.
 
 message PlotData {}
 
 message WholeSphere {}
 
-// The yaw, the pitch, and the roll of a rotation, in degrees, as d3-geo's `rotate` takes them.
-message Rotation {
-  // The yaw: the turn about the polar axis, in degrees.
-  double lambda = 1;
-  // The pitch, in degrees.
-  double phi = 2;
-  // The roll, in degrees.
-  double gamma = 3;
-}
-
-message LonLat {
-  // In degrees east.
-  double longitude = 1;
-  // In degrees north.
-  double latitude = 2;
-}
-
-// A box from `west` to `east` and from `south` to `north`, in degrees. It crosses the
-// antimeridian when `east` is less than `west`.
-message LonLatBox {
-  // The western edge, in degrees east.
-  double west = 1;
-  // The southern edge, in degrees north.
-  double south = 2;
-  // The eastern edge, in degrees east.
-  double east = 3;
-  // The northern edge, in degrees north.
-  double north = 4;
+// A box of longitudes and latitudes.
+message FitBox {
+  // The western, southern, eastern, and northern edges of the box, in degrees east and north, as
+  // the bounding box of GeoJSON orders them. The box crosses the antimeridian when its east is less
+  // than its west.
+  repeated double bounds = 1 [(avenger.chart.v1.required) = true];
 }
 
 message SphericalClip {
@@ -265,51 +239,51 @@ enum RegionFrame {
   REGION_FRAME_VIEW = 2;
 }
 
-// The meridians and parallels of a spherical geo plot. Their labels sit on the outline of the
-// projection, or on the edges of the plot for a plot that fits a box.
+// The meridians and parallels of a geo plot. Their labels sit on the outline of the projection, or
+// on the edges of the plot for a plot that fits a box. A field that is unset takes its value from
+// the styles or its default.
 message Graticule {
-  // The degrees between meridians. When unset, 10.
-  optional double longitude_step = 1;
-  // The degrees between parallels. When unset, 10.
-  optional double latitude_step = 2;
-  // The box that the lines cover. When unset, longitudes from -180 to 180 and latitudes from -80
-  // to 80, as in d3-geo.
-  LonLatBox extent = 3;
-  // The degrees between major meridians, which run past `extent` to the box of `major_extent`. When
-  // unset, 90.
-  optional double major_longitude_step = 4;
-  // The degrees between major parallels. When unset, 360, so the major lines are the meridians
-  // alone.
-  optional double major_latitude_step = 5;
-  // The box that the major lines cover. When unset, longitudes from -180 to 180 and latitudes from
-  // -90 to 90.
-  LonLatBox major_extent = 6;
+  // Whether the plot draws the graticule. When unset, it does, so `true` draws a graticule with
+  // its defaults, and `false` draws none.
+  optional bool show = 1 [(avenger.chart.v1.lift) = true];
+  // The degrees between meridians and between parallels, as two numbers. When unset, 10 and 10.
+  repeated double step = 2;
+  // The box that the lines cover, as its western, southern, eastern, and northern edges in degrees.
+  // When unset, longitudes from -180 to 180 and latitudes from -80 to 80, as in d3-geo.
+  repeated double extent = 3;
+  // The degrees between major meridians and between major parallels, as two numbers. The major
+  // lines run past `extent` to the box of `extent_major`. When unset, 90 and 360, so the major
+  // lines are the meridians alone.
+  repeated double step_major = 4;
+  // The box that the major lines cover, as its western, southern, eastern, and northern edges in
+  // degrees. When unset, longitudes from -180 to 180 and latitudes from -90 to 90.
+  repeated double extent_major = 5;
   // The step between the points of each line, in degrees, which the projection resamples. When
   // unset, 2.5.
-  optional double precision = 7;
+  optional double precision = 6;
   // Where the labels sit. When unset, the labels sit on the edges of the plot for a plot that fits
   // a box or its data, and on the outline of the projection for a plot that fits the whole sphere.
-  GeoFrame frame = 8;
+  GeoFrame label_frame = 7;
   // The sides that label the lines that reach them: meridians on the top and the bottom, and
   // parallels on the left and the right. When unset, the left and the bottom label them.
-  LabelSides label_sides = 9;
+  LabelSides label_sides = 8;
   // The pattern of the degrees of each label, in the syntax of `Chart.number_format_syntax`. An
   // empty pattern takes the formatter's default.
-  string format = 10;
+  string format = 9;
   // The font family of the labels, such as `Lato`.
-  string label_font_family = 11;
+  string label_font_family = 10;
   // The font size of the labels, in pixels.
-  optional float label_font_size = 12;
+  optional float label_font_size = 11;
   // The font weight of the labels, from 100 to 900.
-  optional float label_font_weight = 13;
+  optional float label_font_weight = 12;
   // The CSS color of the labels.
-  string label_color = 14;
+  string label_color = 13;
   // The distance between the end of a line and its label, in pixels.
-  optional float label_padding = 15;
+  optional float label_padding = 14;
   // The CSS color of the lines.
-  string color = 16;
+  string stroke = 15;
   // The width of the lines, in pixels.
-  optional float width = 17;
+  optional float stroke_width = 16;
 }
 
 // The sides of a plot that carry labels, in any order, where a side that repeats counts once. No
@@ -321,7 +295,7 @@ message LabelSides {
 
 // The edge of a geo plot where the lines of its graticule are labeled.
 enum GeoFrame {
-  // Unset, as `Graticule.frame` describes.
+  // Unset, as `Graticule.label_frame` describes.
   GEO_FRAME_UNSPECIFIED = 0;
   // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
   // its end nearest the side.
@@ -333,12 +307,15 @@ enum GeoFrame {
 
 // The look of the sphere. A field that is unset takes its value from the styles.
 message SphereStyle {
+  // Whether the plot draws the sphere. When unset, it does, so `true` draws the sphere with its
+  // defaults, and `false` draws none.
+  optional bool show = 1 [(avenger.chart.v1.lift) = true];
   // The CSS color behind the data.
-  string fill = 1;
+  string fill = 2;
   // The CSS color of the outline.
-  string stroke = 2;
+  string stroke = 3;
   // The width of the outline, in pixels.
-  optional float stroke_width = 3;
+  optional float stroke_width = 4;
 }
 
 // Raster tiles in Web Mercator, which the renderer loads by URL through the image resolver of its

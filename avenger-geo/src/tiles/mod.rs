@@ -306,7 +306,7 @@ mod tests {
             let zoom = tile_zoom(&projector, 256.0).unwrap();
             assert!((zoom - z).abs() < 1e-6, "{z} at {lat}: {zoom}");
         }
-        let planar = Projection::planar(false)
+        let planar = Projection::planar(false, false)
             .with_view(1.0, [0.0, 0.0])
             .build()
             .unwrap();

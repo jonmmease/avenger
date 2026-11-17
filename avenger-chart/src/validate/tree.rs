@@ -10,8 +10,8 @@ use super::{
 use crate::{
     layer::{CoordKind, LayerRef},
     proto::{
-        self, geo, layer_tool, node::Node, plot::Coord, select, spherical, spherical_clip, tool,
-        track, Channel,
+        self, layer_tool, node::Node, plot::Coord, projection, select, spherical_clip, tool, track,
+        Channel, ProjectionType,
     },
 };
 
@@ -150,11 +150,11 @@ impl Checker<'_> {
             Coord::Cartesian(cartesian) => {
                 if let Some(options) = &cartesian.options {
                     positive(
-                        options.aspect_ratio.map(f64::from),
-                        &format!("{coord_path}.options.aspect_ratio"),
+                        options.aspect.map(f64::from),
+                        &format!("{coord_path}.options.aspect"),
                     )?;
                     // A reader ignores the size of a plot in a cell of a wrap.
-                    if options.aspect_ratio.is_some()
+                    if options.aspect.is_some()
                         && !scope.cell
                         && plot.width.is_some()
                         && plot.height.is_some()
@@ -279,14 +279,10 @@ impl Checker<'_> {
     }
 
     fn geo_options(&self, geo: &proto::Geo, path: &str) -> Result<()> {
-        match geo.surface.as_ref() {
-            Some(geo::Surface::Spherical(spherical)) => {
-                self.spherical(spherical, &format!("{path}.spherical"))?
-            }
-            Some(geo::Surface::Planar(_)) => {}
-            None => unreachable!("{REQUIRED}"),
-        }
-        if let Some(geo::Aspect::AspectRatio(ratio)) = geo.aspect {
+        let projection = geo.projection.as_ref().expect(REQUIRED);
+        projection_takes(geo, path)?;
+        self.projection(projection, &format!("{path}.projection"))?;
+        if let Some(proto::geo::Aspect::AspectRatio(ratio)) = geo.aspect {
             positive(Some(f64::from(ratio)), &format!("{path}.aspect_ratio"))?;
         }
         if let Some(navigation) = &geo.navigation {
@@ -302,107 +298,30 @@ impl Checker<'_> {
                 }
             }
         }
-        Ok(())
-    }
-
-    fn spherical(&self, spherical: &proto::Spherical, path: &str) -> Result<()> {
-        let parallel =
-            |value: f64, at: &str| within(Some(value), -90.0, 90.0, &format!("{path}.{at}"));
-        let conic = match spherical.projection.as_ref() {
-            Some(spherical::Projection::ConicConformal(conic)) => {
-                Some((conic.parallel1, conic.parallel2))
-            }
-            Some(spherical::Projection::ConicEqualArea(conic)) => {
-                Some((conic.parallel1, conic.parallel2))
-            }
-            Some(spherical::Projection::ConicEquidistant(conic)) => {
-                Some((conic.parallel1, conic.parallel2))
-            }
-            _ => None,
-        };
-        if let Some((parallel1, parallel2)) = conic {
-            parallel(parallel1, "parallel1")?;
-            parallel(parallel2, "parallel2")?;
-        }
-        match spherical.projection.as_ref() {
-            Some(spherical::Projection::CylindricalEqualArea(cylindrical)) => {
-                within(
-                    cylindrical.parallel,
-                    -90.0,
-                    90.0,
-                    &format!("{path}.parallel"),
-                )?;
-            }
-            Some(spherical::Projection::Hammer(hammer)) => {
-                if hammer
-                    .coefficient
-                    .is_some_and(|value| !(value.is_finite() && value >= 1.0))
-                {
-                    return Err(fail(
-                        format!("{path}.coefficient"),
-                        "the coefficient of a Hammer projection is at least 1",
-                    ));
-                }
-            }
-            Some(spherical::Projection::Custom(custom)) => {
-                keyed(
-                    &custom.parameters,
-                    |parameter| parameter.name.clone(),
-                    |a, b| a == b,
-                    &format!("{path}.custom.parameters"),
-                    "parameters",
-                )?;
-            }
-            Some(_) => {}
-            None => unreachable!("{REQUIRED}"),
-        }
-        if let Some(rotation) = &spherical.rotate {
-            if ![rotation.lambda, rotation.phi, rotation.gamma]
-                .iter()
-                .all(|angle| angle.is_finite())
-            {
-                return Err(fail(
-                    format!("{path}.rotate"),
-                    "the angles of a rotation are finite",
-                ));
-            }
-        }
-        if let Some(center) = &spherical.center {
-            lon_lat(center.longitude, center.latitude, &format!("{path}.center"))?;
-        }
-        if let Some(spherical_clip::Clip::CircleAngle(angle)) =
-            spherical.clip.as_ref().and_then(|clip| clip.clip.as_ref())
-        {
-            if !(angle.is_finite() && *angle > 0.0 && *angle <= 180.0) {
-                return Err(fail(
-                    format!("{path}.clip.circle_angle"),
-                    "the angle of a circle clip is more than 0 and at most 180 degrees",
-                ));
-            }
-        }
-        non_negative(spherical.precision, &format!("{path}.precision"))?;
-        if let Some(spherical::Fit::Box(fit)) = &spherical.fit {
-            lon_lat_box(fit, &format!("{path}.box"))?;
-        }
-        if let Some(graticule) = &spherical.graticule {
+        if let Some(graticule) = &geo.graticule {
             let path = format!("{path}.graticule");
-            for (value, at) in [
-                (graticule.longitude_step, "longitude_step"),
-                (graticule.latitude_step, "latitude_step"),
-                (graticule.major_longitude_step, "major_longitude_step"),
-                (graticule.major_latitude_step, "major_latitude_step"),
-                (graticule.precision, "precision"),
+            for (step, at) in [
+                (&graticule.step, "step"),
+                (&graticule.step_major, "step_major"),
             ] {
-                positive(value, &format!("{path}.{at}"))?;
+                let at = format!("{path}.{at}");
+                count(
+                    step,
+                    &[2],
+                    &at,
+                    "a graticule's step holds two numbers of degrees",
+                )?;
+                for value in step {
+                    positive(Some(*value), &at)?;
+                }
             }
             for (extent, at) in [
                 (&graticule.extent, "extent"),
-                (&graticule.major_extent, "major_extent"),
+                (&graticule.extent_major, "extent_major"),
             ] {
-                if let Some(extent) = extent {
-                    lon_lat_box(extent, &format!("{path}.{at}"))?;
-                }
+                lon_lat_box(extent, &format!("{path}.{at}"))?;
             }
+            positive(graticule.precision, &format!("{path}.precision"))?;
             if let Some(sides) = &graticule.label_sides {
                 if sides.sides.contains(&(proto::Side::Unspecified as i32)) {
                     return Err(fail(
@@ -420,9 +339,12 @@ impl Checker<'_> {
                 graticule.label_padding.map(f64::from),
                 &format!("{path}.label_padding"),
             )?;
-            non_negative(graticule.width.map(f64::from), &format!("{path}.width"))?;
+            non_negative(
+                graticule.stroke_width.map(f64::from),
+                &format!("{path}.stroke_width"),
+            )?;
         }
-        if let Some(tiles) = &spherical.tiles {
+        if let Some(tiles) = &geo.tiles {
             let path = format!("{path}.tiles");
             if tiles.tile_size == Some(0) {
                 return Err(fail(
@@ -438,6 +360,61 @@ impl Checker<'_> {
                     ));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Checks the values of the parameters of a projection, after `projection_takes` checked that
+    /// its type takes them.
+    fn projection(&self, projection: &proto::Projection, path: &str) -> Result<()> {
+        let at = |field: &str| format!("{path}.{field}");
+        count(
+            &projection.parallels,
+            &[1, 2],
+            &at("parallels"),
+            "a conic projection takes one or two standard parallels",
+        )?;
+        for parallel in &projection.parallels {
+            within(Some(*parallel), -90.0, 90.0, &at("parallels"))?;
+        }
+        within(projection.parallel, -90.0, 90.0, &at("parallel"))?;
+        if (projection.coefficient).is_some_and(|value| !(value.is_finite() && value >= 1.0)) {
+            return Err(fail(
+                at("coefficient"),
+                "the coefficient of a Hammer projection is at least 1",
+            ));
+        }
+        count(
+            &projection.rotate,
+            &[2, 3],
+            &at("rotate"),
+            "a rotation takes two or three angles: the yaw, the pitch, and an optional roll",
+        )?;
+        if !projection.rotate.iter().all(|angle| angle.is_finite()) {
+            return Err(fail(at("rotate"), "the angles of a rotation are finite"));
+        }
+        count(
+            &projection.center,
+            &[2],
+            &at("center"),
+            "a center takes two numbers: its longitude and its latitude",
+        )?;
+        if let [longitude, latitude] = projection.center[..] {
+            lon_lat(longitude, latitude, &at("center"))?;
+        }
+        if let Some(spherical_clip::Clip::CircleAngle(angle)) =
+            projection.clip.as_ref().and_then(|clip| clip.clip.as_ref())
+        {
+            if !(angle.is_finite() && *angle > 0.0 && *angle <= 180.0) {
+                return Err(fail(
+                    at("clip.circle_angle"),
+                    "the angle of a circle clip is more than 0 and at most 180 degrees",
+                ));
+            }
+        }
+        non_negative(projection.precision, &at("precision"))?;
+        if let Some(projection::Fit::Box(fit)) = &projection.fit {
+            lon_lat_box(&fit.bounds, &at("box.bounds"))?;
         }
         Ok(())
     }
@@ -655,16 +632,186 @@ fn lon_lat(longitude: f64, latitude: f64, path: &str) -> Result<()> {
     Ok(())
 }
 
-fn lon_lat_box(lon_lat_box: &proto::LonLatBox, path: &str) -> Result<()> {
-    lon_lat(lon_lat_box.west, lon_lat_box.south, path)?;
-    lon_lat(lon_lat_box.east, lon_lat_box.north, path)?;
-    if lon_lat_box.south > lon_lat_box.north {
-        return Err(fail(
-            path,
-            "the south edge of a box is at most its north edge",
-        ));
+/// Checks a box of longitudes and latitudes, which an empty list leaves unset: four numbers, its
+/// western, southern, eastern, and northern edges.
+fn lon_lat_box(bounds: &[f64], path: &str) -> Result<()> {
+    count(
+        bounds,
+        &[4],
+        path,
+        "a box takes four numbers: its western, southern, eastern, and northern edges",
+    )?;
+    if let [west, south, east, north] = bounds[..] {
+        lon_lat(west, south, path)?;
+        lon_lat(east, north, path)?;
+        if south > north {
+            return Err(fail(
+                path,
+                "the south edge of a box is at most its north edge",
+            ));
+        }
     }
     Ok(())
+}
+
+/// Fails for a list that is not empty and whose length is not one of `lengths`.
+fn count(values: &[f64], lengths: &[usize], path: &str, rule: &str) -> Result<()> {
+    if !values.is_empty() && !lengths.contains(&values.len()) {
+        return Err(fail(path, format!("{rule}, not {}", values.len())));
+    }
+    Ok(())
+}
+
+/// The projection types that take a parameter.
+#[derive(Clone, Copy)]
+enum Takers {
+    /// These types only.
+    Only(&'static [ProjectionType]),
+    /// The projections of the sphere: every type but `identity`, and the custom projections.
+    Sphere,
+}
+
+/// The parameters of a geo plot that some projection types take: the path of each from the
+/// options of the plot, whether the options set it, and the types that take it. A projection of
+/// the type `identity` takes coordinates that are already projected, so it does not rotate,
+/// center, clip, resample, or fit a box or the whole sphere, it shows no graticule, sphere, or
+/// tiles, and a drag only slides its view.
+#[allow(clippy::type_complexity)]
+const PROJECTION_PARAMETERS: [(&str, fn(&proto::Geo) -> bool, Takers); 15] = {
+    use ProjectionType as T;
+    const CONIC: &[ProjectionType] = &[T::ConicConformal, T::ConicEqualArea, T::ConicEquidistant];
+    fn of(geo: &proto::Geo) -> &proto::Projection {
+        geo.projection.as_ref().expect(REQUIRED)
+    }
+    [
+        (
+            "projection.parallels",
+            |geo| !of(geo).parallels.is_empty(),
+            Takers::Only(CONIC),
+        ),
+        (
+            "projection.parallel",
+            |geo| of(geo).parallel.is_some(),
+            Takers::Only(&[T::CylindricalEqualArea]),
+        ),
+        (
+            "projection.coefficient",
+            |geo| of(geo).coefficient.is_some(),
+            Takers::Only(&[T::Hammer]),
+        ),
+        (
+            "projection.reflect_x",
+            |geo| of(geo).reflect_x,
+            Takers::Only(&[T::Identity]),
+        ),
+        (
+            "projection.reflect_y",
+            |geo| of(geo).reflect_y,
+            Takers::Only(&[T::Identity]),
+        ),
+        (
+            "projection.rotate",
+            |geo| !of(geo).rotate.is_empty(),
+            Takers::Sphere,
+        ),
+        (
+            "projection.center",
+            |geo| !of(geo).center.is_empty(),
+            Takers::Sphere,
+        ),
+        (
+            "projection.clip",
+            |geo| of(geo).clip.is_some(),
+            Takers::Sphere,
+        ),
+        (
+            "projection.precision",
+            |geo| of(geo).precision.is_some(),
+            Takers::Sphere,
+        ),
+        (
+            "projection.whole_sphere",
+            |geo| matches!(of(geo).fit, Some(projection::Fit::WholeSphere(_))),
+            Takers::Sphere,
+        ),
+        (
+            "projection.box",
+            |geo| matches!(of(geo).fit, Some(projection::Fit::Box(_))),
+            Takers::Sphere,
+        ),
+        (
+            "graticule",
+            |geo| (geo.graticule.as_ref()).is_some_and(|graticule| graticule.show != Some(false)),
+            Takers::Sphere,
+        ),
+        (
+            "sphere",
+            |geo| (geo.sphere.as_ref()).is_some_and(|sphere| sphere.show != Some(false)),
+            Takers::Sphere,
+        ),
+        ("tiles", |geo| geo.tiles.is_some(), Takers::Sphere),
+        (
+            "navigation.pan_mode",
+            |geo| {
+                (geo.navigation.as_ref()).is_some_and(|navigation| {
+                    matches!(
+                        proto::PanMode::try_from(navigation.pan_mode),
+                        Ok(proto::PanMode::Longitude | proto::PanMode::Sphere)
+                    )
+                })
+            },
+            Takers::Sphere,
+        ),
+    ]
+};
+
+/// Checks that the options of a geo plot at `path` set only the parameters that its projection's
+/// type takes, as `PROJECTION_PARAMETERS` lists them.
+fn projection_takes(geo: &proto::Geo, path: &str) -> Result<()> {
+    let projection = geo.projection.as_ref().expect(REQUIRED);
+    // The type of a built-in projection, or `None` for a custom projection.
+    let builtin = match projection.r#type.as_ref().expect(REQUIRED) {
+        projection::Type::Builtin(builtin) => {
+            Some(ProjectionType::try_from(*builtin).unwrap_or(ProjectionType::Unspecified))
+        }
+        projection::Type::Custom(_) => None,
+    };
+    for (parameter, sets, takers) in PROJECTION_PARAMETERS {
+        if !sets(geo) {
+            continue;
+        }
+        let (takes, which) = match takers {
+            Takers::Only(types) => (
+                builtin.is_some_and(|builtin| types.contains(&builtin)),
+                types
+                    .iter()
+                    .map(|builtin| format!("`{}`", type_name(*builtin)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            Takers::Sphere => (
+                builtin != Some(ProjectionType::Identity),
+                "a projection of the sphere".to_string(),
+            ),
+        };
+        if !takes {
+            let found = match builtin {
+                Some(builtin) => format!("`{}`", type_name(builtin)),
+                None => "a custom projection".to_string(),
+            };
+            return Err(fail(
+                format!("{path}.{parameter}"),
+                format!("`{parameter}` applies only to {which}, not to {found}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The name of a projection type, as a string names it: its value in lowercase without the prefix.
+fn type_name(builtin: ProjectionType) -> String {
+    let name = builtin.as_str_name();
+    (name.strip_prefix("PROJECTION_TYPE_").unwrap_or(name)).to_lowercase()
 }
 
 /// Checks the size of a track: a length of 0 pixels or more, or a share of a positive weight,

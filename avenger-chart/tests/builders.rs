@@ -13,7 +13,7 @@ use avenger_chart::{
     prelude::*,
     proto::{
         cartesian_layer, conditional_value, encoding, navigation_limits, node, plot, predicate,
-        scale, spherical,
+        projection, scale,
     },
     FORMAT_VERSION,
 };
@@ -283,11 +283,14 @@ fn a_member_of_one_repeated_field_takes_its_items() {
 
 #[test]
 fn a_keyword_member_has_a_trailing_underscore() {
-    let spherical = Spherical::robinson()
-        .box_(LonLatBox::builder().west(-10.0))
+    let projection = Projection::builtin(ProjectionType::Robinson)
+        .box_([-10.0, 0.0, 10.0, 10.0])
         .build()
         .unwrap();
-    assert!(matches!(spherical.fit, Some(spherical::Fit::Box(_))));
+    let Some(projection::Fit::Box(fit)) = projection.fit else {
+        panic!("the projection fits a box")
+    };
+    assert_eq!(fit.bounds, [-10.0, 0.0, 10.0, 10.0]);
 }
 
 #[test]

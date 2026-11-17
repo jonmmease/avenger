@@ -13,7 +13,10 @@ use arrow::{
 };
 use avenger_chart::{
     layer::{LayerRef, MarkType},
-    proto::{self, encoding, geo, geo_layer, option_value, spherical, spherical_clip, Channel},
+    proto::{
+        self, encoding, geo, geo_layer, option_value, projection as spec_projection,
+        spherical_clip, Channel, ProjectionType,
+    },
     resolve::ProjectionGroup,
 };
 use avenger_coords::{pieces, GeoProjection, PlotCoords, PlotProjection};
@@ -182,12 +185,9 @@ fn spec<'a>(inputs: &GeoInputs<'a>, plot: usize) -> Option<&'a proto::Geo> {
     }
 }
 
-/// The spherical part of a spec, or `None` for a planar geo plot.
-fn spherical(spec: &proto::Geo) -> Option<&proto::Spherical> {
-    match spec.surface.as_ref()? {
-        geo::Surface::Spherical(spherical) => Some(spherical),
-        geo::Surface::Planar(_) => None,
-    }
+/// The fit of a spec.
+fn fit(spec: &proto::Geo) -> Option<&spec_projection::Fit> {
+    spec.projection.as_ref()?.fit.as_ref()
 }
 
 impl GeoPlots {
@@ -208,11 +208,11 @@ impl GeoPlots {
             let layers: Vec<usize> = (group.plots.iter())
                 .flat_map(|plot| tree.plots[*plot].layers.clone())
                 .collect();
-            let fit = spherical(spec).and_then(|spherical| spherical.fit.as_ref());
-            let clipped = !matches!(fit, Some(spherical::Fit::WholeSphere(_)));
+            let fit = fit(spec);
+            let clipped = !matches!(fit, Some(spec_projection::Fit::WholeSphere(_)));
             let mut summary = FitSummary::default();
             let mut inset = [0.0_f32; 4];
-            let fits_data = matches!(fit, None | Some(spherical::Fit::Data(_)));
+            let fits_data = matches!(fit, None | Some(spec_projection::Fit::Data(_)));
             for layer in &layers {
                 let rows = layer_rows(*layer);
                 if fits_data {
@@ -501,11 +501,7 @@ impl GeoGroup {
         };
         let nodes = inputs.nodes.plot(&plot_ref.path);
         let styles = inputs.styles;
-        let spherical = spherical(spec);
-        let (graticule, rectangle, labels) = match (
-            spherical.and_then(|spherical| spherical.graticule.as_ref()),
-            &nodes.graticule,
-        ) {
+        let (graticule, rectangle, labels) = match (crate::geo::graticule(spec), &nodes.graticule) {
             (Some(spec), Some(graticule_nodes)) => {
                 let config = graticule_config(
                     spec,
@@ -527,15 +523,14 @@ impl GeoGroup {
             }
             _ => (None, false, Vec::new()),
         };
-        let sphere = (spherical.and_then(|spherical| spherical.sphere.as_ref()))
-            .map(|_| sphere_style(&styles[nodes.plot]));
+        let sphere = crate::geo::sphere(spec).map(|_| sphere_style(&styles[nodes.plot]));
         Ok(GeoPlot {
             path: plot_ref.path.clone(),
             guide: GeoGuide { aspect, labels },
             graticule,
             rectangle,
             sphere,
-            tiles: spherical.and_then(|spherical| spherical.tiles.clone()),
+            tiles: spec.tiles.clone(),
             layer: None,
         })
     }
@@ -554,7 +549,7 @@ impl GeoFit {
     }
 
     /// The plot's coordinates: its projection, whose positions are longitudes and latitudes, or
-    /// the coordinates of a planar geo plot, without scales.
+    /// the coordinates of a geo plot of the projection `identity`, without scales.
     pub(crate) fn coords(&self) -> PlotCoords {
         PlotCoords::new(self.projection.clone(), [None, None])
     }
@@ -789,26 +784,33 @@ fn shapes_of(rows: &LayerRows, fit: &GeoFit) -> Result<Vec<Drawn>> {
 
 /// The projection of a geo spec, without a view.
 fn projection(spec: &proto::Geo) -> Result<Projection> {
-    let spherical = match spec.surface.as_ref() {
-        Some(geo::Surface::Planar(planar)) => return Ok(Projection::planar(planar.reflect_y)),
-        Some(geo::Surface::Spherical(spherical)) => spherical,
-        None => return Err(geo_error("a geo plot has no surface")),
+    let spec =
+        (spec.projection.as_ref()).ok_or_else(|| geo_error("a geo plot has no projection"))?;
+    let implementation: Box<dyn ProjectionImpl> = match spec.r#type.as_ref() {
+        Some(spec_projection::Type::Builtin(builtin)) => match ProjectionType::try_from(*builtin) {
+            Ok(ProjectionType::Identity) => {
+                return Ok(Projection::planar(spec.reflect_x, spec.reflect_y))
+            }
+            Ok(builtin) => builtin_projection(builtin, spec)?,
+            Err(_) => return Err(geo_error("a projection has a type of the format")),
+        },
+        Some(spec_projection::Type::Custom(custom)) => custom_projection(custom)?,
+        None => return Err(geo_error("a projection has a type")),
     };
-    let implementation = projection_impl(
-        (spherical.projection.as_ref()).ok_or_else(|| geo_error("a geo plot has no projection"))?,
-    )?;
-    let mut projection = Projection::planar(false);
+    let mut projection = Projection::planar(false, false);
     projection.surface = Surface::Spherical(Arc::from(implementation));
-    if let Some(rotate) = &spherical.rotate {
-        projection.rotate = [rotate.lambda, rotate.phi, rotate.gamma];
+    match spec.rotate[..] {
+        [lambda, phi] => projection.rotate = [lambda, phi, 0.0],
+        [lambda, phi, gamma] => projection.rotate = [lambda, phi, gamma],
+        _ => {}
     }
-    if let Some(center) = &spherical.center {
-        projection.center = [center.longitude, center.latitude];
+    if let [longitude, latitude] = spec.center[..] {
+        projection.center = [longitude, latitude];
     }
-    if let Some(precision) = spherical.precision {
+    if let Some(precision) = spec.precision {
         projection.precision = precision;
     }
-    projection.clip = match spherical.clip.as_ref().and_then(|clip| clip.clip.as_ref()) {
+    projection.clip = match spec.clip.as_ref().and_then(|clip| clip.clip.as_ref()) {
         None => None,
         Some(spherical_clip::Clip::Antimeridian(_)) => Some(SphericalClip::Antimeridian),
         Some(spherical_clip::Clip::CircleAngle(angle)) => {
@@ -825,51 +827,62 @@ fn projection(spec: &proto::Geo) -> Result<Projection> {
     Ok(projection)
 }
 
-/// The avenger-geo projection of a typed projection, or of a custom projection through its
-/// typetag name and the fields of its serde form.
-fn projection_impl(projection: &spherical::Projection) -> Result<Box<dyn ProjectionImpl>> {
-    use spherical::Projection as P;
-    Ok(match projection {
-        P::EqualEarth(_) => Box::new(p::EqualEarth),
-        P::NaturalEarth1(_) => Box::new(p::NaturalEarth1),
-        P::Robinson(_) => Box::new(p::Robinson),
-        P::Mollweide(_) => Box::new(p::Mollweide),
-        P::Eckert4(_) => Box::new(p::Eckert4),
-        P::WinkelTripel(_) => Box::new(p::WinkelTripel),
-        P::Aitoff(_) => Box::new(p::Aitoff),
-        P::Sinusoidal(_) => Box::new(p::Sinusoidal),
-        P::Equirectangular(_) => Box::new(p::Equirectangular),
-        P::Mercator(_) => Box::new(p::Mercator),
-        P::TransverseMercator(_) => Box::new(p::TransverseMercator),
-        P::Miller(_) => Box::new(p::Miller),
-        P::Orthographic(_) => Box::new(p::Orthographic),
-        P::Stereographic(_) => Box::new(p::Stereographic),
-        P::Gnomonic(_) => Box::new(p::Gnomonic),
-        P::AzimuthalEqualArea(_) => Box::new(p::AzimuthalEqualArea),
-        P::AzimuthalEquidistant(_) => Box::new(p::AzimuthalEquidistant),
-        P::ConicConformal(spec) => {
-            Box::new(p::ConicConformal::new([spec.parallel1, spec.parallel2]))
-        }
-        P::ConicEqualArea(spec) => {
-            Box::new(p::ConicEqualArea::new([spec.parallel1, spec.parallel2]))
-        }
-        P::ConicEquidistant(spec) => {
-            Box::new(p::ConicEquidistant::new([spec.parallel1, spec.parallel2]))
-        }
-        P::CylindricalEqualArea(spec) => {
+/// The standard parallels of a conic projection of the type `builtin`: its `parallels`, where one
+/// parallel is both, or without them, the defaults of d3-geo, 30 and 30 for `conic_conformal`, and
+/// 0 and 60 for the equal-area and the equidistant conic.
+fn conic_parallels(builtin: ProjectionType, spec: &proto::Projection) -> [f64; 2] {
+    match spec.parallels[..] {
+        [parallel] => [parallel, parallel],
+        [first, second, ..] => [first, second],
+        [] if builtin == ProjectionType::ConicConformal => [30.0, 30.0],
+        [] => [0.0, 60.0],
+    }
+}
+
+/// The avenger-geo projection of the type `builtin` of the renderer, with the parameters of
+/// `spec`.
+fn builtin_projection(
+    builtin: ProjectionType,
+    spec: &proto::Projection,
+) -> Result<Box<dyn ProjectionImpl>> {
+    use ProjectionType as T;
+    Ok(match builtin {
+        T::EqualEarth => Box::new(p::EqualEarth),
+        T::NaturalEarth1 => Box::new(p::NaturalEarth1),
+        T::Robinson => Box::new(p::Robinson),
+        T::Mollweide => Box::new(p::Mollweide),
+        T::Eckert4 => Box::new(p::Eckert4),
+        T::WinkelTripel => Box::new(p::WinkelTripel),
+        T::Aitoff => Box::new(p::Aitoff),
+        T::Sinusoidal => Box::new(p::Sinusoidal),
+        T::Equirectangular => Box::new(p::Equirectangular),
+        T::Mercator => Box::new(p::Mercator),
+        T::TransverseMercator => Box::new(p::TransverseMercator),
+        T::Miller => Box::new(p::Miller),
+        T::Orthographic => Box::new(p::Orthographic),
+        T::Stereographic => Box::new(p::Stereographic),
+        T::Gnomonic => Box::new(p::Gnomonic),
+        T::AzimuthalEqualArea => Box::new(p::AzimuthalEqualArea),
+        T::AzimuthalEquidistant => Box::new(p::AzimuthalEquidistant),
+        T::ConicConformal => Box::new(p::ConicConformal::new(conic_parallels(builtin, spec))),
+        T::ConicEqualArea => Box::new(p::ConicEqualArea::new(conic_parallels(builtin, spec))),
+        T::ConicEquidistant => Box::new(p::ConicEquidistant::new(conic_parallels(builtin, spec))),
+        T::CylindricalEqualArea => {
             Box::new(p::CylindricalEqualArea::new(spec.parallel.unwrap_or(38.58)))
         }
-        P::Hammer(spec) => Box::new(p::Hammer::new(spec.coefficient.unwrap_or(2.0))),
-        P::Custom(custom) => custom_projection(custom)?,
+        T::Hammer => Box::new(p::Hammer::new(spec.coefficient.unwrap_or(2.0))),
+        T::Unspecified | T::Identity => {
+            return Err(geo_error("a projection of the sphere has a type"))
+        }
     })
 }
 
 /// The avenger-geo projection with the typetag name of `custom` and the fields of its serde form
-/// from its parameters.
+/// from its options.
 fn custom_projection(custom: &proto::CustomProjection) -> Result<Box<dyn ProjectionImpl>> {
     let mut fields = serde_json::Map::new();
-    for parameter in &custom.parameters {
-        let value = match (parameter.value.as_ref()).and_then(|value| value.value.as_ref()) {
+    for (name, value) in &custom.options {
+        let value = match value.value.as_ref() {
             Some(option_value::Value::Boolean(value)) => serde_json::json!(value),
             Some(option_value::Value::Float(value)) => serde_json::json!(value),
             Some(option_value::Value::Integer(value)) => serde_json::json!(value),
@@ -878,7 +891,7 @@ fn custom_projection(custom: &proto::CustomProjection) -> Result<Box<dyn Project
             Some(option_value::Value::Strings(list)) => serde_json::json!(list.values),
             None => serde_json::Value::Null,
         };
-        fields.insert(parameter.name.clone(), value);
+        fields.insert(name.clone(), value);
     }
     let read = |fields: serde_json::Value| {
         serde_json::from_value::<Box<dyn ProjectionImpl>>(
@@ -992,35 +1005,38 @@ fn parallel(lat: f64, west: f64, east: f64) -> LineString<f64> {
     )
 }
 
-/// The box from `west` to `east` and from `south` to `north` as a polygon whose north and south
-/// edges follow their parallels, wound counterclockwise, so its inside is the box. It crosses
-/// the antimeridian when `east` is less than `west`.
-fn lon_lat_box(lon_lat: &proto::LonLatBox) -> Polygon<f64> {
-    let east = match lon_lat.east < lon_lat.west {
-        true => lon_lat.east + 360.0,
-        false => lon_lat.east,
+/// The box of `bounds`, its western, southern, eastern, and northern edges, as a polygon whose
+/// north and south edges follow their parallels, wound counterclockwise, so its inside is the box.
+/// It crosses the antimeridian when its east is less than its west.
+fn lon_lat_box(bounds: &[f64]) -> Result<Polygon<f64>> {
+    let [west, south, east, north] = bounds[..] else {
+        return Err(geo_error("a box has four edges"));
     };
-    let south = parallel(lon_lat.south, lon_lat.west, east);
-    let north = parallel(lon_lat.north, east, lon_lat.west);
-    let mut ring: Vec<(f64, f64)> = (south.0.iter().chain(&north.0))
+    let east = match east < west {
+        true => east + 360.0,
+        false => east,
+    };
+    let south_edge = parallel(south, west, east);
+    let north_edge = parallel(north, east, west);
+    let mut ring: Vec<(f64, f64)> = (south_edge.0.iter().chain(&north_edge.0))
         .map(|coord| (coord.x, coord.y))
         .collect();
-    ring.push((lon_lat.west, lon_lat.south));
-    Polygon::new(LineString::from(ring), Vec::new())
+    ring.push((west, south));
+    Ok(Polygon::new(LineString::from(ring), Vec::new()))
 }
 
 /// The summary of what a group of geo plots fits: the whole sphere, a box, or the data of its
-/// layers, `data`. A spherical group whose data spans no area fits the whole sphere, and a planar
-/// one fails.
+/// layers, `data`. A group of a projection of the sphere whose data spans no area fits the whole
+/// sphere, and a group of the projection `identity` fails.
 fn group_summary(
     projection: &Projection,
-    fit: Option<&spherical::Fit>,
+    fit: Option<&spec_projection::Fit>,
     data: FitSummary,
 ) -> Result<FitSummary> {
     let summary = match fit {
-        Some(spherical::Fit::WholeSphere(_)) => projection.summarize_sphere(),
-        Some(spherical::Fit::Box(lon_lat)) => projection.summarize(&lon_lat_box(lon_lat)),
-        Some(spherical::Fit::Data(_)) | None => {
+        Some(spec_projection::Fit::WholeSphere(_)) => projection.summarize_sphere(),
+        Some(spec_projection::Fit::Box(fit)) => projection.summarize(&lon_lat_box(&fit.bounds)?),
+        Some(spec_projection::Fit::Data(_)) | None => {
             match data.aspect().is_none() && matches!(projection.surface, Surface::Spherical(_)) {
                 true => projection.summarize_sphere(),
                 false => Ok(data),
@@ -1029,7 +1045,9 @@ fn group_summary(
     }
     .map_err(geo_error)?;
     if summary.aspect().is_none() {
-        return Err(geo_error("a planar geo plot fits data that spans an area"));
+        return Err(geo_error(
+            "a geo plot of the projection `identity` fits data that spans an area",
+        ));
     }
     Ok(summary)
 }
@@ -1172,30 +1190,26 @@ fn graticule_config(
     label: &ComputedStyle,
 ) -> GraticuleConfig {
     let mut lines = avenger_geo::Graticule::default();
-    if let Some(step) = spec.longitude_step {
-        lines.step_minor[0] = step;
+    if let [longitude, latitude] = spec.step[..] {
+        lines.step_minor = [longitude, latitude];
     }
-    if let Some(step) = spec.latitude_step {
-        lines.step_minor[1] = step;
+    if let [longitude, latitude] = spec.step_major[..] {
+        lines.step_major = [longitude, latitude];
     }
-    if let Some(step) = spec.major_longitude_step {
-        lines.step_major[0] = step;
+    let extent = |bounds: &[f64]| match bounds[..] {
+        [west, south, east, north] => Some([[west, south], [east, north]]),
+        _ => None,
+    };
+    if let Some(minor) = extent(&spec.extent) {
+        lines.extent_minor = minor;
     }
-    if let Some(step) = spec.major_latitude_step {
-        lines.step_major[1] = step;
-    }
-    let extent =
-        |lon_lat: &proto::LonLatBox| [[lon_lat.west, lon_lat.south], [lon_lat.east, lon_lat.north]];
-    if let Some(minor) = &spec.extent {
-        lines.extent_minor = extent(minor);
-    }
-    if let Some(major) = &spec.major_extent {
-        lines.extent_major = extent(major);
+    if let Some(major) = extent(&spec.extent_major) {
+        lines.extent_major = major;
     }
     if let Some(precision) = spec.precision {
         lines.precision = precision;
     }
-    let frame = match proto::GeoFrame::try_from(spec.frame) {
+    let frame = match proto::GeoFrame::try_from(spec.label_frame) {
         Ok(proto::GeoFrame::Outline) => GeoFrame::Outline,
         Ok(proto::GeoFrame::Rectangle) => GeoFrame::Rectangle,
         _ if clipped => GeoFrame::Rectangle,

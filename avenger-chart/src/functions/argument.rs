@@ -1,15 +1,15 @@
 //! An argument of a function of the format: a constant that is not null, with its class, which the
 //! generated code converts to what a setter of the builders takes.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use arrow::{
     array::{
         new_null_array, Array, ArrayRef, AsArray, BinaryArray, BooleanArray, Float64Array,
-        Int64Array, StringArray,
+        Int64Array, StringArray, StructArray,
     },
     compute::{cast, concat},
-    datatypes::{self, DataType},
+    datatypes::{self, DataType, Field},
 };
 use prost::{bytes::Bytes, Message};
 
@@ -31,6 +31,9 @@ pub enum Arg {
     /// An array, whose items can be null where a `ValueRef` stores it, such as the null category
     /// of an explicit domain.
     List(Vec<Option<Arg>>),
+    /// A struct: its fields in order, each with its name and its value, where a null field is
+    /// `None`, as the named options of a custom scale or projection take it.
+    Struct(Vec<(String, Option<Arg>)>),
     /// A fragment, the value of a constructor.
     Fragment(proto::Fragment),
     /// A value of another type, such as a date, as an array of one element, which only a
@@ -47,6 +50,8 @@ pub enum Class {
     Str,
     Array,
     Bytes,
+    /// A struct, whose fields are named values.
+    Struct,
     /// A value of another type, such as a date, which only a `ValueRef` takes.
     Other,
     /// A fragment of a message.
@@ -63,6 +68,7 @@ impl Class {
             Class::Str => "a string",
             Class::Array => "an array",
             Class::Bytes => "bytes",
+            Class::Struct => "a struct",
             Class::Other => "a constant of another type",
             Class::Fragment => "a fragment",
         }
@@ -73,7 +79,8 @@ impl Arg {
     /// The argument of the element `index` of `array`, or `None` for a null element. An integer
     /// is an `Int`, a floating-point number or a decimal a `Float`, a string a `Str`, a list a
     /// `List` of its items, a binary element that holds a fragment of this version of the format
-    /// a `Fragment`, another binary element `Bytes`, and an element of another type a `Value`.
+    /// a `Fragment`, another binary element `Bytes`, a struct a `Struct` of its fields, and an
+    /// element of another type a `Value`.
     pub fn from_array(array: &dyn Array, index: usize) -> Option<Arg> {
         // An array of the type `Null` has no null buffer, so `is_null` is false for its elements.
         if array.is_null(index) || *array.data_type() == DataType::Null {
@@ -119,6 +126,19 @@ impl Arg {
             DataType::LargeBinary => binary(array.as_binary::<i64>().value(index)),
             DataType::BinaryView => binary(array.as_binary_view().value(index)),
             DataType::FixedSizeBinary(_) => binary(array.as_fixed_size_binary().value(index)),
+            DataType::Struct(fields) => {
+                let array = array.as_struct();
+                Arg::Struct(
+                    (fields.iter().zip(array.columns()))
+                        .map(|(field, column)| {
+                            (
+                                field.name().clone(),
+                                Arg::from_array(column.as_ref(), index),
+                            )
+                        })
+                        .collect(),
+                )
+            }
             _ => Arg::Value(array.slice(index, 1)),
         })
     }
@@ -132,6 +152,7 @@ impl Arg {
             Arg::Str(_) => Class::Str,
             Arg::Bytes(_) => Class::Bytes,
             Arg::List(_) => Class::Array,
+            Arg::Struct(_) => Class::Struct,
             Arg::Fragment(_) => Class::Fragment,
             Arg::Value(_) => Class::Other,
         }
@@ -194,6 +215,34 @@ impl Arg {
         })
     }
 
+    /// The named options of a struct argument, one for each field that is not null: a Boolean, a
+    /// number, an integer, a string, or an array of numbers or of strings. Two fields of one name
+    /// are an error.
+    pub(crate) fn options(&self) -> Result<BTreeMap<String, proto::OptionValue>, ArgError> {
+        let Arg::Struct(fields) = self else {
+            return Err(self.rejected(&Shape::Options));
+        };
+        let mut options = BTreeMap::new();
+        for (name, value) in fields {
+            let Some(value) = value else {
+                continue;
+            };
+            let value = option_value(value).ok_or_else(|| {
+                ArgError::option(format!(
+                    "takes for the option `{name}` a Boolean, a number, a string, or an array of \
+                     numbers or of strings, not {}",
+                    value.class().describe()
+                ))
+            })?;
+            if options.insert(name.clone(), value).is_some() {
+                return Err(ArgError::option(format!(
+                    "takes each option once, and the struct names `{name}` twice"
+                )));
+            }
+        }
+        Ok(options)
+    }
+
     /// The items of an array argument. A null item is an error.
     pub(crate) fn items(&self) -> Result<Vec<&Arg>, ArgError> {
         let Arg::List(items) = self else {
@@ -213,10 +262,51 @@ impl Arg {
             Arg::Str(value) => Arc::new(StringArray::from(vec![value.as_str()])),
             Arg::Bytes(value) => Arc::new(BinaryArray::from(vec![value.as_ref()])),
             Arg::List(items) => crate::list_value(list_items(items)?),
+            Arg::Struct(fields) => {
+                let mut schema = Vec::with_capacity(fields.len());
+                let mut columns = Vec::with_capacity(fields.len());
+                for (name, value) in fields {
+                    let column = match value {
+                        Some(value) => value.array()?,
+                        None => new_null_array(&DataType::Null, 1),
+                    };
+                    schema.push(Field::new(name, column.data_type().clone(), true));
+                    columns.push(column);
+                }
+                Arc::new(StructArray::try_new(schema.into(), columns, None).ok()?)
+            }
             Arg::Value(array) => array.clone(),
             Arg::Fragment(_) => return None,
         })
     }
+}
+
+/// The value of a named option of `arg`, or `None` for an argument that no option value holds.
+fn option_value(arg: &Arg) -> Option<proto::OptionValue> {
+    use proto::option_value::Value;
+    let value = match arg {
+        Arg::Bool(value) => Value::Boolean(*value),
+        Arg::Int(value) => Value::Integer(i64::try_from(*value).ok()?),
+        Arg::Float(value) => Value::Float(*value),
+        Arg::Str(value) => Value::String(value.clone()),
+        Arg::List(items) => {
+            let items: Vec<&Arg> = items.iter().map(Option::as_ref).collect::<Option<_>>()?;
+            match items.first() {
+                Some(Arg::Str(_)) => Value::Strings(proto::StringList {
+                    values: (items.iter())
+                        .map(|item| item.string().ok())
+                        .collect::<Option<_>>()?,
+                }),
+                _ => Value::Floats(proto::FloatList {
+                    values: (items.iter())
+                        .map(|item| item.float64().ok())
+                        .collect::<Option<_>>()?,
+                }),
+            }
+        }
+        Arg::Bytes(_) | Arg::Struct(_) | Arg::Fragment(_) | Arg::Value(_) => return None,
+    };
+    Some(proto::OptionValue { value: Some(value) })
 }
 
 /// The items of a list, as one array: in the type of the items, `Float64` where integers and

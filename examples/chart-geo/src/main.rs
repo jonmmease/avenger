@@ -217,31 +217,29 @@ fn tools() -> [ToolBuilder; 3] {
 
 /// The lines of longitude and latitude every 30 degrees.
 fn graticule() -> GraticuleBuilder {
-    Graticule::builder()
-        .longitude_step(30.0)
-        .latitude_step(30.0)
+    Graticule::builder().step([30.0, 30.0])
 }
 
-/// A map `id` titled `title` in the projection of `spherical`, with its graticule, which pans in
-/// `pan_mode` and zooms out to `min_zoom` of its fitted scale, over OpenStreetMap's tiles.
+/// A map `id` titled `title` in `projection`, with `graticule`, which pans in `pan_mode` and zooms
+/// out to `min_zoom` of its fitted scale, over OpenStreetMap's tiles.
 fn map(
     id: &str,
     title: &str,
-    spherical: SphericalBuilder,
+    projection: ProjectionBuilder,
+    graticule: GraticuleBuilder,
     pan_mode: PanMode,
     min_zoom: f64,
 ) -> PlotBuilder {
-    let options = Geo::spherical(
-        spherical
-            .sphere(SphereStyle::builder())
-            .tiles(TileLayer::new(OSM_TILES)),
-    )
-    .navigation(
-        GeoNavigation::builder()
-            .pan_mode(pan_mode)
-            .min_zoom(min_zoom)
-            .max_zoom(256.0),
-    );
+    let options = Geo::new(projection)
+        .graticule(graticule)
+        .sphere(SphereStyle::builder())
+        .tiles(TileLayer::new(OSM_TILES))
+        .navigation(
+            GeoNavigation::builder()
+                .pan_mode(pan_mode)
+                .min_zoom(min_zoom)
+                .max_zoom(256.0),
+        );
     let (plates, quakes) = (plates(), earthquakes());
     Plot::geo(GeoPlot::new(options, layers(id, &plates, &quakes)))
         .id(id)
@@ -256,11 +254,11 @@ fn chart() -> Chart {
     let globe = map(
         "globe",
         "Pacific Ring of Fire",
+        Projection::builtin(ProjectionType::Orthographic)
+            .rotate([170.0, -10.0])
+            .whole_sphere(),
         // The globe's lines are unlabeled, since their labels crowd its edge.
-        Spherical::orthographic()
-            .rotate(Rotation::builder().lambda(170.0).phi(-10.0))
-            .whole_sphere()
-            .graticule(graticule().label_sides(LabelSides::builder())),
+        graticule().label_sides(LabelSides::builder()),
         PanMode::Sphere,
         0.6,
     );
@@ -268,15 +266,8 @@ fn chart() -> Chart {
     let world = map(
         "world",
         "The world",
-        Spherical::mercator()
-            .box_(
-                LonLatBox::builder()
-                    .west(-180.0)
-                    .south(-65.0)
-                    .east(180.0)
-                    .north(80.0),
-            )
-            .graticule(graticule()),
+        Projection::builtin(ProjectionType::Mercator).box_([-180.0, -65.0, 180.0, 80.0]),
+        graticule(),
         PanMode::Longitude,
         1.0,
     );

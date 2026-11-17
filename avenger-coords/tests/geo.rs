@@ -212,7 +212,7 @@ fn outlines_and_planar_maps() {
     assert!(
         x0.abs() < 1.0 && y0.abs() < 1.0 && (x1 - 360.0).abs() < 1.0 && (y1 - 180.0).abs() < 1.0
     );
-    let projector = Projection::planar(false)
+    let projector = Projection::planar(false, false)
         .with_view(2.0, [10.0, 20.0])
         .build()
         .unwrap();

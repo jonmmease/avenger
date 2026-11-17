@@ -410,8 +410,8 @@ message ThresholdScale {}
 message CustomScale {
   // The name of the scale type.
   string name = 1 [(avenger.chart.v1.required) = true];
-  // The options of the scale, keyed by name. The scale checks their names and their values.
-  repeated NamedOption options = 2;
+  // The options of the scale, by name. The scale checks their names and their values.
+  map<string, OptionValue> options = 2;
 }
 
 // A domain from the values of a selection.

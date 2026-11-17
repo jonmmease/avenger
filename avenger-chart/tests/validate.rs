@@ -14,8 +14,9 @@ use arrow::{
 use avenger_chart::{
     list_value,
     proto::{
-        self, axis, cartesian_layer, condition, encoding, legend, node, plot, predicate, scale,
-        spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark, ValueRef,
+        self, axis, cartesian_layer, condition, encoding, legend, node, plot, predicate,
+        projection, scale, tool, CartesianLayer, Concat, Encoding, Plot, ProjectionType, Selection,
+        SymbolMark, ValueRef,
     },
     Chart, ChartError,
 };
@@ -713,9 +714,7 @@ fn sizes_and_paddings_are_in_range() {
     plot.width = Some(300.0);
     plot.height = Some(200.0);
     if let Some(plot::Coord::Cartesian(cartesian)) = plot.coord.as_mut() {
-        cartesian.options = Some(proto::Cartesian {
-            aspect_ratio: Some(1.5),
-        });
+        cartesian.options = Some(proto::Cartesian { aspect: Some(1.5) });
     }
     invalid(parts, "root.plot", "is a conflict");
 }
@@ -735,18 +734,12 @@ fn keyed_lists_accept_equal_duplicates_and_reject_different_ones() {
     invalid(parts, "root.plot.partition", "is a conflict");
 }
 
-#[test]
-fn spherical_maps_set_a_projection_within_range() {
-    let geo = |projection| proto::Node {
+/// A geo plot of a symbol layer at the places of the columns `a` and `b`, with the options `geo`.
+fn geo_plot(geo: Option<proto::Geo>) -> proto::Node {
+    proto::Node {
         node: Some(node::Node::Plot(Plot {
             coord: Some(plot::Coord::Geo(proto::GeoPlot {
-                options: Some(proto::Geo {
-                    surface: Some(proto::geo::Surface::Spherical(proto::Spherical {
-                        projection,
-                        ..Default::default()
-                    })),
-                    ..Default::default()
-                }),
+                options: geo,
                 layers: vec![proto::GeoLayer {
                     table: Some(proto::TableRef { index: 0 }),
                     mark: Some(proto::geo_layer::Mark::Symbol(proto::GeoSymbolMark {
@@ -765,33 +758,251 @@ fn spherical_maps_set_a_projection_within_range() {
             })),
             ..Default::default()
         })),
+    }
+}
+
+/// The options of a geo plot of the built-in projection `builtin`, changed by `change`.
+fn geo_options(builtin: ProjectionType, change: impl FnOnce(&mut proto::Geo)) -> proto::Geo {
+    let mut geo = proto::Geo {
+        projection: Some(proto::Projection {
+            r#type: Some(projection::Type::Builtin(builtin as i32)),
+            ..Default::default()
+        }),
+        ..Default::default()
     };
+    change(&mut geo);
+    geo
+}
+
+/// The parts of a valid chart whose root is a geo plot with the options `geo`.
+fn geo_parts(geo: proto::Geo) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
     let mut parts = base();
-    parts.0.root = Some(geo(None));
+    parts.0.root = Some(geo_plot(Some(geo)));
+    parts
+}
+
+#[test]
+fn geo_plots_set_a_projection_within_range() {
+    let mut parts = base();
+    parts.0.root = Some(geo_plot(Some(proto::Geo::default())));
     invalid(
         parts.clone(),
-        "root.plot.geo.options.spherical",
+        "root.plot.geo.options.projection",
         "`projection` is required",
     );
-    parts.0.root = Some(geo(Some(spherical::Projection::ConicConformal(
-        proto::ConicConformal {
-            parallel1: 100.0,
-            parallel2: 30.0,
-        },
-    ))));
+    parts.0.root = Some(geo_plot(Some(proto::Geo {
+        projection: Some(proto::Projection::default()),
+        ..Default::default()
+    })));
     invalid(
         parts.clone(),
-        "root.plot.geo.options.spherical.parallel1",
+        "root.plot.geo.options.projection",
+        "`type` is required",
+    );
+    invalid(
+        geo_parts(geo_options(ProjectionType::Unspecified, |_| {})),
+        "root.plot.geo.options.projection.builtin",
+        "is required",
+    );
+    invalid(
+        geo_parts(geo_options(ProjectionType::ConicConformal, |geo| {
+            geo.projection.as_mut().unwrap().parallels = vec![100.0, 30.0];
+        })),
+        "root.plot.geo.options.projection.parallels",
         "from -90 to 90",
     );
-    // A map's surface has no default, so a geo plot always sets its options.
-    if let Some(node::Node::Plot(plot)) = parts.0.root.as_mut().and_then(|root| root.node.as_mut())
-    {
-        if let Some(plot::Coord::Geo(map)) = &mut plot.coord {
-            map.options = None;
-        }
-    }
+    // A map's projection has no default, so a geo plot always sets its options.
+    parts.0.root = Some(geo_plot(None));
     invalid(parts, "root.plot.geo.options", "`options` is required");
+}
+
+#[test]
+fn a_projection_takes_only_the_parameters_of_its_type() {
+    let with = |builtin, change: fn(&mut proto::Projection)| {
+        geo_parts(geo_options(builtin, |geo| {
+            change(geo.projection.as_mut().unwrap())
+        }))
+    };
+    read(with(ProjectionType::Hammer, |p| p.coefficient = Some(2.0))).unwrap();
+    invalid(
+        with(ProjectionType::Mercator, |p| p.coefficient = Some(2.0)),
+        "root.plot.geo.options.projection.coefficient",
+        "`projection.coefficient` applies only to `hammer`, not to `mercator`",
+    );
+    read(with(ProjectionType::ConicEqualArea, |p| {
+        p.parallels = vec![20.0]
+    }))
+    .unwrap();
+    invalid(
+        with(ProjectionType::Robinson, |p| p.parallels = vec![20.0, 50.0]),
+        "root.plot.geo.options.projection.parallels",
+        "applies only to `conic_conformal`, `conic_equal_area`, `conic_equidistant`",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |p| p.parallel = Some(30.0)),
+        "root.plot.geo.options.projection.parallel",
+        "applies only to `cylindrical_equal_area`",
+    );
+    read(with(ProjectionType::Identity, |p| {
+        p.reflect_x = true;
+        p.reflect_y = true;
+    }))
+    .unwrap();
+    invalid(
+        with(ProjectionType::Mercator, |p| p.reflect_x = true),
+        "root.plot.geo.options.projection.reflect_x",
+        "applies only to `identity`",
+    );
+    for (change, parameter) in [
+        (
+            (|p: &mut proto::Projection| p.rotate = vec![10.0, 0.0]) as fn(&mut _),
+            "rotate",
+        ),
+        (|p| p.center = vec![10.0, 0.0], "center"),
+        (|p| p.precision = Some(1.0), "precision"),
+        (
+            |p| p.fit = Some(projection::Fit::WholeSphere(proto::WholeSphere {})),
+            "whole_sphere",
+        ),
+    ] {
+        invalid(
+            with(ProjectionType::Identity, change),
+            &format!("root.plot.geo.options.projection.{parameter}"),
+            "applies only to a projection of the sphere, not to `identity`",
+        );
+    }
+    // A projection of the sphere draws a graticule, a sphere, and tiles, and `identity` does not.
+    let graticule = |builtin| {
+        geo_parts(geo_options(builtin, |geo| {
+            geo.graticule = Some(proto::Graticule::default());
+        }))
+    };
+    read(graticule(ProjectionType::Mercator)).unwrap();
+    // A hidden graticule is no graticule.
+    read(geo_parts(geo_options(ProjectionType::Identity, |geo| {
+        geo.graticule = Some(proto::Graticule {
+            show: Some(false),
+            ..Default::default()
+        });
+    })))
+    .unwrap();
+    invalid(
+        graticule(ProjectionType::Identity),
+        "root.plot.geo.options.graticule",
+        "not to `identity`",
+    );
+    invalid(
+        geo_parts(geo_options(ProjectionType::Identity, |geo| {
+            geo.navigation = Some(proto::GeoNavigation {
+                pan_mode: proto::PanMode::Sphere as i32,
+                ..Default::default()
+            });
+        })),
+        "root.plot.geo.options.navigation.pan_mode",
+        "not to `identity`",
+    );
+    // A custom projection takes the parameters of the sphere, and its options.
+    let mut custom = geo_options(ProjectionType::Mercator, |geo| {
+        let projection = geo.projection.as_mut().unwrap();
+        projection.rotate = vec![10.0, 20.0, 30.0];
+    });
+    custom.projection.as_mut().unwrap().r#type =
+        Some(projection::Type::Custom(proto::CustomProjection {
+            name: "healpix".to_string(),
+            options: [(
+                "lobes".to_string(),
+                proto::OptionValue {
+                    value: Some(proto::option_value::Value::Integer(4)),
+                },
+            )]
+            .into(),
+        }));
+    read(geo_parts(custom.clone())).unwrap();
+    custom.projection.as_mut().unwrap().coefficient = Some(2.0);
+    invalid(
+        geo_parts(custom),
+        "root.plot.geo.options.projection.coefficient",
+        "not to a custom projection",
+    );
+}
+
+#[test]
+fn the_arrays_of_a_projection_have_their_lengths() {
+    let with = |builtin, change: fn(&mut proto::Geo)| geo_parts(geo_options(builtin, change));
+    read(with(ProjectionType::Orthographic, |geo| {
+        geo.projection.as_mut().unwrap().rotate = vec![96.0, 0.0];
+    }))
+    .unwrap();
+    read(with(ProjectionType::Orthographic, |geo| {
+        geo.projection.as_mut().unwrap().rotate = vec![96.0, 0.0, 10.0];
+    }))
+    .unwrap();
+    invalid(
+        with(ProjectionType::Orthographic, |geo| {
+            geo.projection.as_mut().unwrap().rotate = vec![96.0, 0.0, 0.0, 1.0];
+        }),
+        "root.plot.geo.options.projection.rotate",
+        "a rotation takes two or three angles: the yaw, the pitch, and an optional roll, not 4",
+    );
+    invalid(
+        with(ProjectionType::ConicConformal, |geo| {
+            geo.projection.as_mut().unwrap().parallels = vec![20.0, 30.0, 40.0];
+        }),
+        "root.plot.geo.options.projection.parallels",
+        "one or two standard parallels, not 3",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.projection.as_mut().unwrap().center = vec![10.0];
+        }),
+        "root.plot.geo.options.projection.center",
+        "its longitude and its latitude, not 1",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.projection.as_mut().unwrap().center = vec![10.0, 100.0];
+        }),
+        "root.plot.geo.options.projection.center",
+        "a latitude from -90 to 90",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.projection.as_mut().unwrap().fit = Some(projection::Fit::Box(proto::FitBox {
+                bounds: vec![-10.0, 0.0, 10.0],
+            }));
+        }),
+        "root.plot.geo.options.projection.box.bounds",
+        "four numbers",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.projection.as_mut().unwrap().fit = Some(projection::Fit::Box(proto::FitBox {
+                bounds: vec![-10.0, 50.0, 10.0, 20.0],
+            }));
+        }),
+        "root.plot.geo.options.projection.box.bounds",
+        "the south edge of a box is at most its north edge",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.graticule = Some(proto::Graticule {
+                step: vec![10.0],
+                ..Default::default()
+            });
+        }),
+        "root.plot.geo.options.graticule.step",
+        "two numbers of degrees, not 1",
+    );
+    invalid(
+        with(ProjectionType::Mercator, |geo| {
+            geo.graticule = Some(proto::Graticule {
+                extent_major: vec![-180.0, -90.0, 180.0],
+                ..Default::default()
+            });
+        }),
+        "root.plot.geo.options.graticule.extent_major",
+        "four numbers",
+    );
 }
 
 #[test]

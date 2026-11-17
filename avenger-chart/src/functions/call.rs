@@ -179,7 +179,7 @@ impl MarkCall {
 
     /// Sets the options of the mark's plot from `arg`, a fragment of the options of its
     /// coordinate system or an argument that converts to one, such as
-    /// `spherical(projection => 'mercator')` for a geo plot.
+    /// `geo(projection => 'mercator')` for a geo plot.
     pub fn coord(&mut self, arg: &Arg) -> Result<(), ArgError> {
         self.set_coord(arg).map_err(|error| error.within(COORD))
     }
@@ -201,7 +201,7 @@ impl MarkCall {
         let name = mark.name;
         if mark.coord == CoordKind::Geo && self.options.is_none() {
             return Err(ArgError::mark(format!(
-                "{name}() needs `coord`, the options of its geo plot, such as `coord => geo(surface => spherical(projection => 'equal_earth'))`"
+                "{name}() needs `coord`, the options of its geo plot, such as `coord => geo(projection => 'equal_earth')`"
             )));
         }
         if let Some(declared) = (mark.channels.iter()).find(|declared| {

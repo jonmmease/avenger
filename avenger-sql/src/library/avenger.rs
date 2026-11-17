@@ -270,7 +270,8 @@ fn takes(accepts: &[ChartAccept]) -> Takes {
                     Class::Str => Ty::String,
                     Class::Array => shape_ty(&accept.shape),
                     Class::Bytes => Ty::Bytes,
-                    Class::Other | Class::Fragment => Ty::Any,
+                    // A struct of any fields, which the analysis has no type of.
+                    Class::Struct | Class::Other | Class::Fragment => Ty::Any,
                 };
                 if !takes.values.contains(&ty) {
                     takes.values.push(ty);
@@ -302,7 +303,8 @@ fn shape_ty(shape: &Shape) -> Ty {
         Shape::Bytes | Shape::Message { .. } => Ty::Bytes,
         Shape::Array(element) => Ty::Array(Box::new(shape_ty(element))),
         Shape::Enum { .. } | Shape::Names(_) => Ty::String,
-        Shape::Value => Ty::Any,
+        // A struct of any fields, which the analysis has no type of.
+        Shape::Value | Shape::Options => Ty::Any,
     }
 }
 

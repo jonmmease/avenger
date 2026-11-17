@@ -37,13 +37,18 @@ or without a scale of `radius`, the map of fractions of the outer radius to pixe
 ## GeoPlots
 
 With the `geo` feature, a geo plot projects longitudes and latitudes through an avenger-geo
-projection: one of the typed projections of the format, a custom projection by its typetag name, or
-the coordinates of a planar geo plot. The geo plots that share a projection fit one view of the
-sphere, a box, or the data of their layers, inset by the largest reach of their marks past their
-places, at the size of their first plot. A geo plot keeps the aspect of what it fits, or its own, or
-none. A geo plot whose spec has a sphere fills and outlines the outline of its projection with the
-computed background and border of its `plot[type=geo]`, and its graticule takes the styles of its
-`graticule`, `grid`, and `label`, with its labels in slabs of the plot. Tiles load through
+projection: one of the projection types of the format with its parameters, a custom projection by
+its typetag name with its options, or the coordinates of the type `identity`, which reflects its x
+and its y axes as its spec says. A conic projection without parallels takes the parallels of d3-geo:
+30 and 30 for `conic_conformal`, and 0 and 60 for `conic_equal_area` and `conic_equidistant`. The
+geo plots that share a projection fit one view of the sphere, a box, or the data of their layers,
+inset by the largest reach of their marks past their places, at the size of their first plot. A geo
+plot keeps the aspect of what it fits, or its own, or none. A geo plot whose spec shows a sphere
+fills and outlines the outline of its projection with the computed background and border of its
+`plot[type=geo]`, and a graticule that shows takes the styles of its `graticule`, `grid`, and
+`label`, with its labels in slabs of the plot. The `projection` attribute of the `plot[type=geo]`
+names the projection's type, such as `equal_earth` or `identity`, or the name of a custom
+projection. Tiles load through
 `ChartEvaluator::set_image_resolver`, and a geo plot without a resolver draws without them, with a
 warning. A symbol, a text, an image, or a path draws the rows whose places the projection keeps. The
 coordinates of a geo plot are its projection, without scales.

@@ -1,7 +1,7 @@
 //! Geo plots, which need the `geo` feature. Without it, a module of the same interface has no geo
 //! plots, because the evaluator rejects a chart with one.
 
-use avenger_chart::resolve::Resolved;
+use avenger_chart::{proto, resolve::Resolved};
 use avenger_guides::{GuideSide, PartExtent};
 use avenger_style::ComputedStyles;
 use avenger_typst_label::LabelEngine;
@@ -17,6 +17,16 @@ pub(crate) use plots::{marks, GeoPlots, ProjectionState};
 mod none;
 #[cfg(not(feature = "geo"))]
 pub(crate) use none::{marks, GeoPlots, ProjectionState};
+
+/// The graticule of a geo spec that draws one: a graticule that is set and does not hide itself.
+pub(crate) fn graticule(spec: &proto::Geo) -> Option<&proto::Graticule> {
+    (spec.graticule.as_ref()).filter(|graticule| graticule.show != Some(false))
+}
+
+/// The sphere of a geo spec that draws one: a sphere that is set and does not hide itself.
+pub(crate) fn sphere(spec: &proto::Geo) -> Option<&proto::SphereStyle> {
+    (spec.sphere.as_ref()).filter(|sphere| sphere.show != Some(false))
+}
 
 /// What preparing the geo plots reads: the chart's models, its style nodes and their computed
 /// styles, and the label engine.

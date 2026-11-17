@@ -84,7 +84,7 @@ fn fit_handles_one_dimensional_geometry_and_retains_clipping() {
     for points in [vec![(0.0, 1.0), (2.0, 1.0)], vec![(1.0, 0.0), (1.0, 2.0)]] {
         let line = LineString::from(points);
         let clip = Some([[20.0, 20.0], [80.0, 80.0]]);
-        let mut projection = Projection::planar(false).with_clip_extent(clip);
+        let mut projection = Projection::planar(false, false).with_clip_extent(clip);
         let summary = projection.summarize(&line).unwrap();
         projection
             .fit([[0.0, 0.0], [100.0, 100.0]], &summary)
@@ -100,17 +100,56 @@ fn fit_handles_one_dimensional_geometry_and_retains_clipping() {
 
 #[test]
 fn planar_reflection_matches_display_coordinates() {
-    for (reflect_y, expected_y) in [(false, 23.0), (true, 17.0)] {
-        let projector = Projection::planar(reflect_y)
+    for (reflect_x, reflect_y, expected) in [
+        (false, false, (12.0, 23.0)),
+        (true, false, (8.0, 23.0)),
+        (false, true, (12.0, 17.0)),
+        (true, true, (8.0, 17.0)),
+    ] {
+        let projector = Projection::planar(reflect_x, reflect_y)
             .with_view(1.0, [10.0, 20.0])
             .build()
             .unwrap();
-        assert_eq!(projector.project_point(2.0, 3.0), Some((12.0, expected_y)));
-        assert_eq!(projector.invert(12.0, expected_y), Some((2.0, 3.0)));
+        assert_eq!(projector.project_point(2.0, 3.0), Some(expected));
+        assert_eq!(projector.invert(expected.0, expected.1), Some((2.0, 3.0)));
         assert_eq!(
             bounds(&projector, &Point::new(2.0, 3.0)),
-            Some([[12.0, expected_y], [12.0, expected_y]])
+            Some([[expected.0, expected.1], [expected.0, expected.1]])
         );
+    }
+}
+
+/// A planar projection keeps the winding of a polygon's exterior on screen whatever axes it
+/// reflects: it reverses the rings of one reflection, and keeps those of two.
+#[test]
+fn planar_reflections_keep_the_winding_of_exteriors() {
+    let exterior = LineString::from(vec![(0., 0.), (10., 0.), (10., 10.), (0., 10.), (0., 0.)]);
+    let polygon = Polygon::new(exterior, vec![]);
+    // Twice the signed area of a ring on screen, where y grows downward.
+    let area = |ring: &[[f64; 2]]| -> f64 {
+        (0..ring.len())
+            .map(|i| {
+                let ([ax, ay], [bx, by]) = (ring[i], ring[(i + 1) % ring.len()]);
+                ax * by - bx * ay
+            })
+            .sum()
+    };
+    let mut areas = Vec::new();
+    for (reflect_x, reflect_y) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut sink = RecordingSink::default();
+        Projection::planar(reflect_x, reflect_y)
+            .with_view(1.0, [50.0, 50.0])
+            .build()
+            .unwrap()
+            .project_to_sink(&polygon, &mut sink);
+        let rings = sink.polylines();
+        assert_eq!(rings.len(), 1);
+        areas.push(area(&rings[0]));
+    }
+    assert!(areas[0] != 0.0);
+    for area in &areas {
+        assert_eq!(area.signum(), areas[0].signum(), "{areas:?}");
+        assert!((area.abs() - areas[0].abs()).abs() < 1e-9);
     }
 }
 
@@ -119,7 +158,7 @@ fn inverse_rejects_non_finite_values() {
     for projection in [
         Projection::new(Equirectangular),
         Projection::new(EqualEarth),
-        Projection::planar(false),
+        Projection::planar(false, false),
     ] {
         let projector = projection.with_view(150.0, [480.0, 250.0]).build().unwrap();
         for point in [(f64::NAN, 0.0), (0.0, f64::INFINITY)] {
@@ -673,7 +712,7 @@ fn winding(sink: &RecordingSink, [px, py]: [f64; 2]) -> i32 {
 }
 
 /// A hole stays empty under the nonzero rule when a clip extent lies inside the polygon's
-/// exterior, for spherical and planar data, with and without a reflected y axis.
+/// exterior, for spherical and planar data, with and without reflected axes.
 #[test]
 fn holes_stay_empty_inside_clip_extents() {
     let square = |x0: f64, x1: f64, counter_clockwise: bool| {
@@ -689,9 +728,15 @@ fn holes_stay_empty_inside_clip_extents() {
         .with_clip_extent(Some([[5.0, 15.0], [35.0, 45.0]]));
     let polygon = Polygon::new(square(0.0, 40.0, true), vec![square(15.0, 25.0, false)]);
     let mut cases = vec![(spherical, polygon, [20.0, 30.0], [10.0, 20.0])];
-    for reflect_y in [false, true] {
-        let planar = Projection::planar(reflect_y)
-            .with_view(1.0, [0.0, if reflect_y { 100.0 } else { 0.0 }])
+    for (reflect_x, reflect_y) in [(false, false), (true, false), (false, true), (true, true)] {
+        let planar = Projection::planar(reflect_x, reflect_y)
+            .with_view(
+                1.0,
+                [
+                    if reflect_x { 100.0 } else { 0.0 },
+                    if reflect_y { 100.0 } else { 0.0 },
+                ],
+            )
             .with_clip_extent(Some([[20.0, 20.0], [80.0, 80.0]]));
         let polygon = Polygon::new(square(0.0, 100.0, true), vec![square(40.0, 60.0, false)]);
         cases.push((planar, polygon, [50.0, 50.0], [30.0, 30.0]));
@@ -722,7 +767,7 @@ fn projected_collections_close_rings_and_leave_lines_open() {
         .into(),
         LineString::from(open.clone()).into(),
     ]));
-    let projector = Projection::planar(false)
+    let projector = Projection::planar(false, false)
         .with_view(1., [0., 0.])
         .build()
         .unwrap();

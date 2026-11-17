@@ -48,6 +48,7 @@ wkb = { workspace = true, optional = true }
 
 [dev-dependencies]
 avenger-chart = { path = "../avenger-chart", features = ["descriptors"] }
+avenger-geo = { path = "../avenger-geo" }
 avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
 avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
@@ -58,3 +59,4 @@ geoarrow-array = { workspace = true }
 geoarrow-schema = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
+serde_json = { workspace = true }

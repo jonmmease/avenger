@@ -377,22 +377,16 @@ fn composition(
 }
 
 /// The `projection` of the `plot[type=geo]` of a geo plot, its sphere's inline styles, and the nodes of
-/// its graticule, when it has one.
+/// its graticule, when it draws one.
 fn geo_plot(tree: &mut Styled, plot_node: NodeId, plot: &proto::GeoPlot) -> Option<GraticuleNodes> {
-    let spherical = match plot.options.as_ref()?.surface.as_ref()? {
-        proto::geo::Surface::Planar(_) => {
-            tree.set_attribute(plot_node, "projection", "planar");
-            return None;
-        }
-        proto::geo::Surface::Spherical(spherical) => spherical,
-    };
-    if let Some(name) = projection_name(spherical) {
+    let spec = plot.options.as_ref()?;
+    if let Some(name) = spec.projection.as_ref().and_then(projection_name) {
         tree.set_attribute(plot_node, "projection", name);
     }
-    if let Some(sphere) = &spherical.sphere {
+    if let Some(sphere) = crate::geo::sphere(spec) {
         inline::sphere(tree, plot_node, sphere);
     }
-    let graticule = spherical.graticule.as_ref()?;
+    let graticule = crate::geo::graticule(spec)?;
     let graticule_node = tree.add(plot_node, Element::Graticule);
     let nodes = GraticuleNodes {
         graticule: graticule_node,
@@ -403,38 +397,18 @@ fn geo_plot(tree: &mut Styled, plot_node: NodeId, plot: &proto::GeoPlot) -> Opti
     Some(nodes)
 }
 
-/// The name of a spherical projection: the name of its member of the `projection` oneof, such as
-/// `equal_earth`, or the name of a custom projection.
-pub(crate) fn projection_name(spherical: &proto::Spherical) -> Option<String> {
-    use proto::spherical::Projection;
-    Some(
-        match spherical.projection.as_ref()? {
-            Projection::EqualEarth(_) => "equal_earth",
-            Projection::NaturalEarth1(_) => "natural_earth1",
-            Projection::Robinson(_) => "robinson",
-            Projection::Mollweide(_) => "mollweide",
-            Projection::Eckert4(_) => "eckert4",
-            Projection::WinkelTripel(_) => "winkel_tripel",
-            Projection::Aitoff(_) => "aitoff",
-            Projection::Sinusoidal(_) => "sinusoidal",
-            Projection::Equirectangular(_) => "equirectangular",
-            Projection::Mercator(_) => "mercator",
-            Projection::TransverseMercator(_) => "transverse_mercator",
-            Projection::Miller(_) => "miller",
-            Projection::Orthographic(_) => "orthographic",
-            Projection::Stereographic(_) => "stereographic",
-            Projection::Gnomonic(_) => "gnomonic",
-            Projection::AzimuthalEqualArea(_) => "azimuthal_equal_area",
-            Projection::AzimuthalEquidistant(_) => "azimuthal_equidistant",
-            Projection::ConicConformal(_) => "conic_conformal",
-            Projection::ConicEqualArea(_) => "conic_equal_area",
-            Projection::ConicEquidistant(_) => "conic_equidistant",
-            Projection::CylindricalEqualArea(_) => "cylindrical_equal_area",
-            Projection::Hammer(_) => "hammer",
-            Projection::Custom(custom) => return Some(custom.name.clone()),
+/// The name of a projection: its type in lowercase without the prefix, such as `equal_earth` or
+/// `identity`, or the name of a custom projection.
+pub(crate) fn projection_name(projection: &proto::Projection) -> Option<String> {
+    match projection.r#type.as_ref()? {
+        proto::projection::Type::Builtin(builtin) => {
+            let name = proto::ProjectionType::try_from(*builtin)
+                .ok()?
+                .as_str_name();
+            Some(name.strip_prefix("PROJECTION_TYPE_")?.to_lowercase())
         }
-        .to_string(),
-    )
+        proto::projection::Type::Custom(custom) => Some(custom.name.clone()),
+    }
 }
 
 /// The nodes of the guide of `group` under `owner`, the `plot` of the node that owns it.

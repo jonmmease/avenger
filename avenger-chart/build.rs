@@ -91,6 +91,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .bytes(["."])
         // Each message implements `prost::Name`, whose full name a fragment records.
         .enable_type_names()
+        // A map is a `BTreeMap`, so a message encodes its entries in the order of their keys and
+        // equal messages encode to equal bytes.
+        .btree_map(["."])
         .compile_protos(
             &files,
             &[PathBuf::from("proto"), protoc_bin_vendored::include_path()?],
@@ -100,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The set also holds the files that the package imports, such as `descriptor.proto`.
     set.file
         .retain(|file| format!(".{}", file.package()) == PACKAGE);
-    let messages = Messages::new(&set);
+    let messages = Messages::new(&set)?;
     let mut walk = String::new();
     // Every message with a builder visits its values, as an empty walk when it holds none, so a
     // fragment of any message orders its values.
@@ -479,36 +482,40 @@ struct Messages<'a> {
 }
 
 impl<'a> Messages<'a> {
-    fn new(set: &'a FileDescriptorSet) -> Self {
+    /// The messages of the package, after a check that its only nested messages are the entries of
+    /// maps from a string to an `OptionValue`, which `model::is_map_entry` takes for granted.
+    fn new(set: &'a FileDescriptorSet) -> Result<Self, String> {
         let mut all = Vec::new();
         for file in &set.file {
             for message in &file.message_type {
-                Self::collect(&mut all, PACKAGE, "crate::proto", message);
+                for nested in &message.nested_type {
+                    let entry = nested.options.as_ref().is_some_and(|o| o.map_entry());
+                    // The maps of the format are the named options of custom scales and
+                    // projections, from a string to an `OptionValue`, which the functions set
+                    // from a struct.
+                    let options = matches!(
+                        nested.field.as_slice(),
+                        [key, value] if key.r#type() == Type::String
+                            && value.type_name() == format!("{PACKAGE}.OptionValue")
+                    );
+                    if !(entry && options) {
+                        return Err(format!(
+                            "the message `{}` nests the message `{}`, and the format nests only \
+                             the entries of maps from a string to an `OptionValue`",
+                            message.name(),
+                            nested.name()
+                        ));
+                    }
+                }
+                // prost writes no struct for the entry of a map, so the entries have no impls.
+                all.push((
+                    format!("{PACKAGE}.{}", message.name()),
+                    format!("crate::proto::{}", message.name()),
+                    message,
+                ));
             }
         }
-        Self { all }
-    }
-
-    fn collect(
-        all: &mut Vec<(String, String, &'a DescriptorProto)>,
-        scope: &str,
-        module: &str,
-        message: &'a DescriptorProto,
-    ) {
-        let name = message.name();
-        all.push((
-            format!("{scope}.{name}"),
-            format!("{module}::{name}"),
-            message,
-        ));
-        for nested in &message.nested_type {
-            Self::collect(
-                all,
-                &format!("{scope}.{name}"),
-                &format!("{module}::{}", snake(name)),
-                nested,
-            );
-        }
+        Ok(Self { all })
     }
 
     fn get(&self, name: &str) -> Option<&(String, String, &'a DescriptorProto)> {

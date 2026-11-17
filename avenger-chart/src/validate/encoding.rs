@@ -13,8 +13,8 @@ use arrow::{
 };
 
 use super::{
-    classes, dictionary_values, fail, is_string, keyed, named, non_negative, positive, title,
-    within, Checker, Result, REQUIRED,
+    classes, dictionary_values, fail, is_string, named, non_negative, positive, title, within,
+    Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
@@ -1151,13 +1151,6 @@ fn scale_options(scale_type: &scale::Type, value_type: &DataType, path: &str) ->
                 &custom.name,
                 &format!("{path}.custom.name"),
                 "the name of a custom scale",
-            )?;
-            keyed(
-                &custom.options,
-                |option| option.name.clone(),
-                |a, b| a == b,
-                &format!("{path}.custom.options"),
-                "options",
             )?;
         }
         Type::Linear(_)

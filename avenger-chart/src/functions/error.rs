@@ -46,6 +46,8 @@ pub enum Reason {
     },
     /// A null item of an array, which only a `ValueRef` stores.
     NullItem,
+    /// A struct of named options with a field that no option takes, or with a name twice.
+    Option(String),
     /// A call of a mark function that breaks a rule of its mark.
     Mark(String),
     /// A composition of charts that breaks a rule of its composition, such as two charts of a facet
@@ -116,6 +118,10 @@ impl ArgError {
         Self::new(Reason::NullItem)
     }
 
+    pub(crate) fn option(message: impl Into<String>) -> Self {
+        Self::new(Reason::Option(message.into()))
+    }
+
     pub(crate) fn mark(message: impl Into<String>) -> Self {
         Self::new(Reason::Mark(message.into()))
     }
@@ -169,7 +175,9 @@ impl fmt::Display for ArgError {
                 write!(f, "takes one of {}, not `{found}`", names(members, ", "))
             }
             Reason::NullItem => write!(f, "takes an array without NULL items"),
-            Reason::Mark(message) | Reason::Composition(message) => write!(f, "{message}"),
+            Reason::Option(message) | Reason::Mark(message) | Reason::Composition(message) => {
+                write!(f, "{message}")
+            }
             Reason::Invalid(error) => write!(f, "{error}"),
         }
     }
@@ -189,6 +197,7 @@ impl Expected {
                 Shape::Bytes => "bytes".into(),
                 Shape::Value => "a constant".into(),
                 Shape::Array(_) => "an array".into(),
+                Shape::Options => "a struct of named options".into(),
                 Shape::Message { constructor, .. } => format!("`{constructor}(...)`"),
             },
             Expected::Inputs(accepts) => describe_inputs(accepts),
@@ -200,12 +209,13 @@ impl Expected {
 /// calls of the constructors of the fragments, the names that pick a member, and the classes of
 /// the values.
 fn describe_inputs(accepts: &[Accept]) -> String {
-    const CONSTANTS: [Class; 6] = [
+    const CONSTANTS: [Class; 7] = [
         Class::Bool,
         Class::Int,
         Class::Float,
         Class::Str,
         Class::Array,
+        Class::Struct,
         Class::Other,
     ];
     let any = (CONSTANTS.iter()).all(|class| accepts.iter().any(|accept| accept.class == *class));

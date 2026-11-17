@@ -79,7 +79,10 @@ fn projections_pan_in_the_mode_of_their_default_clip() {
     let (antimeridian, circle) = modes.split_at(modes.len() - 5);
     assert!(antimeridian.iter().all(|mode| *mode == PanMode::Longitude));
     assert!(circle.iter().all(|mode| *mode == PanMode::Sphere));
-    assert_eq!(Projection::planar(true).pan_mode(), PanMode::Translate);
+    assert_eq!(
+        Projection::planar(false, true).pan_mode(),
+        PanMode::Translate
+    );
 }
 
 #[test]
@@ -147,7 +150,7 @@ fn zooms_keep_the_place_under_the_anchor() {
 
 #[test]
 fn translate_pans_slide_the_view() {
-    let projection = Projection::planar(true).with_view(2.0, [10.0, 20.0]);
+    let projection = Projection::planar(false, true).with_view(2.0, [10.0, 20.0]);
     let panned = projection
         .pan(PanMode::Translate, [5.0, 5.0], [8.0, 1.0])
         .unwrap();
@@ -313,7 +316,7 @@ fn invalid_gestures_are_errors() {
         assert!(unbuilt.pan(mode, [0.0, 0.0], [1.0, 1.0]).is_err());
         assert!(unbuilt.zoom(mode, [0.0, 0.0], 2.0).is_err());
     }
-    let planar = Projection::planar(false).with_view(1.0, [0.0, 0.0]);
+    let planar = Projection::planar(false, false).with_view(1.0, [0.0, 0.0]);
     for mode in [PanMode::Longitude, PanMode::Sphere] {
         assert!(planar.pan(mode, [0.0, 0.0], [1.0, 1.0]).is_err());
         assert!(planar.zoom(mode, [0.0, 0.0], 2.0).is_err());
