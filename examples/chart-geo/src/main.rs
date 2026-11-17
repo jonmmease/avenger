@@ -281,11 +281,9 @@ fn chart() -> Chart {
         1.0,
     );
     // The world map's column is the wider, since the map is wider than it is tall.
-    let share = |weight: f32| Track::builder().share(Share::builder().weight(weight));
-    let layout = ConcatLayout::builder().tracks([share(1.0), share(1.6)]);
     Chart::builder(
         Concat::new(Direction::Row)
-            .layout(layout)
+            .tracks([Track::share(1.0), Track::share(1.6)])
             .children([globe, world]),
     )
     .number_format_syntax("d3")

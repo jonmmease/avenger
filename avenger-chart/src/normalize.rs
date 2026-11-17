@@ -8,14 +8,15 @@
 //! - joins the selections with one name, orders the selections by name, and orders the initial
 //!   clauses of each by the tree order of their owners
 //! - joins the modes with one name at the place of the first, keeping the order of the modes
-//! - orders each other keyed list by its key, with one entry for each key
+//! - orders each other keyed list by its key, with one entry for each key, and the independent
+//!   widgets of each resolve by key
 //! - leaves out the fields that a reader ignores, and the messages whose comments say that leaving
 //!   them out means the default of each of their fields, when every field is at its default
 //! - holds one copy of each table, in the order of the first layer that refers to it, and the
 //!   values in the order that `Chart.values` describes
 //!
-//! A field that sets a value equal to the default that its comment gives when it is not set, such
-//! as a share's weight of 1, stays as it is written.
+//! A field that sets a value equal to the default that its comment gives when it is not set stays
+//! as it is written.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -116,7 +117,7 @@ enum Place {
 fn local_node(node: &mut proto::Node, place: Place) {
     match node.node.as_mut().expect("a valid node has a kind") {
         Node::Plot(plot) => {
-            by_key(&mut plot.resolve, rule_order);
+            resolve(&mut plot.resolve);
             distinct(&mut plot.classes);
             if place == Place::Cell {
                 plot.width = None;
@@ -151,17 +152,14 @@ fn local_node(node: &mut proto::Node, place: Place) {
         }
         Node::Empty(_) => {}
         Node::Concat(concat) => {
-            by_key(&mut concat.resolve, rule_order);
+            resolve(&mut concat.resolve);
             distinct(&mut concat.classes);
-            if let Some(layout) = &mut concat.layout {
-                by_key(&mut layout.part_rules, |rule| rule.part);
-                // Only the outermost concat of a table distributes its free length.
-                if place == Place::Child {
-                    layout.horizontal_distribute = 0;
-                    layout.vertical_distribute = 0;
-                }
+            default_to_none(&mut concat.parts);
+            // Only the outermost concat of a table distributes its free length.
+            if place == Place::Child {
+                concat.horizontal_distribute = 0;
+                concat.vertical_distribute = 0;
             }
-            default_to_none(&mut concat.layout);
             if let Some(facet) = &mut concat.facet {
                 distinct(&mut facet.classes);
             }
@@ -170,12 +168,9 @@ fn local_node(node: &mut proto::Node, place: Place) {
             }
         }
         Node::Wrap(wrap) => {
-            by_key(&mut wrap.resolve, rule_order);
+            resolve(&mut wrap.resolve);
             distinct(&mut wrap.classes);
-            if let Some(layout) = &mut wrap.layout {
-                by_key(&mut layout.part_rules, |rule| rule.part);
-            }
-            default_to_none(&mut wrap.layout);
+            default_to_none(&mut wrap.parts);
             if let Some(facet) = &mut wrap.facet {
                 distinct(&mut facet.classes);
             }
@@ -282,17 +277,17 @@ impl Hoist<'_> {
     }
 }
 
-/// Orders the entries of a keyed list by their keys and keeps one entry for each key. The chart
-/// is valid, so entries with one key are equal.
-/// The order of resolve rules: the rules of channels by channel, then the rules of widgets by key.
-fn rule_order(rule: &proto::Resolve) -> (u8, i32, String) {
-    match &rule.key {
-        Some(proto::resolve::Key::Channel(channel)) => (0, *channel, String::new()),
-        Some(proto::resolve::Key::Widget(widget)) => (1, 0, widget.key.clone()),
-        None => (2, 0, String::new()),
+/// Orders the independent widgets of a resolve by key, and leaves out a resolve that sets
+/// nothing.
+fn resolve(resolve: &mut Option<proto::Resolve>) {
+    if let Some(resolve) = resolve {
+        resolve.independent_widgets.sort_unstable();
     }
+    default_to_none(resolve);
 }
 
+/// Orders the entries of a keyed list by their keys and keeps one entry for each key. The chart
+/// is valid, so entries with one key are equal.
 fn by_key<T, K: Ord>(items: &mut Vec<T>, key: impl Fn(&T) -> K) {
     items.sort_by_key(&key);
     items.dedup_by(|a, b| key(a) == key(b));

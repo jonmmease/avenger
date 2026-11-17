@@ -448,3 +448,93 @@ pub fn channels(annotations: &Annotations) -> String {
          matches!(channel, {scaled_positions})\n}}\n"
     )
 }
+
+/// The code of `resolve_channels.rs`: `RESOLVE_CHANNELS`, the channels with a field in `Resolve`,
+/// and `resolve_sharing` and `resolve_sharing_mut`, which read and set the field of a channel,
+/// after a check that the fields of `Resolve` of type `Sharing` other than `projection` are the
+/// channels whose `channel_scale` is `CHANNEL_SCALE_OWN`, each named after the channel in
+/// lowercase without the prefix and numbered with the channel's value.
+pub fn resolve_channels(
+    annotations: &Annotations,
+    set: &FileDescriptorSet,
+    messages: &Messages,
+) -> Result<String, String> {
+    let channel = (set.file.iter())
+        .flat_map(|file| &file.enum_type)
+        .find(|enumeration| enumeration.name() == "Channel")
+        .ok_or("the package has a `Channel` enum")?;
+    let own: BTreeMap<String, i32> = (channel.value.iter())
+        .filter(|value| annotations.channel_scale.get(value.name()) == Some(&CHANNEL_SCALE_OWN))
+        .map(|value| {
+            let name = value
+                .name()
+                .strip_prefix("CHANNEL_")
+                .unwrap_or(value.name());
+            (name.to_lowercase(), value.number())
+        })
+        .collect();
+    let (_, _, resolve) = messages
+        .get(&format!("{PACKAGE}.Resolve"))
+        .ok_or("the package has a `Resolve` message")?;
+    let fields: BTreeMap<String, i32> = (resolve.field.iter())
+        .filter(|field| {
+            field.r#type() == Type::Enum
+                && field.type_name() == format!("{PACKAGE}.Sharing")
+                && field.name() != "projection"
+        })
+        .map(|field| (field.name().to_string(), field.number()))
+        .collect();
+    if fields != own {
+        return Err(format!(
+            "the `Sharing` fields of `Resolve` other than `projection` are the channels with a \
+             scale of their own, each numbered with its value: {own:?}, not {fields:?}"
+        ));
+    }
+    let mut by_number: Vec<(&String, &i32)> = own.iter().collect();
+    by_number.sort_by_key(|(_, number)| **number);
+    let variants: Vec<(String, String)> = (by_number.iter())
+        .map(|(name, _)| (format!("Channel::{}", camel(name)), ident(name)))
+        .collect();
+    let mut code = String::new();
+    writeln!(
+        code,
+        "/// The channels with a field in `Resolve`, those with a scale of their own, in the order of \
+         `Channel`.\npub(crate) const RESOLVE_CHANNELS: [Channel; {}] = [{}];\n",
+        variants.len(),
+        (variants.iter())
+            .map(|(variant, _)| variant.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+    .unwrap();
+    for (signature, reference, wrap, default) in [
+        (
+            "resolve_sharing(resolve: &crate::proto::Resolve, channel: Channel) -> i32",
+            "",
+            "",
+            "0",
+        ),
+        (
+            "resolve_sharing_mut(resolve: &mut crate::proto::Resolve, channel: Channel) -> Option<&mut i32>",
+            "&mut ",
+            "Some",
+            "None",
+        ),
+    ] {
+        let doc = match default {
+            "0" => "The `Sharing` value of the field of `channel` in `resolve`, or 0 for a channel without one.",
+            _ => "The field of `channel` in `resolve`, to set, or `None` for a channel without one.",
+        };
+        writeln!(code, "/// {doc}\npub(crate) fn {signature} {{\n    match channel {{").unwrap();
+        for (variant, field) in &variants {
+            let value = format!("{reference}resolve.{field}");
+            let value = match wrap {
+                "" => value,
+                _ => format!("{wrap}({value})"),
+            };
+            writeln!(code, "        {variant} => {value},").unwrap();
+        }
+        writeln!(code, "        _ => {default},\n    }}\n}}\n").unwrap();
+    }
+    Ok(code)
+}

@@ -163,9 +163,9 @@ fn enum_fields_hold_declared_values() {
     );
     // The zero value of a field that is not required is absent, and valid.
     concat_mut(&mut parts).direction = proto::Direction::Row as i32;
-    concat_mut(&mut parts).projection = 0;
+    concat_mut(&mut parts).horizontal_distribute = 0;
     read(parts.clone()).unwrap();
-    concat_mut(&mut parts).projection = proto::Sharing::Shared as i32;
+    concat_mut(&mut parts).horizontal_distribute = proto::Distribute::Center as i32;
     read(parts).unwrap();
 }
 
@@ -705,11 +705,8 @@ fn sizes_and_paddings_are_in_range() {
     invalid(parts, "root.plot.width", "more than 0");
 
     let mut parts = base();
-    parts.0.padding = Some(proto::Padding {
-        left: Some(-2.0),
-        ..Default::default()
-    });
-    invalid(parts, "padding.left", "at least 0");
+    parts.0.padding_left = Some(-2.0);
+    invalid(parts, "padding_left", "at least 0");
 
     let mut parts = base();
     let plot = plot_mut(&mut parts.0);
@@ -1523,30 +1520,109 @@ fn a_checkbox_value_has_the_column_type() {
     );
 }
 
+/// A plot's layers share one projection, so its resolve sets none, and the keys of independent
+/// widgets are not empty and appear once.
 #[test]
-fn a_resolve_rule_names_a_channel_or_a_widget_key() {
+fn a_resolve_names_each_independent_widget_once() {
     let mut parts = base();
-    plot_mut(&mut parts.0).resolve = vec![proto::Resolve {
-        key: None,
-        sharing: proto::Sharing::Shared as i32,
-    }];
+    plot_mut(&mut parts.0).resolve = Some(proto::Resolve {
+        projection: proto::Sharing::Shared as i32,
+        ..Default::default()
+    });
     invalid(
         parts.clone(),
-        "root.plot.resolve[0]",
-        "`key` is required: one of `channel`, `widget`",
+        "root.plot.resolve.projection",
+        "sets no `projection`",
     );
-    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(proto::WidgetKey {
-        key: String::new(),
-    }));
+    let resolve = |keys: &[&str]| {
+        Some(proto::Resolve {
+            independent_widgets: keys.iter().map(|key| key.to_string()).collect(),
+            ..Default::default()
+        })
+    };
+    plot_mut(&mut parts.0).resolve = resolve(&[""]);
     invalid(
         parts.clone(),
-        "root.plot.resolve[0].widget.key",
-        "`key` is required and not empty",
+        "root.plot.resolve.independent_widgets[0]",
+        "not empty",
     );
-    plot_mut(&mut parts.0).resolve[0].key = Some(proto::resolve::Key::Widget(proto::WidgetKey {
-        key: "magnitude".to_string(),
-    }));
+    plot_mut(&mut parts.0).resolve = resolve(&["magnitude", "magnitude"]);
+    invalid(
+        parts.clone(),
+        "root.plot.resolve.independent_widgets[1]",
+        "appears once",
+    );
+    plot_mut(&mut parts.0).resolve = resolve(&["magnitude", "depth"]);
     read(parts).unwrap();
+}
+
+/// A track's share is more than 0, and a track has a maximum only with a share, in the tracks of
+/// a concat and in the row height of a wrap.
+#[test]
+fn a_track_has_a_maximum_only_with_a_share() {
+    use proto::track::Size;
+    let track = |size: Option<Size>, max: Option<f32>| proto::Track { size, max };
+    let concat = |track: proto::Track| {
+        let mut parts = base();
+        parts.0.root = Some(proto::Node {
+            node: Some(node::Node::Concat(Concat {
+                direction: proto::Direction::Row as i32,
+                children: vec![plot(vec![symbols(0)])],
+                tracks: vec![track],
+                ..Default::default()
+            })),
+        });
+        parts
+    };
+    read(concat(track(Some(Size::Share(2.0)), Some(600.0)))).unwrap();
+    read(concat(track(Some(Size::Length(200.0)), None))).unwrap();
+    invalid(
+        concat(track(Some(Size::Length(200.0)), Some(600.0))),
+        "root.concat.tracks[0].max",
+        "a maximum only with a share",
+    );
+    invalid(
+        concat(track(None, Some(600.0))),
+        "root.concat.tracks[0].max",
+        "a maximum only with a share",
+    );
+    invalid(
+        concat(track(Some(Size::Share(0.0)), None)),
+        "root.concat.tracks[0].share",
+        "more than 0",
+    );
+    invalid(
+        concat(track(Some(Size::Share(1.0)), Some(0.0))),
+        "root.concat.tracks[0].max",
+        "more than 0",
+    );
+    invalid(
+        concat(track(Some(Size::Length(-1.0)), None)),
+        "root.concat.tracks[0].length",
+        "at least 0",
+    );
+    let wrap = |track: proto::Track| {
+        let mut parts = base();
+        parts.0.root = Some(proto::Node {
+            node: Some(node::Node::Wrap(proto::Wrap {
+                children: vec![plot(vec![symbols(0)])],
+                row_height: Some(track),
+                ..Default::default()
+            })),
+        });
+        parts
+    };
+    read(wrap(track(Some(Size::Share(1.0)), Some(300.0)))).unwrap();
+    invalid(
+        wrap(track(Some(Size::Length(200.0)), Some(300.0))),
+        "root.wrap.row_height.max",
+        "a maximum only with a share",
+    );
+    invalid(
+        wrap(track(Some(Size::Share(-1.0)), None)),
+        "root.wrap.row_height.share",
+        "more than 0",
+    );
 }
 
 /// The tick count of nice ends is more than 0, since `nice: false` turns nice ends off.

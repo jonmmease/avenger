@@ -37,11 +37,8 @@ fn the_fields_after_the_values_round_trip() {
     message.datetime_format_syntax = "chrono".to_string();
     message.width = Some(400.0);
     message.height = Some(300.0);
-    message.padding = Some(proto::Padding {
-        top: Some(4.0),
-        left: Some(8.0),
-        ..Default::default()
-    });
+    message.padding_top = Some(4.0);
+    message.padding_left = Some(8.0);
     // An explicit domain gives the chart a values table, so the tail follows the values.
     let mut layer = symbols(0);
     if let Some(proto::cartesian_layer::Mark::Symbol(mark)) = &mut layer.mark {

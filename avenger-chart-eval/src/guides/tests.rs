@@ -411,8 +411,7 @@ fn legends_of_two_scales_of_one_channel_stay_apart() {
         )
     };
     let chart = Chart::builder(
-        Plot::cartesian([layer(), layer()])
-            .resolve([Resolve::channel(Sharing::Independent, Channel::Color)]),
+        Plot::cartesian([layer(), layer()]).resolve(Resolve::builder().color(Sharing::Independent)),
     )
     .build()
     .unwrap();

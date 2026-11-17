@@ -70,15 +70,13 @@ pub(crate) fn check(chart: &Chart) -> Result<()> {
     enums(message)?;
     size(message.width, "width")?;
     size(message.height, "height")?;
-    if let Some(padding) = &message.padding {
-        for (side, value) in [
-            ("top", padding.top),
-            ("right", padding.right),
-            ("bottom", padding.bottom),
-            ("left", padding.left),
-        ] {
-            non_negative(value.map(f64::from), &format!("padding.{side}"))?;
-        }
+    for (field, value) in [
+        ("padding_top", message.padding_top),
+        ("padding_right", message.padding_right),
+        ("padding_bottom", message.padding_bottom),
+        ("padding_left", message.padding_left),
+    ] {
+        non_negative(value.map(f64::from), field)?;
     }
     for (index, mode) in message.modes.iter().enumerate() {
         if !mode.group.is_empty() && mode.on {

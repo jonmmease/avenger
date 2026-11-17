@@ -180,10 +180,10 @@ fn the_children_of_a_facet_hold_its_column_and_share_alike() {
         "one Arrow type",
     );
     let mut independent = child(1);
-    plot_mut(&mut independent).resolve = vec![proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
-        sharing: proto::Sharing::Independent as i32,
-    }];
+    plot_mut(&mut independent).resolve = Some(proto::Resolve {
+        y: proto::Sharing::Independent as i32,
+        ..Default::default()
+    });
     invalid(
         parts(
             facet(vec![child(0), independent]),
@@ -368,20 +368,20 @@ fn explicit_and_data_domains_do_not_share_a_scale() {
     );
     // An independent `y` gives each layer a scale of its own.
     let mut node = plot(vec![symbols(0), explicit]);
-    plot_mut(&mut node).resolve = vec![proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
-        sharing: proto::Sharing::Independent as i32,
-    }];
+    plot_mut(&mut node).resolve = Some(proto::Resolve {
+        y: proto::Sharing::Independent as i32,
+        ..Default::default()
+    });
     read(parts(node, values)).unwrap();
 }
 
 #[test]
 fn a_plot_has_at_most_two_scales_of_y() {
     let mut node = plot(vec![symbols(0), symbols(0), symbols(0)]);
-    plot_mut(&mut node).resolve = vec![proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
-        sharing: proto::Sharing::Independent as i32,
-    }];
+    plot_mut(&mut node).resolve = Some(proto::Resolve {
+        y: proto::Sharing::Independent as i32,
+        ..Default::default()
+    });
     invalid(
         parts(node, vec![]),
         "root.plot",
@@ -415,10 +415,10 @@ fn plots_that_share_x_fix_equal_widths() {
         node
     };
     let mut column = concat(proto::Direction::Column, vec![sized(300.0), sized(400.0)]);
-    concat_mut(&mut column).resolve = vec![proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
-        sharing: proto::Sharing::Shared as i32,
-    }];
+    concat_mut(&mut column).resolve = Some(proto::Resolve {
+        x: proto::Sharing::Shared as i32,
+        ..Default::default()
+    });
     invalid(
         parts(column, vec![]),
         "root.concat.children[1].plot",
@@ -434,28 +434,41 @@ fn plots_that_share_x_fix_equal_widths() {
 
 #[test]
 fn the_shares_of_a_track_are_equal() {
-    let share = |weight| proto::Track {
-        size: Some(track::Size::Share(proto::Share {
-            weight: Some(weight),
-            max: None,
-        })),
+    let share = |weight, max| proto::Track {
+        size: Some(track::Size::Share(weight)),
+        max,
     };
-    let row = |weight| {
+    let row = |weight, max| {
         let mut node = concat(proto::Direction::Row, vec![plot(vec![symbols(0)])]);
-        concat_mut(&mut node).layout = Some(proto::ConcatLayout {
-            tracks: vec![share(weight)],
-            ..Default::default()
-        });
+        concat_mut(&mut node).tracks = vec![share(weight, max)];
         node
     };
     read(parts(
-        concat(proto::Direction::Column, vec![row(2.0), row(2.0)]),
+        concat(
+            proto::Direction::Column,
+            vec![row(2.0, None), row(2.0, None)],
+        ),
         vec![],
     ))
     .unwrap();
     invalid(
         parts(
-            concat(proto::Direction::Column, vec![row(2.0), row(3.0)]),
+            concat(
+                proto::Direction::Column,
+                vec![row(2.0, None), row(3.0, None)],
+            ),
+            vec![],
+        ),
+        "root.concat.children[1].concat",
+        "different shares",
+    );
+    // Shares of one weight with different maximums differ.
+    invalid(
+        parts(
+            concat(
+                proto::Direction::Column,
+                vec![row(2.0, Some(300.0)), row(2.0, Some(400.0))],
+            ),
             vec![],
         ),
         "root.concat.children[1].concat",
@@ -518,7 +531,10 @@ fn map_plots_that_share_a_projection_agree() {
         ],
     );
     read(parts(row.clone(), vec![])).unwrap();
-    concat_mut(&mut row).projection = proto::Sharing::Shared as i32;
+    concat_mut(&mut row).resolve = Some(proto::Resolve {
+        projection: proto::Sharing::Shared as i32,
+        ..Default::default()
+    });
     invalid(
         parts(row, vec![]),
         "root.concat.children[1].plot",
@@ -529,10 +545,10 @@ fn map_plots_that_share_a_projection_agree() {
 /// A row of `children` that shares `x`.
 fn shared_row(children: Vec<Node>) -> Node {
     let mut row = concat(proto::Direction::Row, children);
-    concat_mut(&mut row).resolve = vec![proto::Resolve {
-        key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
-        sharing: proto::Sharing::Shared as i32,
-    }];
+    concat_mut(&mut row).resolve = Some(proto::Resolve {
+        x: proto::Sharing::Shared as i32,
+        ..Default::default()
+    });
     row
 }
 
@@ -725,10 +741,10 @@ fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
     let wrap = Node {
         node: Some(node::Node::Wrap(proto::Wrap {
             children: vec![sized(100.0), sized(200.0)],
-            resolve: vec![proto::Resolve {
-                key: Some(proto::resolve::Key::Channel(proto::Channel::X as i32)),
-                sharing: proto::Sharing::Shared as i32,
-            }],
+            resolve: Some(proto::Resolve {
+                x: proto::Sharing::Shared as i32,
+                ..Default::default()
+            }),
             ..Default::default()
         })),
     };
@@ -739,17 +755,17 @@ fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
 fn tracks_of_one_size_match_in_any_spelling() {
     let tracked = |tracks: Vec<proto::Track>, children: Vec<Node>| {
         let mut row = shared_row(children);
-        concat_mut(&mut row).layout = Some(proto::ConcatLayout {
-            tracks,
-            ..Default::default()
-        });
+        concat_mut(&mut row).tracks = tracks;
         row
     };
+    // A track without a size is a share of weight 1.
     let share = |weight: Option<f32>| proto::Track {
-        size: Some(track::Size::Share(proto::Share { weight, max: None })),
+        size: weight.map(track::Size::Share),
+        max: None,
     };
     let length = |length: f32| proto::Track {
         size: Some(track::Size::Length(length)),
+        max: None,
     };
     let two = || vec![plot(vec![symbols(0)]), plot(vec![symbols(0)])];
     read(parts(
@@ -772,7 +788,7 @@ fn tracks_of_one_size_match_in_any_spelling() {
     .unwrap();
     invalid(
         parts(tracked(vec![share(None)], two()), vec![]),
-        "root.concat.layout.tracks",
+        "root.concat.tracks",
         "one track for each child",
     );
 }
@@ -812,10 +828,13 @@ fn a_dictionary_column_reads_as_its_values() {
 fn a_child_that_spans_several_tracks_sets_no_size() {
     let sized = |children: Vec<Node>, second: Option<track::Size>| {
         let mut row = concat(proto::Direction::Row, children);
-        concat_mut(&mut row).layout = Some(proto::ConcatLayout {
-            tracks: vec![proto::Track { size: None }, proto::Track { size: second }],
-            ..Default::default()
-        });
+        concat_mut(&mut row).tracks = vec![
+            proto::Track::default(),
+            proto::Track {
+                size: second,
+                max: None,
+            },
+        ];
         row
     };
     let leaf = || plot(vec![symbols(0)]);
@@ -827,7 +846,7 @@ fn a_child_that_spans_several_tracks_sets_no_size() {
             sized(vec![leaf(), inner_row()], Some(track::Size::Length(300.0))),
             vec![],
         ),
-        "root.concat.layout.tracks[1]",
+        "root.concat.tracks[1]",
         "child 1 spans 2 columns",
     );
     // So does a column whose row has two children.
@@ -837,7 +856,7 @@ fn a_child_that_spans_several_tracks_sets_no_size() {
             sized(vec![leaf(), column()], Some(track::Size::Length(300.0))),
             vec![],
         ),
-        "root.concat.layout.tracks[1]",
+        "root.concat.tracks[1]",
         "child 1 spans 2 columns",
     );
     // A child in one track takes a size.
@@ -1004,10 +1023,10 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
             column: "species".to_string(),
             ..Default::default()
         });
-        node.resolve = vec![proto::Resolve {
-            key: Some(proto::resolve::Key::Channel(proto::Channel::Y as i32)),
-            sharing: sharing as i32,
-        }];
+        node.resolve = Some(proto::Resolve {
+            y: sharing as i32,
+            ..Default::default()
+        });
         parts(root, strings(&["Adelie", "Gentoo"]))
     };
     // A shared `y` has one axis, and independent ones an axis for each facet's partition.

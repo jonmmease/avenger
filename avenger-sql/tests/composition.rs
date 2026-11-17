@@ -1,5 +1,5 @@
 //! The composition aggregates `layer_agg`, `hconcat_agg`, `vconcat_agg`, `facet_row`,
-//! `facet_col`, and `facet_wrap` over a column of charts, and the scalar compositions `layer`,
+//! `facet_column`, and `facet_wrap` over a column of charts, and the scalar compositions `layer`,
 //! `hconcat`, and `vconcat` over the charts of a row.
 
 mod common;
@@ -77,9 +77,9 @@ fn fills(chart: &Chart) -> Vec<bool> {
 }
 
 #[tokio::test]
-async fn facet_col_lays_out_the_charts_of_a_key() {
+async fn facet_column_lays_out_the_charts_of_a_key() {
     let chart = chart(&format!(
-        "{} |> AGGREGATE facet_col(chart, island) AS chart",
+        "{} |> AGGREGATE facet_column(chart, island) AS chart",
         scatter("island")
     ))
     .await;
@@ -90,9 +90,9 @@ async fn facet_col_lays_out_the_charts_of_a_key() {
 }
 
 #[tokio::test]
-async fn a_facet_row_of_facet_col_charts_is_a_grid() {
+async fn a_facet_row_of_facet_column_charts_is_a_grid() {
     let chart = chart(&format!(
-        "{} |> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex \
+        "{} |> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex \
          |> AGGREGATE facet_row(chart, sex) AS chart",
         scatter("sex, island")
     ))
@@ -108,17 +108,131 @@ async fn a_facet_row_of_facet_col_charts_is_a_grid() {
 
 #[tokio::test]
 async fn facet_wrap_takes_the_options_of_a_wrap() {
-    let chart = chart(&format!(
-        "{} |> AGGREGATE facet_wrap(chart, species, layout => wrap_layout(max_columns => 2)) \
-         AS chart",
+    let shared = chart(&format!(
+        "{} |> AGGREGATE facet_wrap(\
+           chart, \
+           species, \
+           max_columns => 2, \
+           row_height => track(share => 1, max => 300), \
+         ) AS chart",
         scatter("species")
     ))
     .await;
-    let Some(proto::node::Node::Wrap(wrap)) = &chart.root().node else {
+    let Some(proto::node::Node::Wrap(wrap)) = &shared.root().node else {
         panic!("a wrap");
     };
-    assert_eq!(wrap.layout.as_ref().unwrap().max_columns, Some(2));
+    assert_eq!(wrap.max_columns, Some(2));
+    let row = wrap.row_height.as_ref().unwrap();
+    assert_eq!(row.size, Some(proto::track::Size::Share(1.0)));
+    assert_eq!(row.max, Some(300.0));
     assert_eq!(wrap.children.len(), 3);
+    // A number is the length of the row.
+    let fixed = chart(&format!(
+        "{} |> AGGREGATE facet_wrap(chart, species, row_height => 220) AS chart",
+        scatter("species")
+    ))
+    .await;
+    let Some(proto::node::Node::Wrap(wrap)) = &fixed.root().node else {
+        panic!("a wrap");
+    };
+    let row = wrap.row_height.as_ref().unwrap();
+    assert_eq!(row.size, Some(proto::track::Size::Length(220.0)));
+}
+
+/// A facet grid whose rows each make `y` independent has a `y` scale for each row, and the cells
+/// of a row share it.
+#[tokio::test]
+async fn a_facet_grid_with_an_independent_y_has_a_y_scale_for_each_row() {
+    let grid = |options: &str| {
+        format!(
+            "{} |> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex \
+             |> AGGREGATE facet_row(chart, sex{options}) AS chart",
+            scatter("sex, island")
+        )
+    };
+    let scales = |chart: &Chart| {
+        (chart.resolve().scales.iter())
+            .filter(|group| group.channel == proto::Channel::Y)
+            .count()
+    };
+    assert_eq!(scales(&chart(&grid("")).await), 1);
+    let independent = chart(&grid(", resolve => resolve(y => 'independent')")).await;
+    // FEMALE, MALE, and NULL.
+    assert_eq!(scales(&independent), 3);
+    let Some(proto::node::Node::Concat(concat)) = &independent.root().node else {
+        panic!("a concat");
+    };
+    let resolve = concat.resolve.as_ref().unwrap();
+    assert_eq!(resolve.y, proto::Sharing::Independent as i32);
+}
+
+/// The tracks of a concat take numbers, which are their lengths, or a constructor for each track,
+/// which can take a share.
+#[tokio::test]
+async fn the_tracks_of_a_concat_take_lengths_or_tracks() {
+    use proto::track::Size;
+    let sizes = |chart: &Chart| -> Vec<(Option<Size>, Option<f32>)> {
+        let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {
+            panic!("a concat");
+        };
+        (concat.tracks.iter())
+            .map(|track| (track.size, track.max))
+            .collect()
+    };
+    let lengths = chart(&format!(
+        "FROM ({}) |> SELECT hconcat(a, b, gap => 16, tracks => [200, 400]) AS chart",
+        three()
+    ))
+    .await;
+    assert_eq!(
+        sizes(&lengths),
+        [
+            (Some(Size::Length(200.0)), None),
+            (Some(Size::Length(400.0)), None)
+        ]
+    );
+    let mixed = chart(&format!(
+        "FROM ({}) |> SELECT hconcat(\
+           a, \
+           b, \
+           tracks => [track(200), track(share => 2, max => 600)], \
+         ) AS chart",
+        three()
+    ))
+    .await;
+    assert_eq!(
+        sizes(&mixed),
+        [
+            (Some(Size::Length(200.0)), None),
+            (Some(Size::Share(2.0)), Some(600.0))
+        ]
+    );
+    let message = error(&format!(
+        "FROM ({}) |> SELECT hconcat(a, b, tracks => [track(200, share => 2), track(400)]) \
+         AS chart",
+        three()
+    ))
+    .await;
+    assert!(
+        message.contains("`share` sets the same choice as `length`"),
+        "{message}"
+    );
+}
+
+/// The part rules of a concat take a rule for each part by name.
+#[tokio::test]
+async fn the_parts_of_a_concat_take_a_rule_for_each_part() {
+    let chart = chart(&format!(
+        "FROM ({}) |> SELECT hconcat(a, b, parts => parts(legend => 'keep')) AS chart",
+        three()
+    ))
+    .await;
+    let Some(proto::node::Node::Concat(concat)) = &chart.root().node else {
+        panic!("a concat");
+    };
+    let parts = concat.parts.as_ref().unwrap();
+    assert_eq!(parts.legend, proto::PartRuleKind::Keep as i32);
+    assert_eq!(parts.axis_title, proto::PartRuleKind::Unspecified as i32);
 }
 
 #[tokio::test]
@@ -167,7 +281,7 @@ async fn a_concat_composes_the_charts_of_each_group() {
 #[tokio::test]
 async fn a_composition_of_no_rows_is_an_empty_chart() {
     let chart = chart(&format!(
-        "{} |> WHERE island = 'none' |> AGGREGATE facet_col(chart, island) AS chart",
+        "{} |> WHERE island = 'none' |> AGGREGATE facet_column(chart, island) AS chart",
         scatter("island")
     ))
     .await;
@@ -183,21 +297,21 @@ async fn the_errors_of_a_composition() {
         ),
         (
             format!(
-                "{} |> AGGREGATE facet_col(chart, island, id => island) AS chart",
+                "{} |> AGGREGATE facet_column(chart, island, id => island) AS chart",
                 scatter("island")
             ),
-            "facet_col() needs a plan-time constant for `id`",
+            "facet_column() needs a plan-time constant for `id`",
         ),
         (
             format!(
-                "{} |> AGGREGATE facet_col(chart, island, facet => facet(column => 'sex')) AS chart",
+                "{} |> AGGREGATE facet_column(chart, island, facet => facet(column => 'sex')) AS chart",
                 scatter("island")
             ),
             "facet has no parameter named `column`",
         ),
         (
             format!(
-                "{} |> AGGREGATE facet_col(chart, 'one') AS chart",
+                "{} |> AGGREGATE facet_column(chart, 'one') AS chart",
                 scatter("island")
             ),
             "two rows have the key value one",
@@ -324,13 +438,12 @@ async fn a_null_chart_is_no_child_of_a_scalar_composition() {
 async fn a_scalar_composition_takes_the_options_of_its_composition() {
     assert_eq!(
         chart(&format!(
-            "FROM ({}) |> SELECT hconcat(a, b, layout => concat_layout(gap => 24)) AS chart",
+            "FROM ({}) |> SELECT hconcat(a, b, gap => 24) AS chart",
             three()
         ))
         .await,
         chart(&format!(
-            "{} |> AGGREGATE hconcat_agg(chart, layout => concat_layout(gap => 24) ORDER BY k) \
-             AS chart",
+            "{} |> AGGREGATE hconcat_agg(chart, gap => 24 ORDER BY k) AS chart",
             rows(&["a", "b"])
         ))
         .await
@@ -348,7 +461,7 @@ async fn a_scalar_composition_of_mark_aggregates_composes_each_group() {
     assert_eq!(charts(&query).await.len(), 3, "one chart of each island");
     // The result is a column of charts, which an aggregate composes.
     let faceted = chart(&format!(
-        "{query} |> AGGREGATE facet_col(chart, island) AS chart"
+        "{query} |> AGGREGATE facet_column(chart, island) AS chart"
     ))
     .await;
     assert_eq!(children(faceted.root()).1.len(), 3);
@@ -363,15 +476,15 @@ async fn the_errors_of_a_scalar_composition() {
         ),
         (
             format!(
-                "FROM ({}) |> SELECT hconcat(a, b, layout => a) AS chart",
+                "FROM ({}) |> SELECT hconcat(a, b, gap => a) AS chart",
                 three()
             ),
-            "hconcat() needs a plan-time constant for `layout`",
+            "hconcat() needs a plan-time constant for `gap`",
         ),
         // A facet has no scalar form, and a layer's options go by name.
         (
-            format!("FROM ({}) |> SELECT facet_col(a, b) AS chart", three()),
-            "Aggregate function facet_col not allowed in pipe SELECT",
+            format!("FROM ({}) |> SELECT facet_column(a, b) AS chart", three()),
+            "Aggregate function facet_column not allowed in pipe SELECT",
         ),
         (
             format!("FROM ({}) |> SELECT layer(id => 'l') AS chart", three()),
@@ -379,8 +492,7 @@ async fn the_errors_of_a_scalar_composition() {
         ),
         (
             format!(
-                "FROM ({}) |> SELECT hconcat(a, b, layout => concat_layout(gap => 24), c) \
-                 AS chart",
+                "FROM ({}) |> SELECT hconcat(a, b, gap => 24, c) AS chart",
                 three()
             ),
             "positional argument",

@@ -90,7 +90,9 @@ pub struct Param {
 /// from the parameter's target to the field that the argument sets, innermost first, and the shape
 /// of that field. `conic_conformal(...) -> conic_conformal -> spherical` of a geo plot's surface is
 /// a fragment of `ConicConformal` in the member `conic_conformal` of the projection of `Spherical`,
-/// which is the member `spherical` of the surface.
+/// which is the member `spherical` of the surface. An array of a repeated message field can take
+/// values that each convert to the message, and its chain is the chain of each element, as
+/// `array of number -> length` of a concat's `tracks` sets the length of each track.
 #[derive(Clone, Copy, Debug)]
 pub struct Accept {
     pub class: Class,
@@ -208,6 +210,7 @@ fn describe_accepts(accepts: &[Accept]) -> String {
                 (Class::Fragment, Shape::Message { constructor, .. }) => {
                     format!("{constructor}(...)")
                 }
+                (Class::Array, shape @ Shape::Array(_)) => describe_shape(shape),
                 (class, _) => class_word(*class).to_string(),
             });
             if matches!(accept.shape, Shape::Names(_)) {

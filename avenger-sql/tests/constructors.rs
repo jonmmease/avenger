@@ -229,7 +229,7 @@ async fn errors_of_a_constant_call_fail_at_planning() {
             "scale(type => 5)",
             "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), `band_scale(...)`",
         ),
-        ("part_rule()", "part_rule needs its argument `part`"),
+        ("domain_pin()", "domain_pin needs its argument `value`"),
         (
             "axis(grid => 'yes')",
             "no form of axis takes (STRING)",

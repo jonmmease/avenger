@@ -240,11 +240,11 @@ DECLARE k INT64 DEFAULT 10; CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v)
 compositions
 FROM penguins
 |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 compositions
 FROM penguins
 |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY sex, island
-|> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
+|> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex
 |> AGGREGATE facet_row(chart, sex) AS chart
 compositions
 FROM penguins
@@ -256,7 +256,7 @@ FROM penguins
      symbol(x => bill_length_mm, y => bill_depth_mm),
      symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
    GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 
 lifting
 FROM penguins

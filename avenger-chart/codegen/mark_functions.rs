@@ -193,6 +193,13 @@ pub(super) fn mark_options(model: &Model) -> Result<String, String> {
         let param = (message.params.iter())
             .position(|param| param.name == name)
             .ok_or(format!("`{}` has no parameter `{name}`", message.name))?;
+        if message.params[param].exclusive.is_some() {
+            return Err(format!(
+                "the mark option `{name}` of `{}` is a member of a oneof whose members are \
+                 parameters, which a mark call does not check",
+                message.name
+            ));
+        }
         items.push(format!(
             "PARAMS_{}[{param}]",
             message.function.to_uppercase()

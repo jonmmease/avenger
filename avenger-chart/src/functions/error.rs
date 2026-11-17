@@ -27,6 +27,9 @@ pub enum Reason {
     },
     /// A required parameter without an argument.
     Required,
+    /// An argument of a parameter that sets the choice that the argument of the parameter
+    /// `other` sets, such as `share` and `length` of a track, of which a call gives one.
+    Exclusive { other: &'static str },
     /// More arguments than the function has parameters.
     Arity { max: usize, found: usize },
     /// An integer outside the range of its field.
@@ -81,6 +84,10 @@ impl ArgError {
 
     pub(crate) fn required(param: &'static str) -> Self {
         Self::new(Reason::Required).within(param)
+    }
+
+    pub(crate) fn exclusive(other: &'static str) -> Self {
+        Self::new(Reason::Exclusive { other })
     }
 
     pub(crate) fn arity(max: usize, found: usize) -> Self {
@@ -146,6 +153,10 @@ impl fmt::Display for ArgError {
                 write!(f, "takes {}, not {found}", expected.describe())
             }
             Reason::Required => write!(f, "is required"),
+            Reason::Exclusive { other } => write!(
+                f,
+                "sets the same choice as `{other}`, so a call gives one of them"
+            ),
             Reason::Arity { max, found } => write!(f, "takes {max} arguments at most, not {found}"),
             Reason::Range { value } => write!(f, "takes an integer in its range, not {value}"),
             Reason::Value { values, found } => {

@@ -2,7 +2,7 @@
 //! and partitions, the grouping of their channels into scales, and the grouping of their geo plots
 //! into projections.
 //!
-//! The resolve rules of plots, concats, and wraps and the share families of specs decide which
+//! The sharing rules of plots, concats, and wraps and the share families of specs decide which
 //! channels share a scale, and the specs of each group merge by the agreement rule of `Scale`, and
 //! their axes and legends by the rule of `Encoding.axis`.
 
@@ -444,23 +444,13 @@ fn common(partitions: &[BTreeMap<String, ArrayRef>]) -> Option<BTreeMap<String, 
     Some(shared)
 }
 
-/// What a resolve rule shares: the scale of a channel, or the copies of a widget's key.
+include!(concat!(env!("OUT_DIR"), "/resolve_channels.rs"));
+
+/// What a sharing rule shares: the scale of a channel, or the copies of a widget's key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Shares<'a> {
     Channel(Channel),
     Widget(&'a str),
-}
-
-impl<'a> Shares<'a> {
-    /// What `rule` shares, or `None` for a rule without a key.
-    pub(crate) fn of(rule: &'a proto::Resolve) -> Option<Self> {
-        match rule.key.as_ref()? {
-            proto::resolve::Key::Channel(channel) => Some(Shares::Channel(
-                Channel::try_from(*channel).unwrap_or_default(),
-            )),
-            proto::resolve::Key::Widget(widget) => Some(Shares::Widget(&widget.key)),
-        }
-    }
 }
 
 /// The sharing of `key` among the children of `node`, a concat or a wrap: its rule, or the default
@@ -468,10 +458,10 @@ impl<'a> Shares<'a> {
 /// but `x`, `y`, `theta`, and `radius`. It shares the copies of every widget, with or without a
 /// facet.
 pub(crate) fn sharing(node: &Node, key: Shares) -> Sharing {
-    let (rules, facet) = match node {
-        Node::Concat(concat) => (&concat.resolve, concat.facet.is_some()),
-        Node::Wrap(wrap) => (&wrap.resolve, wrap.facet.is_some()),
-        Node::Plot(plot) => return rule(&plot.resolve, key).unwrap_or(Sharing::Shared),
+    let (resolve, facet) = match node {
+        Node::Concat(concat) => (concat.resolve.as_ref(), concat.facet.is_some()),
+        Node::Wrap(wrap) => (wrap.resolve.as_ref(), wrap.facet.is_some()),
+        Node::Plot(plot) => return rule(plot.resolve.as_ref(), key).unwrap_or(Sharing::Shared),
         Node::Empty(_) => return Sharing::Shared,
     };
     let default = match key {
@@ -480,24 +470,32 @@ pub(crate) fn sharing(node: &Node, key: Shares) -> Sharing {
         }
         _ => Sharing::Shared,
     };
-    rule(rules, key).unwrap_or(default)
+    rule(resolve, key).unwrap_or(default)
 }
 
-fn rule(rules: &[proto::Resolve], key: Shares) -> Option<Sharing> {
-    (rules.iter())
-        .find(|rule| Shares::of(rule) == Some(key))
-        .and_then(|rule| Sharing::try_from(rule.sharing).ok())
+/// The sharing that `resolve` sets for `key`, or `None` when it sets none.
+fn rule(resolve: Option<&proto::Resolve>, key: Shares) -> Option<Sharing> {
+    let resolve = resolve?;
+    match key {
+        Shares::Channel(channel) => match Sharing::try_from(resolve_sharing(resolve, channel)) {
+            Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => Some(sharing),
+            _ => None,
+        },
+        Shares::Widget(key) => (resolve.independent_widgets.iter())
+            .any(|independent| independent == key)
+            .then_some(Sharing::Independent),
+    }
 }
 
 /// The sharing of the projections of the geo plots below `node`, a concat or a wrap, among its
 /// children: its rule, or with a facet one projection and without one, one for each child.
 pub(crate) fn projection_sharing(node: &Node) -> Sharing {
-    let (rule, facet) = match node {
-        Node::Concat(concat) => (concat.projection, concat.facet.is_some()),
-        Node::Wrap(wrap) => (wrap.projection, wrap.facet.is_some()),
+    let (resolve, facet) = match node {
+        Node::Concat(concat) => (concat.resolve.as_ref(), concat.facet.is_some()),
+        Node::Wrap(wrap) => (wrap.resolve.as_ref(), wrap.facet.is_some()),
         Node::Plot(_) | Node::Empty(_) => return Sharing::Shared,
     };
-    match Sharing::try_from(rule) {
+    match Sharing::try_from(resolve.map_or(0, |resolve| resolve.projection)) {
         Ok(sharing @ (Sharing::Shared | Sharing::Independent)) => sharing,
         _ if facet => Sharing::Shared,
         _ => Sharing::Independent,
@@ -523,7 +521,7 @@ pub fn scale_channel(channel: Channel) -> Channel {
 /// inner independent rule therefore wins over an outer shared rule.
 fn scope<'a>(tree: &'a Tree, layer: &'a Layer, key: Shares) -> &'a str {
     let plot = &tree.plots[layer.plot];
-    if rule(&plot.plot.resolve, key).unwrap_or(Sharing::Shared) != Sharing::Shared {
+    if rule(plot.plot.resolve.as_ref(), key).unwrap_or(Sharing::Shared) != Sharing::Shared {
         return &layer.path;
     }
     let mut scope = plot.path.as_str();

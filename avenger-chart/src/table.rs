@@ -72,8 +72,8 @@ pub struct Tables {
     /// `root.concat.children[1]`.
     places: HashMap<String, Place>,
     /// The size of each track, by its table, its direction, and its index, with the path of the
-    /// first node that gives it.
-    sizes: HashMap<(usize, usize, usize), (track::Size, String)>,
+    /// first node that gives it: a track with a size, and for a share, its maximum.
+    sizes: HashMap<(usize, usize, usize), (proto::Track, String)>,
 }
 
 impl Tables {
@@ -83,28 +83,32 @@ impl Tables {
         self.places.get(path)
     }
 
-    /// The size that the concats and the plots give a track, or `None` when none gives one, which
-    /// is a share of weight 1.
-    pub fn size(&self, table: usize, direction: usize, index: usize) -> Option<&track::Size> {
+    /// The size that the concats and the plots give a track, a track with a size, or `None` when
+    /// none gives one, which is a share of weight 1.
+    pub fn size(&self, table: usize, direction: usize, index: usize) -> Option<&proto::Track> {
         self.sizes
             .get(&(table, direction, index))
-            .map(|(size, _)| size)
+            .map(|(track, _)| track)
     }
 
-    /// Gives a track `size` from the node at `path`: a fixed length takes the largest of the
-    /// lengths that it gets and wins over a share, and two different shares are a conflict.
-    fn give(&mut self, key: (usize, usize, usize), size: track::Size, path: &str) -> Result<()> {
+    /// Gives a track the size of `track` from the node at `path`: a fixed length takes the largest
+    /// of the lengths that it gets and wins over a share, and two different shares, by weight or
+    /// by maximum, are a conflict.
+    fn give(&mut self, key: (usize, usize, usize), track: proto::Track, path: &str) -> Result<()> {
         use track::Size;
         let Some((known, first)) = self.sizes.get_mut(&key) else {
-            self.sizes.insert(key, (size, path.to_string()));
+            self.sizes.insert(key, (track, path.to_string()));
             return Ok(());
         };
-        match (&*known, &size) {
-            (Size::Length(a), Size::Length(b)) => *known = Size::Length(a.max(*b)),
-            (Size::Share(_), Size::Length(_)) => *known = size,
-            (Size::Length(_), Size::Share(_)) => {}
-            (Size::Share(a), Size::Share(b)) if share(a) == share(b) => {}
-            (Size::Share(_), Size::Share(_)) => {
+        match (&known.size, &track.size) {
+            (Some(Size::Length(a)), Some(Size::Length(b))) => {
+                known.size = Some(Size::Length(a.max(*b)))
+            }
+            (Some(Size::Share(_)), Some(Size::Length(_))) => *known = track,
+            (Some(Size::Length(_)), Some(Size::Share(_))) => {}
+            (Some(Size::Share(_)), Some(Size::Share(_)))
+                if size_key(Some(known)) == size_key(Some(&track)) => {}
+            (Some(Size::Share(_)), Some(Size::Share(_))) => {
                 return Err(ChartError::invalid(
                     path,
                     format!(
@@ -114,6 +118,7 @@ impl Tables {
                     ),
                 ));
             }
+            (None, _) | (_, None) => unreachable!("a track that a node gives has a size"),
         }
         Ok(())
     }
@@ -123,17 +128,20 @@ impl Tables {
 /// maximum of a share.
 type SizeKey = (Option<f32>, (f32, Option<f32>));
 
-fn size_key(size: Option<&track::Size>) -> SizeKey {
-    match size {
+fn size_key(track: Option<&proto::Track>) -> SizeKey {
+    match track.and_then(|track| track.size.as_ref()) {
         Some(track::Size::Length(length)) => (Some(*length), (0.0, None)),
-        Some(track::Size::Share(share)) => (None, self::share(share)),
+        Some(track::Size::Share(share)) => (None, (*share, track.and_then(|track| track.max))),
         None => (None, (1.0, None)),
     }
 }
 
-/// The weight and the maximum of a share, with the default weight of 1.
-fn share(share: &proto::Share) -> (f32, Option<f32>) {
-    (share.weight.unwrap_or(1.0), share.max)
+/// The track of a fixed length.
+fn length(length: f32) -> proto::Track {
+    proto::Track {
+        size: Some(track::Size::Length(length)),
+        max: None,
+    }
 }
 
 /// The tables of `chart`.
@@ -198,7 +206,7 @@ fn place(
                 }
                 tables.give(
                     (table, along, tracks[along].start),
-                    track::Size::Length(length),
+                    self::length(length),
                     &path,
                 )?;
             }
@@ -212,14 +220,12 @@ fn place(
                 child_start[along] = offset;
                 let mut child_span = span;
                 child_span[along] = child_extent[along];
-                let size = (concat.layout.as_ref())
-                    .and_then(|layout| layout.tracks.get(index))
-                    .and_then(|track| track.size);
-                if let Some(size) = size {
+                let track = (concat.tracks.get(index)).filter(|track| track.size.is_some());
+                if let Some(track) = track {
                     let path = format!("{path}.concat");
                     if child_extent[along] != 1 {
                         return Err(ChartError::invalid(
-                            format!("{path}.layout.tracks[{index}]"),
+                            format!("{path}.tracks[{index}]"),
                             format!(
                                 "child {index} spans {} {}s of its table, so its track has no size",
                                 child_extent[along],
@@ -227,7 +233,7 @@ fn place(
                             ),
                         ));
                     }
-                    tables.give((table, along, offset), size, &path)?;
+                    tables.give((table, along, offset), *track, &path)?;
                 }
                 let child_path = format!("{path}.concat.children[{index}]");
                 place(

@@ -26,8 +26,7 @@ fn bars_with_a_line_on_an_independent_y() {
             .y("temperature")
             .color(Encoding::direct_value("#e45756")),
     );
-    let plot =
-        Plot::cartesian([bars, line]).resolve([Resolve::channel(Sharing::Independent, Channel::Y)]);
+    let plot = Plot::cartesian([bars, line]).resolve(Resolve::builder().y(Sharing::Independent));
     let chart = Chart::builder(plot).build().unwrap();
     render_both(&chart, "overlay-dual-axis");
 
@@ -78,8 +77,8 @@ fn an_overlay_with_independent_colors() {
         series(),
         SymbolMark::builder().x("date").y("value").color("value"),
     );
-    let plot = Plot::cartesian([line, symbols])
-        .resolve([Resolve::channel(Sharing::Independent, Channel::Color)]);
+    let plot =
+        Plot::cartesian([line, symbols]).resolve(Resolve::builder().color(Sharing::Independent));
     let chart = Chart::builder(plot).build().unwrap();
     render_both(&chart, "overlay-independent-colors");
 }

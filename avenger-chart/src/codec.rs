@@ -88,7 +88,10 @@ impl Chart {
             datetime_format_syntax: std::mem::take(&mut message.datetime_format_syntax),
             width: message.width.take(),
             height: message.height.take(),
-            padding: message.padding.take(),
+            padding_top: message.padding_top.take(),
+            padding_right: message.padding_right.take(),
+            padding_bottom: message.padding_bottom.take(),
+            padding_left: message.padding_left.take(),
             modes: std::mem::take(&mut message.modes),
             ..Default::default()
         };

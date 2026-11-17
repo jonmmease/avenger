@@ -4,7 +4,7 @@
 //! ```sql
 //! FROM penguins
 //! |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
-//! |> AGGREGATE facet_col(chart, island) AS chart
+//! |> AGGREGATE facet_column(chart, island) AS chart
 //! ```
 //!
 //! The registered function of a composition is a declaration, as the registered function of a

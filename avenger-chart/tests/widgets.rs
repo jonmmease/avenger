@@ -87,16 +87,15 @@ fn groups(chart: &Chart) -> Vec<(String, Option<String>, usize)> {
         .collect()
 }
 
-fn set_resolve(node: &mut Node, sharing: proto::Sharing) {
-    let rule = proto::Resolve {
-        key: Some(proto::resolve::Key::Widget(proto::WidgetKey {
-            key: "magnitude".to_string(),
-        })),
-        sharing: sharing as i32,
-    };
+/// Makes the widgets of the key `magnitude` independent below `node`.
+fn set_independent(node: &mut Node) {
+    let rule = Some(proto::Resolve {
+        independent_widgets: vec!["magnitude".to_string()],
+        ..Default::default()
+    });
     match node.node.as_mut() {
-        Some(proto::node::Node::Plot(plot)) => plot.resolve = vec![rule],
-        Some(proto::node::Node::Concat(concat)) => concat.resolve = vec![rule],
+        Some(proto::node::Node::Plot(plot)) => plot.resolve = rule,
+        Some(proto::node::Node::Concat(concat)) => concat.resolve = rule,
         _ => panic!("a plot or a concat"),
     }
 }
@@ -166,7 +165,7 @@ fn an_independent_rule_splits_a_key_into_widgets_with_anchors() {
         column: "species".to_string(),
         ..Default::default()
     });
-    set_resolve(&mut grid, proto::Sharing::Independent);
+    set_independent(&mut grid);
     let chart = read(with_filters(grid, strings(&["Adelie", "Gentoo"]))).unwrap();
     assert_eq!(
         groups(&chart),
@@ -192,7 +191,7 @@ fn an_independent_rule_splits_a_key_into_widgets_with_anchors() {
                 plot_with(right, vec![], vec![declaring(range_slider())]),
             ],
         );
-        set_resolve(&mut row, proto::Sharing::Independent);
+        set_independent(&mut row);
         with_filters(row, vec![])
     };
     let chart = read(row("quakes", "plates")).unwrap();
@@ -219,7 +218,7 @@ fn an_independent_rule_splits_a_key_into_widgets_with_anchors() {
             ..declaring(range_slider())
         },
     ]);
-    set_resolve(&mut layered, proto::Sharing::Independent);
+    set_independent(&mut layered);
     let chart = read(with_filters(layered, vec![])).unwrap();
     assert_eq!(
         groups(&chart),
@@ -248,7 +247,7 @@ fn an_inner_rule_wins_over_an_outer_rule() {
             plot_with("right", vec![], vec![declaring(range_slider())]),
         ],
     );
-    set_resolve(&mut outer, proto::Sharing::Independent);
+    set_independent(&mut outer);
     let chart = read(with_filters(outer, vec![])).unwrap();
     assert_eq!(
         groups(&chart),
@@ -423,7 +422,7 @@ fn copies_match_by_their_own_columns() {
             plot_with("plates", vec![], vec![declaring(other_selection)]),
         ],
     );
-    set_resolve(&mut row, proto::Sharing::Independent);
+    set_independent(&mut row);
     let mut parts = with_filters(row, vec![]);
     parts.0.selections.push(proto::Selection {
         name: "brush".to_string(),
@@ -528,36 +527,31 @@ fn widget_clauses_follow_the_tree_order() {
     assert_eq!(order, ["depth", "magnitude"]);
 }
 
-/// Resolve rules of widgets order after the rules of channels, by key.
+/// The sharing of a channel and an independent widget on one resolve both apply: a plot that makes
+/// a widget independent anchors one widget at each layer, which has an id.
 #[test]
-fn resolve_rules_of_widgets_follow_the_rules_of_channels() {
-    let mut root = plot(vec![declaring(range_slider())]);
+fn a_resolve_sets_channels_and_independent_widgets() {
+    let layer = CartesianLayer {
+        id: "quakes".to_string(),
+        ..declaring(range_slider())
+    };
+    let mut root = plot(vec![layer]);
     if let Some(proto::node::Node::Plot(plot)) = root.node.as_mut() {
-        plot.resolve = vec![
-            proto::Resolve {
-                key: Some(proto::resolve::Key::Widget(proto::WidgetKey {
-                    key: "magnitude".to_string(),
-                })),
-                sharing: proto::Sharing::Shared as i32,
-            },
-            proto::Resolve {
-                key: Some(proto::resolve::Key::Channel(proto::Channel::Color as i32)),
-                sharing: proto::Sharing::Independent as i32,
-            },
-        ];
+        plot.resolve = Some(proto::Resolve {
+            color: proto::Sharing::Independent as i32,
+            independent_widgets: vec!["magnitude".to_string()],
+            ..Default::default()
+        });
     }
     let chart = read(with_filters(root, vec![])).unwrap();
     let Some(proto::node::Node::Plot(plot)) = chart.root().node.as_ref() else {
         panic!("a plot");
     };
-    let keys: Vec<_> = plot.resolve.iter().map(|rule| rule.key.clone()).collect();
+    let resolve = plot.resolve.as_ref().unwrap();
+    assert_eq!(resolve.color, proto::Sharing::Independent as i32);
+    assert_eq!(resolve.independent_widgets, ["magnitude"]);
     assert_eq!(
-        keys,
-        [
-            Some(proto::resolve::Key::Channel(proto::Channel::Color as i32)),
-            Some(proto::resolve::Key::Widget(proto::WidgetKey {
-                key: "magnitude".to_string()
-            })),
-        ]
+        groups(&chart),
+        [("magnitude".to_string(), Some("quakes".to_string()), 1)]
     );
 }

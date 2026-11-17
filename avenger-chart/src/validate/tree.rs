@@ -54,24 +54,20 @@ impl Checker<'_> {
         self.partition(&concat.partition, path)?;
         classes(&concat.classes, path)?;
         title(concat.title.as_ref(), &format!("{path}.title"), true)?;
-        self.resolve(&concat.resolve, path)?;
-        if let Some(layout) = &concat.layout {
-            let path = format!("{path}.layout");
-            non_negative(layout.gap.map(f64::from), &format!("{path}.gap"))?;
-            if !layout.tracks.is_empty() && layout.tracks.len() != concat.children.len() {
-                return Err(fail(
-                    format!("{path}.tracks"),
-                    format!(
-                        "a concat has one track for each child or no tracks, and it has {} tracks for {} children",
-                        layout.tracks.len(),
-                        concat.children.len()
-                    ),
-                ));
-            }
-            for (index, track) in layout.tracks.iter().enumerate() {
-                track_size(track, &format!("{path}.tracks[{index}]"))?;
-            }
-            part_rules(&layout.part_rules, &path)?;
+        resolve(concat.resolve.as_ref(), path, false)?;
+        non_negative(concat.gap.map(f64::from), &format!("{path}.gap"))?;
+        if !concat.tracks.is_empty() && concat.tracks.len() != concat.children.len() {
+            return Err(fail(
+                format!("{path}.tracks"),
+                format!(
+                    "a concat has one track for each child or no tracks, and it has {} tracks for {} children",
+                    concat.tracks.len(),
+                    concat.children.len()
+                ),
+            ));
+        }
+        for (index, track) in concat.tracks.iter().enumerate() {
+            track_size(track, &format!("{path}.tracks[{index}]"))?;
         }
         if let Some(facet) = &concat.facet {
             let path = format!("{path}.facet");
@@ -91,22 +87,18 @@ impl Checker<'_> {
         self.partition(&wrap.partition, path)?;
         classes(&wrap.classes, path)?;
         title(wrap.title.as_ref(), &format!("{path}.title"), true)?;
-        self.resolve(&wrap.resolve, path)?;
-        if let Some(layout) = &wrap.layout {
-            let path = format!("{path}.layout");
-            size(layout.min_column_width, &format!("{path}.min_column_width"))?;
-            if layout.max_columns == Some(0) {
-                return Err(fail(
-                    format!("{path}.max_columns"),
-                    "a wrap has a column or more",
-                ));
-            }
-            if let Some(row) = &layout.row {
-                track_size(row, &format!("{path}.row"))?;
-            }
-            non_negative(layout.gap.map(f64::from), &format!("{path}.gap"))?;
-            part_rules(&layout.part_rules, &path)?;
+        resolve(wrap.resolve.as_ref(), path, false)?;
+        size(wrap.min_column_width, &format!("{path}.min_column_width"))?;
+        if wrap.max_columns == Some(0) {
+            return Err(fail(
+                format!("{path}.max_columns"),
+                "a wrap has a column or more",
+            ));
         }
+        if let Some(row) = &wrap.row_height {
+            track_size(row, &format!("{path}.row_height"))?;
+        }
+        non_negative(wrap.gap.map(f64::from), &format!("{path}.gap"))?;
         if let Some(facet) = &wrap.facet {
             let path = format!("{path}.facet");
             facet_column(facet, &path)?;
@@ -125,7 +117,7 @@ impl Checker<'_> {
         self.partition(&plot.partition, path)?;
         classes(&plot.classes, path)?;
         title(plot.title.as_ref(), &format!("{path}.title"), true)?;
-        self.resolve(&plot.resolve, path)?;
+        resolve(plot.resolve.as_ref(), path, true)?;
         size(plot.width, &format!("{path}.width"))?;
         size(plot.height, &format!("{path}.height"))?;
         if let Some(attribution) = &plot.attribution {
@@ -471,40 +463,6 @@ impl Checker<'_> {
         )
     }
 
-    /// Checks resolve rules, keyed by what they share: a channel that takes a scale, or a widget's
-    /// key.
-    fn resolve(&self, resolve: &[proto::Resolve], path: &str) -> Result<()> {
-        let path = format!("{path}.resolve");
-        let mut keys = Vec::with_capacity(resolve.len());
-        for (index, rule) in resolve.iter().enumerate() {
-            let at = format!("{path}[{index}]");
-            match rule.key.as_ref() {
-                Some(proto::resolve::Key::Channel(channel)) => {
-                    let channel = Channel::try_from(*channel).unwrap_or_default();
-                    if !super::encoding::takes_scale(channel) {
-                        return Err(fail(
-                            format!("{at}.channel"),
-                            format!(
-                                "`{}` never has a scale, so it has no resolve rule",
-                                channel.field_name()
-                            ),
-                        ));
-                    }
-                }
-                Some(proto::resolve::Key::Widget(_)) => {}
-                None => unreachable!("{REQUIRED}"),
-            }
-            keys.push((rule.key.clone(), rule.sharing));
-        }
-        keyed(
-            &keys,
-            |(key, _)| key.clone(),
-            |a, b| a.1 == b.1,
-            &path,
-            "resolve rules",
-        )
-    }
-
     fn tooltip(
         &self,
         tooltip: &proto::Tooltip,
@@ -723,30 +681,54 @@ fn lon_lat_box(lon_lat_box: &proto::LonLatBox, path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Checks the size of a track: a length of 0 pixels or more, or a share of a positive weight with
-/// a positive maximum. An empty track holds the tracks of a nested concat.
+/// Checks the size of a track: a length of 0 pixels or more, or a share of a positive weight,
+/// and a positive maximum only with a share. An empty track holds the tracks of a nested concat.
 fn track_size(track: &proto::Track, path: &str) -> Result<()> {
     match &track.size {
         Some(track::Size::Length(length)) => {
-            non_negative(Some(f64::from(*length)), &format!("{path}.length"))
+            non_negative(Some(f64::from(*length)), &format!("{path}.length"))?
         }
         Some(track::Size::Share(share)) => {
-            positive(share.weight.map(f64::from), &format!("{path}.share.weight"))?;
-            positive(share.max.map(f64::from), &format!("{path}.share.max"))
+            positive(Some(f64::from(*share)), &format!("{path}.share"))?
         }
-        None => Ok(()),
+        None => {}
     }
+    if track.max.is_some() && !matches!(track.size, Some(track::Size::Share(_))) {
+        return Err(fail(
+            format!("{path}.max"),
+            "a track has a maximum only with a share",
+        ));
+    }
+    positive(track.max.map(f64::from), &format!("{path}.max"))
 }
 
-/// Checks part rules, keyed by part.
-fn part_rules(rules: &[proto::PartRule], path: &str) -> Result<()> {
-    keyed(
-        rules,
-        |rule| rule.part,
-        |a, b| a.rule == b.rule,
-        &format!("{path}.part_rules"),
-        "part rules",
-    )
+/// Checks the sharing rules of a plot, a concat, or a wrap at `path`: each independent widget's
+/// key is not empty and appears once, and a plot, whose layers share one projection, sets no
+/// sharing of the projection.
+fn resolve(resolve: Option<&proto::Resolve>, path: &str, plot: bool) -> Result<()> {
+    let Some(resolve) = resolve else {
+        return Ok(());
+    };
+    let path = format!("{path}.resolve");
+    if plot && resolve.projection != 0 {
+        return Err(fail(
+            format!("{path}.projection"),
+            "the layers of a plot share one projection, so its resolve sets no `projection`",
+        ));
+    }
+    for (index, key) in resolve.independent_widgets.iter().enumerate() {
+        let at = format!("{path}.independent_widgets[{index}]");
+        if key.is_empty() {
+            return Err(fail(at, "the key of an independent widget is not empty"));
+        }
+        if resolve.independent_widgets[..index].contains(key) {
+            return Err(fail(
+                at,
+                format!("the key `{key}` of an independent widget appears once"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// A facet names its column. The constructor of a facet takes no column, because the composition

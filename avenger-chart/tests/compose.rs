@@ -84,7 +84,7 @@ fn nested_builders_refer_to_their_own_values() {
     };
     let chart = Chart::builder(
         Plot::cartesian([layer(0.0), layer(5.0)])
-            .resolve([Resolve::channel(Sharing::Independent, Channel::Y)]),
+            .resolve(Resolve::builder().y(Sharing::Independent)),
     )
     .build()
     .unwrap();
