@@ -4,8 +4,8 @@
 //! they map, which a test checks against the descriptors of the format.
 
 use avenger_chart::proto::{
-    self, cartesian_layer, geo_layer, polar_layer, Side, TextAlign, TextBaseline, TextWidthMode,
-    TitleAlign,
+    self, cartesian_layer, geo_layer, polar_layer, Align, Side, TextAlign, TextBaseline,
+    TextWidthMode,
 };
 use avenger_style::{NodeId, Property, StyleTree};
 
@@ -33,43 +33,33 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "title",
             "orient",
             "labels",
-            "label_angle",
-            "label_padding",
-            "tick_size",
-            "rule_color",
-            "rule_width",
+            "tick_length",
+            "tick_stroke",
+            "tick_stroke_width",
+            "rule_stroke",
+            "rule_stroke_width",
         ],
     ),
     ("Cartesian", &["aspect"]),
     ("Geo", &["aspect_ratio", "free"]),
     ("SphereStyle", &["fill", "stroke", "stroke_width"]),
-    (
-        "Graticule",
-        &[
-            "label_font_family",
-            "label_font_size",
-            "label_font_weight",
-            "label_color",
-            "label_padding",
-            "stroke",
-            "stroke_width",
-        ],
-    ),
+    ("Graticule", &["labels", "grid_stroke", "grid_stroke_width"]),
     (
         "Title",
         &[
             "show",
             "orient",
-            "align",
+            "text_align",
             "font_family",
             "font_size",
             "font_weight",
             "color",
-            "subtitle_font_family",
-            "subtitle_font_size",
-            "subtitle_font_weight",
-            "subtitle_color",
+            "subtitle",
         ],
+    ),
+    (
+        "Subtitle",
+        &["font_family", "font_size", "font_weight", "color"],
     ),
     ("SymbolMark", &["filled"]),
     ("BarMark", &["corner_radius"]),
@@ -123,34 +113,40 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "title",
             "orient",
             "labels",
-            "label_angle",
-            "label_align",
-            "label_baseline",
-            "tick_count",
+            "value_count",
             "ticks",
-            "tick_size",
-            "tick_color",
+            "tick_length",
+            "tick_stroke",
             "rule",
-            "rule_color",
+            "rule_stroke",
             "grid",
-            "grid_color",
-            "grid_width",
+            "grid_stroke",
+            "grid_stroke_width",
             "levels",
-            "label_orient",
             "angle",
         ],
     ),
-    ("NestedAxisLevel", &["labels", "label_angle"]),
+    ("NestedAxisLevel", &["labels"]),
     (
         "Labels",
-        &["show", "font_family", "font_size", "font_weight", "color"],
+        &[
+            "show",
+            "font_family",
+            "font_size",
+            "font_weight",
+            "color",
+            "angle",
+            "text_orient",
+            "text_align",
+            "vertical_align",
+            "margin",
+        ],
     ),
     (
         "Legend",
         &[
             "title",
             "labels",
-            "label_angle",
             "orient",
             "background",
             "border_color",
@@ -158,28 +154,25 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
             "padding",
             "wrap",
             "columns",
-            "label_padding",
             "column_gap",
             "row_gap",
-            "tick_count",
+            "value_count",
             "swatches",
-            "thickness",
-            "axis_gap",
-            "max_length",
-            "label_align",
-            "label_baseline",
+            "ramp_thickness",
+            "ramp_margin",
+            "ramp_max_length",
             "ticks",
-            "tick_size",
-            "tick_color",
+            "tick_length",
+            "tick_stroke",
             "rule",
-            "rule_color",
+            "rule_stroke",
         ],
     ),
     (
         "Attribution",
         &[
             "orient",
-            "align",
+            "text_align",
             "separator",
             "separator_space",
             "font_family",
@@ -314,13 +307,25 @@ fn side(side: i32) -> Option<&'static str> {
     }
 }
 
-/// The `text-align` of labels and titles: the start, the center, or the end of their line.
+/// The `text-align` of labels, titles, and attributions: the start, the center, or the end of
+/// their line.
 fn text_align(align: i32) -> Option<&'static str> {
     match TextAlign::try_from(align).ok()? {
         TextAlign::Unspecified => None,
-        TextAlign::Left => Some("start"),
+        TextAlign::Start => Some("start"),
         TextAlign::Center => Some("center"),
-        TextAlign::Right => Some("end"),
+        TextAlign::End => Some("end"),
+    }
+}
+
+/// The `align` of a text or an image mark: the left, the center, or the right of its box at its
+/// position.
+fn align(align: i32) -> Option<&'static str> {
+    match Align::try_from(align).ok()? {
+        Align::Unspecified => None,
+        Align::Left => Some("left"),
+        Align::Center => Some("center"),
+        Align::Right => Some("right"),
     }
 }
 
@@ -353,12 +358,12 @@ impl<'a> Font<'a> {
         }
     }
 
-    fn of_subtitle(title: &'a proto::Title) -> Self {
+    fn of_subtitle(subtitle: &'a proto::Subtitle) -> Self {
         Font {
-            family: &title.subtitle_font_family,
-            size: title.subtitle_font_size,
-            weight: title.subtitle_font_weight,
-            color: &title.subtitle_color,
+            family: &subtitle.font_family,
+            size: subtitle.font_size,
+            weight: subtitle.font_weight,
+            color: &subtitle.color,
         }
     }
 
@@ -390,11 +395,33 @@ fn guide_title(tree: &mut Styled, node: NodeId, title: Option<&proto::Title>) {
     font(tree, node, Font::of_title(title));
 }
 
-/// A guide's labels on its `label` node: whether they show, and their font.
+/// A guide's labels on its `label` node: whether they show, their font, and how they turn, align,
+/// and stand apart from what they label. The reader accepts each setting only on the holders that
+/// draw it.
 fn guide_labels(tree: &mut Styled, node: NodeId, labels: Option<&proto::Labels>) {
     let Some(labels) = labels else { return };
     shown(tree, node, labels.show);
     font(tree, node, Font::of_labels(labels));
+    deg(tree, node, Property::Angle, labels.angle);
+    keyword(
+        tree,
+        node,
+        Property::TextOrient,
+        polar_orient(labels.text_orient),
+    );
+    keyword(
+        tree,
+        node,
+        Property::TextAlign,
+        text_align(labels.text_align),
+    );
+    keyword(
+        tree,
+        node,
+        Property::VerticalAlign,
+        vertical_align(labels.vertical_align),
+    );
+    px(tree, node, Property::Margin, labels.margin);
 }
 
 /// The box behind a legend or an attribution, as `background`, `border-color` with a solid
@@ -485,15 +512,23 @@ pub(crate) struct FacetNodes {
 /// A `Facet` on its nodes.
 pub(crate) fn facet(tree: &mut Styled, nodes: &FacetNodes, facet: &proto::Facet) {
     keyword(tree, nodes.facet, Property::Orient, side(facet.orient));
-    deg(tree, nodes.label, Property::Angle, facet.label_angle);
-    px(tree, nodes.label, Property::Margin, facet.label_padding);
     guide_title(tree, nodes.title, facet.title.as_ref());
     guide_labels(tree, nodes.label, facet.labels.as_ref());
-    px(tree, nodes.tick, Property::Length, facet.tick_size);
-    for node in [nodes.tick, nodes.rule] {
-        color(tree, node, Property::Stroke, &facet.rule_color);
-        px(tree, node, Property::StrokeWidth, facet.rule_width);
-    }
+    px(tree, nodes.tick, Property::Length, facet.tick_length);
+    color(tree, nodes.tick, Property::Stroke, &facet.tick_stroke);
+    px(
+        tree,
+        nodes.tick,
+        Property::StrokeWidth,
+        facet.tick_stroke_width,
+    );
+    color(tree, nodes.rule, Property::Stroke, &facet.rule_stroke);
+    px(
+        tree,
+        nodes.rule,
+        Property::StrokeWidth,
+        facet.rule_stroke_width,
+    );
 }
 
 /// A `Title` on its `title` node, and its subtitle's style on its `subtitle` node.
@@ -504,16 +539,15 @@ pub(crate) fn title(
     title: &proto::Title,
 ) {
     keyword(tree, title_node, Property::Orient, side(title.orient));
-    let align = match TitleAlign::try_from(title.align).unwrap_or_default() {
-        TitleAlign::Unspecified => None,
-        TitleAlign::Start => Some("start"),
-        TitleAlign::Center => Some("center"),
-        TitleAlign::End => Some("end"),
-    };
-    keyword(tree, title_node, Property::TextAlign, align);
+    keyword(
+        tree,
+        title_node,
+        Property::TextAlign,
+        text_align(title.text_align),
+    );
     font(tree, title_node, Font::of_title(title));
-    if let Some(subtitle) = subtitle_node {
-        font(tree, subtitle, Font::of_subtitle(title));
+    if let (Some(node), Some(subtitle)) = (subtitle_node, title.subtitle.as_ref()) {
+        font(tree, node, Font::of_subtitle(subtitle));
     }
 }
 
@@ -559,14 +593,8 @@ pub(crate) fn mark(tree: &mut Styled, node: NodeId, mark: &cartesian_layer::Mark
 }
 
 /// The `align` and the `baseline` of a text mark on its `mark` node.
-fn text_anchor(tree: &mut Styled, node: NodeId, align: i32, baseline: i32) {
-    let align = match TextAlign::try_from(align).unwrap_or_default() {
-        TextAlign::Unspecified => None,
-        TextAlign::Left => Some("left"),
-        TextAlign::Center => Some("center"),
-        TextAlign::Right => Some("right"),
-    };
-    keyword(tree, node, Property::Align, align);
+fn text_anchor(tree: &mut Styled, node: NodeId, align_of_mark: i32, baseline: i32) {
+    keyword(tree, node, Property::Align, align(align_of_mark));
     keyword(tree, node, Property::Baseline, vertical_align(baseline));
 }
 
@@ -579,13 +607,7 @@ fn image_fields(
     aspect: Option<bool>,
     smooth: Option<bool>,
 ) {
-    let align = match proto::ImageAlign::try_from(align).unwrap_or_default() {
-        proto::ImageAlign::Unspecified => None,
-        proto::ImageAlign::Left => Some("left"),
-        proto::ImageAlign::Center => Some("center"),
-        proto::ImageAlign::Right => Some("right"),
-    };
-    keyword(tree, node, Property::Align, align);
+    keyword(tree, node, Property::Align, self::align(align));
     let baseline = match proto::ImageBaseline::try_from(baseline).unwrap_or_default() {
         proto::ImageBaseline::Unspecified => None,
         proto::ImageBaseline::Top => Some("top"),
@@ -690,24 +712,14 @@ pub(crate) struct GraticuleNodes {
 
 /// A `Graticule` on its nodes.
 pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &proto::Graticule) {
-    color(tree, nodes.grid, Property::Stroke, &graticule.stroke);
+    color(tree, nodes.grid, Property::Stroke, &graticule.grid_stroke);
     px(
         tree,
         nodes.grid,
         Property::StrokeWidth,
-        graticule.stroke_width,
+        graticule.grid_stroke_width,
     );
-    font(
-        tree,
-        nodes.label,
-        Font {
-            family: &graticule.label_font_family,
-            size: graticule.label_font_size,
-            weight: graticule.label_font_weight,
-            color: &graticule.label_color,
-        },
-    );
-    px(tree, nodes.label, Property::Margin, graticule.label_padding);
+    guide_labels(tree, nodes.label, graticule.labels.as_ref());
 }
 
 /// The fields that the text marks of every coordinate system share.
@@ -828,29 +840,16 @@ fn axis_fields(
     fields: AxisFields,
 ) {
     keyword(tree, axis, Property::Orient, side(fields.orient));
-    deg(tree, label, Property::Angle, fields.label_angle);
     guide_title(tree, title, fields.title);
     guide_labels(tree, label, fields.labels);
     shown(tree, tick, fields.ticks);
     shown(tree, rule, fields.rule);
-    keyword(
-        tree,
-        label,
-        Property::TextAlign,
-        text_align(fields.label_align),
-    );
-    keyword(
-        tree,
-        label,
-        Property::VerticalAlign,
-        vertical_align(fields.label_baseline),
-    );
     if let Some(count) = fields.value_count {
         set(tree, axis, Property::ValueCount, &count.to_string());
     }
-    px(tree, tick, Property::Length, fields.tick_size);
-    color(tree, tick, Property::Stroke, fields.tick_color);
-    color(tree, rule, Property::Stroke, fields.rule_color);
+    px(tree, tick, Property::Length, fields.tick_length);
+    color(tree, tick, Property::Stroke, fields.tick_stroke);
+    color(tree, rule, Property::Stroke, fields.rule_stroke);
 }
 
 /// The fields of an axis that an `Axis` and the axis of a colorbar share.
@@ -858,15 +857,12 @@ struct AxisFields<'a> {
     orient: i32,
     title: Option<&'a proto::Title>,
     labels: Option<&'a proto::Labels>,
-    label_angle: Option<f32>,
-    label_align: i32,
-    label_baseline: i32,
     value_count: Option<f64>,
     ticks: Option<bool>,
-    tick_size: Option<f32>,
-    tick_color: &'a str,
+    tick_length: Option<f32>,
+    tick_stroke: &'a str,
     rule: Option<bool>,
-    rule_color: &'a str,
+    rule_stroke: &'a str,
 }
 
 /// An `Axis` on its nodes.
@@ -882,33 +878,27 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
             orient: axis.orient,
             title: axis.title.as_ref(),
             labels: axis.labels.as_ref(),
-            label_angle: match axis.label_rotation {
-                Some(proto::axis::LabelRotation::LabelAngle(angle)) => Some(angle),
-                _ => None,
-            },
-            label_align: axis.label_align,
-            label_baseline: axis.label_baseline,
-            value_count: match axis.tick_placement {
-                Some(proto::axis::TickPlacement::TickCount(count)) => Some(count),
+            value_count: match axis.value_placement {
+                Some(proto::axis::ValuePlacement::ValueCount(count)) => Some(count),
                 _ => None,
             },
             ticks: axis.ticks,
-            tick_size: axis.tick_size,
-            tick_color: &axis.tick_color,
+            tick_length: axis.tick_length,
+            tick_stroke: &axis.tick_stroke,
             rule: axis.rule,
-            rule_color: &axis.rule_color,
+            rule_stroke: &axis.rule_stroke,
         },
     );
     shown(tree, nodes.grid, axis.grid);
-    color(tree, nodes.grid, Property::Stroke, &axis.grid_color);
-    px(tree, nodes.grid, Property::StrokeWidth, axis.grid_width);
+    color(tree, nodes.grid, Property::Stroke, &axis.grid_stroke);
+    px(
+        tree,
+        nodes.grid,
+        Property::StrokeWidth,
+        axis.grid_stroke_width,
+    );
     for (level, (_, label_node)) in axis.levels.iter().zip(&nodes.levels) {
-        shown(
-            tree,
-            *label_node,
-            level.labels.as_ref().and_then(|labels| labels.show),
-        );
-        deg(tree, *label_node, Property::Angle, level.label_angle);
+        guide_labels(tree, *label_node, level.labels.as_ref());
     }
 }
 
@@ -922,14 +912,6 @@ pub(crate) fn polar_axis(
     start_angle: f32,
 ) {
     axis(tree, nodes, axis_message);
-    if let Some(proto::axis::LabelRotation::LabelOrient(orient)) = axis_message.label_rotation {
-        keyword(
-            tree,
-            nodes.label,
-            Property::TextOrient,
-            polar_orient(orient),
-        );
-    }
     let angle = axis_message.angle.map(|angle| angle - start_angle);
     deg(tree, nodes.axis, Property::Angle, angle);
 }
@@ -961,14 +943,12 @@ pub(crate) fn legend(tree: &mut Styled, nodes: &LegendNodes, legend: &proto::Leg
     if let Some(columns) = legend.columns {
         set(tree, node, Property::Columns, &columns.to_string());
     }
-    px(tree, nodes.label, Property::Margin, legend.label_padding);
     px(tree, node, Property::ColumnGap, legend.column_gap);
     px(tree, node, Property::RowGap, legend.row_gap);
     legend_box(tree, node, legend);
-    if let Some(proto::legend::TickPlacement::TickCount(count)) = legend.tick_placement {
+    if let Some(proto::legend::ValuePlacement::ValueCount(count)) = legend.value_placement {
         set(tree, node, Property::ValueCount, &count.to_string());
     }
-    deg(tree, nodes.label, Property::Angle, legend.label_angle);
     shown(tree, nodes.swatch, legend.swatches);
     guide_title(tree, nodes.title, legend.title.as_ref());
     guide_labels(tree, nodes.label, legend.labels.as_ref());
@@ -999,9 +979,14 @@ pub(crate) struct ColorbarNodes {
 
 /// A `Legend` in the form of a colorbar on its nodes.
 pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto::Legend) {
-    px(tree, nodes.ramp, Property::Thickness, legend.thickness);
-    px(tree, nodes.ramp, Property::MaxLength, legend.max_length);
-    px(tree, nodes.ramp, Property::Margin, legend.axis_gap);
+    px(tree, nodes.ramp, Property::Thickness, legend.ramp_thickness);
+    px(
+        tree,
+        nodes.ramp,
+        Property::MaxLength,
+        legend.ramp_max_length,
+    );
+    px(tree, nodes.ramp, Property::Margin, legend.ramp_margin);
     legend_box(tree, nodes.legend, legend);
     axis_fields(
         tree,
@@ -1014,18 +999,15 @@ pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto:
             orient: legend.orient,
             title: legend.title.as_ref(),
             labels: legend.labels.as_ref(),
-            label_angle: legend.label_angle,
-            label_align: legend.label_align,
-            label_baseline: legend.label_baseline,
-            value_count: match legend.tick_placement {
-                Some(proto::legend::TickPlacement::TickCount(count)) => Some(count),
+            value_count: match legend.value_placement {
+                Some(proto::legend::ValuePlacement::ValueCount(count)) => Some(count),
                 _ => None,
             },
             ticks: legend.ticks,
-            tick_size: legend.tick_size,
-            tick_color: &legend.tick_color,
+            tick_length: legend.tick_length,
+            tick_stroke: &legend.tick_stroke,
             rule: legend.rule,
-            rule_color: &legend.rule_color,
+            rule_stroke: &legend.rule_stroke,
         },
     );
 }
@@ -1033,12 +1015,12 @@ pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto:
 /// An `Attribution` on its `attribution` node.
 pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::Attribution) {
     keyword(tree, node, Property::Orient, side(attribution.orient));
-    let align = match proto::AttributionAlign::try_from(attribution.align).unwrap_or_default() {
-        proto::AttributionAlign::Unspecified => None,
-        proto::AttributionAlign::Start => Some("start"),
-        proto::AttributionAlign::End => Some("end"),
-    };
-    keyword(tree, node, Property::TextAlign, align);
+    keyword(
+        tree,
+        node,
+        Property::TextAlign,
+        text_align(attribution.text_align),
+    );
     if !attribution.separator.is_empty() {
         let separator = &attribution.separator;
         let quoted = format!(

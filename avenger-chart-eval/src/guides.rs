@@ -408,29 +408,30 @@ fn axis_spec(group: &ScaleGroup) -> proto::Axis {
     group.axis.clone().unwrap_or_default()
 }
 
-/// The ticks that an axis or a colorbar gives in place of the scale's: a list of values, or a step.
+/// The values that an axis or a colorbar marks in place of the scale's ticks: a list of values, or
+/// a step.
 #[derive(Clone, Copy)]
 pub(crate) enum SpecTicks<'a> {
     Values(&'a proto::ValueRef),
-    Step(&'a proto::TickStep),
+    Step(&'a proto::ValueStep),
 }
 
 impl<'a> SpecTicks<'a> {
     pub(crate) fn of_axis(axis: &'a proto::Axis) -> Option<Self> {
-        use proto::axis::TickPlacement;
-        match axis.tick_placement.as_ref()? {
-            TickPlacement::Values(values) => Some(SpecTicks::Values(values)),
-            TickPlacement::TickStep(step) => Some(SpecTicks::Step(step)),
-            TickPlacement::TickCount(_) => None,
+        use proto::axis::ValuePlacement;
+        match axis.value_placement.as_ref()? {
+            ValuePlacement::Values(values) => Some(SpecTicks::Values(values)),
+            ValuePlacement::ValueStep(step) => Some(SpecTicks::Step(step)),
+            ValuePlacement::ValueCount(_) => None,
         }
     }
 
     fn of_legend(legend: &'a proto::Legend) -> Option<Self> {
-        use proto::legend::TickPlacement;
-        match legend.tick_placement.as_ref()? {
-            TickPlacement::Values(values) => Some(SpecTicks::Values(values)),
-            TickPlacement::TickStep(step) => Some(SpecTicks::Step(step)),
-            TickPlacement::TickCount(_) => None,
+        use proto::legend::ValuePlacement;
+        match legend.value_placement.as_ref()? {
+            ValuePlacement::Values(values) => Some(SpecTicks::Values(values)),
+            ValuePlacement::ValueStep(step) => Some(SpecTicks::Step(step)),
+            ValuePlacement::ValueCount(_) => None,
         }
     }
 }
@@ -929,8 +930,8 @@ fn entries(
             Ok((values, labels, syntax))
         }
         _ => {
-            let values = match &spec.tick_placement {
-                Some(proto::legend::TickPlacement::Values(values)) => chart.list_elements(values),
+            let values = match &spec.value_placement {
+                Some(proto::legend::ValuePlacement::Values(values)) => chart.list_elements(values),
                 _ => scale.ticks(value_count)?,
             };
             let (labels, syntax) = label_text(formatted(&values)?, markup)?;
@@ -1598,8 +1599,9 @@ fn title(inputs: &GuideInputs, path: &str, title: &proto::Title) -> Result<Optio
         ..TitleConfig::default()
     };
     let subtitle_hidden = (node.subtitle).is_some_and(|node| styles[node].is_hidden());
-    let subtitle =
-        (!title.subtitle.is_empty() && !subtitle_hidden).then_some(title.subtitle.as_str());
+    let subtitle = (title.subtitle.as_ref())
+        .map(|subtitle| subtitle.text.as_str())
+        .filter(|text| !text.is_empty() && !subtitle_hidden);
     Ok(Some(TitleGuide {
         title: Title::new(&title.text, subtitle, &config, inputs.engine)?,
         side,

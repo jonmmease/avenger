@@ -105,12 +105,12 @@ async fn channel_functions_and_markers_keep_their_place() {
     same(
         &format!(
             "{PENGUINS} |> AGGREGATE bar(x => species, y => y(AVG(body_mass_g), \
-             axis => axis(label_rotation => -45)), fill => fill(value('red'))) AS chart"
+             axis => axis(labels => labels(angle => -45))), fill => fill(value('red'))) AS chart"
         ),
         &format!(
             "{PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY species \
              |> AGGREGATE bar(x => species, y => y(`AVG(body_mass_g)`, \
-             axis => axis(label_rotation => -45)), fill => fill(value('red'))) AS chart"
+             axis => axis(labels => labels(angle => -45))), fill => fill(value('red'))) AS chart"
         ),
     )
     .await;
@@ -120,7 +120,7 @@ async fn channel_functions_and_markers_keep_their_place() {
 async fn a_channel_function_lifts_its_aggregate_and_sets_its_axis() {
     let charts = common::charts(&format!(
         "{PENGUINS} |> AGGREGATE bar(x => species, \
-         y => y(AVG(body_mass_g), axis => axis(label_rotation => -45))) AS chart"
+         y => y(AVG(body_mass_g), axis => axis(labels => labels(angle => -45)))) AS chart"
     ))
     .await;
     let Some(avenger_chart::proto::node::Node::Plot(plot)) = &charts[0].root().node else {
@@ -130,10 +130,12 @@ async fn a_channel_function_lifts_its_aggregate_and_sets_its_axis() {
     let y = (layer.mark().unwrap())
         .encoding(avenger_chart::proto::Channel::Y)
         .unwrap();
-    assert!(matches!(
-        y.axis.as_ref().and_then(|axis| axis.label_rotation.as_ref()),
-        Some(avenger_chart::proto::axis::LabelRotation::LabelAngle(angle)) if *angle == -45.0
-    ));
+    assert_eq!(
+        (y.axis.as_ref())
+            .and_then(|axis| axis.labels.as_ref())
+            .and_then(|labels| labels.angle),
+        Some(-45.0)
+    );
     let table = charts[0].table(layer.table().unwrap());
     assert!(
         table.schema().field_with_name("AVG(body_mass_g)").is_ok(),
@@ -748,7 +750,7 @@ async fn the_printouts_of_the_stages() {
 /// A mark call longer than a line, with nested calls and an array, written on one line.
 const LONG_CALL: &str = "FROM penguins\n|> AGGREGATE symbol(x => x(species, title => 'Species', \
      axis => axis(grid => FALSE)), y => y(AVG(body_mass_g), scale => scale(zero => FALSE), \
-     axis => axis(label_rotation => -45, title => title('Mean body mass (g)', font_size => 14))), \
+     axis => axis(labels => labels(angle => -45), title => title('Mean body mass (g)', font_size => 14))), \
      color => species, tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)] ORDER BY \
      species) AS chart GROUP BY island";
 

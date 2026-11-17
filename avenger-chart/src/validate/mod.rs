@@ -384,15 +384,8 @@ fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
     } else {
         let fields = [
             ("orient", title.orient != 0),
-            ("align", title.align != 0),
-            ("subtitle", !title.subtitle.is_empty()),
-            (
-                "subtitle_font_family",
-                !title.subtitle_font_family.is_empty(),
-            ),
-            ("subtitle_font_size", title.subtitle_font_size.is_some()),
-            ("subtitle_font_weight", title.subtitle_font_weight.is_some()),
-            ("subtitle_color", !title.subtitle_color.is_empty()),
+            ("text_align", title.text_align != 0),
+            ("subtitle", title.subtitle.is_some()),
         ];
         if let Some((field, _)) = fields.iter().find(|(_, set)| *set) {
             return Err(fail(
@@ -400,6 +393,43 @@ fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
                 "only the title of a plot, a concat, or a wrap has a side, an alignment, or a subtitle",
             ));
         }
+    }
+    Ok(())
+}
+
+/// Checks the settings of labels at `path` that only the labels of some guides take: each that is
+/// set is one of `takes`, the settings that the labels of `what` take, and the labels take at most
+/// one of `angle` and `text_orient`, which both turn them.
+fn label_settings(
+    labels: Option<&proto::Labels>,
+    path: &str,
+    what: &str,
+    takes: &[&str],
+) -> Result<()> {
+    let Some(labels) = labels else { return Ok(()) };
+    let settings = [
+        ("angle", labels.angle.is_some()),
+        ("text_orient", labels.text_orient != 0),
+        ("text_align", labels.text_align != 0),
+        ("vertical_align", labels.vertical_align != 0),
+        ("margin", labels.margin.is_some()),
+        ("frame", labels.frame != 0),
+        ("sides", labels.sides.is_some()),
+    ];
+    let invalid = settings
+        .iter()
+        .find(|(setting, set)| *set && !takes.contains(setting));
+    if let Some((setting, _)) = invalid {
+        return Err(fail(
+            format!("{path}.{setting}"),
+            format!("the labels of {what} take no `{setting}`"),
+        ));
+    }
+    if labels.angle.is_some() && labels.text_orient != 0 {
+        return Err(fail(
+            format!("{path}.text_orient"),
+            "`angle` and `text_orient` both turn the labels, so the labels take one of them",
+        ));
     }
     Ok(())
 }

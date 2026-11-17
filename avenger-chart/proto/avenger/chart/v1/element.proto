@@ -1,11 +1,13 @@
-// The elements that plots, axes, legends, facets, and widgets share: titles, labels, and the steps
-// of ticks. Each field means the same in every message that has the element.
+// The elements that plots, axes, legends, facets, graticules, and widgets share: titles, subtitles,
+// labels, and the steps of values. Each field means the same in every message that has the
+// element.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
+import "avenger/chart/v1/polar.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
@@ -15,9 +17,9 @@ import "avenger/chart/v1/value.proto";
 // concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
 // along the whole side of the node's box, over the slabs of its axes and legends, and a title at
 // the bottom serves as a caption. The settings that place the title of a node and give its
-// subtitle, `orient`, `align`, `subtitle`, and the font of the subtitle, are invalid on the title of
-// another element, which stands where its axis, legend, facet, or widget puts it. The title of a
-// node has a text and always shows, so `show` is invalid on it.
+// subtitle, `orient`, `text_align`, and `subtitle`, are invalid on the title of another element,
+// which stands where its axis, legend, facet, or widget puts it. The title of a node has a text and
+// always shows, so `show` is invalid on it.
 message Title {
   // The text, in the syntax of `syntax`. The title of a node has a text. On the title of another
   // element, an empty text keeps the title that the element gives, such as the titles of an
@@ -42,38 +44,47 @@ message Title {
   optional float font_weight = 7;
   // A CSS color of the text.
   string color = 8;
-  // A line of text after the text, such as the units or the period of the data, or empty for no
-  // subtitle.
-  string subtitle = 9;
-  // The font family of the subtitle.
-  string subtitle_font_family = 10;
-  // The font size of the subtitle, in pixels.
-  optional float subtitle_font_size = 11;
-  // The font weight of the subtitle, from 100 to 900.
-  optional float subtitle_font_weight = 12;
-  // A CSS color of the subtitle.
-  string subtitle_color = 13;
-  // Where the title stands along its side. When unset, the styles give it.
-  TitleAlign align = 14;
+  // A line of text after the text, such as the units or the period of the data. When unset, the
+  // title has no subtitle.
+  Subtitle subtitle = 9;
+  // Where the title stands along its side, in the direction that the title reads: from the left of
+  // a title at the top or the bottom, up a title on the left, and down a title on the right. When
+  // unset, the styles give it.
+  TextAlign text_align = 10;
 }
 
-// A place along a side, in the direction that the title reads: from the left of a title at the
-// top or the bottom, up a title on the left, and down a title on the right.
-enum TitleAlign {
-  // Unset, so the styles give the alignment.
-  TITLE_ALIGN_UNSPECIFIED = 0;
-  TITLE_ALIGN_START = 1;
-  TITLE_ALIGN_CENTER = 2;
-  TITLE_ALIGN_END = 3;
+// The subtitle of the title of a plot, a concat, or a wrap, which reads in the syntax of its
+// title. A style field that is unset takes its value from the styles, which give it the font of
+// its title, at a smaller size and a normal weight.
+message Subtitle {
+  // The text, not empty.
+  string text = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
+  // A font family, such as `Lato`.
+  string font_family = 2;
+  // The font size, in pixels.
+  optional float font_size = 3;
+  // A weight from 100 to 900.
+  optional float font_weight = 4;
+  // A CSS color of the text.
+  string color = 5;
 }
 
-// The labels of the ticks of an axis, the entries of a legend, the values of a facet, or the values
-// of a widget. A style field that is unset takes its value from the styles.
+// The labels of the values of an axis, the entries of a legend, the values of a facet, the lines of
+// a graticule, or the values of a widget. A style field that is unset takes its value from the
+// styles.
+//
+// The settings that turn, align, place, and space the labels are valid only on the labels of the
+// guides that draw them: `angle` on axes, legends, facets, and the levels of an axis, `text_orient`
+// on the axis of a polar plot, `text_align` and `vertical_align` on the axis of a Cartesian plot
+// and on a colorbar, `margin` on symbol legends, facets, and graticules, and `frame` and `sides`
+// on graticules. A graticule's labels have no `markup`. `angle` and `text_orient` both turn the
+// labels, so the labels take one of them.
 message Labels {
   // The pattern of numeric and temporal values, such as `,.0f`. A pattern of numbers is in the
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
   // `Chart.datetime_format_syntax`. An empty pattern takes the default of the text engine's
-  // formatter, which needs no syntax. Other values, such as strings, show as text.
+  // formatter, which needs no syntax. Other values, such as strings, show as text. The labels of a
+  // graticule format their degrees in the syntax of `Chart.number_format_syntax`.
   string format = 1 [(avenger.chart.v1.lift) = true];
   // Typst markup for each label, as `TEXT_SYNTAX_TYPST` reads it, where `#value` is the formatted
   // value, such as `#value m/s`. An empty markup shows the formatted value as plain text. The
@@ -95,23 +106,68 @@ message Labels {
   optional float font_weight = 6;
   // A CSS color of the labels.
   string color = 7;
+  // The angle of the labels, in degrees clockwise. When unset, the styles give it: the labels of a
+  // facet read along its side, level above or below the children, up beside a left side, and
+  // down beside a right one, the leaf of a nested band axis takes the angle of the axis's labels,
+  // and the labels of an outer level are level.
+  optional float angle = 8;
+  // How the labels of a polar axis run. When unset, the styles give it.
+  PolarTextOrient text_orient = 9;
+  // How each label aligns to its value across its lines. When unset, each label aligns to its end
+  // nearest its tick, for the side of the axis and the angle of the labels.
+  TextAlign text_align = 10;
+  // How each label aligns to its value along its lines. When unset, each label aligns to its end
+  // nearest its tick, as for `text_align`.
+  TextBaseline vertical_align = 11;
+  // The space between each label and what it labels, in pixels: the swatch of an entry of a
+  // symbol legend, the edge of the children of a facet or the labels of a facet inside it, and the
+  // end of a line of a graticule. When unset, the styles give it, with more space beyond an inner
+  // facet's labels, so the levels of a nested facet read apart.
+  optional float margin = 12;
+  // Where the labels of a graticule sit. When unset, the labels sit on the edges of the plot for a
+  // plot that fits a box or its data, and on the outline of the projection for a plot that fits
+  // the whole sphere.
+  GeoFrame frame = 13;
+  // The sides that label the lines of a graticule that reach them: meridians on the top and the
+  // bottom, and parallels on the left and the right. When unset, the left and the bottom label
+  // them.
+  LabelSides sides = 14;
 }
 
-// Ticks at a start and each whole multiple of a step before and after it, in place of the ticks
-// of the scale: a step of numbers on a linear, a log, a pow, or a symlog scale, and a step of
-// calendar units on a time scale, whose months and days step in the civil time of the scale.
-message TickStep {
-  // The distance between two ticks, more than 0: a distance in the domain's values, or with an
+// The sides of a plot that carry labels, in any order, where a side that repeats counts once. No
+// sides draws no labels.
+message LabelSides {
+  // The sides, such as `left` and `bottom`.
+  repeated Side sides = 1;
+}
+
+// The edge of a geo plot where the lines of its graticule are labeled.
+enum GeoFrame {
+  // Unset, as `Labels.frame` describes.
+  GEO_FRAME_UNSPECIFIED = 0;
+  // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
+  // its end nearest the side.
+  GEO_FRAME_OUTLINE = 1;
+  // The rectangle of the plot, which the projection fills and is clipped to, as a regional map
+  // has. A line is labeled where it crosses the edge of the side.
+  GEO_FRAME_RECTANGLE = 2;
+}
+
+// Values at a start and each whole multiple of a step before and after it, in place of the values
+// of the scale's ticks: a step of numbers on a linear, a log, a pow, or a symlog scale, and a step
+// of calendar units on a time scale, whose months and days step in the civil time of the scale.
+message ValueStep {
+  // The distance between two values, more than 0: a distance in the domain's values, or with an
   // `interval`, a whole number of its units.
   double step = 1 [(avenger.chart.v1.lift) = true];
   // The unit of the step on a time scale, which requires it. Invalid on another scale.
   CalendarUnit interval = 2;
-  // A tick, which the other ticks step from, in the type of the scale's domain, such as a date on
-  // a time scale. When unset, 0, or the Unix epoch on a time scale.
+  // A value, which the other values step from, in the type of the scale's domain, such as a date
+  // on a time scale. When unset, 0, or the Unix epoch on a time scale.
   ValueRef start = 3;
 }
 
-// The unit of the step of the ticks of a time scale.
+// The unit of the step of the values of a time scale.
 enum CalendarUnit {
   // No unit, as the step of a scale that is not a time scale has.
   CALENDAR_UNIT_UNSPECIFIED = 0;

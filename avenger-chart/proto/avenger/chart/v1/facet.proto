@@ -39,22 +39,21 @@ message Facet {
   // takes the left or the right, and a wrap takes any side of each child. When unset, a row and a
   // wrap have the labels at the top, and a column at the right.
   Side orient = 4;
-  // The labels of the values, such as `Grade #value`. A facet always shows its labels, so their
-  // `show` is invalid.
+  // The labels of the values, such as `Grade #value`, which take `angle` and `margin`. A facet
+  // always shows its labels, so their `show` is invalid. When the angle is unset, the labels read
+  // along the side: level above or below the children, up beside a left side, and down beside a
+  // right one.
   Labels labels = 5;
-  // The angle of the labels, in degrees clockwise. When unset, the labels read along the side:
-  // level above or below the children, up beside a left side, and down beside a right one.
-  optional float label_angle = 6;
-  // The space between the labels and what lies inward of them: the edge of the children, or the
-  // labels of a facet inside this one, in pixels. When unset, the styles give it, with more space
-  // beyond an inner facet's labels, so the levels of a nested facet read apart.
-  optional float label_padding = 7;
   // The length of each tick, in pixels.
-  optional float tick_size = 8;
-  // The CSS color of the rule and the ticks.
-  string rule_color = 9;
-  // The width of the rule and the ticks, in pixels.
-  optional float rule_width = 10;
+  optional float tick_length = 6;
+  // The CSS color of the ticks.
+  string tick_stroke = 7;
+  // The width of the ticks, in pixels.
+  optional float tick_stroke_width = 8;
+  // The CSS color of the rule.
+  string rule_stroke = 9;
+  // The width of the rule, in pixels.
+  optional float rule_stroke_width = 10;
   // The class names of the facet, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
   repeated string classes = 11;

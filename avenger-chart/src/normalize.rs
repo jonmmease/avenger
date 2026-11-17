@@ -341,8 +341,8 @@ fn default_to_none<T: Default + PartialEq>(message: &mut Option<T>) {
 }
 
 fn geo_options(options: &mut proto::Geo) {
-    if let Some(sides) =
-        (options.graticule.as_mut()).and_then(|graticule| graticule.label_sides.as_mut())
+    if let Some(sides) = (options.graticule.as_mut())
+        .and_then(|graticule| (graticule.labels.as_mut()).and_then(|labels| labels.sides.as_mut()))
     {
         sides.sides.sort_unstable();
         sides.sides.dedup();

@@ -4,8 +4,8 @@
 use arrow::{datatypes::DataType, record_batch::RecordBatch};
 
 use super::{
-    classes, fail, keyed, named, non_negative, positive, shown_labels, size, title, within,
-    Checker, Result, REQUIRED,
+    classes, fail, keyed, label_settings, named, non_negative, positive, shown_labels, size, title,
+    within, Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef},
@@ -74,7 +74,7 @@ impl Checker<'_> {
             facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
-            shown_labels(facet.labels.as_ref(), &format!("{path}.labels"), "a facet")?;
+            facet_labels(facet.labels.as_ref(), &format!("{path}.labels"))?;
         }
         let scope = scope.with(&concat.partition, false);
         for (index, child) in concat.children.iter().enumerate() {
@@ -104,7 +104,7 @@ impl Checker<'_> {
             facet_column(facet, &path)?;
             classes(&facet.classes, &path)?;
             title(facet.title.as_ref(), &format!("{path}.title"), false)?;
-            shown_labels(facet.labels.as_ref(), &format!("{path}.labels"), "a facet")?;
+            facet_labels(facet.labels.as_ref(), &format!("{path}.labels"))?;
         }
         let scope = scope.with(&wrap.partition, true);
         for (index, child) in wrap.children.iter().enumerate() {
@@ -129,6 +129,12 @@ impl Checker<'_> {
                 return Err(fail(
                     &path,
                     "an attribution stands at the top or the bottom of its plot",
+                ));
+            }
+            if proto::TextAlign::try_from(attribution.text_align) == Ok(proto::TextAlign::Center) {
+                return Err(fail(
+                    format!("{path}.text_align"),
+                    "an attribution stands at the start or the end of its side",
                 ));
             }
             non_negative(
@@ -322,26 +328,35 @@ impl Checker<'_> {
                 lon_lat_box(extent, &format!("{path}.{at}"))?;
             }
             positive(graticule.precision, &format!("{path}.precision"))?;
-            if let Some(sides) = &graticule.label_sides {
-                if sides.sides.contains(&(proto::Side::Unspecified as i32)) {
+            if let Some(labels) = &graticule.labels {
+                let path = format!("{path}.labels");
+                if !labels.markup.is_empty() {
                     return Err(fail(
-                        format!("{path}.label_sides"),
-                        "a label side is a side",
+                        format!("{path}.markup"),
+                        "the labels of a graticule take no `markup`",
                     ));
                 }
+                label_settings(
+                    Some(labels),
+                    &path,
+                    "a graticule",
+                    &["margin", "frame", "sides"],
+                )?;
+                if let Some(sides) = &labels.sides {
+                    if sides.sides.contains(&(proto::Side::Unspecified as i32)) {
+                        return Err(fail(format!("{path}.sides"), "a label side is a side"));
+                    }
+                }
+                self.pattern(
+                    &labels.format,
+                    &DataType::Float64,
+                    &format!("{path}.format"),
+                )?;
+                non_negative(labels.margin.map(f64::from), &format!("{path}.margin"))?;
             }
-            self.pattern(
-                &graticule.format,
-                &DataType::Float64,
-                &format!("{path}.format"),
-            )?;
             non_negative(
-                graticule.label_padding.map(f64::from),
-                &format!("{path}.label_padding"),
-            )?;
-            non_negative(
-                graticule.stroke_width.map(f64::from),
-                &format!("{path}.stroke_width"),
+                graticule.grid_stroke_width.map(f64::from),
+                &format!("{path}.grid_stroke_width"),
             )?;
         }
         if let Some(tiles) = &geo.tiles {
@@ -898,4 +913,10 @@ fn navigates_selection(plot: &proto::Plot, kind: CoordKind, layers: &[LayerRef])
             moved.contains(&channel) && matches!(domain, Some(proto::scale::Domain::Selection(_)))
         })
     })
+}
+
+/// Checks the labels of a facet, which always show, and which take an angle and a margin.
+fn facet_labels(labels: Option<&proto::Labels>, path: &str) -> Result<()> {
+    shown_labels(labels, path, "a facet")?;
+    label_settings(labels, path, "a facet", &["angle", "margin"])
 }

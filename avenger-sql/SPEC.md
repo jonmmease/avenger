@@ -159,7 +159,7 @@ FROM penguins
      x => x(
        bill_length_mm,
        title => 'Bill length (mm)',
-       axis => axis(label_rotation => -45, grid => FALSE),
+       axis => axis(labels => labels(angle => -45), grid => FALSE),
      ),
      y => y(
        body_mass_g,

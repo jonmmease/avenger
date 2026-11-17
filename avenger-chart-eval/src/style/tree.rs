@@ -270,8 +270,9 @@ fn composition(
     let (title_node, subtitle_node) = match title {
         Some(title) => {
             let title_node = tree.add(chart_node, Element::Title);
-            let subtitle_node =
-                (!title.subtitle.is_empty()).then(|| tree.add(title_node, Element::Subtitle));
+            let subtitle_node = (title.subtitle.as_ref())
+                .filter(|subtitle| !subtitle.text.is_empty())
+                .map(|_| tree.add(title_node, Element::Subtitle));
             inline::title(tree, title_node, subtitle_node, title);
             (Some(title_node), subtitle_node)
         }

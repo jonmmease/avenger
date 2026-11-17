@@ -1,6 +1,6 @@
-// The enums of text that axes, legends, titles, and text marks share. A style field that is set is an
-// inline style for the renderer's stylesheets, and an unset one takes its value from the styles, as
-// the comment of `Chart` describes.
+// The enums of text that axes, legends, titles, attributions, and text marks share. A style field
+// that is set is an inline style for the renderer's stylesheets, and an unset one takes its value
+// from the styles, as the comment of `Chart` describes.
 
 syntax = "proto3";
 
@@ -20,12 +20,14 @@ enum TextSyntax {
   TEXT_SYNTAX_TYPST = 3;
 }
 
+// A place along a line of text, in the direction that the text reads, as the keywords of the
+// `text-align` property: the start, the center, or the end.
 enum TextAlign {
   // Unset, so the comment of the field or the styles give the alignment.
   TEXT_ALIGN_UNSPECIFIED = 0;
-  TEXT_ALIGN_LEFT = 1;
+  TEXT_ALIGN_START = 1;
   TEXT_ALIGN_CENTER = 2;
-  TEXT_ALIGN_RIGHT = 3;
+  TEXT_ALIGN_END = 3;
 }
 
 enum TextBaseline {

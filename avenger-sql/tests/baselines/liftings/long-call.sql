@@ -6,7 +6,10 @@ FROM penguins
      y => y(
        `AVG(body_mass_g)`,
        scale => scale(zero => FALSE),
-       axis => axis(label_rotation => -45, title => title('Mean body mass (g)', font_size => 14)),
+       axis => axis(
+         labels => labels(angle => -45),
+         title => title('Mean body mass (g)', font_size => 14),
+       ),
      ),
      color => `species`,
      tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)],

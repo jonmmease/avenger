@@ -11,7 +11,7 @@ use prost::Message;
 /// selections.
 const CONTENT: &[(&str, &[&str])] = &[
     ("Attribution", &["credits"]),
-    ("Axis", &["classes", "id", "route", "tick_step", "values"]),
+    ("Axis", &["classes", "id", "route", "value_step", "values"]),
     ("NestedAxisLevel", &["title"]),
     (
         "Chart",
@@ -46,7 +46,8 @@ const CONTENT: &[(&str, &[&str])] = &[
             "classes",
         ],
     ),
-    ("Title", &["text", "syntax", "subtitle"]),
+    ("Title", &["text", "syntax"]),
+    ("Subtitle", &["text"]),
     (
         "Concat",
         &[
@@ -126,11 +127,11 @@ const CONTENT: &[(&str, &[&str])] = &[
             "widget",
         ],
     ),
-    ("Labels", &["format", "markup"]),
-    ("TickStep", &["step", "interval", "start"]),
+    ("Labels", &["format", "markup", "frame", "sides"]),
+    ("ValueStep", &["step", "interval", "start"]),
     (
         "Legend",
-        &["show", "type", "tick_step", "values", "classes", "id"],
+        &["show", "type", "value_step", "values", "classes", "id"],
     ),
     (
         "SymbolMark",
@@ -351,9 +352,6 @@ const CONTENT: &[(&str, &[&str])] = &[
             "step_major",
             "extent_major",
             "precision",
-            "label_frame",
-            "label_sides",
-            "format",
         ],
     ),
     ("LabelSides", &["sides"]),

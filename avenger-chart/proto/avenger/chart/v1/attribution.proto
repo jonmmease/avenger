@@ -5,6 +5,7 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/side.proto";
+import "avenger/chart/v1/style.proto";
 
 // Credits on a side of a plot, such as `Source: BLS`, or the credits of the tiles of a geo plot.
 // Plots with equal credits merge their attributions by default, so a facet grid shows its sources
@@ -16,8 +17,10 @@ message Attribution {
   // The top or the bottom of the plot. When unset, the styles give it. A left or a right side is
   // invalid.
   Side orient = 2;
-  // Where the credits stand along the side.
-  AttributionAlign align = 3;
+  // Where the credits stand along the side: the start, as the left of a line of text, or the end,
+  // as web maps and figure captions place credits. The center is invalid. When unset, the styles
+  // give it.
+  TextAlign text_align = 3;
   // Typst markup between two credits on a line.
   string separator = 4;
   // The space on each side of the separator, in pixels.
@@ -41,13 +44,4 @@ message Attribution {
   optional float border_radius = 13;
   // The space between the edges of the box behind the credits and its content, in pixels.
   optional float padding = 14;
-}
-
-enum AttributionAlign {
-  // Unset, so the styles give the alignment.
-  ATTRIBUTION_ALIGN_UNSPECIFIED = 0;
-  // The start, as the left of a line of text.
-  ATTRIBUTION_ALIGN_START = 1;
-  // The end, as web maps and figure captions place credits.
-  ATTRIBUTION_ALIGN_END = 2;
 }
