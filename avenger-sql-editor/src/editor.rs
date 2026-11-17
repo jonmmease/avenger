@@ -284,6 +284,8 @@ fn class_color(class: Class) -> Color32 {
         Class::Variable => (140, 80, 20),
         Class::Number => (9, 134, 88),
         Class::String => (163, 21, 21),
+        Class::Constant => (0, 112, 193),
+        Class::Path => (129, 31, 63),
         Class::Comment => (110, 120, 110),
         Class::Operator => (170, 55, 140),
     };

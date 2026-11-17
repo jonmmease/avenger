@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use arrow::datatypes::{DataType, Field, Schema};
 use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
-use avenger_sql_language::Document;
+use avenger_sql_language::{Document, Role};
 
 use crate::{samples::Sample, sources::Source};
 
@@ -67,6 +67,7 @@ impl Analyzed {
         if stale {
             self.document = Some(Document::new(
                 text,
+                Role::Script,
                 self.catalog.clone(),
                 self.library.clone(),
                 Options::default(),

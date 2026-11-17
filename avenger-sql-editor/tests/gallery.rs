@@ -36,7 +36,7 @@ echo 'not the query'
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(x => species, y => count(*))
+|> AGGREGATE mark_bar(x => species, y => count(*))
 ```
 
 Prose after the query.
@@ -56,7 +56,7 @@ Only prose.
 Bill depth against bill length.
 
 ```sql
-FROM samples.penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm)
+FROM samples.penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm)
 ```
 ";
     assert_eq!(
@@ -67,13 +67,13 @@ FROM samples.penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_m
                 title: "Counts".into(),
                 description: "The number of each species. A line of the same paragraph.\n\nA second paragraph."
                     .into(),
-                sql: "FROM samples.penguins\n|> AGGREGATE bar(x => species, y => count(*))".into(),
+                sql: "FROM samples.penguins\n|> AGGREGATE mark_bar(x => species, y => count(*))".into(),
             },
             Example {
                 section: "Points".into(),
                 title: "Bills".into(),
                 description: "Bill depth against bill length.".into(),
-                sql: "FROM samples.penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm)"
+                sql: "FROM samples.penguins |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm)"
                     .into(),
             },
         ]

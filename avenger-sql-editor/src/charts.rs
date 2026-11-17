@@ -5,17 +5,18 @@ use std::sync::Arc;
 
 use avenger_chart::Chart;
 use avenger_chart_eval::{ChartEvaluator, EvalError, Registry};
-use avenger_format_datetime_d3::D3DateTimeFormatProvider;
-use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_format_datetime_googlesql::GoogleSqlDateTimeFormatProvider;
+use avenger_format_number_googlesql::GoogleSqlNumberFormatProvider;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_style::{Cascade, Env, HostInputs, ParseOptions, Sheet, SourceId, StyleTable};
 use avenger_typst_label::LabelEngine;
 
-/// The label engine of the charts: the bundled fonts, with D3 number and date formats.
+/// The label engine of the charts: the bundled fonts, with GoogleSQL's number and date formats,
+/// whose syntaxes the charts of avenger-sql name.
 pub fn engine() -> LabelEngine {
     avenger_typst_label::bundled_label_engine()
-        .with_number_formatting(Arc::new(D3NumberFormatProvider::new()))
-        .with_datetime_formatting(Arc::new(D3DateTimeFormatProvider::new()))
+        .with_number_formatting(Arc::new(GoogleSqlNumberFormatProvider::new()))
+        .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()))
 }
 
 /// The cascade of the base stylesheet, `std:base.css`.

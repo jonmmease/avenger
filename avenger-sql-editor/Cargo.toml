@@ -18,8 +18,8 @@ avenger-chart-eval = { path = "../avenger-chart-eval" }
 avenger-common = { path = "../avenger-common" }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 avenger-eventstream = { path = "../avenger-eventstream" }
-avenger-format-datetime-d3 = { path = "../avenger-format-datetime-d3" }
-avenger-format-number-d3 = { path = "../avenger-format-number-d3" }
+avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql" }
+avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-sql = { path = "../avenger-sql" }
