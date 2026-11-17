@@ -133,28 +133,38 @@ fn an_argument_completes_the_constructors_of_its_parameter_first() {
                 scale => scale(pin => $0))) AS chart";
     let (completions, _) = complete(text);
     let first = &completions.items[0];
-    assert_eq!(first.label, "domain_pin");
+    assert_eq!(first.label, "pin");
     assert_eq!(first.detail.as_deref(), Some("builds `pin`"));
-    // The strings of the set, then the constructors in the order of their groups.
+    // The constructor named after the parameter, then the constructors one level down, named
+    // after the parameters of `scale`, then the strings of the set.
     let text =
         "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => $0)) AS chart";
     let (completions, _) = complete(text);
     let first: Vec<&str> = (completions.items.iter().take(20))
         .map(|item| item.label.as_str())
         .collect();
-    assert_eq!(first[0], "'band'", "{first:?}");
-    let scale = first.iter().position(|label| *label == "scale").unwrap();
-    let linear = first
-        .iter()
-        .position(|label| *label == "linear_scale")
-        .unwrap();
+    assert_eq!(first[..4], ["scale", "type", "domain", "nice"], "{first:?}");
+    let band = first.iter().position(|label| *label == "'band'").unwrap();
     assert!(
-        first[..scale].iter().all(|label| label.starts_with('\'')),
+        first[..band].iter().all(|label| !label.starts_with('\'')),
         "{first:?}"
     );
-    assert!(scale < linear, "{first:?}");
-    let detail = item(&completions, "linear_scale").and_then(|item| item.detail.as_deref());
-    assert_eq!(detail, Some("builds the type of `scale`"));
+    let detail = item(&completions, "type").and_then(|item| item.detail.as_deref());
+    assert_eq!(detail, Some("builds the `type` of `scale`"));
+    // After `type =>`, the scale types: the constructor of the type, then each type's.
+    let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
+                scale => scale(type => $0))) AS chart";
+    let (completions, _) = complete(text);
+    let first: Vec<&str> = (completions.items.iter().take(4))
+        .map(|item| item.label.as_str())
+        .collect();
+    assert_eq!(first, ["type", "linear", "log", "pow"]);
+    let log = item(&completions, "log").unwrap();
+    assert_eq!(log.insert, "log");
+    assert!(
+        (log.documentation.as_deref()).is_some_and(|doc| doc.contains("log(")),
+        "{log:?}"
+    );
     // In the string, every value of the set.
     let text = "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), scale => 'l$0')) AS chart";
     let (completions, replaced) = complete(text);

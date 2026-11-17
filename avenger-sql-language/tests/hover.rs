@@ -145,18 +145,34 @@ fn hover_shows_the_parameter_of_an_argument_name() {
 fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     let document = common::document(
         "FROM penguins |> AGGREGATE bar(x => species, y => scaled(COUNT(*), \
-         scale => scale(pin => domain_pin(0, 'low')))) AS chart",
+         scale => scale(pin => pin(0, position => 'low')))) AS chart",
+    );
+    assert!(
+        document.diagnostics().is_empty(),
+        "{:?}",
+        document.diagnostics()
     );
     let (range, markdown) = hover(&document, "pin =>", 0).unwrap();
     assert_eq!(range, "pin");
     assert!(
         markdown.starts_with(
-            "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```\n\n\
+            "```googlesql\npin => pin(value: ANY, position => 'low' | 'mid' | 'high')\n```\n\n\
              A parameter of `scale`: "
         ),
         "{markdown}"
     );
-    // Three strings of the set, the target's own constructor, then the groups of its parts.
+    // A constructor's hover names the place that it fills.
+    let (range, markdown) = hover(&document, "pin(0", 0).unwrap();
+    assert_eq!(range, "pin");
+    assert!(
+        markdown.starts_with(
+            "```googlesql\npin(value: ANY, position => 'low' | 'mid' | 'high') -> BYTES\n```\n\n\
+             Builds the `pin` of the `scale` of `scaled(...)`."
+        ),
+        "{markdown}"
+    );
+    // Three strings of the set, the parameter's own constructor, then the constructors one level
+    // down.
     let (_, markdown) = hover(&document, "scale =>", 0).unwrap();
     assert!(
         markdown.starts_with(
@@ -166,7 +182,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
         "{markdown}"
     );
     assert!(
-        markdown.contains("\n- Its type: `band_scale(...)`"),
+        markdown.contains("\n- One level down: `type(...)`, `domain(...)`"),
         "{markdown}"
     );
     assert!(!markdown.contains("BYTES"), "{markdown}");

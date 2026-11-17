@@ -35,8 +35,9 @@ impl Document {
         let root = self.root();
         if let Some(value) = (model.enum_values.iter()).find(|v| v.range.contains_inclusive(offset))
         {
-            let function =
-                call_function(&root, value.range).and_then(|name| self.library.get(&name));
+            let function = call_node(&root, value.range)
+                .and_then(|call| self.called(&call))
+                .map(|called| called.function);
             let text = self.slice(value.range);
             let mut markdown = format!("```googlesql\n{text}\n```\n\nA value of `{}`", value.param);
             if let Some(function) = function {
@@ -59,6 +60,15 @@ impl Document {
             return Some(hover);
         }
         let name = model.name_at(offset)?;
+        // A constructor of a chart's option, by the name that its place gives it.
+        if let Some(constructor) = (model.constructors.iter()).rfind(|c| c.range == name.range) {
+            let function = self.library.constructor(&constructor.constructor)?;
+            let written = self.slice(name.range);
+            return Some(Hover {
+                range: name.range,
+                markdown: constructor_hover(function, written, &constructor.place),
+            });
+        }
         let markdown = match &name.definition {
             Definition::Column(column) => self.column(column),
             Definition::RangeVariable { name: var, .. } => {
@@ -157,7 +167,8 @@ impl Document {
         let range = name_ref.syntax().text_range();
         let param = name_ref.text()?;
         let call = named.syntax().parent()?.parent()?;
-        let function = self.library.get(&callee(&call)?)?;
+        let called = self.called(&call)?;
+        let function = called.function;
         let resolved = (self.analysis.model.calls.iter())
             .rfind(|form| form.range == call.text_range())
             .and_then(|form| form.index);
@@ -171,7 +182,7 @@ impl Document {
                     .enumerate()
                     .find_map(|(index, form)| Some((index, takes(form)?)))?,
             };
-        let label = function.signatures().swap_remove(index);
+        let label = function.signatures_named(&called.name).swap_remove(index);
         let named = function.param_named(&param);
         let forms = named.and_then(|param| param.forms(Some(STRINGS)));
         let lines = match &forms {
@@ -180,7 +191,7 @@ impl Document {
         };
         let mut markdown = format!(
             "```googlesql\n{lines}\n```\n\nA parameter of `{}`",
-            function.name
+            called.name
         );
         if let Some(param) = named {
             markdown.push_str(&format!(": {}", param.doc));
@@ -247,8 +258,8 @@ fn columns(columns: &[Column]) -> String {
         .join("\n")
 }
 
-/// The name of the function of the call whose arguments hold `range`.
-fn call_function(root: &SyntaxNode, range: TextRange) -> Option<String> {
+/// The call whose arguments hold `range`.
+fn call_node(root: &SyntaxNode, range: TextRange) -> Option<SyntaxNode> {
     let element = root.covering_element(range);
     let start = match element {
         avenger_sql_syntax::SyntaxElement::Node(node) => node,
@@ -257,7 +268,25 @@ fn call_function(root: &SyntaxNode, range: TextRange) -> Option<String> {
     start
         .ancestors()
         .filter(|node| node.kind() == SyntaxKind::ARG_LIST)
-        .find_map(|list| callee(&list.parent()?))
+        .find_map(|list| list.parent())
+}
+
+/// The hover of the constructor `function` under the name `written`, which fills `place`: its
+/// form under that name, or `name(...)` when the form is longer than [`FORM`], the place, and its
+/// summary and description.
+fn constructor_hover(function: &Function, written: &str, place: &str) -> String {
+    let form = match function.signatures_named(written).into_iter().next() {
+        Some(label) if label.text.chars().count() <= FORM => label.text,
+        _ => format!("{written}(...)"),
+    };
+    let mut markdown = format!(
+        "```googlesql\n{form}\n```\n\nBuilds {place}.\n\n{}",
+        function.summary
+    );
+    if !function.description.is_empty() && function.description != function.summary {
+        markdown.push_str(&format!("\n\n{}", function.description));
+    }
+    markdown
 }
 
 /// The hover of the library function `function`: its forms, or `name(...)` and its result when a

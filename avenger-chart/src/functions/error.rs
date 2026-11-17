@@ -30,6 +30,8 @@ pub enum Reason {
     /// An argument of a parameter that sets the choice that the argument of the parameter
     /// `other` sets, such as `share` and `length` of a track, of which a call gives one.
     Exclusive { other: &'static str },
+    /// An argument of a parameter that the first argument, a shorthand, already fills.
+    Twice,
     /// More arguments than the function has parameters.
     Arity { max: usize, found: usize },
     /// An integer outside the range of its field.
@@ -90,6 +92,10 @@ impl ArgError {
 
     pub(crate) fn exclusive(other: &'static str) -> Self {
         Self::new(Reason::Exclusive { other })
+    }
+
+    pub(crate) fn twice(param: &'static str) -> Self {
+        Self::new(Reason::Twice).within(param)
     }
 
     pub(crate) fn arity(max: usize, found: usize) -> Self {
@@ -156,9 +162,11 @@ impl fmt::Display for ArgError {
                     Some(name) => describe_fragment(name),
                     None => found.describe().to_string(),
                 };
-                write!(f, "takes {}, not {found}", expected.describe())
+                let at = self.path.last().copied();
+                write!(f, "takes {}, not {found}", expected.describe_at(at))
             }
             Reason::Required => write!(f, "is required"),
+            Reason::Twice => write!(f, "has a value from the first argument already"),
             Reason::Exclusive { other } => write!(
                 f,
                 "sets the same choice as `{other}`, so a call gives one of them"
@@ -188,6 +196,12 @@ impl std::error::Error for ArgError {}
 impl Expected {
     /// What a parameter accepts, in the words of an error.
     pub fn describe(&self) -> String {
+        self.describe_at(None)
+    }
+
+    /// What the parameter `at` accepts, in the words of an error, where a fragment of the
+    /// parameter's own constructor is a call of the constructor named after the parameter.
+    pub fn describe_at(&self, at: Option<&str>) -> String {
         match self {
             Expected::Shape(shape) => match shape {
                 Shape::Bool => "a Boolean".into(),
@@ -198,9 +212,9 @@ impl Expected {
                 Shape::Value => "a constant".into(),
                 Shape::Array(_) => "an array".into(),
                 Shape::Options => "a struct of named options".into(),
-                Shape::Message { constructor, .. } => format!("`{constructor}(...)`"),
+                Shape::Message { message, .. } => call(message, at),
             },
-            Expected::Inputs(accepts) => describe_inputs(accepts),
+            Expected::Inputs(accepts) => describe_inputs(accepts, at),
         }
     }
 }
@@ -208,7 +222,7 @@ impl Expected {
 /// The inputs `accepts` in the words of an error: "any constant" for every class of constant, the
 /// calls of the constructors of the fragments, the names that pick a member, and the classes of
 /// the values.
-fn describe_inputs(accepts: &[Accept]) -> String {
+fn describe_inputs(accepts: &[Accept], at: Option<&str>) -> String {
     const CONSTANTS: [Class; 7] = [
         Class::Bool,
         Class::Int,
@@ -225,9 +239,7 @@ fn describe_inputs(accepts: &[Accept]) -> String {
     }
     for accept in accepts {
         let part = match (&accept.class, &accept.shape) {
-            (Class::Fragment, Shape::Message { constructor, .. }) => {
-                format!("`{constructor}(...)`")
-            }
+            (Class::Fragment, Shape::Message { message, .. }) => call(message, at),
             (class, _) if any && CONSTANTS.contains(class) => continue,
             (_, Shape::Names(members)) => format!("a name ({})", names(members, ", ")),
             (class, _) => class.describe().to_string(),
@@ -240,6 +252,26 @@ fn describe_inputs(accepts: &[Accept]) -> String {
         [] => "nothing".to_string(),
         [one] => one.clone(),
         [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
+    }
+}
+
+/// The call of the constructor of a fragment of `message` that the parameter `at` takes: the
+/// parameter's name, or for the options of a coordinate system, which `coord` takes, the
+/// coordinate system's name.
+fn call(message: &str, at: Option<&str>) -> String {
+    let short = message.rsplit('.').next().unwrap_or(message);
+    match at {
+        Some(at) if at != super::COORD => format!("`{at}(...)`"),
+        _ => {
+            let mut snake = String::new();
+            for (index, c) in short.chars().enumerate() {
+                if c.is_ascii_uppercase() && index > 0 {
+                    snake.push('_');
+                }
+                snake.push(c.to_ascii_lowercase());
+            }
+            format!("`{snake}(...)`")
+        }
     }
 }
 

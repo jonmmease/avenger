@@ -338,12 +338,15 @@ fn the_library_names_functions_without_regard_to_case() {
 
 #[test]
 fn a_call_can_name_each_function_and_parameter() {
-    // A function or a parameter keeps its name when it is a reserved word, such as the
-    // constructor `select` or the parameter `range`, which the parser reads as names.
+    // A function, a parameter, or a constructor keeps its name when it is a reserved word, such
+    // as the constructor `select` or the parameter `range`, which the parser reads as names.
     let library = Library::new();
     let mut reserved = Vec::new();
-    for function in library.functions() {
-        if !avenger_sql_syntax::parse(&format!("FROM t |> WHERE {}(1)", function.name)).ok() {
+    for function in library.functions().chain(library.constructors()) {
+        let constructor = function.family == avenger_sql::library::Family::Constructor;
+        if !constructor
+            && !avenger_sql_syntax::parse(&format!("FROM t |> WHERE {}(1)", function.name)).ok()
+        {
             reserved.push(function.name.clone());
         }
         for param in &function.params {
@@ -351,10 +354,20 @@ fn a_call_can_name_each_function_and_parameter() {
             if !avenger_sql_syntax::parse(&text).ok() {
                 reserved.push(format!("{}({})", function.name, param.name));
             }
+            // A constructor's name in a parameter.
+            for builds in &param.takes.constructors {
+                let text = format!("FROM t |> WHERE f({} => {}(1))", param.name, builds.name);
+                if !avenger_sql_syntax::parse(&text).ok() {
+                    reserved.push(builds.name.clone());
+                }
+            }
         }
     }
     assert!(reserved.is_empty(), "reserved names: {reserved:?}");
-    assert!(library.get("select").is_some());
+    // A constructor is not a function of the library, which `select(...)` names only in an
+    // argument of a chart function.
+    assert!(library.get("select").is_none());
+    assert!(library.constructor("select").is_some());
     assert!(library.get("select_").is_none());
 }
 
@@ -459,7 +472,9 @@ fn each_part_that_the_syntax_completes_after_an_interval_analyzes() {
 
 /// The forms of the parameter `param` of `function`, as Markdown, with at most three strings.
 fn forms(library: &Library, function: &str, param: &str) -> Option<String> {
-    let function = library.get(function).expect("the function");
+    let function = (library.get(function))
+        .or_else(|| library.constructor(function))
+        .expect("the function");
     let param = function.param_named(param).expect("the parameter");
     param.forms(Some(3)).map(|forms| forms.markdown())
 }
@@ -467,16 +482,20 @@ fn forms(library: &Library, function: &str, param: &str) -> Option<String> {
 #[test]
 fn a_parameter_that_takes_constructors_writes_its_forms() {
     let library = Library::new();
-    // One constructor of the target itself writes its full form.
+    // The constructor named after the parameter writes its full form under that name, with its
+    // shorthand by position and its other parameters by name.
     assert_eq!(
         forms(&library, "scale", "pin").unwrap(),
-        "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
+        "```googlesql\npin => pin(value: ANY, position => 'low' | 'mid' | 'high')\n```"
     );
-    // An array of fragments of a constructor.
+    // The elements of an array whose element holds only a choice take the choice's members.
     let tools = forms(&library, "bar", "tools").unwrap();
-    assert!(tools.contains("tools => [tool("), "{tools}");
-    // Three strings of a set and `…`, the target's own constructor, then the constructors of its
-    // parts in groups, by the parameters of `scale`.
+    assert!(
+        tools.contains("tools => [navigate(...), ...]\ntools => [tooltip(...), ...]"),
+        "{tools}"
+    );
+    // Three strings of a set and `…`, the parameter's own constructor, then the constructors one
+    // level down, named after the parameters of `scale`.
     let scale = forms(&library, "scaled", "scale").unwrap();
     assert!(
         scale.starts_with(
@@ -484,17 +503,18 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         ),
         "{scale}"
     );
-    let groups: Vec<&str> = (scale.lines())
-        .filter_map(|line| line.strip_prefix("- "))
-        .map(|line| line.split(':').next().unwrap())
-        .collect();
-    assert_eq!(groups, ["Its type"]);
+    assert!(
+        scale.contains("- One level down: `type(...)`, `domain(...)`, `nice(...)`, `pin(...)`"),
+        "{scale}"
+    );
     // The axis and the legend are options of the encoding, beside its scale.
     let axis = forms(&library, "scaled", "axis").unwrap();
     assert!(axis.contains("axis => axis("), "{axis}");
+    // The members of the type of a scale are one level down from its type.
+    let kind = forms(&library, "scale", "type").unwrap();
     assert!(
-        scale.contains("- Its type: `band_scale(...)`, `custom_scale(...)`, `linear_scale(...)`"),
-        "{scale}"
+        kind.contains("- One level down: `linear(...)`, `log(...)`, `pow(...)`"),
+        "{kind}"
     );
     // The strings of the parameter are the values of its set, each of them.
     let scaled = library.get("scaled").unwrap();
@@ -522,5 +542,5 @@ fn the_reference_writes_the_forms_of_a_parameter_with_its_every_string() {
         "{entry}"
     );
     assert!(!entry.contains('…'), "{entry}");
-    assert!(entry.contains("  - Its type: `band_scale(...)`"), "{entry}");
+    assert!(entry.contains("  - One level down: `type(...)`"), "{entry}");
 }

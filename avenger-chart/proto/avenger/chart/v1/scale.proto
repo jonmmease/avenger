@@ -61,6 +61,7 @@ message Scale {
   // conditional value. Values of another type, such as durations, have no inferred type, and a
   // chart that leaves their type unset is invalid.
   oneof type {
+    option (avenger.chart.v1.lift_oneof) = true;
     LinearScale linear = 1;
     LogScale log = 2;
     PowScale pow = 3;
@@ -207,6 +208,7 @@ message NavigationLimits {
   // The bounds that the domain stays inside. A pan stops at a bound, and a zoom out stops at the
   // width of the bounds. Without bounds, the domain moves freely.
   oneof bounds {
+    option (avenger.chart.v1.lift_oneof) = true;
     // The fitted domain of the scale at the plot's size, which holds the data of the scale and
     // the reach of its marks, so a pan stays within the data and a zoom out stops at the fitted
     // view.
@@ -223,7 +225,6 @@ message DataBounds {}
 
 // An interval from `low` to `high`.
 message Interval {
-  option (avenger.chart.v1.constructor) = "navigation_interval";
   // The low end.
   double low = 1;
   // The high end, more than `low`.
@@ -409,7 +410,7 @@ message ThresholdScale {}
 // error that names it.
 message CustomScale {
   // The name of the scale type.
-  string name = 1 [(avenger.chart.v1.required) = true];
+  string name = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // The options of the scale, by name. The scale checks their names and their values.
   map<string, OptionValue> options = 2;
 }
@@ -434,7 +435,7 @@ message SelectionDomain {
 // A value that the domain of a fit holds exactly, and where the domain holds it.
 message DomainPin {
   // The pinned value, a scalar in the type of the domain.
-  ValueRef value = 1 [(avenger.chart.v1.required) = true];
+  ValueRef value = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
   // Where the domain holds the value.
   PinPosition position = 2 [(avenger.chart.v1.required) = true];
 }

@@ -79,7 +79,7 @@ message Axis {
   // row of labels for each outer level outward from the labels of the leaf, with separators
   // between the bands of each outer level. A level past the end of the list takes the defaults.
   // Valid only on the axis of a nested band scale, with at most one entry for each level.
-  repeated NestedAxisLevel levels = 20;
+  repeated NestedAxisLevel levels = 20 [(avenger.chart.v1.element) = "level"];
   // The spoke that the axis of `radius` runs along, in degrees clockwise from the top. When unset,
   // the start angle of the plot. Invalid on the axis of `theta`.
   optional float angle = 21;

@@ -1,7 +1,8 @@
 //! The functions of the format, behind the `functions` feature: a constructor for each message of
-//! the options, which builds the fragment of its message, and a mark function for each mark of
-//! each layer, which builds the chart of one layer. A binding, such as the SQL functions of
-//! avenger-sql, exposes them in its interface.
+//! the options, which builds the fragment of its message, a constructor for each oneof of them,
+//! which builds the oneof, and a mark function for each mark of each layer, which builds the chart
+//! of one layer. A binding, such as the SQL functions of avenger-sql, exposes them in its
+//! interface.
 //!
 //! The module has three parts:
 //!
@@ -14,8 +15,14 @@
 //! - [`Mark::call`], which checks the arguments of a mark function and gives a
 //!   [`MarkTemplate`], which builds the chart of one layer from a table.
 //!
-//! The names of the functions and their parameters are the same in every interface. A binding
-//! escapes the names that its language reserves, such as the parameter `lambda` in Python.
+//! The names of the mark functions and of the parameters are the same in every interface, and a
+//! binding escapes the names that its language reserves, such as the parameter `lambda` in Python.
+//! A constructor's [`Constructor::name`] is unique, such as `log_scale` and `scale.type`, and a
+//! binding that knows the parameter of each argument names a constructor after the place that it
+//! fills, which [`Param::constructor`] gives: `type => log(base => 2)` in SQL. A parameter takes a
+//! plain value, such as a shorthand of its message, or a fragment of its own constructor, and SQL
+//! also takes a constructor of one of that constructor's parameters, which it wraps in the
+//! parameter's own constructor.
 
 mod argument;
 mod call;
@@ -43,14 +50,26 @@ pub const SCALED: &str = "scaled";
 /// `direct_value`.
 pub const DIRECT: &str = "direct";
 
-/// A constructor: its name, the full name of its message, its documentation, and its
-/// parameters.
+/// A constructor: its unique name, the full name of its message, the oneof that it builds, its
+/// documentation, and its parameters. A constructor of a message builds a fragment of the message.
+/// A constructor of a oneof builds a fragment of its message with only the oneof set, whose type is
+/// the message's full name and the oneof's name, such as `avenger.chart.v1.Scale.type`, which only
+/// the oneof's parameter takes.
+///
+/// The first parameter of a constructor of a message with shorthands is
+/// [`positional`](Param::positional) and takes exactly the shorthands: `title => 'Mass'` and
+/// `title => title('Mass')` build the same title.
 pub struct Constructor {
     pub name: &'static str,
     pub message: &'static str,
+    pub oneof: Option<&'static str>,
     pub doc: &'static str,
     pub params: &'static [Param],
+    /// The parameters that the first parameter fills when it is a parameter of its own, `value`,
+    /// whose argument a call then need not give, as `type` of `projection('mercator')`.
+    pub fills: &'static [&'static str],
     build: fn(&[Option<Arg>]) -> Result<proto::Fragment, ArgError>,
+    convert: fn(&Arg) -> Result<proto::Fragment, ArgError>,
 }
 
 impl Constructor {
@@ -65,6 +84,12 @@ impl Constructor {
             }
             false => Err(ArgError::arity(self.params.len(), args.len())),
         }
+    }
+
+    /// The fragment of `arg`, a plain value or a fragment of the constructor, as a parameter whose
+    /// own constructor this is converts it: `foo => v` for the value `v`.
+    pub fn convert(&self, arg: &Arg) -> Result<proto::Fragment, ArgError> {
+        (self.convert)(arg)
     }
 }
 
@@ -84,6 +109,16 @@ pub struct Param {
     pub doc: &'static str,
     pub required: bool,
     pub accepts: &'static [Accept],
+    /// The name of the constructor of the parameter's own form, which a binding gives the
+    /// fragment that the parameter takes: the field's name for a message field, such as `scale`,
+    /// the oneof's name for a oneof, such as `type`, and the `element` option of a repeated
+    /// message field, such as `level` for `levels`. `None` for a parameter of plain values, and
+    /// for a repeated field whose element holds only a choice, such as `tools`, whose elements
+    /// take the choice's members.
+    pub constructor: Option<&'static str>,
+    /// Whether a call gives the argument by its position: only the first parameter of a
+    /// constructor with shorthands, which takes them.
+    pub positional: bool,
 }
 
 /// One input of a parameter: an argument of a class, the field and member names of the chain
@@ -115,7 +150,8 @@ pub enum Shape {
     },
     /// Any constant, which a `ValueRef` stores.
     Value,
-    /// A message, by its full name, with the name of its constructor.
+    /// A message, by its full name, with the unique name of its constructor. A fragment of the
+    /// constructor of a oneof has the message's full name and the oneof's name.
     Message {
         message: &'static str,
         constructor: &'static str,
@@ -156,7 +192,7 @@ pub fn constructors() -> &'static [Constructor] {
     generated::CONSTRUCTORS
 }
 
-/// The constructor `name`.
+/// The constructor with the unique name `name`, such as `log_scale` or `scale.type`.
 pub fn constructor(name: &str) -> Option<&'static Constructor> {
     constructors()
         .iter()
@@ -168,8 +204,16 @@ pub fn encoding_options() -> &'static [Param] {
     generated::PARAMS_ENCODING
 }
 
+/// The fields and the oneofs that the `lift` and `lift_oneof` options mark, the shorthands of
+/// their messages, as `Message.field`, in the order of their names.
+pub fn lifts() -> &'static [&'static str] {
+    generated::LIFTS
+}
+
 /// The text of every constructor's and every composition's parameters and the inputs that each
-/// accepts, which the snapshot test of the constructors compares.
+/// accepts, and of the lifted fields, which the snapshot test of the constructors compares. A
+/// constructor is under its unique name, and a fragment that a parameter takes under the name of
+/// the parameter's own constructor.
 pub fn surface() -> String {
     let mut text = String::new();
     let mut function = |name: &str, leading: &[&str], params: &[Param]| {
@@ -178,9 +222,20 @@ pub fn surface() -> String {
             .collect();
         writeln!(text, "{name}({})", names.join(", ")).unwrap();
         for param in params {
-            let required = if param.required { " (required)" } else { "" };
-            let accepts = describe_accepts(param.accepts);
-            writeln!(text, "  {}{required}: {accepts}", param.name).unwrap();
+            let notes: Vec<&str> = [
+                (param.positional, "positional"),
+                (param.required, "required"),
+            ]
+            .into_iter()
+            .filter(|(holds, _)| *holds)
+            .map(|(_, note)| note)
+            .collect();
+            let notes = match notes.is_empty() {
+                true => String::new(),
+                false => format!(" ({})", notes.join(", ")),
+            };
+            let accepts = describe_accepts(param);
+            writeln!(text, "  {}{notes}: {accepts}", param.name).unwrap();
         }
     };
     for constructor in constructors() {
@@ -193,27 +248,43 @@ pub fn surface() -> String {
         };
         function(composition.name, leading, composition.params);
     }
+    writeln!(text, "lifts").unwrap();
+    for lift in lifts() {
+        writeln!(text, "  {lift}").unwrap();
+    }
     text
 }
 
-/// The text of the inputs `accepts`: the shape of a field whose every input sets it directly, or
-/// each input with its chain.
-fn describe_accepts(accepts: &[Accept]) -> String {
+/// The text of the inputs of `param`: the shape of a field whose every input sets it directly, or
+/// each input with its chain, where a fragment is a call of the parameter's own constructor.
+fn describe_accepts(param: &Param) -> String {
+    let accepts = param.accepts;
+    // A parameter without a constructor of its own, such as `tools`, takes the fragments of its
+    // element's constructor, whose name the analysis gives the members of its choice.
+    let fallback = accepts.iter().find_map(|accept| match accept.shape {
+        Shape::Message { constructor, .. } => Some(constructor),
+        Shape::Array(Shape::Message { constructor, .. }) => Some(*constructor),
+        _ => None,
+    });
+    let own = match (param.constructor, fallback) {
+        (Some(name), _) => format!("{name}(...)"),
+        (None, Some(element)) => format!("a member of {element}(...)"),
+        (None, None) => "?".to_string(),
+    };
     if let [first, rest @ ..] = accepts {
         let direct = |accept: &Accept| accept.chain.is_empty() && accept.class != Class::Fragment;
         let same = (rest.iter()).all(|accept| shape_eq(&accept.shape, &first.shape));
         if direct(first) && rest.iter().all(direct) && same {
-            return describe_shape(&first.shape);
+            return describe_shape(&first.shape, &own);
         }
     }
     let parts: Vec<String> = (accepts.iter())
         .map(|accept| {
             let mut steps: Vec<String> = Vec::new();
             steps.push(match (&accept.class, &accept.shape) {
-                (Class::Fragment, Shape::Message { constructor, .. }) => {
-                    format!("{constructor}(...)")
-                }
-                (Class::Array, shape @ Shape::Array(_)) => describe_shape(shape),
+                (Class::Fragment, Shape::Message { .. }) => own.clone(),
+                (Class::Array, Shape::Array(Shape::Message { .. })) => format!("array of {own}"),
+                (Class::Array, shape @ Shape::Array(_)) => describe_shape(shape, &own),
                 (class, _) => class_word(*class).to_string(),
             });
             if matches!(accept.shape, Shape::Names(_)) {
@@ -228,11 +299,12 @@ fn describe_accepts(accepts: &[Accept]) -> String {
 
 /// Whether two shapes are the same shape.
 fn shape_eq(a: &Shape, b: &Shape) -> bool {
-    describe_shape(a) == describe_shape(b)
+    describe_shape(a, "") == describe_shape(b, "")
 }
 
-/// The text of what a field of `shape` takes.
-fn describe_shape(shape: &Shape) -> String {
+/// The text of what a field of `shape` takes, where a message is `own`, a call of its
+/// constructor.
+fn describe_shape(shape: &Shape, own: &str) -> String {
     match shape {
         Shape::Bool => "Boolean".into(),
         Shape::Int => "integer".into(),
@@ -241,9 +313,9 @@ fn describe_shape(shape: &Shape) -> String {
         Shape::Bytes => "bytes".into(),
         Shape::Enum { values, .. } => format!("one of {}", error::names(values, ", ")),
         Shape::Value => "any constant".into(),
-        Shape::Message { constructor, .. } => format!("{constructor}(...)"),
+        Shape::Message { .. } => own.to_string(),
         Shape::Names(names) => format!("one of {}", error::names(names, ", ")),
-        Shape::Array(item) => format!("array of {}", describe_shape(item)),
+        Shape::Array(item) => format!("array of {}", describe_shape(item, own)),
         Shape::Options => "struct of named options".into(),
     }
 }

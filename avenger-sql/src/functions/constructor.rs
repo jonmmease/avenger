@@ -1,5 +1,7 @@
-//! The constructor functions: a scalar function for each message of the option tree with fields,
-//! which returns the fragment of its message, built from its arguments.
+//! The constructor functions: a scalar function for each constructor of avenger-chart, which
+//! returns the fragment of its message, built from its arguments. A function has the unique name of
+//! its constructor, such as `log_scale`, and gives its errors under the name that its call writes,
+//! such as `log`, the name that the parameter of its argument gives it.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -34,16 +36,18 @@ pub(crate) fn fragment_field(name: &str, message: &str) -> Field {
     ]))
 }
 
-/// The scalar function of a constructor.
+/// The scalar function of a constructor, with the name that its call writes.
 #[derive(Debug)]
 pub(crate) struct ConstructorFunction {
     spec: &'static Constructor,
+    /// The name that the call writes, which its errors give.
+    written: String,
     signature: Signature,
     documentation: Documentation,
 }
 
 impl ConstructorFunction {
-    pub(crate) fn new(spec: &'static Constructor) -> Self {
+    pub(crate) fn new(spec: &'static Constructor, written: &str) -> Self {
         let names: Vec<&str> = spec.params.iter().map(|param| param.name).collect();
         let signature = Signature::user_defined(Volatility::Immutable)
             .with_parameter_names(names.clone())
@@ -54,13 +58,14 @@ impl ConstructorFunction {
         let mut documentation = DocumentationBuilder::new_with_details(
             SECTION,
             spec.doc,
-            format!("{}({})", spec.name, syntax.join(", ")),
+            format!("{written}({})", syntax.join(", ")),
         );
         for param in spec.params {
             documentation = documentation.with_argument(param.name, param.doc);
         }
         Self {
             spec,
+            written: written.to_string(),
             signature,
             documentation: documentation.build(),
         }
@@ -103,7 +108,7 @@ impl ScalarUDFImpl for ConstructorFunction {
     }
 
     fn coerce_types(&self, arg_types: &[DataType]) -> Result<Vec<DataType>> {
-        let (name, count) = (self.spec.name, self.spec.params.len());
+        let (name, count) = (&self.written, self.spec.params.len());
         if arg_types.len() > count {
             return plan_err!(
                 "{name}() takes {count} arguments at most, not {}",
@@ -124,10 +129,14 @@ impl ScalarUDFImpl for ConstructorFunction {
             .collect();
         if let Some(values) = constants {
             if let Err(error) = self.build(values) {
-                return plan_err!("{}(): {error}", self.spec.name);
+                return plan_err!("{}(): {error}", self.written);
             }
         }
-        Ok(Arc::new(fragment_field(self.spec.name, self.spec.message)))
+        let message = match self.spec.oneof {
+            Some(oneof) => format!("{}.{oneof}", self.spec.message),
+            None => self.spec.message.to_string(),
+        };
+        Ok(Arc::new(fragment_field(self.spec.name, &message)))
     }
 
     fn simplify(&self, args: Vec<Expr>, _info: &SimplifyContext) -> Result<ExprSimplifyResult> {
@@ -142,7 +151,7 @@ impl ScalarUDFImpl for ConstructorFunction {
             .collect();
         if let Some(values) = constants {
             if let Err(error) = self.build(values) {
-                return plan_err!("{}(): {error}", self.spec.name);
+                return plan_err!("{}(): {error}", self.written);
             }
         }
         Ok(ExprSimplifyResult::Original(args))
@@ -154,13 +163,13 @@ impl ScalarUDFImpl for ConstructorFunction {
             match arg {
                 ColumnarValue::Scalar(value) => values.push(Some(value)),
                 ColumnarValue::Array(_) => {
-                    return exec_err!("{}() takes constants, not columns", self.spec.name)
+                    return exec_err!("{}() takes constants, not columns", self.written)
                 }
             }
         }
         match self.build(values) {
             Ok(bytes) => Ok(ColumnarValue::Scalar(ScalarValue::BinaryView(Some(bytes)))),
-            Err(error) => exec_err!("{}(): {error}", self.spec.name),
+            Err(error) => exec_err!("{}(): {error}", self.written),
         }
     }
 

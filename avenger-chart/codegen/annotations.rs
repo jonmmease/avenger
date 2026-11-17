@@ -43,16 +43,8 @@ mod wire {
         pub field: Vec<Field>,
         #[prost(message, repeated, tag = "3")]
         pub nested_type: Vec<Descriptor>,
-        #[prost(message, optional, tag = "7")]
-        pub options: Option<MessageOptions>,
         #[prost(message, repeated, tag = "8")]
         pub oneof_decl: Vec<Oneof>,
-    }
-
-    #[derive(Clone, PartialEq, prost::Message)]
-    pub struct MessageOptions {
-        #[prost(string, optional, tag = "50006")]
-        pub constructor: Option<String>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -69,6 +61,8 @@ mod wire {
         pub required: Option<bool>,
         #[prost(bool, optional, tag = "50003")]
         pub lift: Option<bool>,
+        #[prost(string, optional, tag = "50007")]
+        pub element: Option<String>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -83,6 +77,8 @@ mod wire {
     pub struct OneofOptions {
         #[prost(bool, optional, tag = "50002")]
         pub required_oneof: Option<bool>,
+        #[prost(bool, optional, tag = "50008")]
+        pub lift_oneof: Option<bool>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -120,8 +116,10 @@ pub struct Annotations {
     pub required: BTreeSet<(String, String)>,
     pub required_oneof: BTreeSet<(String, String)>,
     pub lift: BTreeSet<(String, String)>,
-    /// The `constructor` of each message that sets it, by the message's full name.
-    pub constructor: BTreeMap<String, String>,
+    /// The oneofs that the `lift_oneof` option marks.
+    pub lift_oneof: BTreeSet<(String, String)>,
+    /// The `element` name of each repeated message field that sets it.
+    pub element: BTreeMap<(String, String), String>,
     /// The `channel_scale` of each value of `Channel` that sets it, by the value's name.
     pub channel_scale: BTreeMap<String, i32>,
     /// The values of `Channel` that the `position` option marks, by name.
@@ -158,14 +156,14 @@ impl Annotations {
 
     fn message(&mut self, scope: &str, message: &wire::Descriptor) {
         let name = format!("{scope}.{}", message.name());
-        if let Some(constructor) = message.options.as_ref().and_then(|o| o.constructor.clone()) {
-            self.constructor.insert(name.clone(), constructor);
-        }
         for field in &message.field {
             let options = field.options.as_ref();
             let key = (name.clone(), field.name().to_string());
             if options.and_then(|o| o.required) == Some(true) {
                 self.required.insert(key.clone());
+            }
+            if let Some(element) = options.and_then(|o| o.element.clone()) {
+                self.element.insert(key.clone(), element);
             }
             if options.and_then(|o| o.lift) == Some(true) {
                 self.lift.insert(key);
@@ -174,6 +172,10 @@ impl Annotations {
         for oneof in &message.oneof_decl {
             if oneof.options.as_ref().and_then(|o| o.required_oneof) == Some(true) {
                 self.required_oneof
+                    .insert((name.clone(), oneof.name().to_string()));
+            }
+            if oneof.options.as_ref().and_then(|o| o.lift_oneof) == Some(true) {
+                self.lift_oneof
                     .insert((name.clone(), oneof.name().to_string()));
             }
         }

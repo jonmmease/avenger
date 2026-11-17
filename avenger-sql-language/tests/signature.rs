@@ -144,13 +144,21 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         let parameter = &signature.parameters[signature.active_parameter.unwrap()];
         parameter.documentation.clone().unwrap()
     };
-    let pin = doc("FROM penguins |> SELECT scale(pin => $0) AS f");
+    let pin = doc("FROM penguins |> SELECT scaled(1, scale => scale(pin => $0)) AS f");
     assert!(
         pin.ends_with(
-            "```googlesql\npin => domain_pin(value: ANY, position: 'low' | 'mid' | 'high')\n```"
+            "```googlesql\npin => pin(value: ANY, position => 'low' | 'mid' | 'high')\n```"
         ),
         "{pin}"
     );
     let scale = doc("FROM penguins |> SELECT scaled(1, scale => $0) AS s");
-    assert!(scale.contains("\n- Its type: `band_scale(...)`"), "{scale}");
+    assert!(
+        scale.contains("\n- One level down: `type(...)`, `domain(...)`"),
+        "{scale}"
+    );
+    // The forms of a constructor under the name that its place gives it.
+    let help =
+        help("FROM penguins |> SELECT scaled(1, scale => scale(type => log($0))) AS s").unwrap();
+    let label = &help.signatures[help.active_signature].label;
+    assert!(label.starts_with("log([base => "), "{label}");
 }

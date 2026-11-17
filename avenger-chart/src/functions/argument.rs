@@ -362,8 +362,6 @@ fn binary(bytes: &[u8]) -> Arg {
 
 /// A fragment of the message `name` in the words of an error: the call of its constructor.
 pub(crate) fn describe_fragment(name: &str) -> String {
-    match super::generated::constructor_name(name) {
-        Some(constructor) => format!("`{constructor}(...)`"),
-        None => format!("a `{}`", name.rsplit('.').next().unwrap_or(name)),
-    }
+    let short = name.strip_prefix("avenger.chart.v1.").unwrap_or(name);
+    format!("a fragment of `{short}`")
 }

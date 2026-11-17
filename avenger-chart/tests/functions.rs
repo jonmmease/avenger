@@ -68,19 +68,53 @@ fn a_name_picks_a_member_without_content() {
 }
 
 #[test]
-fn a_fragment_reaches_its_field_through_a_chain() {
-    let extent = call(
-        "navigation_interval",
-        vec![("low", Arg::Float(0.0)), ("high", Arg::Float(10.0))],
+fn the_constructor_of_a_oneof_sets_the_oneof_of_its_parameter() {
+    let log = call("log_scale", vec![("base", Arg::Int(2))]).unwrap();
+    let kind = call("scale.type", vec![("log", Arg::Fragment(log))]).unwrap();
+    assert_eq!(kind.r#type, "avenger.chart.v1.Scale.type");
+    let fragment = call(
+        "scale",
+        vec![("type", Arg::Fragment(kind)), ("zero", Arg::Bool(true))],
     )
     .unwrap();
-    let fragment = call("scale", vec![("navigation", Arg::Fragment(extent))]).unwrap();
     let scale = proto::Scale::decode(fragment.message).unwrap();
-    let bounds = scale.navigation.and_then(|navigation| navigation.bounds);
-    let Some(proto::navigation_limits::Bounds::Extent(extent)) = bounds else {
-        panic!("an extent: {bounds:?}");
+    let Some(proto::scale::Type::Log(log)) = scale.r#type else {
+        panic!("a log scale: {:?}", scale.r#type);
     };
-    assert_eq!((extent.low, extent.high), (0.0, 10.0));
+    assert_eq!(log.base, Some(2.0));
+    assert_eq!(scale.zero, Some(true));
+    // A fragment of a whole scale is not a value of its type.
+    let whole = call("scale", vec![]).unwrap();
+    let error = call("scale", vec![("type", Arg::Fragment(whole))]).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, \
+         quantile, quantize, threshold), or `type(...)`, not a fragment of `Scale`"
+    );
+}
+
+#[test]
+fn the_first_parameter_takes_the_shorthands_of_its_constructor() {
+    let scale = constructor("scale").unwrap();
+    assert_eq!(scale.params[0].name, "value");
+    assert!(scale.params[0].positional);
+    let shorthand = scale.build(&[Some(Arg::Str("log".into()))]).unwrap();
+    let named = call("scale", vec![("type", Arg::Str("log".into()))]).unwrap();
+    assert_eq!(shorthand, named);
+    // A pin's value is its first parameter, and its position is required.
+    let pin = constructor("domain_pin").unwrap();
+    assert_eq!(pin.params[0].name, "value");
+    let error = pin.build(&[Some(Arg::Int(1000))]).unwrap_err();
+    assert_eq!(error.to_string(), "`position` is required");
+    // A shorthand and a named argument of its field fill one field twice.
+    let error = constructor("title")
+        .unwrap()
+        .build(&[Some(Arg::Str("Mass".into())), Some(Arg::Str("Size".into()))])
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "`text` has a value from the first argument already"
+    );
 }
 
 #[test]
@@ -96,10 +130,14 @@ fn an_error_holds_its_path_and_the_inputs_of_its_parameter() {
         panic!("a rejected string: {error:?}");
     };
     let classes: Vec<Class> = accepts.iter().map(|accept| accept.class).collect();
-    assert_eq!(classes, [Class::Bool, Class::Int, Class::Float]);
+    assert_eq!(
+        classes,
+        [Class::Bool, Class::Int, Class::Float, Class::Fragment]
+    );
     assert_eq!(
         error.to_string(),
-        "`nice` takes a Boolean, an integer, or a floating-point number, not a string"
+        "`nice` takes a Boolean, an integer, a floating-point number, or `nice(...)`, not a \
+         string"
     );
 }
 
@@ -187,10 +225,10 @@ fn symbols_with(named: Vec<(&str, Arg)>) -> Chart {
 
 /// The tools `navigate()` and `tooltip()`.
 fn navigate_and_tooltip() -> Arg {
-    let tool = |kind: &str| {
-        let kind = call(kind, vec![]).unwrap();
+    let tool = |kind_name: &str| {
+        let kind = call(kind_name, vec![]).unwrap();
         Some(Arg::Fragment(
-            call("tool", vec![("kind", Arg::Fragment(kind))]).unwrap(),
+            call("tool", vec![(kind_name, Arg::Fragment(kind))]).unwrap(),
         ))
     };
     Arg::List(vec![tool("navigate"), tool("tooltip")])
@@ -375,7 +413,7 @@ fn the_options_of_the_composition_nodes_have_constructors() {
     assert_eq!(share.size, Some(proto::track::Size::Share(2.0)));
     assert_eq!(share.max, Some(600.0));
 
-    let parts = call("parts", vec![("legend", Arg::Str("keep".into()))]).unwrap();
+    let parts = call("part_rules", vec![("legend", Arg::Str("keep".into()))]).unwrap();
     let parts = proto::PartRules::decode(parts.message).unwrap();
     assert_eq!(parts.legend, proto::PartRuleKind::Keep as i32);
 

@@ -512,7 +512,7 @@ async fn a_mark_call_places_a_select_tool_on_its_layer() {
     // chart does not declare.
     let message = run(
         "FROM t |> AGGREGATE symbol(x => a, y => b, id => 'points', \
-         tools => [select(selection => 'brush', type => interval_select(channels => ['x']))]) \
+         tools => [select('brush', type => interval(channels => ['x']))]) \
          AS chart",
     )
     .await

@@ -99,16 +99,18 @@ pub(crate) struct PrintedWindow {
     pub reads_rows: bool,
 }
 
-/// The function that `call` calls in `library`, when its name has one part.
+/// The function of the library that `call` calls, when its name has one part, and not a
+/// constructor of a chart's option, which the parameter of its argument names.
 fn function<'l>(
     call: &ast::CallExpr,
     library: &'l Library,
 ) -> Option<&'l crate::library::Function> {
     let names = call.path()?.names()?;
-    match names.as_slice() {
-        [name] => library.get(name),
-        _ => None,
-    }
+    let [_] = names.as_slice() else {
+        return None;
+    };
+    let called = crate::library::context::called(library, call.syntax())?;
+    called.fills.is_none().then_some(called.function)
 }
 
 /// The aggregates and windows of `roots`, the channel values and the `ORDER BY` keys of a call
