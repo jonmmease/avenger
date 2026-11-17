@@ -18,6 +18,12 @@ pub(crate) fn number(style: &ComputedStyle, property: Property) -> f32 {
     (style.number(property)).unwrap_or_else(|| panic!("`{}` computes to a number", property.name()))
 }
 
+/// The computed `angle` of a node other than a label, such as a mark or a polar axis, where `auto`
+/// is 0.
+pub(crate) fn angle(style: &ComputedStyle) -> f32 {
+    style.number(Property::Angle).unwrap_or(0.0)
+}
+
 /// The computed color of `property`, whose values are colors, so that every node has one.
 pub(crate) fn color(style: &ComputedStyle, property: Property) -> [f32; 4] {
     (style.color(property)).unwrap_or_else(|| panic!("`{}` computes to a color", property.name()))

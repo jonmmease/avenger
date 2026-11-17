@@ -530,8 +530,8 @@ impl<'a> LayerRows<'a> {
         }))
     }
 
-    /// The dashes of `stroke_dash`, or the computed `stroke-dash` of the mark node: no dash for
-    /// `none`.
+    /// The dashes of `stroke_dash`, or the computed `stroke-dasharray` of the mark node: no dash
+    /// for `none`.
     pub(crate) fn dashes_or_style(&self) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
         let dashes = match self.dashes(Channel::StrokeDash)? {
             Some(dashes) => Some(dashes),
@@ -966,9 +966,9 @@ pub(crate) fn fade(
     }
 }
 
-/// The computed `stroke-dash` of a node, or `None` for `none`.
+/// The computed `stroke-dasharray` of a node, or `None` for `none`.
 pub(crate) fn style_dashes(style: &ComputedStyle) -> Option<Vec<f32>> {
-    match style.get(Property::StrokeDash) {
+    match style.get(Property::StrokeDasharray) {
         Computed::Sequence(parts) | Computed::List(parts) => {
             let lengths: Vec<f32> = (parts.iter())
                 .filter_map(|part| match part {

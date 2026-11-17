@@ -19,26 +19,26 @@ use crate::error::AvengerGuidesError;
 pub(crate) const TITLE_MARGIN: f32 = 2.0;
 pub(crate) const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
 /// The default least distance between ticks, in label font sizes.
-const TICK_SPACING_EMS: f32 = 2.5;
+const VALUE_SPACING_EMS: f32 = 2.5;
 /// How far past the end of its range, in pixels, a value still counts as inside it, since a value
 /// at the end of the domain lands on the end of the range up to rounding.
 const RANGE_SLACK_PX: f64 = 1e-3;
 
-/// The least distance between ticks that an axis fits its tick count to: the style's spacing, or
+/// The least distance between values that an axis fits its value count to: the style's spacing, or
 /// 2.5 times the font size of its labels.
-pub(crate) fn min_tick_spacing(style: &AxisStyle) -> f32 {
-    (style.tick_spacing)
-        .unwrap_or(style.label_font_size * TICK_SPACING_EMS)
+pub(crate) fn min_value_spacing(style: &AxisStyle) -> f32 {
+    (style.value_spacing)
+        .unwrap_or(style.label_font_size * VALUE_SPACING_EMS)
         .max(1.0)
 }
 
-/// The style's tick count, or one fitted to an axis of `length` with ticks at least
+/// The style's value count, or one fitted to an axis of `length` with values at least
 /// `min_spacing` apart. A fitted count applies only when it is below the scale's default.
-pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
-    style.tick_count.or_else(|| {
+pub(crate) fn value_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Option<f64> {
+    style.value_count.or_else(|| {
         let count = f64::from((length / min_spacing).max(2.0));
         // Thinned ticks take every count, since they thin to the count at any length.
-        let thinned = style.thin_ticks && style.ticks.is_some();
+        let thinned = style.value_thinning && style.ticks.is_some();
         (thinned || count < DEFAULT_MAX_TICK_COUNT).then_some(count)
     })
 }
@@ -47,7 +47,7 @@ pub(crate) fn tick_count(style: &AxisStyle, length: f32, min_spacing: f32) -> Op
 pub(crate) fn axis_ticks(
     scale: &ConfiguredScale,
     style: &AxisStyle,
-    tick_count: Option<f64>,
+    value_count: Option<f64>,
 ) -> Result<(ArrayRef, ArrayRef), AvengerGuidesError> {
     let ticks = match &style.ticks {
         Some(AxisTicks::StartStep(AxisTickInterval::Numeric { start, step })) => {
@@ -61,14 +61,14 @@ pub(crate) fn axis_ticks(
         })) => scale.temporal_start_step_ticks(*start_millis, *months, *days, *nanos)?,
         Some(AxisTicks::Values(values)) => values_in_range(scale, values)?,
         None => {
-            let ticks = scale.ticks(tick_count)?;
-            let labeled = scale.label_ticks(&ticks, tick_count);
+            let ticks = scale.ticks(value_count)?;
+            let labeled = scale.label_ticks(&ticks, value_count);
             return Ok((ticks, labeled));
         }
     };
-    let ticks = match style.thin_ticks {
+    let ticks = match style.value_thinning {
         true => {
-            let count = tick_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
+            let count = value_count.unwrap_or(DEFAULT_MAX_TICK_COUNT);
             let step = match &style.ticks {
                 Some(AxisTicks::StartStep(AxisTickInterval::Numeric { step, .. })) => Some(*step),
                 _ => None,
@@ -270,7 +270,7 @@ mod tests {
             Some(-5.0),
         ])) as ArrayRef;
         let style = AxisStyle {
-            tick_count: Some(20.0),
+            value_count: Some(20.0),
             ticks: Some(AxisTicks::Values(explicit)),
             ..Default::default()
         };
@@ -353,7 +353,7 @@ mod tests {
         )) as ArrayRef;
         let style = AxisStyle {
             ticks: Some(AxisTicks::Values(edges)),
-            thin_ticks: true,
+            value_thinning: true,
             ..Default::default()
         };
         let (ticks, labeled) = axis_ticks(&scale, &style, Some(4.0)).unwrap();
@@ -370,7 +370,7 @@ mod tests {
                 start,
                 step,
             })),
-            thin_ticks: true,
+            value_thinning: true,
             ..Default::default()
         };
         let (ticks, _) = axis_ticks(&scale, &lattice(0.0, 10.0), Some(11.0)).unwrap();

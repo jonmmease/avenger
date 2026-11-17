@@ -111,7 +111,6 @@ const FILLED: &[Element] = &[
 const STROKED: &[Element] = &[Mark, Tick, Rule, Grid, Track, Thumb];
 const LINES: &[Element] = &[Mark, Tick, Rule, Grid];
 const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
-const GUIDES: &[Element] = &[Axis, Legend, Facet];
 /// A widget and the parts of its control.
 const WIDGET: &[Element] = &[Widget, Track, Thumb];
 /// The nodes that can have keyboard focus, which draw a focus ring.
@@ -232,11 +231,11 @@ properties! {
     FillOpacity = "fill-opacity", false, UNIT, "1", MARK;
     StrokeOpacity = "stroke-opacity", false, UNIT, "1", MARK;
     StrokeWidth = "stroke-width", false, SIZE, "1", LINES;
-    StrokeDash = "stroke-dash", false, Syntax::Any(&[Syntax::Keywords(&["none"]), Syntax::Dash]), "none", LINES;
+    StrokeDasharray = "stroke-dasharray", false, Syntax::Any(&[Syntax::Keywords(&["none"]), Syntax::Dash]), "none", LINES;
     StrokeLinecap = "stroke-linecap", false, Syntax::Keywords(&["butt", "round", "square"]), "butt", MARK;
     StrokeLinejoin = "stroke-linejoin", false, Syntax::Keywords(&["miter", "round", "bevel"]), "miter", MARK;
     Shape = "shape", false, Syntax::Shape, "circle", &[Mark, Swatch];
-    Angle = "angle", false, Syntax::Angle, "0", &[Mark, Title, Axis];
+    Angle = "angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Mark, Title, Axis, Label];
     Size = "size", false, Syntax::Any(&[NON_NEGATIVE, Syntax::Percentage]), "30", MARK;
     ContinuousSize = "continuous-size", false, SIZE, "5", MARK;
     BinSpacing = "bin-spacing", false, SIZE, "0", MARK;
@@ -250,7 +249,7 @@ properties! {
     TextOverflow = "text-overflow", false, Syntax::Keywords(&["clip", "ellipsis"]), "clip", TEXT_BOXES;
     RadiusSide = "radius-side", false, Syntax::Keywords(&["outward", "middle", "inward"]), "outward", MARK;
     ThetaSide = "theta-side", false, Syntax::Keywords(&["clockwise", "middle", "counterclockwise"]), "middle", MARK;
-    TextOrient = "text-orient", false, Syntax::Keywords(&["horizontal", "radial", "tangential"]), "horizontal", MARK;
+    TextOrient = "text-orient", false, Syntax::Keywords(&["horizontal", "radial", "tangential"]), "horizontal", &[Mark, Label];
     ObjectFit = "object-fit", false, Syntax::Keywords(&["contain", "fill"]), "contain", MARK;
     ImageRendering = "image-rendering", false, Syntax::Keywords(&["auto", "smooth", "pixelated"]), "auto", MARK;
     Pattern = "pattern", false, Syntax::Pattern, "none", &[Mark, Swatch];
@@ -267,23 +266,18 @@ properties! {
     VerticalAlign = "vertical-align", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "auto"]), "auto", &[Label];
 
     // Guides.
-    LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Facet, Legend, Level];
     Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Facet, Title, Attribution, Widget];
-    LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Facet, Axis];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
-    TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
-    TickSpacing = "tick-spacing", false, SIZE_OR_AUTO, "auto", &[Axis];
-    ThinTicks = "thin-ticks", false, Syntax::Boolean, "false", &[Axis];
+    ValueCount = "value-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
+    ValueSpacing = "value-spacing", false, SIZE_OR_AUTO, "auto", &[Axis];
+    ValueThinning = "value-thinning", false, Syntax::Boolean, "false", &[Axis];
     MaxEntries = "max-entries", false, Syntax::Any(&[Syntax::Integer { min: 2 }, Syntax::Keywords(&["none"])]), "none", &[Legend];
-    TickSize = "tick-size", false, SIZE, "5", &[Tick];
-    LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Facet, Graticule];
-    TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
+    Length = "length", false, SIZE, "5", &[Tick];
+    Margin = "margin", false, LENGTH, "0", &[Label, Title, Ramp];
     Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Facet, Title, Attribution, Widget];
     Thickness = "thickness", false, SIZE, "16", &[Ramp];
-    Length = "length", false, SIZE_OR_AUTO, "auto", &[Ramp];
     MaxLength = "max-length", false, SIZE_OR_NONE, "none", &[Ramp];
-    AxisGap = "axis-gap", false, SIZE, "0", &[Legend];
-    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Legend];
+    Overlap = "overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Label];
     Separator = "separator", false, Syntax::String, "\" · \"", &[Attribution];
     SeparatorSpace = "separator-space", false, SIZE, "4", &[Attribution];
     LineGap = "line-gap", false, SIZE, "2", &[Attribution];

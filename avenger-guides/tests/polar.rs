@@ -63,7 +63,7 @@ fn config(kind: PolarAxisKind, start: f32, end: f32) -> PolarAxisConfig {
         tick_format: ",.0f".to_string(),
         style: AxisStyle {
             tick_length: 4.0,
-            tick_count: Some(4.0),
+            value_count: Some(4.0),
             ..AxisStyle::default()
         },
         ..Default::default()
@@ -301,7 +301,7 @@ fn overlapping_labels_thin_evenly_around_the_circle() {
     // Twenty ticks on request, of which the one at 100 is the one at 0.
     let twenty = PolarAxisConfig {
         style: AxisStyle {
-            tick_count: Some(20.0),
+            value_count: Some(20.0),
             ..AxisStyle::default()
         },
         ..config(PolarAxisKind::Theta, 0.0, 360.0)
@@ -341,7 +341,7 @@ fn a_fitted_axis_takes_coarser_ticks_around_the_circle() {
     let engine = engine();
     let config = PolarAxisConfig {
         style: AxisStyle {
-            tick_count: None,
+            value_count: None,
             ..AxisStyle::default()
         },
         ..config(PolarAxisKind::Theta, 0.0, 360.0)

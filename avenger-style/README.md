@@ -51,7 +51,7 @@ The attributes have these values:
 | `mark[type]` | Two forms: the kind of the mark, such as `bar`, `symbol`, or `shape`, and its name with the prefix of its coordinate system, such as `polar_bar` or `geo_shape`. A Cartesian mark has the same name in both forms. |
 | `mark[store]` | The name of the selection whose box or lasso the mark draws |
 | `legend[type]` | `colorbar` for the legend of a continuous color scale, and `symbol` for every other legend |
-| `facet[type]` | `row`, `col`, or `by`, the kind of the facet: rows, columns, or a wrapped grid |
+| `facet[type]` | `row`, `column`, or `wrap`, the kind of the facet: rows, columns, or a wrapped grid |
 | `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, or `checkbox` |
 | `widget[key]` | The key of the widget, which its copies share |
 | `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dash` |
@@ -117,8 +117,13 @@ The initial values of the table hold on every node except these, where they depe
 - `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet, a title, and a widget
 - `columns`: `none` on an `hconcat`
 - `size`: `11` on a text mark, and `stroke-width`: `2` on a line mark
-- `label-overlap`: `greedy` on the axis of a log scale, and `parity` on the axis of a sequential or a diverging scale
+- `margin`: `2` on a label, and `4` on a title
+- `overlap`: `greedy` on the labels of the axis of a log scale, and `parity` on the labels of the axis of a sequential or a diverging scale
 - `padding-outer`: `0.5` on a point scale
+
+`angle: auto` turns labels by their guide. The labels of a band or a point axis on the top or the bottom read across where they keep apart, and otherwise slant to 315 degrees or turn to 270, whichever keeps them apart with thinner labels, the labels of a level of a nested band axis take the angle of the axis's labels at the last level and 0 at the others, and the labels of a facet read along it: down beside a facet on the right, up beside one on the left, and level above or below. On other labels, and on a mark, a title, or an axis, `auto` is `0`.
+
+`margin` is the space between a part and what it labels: labels and the ticks, the swatches, the lines, or the edge that they label, a title and the rest of its guide, and a colorbar's ramp and its axis.
 
 <!-- properties -->
 | Property | Values | Initial | Inherited | Elements |
@@ -147,11 +152,11 @@ The initial values of the table hold on every node except these, where they depe
 | `fill-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-width` | `<length [0,∞]>` | `1` | no | `mark`, `tick`, `rule`, `grid` |
-| `stroke-dash` | `none \| <length>+` | `none` | no | `mark`, `tick`, `rule`, `grid` |
+| `stroke-dasharray` | `none \| <length>+` | `none` | no | `mark`, `tick`, `rule`, `grid` |
 | `stroke-linecap` | `butt \| round \| square` | `butt` | no | `mark` |
 | `stroke-linejoin` | `miter \| round \| bevel` | `miter` | no | `mark` |
 | `shape` | `<shape>` | `circle` | no | `mark`, `swatch` |
-| `angle` | `<angle>` | `0` | no | `mark`, `title`, `axis` |
+| `angle` | `<angle> \| auto` | `0` | no | `mark`, `title`, `axis`, `label` |
 | `size` | `<number [0,∞]> \| <percentage>` | `30` | no | `mark` |
 | `continuous-size` | `<length [0,∞]>` | `5` | no | `mark` |
 | `bin-spacing` | `<length [0,∞]>` | `0` | no | `mark` |
@@ -165,7 +170,7 @@ The initial values of the table hold on every node except these, where they depe
 | `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark`, `title`, `subtitle`, `label` |
 | `radius-side` | `outward \| middle \| inward` | `outward` | no | `mark` |
 | `theta-side` | `clockwise \| middle \| counterclockwise` | `middle` | no | `mark` |
-| `text-orient` | `horizontal \| radial \| tangential` | `horizontal` | no | `mark` |
+| `text-orient` | `horizontal \| radial \| tangential` | `horizontal` | no | `mark`, `label` |
 | `object-fit` | `contain \| fill` | `contain` | no | `mark` |
 | `image-rendering` | `auto \| smooth \| pixelated` | `auto` | no | `mark` |
 | `pattern` | `none \| <pattern>` | `none` | no | `mark`, `swatch` |
@@ -178,23 +183,18 @@ The initial values of the table hold on every node except these, where they depe
 | `max-lines` | `<integer [1,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
 | `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `label`, `attribution` |
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `label` |
-| `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `facet`, `legend`, `level` |
 | `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
-| `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `facet`, `axis` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
-| `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
-| `tick-spacing` | `<length [0,∞]> \| auto` | `auto` | no | `axis` |
-| `thin-ticks` | `true \| false` | `false` | no | `axis` |
+| `value-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
+| `value-spacing` | `<length [0,∞]> \| auto` | `auto` | no | `axis` |
+| `value-thinning` | `true \| false` | `false` | no | `axis` |
 | `max-entries` | `<integer [2,∞]> \| none` | `none` | no | `legend` |
-| `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
-| `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `facet`, `graticule` |
-| `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `facet` |
+| `length` | `<length [0,∞]>` | `5` | no | `tick` |
+| `margin` | `<length>` | `0` | no | `label`, `title`, `ramp` |
 | `offset` | `<length>` | `0` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
 | `thickness` | `<length [0,∞]>` | `16` | no | `ramp` |
-| `length` | `<length [0,∞]> \| auto` | `auto` | no | `ramp` |
 | `max-length` | `<length [0,∞]> \| none` | `none` | no | `ramp` |
-| `axis-gap` | `<length [0,∞]>` | `0` | no | `legend` |
-| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `legend` |
+| `overlap` | `none \| parity \| greedy` | `none` | no | `label` |
 | `separator` | `<string>` | `" · "` | no | `attribution` |
 | `separator-space` | `<length [0,∞]>` | `4` | no | `attribution` |
 | `line-gap` | `<length [0,∞]>` | `2` | no | `attribution` |

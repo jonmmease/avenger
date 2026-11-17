@@ -347,7 +347,7 @@ fn conditions_read_the_host_box_and_the_preferences() {
 #[test]
 fn a_resize_keeps_the_styles_within_a_breakpoint() {
     let (tree, _) = chart();
-    let table = with("@container (width < 400px) { axis { label-angle: 45; } }");
+    let table = with("@container (width < 400px) { axis > label { angle: 45; } }");
     let wide = styles(&table, &tree, &HostInputs::sized(800.0, 600.0));
     // No value reads the size of the host box, so only crossing the breakpoint needs new styles.
     assert!(!wide.needs_update(&HostInputs::sized(500.0, 300.0)));
@@ -621,7 +621,7 @@ fn palettes_come_from_rules_then_from_the_built_in_palettes() {
 #[test]
 fn inline_values_parse_as_their_property() {
     assert_eq!(
-        Property::LabelAngle.parse_value("45"),
+        Property::Angle.parse_value("45"),
         Some(Value::Numeric(avenger_style::values::Calc::Leaf(
             45.0,
             avenger_style::values::Unit::Number
@@ -1245,6 +1245,91 @@ fn equal_style_trees_have_equal_styles() {
     for changed in [classed, attributed, inline, grown] {
         assert_ne!(first, changed);
     }
+}
+
+#[test]
+fn the_parts_of_a_guide_take_the_properties_of_their_parts() {
+    // An x axis of a log scale and a y axis of a band scale, each with a title, labels, and ticks,
+    // a colorbar with a ramp, and a facet with labels.
+    let mut tree = StyleTree::new(Element::Chart);
+    let plot = tree.add(tree.root(), Element::Plot);
+    let axis = |tree: &mut StyleTree, channel: &str, scale: &str, kind: &str| {
+        let axis = tree.add(plot, Element::Axis);
+        tree.set_attribute(axis, "channel", channel);
+        tree.set_attribute(axis, "scale", scale);
+        tree.set_attribute(axis, "kind", kind);
+        let title = tree.add(axis, Element::Title);
+        let label = tree.add(axis, Element::Label);
+        let tick = tree.add(axis, Element::Tick);
+        (axis, title, label, tick)
+    };
+    let (x, x_title, x_label, x_tick) = axis(&mut tree, "x", "log", "sequential");
+    let (y, _, y_label, _) = axis(&mut tree, "y", "band", "categorical");
+    let colorbar = tree.add(plot, Element::Legend);
+    tree.set_attribute(colorbar, "type", "colorbar");
+    let ramp = tree.add(colorbar, Element::Ramp);
+    let colorbar_label = tree.add(colorbar, Element::Label);
+    let facet = tree.add(plot, Element::Facet);
+    tree.set_attribute(facet, "type", "row");
+    let facet_label = tree.add(facet, Element::Label);
+
+    // Without stylesheets, the initial values hold, and some depend on the node.
+    let initial = styles(&StyleTable::new(), &tree, &HostInputs::default());
+    assert_eq!(initial[x_label].number(Property::Margin), Some(2.0));
+    assert_eq!(initial[x_title].number(Property::Margin), Some(4.0));
+    assert_eq!(initial[ramp].number(Property::Margin), Some(0.0));
+    assert_eq!(initial[x_tick].number(Property::Length), Some(5.0));
+    assert_eq!(initial[x_label].number(Property::Angle), Some(0.0));
+    assert_eq!(
+        initial[x_label].keyword(Property::TextOrient),
+        Some("horizontal")
+    );
+    // The labels of an axis keep apart by the axis's scale, and other labels overlap.
+    assert_eq!(initial[x_label].keyword(Property::Overlap), Some("greedy"));
+    assert_eq!(initial[y_label].keyword(Property::Overlap), Some("none"));
+    assert_eq!(
+        initial[colorbar_label].keyword(Property::Overlap),
+        Some("none")
+    );
+    assert_eq!(initial[x].keyword(Property::ValueCount), Some("auto"));
+
+    // The base stylesheet styles the parts, and a stylesheet sets each property on its part.
+    let based = styles(&base_table(Env::new()), &tree, &HostInputs::default());
+    assert_eq!(based[x_label].keyword(Property::Overlap), Some("parity"));
+    assert_eq!(based[y_label].keyword(Property::Overlap), Some("none"));
+    assert_eq!(
+        based[colorbar_label].keyword(Property::Overlap),
+        Some("parity")
+    );
+    assert_eq!(based[facet_label].number(Property::Angle), Some(90.0));
+    assert_eq!(based[facet_label].number(Property::Margin), Some(4.0));
+    let computed = styles(
+        &with(
+            "axis[channel=x] { value-count: 3; value-spacing: 40; value-thinning: true; }
+             axis[channel=x] > label { angle: -45; margin: 6; overlap: none; }
+             axis[channel=y] > label { angle: auto; text-orient: radial; }
+             axis > tick { length: 9; }
+             legend > ramp { margin: 8; }",
+        ),
+        &tree,
+        &HostInputs::default(),
+    );
+    assert_eq!(computed[x].number(Property::ValueCount), Some(3.0));
+    assert_eq!(computed[x].number(Property::ValueSpacing), Some(40.0));
+    assert_eq!(computed[x].boolean(Property::ValueThinning), Some(true));
+    assert_eq!(computed[x_label].number(Property::Angle), Some(-45.0));
+    assert_eq!(computed[x_label].number(Property::Margin), Some(6.0));
+    assert_eq!(computed[x_label].keyword(Property::Overlap), Some("none"));
+    assert_eq!(computed[y_label].keyword(Property::Angle), Some("auto"));
+    assert_eq!(computed[y_label].number(Property::Angle), None);
+    assert_eq!(
+        computed[y_label].keyword(Property::TextOrient),
+        Some("radial")
+    );
+    assert_eq!(computed[x_tick].number(Property::Length), Some(9.0));
+    assert_eq!(computed[ramp].number(Property::Margin), Some(8.0));
+    // The `angle` of an axis is its own, not its labels'.
+    assert_eq!(computed[y].number(Property::Angle), Some(0.0));
 }
 
 #[test]

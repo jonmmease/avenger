@@ -983,8 +983,15 @@ fn node_initial(tree: &StyleTree, node: NodeId, property: Property) -> Option<&'
         },
         (Property::Size, Element::Mark) if kind() == Some("text") => Some("11"),
         (Property::StrokeWidth, Element::Mark) if kind() == Some("line") => Some("2"),
-        (Property::LabelOverlap, Element::Axis) => {
-            match (data.attribute_str("scale"), data.attribute_str("kind")) {
+        (Property::Margin, Element::Label) => Some("2"),
+        (Property::Margin, Element::Title) => Some("4"),
+        // The labels of an axis keep apart by the axis's scale.
+        (Property::Overlap, Element::Label) => {
+            let axis = tree.parent(node).map(|parent| tree.node(parent))?;
+            if axis.element != Element::Axis {
+                return None;
+            }
+            match (axis.attribute_str("scale"), axis.attribute_str("kind")) {
                 (Some("log"), _) => Some("greedy"),
                 (_, Some("sequential" | "diverging")) => Some("parity"),
                 _ => None,

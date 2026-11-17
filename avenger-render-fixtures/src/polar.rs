@@ -217,7 +217,7 @@ fn radius_config(
         label_halo: halo,
         tick_format: ",.0f".to_string(),
         style: AxisStyle {
-            tick_count: Some(4.0),
+            value_count: Some(4.0),
             ..style()
         },
         ..Default::default()

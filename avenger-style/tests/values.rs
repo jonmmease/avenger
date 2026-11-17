@@ -99,7 +99,7 @@ fn numbers_angles_integers_and_percentages() {
     // A value out of range is valid in `calc()`, which the cascade clamps, as in CSS.
     accepts(Property::Opacity, &["calc(1.5)", "calc(-1 + 0)"]);
     accepts(
-        Property::LabelAngle,
+        Property::Angle,
         &[
             "45",
             "45deg",
@@ -110,14 +110,16 @@ fn numbers_angles_integers_and_percentages() {
             "100grad",
         ],
     );
-    rejects(Property::LabelAngle, &["45px", "1rem"]);
+    rejects(Property::Angle, &["45px", "1rem", "none"]);
+    // `auto` turns labels by their guide, and is 0 elsewhere.
+    accepts(Property::Angle, &["auto", "AUTO"]);
     let sizes = UnitSizes::default();
     for (text, degrees) in [
         ("0.25turn", 90.0),
         ("100grad", 90.0),
         ("3.14159265rad", 180.0),
     ] {
-        let resolved = numeric(Property::LabelAngle, text).resolve(&sizes);
+        let resolved = numeric(Property::Angle, text).resolve(&sizes);
         assert!(
             (resolved - degrees).abs() < 1e-3,
             "{text} is {resolved} degrees"
@@ -187,8 +189,8 @@ fn colors_take_css_color_4_mixes_contrast_and_system_colors() {
 fn keywords_and_the_values_of_scales() {
     accepts(Property::TextAlign, &["start", "center", "END", "auto"]);
     rejects(Property::TextAlign, &["left", "justify"]);
-    accepts(Property::LabelOverlap, &["none", "parity", "greedy"]);
-    rejects(Property::LabelOverlap, &["none parity", ""]);
+    accepts(Property::Overlap, &["none", "parity", "greedy"]);
+    rejects(Property::Overlap, &["none parity", ""]);
     accepts(
         Property::Scheme,
         &[
@@ -211,8 +213,8 @@ fn keywords_and_the_values_of_scales() {
         ],
     );
     accepts(Property::Unknown, &["auto", "gray", "#888"]);
-    accepts(Property::StrokeDash, &["none", "4 2", "1 2 4 2"]);
-    rejects(Property::StrokeDash, &["4, 2", "-1 2"]);
+    accepts(Property::StrokeDasharray, &["none", "4 2", "1 2 4 2"]);
+    rejects(Property::StrokeDasharray, &["4, 2", "-1 2"]);
     accepts(Property::FontWeight, &["normal", "bold", "300", "700"]);
     rejects(Property::FontWeight, &["heavy", "0", "1001"]);
     accepts(Property::AspectRatio, &["auto", "1.5", "16 / 9"]);

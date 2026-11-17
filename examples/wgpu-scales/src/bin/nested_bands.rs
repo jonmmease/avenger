@@ -76,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             tick_format: "$,.0f".into(),
             tick_label: None,
             style: AxisStyle {
-                tick_count: Some(5.0),
+                value_count: Some(5.0),
                 ..Default::default()
             },
         },

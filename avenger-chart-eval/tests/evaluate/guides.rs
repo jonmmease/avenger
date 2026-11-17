@@ -536,11 +536,11 @@ fn crowded_short_labels_never_thicken_as_the_axis_grows() {
     }
 }
 
-/// `thin-ticks: true` thins the explicit ticks of an axis to its length, keeping every 2nd, 5th,
-/// or 10th tick where they crowd. Without it, the axis draws every explicit tick, and the overlap
-/// of its labels hides all but every 6th label.
+/// `value-thinning: true` thins the explicit ticks of an axis to its length, keeping every 2nd,
+/// 5th, or 10th tick where they crowd. Without it, the axis draws every explicit tick, and the
+/// overlap of its labels hides all but every 6th label.
 #[test]
-fn thin_ticks_thins_explicit_ticks() {
+fn value_thinning_thins_explicit_ticks() {
     let values: Vec<f64> = (15..=55).map(|step| f64::from(step) * 100.0).collect();
     let symbols = CartesianLayer::symbol(
         cars(),
@@ -564,7 +564,7 @@ fn thin_ticks_thins_explicit_ticks() {
     let every = thousands(scene_texts(&evaluate(&chart, [320.0, 240.0]).scene.marks));
     let mut thinned = ChartEvaluator::new(
         chart,
-        cascade_with("axis { thin-ticks: true; }"),
+        cascade_with("axis { value-thinning: true; }"),
         engine(),
         Registry::new(),
     )
