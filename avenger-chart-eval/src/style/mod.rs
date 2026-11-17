@@ -39,29 +39,29 @@ pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
     kind == FitKind::Interval && !matches!(spec.r#type, Some(scale::Type::Quantize(_)))
 }
 
-/// The axis or the legend that a scale group draws: none when its spec's axis or legend has `show:
-/// false`, an axis for `x` and `y`, a polar axis for `theta` and `radius` only when their spec has
-/// an axis, and for another channel the legend of its spec's type, or without one, a colorbar for a
+/// The axis or the legend that a scale group draws: none when its axis or legend has `show: false`,
+/// an axis for `x` and `y`, a polar axis for `theta` and `radius` only when their encodings have
+/// an axis, and for another channel the legend of its legend's type, or without one, a colorbar for a
 /// continuous color scale and a symbol legend for another scale: the categories of a discrete
 /// scale, the bins of a quantize, quantile, or threshold scale, or the ticks of another continuous
 /// scale.
 pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind> {
     let spec = &group.spec;
     match group.channel {
-        Channel::X | Channel::Y => match &spec.axis {
+        Channel::X | Channel::Y => match &group.axis {
             Some(axis) if axis.show == Some(false) => None,
             _ => Some(GuideKind::Axis),
         },
-        Channel::Theta | Channel::Radius => match &spec.axis {
+        Channel::Theta | Channel::Radius => match &group.axis {
             Some(axis) if axis.show != Some(false) => Some(GuideKind::PolarAxis),
             _ => None,
         },
         channel => {
-            let legend = spec.legend.as_ref();
+            let legend = group.legend.as_ref();
             if legend.is_some_and(|legend| legend.show == Some(false)) {
                 return None;
             }
-            // An angle scale draws no legend unless its spec has one, since the angles of its
+            // An angle scale draws no legend unless its encodings have one, since the angles of its
             // marks show its values.
             if channel == Channel::Angle && legend.is_none() {
                 return None;

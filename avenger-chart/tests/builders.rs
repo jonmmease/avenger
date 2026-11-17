@@ -138,16 +138,15 @@ fn a_message_of_one_required_field_converts_from_it() {
 }
 
 #[test]
-fn a_scale_converts_from_its_lifted_fields() {
-    // Rule F: the axis and the legend.
-    let spec = ScaleBuilder::from(Axis::builder().show(false))
+fn an_encoding_takes_its_axis_and_its_legend() {
+    // An axis converts from a Boolean, its lifted `show`.
+    let x = Encoding::scaled_field("a").axis(false).build().unwrap();
+    assert_eq!(x.axis.unwrap().show, Some(false));
+    let color = Encoding::scaled_field("c")
+        .legend(Legend::builder().type_(LegendForm::Colorbar))
         .build()
         .unwrap();
-    assert_eq!(spec.axis.unwrap().show, Some(false));
-    let spec = ScaleBuilder::from(Legend::builder().type_(LegendForm::Colorbar))
-        .build()
-        .unwrap();
-    assert_eq!(spec.legend.unwrap().r#type, LegendForm::Colorbar as i32);
+    assert_eq!(color.legend.unwrap().r#type, LegendForm::Colorbar as i32);
 }
 
 #[test]
@@ -222,12 +221,9 @@ fn an_encoding_takes_strings_numbers_and_bools_by_its_channel() {
 #[test]
 fn helpers_hide_axes_and_legends() {
     let x = Encoding::scaled_field("a").no_axis().build().unwrap();
-    assert_eq!(x.scale.unwrap().axis.unwrap().show, Some(false));
+    assert_eq!(x.axis.unwrap().show, Some(false));
     let color = Encoding::scaled_field("c").no_legend().build().unwrap();
-    assert_eq!(color.scale.unwrap().legend.unwrap().show, Some(false));
-    let spec = Scale::builder().no_axis().no_legend().build().unwrap();
-    assert_eq!(spec.axis.unwrap().show, Some(false));
-    assert_eq!(spec.legend.unwrap().show, Some(false));
+    assert_eq!(color.legend.unwrap().show, Some(false));
 
     let layer = CartesianLayer::symbol(
         points(),
@@ -237,10 +233,10 @@ fn helpers_hide_axes_and_legends() {
         .build()
         .unwrap();
     let mark = symbols(&chart);
-    let spec = |encoding: &Option<Encoding>| encoding.as_ref().unwrap().scale.clone().unwrap();
-    assert_eq!(spec(&mark.x).axis.unwrap().show, Some(false));
-    assert_eq!(spec(&mark.y).axis.unwrap().show, Some(false));
-    assert_eq!(spec(&mark.color).legend.unwrap().show, Some(false));
+    let encoding = |encoding: &Option<Encoding>| encoding.clone().unwrap();
+    assert_eq!(encoding(&mark.x).axis.unwrap().show, Some(false));
+    assert_eq!(encoding(&mark.y).axis.unwrap().show, Some(false));
+    assert_eq!(encoding(&mark.color).legend.unwrap().show, Some(false));
     // A direct value has no scale.
     assert!(mark.size.as_ref().unwrap().scale.is_none());
 }
@@ -395,7 +391,7 @@ fn a_conditional_value_takes_its_predicate_and_value() {
 #[test]
 fn a_replaced_value_leaves_no_trace_in_the_chart() {
     let ticked = |axis: AxisBuilder| {
-        let x = Encoding::scaled_field("a").scale(axis);
+        let x = Encoding::scaled_field("a").axis(axis);
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x(x).y("b"));
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };

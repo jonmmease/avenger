@@ -134,7 +134,7 @@ fn filtered() -> EncodingBuilder {
 
 /// An encoding of `column` through a scale whose axis has `title`.
 fn axis(column: &str, title: &str) -> EncodingBuilder {
-    Encoding::scaled_field(column).scale(Axis::builder().title(title))
+    Encoding::scaled_field(column).axis(Axis::builder().title(title))
 }
 
 /// The tooltip of a movie: its title, its ratings, its genre, and its year.

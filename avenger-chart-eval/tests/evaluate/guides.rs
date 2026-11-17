@@ -183,7 +183,7 @@ fn an_axis_with_explicit_ticks() {
         cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight")
-                .scale(Axis::builder().values([2000.0, 3000.0, 4000.0])))
+                .axis(Axis::builder().values([2000.0, 3000.0, 4000.0])))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -227,7 +227,7 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder().x("weight").y("mpg").color(
-            Encoding::scaled_field("mpg").scale(
+            Encoding::scaled_field("mpg").legend(
                 Legend::builder()
                     .type_(LegendForm::Colorbar)
                     .max_length(120.0),
@@ -545,7 +545,7 @@ fn thin_ticks_thins_explicit_ticks() {
     let symbols = CartesianLayer::symbol(
         cars(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("weight").scale(Axis::builder().values(values)))
+            .x(Encoding::scaled_field("weight").axis(Axis::builder().values(values)))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -588,7 +588,7 @@ fn a_legend_with_columns_lays_out_a_grid() {
             SymbolMark::builder()
                 .x("weight")
                 .y("mpg")
-                .color(Encoding::scaled_field("cylinders").scale(legend)),
+                .color(Encoding::scaled_field("cylinders").legend(legend)),
         );
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };
@@ -640,7 +640,9 @@ fn a_time_axis_steps_its_ticks_by_months() {
     ])
     .unwrap();
     let chart = |axis: AxisBuilder| {
-        let x = Encoding::scaled_field("day").scale(Scale::builder().enabled(false).axis(axis));
+        let x = Encoding::scaled_field("day")
+            .scale(Scale::builder().enabled(false))
+            .axis(axis);
         let symbols = CartesianLayer::symbol(table.clone(), SymbolMark::builder().x(x).y("value"));
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };
@@ -672,7 +674,7 @@ fn an_axis_of_false_draws_no_axis() {
         let symbols = CartesianLayer::symbol(
             cars(),
             SymbolMark::builder()
-                .x(Encoding::scaled_field("weight").scale(axis))
+                .x(Encoding::scaled_field("weight").axis(axis))
                 .y("mpg"),
         );
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
@@ -685,6 +687,39 @@ fn an_axis_of_false_draws_no_axis() {
     assert!(hidden.len() < drawn.len(), "{hidden:?}");
 }
 
+/// Two encodings that share a scale share its axis: equal axes draw one axis, as the axis of one
+/// encoding alone does, and unequal settings conflict.
+#[test]
+fn encodings_of_a_shared_scale_draw_one_axis() {
+    let chart = |first: Option<AxisBuilder>, second: Option<AxisBuilder>| {
+        let x = |axis: Option<AxisBuilder>| match axis {
+            Some(axis) => Encoding::scaled_field("weight").axis(axis),
+            None => Encoding::scaled_field("weight"),
+        };
+        let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x(x(first)).y("mpg"));
+        let rules = CartesianLayer::rule(cars(), RuleMark::builder().x(x(second)).y("mpg"));
+        Chart::builder(Plot::cartesian([symbols, rules])).build()
+    };
+    let axis = || Some(Axis::builder().title("Weight (lb)").grid(false));
+    let both = chart(axis(), axis()).unwrap();
+    let one = chart(axis(), None).unwrap();
+    let texts = |chart: &Chart| scene_text_positions(&evaluate(chart, [320.0, 240.0]).scene.marks);
+    assert_eq!(texts(&both), texts(&one));
+    let titles = scene_texts(&evaluate(&both, [320.0, 240.0]).scene.marks);
+    assert_eq!(
+        titles.iter().filter(|text| *text == "Weight (lb)").count(),
+        1,
+        "{titles:?}"
+    );
+    let conflict = chart(axis(), Some(Axis::builder().title("Mass"))).unwrap_err();
+    assert!(
+        conflict
+            .to_string()
+            .contains("set `axis.title.text` to different values"),
+        "{conflict}"
+    );
+}
+
 /// A title without a text styles the title that its axis gives, which stays plain text.
 #[test]
 fn a_title_without_a_text_styles_the_derived_title() {
@@ -693,7 +728,7 @@ fn a_title_without_a_text_styles_the_derived_title() {
         cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight")
-                .scale(Axis::builder().title(Title::builder().font_size(14.0))))
+                .axis(Axis::builder().title(Title::builder().font_size(14.0))))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();

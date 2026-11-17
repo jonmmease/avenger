@@ -271,7 +271,7 @@ fn the_specs_of_a_shared_scale_agree() {
 
     let format = |pattern: &str| {
         let mut layer = symbols(0);
-        scale_of(&mut layer, false).axis = Some(proto::Axis {
+        encoding_of(&mut layer, false).axis = Some(proto::Axis {
             labels: Some(proto::Labels {
                 format: pattern.to_string(),
                 ..Default::default()
@@ -295,8 +295,8 @@ fn the_specs_of_a_shared_scale_agree() {
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
     assert!(
-        x.spec.axis.is_some(),
-        "the merged spec takes the guide that one spec sets"
+        x.axis.is_some(),
+        "the shared scale takes the axis that one encoding sets"
     );
 }
 
@@ -858,7 +858,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
             ..Default::default()
         }));
         spec.domain = None;
-        spec.axis = Some(proto::Axis {
+        encoding_of(&mut layer, false).axis = Some(proto::Axis {
             classes: classes.iter().map(|class| class.to_string()).collect(),
             ..Default::default()
         });
@@ -892,7 +892,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
         panic!("the shared scale is a band scale")
     };
     assert_eq!(band.kind, proto::ScaleKind::Ordinal as i32);
-    let Some(axis) = x.spec.axis.as_ref() else {
+    let Some(axis) = x.axis.as_ref() else {
         panic!("the shared scale has an axis")
     };
     assert_eq!(axis.classes, vec!["a".to_string(), "b".to_string()]);
@@ -902,8 +902,7 @@ fn shared_scales_agree_on_their_kind_and_join_the_classes_of_their_guides() {
 fn shared_scales_agree_on_the_ids_of_their_guides() {
     let axis = |id: &str| {
         let mut layer = symbols(0);
-        let spec = scale_of(&mut layer, false);
-        spec.axis = Some(proto::Axis {
+        encoding_of(&mut layer, false).axis = Some(proto::Axis {
             id: id.to_string(),
             ..Default::default()
         });
@@ -920,7 +919,7 @@ fn shared_scales_agree_on_the_ids_of_their_guides() {
     let x = (groups.iter())
         .find(|group| group.channel == proto::Channel::X)
         .unwrap();
-    let Some(axis) = x.spec.axis.as_ref() else {
+    let Some(axis) = x.axis.as_ref() else {
         panic!("the shared scale has an axis")
     };
     assert_eq!(axis.id, "time");
@@ -928,7 +927,7 @@ fn shared_scales_agree_on_the_ids_of_their_guides() {
 
 /// Symbols whose `x` axis, or `y` axis when `y`, has `id`.
 fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
-    scale_of(&mut layer, y).axis = Some(proto::Axis {
+    encoding_of(&mut layer, y).axis = Some(proto::Axis {
         id: id.to_string(),
         ..Default::default()
     });
@@ -937,8 +936,8 @@ fn with_axis(mut layer: CartesianLayer, y: bool, id: &str) -> CartesianLayer {
 
 #[test]
 fn ids_share_one_namespace_across_plots_layers_nodes_guides_and_facets() {
-    let x_axis = "root.plot.cartesian.layers[0].symbol.x.scale.axis";
-    let y_axis = "root.plot.cartesian.layers[0].symbol.y.scale.axis";
+    let x_axis = "root.plot.cartesian.layers[0].symbol.x.axis";
+    let y_axis = "root.plot.cartesian.layers[0].symbol.y.axis";
     read(parts(
         plot_with("sales", vec![], vec![with_axis(symbols(0), false, "time")]),
         vec![],
@@ -1036,7 +1035,7 @@ fn the_guides_of_the_facets_of_independent_scales_differ_by_partition() {
     );
     invalid(
         parts(plain, vec![]),
-        "root.concat.children[1].plot.cartesian.layers[0].symbol.y.scale.axis",
+        "root.concat.children[1].plot.cartesian.layers[0].symbol.y.axis",
         "have one id and one partition, `measure`",
     );
 }

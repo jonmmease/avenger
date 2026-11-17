@@ -5,8 +5,8 @@
 //!
 //! - the function's name is the message's name without `Mark`, in snake case: `bar` for
 //!   `BarMark`, and `polar_bar` for `PolarBarMark`
-//! - its channels, which are its parameters, are the `Encoding` fields of the message outside a
-//!   oneof: the required channels first, then the others, each in the order of the field numbers
+//! - its channels, which are its parameters, are the `Encoding` fields of the message: the
+//!   required channels first, then the others, each in the order of the field numbers
 //! - its documentation is the comment of the message, and each channel's is the comment of its
 //!   field, or of its value of the `Channel` enum, which a field without a comment of its own
 //!   means
@@ -78,7 +78,6 @@ pub(super) fn mark_functions(
             names.push(name.clone());
             let mut channels: Vec<(bool, i32, usize)> = (mark.field.iter().enumerate())
                 .filter(|(_, field)| field.type_name() == encoding)
-                .filter(|(_, field)| field.oneof_index.is_none() || field.proto3_optional())
                 .map(|(index, field)| {
                     let required = annotations.is_required(mark_name, field.name());
                     (!required, field.number(), index)

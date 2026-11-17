@@ -800,14 +800,11 @@ impl<'a> LayerRows<'a> {
     }
 
     /// The rows of each series of a line or an area in the order of its path: ascending by
-    /// `ordering`, with `NULL` last, or without `ordering`, by `along`, the position of each row
+    /// `order`, with `NULL` last, or without `order`, by `along`, the position of each row
     /// along the key, with an undefined position last. Equal values keep their row order.
     pub(crate) fn path_series(&self, along: impl Fn(usize) -> f32) -> Result<Vec<Vec<u32>>> {
         let mut series = self.series()?;
-        let order = match self
-            .encoding(Channel::Ordering)
-            .and_then(|e| e.kind.as_ref())
-        {
+        let order = match self.encoding(Channel::Order).and_then(|e| e.kind.as_ref()) {
             Some(encoding::Kind::DirectField(name) | encoding::Kind::ScaledField(name)) => {
                 self.column(name)
             }
@@ -828,7 +825,7 @@ impl<'a> LayerRows<'a> {
                 }
             }
             // A constant order keeps the row order.
-            None if self.has(Channel::Ordering) => {}
+            None if self.has(Channel::Order) => {}
             None => {
                 for rows in &mut series {
                     rows.sort_by(|a, b| {

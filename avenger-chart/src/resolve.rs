@@ -3,7 +3,8 @@
 //! into projections.
 //!
 //! The resolve rules of plots, concats, and wraps and the share families of specs decide which
-//! channels share a scale, and the specs of each group merge by the agreement rule of `Scale`.
+//! channels share a scale, and the specs of each group merge by the agreement rule of `Scale`, and
+//! their axes and legends by the rule of `Encoding.axis`.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -548,7 +549,7 @@ pub(crate) fn common_path(a: &str, b: &str) -> String {
 }
 
 /// One scale: the encodings that go through it, with the second channels of their pairs, and its
-/// spec, which merges the specs of its encodings.
+/// spec, axis, and legend, which merge those of its encodings.
 pub struct ScaleGroup {
     /// The channel of the scale, the first channel of a pair.
     pub channel: Channel,
@@ -556,6 +557,11 @@ pub struct ScaleGroup {
     /// the first encoding, which for summary and data domains holds the merged fit, and each member
     /// holds its own summary.
     pub spec: proto::Scale,
+    /// The axis of the scale, which merges the axes of its encodings, as `Encoding.axis`
+    /// describes.
+    pub axis: Option<proto::Axis>,
+    /// The legend of the scale, which merges the legends of its encodings.
+    pub legend: Option<proto::Legend>,
     /// The encodings of the scale, in tree order, with the second channel of a pair after its
     /// first.
     pub members: Vec<Member>,
@@ -570,24 +576,25 @@ impl ScaleGroup {
     /// The identity of the scale's axis or legend, when it has an id: the id, with the partition
     /// values that every layer of the scale shares.
     pub fn axis_or_legend_identity(&self, tree: &Tree) -> Option<Identity> {
-        let (id, _) = axis_or_legend_id(&self.spec)?;
+        let (id, _) = axis_or_legend_id(self.axis.as_ref(), self.legend.as_ref())?;
         let partitions: Vec<BTreeMap<String, ArrayRef>> = (self.members.iter())
             .map(|member| tree.layers[member.layer].partition.clone())
             .collect();
         Some(Identity::given(id, common(&partitions).unwrap_or_default()))
     }
 
-    /// The path of the axis or the legend of the first encoding whose spec gives it its id, such
-    /// as `root.plot.cartesian.layers[0].bar.x.scale.axis`.
+    /// The path of the axis or the legend of the first encoding that gives it its id, such as
+    /// `root.plot.cartesian.layers[0].bar.x.axis`.
     fn axis_or_legend_path(&self, tree: &Tree, id: &str) -> String {
         (self.members.iter())
             .find_map(|member| {
                 let layer = &tree.layers[member.layer];
-                let spec = layer.mark.encoding(member.channel)?.scale.as_ref()?;
-                let (found, field) = axis_or_legend_id(spec)?;
+                let encoding = layer.mark.encoding(member.channel)?;
+                let (found, field) =
+                    axis_or_legend_id(encoding.axis.as_ref(), encoding.legend.as_ref())?;
                 (found == id).then(|| {
                     format!(
-                        "{}.{}.{}.scale.{field}",
+                        "{}.{}.{}.{field}",
                         layer.path,
                         layer.mark.name(),
                         member.channel.field_name(),
@@ -613,9 +620,12 @@ impl ScaleGroup {
     }
 }
 
-/// The id of a scale's axis or legend, when it has one, with the name of the field that holds it.
-fn axis_or_legend_id(spec: &proto::Scale) -> Option<(&str, &'static str)> {
-    let (id, field) = match (&spec.axis, &spec.legend) {
+/// The id of an axis or a legend, when it has one, with the name of the field that holds it.
+fn axis_or_legend_id<'a>(
+    axis: Option<&'a proto::Axis>,
+    legend: Option<&'a proto::Legend>,
+) -> Option<(&'a str, &'static str)> {
+    let (id, field) = match (axis, legend) {
         (Some(axis), _) => (&axis.id, "axis"),
         (None, Some(legend)) => (&legend.id, "legend"),
         (None, None) => return None,
@@ -673,12 +683,13 @@ fn join<K: std::hash::Hash + Eq>(keys: &[Vec<K>]) -> Vec<usize> {
 
 /// The scale groups of the layers of `tree`. The encodings of one channel whose layers share it
 /// at one node, or whose specs name one share family, are one group, which the second channels of
-/// their pairs join. The specs of each group must agree, and an error names the channel and the
-/// two layers whose specs disagree.
+/// their pairs join. The specs, the axes, and the legends of each group must agree, and an error
+/// names the channel and the two layers whose encodings disagree.
 pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
     struct Entry<'a> {
         layer: usize,
         channel: Channel,
+        encoding: &'a proto::Encoding,
         spec: &'a proto::Scale,
     }
     let mut entries: Vec<Entry> = Vec::new();
@@ -695,6 +706,7 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
                 entries.push(Entry {
                     layer: index,
                     channel,
+                    encoding,
                     spec,
                 });
             }
@@ -720,13 +732,26 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
         };
         let group = match group_of.get(&roots[index]) {
             Some(&group) => {
-                if let Err(reason) = merge::merge(&mut groups[group].spec, entry.spec, &same) {
-                    // The earliest member whose own spec disagrees with this one names the pair.
+                let merged = &mut groups[group];
+                let merge_into =
+                    |spec: &mut proto::Scale,
+                     axis: &mut Option<proto::Axis>,
+                     legend: &mut Option<proto::Legend>| {
+                        merge::merge(spec, entry.spec, &same)?;
+                        merge::merge_guides(axis, legend, entry.encoding, &same)
+                    };
+                if let Err(reason) =
+                    merge_into(&mut merged.spec, &mut merged.axis, &mut merged.legend)
+                {
+                    // The earliest member whose own spec or guides disagree with this one names
+                    // the pair.
                     let earlier = (entries_of[group].iter())
                         .map(|&earlier| &entries[earlier])
                         .find_map(|earlier| {
                             let mut spec = earlier.spec.clone();
-                            merge::merge(&mut spec, entry.spec, &same)
+                            let mut axis = earlier.encoding.axis.clone();
+                            let mut legend = earlier.encoding.legend.clone();
+                            merge_into(&mut spec, &mut axis, &mut legend)
                                 .err()
                                 .map(|reason| (earlier, reason))
                         });
@@ -735,7 +760,7 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
                     return Err(ChartError::invalid(
                         layer.path.clone(),
                         format!(
-                            "the `{}` specs of `{}` and `{}` share a scale and {reason}",
+                            "the `{}` encodings of `{}` and `{}` share a scale and {reason}",
                             entry.channel.field_name(),
                             tree.layers[earlier.layer].path,
                             layer.path,
@@ -752,6 +777,8 @@ pub(crate) fn groups(chart: &Chart, tree: &Tree) -> Result<Vec<ScaleGroup>> {
                 groups.push(ScaleGroup {
                     channel: entry.channel,
                     spec: entry.spec.clone(),
+                    axis: entry.encoding.axis.clone(),
+                    legend: entry.encoding.legend.clone(),
                     members: vec![member],
                     owner: layer.path.clone(),
                     kind: is_position(entry.channel).then(|| tree.plots[layer.plot].kind),

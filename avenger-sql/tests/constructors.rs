@@ -85,11 +85,6 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     )
     .await;
     builds(
-        "scale(axis => FALSE)",
-        Scale::builder().axis(false).to_fragment().unwrap(),
-    )
-    .await;
-    builds(
         "legend(labels => FALSE, columns => 2, background => 'white')",
         Legend::builder()
             .labels(false)
@@ -333,11 +328,21 @@ async fn chart_of_geo(coord: &str) -> Chart {
 #[tokio::test]
 async fn scaled_takes_the_options_of_its_encoding() {
     let chart = chart(
-        "FROM penguins |> AGGREGATE symbol(x => scaled(body_mass_g, scale => scale(type => 'log'), title => 'Mass'), y => flipper_length_mm) AS chart",
+        "FROM penguins |> AGGREGATE symbol(
+           x => scaled(
+             body_mass_g,
+             scale => scale(type => 'log'),
+             title => 'Mass',
+             axis => axis(label_rotation => -45, grid => FALSE),
+           ),
+           y => scaled(flipper_length_mm, axis => FALSE),
+           color => scaled(species, legend => legend(orient => 'bottom', columns => 2)),
+         ) AS chart",
     )
     .await;
     let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
-    let encoding = layer.mark().unwrap().encoding(Channel::X).unwrap();
+    let mark = layer.mark().unwrap();
+    let encoding = mark.encoding(Channel::X).unwrap();
     assert_eq!(encoding.title.as_deref(), Some("Mass"));
     assert!(matches!(
         encoding
@@ -346,6 +351,59 @@ async fn scaled_takes_the_options_of_its_encoding() {
             .and_then(|scale| scale.r#type.as_ref()),
         Some(avenger_chart::proto::scale::Type::Log(_))
     ));
+    // The axis and the legend are options of the encoding, and a Boolean shows or hides a part.
+    let axis = encoding.axis.as_ref().unwrap();
+    assert_eq!(axis.grid, Some(false));
+    assert!(matches!(
+        axis.label_rotation,
+        Some(avenger_chart::proto::axis::LabelRotation::LabelAngle(angle)) if angle == -45.0
+    ));
+    let y = mark.encoding(Channel::Y).unwrap();
+    assert_eq!(y.axis.as_ref().unwrap().show, Some(false));
+    let legend = mark
+        .encoding(Channel::Color)
+        .unwrap()
+        .legend
+        .as_ref()
+        .unwrap();
+    assert_eq!(legend.columns, Some(2));
+    assert_eq!(legend.orient, avenger_chart::proto::Side::Bottom as i32);
+}
+
+#[tokio::test]
+async fn an_axis_is_an_option_of_a_position_and_a_legend_of_another_channel() {
+    for (query, path, reason) in [
+        (
+            "FROM penguins
+             |> AGGREGATE symbol(
+                  x => scaled(body_mass_g, legend => legend(columns => 2)),
+                  y => flipper_length_mm,
+                ) AS chart",
+            "symbol.x.legend",
+            "a legend is valid only on a channel other than a position",
+        ),
+        (
+            "FROM penguins
+             |> AGGREGATE symbol(
+                  x => body_mass_g,
+                  y => flipper_length_mm,
+                  color => scaled(species, axis => FALSE),
+                ) AS chart",
+            "symbol.color.axis",
+            "an axis is valid only on a position with a scale of its own",
+        ),
+    ] {
+        let error = match avenger_sql::sql(&common::session(), query).await {
+            Ok(frame) => frame.collect().await.map(|_| ()),
+            Err(error) => Err(error),
+        }
+        .expect_err(query)
+        .to_string();
+        assert!(
+            error.contains(path) && error.contains(reason),
+            "{query}: {error}"
+        );
+    }
 }
 
 #[tokio::test]

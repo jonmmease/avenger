@@ -75,7 +75,7 @@ point_key(column, source)
   column (required): string
   source: string
 interval_select(channels, cell)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   cell: number
 tooltip(find, title, fields, anchor, hide_swatch)
   find: string -> a member's name; nearest_find(...) -> nearest
@@ -91,7 +91,7 @@ nearest_find(max_radius, metric)
   max_radius: number
   metric: one of euclidean, along_x, along_y
 navigate(channels)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
 attribution(credits, orient, align, separator, separator_space, font_family, font_size, font_weight, color, line_gap, background, border_color, border_radius, padding)
   credits: array of string
   orient: one of bottom, top, left, right
@@ -205,20 +205,6 @@ polar(start_angle, end_angle, inner_radius)
   inner_radius: number
 cartesian(aspect_ratio)
   aspect_ratio: number
-scale(type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, axis, navigation, legend)
-  type: string -> a member's name; band_scale(...) -> band; custom_scale(...) -> custom; linear_scale(...) -> linear; log_scale(...) -> log; nested_band_scale(...) -> nested_band; ordinal_scale(...) -> ordinal; point_scale(...) -> point; pow_scale(...) -> pow; symlog_scale(...) -> symlog; time_scale(...) -> time
-  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; selection_domain(...) -> selection
-  zero: Boolean
-  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
-  pin: domain_pin(...)
-  domain_empty: any constant
-  sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; other -> preferred
-  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
-  reverse: Boolean
-  family: string
-  axis: Boolean -> show; axis(...)
-  navigation: string -> a member's name; navigation_interval(...) -> extent; navigation_limits(...)
-  legend: Boolean -> show; legend(...)
 legend(show, type, title, labels, label_angle, orient, background, border_color, border_radius, padding, wrap, columns, label_padding, column_gap, row_gap, tick_placement, swatches, thickness, axis_gap, max_length, label_align, label_baseline, ticks, tick_size, tick_color, rule, rule_color, classes, id)
   show: Boolean
   type: one of symbol, colorbar
@@ -253,12 +239,6 @@ tick_step(step, interval, start)
   step: number
   interval: one of month, day, millisecond
   start: any constant
-navigation_limits(bounds, min_span)
-  bounds: string -> a member's name; navigation_interval(...) -> extent
-  min_span: number
-navigation_interval(low, high)
-  low: number
-  high: number
 axis(show, title, orient, labels, label_rotation, label_align, label_baseline, tick_placement, ticks, tick_size, tick_color, rule, rule_color, grid, grid_color, grid_width, levels, angle, route, classes, id)
   show: Boolean
   title: Boolean -> show; string -> text; title(...)
@@ -285,12 +265,30 @@ nested_axis_level(labels, title, label_angle)
   labels: Boolean -> show; string -> format; labels(...)
   title: string
   label_angle: number
+scale(type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, navigation)
+  type: string -> a member's name; band_scale(...) -> band; custom_scale(...) -> custom; linear_scale(...) -> linear; log_scale(...) -> log; nested_band_scale(...) -> nested_band; ordinal_scale(...) -> ordinal; point_scale(...) -> point; pow_scale(...) -> pow; symlog_scale(...) -> symlog; time_scale(...) -> time
+  domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit; selection_domain(...) -> selection
+  zero: Boolean
+  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count
+  pin: domain_pin(...)
+  domain_empty: any constant
+  sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; other -> preferred
+  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; other -> values
+  reverse: Boolean
+  family: string
+  navigation: string -> a member's name; navigation_interval(...) -> extent; navigation_limits(...)
+navigation_limits(bounds, min_span)
+  bounds: string -> a member's name; navigation_interval(...) -> extent
+  min_span: number
+navigation_interval(low, high)
+  low: number
+  high: number
 domain_pin(value, position)
   value (required): any constant
   position (required): one of low, mid, high
 selection_domain(selection, channel, fallback)
   selection (required): string
-  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, ordering
+  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   fallback: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; other -> explicit
 custom_scale(name, options)
   name (required): string

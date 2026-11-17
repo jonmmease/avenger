@@ -35,10 +35,10 @@ message SymbolMark {
 }
 
 // A line through the rows of each series. The `detail` and the color channels split the rows into
-// series. The channels other than the positions and `ordering` take one value for each series. Each
-// series connects its rows in ascending order of `ordering`, with `NULL` last and equal values in
-// row order, and without `ordering`, in the order of their positions along its key: `x` when
-// vertical, and `y` when horizontal. `ordering` orders the path only: the first row of each series
+// series. The channels other than the positions and `order` take one value for each series. Each
+// series connects its rows in ascending order of `order`, with `NULL` last and equal values in
+// row order, and without `order`, in the order of their positions along its key: `x` when
+// vertical, and `y` when horizontal. `order` orders the path only: the first row of each series
 // orders the series, which draw in that order. A row without a position, such as a row of a `NULL`
 // `y`, breaks the line there.
 message LineMark {
@@ -54,7 +54,7 @@ message LineMark {
   Encoding stroke_width = 123;
   Encoding stroke_dash = 124;
   Encoding detail = 133;
-  Encoding ordering = 134;
+  Encoding order = 134;
 }
 
 // A line through the rows of each series, in the order of the rows, whose width at each row is its
@@ -73,9 +73,9 @@ message TrailMark {
 
 // The region of each series between a line and a baseline: `y2`, or zero, along `x` for a vertical
 // area, and `x2`, or zero, along `y` for a horizontal area. The channels other than the positions
-// and `ordering` take one value for each series. Each series connects its rows in ascending order
-// of `ordering`, with `NULL` last and equal values in row order, and without `ordering`, in the
-// order of their positions along its key: `x` when vertical, and `y` when horizontal. `ordering`
+// and `order` take one value for each series. Each series connects its rows in ascending order
+// of `order`, with `NULL` last and equal values in row order, and without `order`, in the
+// order of their positions along its key: `x` when vertical, and `y` when horizontal. `order`
 // orders the path only: the first row of each series orders the series, which draw in that order. A
 // row without a position, such as a row of a `NULL` `y`, breaks the area there, so each run of the
 // other rows is a region of its own.
@@ -97,7 +97,7 @@ message AreaMark {
   Encoding stroke_dash = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
-  Encoding ordering = 134;
+  Encoding order = 134;
 }
 
 // A rectangle from a baseline to a value, along a band, or at a continuous key with the thickness
@@ -284,7 +284,7 @@ message PolarLineMark {
   Encoding stroke_width = 123;
   Encoding stroke_dash = 124;
   Encoding detail = 133;
-  Encoding ordering = 134;
+  Encoding order = 134;
 }
 
 // A trail through the rows of each series of a polar plot, as for `TrailMark`. Each segment between
@@ -328,7 +328,7 @@ message PolarAreaMark {
   Encoding stroke_dash = 124;
   Encoding pattern = 128;
   Encoding detail = 133;
-  Encoding ordering = 134;
+  Encoding order = 134;
 }
 
 // A bar of a polar plot, as for `BarMark`, where `theta` takes the place of `x` and `radius` the
@@ -436,6 +436,9 @@ message PolarTextMark {
   optional uint32 max_lines = 6;
   // Whether an ellipsis marks a text that its `width` or `max_lines` cuts. When unset, none does.
   optional bool ellipsis = 7;
+  // How each text runs: along the circle or a spoke. Invalid with an `angle`, which turns each
+  // text by the angle of its row. When both are unset, each text is horizontal.
+  PolarTextOrient orient = 8;
   // Where each text lies from the radius of its point.
   RadiusSide radius_side = 9;
   // Where each text lies from the angle of its point.
@@ -449,12 +452,8 @@ message PolarTextMark {
   Encoding opacity = 120;
   // The font size of each text, in pixels.
   Encoding size = 125;
-  // How each text turns: along the circle or a spoke, as an orient says, or by the angle of each
-  // row. When both are unset, each text is horizontal.
-  oneof turn {
-    PolarTextOrient orient = 8;
-    Encoding angle = 127;
-  }
+  // The rotation of each text, in degrees clockwise. Invalid with an `orient`.
+  Encoding angle = 127;
   Encoding font_weight = 129;
   Encoding font_style = 130;
   // The width of the box of each text, in pixels, at which its lines wrap. When it is not encoded,

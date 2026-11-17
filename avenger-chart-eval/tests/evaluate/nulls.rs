@@ -34,7 +34,7 @@ fn bars(scale: ScaleBuilder, labels: Option<LabelsBuilder>) -> Chart {
     if let Some(labels) = labels {
         axis = axis.labels(labels);
     }
-    let x = Encoding::scaled_field("origin").scale(scale.axis(axis));
+    let x = Encoding::scaled_field("origin").scale(scale).axis(axis);
     let bars = CartesianLayer::bar(origins(), BarMark::builder().x(x).y("cars"));
     Chart::builder(Plot::cartesian([bars])).build().unwrap()
 }

@@ -123,7 +123,7 @@ pub trait MarkMessage {
     /// The encoding of `channel`, to change, or `None` when the mark does not encode it.
     fn encoding_mut(&mut self, channel: Channel) -> Option<&mut Encoding>;
     /// The field of the encoding of `channel`, to set, or `None` when the mark does not take the
-    /// channel in a field of its own.
+    /// channel.
     fn encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>>;
 }
 

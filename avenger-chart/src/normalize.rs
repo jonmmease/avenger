@@ -337,16 +337,16 @@ fn encodings(mark: &mut dyn MarkMessage) {
 /// legend, orders the options of a custom scale, and removes the repeated classes of its axis or
 /// legend.
 fn encoding(encoding: &mut proto::Encoding) {
+    if let Some(axis) = encoding.axis.as_mut() {
+        distinct(&mut axis.classes);
+    }
+    if let Some(legend) = encoding.legend.as_mut() {
+        distinct(&mut legend.classes);
+    }
     let Some(spec) = &mut encoding.scale else {
         encoding.title = None;
         return;
     };
-    if let Some(axis) = spec.axis.as_mut() {
-        distinct(&mut axis.classes);
-    }
-    if let Some(legend) = spec.legend.as_mut() {
-        distinct(&mut legend.classes);
-    }
     let scale_type = spec.r#type.as_mut().expect("a valid spec has a type");
     if let scale::Type::Custom(custom) = scale_type {
         by_key(&mut custom.options, |option| option.name.clone());

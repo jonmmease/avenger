@@ -161,7 +161,7 @@ pub(crate) fn predicate(
                     false => Vec::new(),
                 },
                 faceted,
-                empty_selects_none: selected.empty_selects_none,
+                empty_selects_none: selected.empty == proto::EmptySelection::None as i32,
                 without: Vec::new(),
             },
         ),

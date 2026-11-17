@@ -892,6 +892,21 @@ impl Function {
         Ok((self.typed(form, &call, planned)?, resolved))
     }
 
+    /// The error of an argument named `name`, which names no parameter. The error of `order` on a
+    /// mark without the channel, such as a symbol, says that `ORDER BY` gives the draw order of its
+    /// rows.
+    fn unknown_parameter(&self, name: &str) -> String {
+        let unknown = format!("{} has no parameter named `{name}`", self.name);
+        match self.family == Family::Mark && name.eq_ignore_ascii_case("order") {
+            true => format!(
+                "{unknown}: `order` orders the path of a line or an area, and the `ORDER BY` of \
+                 the call gives the draw order of the rows, as in `{}(... ORDER BY k)`",
+                self.name
+            ),
+            false => unknown,
+        }
+    }
+
     /// Checks that every name of `args` names a parameter, and that the named arguments come
     /// after the positional ones.
     fn check_names(&self, args: &[(Option<String>, Arg)]) -> Result<(), CallError> {
@@ -908,10 +923,7 @@ impl Function {
                 Some(name) => {
                     named_seen = true;
                     if self.param_named(name).is_none() {
-                        return Err(CallError::arg(
-                            at,
-                            format!("{} has no parameter named `{name}`", self.name),
-                        ));
+                        return Err(CallError::arg(at, self.unknown_parameter(name)));
                     }
                 }
             }

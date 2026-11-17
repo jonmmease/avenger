@@ -175,5 +175,5 @@ enum Channel {
   CHANNEL_DETAIL = 33;
   // The order of the rows of each series of a line or an area along its path, ascending, without
   // a scale. Values: numbers, strings, dates, or timestamps, with `NULL` last.
-  CHANNEL_ORDERING = 34;
+  CHANNEL_ORDER = 34;
 }

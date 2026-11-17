@@ -176,12 +176,21 @@ message PredicateList {
 message Selected {
   // The name of the selection.
   string selection = 1 [(avenger.chart.v1.required) = true];
-  // Whether a selection without clauses selects no row. Otherwise it selects every row, so a
-  // conditional value that grays out the rows outside a brush grays out nothing before the first
-  // brush.
-  bool empty_selects_none = 2;
+  // The rows that a selection without clauses selects.
+  EmptySelection empty = 2;
   // Whether the predicate skips the clauses of the plot that it styles: the clauses whose owner is
   // the layer of the row or its plot. A predicate that skips every clause of
   // a selection that has some selects every row.
   bool exclude_own = 3;
+}
+
+// The rows that a selection without clauses selects.
+enum EmptySelection {
+  // Unset, so every row, as `EMPTY_SELECTION_ALL` describes.
+  EMPTY_SELECTION_UNSPECIFIED = 0;
+  // Every row, so a conditional value that grays out the rows outside a brush grays out nothing
+  // before the first brush.
+  EMPTY_SELECTION_ALL = 1;
+  // No row.
+  EMPTY_SELECTION_NONE = 2;
 }

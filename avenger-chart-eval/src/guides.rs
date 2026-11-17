@@ -384,7 +384,7 @@ pub(crate) fn authored(title: Option<&proto::Title>) -> Option<&proto::Title> {
 // Axes
 
 fn axis_spec(group: &ScaleGroup) -> proto::Axis {
-    group.spec.axis.clone().unwrap_or_default()
+    group.axis.clone().unwrap_or_default()
 }
 
 /// The ticks that an axis or a colorbar gives in place of the scale's: a list of values, or a step.
@@ -1036,7 +1036,7 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
                 pending.push(Pending::Colorbar(colorbar(inputs, index, group, scale)?));
             }
             Some(Some(GuideNodes::Legend(nodes))) => {
-                let spec = group.spec.legend.clone().unwrap_or_default();
+                let spec = group.legend.clone().unwrap_or_default();
                 let tick_count = inputs.styles[nodes.legend]
                     .number(Property::TickCount)
                     .map(f64::from);
@@ -1484,7 +1484,7 @@ fn colorbar(
         unreachable!("a colorbar has the nodes of one");
     };
     let styles = inputs.styles;
-    let axis_spec = group.spec.legend.clone().unwrap_or_default();
+    let axis_spec = group.legend.clone().unwrap_or_default();
     let legend_style = &styles[nodes.legend];
     let side = side(legend_style);
     let style = axis_style(

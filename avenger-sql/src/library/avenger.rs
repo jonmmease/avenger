@@ -412,7 +412,8 @@ fn scaled() -> Function {
          `scaled` or `direct` passes through the scale when the channel has a scale, such as \
          `color` or `y`, and is drawn as it is otherwise, such as `text`. A constant on a \
          position passes through the scale, as `y => 0` does for a reference line at zero. \
-         `scaled` makes the scaled kind explicit, and its options set the channel's encoding.",
+         `scaled` makes the scaled kind explicit, and its options set the channel's encoding: \
+         its title, its scale, the axis of a position, and the legend of another channel.",
     )
     .param("value", "The value of the channel.");
     let mut args = vec![arg("value", Accept::Value(Ty::Var("T".to_string())), true)];
@@ -436,6 +437,12 @@ fn scaled() -> Function {
             "FROM penguins |> AGGREGATE AVG(body_mass_g) AS mass GROUP BY species \
              |> AGGREGATE bar(x => species, y => scaled(mass, title => 'Body mass (g)')) AS chart",
             "The axis of `y` takes the title `Body mass (g)`.",
+        )
+        .example(
+            "FROM penguins |> AGGREGATE symbol(x => scaled(bill_length_mm, axis => axis(grid => FALSE)), \
+             y => body_mass_g, color => scaled(species, legend => legend(columns => 2))) AS chart",
+            "The axis of `x` draws no grid lines, and the legend of `color` lays out its entries in \
+             two columns.",
         )
 }
 

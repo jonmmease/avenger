@@ -477,7 +477,7 @@ fn guide_nodes(
                 grid: tree.add(axis, Element::Grid),
                 levels: Vec::new(),
             };
-            if let Some(message) = &group.spec.axis {
+            if let Some(message) = &group.axis {
                 identify(tree, axis, &message.id, &message.classes);
                 let plot = resolved.tree.layers[group.members[0].layer].plot;
                 let start = (Sector::of_plot(resolved.tree.plots[plot].plot))
@@ -506,7 +506,7 @@ fn guide_nodes(
                     })
                     .collect(),
             };
-            if let Some(message) = &group.spec.axis {
+            if let Some(message) = &group.axis {
                 identify(tree, axis, &message.id, &message.classes);
                 inline::axis(tree, &nodes, message);
             }
@@ -526,7 +526,7 @@ fn guide_nodes(
                 label,
                 variants: other(tree, label),
             };
-            if let Some(message) = &group.spec.legend {
+            if let Some(message) = &group.legend {
                 identify(tree, legend, &message.id, &message.classes);
                 inline::legend(tree, &nodes, message);
             }
@@ -544,7 +544,7 @@ fn guide_nodes(
                 tick: tree.add(legend, Element::Tick),
                 rule: tree.add(legend, Element::Rule),
             };
-            if let Some(message) = &group.spec.legend {
+            if let Some(message) = &group.legend {
                 identify(tree, legend, &message.id, &message.classes);
                 inline::colorbar(tree, &nodes, message);
             }

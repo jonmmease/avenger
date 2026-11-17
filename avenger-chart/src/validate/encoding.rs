@@ -175,6 +175,18 @@ impl Checker<'_> {
         {
             polar_bar_spans(mark, bar, &mark_path)?;
         }
+        if let LayerRef::Polar(proto::PolarLayer {
+            mark: Some(polar_layer::Mark::Text(text)),
+            ..
+        }) = layer
+        {
+            if text.orient != 0 && text.angle.is_some() {
+                return Err(fail(
+                    format!("{mark_path}.angle"),
+                    "a polar text turns by its `orient` or by its `angle`, not both",
+                ));
+            }
+        }
         if let Some(text) = text_props(layer) {
             text.check(mark.encoding(Channel::Width).is_some(), &mark_path)?;
             if let Some(encoding) = mark.encoding(Channel::Text) {
@@ -346,22 +358,60 @@ impl Checker<'_> {
         if !is_scaled(value) {
             raw_values(channel, &value_type, path)?;
         }
-        if let Some(scale) = &encoding.scale {
-            // The scale takes the type of the encoding's value when it is scaled, and otherwise of
-            // the first scaled conditional value.
-            let scaled_type = match is_scaled(value) {
-                true => value_type.clone(),
-                false => self.scaled_conditional_type(encoding, table, path)?,
-            };
-            self.scale(scale, channel, kind, &scaled_type, &format!("{path}.scale"))?;
+        if encoding.axis.is_some() && !(is_position(channel) && takes_scale(channel)) {
+            return Err(fail(
+                format!("{path}.axis"),
+                "an axis is valid only on a position with a scale of its own: `x`, `y`, `theta`, \
+                 or `radius`",
+            ));
+        }
+        if encoding.legend.is_some() && is_position(channel) {
+            return Err(fail(
+                format!("{path}.legend"),
+                "a legend is valid only on a channel other than a position",
+            ));
+        }
+        match &encoding.scale {
+            Some(scale) => {
+                // The scale takes the type of the encoding's value when it is scaled, and
+                // otherwise of the first scaled conditional value.
+                let scaled_type = match is_scaled(value) {
+                    true => value_type.clone(),
+                    false => self.scaled_conditional_type(encoding, table, path)?,
+                };
+                let domain_type =
+                    self.scale(scale, channel, &scaled_type, &format!("{path}.scale"))?;
+                let scale_type = scale.r#type.as_ref().expect("`scale` checked the type");
+                if let Some(axis) = &encoding.axis {
+                    let path = format!("{path}.axis");
+                    self.axis(axis, channel, kind, scale_type, &domain_type, &path)?;
+                }
+                if let Some(legend) = &encoding.legend {
+                    let path = format!("{path}.legend");
+                    self.legend(legend, channel, scale_type, &domain_type, &path)?;
+                }
+            }
+            None => {
+                for (field, set) in [
+                    ("axis", encoding.axis.is_some()),
+                    ("legend", encoding.legend.is_some()),
+                ] {
+                    if set {
+                        return Err(fail(
+                            format!("{path}.{field}"),
+                            format!("an encoding without a scale has no {field}"),
+                        ));
+                    }
+                }
+            }
         }
         band_placement(encoding, channel, &value_type, path)?;
         if !encoding.conditional.is_empty()
-            && (is_position(channel) || matches!(channel, Channel::Detail | Channel::Ordering))
+            && (is_position(channel) || matches!(channel, Channel::Detail | Channel::Order))
         {
             return Err(fail(
                 path,
-                "the position channels, `detail`, and `ordering` have no conditional values",
+                "the position channels, `detail`, and `order` have no conditional values",
             ));
         }
         for (index, conditional) in encoding.conditional.iter().enumerate() {
@@ -403,14 +453,15 @@ impl Checker<'_> {
         Ok(())
     }
 
+    /// Checks a scale's spec and returns the type of its domain's values: of its explicit domain,
+    /// or otherwise of the encoding's values.
     fn scale(
         &self,
         spec: &proto::Scale,
         channel: Channel,
-        kind: CoordKind,
         value_type: &DataType,
         path: &str,
-    ) -> Result<()> {
+    ) -> Result<DataType> {
         let scale_type =
             (spec.r#type.as_ref()).ok_or_else(|| fail(path, "the type of a scale is required"))?;
         scale_options(scale_type, value_type, path)?;
@@ -492,18 +543,10 @@ impl Checker<'_> {
             }
             positive(navigation.min_span, &format!("{path}.min_span"))?;
         }
-        let domain_type = explicit
+        Ok(explicit
             .as_ref()
-            .map_or(value_type, |array| array.data_type());
-        if let Some(axis) = &spec.axis {
-            let path = format!("{path}.axis");
-            self.axis(axis, channel, kind, scale_type, domain_type, &path)?;
-        }
-        if let Some(legend) = &spec.legend {
-            let path = format!("{path}.legend");
-            self.legend(legend, channel, scale_type, domain_type, &path)?;
-        }
-        Ok(())
+            .map_or(value_type, |array| array.data_type())
+            .clone())
     }
 
     /// Checks an explicit domain and returns its values.
@@ -753,8 +796,8 @@ impl Checker<'_> {
         self.levels(&axis.levels, scale_type, domain_type, path)
     }
 
-    /// Checks a legend: valid on a channel other than a position, as a symbol legend or as a
-    /// colorbar of a continuous color scale, without the fields of the other form.
+    /// Checks a legend, on a channel other than a position: a symbol legend or a colorbar of a
+    /// continuous color scale, without the fields of the other form.
     fn legend(
         &self,
         legend: &proto::Legend,
@@ -763,12 +806,6 @@ impl Checker<'_> {
         domain_type: &DataType,
         path: &str,
     ) -> Result<()> {
-        if is_position(channel) {
-            return Err(fail(
-                path,
-                "a legend is valid on a channel other than a position",
-            ));
-        }
         classes(&legend.classes, path)?;
         title(legend.title.as_ref(), &format!("{path}.title"), false)?;
         let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);

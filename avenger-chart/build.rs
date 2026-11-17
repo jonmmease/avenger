@@ -11,8 +11,8 @@
 //! - `channels.rs`: `takes_scale`, from the `channel_scale` option of the values of `Channel`.
 //! - `marks.rs`: for each mark, the member of the `mark` oneof of a layer, its channels and their
 //!   encodings, and for each `mark` oneof, an impl of `MarkMessage`.
-//! - `merge.rs`: an impl of `MergeFields` for each message that the specs of a shared scale merge
-//!   field by field: the axes, the legends, the options of the scale types, and the fits.
+//! - `merge.rs`: an impl of `MergeFields` for each message that the encodings of a shared scale
+//!   merge field by field: the axes, the legends, the options of the scale types, and the fits.
 //! - `builders.rs` and `prelude.rs`: the builders of the messages, as `codegen/builders.rs`
 //!   describes.
 //!
@@ -182,13 +182,6 @@ const KINDS: [(&str, &str); 3] = [
     ("Geo", "Geo"),
 ];
 
-/// How a mark holds the encoding of a channel: in a field of its own, or as a member of a oneof
-/// of the mark, as `PolarTextMark.turn` holds `angle`.
-enum Holder {
-    Field(String),
-    Oneof { field: String, path: String },
-}
-
 /// The code of `marks.rs`, after a check of the laws of the fields of each mark.
 fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String> {
     let channels: Vec<(String, i32)> = (set.file.iter())
@@ -236,7 +229,7 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
             let (_, path, mark) = messages
                 .get(member.type_name())
                 .ok_or_else(|| format!("`{}.{}` is a message", layer.name(), member.name()))?;
-            let mut taken: Vec<(String, Holder)> = Vec::new();
+            let mut taken: Vec<(String, String)> = Vec::new();
             for field in &mark.field {
                 let at = format!("`{}.{}`", mark.name(), field.name());
                 if field.r#type() == Type::Message
@@ -253,22 +246,10 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
                             100 + value
                         ));
                     }
-                    let holder = match field.oneof_index {
-                        Some(index) if !field.proto3_optional() => {
-                            let oneof = mark.oneof_decl[index as usize].name();
-                            Holder::Oneof {
-                                field: ident(oneof),
-                                path: format!(
-                                    "{}::{}::{}",
-                                    path.rsplit_once("::").expect("a nested path").0,
-                                    snake(mark.name()),
-                                    camel(oneof)
-                                ),
-                            }
-                        }
-                        _ => Holder::Field(ident(field.name())),
-                    };
-                    taken.push((name.clone(), holder));
+                    if field.oneof_index.is_some() && !field.proto3_optional() {
+                        return Err(format!("the encoding field {at} is not in a oneof"));
+                    }
+                    taken.push((name.clone(), ident(field.name())));
                 } else if field.number() >= 100 {
                     return Err(format!("the property {at} has a number below 100"));
                 }
@@ -351,7 +332,7 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
 }
 
 /// The channels and the encodings of the mark at `path`.
-fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
+fn write_mark(code: &mut String, path: &str, taken: &[(String, String)]) {
     let variants: Vec<String> = taken.iter().map(|(name, _)| camel(name)).collect();
     writeln!(code, "impl {path} {{").unwrap();
     writeln!(
@@ -389,15 +370,10 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
             "    /// {doc}\n    pub fn {signature} {{\n        match channel {{"
         )
         .unwrap();
-        for ((_, holder), variant) in taken.iter().zip(&variants) {
-            let arm = match holder {
-                Holder::Field(field) => match reference {
-                    "&" => format!("self.{field}.as_ref()"),
-                    _ => format!("self.{field}.as_mut()"),
-                },
-                Holder::Oneof { field, path } => format!(
-                    "match {reference}self.{field} {{ Some({path}::{variant}(encoding)) => Some(encoding), _ => None }}"
-                ),
+        for ((_, field), variant) in taken.iter().zip(&variants) {
+            let arm = match reference {
+                "&" => format!("self.{field}.as_ref()"),
+                _ => format!("self.{field}.as_mut()"),
             };
             writeln!(code, "            Channel::{variant} => {arm},").unwrap();
         }
@@ -405,17 +381,15 @@ fn write_mark(code: &mut String, path: &str, taken: &[(String, Holder)]) {
     }
     writeln!(
         code,
-        "    /// The field of the encoding of `channel`, to set, or `None` when the mark does not take the\n    /// channel in a field of its own.\n    pub fn encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>> {{\n        match channel {{"
+        "    /// The field of the encoding of `channel`, to set, or `None` when the mark does not take the\n    /// channel.\n    pub fn encoding_slot(&mut self, channel: Channel) -> Option<&mut Option<Encoding>> {{\n        match channel {{"
     )
     .unwrap();
-    for ((_, holder), variant) in taken.iter().zip(&variants) {
-        if let Holder::Field(field) = holder {
-            writeln!(
-                code,
-                "            Channel::{variant} => Some(&mut self.{field}),"
-            )
-            .unwrap();
-        }
+    for ((_, field), variant) in taken.iter().zip(&variants) {
+        writeln!(
+            code,
+            "            Channel::{variant} => Some(&mut self.{field}),"
+        )
+        .unwrap();
     }
     writeln!(code, "            _ => None,\n        }}\n    }}").unwrap();
     code.push_str("}\n\n");
@@ -555,9 +529,9 @@ impl<'a> Messages<'a> {
         }
     }
 
-    /// The messages that the specs of a shared scale merge field by field: the axes, the legends,
-    /// the messages of the scale types, the pins of the fits, and the widgets, with the messages
-    /// that they hold.
+    /// The messages that the encodings of a shared scale merge field by field: the axes, the
+    /// legends, the messages of the scale types, the pins of the fits, and the widgets, with the
+    /// messages that they hold.
     fn merged(&self) -> BTreeSet<String> {
         let mut merged: BTreeSet<String> = ["Axis", "Legend", "DomainPin", "Widget"]
             .iter()

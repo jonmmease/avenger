@@ -488,7 +488,10 @@ fn a_parameter_that_takes_constructors_writes_its_forms() {
         .filter_map(|line| line.strip_prefix("- "))
         .map(|line| line.split(':').next().unwrap())
         .collect();
-    assert_eq!(groups, ["Its type", "Its axis", "Its legend"]);
+    assert_eq!(groups, ["Its type"]);
+    // The axis and the legend are options of the encoding, beside its scale.
+    let axis = forms(&library, "scaled", "axis").unwrap();
+    assert!(axis.contains("axis => axis("), "{axis}");
     assert!(
         scale.contains("- Its type: `band_scale(...)`, `custom_scale(...)`, `linear_scale(...)`"),
         "{scale}"

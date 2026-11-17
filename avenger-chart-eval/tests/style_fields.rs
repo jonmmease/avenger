@@ -103,6 +103,8 @@ const CONTENT: &[(&str, &[&str])] = &[
             "title",
             "band_position",
             "band_level",
+            "axis",
+            "legend",
         ],
     ),
     (
@@ -156,7 +158,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_width",
             "stroke_dash",
             "detail",
-            "ordering",
+            "order",
         ],
     ),
     (
@@ -181,7 +183,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_dash",
             "pattern",
             "detail",
-            "ordering",
+            "order",
         ],
     ),
     (
@@ -552,7 +554,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_width",
             "stroke_dash",
             "detail",
-            "ordering",
+            "order",
         ],
     ),
     (
@@ -580,7 +582,7 @@ const CONTENT: &[(&str, &[&str])] = &[
             "stroke_dash",
             "pattern",
             "detail",
-            "ordering",
+            "order",
         ],
     ),
     (
@@ -703,8 +705,6 @@ const CONTENT: &[(&str, &[&str])] = &[
             "direction",
             "preferred",
             "family",
-            "axis",
-            "legend",
             "navigation",
         ],
     ),
@@ -769,10 +769,7 @@ const CONTENT: &[(&str, &[&str])] = &[
     ),
     ("Predicate", &["selected", "all", "any", "negate"]),
     ("PredicateList", &["predicates"]),
-    (
-        "Selected",
-        &["selection", "empty_selects_none", "exclude_own"],
-    ),
+    ("Selected", &["selection", "empty", "exclude_own"]),
     ("Tool", &["navigate", "tooltip", "select", "modes"]),
     ("LayerTool", &["tooltip", "select", "modes"]),
     ("Mode", &["name", "label", "group", "on"]),

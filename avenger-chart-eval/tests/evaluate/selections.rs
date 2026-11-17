@@ -118,10 +118,8 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
         let chart = Chart::builder(plot).selections([brush]).build().unwrap();
         grays(&evaluate(&chart, [320.0, 240.0]))
     };
-    let predicate = |empty_selects_none: bool, exclude_own: bool| {
-        Selected::new("brush")
-            .empty_selects_none(empty_selects_none)
-            .exclude_own(exclude_own)
+    let predicate = |empty: EmptySelection, exclude_own: bool| {
+        Selected::new("brush").empty(empty).exclude_own(exclude_own)
     };
     let weights_between = |owner: &str, low: f64, high: f64| {
         Clause::new([ValueRange::new("weight")
@@ -134,20 +132,24 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
     // Without clauses, a predicate selects every row, or none when it says so.
     let gray = rows(
         SelectionResolution::Union,
-        predicate(true, false),
+        predicate(EmptySelection::None, false),
         Vec::new(),
     );
     assert!(gray.iter().all(|gray| *gray));
     let gray = rows(
         SelectionResolution::Union,
-        predicate(false, false),
+        predicate(EmptySelection::All, false),
         Vec::new(),
     );
     assert!(gray.iter().all(|gray| !gray));
 
     // A predicate that skips its own plot's clause selects every row.
     let own = vec![weights_between("plot", 2500.0, 3000.0)];
-    let gray = rows(SelectionResolution::Union, predicate(false, true), own);
+    let gray = rows(
+        SelectionResolution::Union,
+        predicate(EmptySelection::All, true),
+        own,
+    );
     assert!(gray.iter().all(|gray| !gray));
 
     // Union selects the rows of either owner, and intersect only the rows of both.
@@ -157,10 +159,14 @@ fn selected_predicates_follow_their_empty_behavior_owners_and_resolutions() {
             weights_between("points", 2800.0, 4000.0),
         ]
     };
-    let union = rows(SelectionResolution::Union, predicate(false, false), both());
+    let union = rows(
+        SelectionResolution::Union,
+        predicate(EmptySelection::All, false),
+        both(),
+    );
     let intersect = rows(
         SelectionResolution::Intersect,
-        predicate(false, false),
+        predicate(EmptySelection::All, false),
         both(),
     );
     for (index, weight) in weights().iter().enumerate() {
