@@ -13,8 +13,9 @@ mod spec;
 
 pub use adapters::{prepare_number_float_format, prepare_number_prefix_format};
 pub use avenger_format::{FormattedNumber, NumberFormatError, NumberTypesetting};
+pub use avenger_format_locales_d3::{LocaleId, NumberLocaleSpec};
 pub use format::{format_number, PreparedNumberFormat};
-pub use locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale};
+pub use locale::ResolvedNumberLocale;
 pub use parser::parse_number_spec;
 pub use provider::{D3NumberFormatProvider, D3NumberPrecision};
 pub use registry::NumberLocaleRegistry;

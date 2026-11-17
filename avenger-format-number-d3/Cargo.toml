@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-all-locales = []
+all-locales = ["avenger-format-locales-d3/all-locales"]
 
 [dependencies]
 avenger-format = { path = "../avenger-format" }
+avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 num-bigint = "0.4.6"

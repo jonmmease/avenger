@@ -1,5 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+mod number;
+
+pub use number::{bundled_number, NumberLocaleSpec, BUNDLED_NUMBER};
+
 use avenger_format::DateTimeFormatError;
 use serde::{Deserialize, Serialize};
 

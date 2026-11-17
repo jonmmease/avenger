@@ -2,7 +2,7 @@
 name = "avenger-format-locales-d3"
 version = "0.1.0"
 edition = "2021"
-description = "d3's time locales, for the d3 and GoogleSQL datetime format providers"
+description = "d3's number and time locales, for the d3 and GoogleSQL number and datetime format providers"
 
 [features]
 all-locales = []
