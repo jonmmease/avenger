@@ -336,21 +336,18 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
     let _ = narrow;
 }
 
-/// A field that shows a part shows it over a stylesheet that hides it, and a stroke of a
-/// background draws a solid border.
+/// A field that shows a part shows it over a stylesheet that hides it, and a border color draws a
+/// solid border.
 #[test]
-fn style_fields_show_parts_and_stroke_backgrounds() {
+fn style_fields_show_parts_and_border_backgrounds() {
     // A scatter of the penguins with an x axis that shows its grid and a color legend with a red
-    // stroke.
+    // border.
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().show_grid(true)))
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().grid(true)))
             .y("mass")
-            .color(
-                Encoding::scaled_field("species")
-                    .scale(Legend::builder().background(Background::builder().stroke("red"))),
-            ),
+            .color(Encoding::scaled_field("species").scale(Legend::builder().border_color("red"))),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let mut evaluator = evaluator(chart, cascade("grid { display: none; }"));
@@ -377,12 +374,12 @@ fn style_fields_show_parts_and_stroke_backgrounds() {
 /// property sets nothing and warns.
 #[test]
 fn style_text_that_is_not_a_value_warns() {
-    // A scatter of the penguins with an x axis whose domain color is not a color, and a color
+    // A scatter of the penguins with an x axis whose rule color is not a color, and a color
     // legend.
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").scale(Axis::builder().domain_color("bluish")))
+            .x(Encoding::scaled_field("flipper").scale(Axis::builder().rule_color("bluish")))
             .y("mass")
             .color(Encoding::scaled_field("species").scale(Legend::builder())),
     );
@@ -464,4 +461,45 @@ fn a_select_without_a_form_stores_a_box() {
         )),
         Vec::<String>::new()
     );
+}
+
+/// A Boolean hides a part of an axis through its `show`, and the title and the labels of an axis
+/// take their fonts without a text of their own.
+#[test]
+fn booleans_hide_the_parts_of_an_axis() {
+    // A scatter of the penguins whose x axis hides its ticks, its title, and its labels, and whose
+    // y axis styles its derived title.
+    let symbols = CartesianLayer::symbol(
+        penguins(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("flipper")
+                .scale(Axis::builder().ticks(false).title(false).labels(false)))
+            .y(Encoding::scaled_field("mass")
+                .scale(Axis::builder().title(Title::builder().font_size(17.0)))),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let mut evaluator = evaluator(chart, cascade(""));
+    let tree = evaluator.style_tree();
+    let axis = |channel: &str| {
+        (nodes_of(tree, Element::Axis).into_iter())
+            .find(|axis| attribute(tree, *axis, "channel") == channel)
+            .unwrap()
+    };
+    let part = |axis: NodeId, element: Element| {
+        (tree.children(axis).iter().copied())
+            .find(|child| tree.node(*child).element == element)
+            .unwrap()
+    };
+    let (x, y) = (axis("x"), axis("y"));
+    let hidden = [
+        part(x, Element::Tick),
+        part(x, Element::Title),
+        part(x, Element::Label),
+    ];
+    let shown = [part(y, Element::Tick), part(y, Element::Label)];
+    let y_title = part(y, Element::Title);
+    let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
+    assert!(hidden.iter().all(|node| styles[*node].is_hidden()));
+    assert!(shown.iter().all(|node| !styles[*node].is_hidden()));
+    assert_eq!(styles[y_title].font_size(), 17.0);
 }

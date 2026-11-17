@@ -121,7 +121,7 @@ fn widgets() -> [WidgetBuilder; 3] {
     )
     .title("IMDB rating at least");
     let genres = Widget::checkboxes("genres", CheckboxesWidget::new(target(GENRE), fitted()))
-        .side(Side::Right)
+        .orient(Side::Right)
         .title("Genres");
     [years, rating, genres]
 }

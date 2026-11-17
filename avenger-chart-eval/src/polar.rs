@@ -967,7 +967,7 @@ fn polar_axis(
             &styles[nodes.tick],
             &styles[nodes.rule],
             Some(&styles[nodes.grid]),
-            spec.ticks.as_ref(),
+            crate::guides::SpecTicks::of_axis(&spec),
             avenger_common::types::TextSyntaxMode::Plain,
         );
         // The computed `angle` of a radius axis runs from the plot's start angle.

@@ -394,7 +394,7 @@ fn an_overlay_draws_the_layers_of_its_plots_in_one_plot() {
         points(),
         SymbolMark::builder().x("a").y("b"),
     )])
-    .title(Title::new("Mass"))
+    .title(Title::builder().text("Mass"))
     .partition([PartitionValue::new("sex", "female")]);
     let male = Plot::cartesian([CartesianLayer::symbol(
         points(),
@@ -420,10 +420,10 @@ fn the_fields_of_an_overlay_plot_win_and_its_layers_come_first() {
             points(),
             SymbolMark::builder().x("a").y("b"),
         )])
-        .title(Title::new(title))
+        .title(Title::builder().text(title))
     };
     let own = Plot::cartesian([CartesianLayer::rule(points(), RuleMark::builder().y(5.0))])
-        .title(Title::new("Both"))
+        .title(Title::builder().text("Both"))
         .overlay([titled("A"), titled("B")]);
     let chart = Chart::builder(own).build().unwrap();
 

@@ -5,7 +5,7 @@
 
 use avenger_chart::proto::{
     self, cartesian_layer, geo_layer, polar_layer, Side, TextAlign, TextBaseline, TextWidthMode,
-    TitleAlign, TitleSide,
+    TitleAlign,
 };
 use avenger_style::{NodeId, Property, StyleTree};
 
@@ -24,12 +24,11 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         "Facet",
         &[
             "title",
-            "show_title",
-            "side",
+            "orient",
             "labels",
             "label_angle",
             "label_padding",
-            "tick_length",
+            "tick_size",
             "rule_color",
             "rule_width",
         ],
@@ -38,16 +37,31 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
     ("SphereStyle", &["fill", "stroke", "stroke_width"]),
     (
         "Graticule",
-        &["label_style", "label_padding", "color", "width"],
+        &[
+            "label_font_family",
+            "label_font_size",
+            "label_font_weight",
+            "label_color",
+            "label_padding",
+            "color",
+            "width",
+        ],
     ),
-    ("Title", &["side", "align", "style", "subtitle_style"]),
     (
-        "TextStyle",
-        &["font_family", "font_size", "font_weight", "color"],
-    ),
-    (
-        "Background",
-        &["fill", "stroke", "corner_radius", "padding"],
+        "Title",
+        &[
+            "show",
+            "orient",
+            "align",
+            "font_family",
+            "font_size",
+            "font_weight",
+            "color",
+            "subtitle_font_family",
+            "subtitle_font_size",
+            "subtitle_font_weight",
+            "subtitle_color",
+        ],
     ),
     ("SymbolMark", &["filled"]),
     ("BarMark", &["corner_radius"]),
@@ -99,66 +113,76 @@ pub const STYLE_FIELDS: &[(&str, &[&str])] = &[
         "Axis",
         &[
             "title",
-            "show_title",
-            "side",
+            "orient",
             "labels",
-            "show_labels",
             "label_angle",
             "label_align",
             "label_baseline",
+            "tick_count",
             "ticks",
-            "show_ticks",
-            "domain_color",
-            "show_domain",
+            "tick_size",
+            "tick_color",
+            "rule",
+            "rule_color",
             "grid",
-            "show_grid",
+            "grid_color",
+            "grid_width",
             "levels",
             "label_orient",
             "angle",
         ],
     ),
-    ("NestedAxisLevel", &["show_labels", "label_angle"]),
-    ("Labels", &["style"]),
-    ("Ticks", &["count", "length", "color"]),
-    ("Grid", &["color", "width"]),
+    ("NestedAxisLevel", &["labels", "label_angle"]),
+    (
+        "Labels",
+        &["show", "font_family", "font_size", "font_weight", "color"],
+    ),
     (
         "Legend",
         &[
             "title",
-            "show_title",
             "labels",
-            "show_labels",
             "label_angle",
-            "side",
+            "orient",
             "background",
+            "border_color",
+            "border_radius",
+            "padding",
             "wrap",
+            "columns",
             "label_padding",
             "column_gap",
             "row_gap",
             "tick_count",
-            "show_swatches",
+            "swatches",
             "thickness",
             "axis_gap",
             "max_length",
             "label_align",
             "label_baseline",
             "ticks",
-            "show_ticks",
-            "domain_color",
-            "show_domain",
+            "tick_size",
+            "tick_color",
+            "rule",
+            "rule_color",
         ],
     ),
-    ("LegendGrid", &["columns"]),
     (
         "Attribution",
         &[
-            "side",
+            "orient",
             "align",
             "separator",
             "separator_space",
-            "text_style",
+            "font_family",
+            "font_size",
+            "font_weight",
+            "color",
             "line_gap",
             "background",
+            "border_color",
+            "border_radius",
+            "padding",
         ],
     ),
     ("Scale", &["values", "palette", "reverse"]),
@@ -302,37 +326,93 @@ fn vertical_align(baseline: i32) -> Option<&'static str> {
     }
 }
 
-/// A `TextStyle`, as `font-family`, `font-size`, `font-weight`, and `color` of its node.
-pub(crate) fn text_style(tree: &mut Styled, node: NodeId, style: Option<&proto::TextStyle>) {
-    let Some(style) = style else { return };
-    if !style.font_family.is_empty() {
-        set(tree, node, Property::FontFamily, &style.font_family);
-    }
-    px(tree, node, Property::FontSize, style.font_size);
-    if let Some(weight) = style.font_weight {
-        set(tree, node, Property::FontWeight, &weight.to_string());
-    }
-    color(tree, node, Property::Color, &style.color);
+/// The fields of a font and its color, as `font-family`, `font-size`, `font-weight`, and `color`
+/// of their node.
+struct Font<'a> {
+    family: &'a str,
+    size: Option<f32>,
+    weight: Option<f32>,
+    color: &'a str,
 }
 
-/// A `Background`, as `background`, `border-color` with a solid `border-style`, `border-radius`,
-/// and `padding` of its node.
-pub(crate) fn background(tree: &mut Styled, node: NodeId, background: Option<&proto::Background>) {
-    let Some(background) = background else { return };
-    color(tree, node, Property::Background, &background.fill);
-    // A stroke draws a solid border, whose width the styles give.
-    if !background.stroke.is_empty() {
-        color(tree, node, Property::BorderColor, &background.stroke);
+impl<'a> Font<'a> {
+    fn of_title(title: &'a proto::Title) -> Self {
+        Font {
+            family: &title.font_family,
+            size: title.font_size,
+            weight: title.font_weight,
+            color: &title.color,
+        }
+    }
+
+    fn of_subtitle(title: &'a proto::Title) -> Self {
+        Font {
+            family: &title.subtitle_font_family,
+            size: title.subtitle_font_size,
+            weight: title.subtitle_font_weight,
+            color: &title.subtitle_color,
+        }
+    }
+
+    fn of_labels(labels: &'a proto::Labels) -> Self {
+        Font {
+            family: &labels.font_family,
+            size: labels.font_size,
+            weight: labels.font_weight,
+            color: &labels.color,
+        }
+    }
+}
+
+fn font(tree: &mut Styled, node: NodeId, font: Font) {
+    if !font.family.is_empty() {
+        set(tree, node, Property::FontFamily, font.family);
+    }
+    px(tree, node, Property::FontSize, font.size);
+    if let Some(weight) = font.weight {
+        set(tree, node, Property::FontWeight, &weight.to_string());
+    }
+    color(tree, node, Property::Color, font.color);
+}
+
+/// A guide's title on its `title` node: whether it shows, and its font.
+fn guide_title(tree: &mut Styled, node: NodeId, title: Option<&proto::Title>) {
+    let Some(title) = title else { return };
+    shown(tree, node, title.show);
+    font(tree, node, Font::of_title(title));
+}
+
+/// A guide's labels on its `label` node: whether they show, and their font.
+fn guide_labels(tree: &mut Styled, node: NodeId, labels: Option<&proto::Labels>) {
+    let Some(labels) = labels else { return };
+    shown(tree, node, labels.show);
+    font(tree, node, Font::of_labels(labels));
+}
+
+/// The box behind a legend or an attribution, as `background`, `border-color` with a solid
+/// `border-style`, `border-radius`, and `padding` of its node.
+fn boxed(
+    tree: &mut Styled,
+    node: NodeId,
+    background: &str,
+    border_color: &str,
+    border_radius: Option<f32>,
+    padding: Option<f32>,
+) {
+    color(tree, node, Property::Background, background);
+    // A border color draws a solid border, whose width the styles give.
+    if !border_color.is_empty() {
+        color(tree, node, Property::BorderColor, border_color);
         set(tree, node, Property::BorderStyle, "solid");
     }
-    px(tree, node, Property::BorderRadius, background.corner_radius);
+    px(tree, node, Property::BorderRadius, border_radius);
     for property in [
         Property::PaddingTop,
         Property::PaddingRight,
         Property::PaddingBottom,
         Property::PaddingLeft,
     ] {
-        px(tree, node, property, background.padding);
+        px(tree, node, property, padding);
     }
 }
 
@@ -400,7 +480,7 @@ pub(crate) struct FacetNodes {
 
 /// A `Facet` on its nodes.
 pub(crate) fn facet(tree: &mut Styled, nodes: &FacetNodes, facet: &proto::Facet) {
-    keyword(tree, nodes.facet, Property::Orient, side(facet.side));
+    keyword(tree, nodes.facet, Property::Orient, side(facet.orient));
     deg(tree, nodes.facet, Property::LabelAngle, facet.label_angle);
     px(
         tree,
@@ -408,18 +488,9 @@ pub(crate) fn facet(tree: &mut Styled, nodes: &FacetNodes, facet: &proto::Facet)
         Property::LabelPadding,
         facet.label_padding,
     );
-    text_style(
-        tree,
-        nodes.title,
-        facet.title.as_ref().and_then(|title| title.style.as_ref()),
-    );
-    shown(tree, nodes.title, facet.show_title);
-    text_style(
-        tree,
-        nodes.label,
-        (facet.labels.as_ref()).and_then(|labels| labels.style.as_ref()),
-    );
-    px(tree, nodes.tick, Property::TickSize, facet.tick_length);
+    guide_title(tree, nodes.title, facet.title.as_ref());
+    guide_labels(tree, nodes.label, facet.labels.as_ref());
+    px(tree, nodes.tick, Property::TickSize, facet.tick_size);
     for node in [nodes.tick, nodes.rule] {
         color(tree, node, Property::Stroke, &facet.rule_color);
         px(tree, node, Property::StrokeWidth, facet.rule_width);
@@ -433,14 +504,7 @@ pub(crate) fn title(
     subtitle_node: Option<NodeId>,
     title: &proto::Title,
 ) {
-    let side = match TitleSide::try_from(title.side).unwrap_or_default() {
-        TitleSide::Unspecified => None,
-        TitleSide::Top => Some("top"),
-        TitleSide::Left => Some("left"),
-        TitleSide::Right => Some("right"),
-        TitleSide::Bottom => Some("bottom"),
-    };
-    keyword(tree, title_node, Property::Orient, side);
+    keyword(tree, title_node, Property::Orient, side(title.orient));
     let align = match TitleAlign::try_from(title.align).unwrap_or_default() {
         TitleAlign::Unspecified => None,
         TitleAlign::Start => Some("start"),
@@ -448,9 +512,9 @@ pub(crate) fn title(
         TitleAlign::End => Some("end"),
     };
     keyword(tree, title_node, Property::TextAlign, align);
-    text_style(tree, title_node, title.style.as_ref());
+    font(tree, title_node, Font::of_title(title));
     if let Some(subtitle) = subtitle_node {
-        text_style(tree, subtitle, title.subtitle_style.as_ref());
+        font(tree, subtitle, Font::of_subtitle(title));
     }
 }
 
@@ -599,7 +663,16 @@ pub(crate) struct GraticuleNodes {
 pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &proto::Graticule) {
     color(tree, nodes.grid, Property::Stroke, &graticule.color);
     px(tree, nodes.grid, Property::StrokeWidth, graticule.width);
-    text_style(tree, nodes.label, graticule.label_style.as_ref());
+    font(
+        tree,
+        nodes.label,
+        Font {
+            family: &graticule.label_font_family,
+            size: graticule.label_font_size,
+            weight: graticule.label_font_weight,
+            color: &graticule.label_color,
+        },
+    );
     px(
         tree,
         nodes.graticule,
@@ -727,22 +800,12 @@ fn axis_fields(
     rule: NodeId,
     fields: AxisFields,
 ) {
-    keyword(tree, axis, Property::Orient, side(fields.side));
+    keyword(tree, axis, Property::Orient, side(fields.orient));
     deg(tree, axis, Property::LabelAngle, fields.label_angle);
-    text_style(
-        tree,
-        title,
-        fields.title.and_then(|title| title.style.as_ref()),
-    );
-    text_style(
-        tree,
-        label,
-        fields.labels.and_then(|labels| labels.style.as_ref()),
-    );
-    shown(tree, title, fields.show_title);
-    shown(tree, label, fields.show_labels);
-    shown(tree, tick, fields.show_ticks);
-    shown(tree, rule, fields.show_domain);
+    guide_title(tree, title, fields.title);
+    guide_labels(tree, label, fields.labels);
+    shown(tree, tick, fields.ticks);
+    shown(tree, rule, fields.rule);
     keyword(
         tree,
         label,
@@ -755,30 +818,28 @@ fn axis_fields(
         Property::VerticalAlign,
         vertical_align(fields.label_baseline),
     );
-    if let Some(ticks) = fields.ticks {
-        if let Some(proto::ticks::Placement::Count(count)) = ticks.placement {
-            set(tree, axis, Property::TickCount, &count.to_string());
-        }
-        px(tree, tick, Property::TickSize, ticks.length);
-        color(tree, tick, Property::Stroke, &ticks.color);
+    if let Some(count) = fields.tick_count {
+        set(tree, axis, Property::TickCount, &count.to_string());
     }
-    color(tree, rule, Property::Stroke, fields.domain_color);
+    px(tree, tick, Property::TickSize, fields.tick_size);
+    color(tree, tick, Property::Stroke, fields.tick_color);
+    color(tree, rule, Property::Stroke, fields.rule_color);
 }
 
 /// The fields of an axis that an `Axis` and the axis of a colorbar share.
 struct AxisFields<'a> {
-    side: i32,
+    orient: i32,
     title: Option<&'a proto::Title>,
-    show_title: Option<bool>,
     labels: Option<&'a proto::Labels>,
-    show_labels: Option<bool>,
-    show_ticks: Option<bool>,
-    show_domain: Option<bool>,
     label_angle: Option<f32>,
     label_align: i32,
     label_baseline: i32,
-    ticks: Option<&'a proto::Ticks>,
-    domain_color: &'a str,
+    tick_count: Option<f64>,
+    ticks: Option<bool>,
+    tick_size: Option<f32>,
+    tick_color: &'a str,
+    rule: Option<bool>,
+    rule_color: &'a str,
 }
 
 /// An `Axis` on its nodes.
@@ -791,30 +852,35 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
         nodes.tick,
         nodes.rule,
         AxisFields {
-            side: axis.side,
+            orient: axis.orient,
             title: axis.title.as_ref(),
-            show_title: axis.show_title,
             labels: axis.labels.as_ref(),
-            show_labels: axis.show_labels,
-            show_ticks: axis.show_ticks,
-            show_domain: axis.show_domain,
             label_angle: match axis.label_rotation {
                 Some(proto::axis::LabelRotation::LabelAngle(angle)) => Some(angle),
                 _ => None,
             },
             label_align: axis.label_align,
             label_baseline: axis.label_baseline,
-            ticks: axis.ticks.as_ref(),
-            domain_color: &axis.domain_color,
+            tick_count: match axis.tick_placement {
+                Some(proto::axis::TickPlacement::TickCount(count)) => Some(count),
+                _ => None,
+            },
+            ticks: axis.ticks,
+            tick_size: axis.tick_size,
+            tick_color: &axis.tick_color,
+            rule: axis.rule,
+            rule_color: &axis.rule_color,
         },
     );
-    shown(tree, nodes.grid, axis.show_grid);
-    if let Some(grid) = &axis.grid {
-        color(tree, nodes.grid, Property::Stroke, &grid.color);
-        px(tree, nodes.grid, Property::StrokeWidth, grid.width);
-    }
+    shown(tree, nodes.grid, axis.grid);
+    color(tree, nodes.grid, Property::Stroke, &axis.grid_color);
+    px(tree, nodes.grid, Property::StrokeWidth, axis.grid_width);
     for (level, (level_node, label_node)) in axis.levels.iter().zip(&nodes.levels) {
-        shown(tree, *label_node, level.show_labels);
+        shown(
+            tree,
+            *label_node,
+            level.labels.as_ref().and_then(|labels| labels.show),
+        );
         deg(tree, *level_node, Property::LabelAngle, level.label_angle);
     }
 }
@@ -857,40 +923,39 @@ pub(crate) struct LegendNodes {
 /// A `Legend` on its nodes.
 pub(crate) fn legend(tree: &mut Styled, nodes: &LegendNodes, legend: &proto::Legend) {
     let node = nodes.legend;
-    keyword(tree, node, Property::Orient, side(legend.side));
-    match legend.wrap.as_ref().and_then(|wrap| wrap.wrap.as_ref()) {
-        Some(proto::legend_wrap::Wrap::Flow(_)) => set(tree, node, Property::Wrap, "flow"),
-        Some(proto::legend_wrap::Wrap::Grid(grid)) => {
-            set(tree, node, Property::Wrap, "grid");
-            if let Some(columns) = grid.columns {
-                set(tree, node, Property::Columns, &columns.to_string());
-            }
-        }
-        None => {}
+    keyword(tree, node, Property::Orient, side(legend.orient));
+    let wrap = match proto::LegendWrap::try_from(legend.wrap).unwrap_or_default() {
+        proto::LegendWrap::Flow => Some("flow"),
+        proto::LegendWrap::Grid => Some("grid"),
+        // A count of columns lays out a grid.
+        proto::LegendWrap::Unspecified => legend.columns.map(|_| "grid"),
+    };
+    keyword(tree, node, Property::Wrap, wrap);
+    if let Some(columns) = legend.columns {
+        set(tree, node, Property::Columns, &columns.to_string());
     }
     px(tree, node, Property::LabelPadding, legend.label_padding);
     px(tree, node, Property::ColumnGap, legend.column_gap);
     px(tree, node, Property::RowGap, legend.row_gap);
-    background(tree, node, legend.background.as_ref());
-    if let Some(proto::legend::Entries::TickCount(count)) = legend.entries {
+    legend_box(tree, node, legend);
+    if let Some(proto::legend::TickPlacement::TickCount(count)) = legend.tick_placement {
         set(tree, node, Property::TickCount, &count.to_string());
     }
     deg(tree, node, Property::LabelAngle, legend.label_angle);
-    shown(tree, nodes.title, legend.show_title);
-    shown(tree, nodes.label, legend.show_labels);
-    shown(tree, nodes.swatch, legend.show_swatches);
-    text_style(
+    shown(tree, nodes.swatch, legend.swatches);
+    guide_title(tree, nodes.title, legend.title.as_ref());
+    guide_labels(tree, nodes.label, legend.labels.as_ref());
+}
+
+/// The box behind a legend on its `legend` node.
+fn legend_box(tree: &mut Styled, node: NodeId, legend: &proto::Legend) {
+    boxed(
         tree,
-        nodes.title,
-        legend.title.as_ref().and_then(|title| title.style.as_ref()),
-    );
-    text_style(
-        tree,
-        nodes.label,
-        legend
-            .labels
-            .as_ref()
-            .and_then(|labels| labels.style.as_ref()),
+        node,
+        &legend.background,
+        &legend.border_color,
+        legend.border_radius,
+        legend.padding,
     );
 }
 
@@ -910,7 +975,7 @@ pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto:
     px(tree, nodes.ramp, Property::Thickness, legend.thickness);
     px(tree, nodes.ramp, Property::MaxLength, legend.max_length);
     px(tree, nodes.legend, Property::AxisGap, legend.axis_gap);
-    background(tree, nodes.legend, legend.background.as_ref());
+    legend_box(tree, nodes.legend, legend);
     axis_fields(
         tree,
         nodes.legend,
@@ -919,25 +984,28 @@ pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto:
         nodes.tick,
         nodes.rule,
         AxisFields {
-            side: legend.side,
+            orient: legend.orient,
             title: legend.title.as_ref(),
-            show_title: legend.show_title,
             labels: legend.labels.as_ref(),
-            show_labels: legend.show_labels,
-            show_ticks: legend.show_ticks,
-            show_domain: legend.show_domain,
             label_angle: legend.label_angle,
             label_align: legend.label_align,
             label_baseline: legend.label_baseline,
-            ticks: legend.ticks.as_ref(),
-            domain_color: &legend.domain_color,
+            tick_count: match legend.tick_placement {
+                Some(proto::legend::TickPlacement::TickCount(count)) => Some(count),
+                _ => None,
+            },
+            ticks: legend.ticks,
+            tick_size: legend.tick_size,
+            tick_color: &legend.tick_color,
+            rule: legend.rule,
+            rule_color: &legend.rule_color,
         },
     );
 }
 
 /// An `Attribution` on its `attribution` node.
 pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::Attribution) {
-    keyword(tree, node, Property::Orient, side(attribution.side));
+    keyword(tree, node, Property::Orient, side(attribution.orient));
     let align = match proto::AttributionAlign::try_from(attribution.align).unwrap_or_default() {
         proto::AttributionAlign::Unspecified => None,
         proto::AttributionAlign::Start => Some("start"),
@@ -958,9 +1026,25 @@ pub(crate) fn attribution(tree: &mut Styled, node: NodeId, attribution: &proto::
         Property::SeparatorSpace,
         attribution.separator_space,
     );
-    text_style(tree, node, attribution.text_style.as_ref());
+    font(
+        tree,
+        node,
+        Font {
+            family: &attribution.font_family,
+            size: attribution.font_size,
+            weight: attribution.font_weight,
+            color: &attribution.color,
+        },
+    );
     px(tree, node, Property::LineGap, attribution.line_gap);
-    background(tree, node, attribution.background.as_ref());
+    boxed(
+        tree,
+        node,
+        &attribution.background,
+        &attribution.border_color,
+        attribution.border_radius,
+        attribution.padding,
+    );
 }
 
 /// The range and the paddings of a scale's spec on its `scale` node: a palette as `scheme`, and a

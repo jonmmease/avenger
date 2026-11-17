@@ -7,7 +7,6 @@ package avenger.chart.v1;
 import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/option.proto";
 import "avenger/chart/v1/side.proto";
-import "avenger/chart/v1/style.proto";
 
 // A geographic coordinate system: a map projection of `longitude`, `latitude`, `longitude2`,
 // `latitude2`, and `geometry`, for the `geo_` marks. A plot in this coordinate system is a geo
@@ -297,14 +296,20 @@ message Graticule {
   // The pattern of the degrees of each label, in the syntax of `Chart.number_format_syntax`. An
   // empty pattern takes the formatter's default.
   string format = 10;
-  // The style of the labels.
-  TextStyle label_style = 11;
+  // The font family of the labels, such as `Lato`.
+  string label_font_family = 11;
+  // The font size of the labels, in pixels.
+  optional float label_font_size = 12;
+  // The font weight of the labels, from 100 to 900.
+  optional float label_font_weight = 13;
+  // The CSS color of the labels.
+  string label_color = 14;
   // The distance between the end of a line and its label, in pixels.
-  optional float label_padding = 12;
+  optional float label_padding = 15;
   // The CSS color of the lines.
-  string color = 13;
+  string color = 16;
   // The width of the lines, in pixels.
-  optional float width = 14;
+  optional float width = 17;
 }
 
 // The sides of a plot that carry labels, in any order, where a side that repeats counts once. No

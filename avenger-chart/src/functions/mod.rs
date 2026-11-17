@@ -88,9 +88,9 @@ pub struct Param {
 
 /// One input of a parameter: an argument of a class, the field and member names of the chain
 /// from the parameter's target to the field that the argument sets, innermost first, and the shape
-/// of that field. `calendar_ticks(...) -> calendar -> interval` of a legend's ticks is a fragment
-/// of `CalendarTicks` in the member `calendar` of `TickInterval`, which is the member `interval` of
-/// the ticks.
+/// of that field. `conic_conformal(...) -> conic_conformal -> spherical` of a geo plot's surface is
+/// a fragment of `ConicConformal` in the member `conic_conformal` of the projection of `Spherical`,
+/// which is the member `spherical` of the surface.
 #[derive(Clone, Copy, Debug)]
 pub struct Accept {
     pub class: Class,

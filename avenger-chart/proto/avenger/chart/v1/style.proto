@@ -1,22 +1,10 @@
-// Styles that axes, legends, titles, and text marks share. A style field that is set is an inline style
-// for the renderer's stylesheets, and an unset one takes its value from the styles, as the comment
-// of `Chart` describes.
+// The enums of text that axes, legends, titles, and text marks share. A style field that is set is an
+// inline style for the renderer's stylesheets, and an unset one takes its value from the styles, as
+// the comment of `Chart` describes.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
-
-// The font and the color of a text.
-message TextStyle {
-  // A font family, such as `Lato`.
-  string font_family = 1;
-  // The font size, in pixels.
-  optional float font_size = 2;
-  // A weight from 100 to 900.
-  optional float font_weight = 3;
-  // A CSS color.
-  string color = 4;
-}
 
 // How the text engine reads a text.
 enum TextSyntax {
@@ -48,16 +36,4 @@ enum TextBaseline {
   // The alphabetic baseline of the text.
   TEXT_BASELINE_ALPHABETIC = 3;
   TEXT_BASELINE_BOTTOM = 4;
-}
-
-// A box behind an axis, a legend, or a widget.
-message Background {
-  // A CSS color, such as `transparent`.
-  string fill = 1;
-  // A CSS color for the outline.
-  string stroke = 2;
-  // The radius of the corners, in pixels.
-  optional float corner_radius = 3;
-  // The space between the edges of the box and its content, in pixels.
-  optional float padding = 4;
 }

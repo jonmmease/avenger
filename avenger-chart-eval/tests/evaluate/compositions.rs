@@ -272,7 +272,11 @@ fn titles_of_compositions_run_along_their_side() {
     };
     let chart = Chart::builder(
         Concat::new(Direction::Row)
-            .title(Title::new("Fuel economy").subtitle("By weight, in two panels"))
+            .title(
+                Title::builder()
+                    .text("Fuel economy")
+                    .subtitle("By weight, in two panels"),
+            )
             .children([plot("Left"), plot("Right")]),
     )
     .build()

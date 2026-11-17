@@ -18,7 +18,8 @@ fn titles_and_attributions() {
     );
     let plot = Plot::cartesian([symbols])
         .title(
-            Title::new("Fuel economy")
+            Title::builder()
+                .text("Fuel economy")
                 .subtitle("By weight and origin")
                 .align(TitleAlign::Start),
         )
@@ -31,8 +32,9 @@ fn titles_and_attributions() {
         SymbolMark::builder().x("weight").y("mpg").color("origin"),
     );
     let plot = Plot::cartesian([symbols]).title(
-        Title::new("Figure 1: heavier cars travel fewer miles on a gallon.")
-            .side(TitleSide::Bottom),
+        Title::builder()
+            .text("Figure 1: heavier cars travel fewer miles on a gallon.")
+            .orient(Side::Bottom),
     );
     let caption = Chart::builder(plot).build().unwrap();
     render_both(&caption, "caption");
@@ -88,7 +90,11 @@ fn a_title_reads_as_typst_markup_and_a_title_from_the_data_as_plain_text() {
     // A title and its subtitle without a syntax are Typst markup, and the axis titles from an
     // encoding's title and a column's name are plain.
     let evaluated = evaluate(
-        &chart(Title::new("*Fuel* economy").subtitle("in _miles_")),
+        &chart(
+            Title::builder()
+                .text("*Fuel* economy")
+                .subtitle("in _miles_"),
+        ),
         [320.0, 240.0],
     );
     let texts = text_syntaxes(&evaluated.scene.marks);
@@ -102,7 +108,11 @@ fn a_title_reads_as_typst_markup_and_a_title_from_the_data_as_plain_text() {
     }
     // A plain title draws its characters as they are.
     let evaluated = evaluate(
-        &chart(Title::new("*Fuel* economy").syntax(TextSyntax::Plain)),
+        &chart(
+            Title::builder()
+                .text("*Fuel* economy")
+                .syntax(TextSyntax::Plain),
+        ),
         [320.0, 240.0],
     );
     let texts = text_syntaxes(&evaluated.scene.marks);
@@ -132,7 +142,9 @@ fn a_title_reads_as_typst_markup_and_a_title_from_the_data_as_plain_text() {
 #[test]
 fn a_title_and_a_subtitle_draw_their_typst_markup() {
     let symbols = CartesianLayer::symbol(cars(), SymbolMark::builder().x("weight").y("mpg"));
-    let title = Title::new("*Fuel* economy").subtitle(r#"by _weight_, with $"mpg" prop 1 / w^2$"#);
+    let title = Title::builder()
+        .text("*Fuel* economy")
+        .subtitle(r#"by _weight_, with $"mpg" prop 1 / w^2$"#);
     let chart = Chart::builder(Plot::cartesian([symbols]).title(title))
         .build()
         .unwrap();
@@ -171,7 +183,7 @@ fn an_axis_with_explicit_ticks() {
         cars(),
         SymbolMark::builder()
             .x(Encoding::scaled_field("weight")
-                .scale(Axis::builder().ticks(Ticks::values([2000.0, 3000.0, 4000.0]))))
+                .scale(Axis::builder().values([2000.0, 3000.0, 4000.0])))
             .y("mpg"),
     );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
@@ -217,7 +229,7 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
         SymbolMark::builder().x("weight").y("mpg").color(
             Encoding::scaled_field("mpg").scale(
                 Legend::builder()
-                    .form(LegendForm::Colorbar)
+                    .type_(LegendForm::Colorbar)
                     .max_length(120.0),
             ),
         ),
@@ -530,14 +542,12 @@ fn crowded_short_labels_never_thicken_as_the_axis_grows() {
 #[test]
 fn thin_ticks_thins_explicit_ticks() {
     let values: Vec<f64> = (15..=55).map(|step| f64::from(step) * 100.0).collect();
-    let symbols =
-        CartesianLayer::symbol(
-            cars(),
-            SymbolMark::builder()
-                .x(Encoding::scaled_field("weight")
-                    .scale(Axis::builder().ticks(Ticks::values(values))))
-                .y("mpg"),
-        );
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight").scale(Axis::builder().values(values)))
+            .y("mpg"),
+    );
     let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
     let thousands = |texts: Vec<String>| {
         let mut kept: Vec<String> = texts
@@ -566,4 +576,127 @@ fn thin_ticks_thins_explicit_ticks() {
         ["1,500", "2,100", "2,700", "3,300", "3,900", "4,500"]
     );
     assert_eq!(kept, ["1,500", "2,500", "3,500", "4,500"]);
+}
+
+/// A legend's count of columns lays out the grid that the stylesheet properties `wrap: grid` and
+/// `columns` give, the layout of a grid of columns before the wrap became a field.
+#[test]
+fn a_legend_with_columns_lays_out_a_grid() {
+    let chart = |legend: LegendBuilder| {
+        let symbols = CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x("weight")
+                .y("mpg")
+                .color(Encoding::scaled_field("cylinders").scale(legend)),
+        );
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    let size = host([480.0, 320.0]);
+    let fielded = chart(Legend::builder().orient(Side::Bottom).columns(2));
+    let fielded = evaluate(&fielded, [480.0, 320.0]);
+    let styled = chart(Legend::builder().orient(Side::Bottom));
+    let styled = ChartEvaluator::new(
+        styled,
+        cascade_with("legend { wrap: grid; columns: 2; }"),
+        engine(),
+        Registry::new(),
+    )
+    .unwrap()
+    .evaluate(&size)
+    .unwrap();
+    let flowed = evaluate(
+        &chart(Legend::builder().orient(Side::Bottom)),
+        [480.0, 320.0],
+    );
+    let positions = |evaluated: &EvaluatedChart| scene_text_positions(&evaluated.scene.marks);
+    assert_eq!(positions(&fielded), positions(&styled));
+    assert_ne!(positions(&fielded), positions(&flowed));
+}
+
+/// The first days of the first `months` months of 2024, as days since the epoch.
+fn first_days(months: usize) -> Vec<i32> {
+    let firsts = [
+        19723, 19754, 19783, 19814, 19844, 19875, 19905, 19936, 19967, 19997, 20028, 20058,
+    ];
+    firsts[..months].to_vec()
+}
+
+/// A time axis with a step of 3 months from a start ticks at the start and every third month
+/// after it, as the explicit ticks of those months do.
+#[test]
+fn a_time_axis_steps_its_ticks_by_months() {
+    use arrow::array::Date32Array;
+    let days = first_days(12);
+    let table = RecordBatch::try_from_iter([
+        (
+            "day",
+            Arc::new(Date32Array::from(days.clone())) as arrow::array::ArrayRef,
+        ),
+        (
+            "value",
+            numbers(&(0..12).map(f64::from).collect::<Vec<_>>()),
+        ),
+    ])
+    .unwrap();
+    let chart = |axis: AxisBuilder| {
+        let x = Encoding::scaled_field("day").scale(Scale::builder().enabled(false).axis(axis));
+        let symbols = CartesianLayer::symbol(table.clone(), SymbolMark::builder().x(x).y("value"));
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    // February, May, August, and November of 2024.
+    let date = |day: i32| Value::scalar(Arc::new(Date32Array::from(vec![day])));
+    let stepped = chart(
+        Axis::builder().tick_step(
+            TickStep::builder()
+                .step(3.0)
+                .interval(CalendarUnit::Month)
+                .start(date(days[1])),
+        ),
+    );
+    let listed = chart(
+        Axis::builder().values(Value::list(Arc::new(Date32Array::from(vec![
+            days[1], days[4], days[7], days[10],
+        ])))),
+    );
+    let texts = |chart: &Chart| scene_text_positions(&evaluate(chart, [480.0, 320.0]).scene.marks);
+    let stepped = texts(&stepped);
+    assert_eq!(stepped, texts(&listed));
+    assert_ne!(stepped, texts(&chart(Axis::builder())));
+}
+
+/// `false` for an axis draws no axis: neither its title nor its labels.
+#[test]
+fn an_axis_of_false_draws_no_axis() {
+    let chart = |axis: AxisBuilder| {
+        let symbols = CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("weight").scale(axis))
+                .y("mpg"),
+        );
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    let texts = |chart: &Chart| scene_texts(&evaluate(chart, [320.0, 240.0]).scene.marks);
+    let drawn = texts(&chart(Axis::builder()));
+    let hidden = texts(&chart(AxisBuilder::from(false)));
+    assert!(drawn.contains(&"weight".to_string()), "{drawn:?}");
+    assert!(!hidden.contains(&"weight".to_string()), "{hidden:?}");
+    assert!(hidden.len() < drawn.len(), "{hidden:?}");
+}
+
+/// A title without a text styles the title that its axis gives, which stays plain text.
+#[test]
+fn a_title_without_a_text_styles_the_derived_title() {
+    use avenger_common::types::TextSyntaxMode::Plain;
+    let symbols = CartesianLayer::symbol(
+        cars(),
+        SymbolMark::builder()
+            .x(Encoding::scaled_field("weight")
+                .scale(Axis::builder().title(Title::builder().font_size(14.0))))
+            .y("mpg"),
+    );
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let texts = text_syntaxes(&evaluate(&chart, [320.0, 240.0]).scene.marks);
+    assert!(texts.contains(&("weight".to_string(), Plain)), "{texts:?}");
 }

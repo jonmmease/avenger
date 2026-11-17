@@ -221,8 +221,8 @@ async fn clicks_on_mode_widgets_turn_the_modes_that_decide_the_active_tools() {
         .id("points")
         .tools([LayerToolBuilder::from(Tooltip::builder()).modes(["tooltips"])])
         .widgets([
-            Widget::mode("drag", ModeWidget::group("drag")).side(Side::Right),
-            Widget::mode("tooltips", ModeWidget::toggle("tooltips")).side(Side::Right),
+            Widget::mode("drag", ModeWidget::group("drag")).orient(Side::Right),
+            Widget::mode("tooltips", ModeWidget::toggle("tooltips")).orient(Side::Right),
         ]);
     let chart = Chart::builder(Plot::cartesian([symbols]).id("cars").tools(tools))
         .selections([Selection::new("filter", SelectionResolution::Global)])

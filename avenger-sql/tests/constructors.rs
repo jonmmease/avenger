@@ -45,12 +45,12 @@ async fn error(expression: &str) -> String {
 async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // A Boolean, a number, a string, an enum, and an array.
     builds(
-        "axis(show_grid => TRUE, angle => 30, domain_color => 'gray', side => 'left', classes => ['a', 'b'])",
+        "axis(grid => TRUE, angle => 30, rule_color => 'gray', orient => 'left', classes => ['a', 'b'])",
         Axis::builder()
-            .show_grid(true)
+            .grid(true)
             .angle(30.0)
-            .domain_color("gray")
-            .side(Side::Left)
+            .rule_color("gray")
+            .orient(Side::Left)
             .classes(["a", "b"])
             .to_fragment()
             .unwrap(),
@@ -58,10 +58,10 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     .await;
     // A message by a fragment and by rule A, and a repeated message.
     builds(
-        "axis(title => title('Mass', subtitle => 'grams'), levels => [nested_axis_level(show_labels => FALSE)])",
+        "axis(title => title('Mass', subtitle => 'grams'), levels => [nested_axis_level(labels => FALSE)])",
         Axis::builder()
-            .title(Title::new("Mass").subtitle("grams"))
-            .levels([NestedAxisLevel::builder().show_labels(false)])
+            .title(Title::builder().text("Mass").subtitle("grams"))
+            .levels([NestedAxisLevel::builder().labels(false)])
             .to_fragment()
             .unwrap(),
     )
@@ -69,6 +69,34 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     builds(
         "axis(title => 'Mass')",
         Axis::builder().title("Mass").to_fragment().unwrap(),
+    )
+    .await;
+    // A Boolean shows or hides a part, through its lifted `show`, and a string fills the other
+    // lifted field of a title or labels.
+    builds(
+        "axis(title => FALSE, labels => ',.0f', ticks => FALSE, tick_placement => tick_step(5))",
+        Axis::builder()
+            .title(false)
+            .labels(",.0f")
+            .ticks(false)
+            .tick_step(5.0)
+            .to_fragment()
+            .unwrap(),
+    )
+    .await;
+    builds(
+        "scale(axis => FALSE)",
+        Scale::builder().axis(false).to_fragment().unwrap(),
+    )
+    .await;
+    builds(
+        "legend(labels => FALSE, columns => 2, background => 'white')",
+        Legend::builder()
+            .labels(false)
+            .columns(2)
+            .background("white")
+            .to_fragment()
+            .unwrap(),
     )
     .await;
     // A `ValueRef` and a required content first, by position.
@@ -187,14 +215,14 @@ async fn conversions_reach_a_message_through_a_chain() {
 async fn errors_of_a_constant_call_fail_at_planning() {
     for (expression, expected) in [
         (
-            "axis(side => 'up')",
-            "`side` takes one of 'bottom', 'top', 'left', 'right'",
+            "axis(orient => 'up')",
+            "`orient` takes one of 'bottom', 'top', 'left', 'right'",
         ),
         ("scale(type => 'cubic')", "`type` takes one of linear"),
         ("scale(type => axis())", "`type` takes"),
         (
             "axis(title => scale())",
-            "`title` takes a string, or `title(...)`, not `scale(...)`",
+            "`title` takes a Boolean, a string, or `title(...)`, not `scale(...)`",
         ),
         // A name picks only a member without required content.
         ("scale(type => 'custom')", "not `custom`"),
@@ -206,9 +234,9 @@ async fn errors_of_a_constant_call_fail_at_planning() {
             "scale(type => 5)",
             "`type` takes a name (linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold), `band_scale(...)`",
         ),
-        ("title()", "title needs its argument `text`"),
+        ("part_rule()", "part_rule needs its argument `part`"),
         (
-            "axis(show_grid => 'yes')",
+            "axis(grid => 'yes')",
             "no form of axis takes (STRING)",
         ),
         ("cartesian(1, 2)", "cartesian takes 1 positional argument"),

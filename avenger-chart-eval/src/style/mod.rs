@@ -41,7 +41,7 @@ pub(crate) fn is_continuous(spec: &proto::Scale, kind: FitKind) -> bool {
 
 /// The axis or the legend that a scale group draws: none when its spec's axis or legend has `show:
 /// false`, an axis for `x` and `y`, a polar axis for `theta` and `radius` only when their spec has
-/// an axis, and for another channel the legend of its spec's form, or without one, a colorbar for a
+/// an axis, and for another channel the legend of its spec's type, or without one, a colorbar for a
 /// continuous color scale and a symbol legend for another scale: the categories of a discrete
 /// scale, the bins of a quantize, quantile, or threshold scale, or the ticks of another continuous
 /// scale.
@@ -67,7 +67,7 @@ pub(crate) fn guide_kind(group: &ScaleGroup, kind: FitKind) -> Option<GuideKind>
                 return None;
             }
             let form = legend.map_or(LegendForm::Unspecified, |legend| {
-                LegendForm::try_from(legend.form).unwrap_or_default()
+                LegendForm::try_from(legend.r#type).unwrap_or_default()
             });
             let color = matches!(channel, Channel::Color | Channel::Fill | Channel::Stroke);
             match form {

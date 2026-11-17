@@ -977,8 +977,11 @@ pub(crate) fn widgets(
             None => WidgetTarget::Modes,
         };
         // A widget without a title takes the name of its column, a mode widget of a toggle takes
-        // the toggle's label, and a mode widget of a group has none.
-        let title = match (&group.widget.title, &target, &spec) {
+        // the toggle's label, and a mode widget of a group has none. A title without a text keeps
+        // that title, and a title that does not show draws none.
+        let declared = group.widget.title.as_ref();
+        let title = match (crate::guides::authored(declared), &target, &spec) {
+            _ if declared.is_some_and(|title| title.show == Some(false)) => Text::plain(""),
             (Some(title), _, _) => Text::new(
                 title.text.as_str(),
                 crate::guides::title_syntax(Some(title)),
@@ -991,7 +994,7 @@ pub(crate) fn widgets(
             }
             (None, WidgetTarget::Modes, _) => Text::plain(""),
         };
-        let side = side_of(group.widget.side, style);
+        let side = side_of(group.widget.orient, style);
         let evaluated = EvaluatedWidget {
             key: group.key.clone(),
             anchor: group.anchor.clone(),

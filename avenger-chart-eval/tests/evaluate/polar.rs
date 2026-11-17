@@ -152,11 +152,9 @@ fn a_radar_chart_draws_straight_edges_and_a_web_of_polygons() {
     };
     let radius = || {
         Encoding::scaled_field("value").scale(
-            Scale::builder().explicit([0.0, 5.0]).axis(
-                Axis::builder()
-                    .route(Route::Canvas)
-                    .ticks(Ticks::count(5.0)),
-            ),
+            Scale::builder()
+                .explicit([0.0, 5.0])
+                .axis(Axis::builder().route(Route::Canvas).tick_count(5.0)),
         )
     };
     let areas = PolarLayer::area(

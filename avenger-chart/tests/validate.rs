@@ -7,14 +7,15 @@ mod support;
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, Float64Array, StringArray},
+    array::{ArrayRef, Date32Array, Float64Array, StringArray},
+    datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
 use avenger_chart::{
     list_value,
     proto::{
-        self, cartesian_layer, condition, encoding, node, plot, predicate, scale, spherical, tool,
-        CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark, ValueRef,
+        self, axis, cartesian_layer, condition, encoding, legend, node, plot, predicate, scale,
+        spherical, tool, CartesianLayer, Concat, Encoding, Plot, Selection, SymbolMark, ValueRef,
     },
     Chart, ChartError,
 };
@@ -789,7 +790,7 @@ fn a_tooltip_title_has_no_field_title_and_its_labels_no_style() {
         "shows only its value",
     );
     let styled = proto::Labels {
-        style: Some(proto::TextStyle::default()),
+        font_size: Some(12.0),
         ..Default::default()
     };
     invalid(
@@ -797,8 +798,20 @@ fn a_tooltip_title_has_no_field_title_and_its_labels_no_style() {
             fields: vec![field(None, Some(styled))],
             ..Default::default()
         }),
-        "root.plot.tools[0].tooltip.fields[0].labels.style",
+        "root.plot.tools[0].tooltip.fields[0].labels.font_size",
         "takes the tooltip's style",
+    );
+    let hidden = proto::Labels {
+        show: Some(false),
+        ..Default::default()
+    };
+    invalid(
+        tooltip(proto::Tooltip {
+            fields: vec![field(None, Some(hidden))],
+            ..Default::default()
+        }),
+        "root.plot.tools[0].tooltip.fields[0].labels.show",
+        "always show",
     );
 }
 
@@ -968,8 +981,11 @@ fn nested(guide: proto::Axis) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
 
 #[test]
 fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
-    let level = |show_labels| proto::NestedAxisLevel {
-        show_labels,
+    let level = |show| proto::NestedAxisLevel {
+        labels: Some(proto::Labels {
+            show,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let axis = |levels| proto::Axis {
@@ -984,10 +1000,26 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
     );
     // A level's pattern of numbers needs its syntax, and the values of these levels are strings.
     let formatted = proto::NestedAxisLevel {
-        format: ",.0f".to_string(),
+        labels: Some(proto::Labels {
+            format: ",.0f".to_string(),
+            ..Default::default()
+        }),
         ..Default::default()
     };
     read(nested(axis(vec![formatted]))).unwrap();
+    // Every level takes the markup and the font of the axis's labels.
+    let styled = proto::NestedAxisLevel {
+        labels: Some(proto::Labels {
+            font_size: Some(9.0),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    invalid(
+        nested(axis(vec![styled])),
+        &format!("{X}.scale.axis.levels[0].labels.font_size"),
+        "take the markup and the font of the axis's labels",
+    );
     let mut parts = base();
     x_scale(&mut parts.0).axis = Some(axis(vec![level(None)]));
     invalid(
@@ -1000,15 +1032,12 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
 #[test]
 fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     let ticks = |placement| proto::Axis {
-        ticks: Some(proto::Ticks {
-            placement: Some(placement),
-            ..Default::default()
-        }),
+        tick_placement: Some(placement),
         ..Default::default()
     };
     invalid(
-        nested(ticks(proto::ticks::Placement::Count(3.0))),
-        &format!("{X}.scale.axis.ticks.count"),
+        nested(ticks(axis::TickPlacement::TickCount(3.0))),
+        &format!("{X}.scale.axis.tick_count"),
         "ticks at the bands of its leaf",
     );
     let band = |placement| {
@@ -1023,11 +1052,11 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
         parts
     };
     invalid(
-        band(proto::ticks::Placement::Count(3.0)),
-        &format!("{X}.scale.axis.ticks.count"),
+        band(axis::TickPlacement::TickCount(3.0)),
+        &format!("{X}.scale.axis.tick_count"),
         "only a list of ticks is valid",
     );
-    let mut listed = band(proto::ticks::Placement::Values(ValueRef { index: 0 }));
+    let mut listed = band(axis::TickPlacement::Values(ValueRef { index: 0 }));
     listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
     read(listed).unwrap();
 }
@@ -1472,13 +1501,254 @@ fn a_band_placement_needs_a_band_of_its_position() {
 }
 
 #[test]
-fn a_title_has_text() {
+fn the_title_of_a_node_has_text_and_always_shows() {
     let mut parts = base();
     plot_mut(&mut parts.0).title = Some(proto::Title::default());
     invalid(
         parts,
         "root.plot.title.text",
-        "`text` is required and not empty",
+        "the title of a plot, a concat, or a wrap has a text",
+    );
+    let mut parts = base();
+    plot_mut(&mut parts.0).title = Some(proto::Title {
+        text: "Penguins".to_string(),
+        show: Some(false),
+        ..Default::default()
+    });
+    invalid(parts, "root.plot.title.show", "always shows");
+    // The title of a guide styles the title that its guide gives without a text of its own, and
+    // hides it.
+    let mut parts = base();
+    x_scale(&mut parts.0).axis = Some(proto::Axis {
+        title: Some(proto::Title {
+            font_size: Some(14.0),
+            show: Some(false),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    read(parts).unwrap();
+}
+
+#[test]
+fn a_subtitle_font_is_only_on_the_title_of_a_node() {
+    let mut parts = base();
+    x_scale(&mut parts.0).axis = Some(proto::Axis {
+        title: Some(proto::Title {
+            subtitle_color: "gray".to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    invalid(
+        parts,
+        &format!("{X}.scale.axis.title.subtitle_color"),
+        "only the title of a plot",
+    );
+}
+
+/// The base chart with a color encoding of `b` through a linear scale with `legend`.
+fn with_legend(legend: proto::Legend) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
+    let mut parts = base();
+    symbol_mut(&mut parts.0).color = Some(column(
+        "b",
+        proto::Scale {
+            legend: Some(legend),
+            ..linear_data()
+        },
+    ));
+    parts
+}
+
+const COLOR: &str = "root.plot.cartesian.layers[0].symbol.color.scale.legend";
+
+#[test]
+fn a_legend_takes_the_fields_of_its_type() {
+    let symbol = |legend: proto::Legend| proto::Legend {
+        r#type: proto::LegendForm::Symbol as i32,
+        ..legend
+    };
+    // A count of columns is a grid, which a flow is not.
+    read(with_legend(symbol(proto::Legend {
+        columns: Some(2),
+        ..Default::default()
+    })))
+    .unwrap();
+    invalid(
+        with_legend(symbol(proto::Legend {
+            columns: Some(2),
+            wrap: proto::LegendWrap::Flow as i32,
+            ..Default::default()
+        })),
+        &format!("{COLOR}.columns"),
+        "invalid with a flow",
+    );
+    // A colorbar draws no grid of entries, and a symbol legend no axis.
+    invalid(
+        with_legend(proto::Legend {
+            columns: Some(2),
+            ..Default::default()
+        }),
+        &format!("{COLOR}.columns"),
+        "a colorbar has no such part",
+    );
+    invalid(
+        with_legend(symbol(proto::Legend {
+            rule: Some(false),
+            ..Default::default()
+        })),
+        &format!("{COLOR}.rule"),
+        "a symbol legend has no such part",
+    );
+    // A tick count and values place the entries of a symbol legend and the ticks of a colorbar,
+    // and a step places only the ticks of a colorbar.
+    let count = Some(legend::TickPlacement::TickCount(4.0));
+    read(with_legend(symbol(proto::Legend {
+        tick_placement: count,
+        ..Default::default()
+    })))
+    .unwrap();
+    read(with_legend(proto::Legend {
+        tick_placement: count,
+        ..Default::default()
+    }))
+    .unwrap();
+    let step = || {
+        Some(legend::TickPlacement::TickStep(proto::TickStep {
+            step: 1.0,
+            ..Default::default()
+        }))
+    };
+    read(with_legend(proto::Legend {
+        tick_placement: step(),
+        ..Default::default()
+    }))
+    .unwrap();
+    invalid(
+        with_legend(symbol(proto::Legend {
+            tick_placement: step(),
+            ..Default::default()
+        })),
+        &format!("{COLOR}.tick_step"),
+        "a symbol legend has no such part",
+    );
+}
+
+#[test]
+fn a_tick_step_fits_its_scale() {
+    let stepped = |step: proto::TickStep, values: Vec<ArrayRef>| {
+        let mut parts = base();
+        x_scale(&mut parts.0).axis = Some(proto::Axis {
+            tick_placement: Some(axis::TickPlacement::TickStep(step)),
+            ..Default::default()
+        });
+        parts.2 = values;
+        parts
+    };
+    let path = format!("{X}.scale.axis.tick_step");
+    read(stepped(
+        proto::TickStep {
+            step: 0.5,
+            start: Some(ValueRef { index: 0 }),
+            ..Default::default()
+        },
+        vec![one(0.25)],
+    ))
+    .unwrap();
+    invalid(
+        stepped(proto::TickStep::default(), vec![]),
+        &format!("{path}.step"),
+        "more than 0",
+    );
+    invalid(
+        stepped(
+            proto::TickStep {
+                step: 3.0,
+                interval: proto::CalendarUnit::Month as i32,
+                ..Default::default()
+            },
+            vec![],
+        ),
+        &format!("{path}.interval"),
+        "valid only on a time scale",
+    );
+    invalid(
+        stepped(
+            proto::TickStep {
+                step: 1.0,
+                start: Some(ValueRef { index: 0 }),
+                ..Default::default()
+            },
+            vec![Arc::new(StringArray::from(vec!["a"]))],
+        ),
+        &format!("{path}.start"),
+        "a start of type Utf8 is invalid on a linear scale",
+    );
+    // On a time scale of dates, the step has a unit and is a whole number of it, from a date.
+    let timed = |step: proto::TickStep| {
+        let mut parts = stepped(step, vec![Arc::new(Date32Array::from(vec![19723]))]);
+        let days: ArrayRef = Arc::new(Date32Array::from(vec![19723, 19754, 19783]));
+        let schema = Schema::new(vec![
+            Field::new("a", DataType::Date32, false),
+            Field::new("b", DataType::Float64, false),
+        ]);
+        let b: ArrayRef = Arc::new(Float64Array::from(vec![4.0, 6.0, 5.0]));
+        parts.1 = vec![RecordBatch::try_new(Arc::new(schema), vec![days, b]).unwrap()];
+        x_scale(&mut parts.0).r#type = Some(scale::Type::Time(proto::TimeScale::default()));
+        parts
+    };
+    let months = |step: f64| proto::TickStep {
+        step,
+        interval: proto::CalendarUnit::Month as i32,
+        start: Some(ValueRef { index: 0 }),
+    };
+    read(timed(months(3.0))).unwrap();
+    invalid(
+        timed(proto::TickStep {
+            step: 3.0,
+            ..Default::default()
+        }),
+        &format!("{path}.interval"),
+        "the step of the ticks of a time scale has a unit",
+    );
+    invalid(
+        timed(months(1.5)),
+        &format!("{path}.step"),
+        "a whole number of its unit",
+    );
+}
+
+#[test]
+fn facets_and_widgets_always_show_their_labels() {
+    let hidden = Some(proto::Labels {
+        show: Some(false),
+        ..Default::default()
+    });
+    let mut root = concat(
+        proto::Direction::Row,
+        vec![plot_with("", vec![value("sex", 0)], vec![symbols(0)])],
+    );
+    concat_mut(&mut root).facet = Some(proto::Facet {
+        column: "sex".to_string(),
+        labels: hidden.clone(),
+        ..Default::default()
+    });
+    invalid(
+        parts(root, strings(&["female"])),
+        "root.concat.facet.labels.show",
+        "a facet always shows its labels",
+    );
+    invalid(
+        with_widget(
+            widget(proto::widget::Kind::Radio(proto::RadioWidget {
+                domain: data_domain(),
+                labels: hidden,
+                ..Default::default()
+            })),
+            vec![],
+        ),
+        &format!("{WIDGET}.radio.labels.show"),
+        "a widget always shows its labels",
     );
 }
 

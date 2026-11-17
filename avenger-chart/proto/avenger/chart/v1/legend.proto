@@ -5,20 +5,21 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/element.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
-// The legend of a non-position scale, in one of two forms. A symbol legend has an entry for each
+// The legend of a non-position scale, of one of two types. A symbol legend has an entry for each
 // category of a discrete scale, for each bin of a quantize, quantile, or threshold scale, labeled
 // with the range of the bin, or for each tick of another continuous scale, such as the sizes of a
 // size scale, with a swatch of the mark and a label. A colorbar draws the colors of a continuous
 // color scale as a gradient, with an axis beside it. A style field that is unset takes its value
-// from the styles. The settings of one form are invalid on a legend of the other: `wrap`,
-// `label_padding`, `column_gap`, `row_gap`, `entries`, and `show_swatches` on a colorbar, and
-// `thickness`, `axis_gap`, `max_length`, `label_align`, `label_baseline`, `ticks`, `show_ticks`,
-// `domain_color`, and `show_domain` on a symbol legend.
+// from the styles. The settings of one type are invalid on a legend of the other: `wrap`,
+// `columns`, `label_padding`, `column_gap`, `row_gap`, and `swatches` on a colorbar, and
+// `thickness`, `axis_gap`, `max_length`, `label_align`, `label_baseline`, `tick_step`, `ticks`,
+// `tick_size`, `tick_color`, `rule`, and `rule_color` on a symbol legend.
 //
 // The symbol legends of discrete scales with one owner merge into one legend when the scales encode
 // the same columns, hold the same categories in the same order, and the legends are equal, so the
@@ -27,77 +28,90 @@ import "avenger/chart/v1/value.proto";
 // scale does not merge.
 message Legend {
   // Whether the scale draws this legend. When unset, it does. `false` draws no legend.
-  optional bool show = 23;
-  // The form of the legend. When unset, a continuous scale of `color`, `fill`, or `stroke` has a
+  optional bool show = 1 [(avenger.chart.v1.lift) = true];
+  // The type of the legend. When unset, a continuous scale of `color`, `fill`, or `stroke` has a
   // colorbar, and another scale has a symbol legend.
-  LegendForm form = 13;
-  // The title. When unset, the legend takes the titles of the encodings of its scale, as
-  // `Encoding.title` describes.
-  Title title = 1;
-  // Whether the legend shows its title. When unset, the styles decide.
-  optional bool show_title = 24;
+  LegendForm type = 2;
+  // The title. When unset, or when its text is empty, the legend takes the titles of the
+  // encodings of its scale, as `Encoding.title` describes.
+  Title title = 3;
   // The labels of the entries, where `#value` is the formatted entry, or the formatted range of
   // a bin, or the labels of the axis of a colorbar.
-  Labels labels = 2;
-  // Whether the legend shows its labels. When unset, the styles decide.
-  optional bool show_labels = 17;
+  Labels labels = 4;
   // The angle of the labels, in degrees clockwise.
-  optional float label_angle = 18;
+  optional float label_angle = 5;
   // The side of the plot that the legend stands on. When unset, the styles give it.
-  Side side = 3;
-  // The box behind the legend. When unset, the legend has no background.
-  Background background = 8;
+  Side orient = 6;
+  // The CSS color of the box behind the legend, such as `white`. When unset, the legend has no
+  // background.
+  string background = 7;
+  // The CSS color of the outline of the box behind the legend, a solid border.
+  string border_color = 8;
+  // The radius of the corners of the box behind the legend, in pixels.
+  optional float border_radius = 9;
+  // The space between the edges of the box behind the legend and its content, in pixels.
+  optional float padding = 10;
 
-  // How the entries of a symbol legend fill the lines along the side.
-  LegendWrap wrap = 4;
+  // How the entries of a symbol legend fill the lines along the side. When unset, the styles give
+  // it, or with `columns`, a grid.
+  LegendWrap wrap = 11;
+  // The count of columns of a grid at every length, which is invalid with `LEGEND_WRAP_FLOW`.
+  // When unset, a grid takes as many cells along the side as fit.
+  optional uint32 columns = 12;
   // The space between a swatch and its label, in pixels.
-  optional float label_padding = 5;
+  optional float label_padding = 13;
   // The space between columns of entries, in pixels.
-  optional float column_gap = 6;
+  optional float column_gap = 14;
   // The space between rows of entries, in pixels.
-  optional float row_gap = 7;
-  // The entries of the symbol legend of a continuous scale. When unset, at the ticks of the scale,
-  // with a count that the styles give.
-  oneof entries {
+  optional float row_gap = 15;
+  // Where the entries of the symbol legend of a continuous scale, or the ticks of a colorbar's
+  // axis, stand. When unset, at the ticks of the scale, with a count that the styles give. A
+  // symbol legend takes a count or values, of a linear, log, pow, symlog, or time scale only.
+  oneof tick_placement {
     // About how many ticks of the scale the legend shows.
-    double tick_count = 9;
-    // A list of the entries, in the type of the scale's domain, in place of the ticks of the scale.
-    ValueRef values = 10;
+    double tick_count = 16;
+    // Ticks of a colorbar's axis at a start and fixed steps, in place of the ticks of the scale.
+    TickStep tick_step = 17;
+    // A list of the entries or the ticks, in the type of the scale's domain, in place of the ticks
+    // of the scale.
+    ValueRef values = 18;
   }
   // Whether a symbol legend shows the swatches of its entries. When unset, the styles decide.
-  optional bool show_swatches = 25;
+  optional bool swatches = 19;
 
   // The thickness of the gradient of a colorbar, across the colorbar, in pixels.
-  optional float thickness = 14;
+  optional float thickness = 20;
   // The space between the gradient and its axis, in pixels.
-  optional float axis_gap = 15;
+  optional float axis_gap = 21;
   // The longest that a colorbar runs along its side, with its background, in pixels. When unset,
   // it runs the whole length that the layout gives it.
-  optional float max_length = 16;
+  optional float max_length = 22;
   // When unset, each label of a colorbar's axis aligns to its end nearest its tick, for the side
   // of the colorbar and the angle of the labels.
-  TextAlign label_align = 19;
+  TextAlign label_align = 23;
   // When unset, each label aligns to its end nearest its tick, as for `label_align`.
-  TextBaseline label_baseline = 20;
-  // The ticks of a colorbar's axis.
-  Ticks ticks = 21;
+  TextBaseline label_baseline = 24;
   // Whether a colorbar's axis shows its ticks. When unset, the styles decide.
-  optional bool show_ticks = 26;
-  // The CSS color of the line along a colorbar's axis.
-  string domain_color = 22;
+  optional bool ticks = 25;
+  // The length of each tick of a colorbar's axis, in pixels.
+  optional float tick_size = 26;
+  // The CSS color of the ticks of a colorbar's axis.
+  string tick_color = 27;
   // Whether a colorbar's axis shows its line. When unset, the styles decide.
-  optional bool show_domain = 27;
+  optional bool rule = 28;
+  // The CSS color of the line along a colorbar's axis.
+  string rule_color = 29;
 
   // The class names of the legend, which a stylesheet selects with `.name`, as the HTML `class`
   // attribute lists them. Each is not empty and holds no whitespace.
-  repeated string classes = 11;
+  repeated string classes = 30;
   // An id, or empty, which a stylesheet selects with `#id`, with CSS escapes for an id that is
   // not a CSS identifier. With its partition, it identifies the legend, as `Node` describes.
-  string id = 12;
+  string id = 31;
 }
 
 enum LegendForm {
-  // The form that the scale gives.
+  // The type that the scale gives.
   LEGEND_FORM_UNSPECIFIED = 0;
   // A symbol legend.
   LEGEND_FORM_SYMBOL = 1;
@@ -105,21 +119,14 @@ enum LegendForm {
   LEGEND_FORM_COLORBAR = 2;
 }
 
-message LegendWrap {
-  oneof wrap {
-    // Each entry at its own size, with a line breaking before an entry that would pass the length
-    // of the side.
-    LegendFlow flow = 1;
-    // Equal cells, as wide as the widest entry and as tall as the tallest, filled along the side
-    // first.
-    LegendGrid grid = 2;
-  }
-}
-
-message LegendFlow {}
-
-message LegendGrid {
-  // The count of columns at every length. When unset, the legend takes as many cells along the
-  // side as fit.
-  optional uint32 columns = 1;
+// How the entries of a symbol legend fill the lines along its side.
+enum LegendWrap {
+  // Unset, so the styles give the wrap, or a legend with `columns` is a grid.
+  LEGEND_WRAP_UNSPECIFIED = 0;
+  // Each entry at its own size, with a line breaking before an entry that would pass the length
+  // of the side.
+  LEGEND_WRAP_FLOW = 1;
+  // Equal cells, as wide as the widest entry and as tall as the tallest, filled along the side
+  // first.
+  LEGEND_WRAP_GRID = 2;
 }

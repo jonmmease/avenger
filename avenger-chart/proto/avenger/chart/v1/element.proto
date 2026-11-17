@@ -1,11 +1,12 @@
-// The elements that plots, axes, legends, facets, and widgets share: titles, labels,
-// ticks, and grid lines. Each field means the same in every message that has the element.
+// The elements that plots, axes, legends, facets, and widgets share: titles, labels, and the steps
+// of ticks. Each field means the same in every message that has the element.
 
 syntax = "proto3";
 
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
+import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 import "avenger/chart/v1/value.proto";
 
@@ -13,38 +14,47 @@ import "avenger/chart/v1/value.proto";
 // field that is unset takes its value from the styles. The title of a node, which is a plot, a
 // concat, or a wrap, stands on one side of the node with an optional subtitle after it. It runs
 // along the whole side of the node's box, over the slabs of its axes and legends, and a title at
-// the bottom serves as a caption. The settings that place the title of a node and give its subtitle,
-// `side`, `align`, `subtitle`, and `subtitle_style`, are invalid on the title of another
-// element, which stands where its axis, legend, facet, or widget puts it.
+// the bottom serves as a caption. The settings that place the title of a node and give its
+// subtitle, `orient`, `align`, `subtitle`, and the font of the subtitle, are invalid on the title of
+// another element, which stands where its axis, legend, facet, or widget puts it. The title of a
+// node has a text and always shows, so `show` is invalid on it.
 message Title {
-  // The text, in the syntax of `syntax`.
-  string text = 1 [(avenger.chart.v1.required) = true];
-  // When unset, the styles give it.
-  TitleSide side = 2;
+  // The text, in the syntax of `syntax`. The title of a node has a text. On the title of another
+  // element, an empty text keeps the title that the element gives, such as the titles of an
+  // axis's encodings, so the other fields of the title style that title.
+  string text = 1 [(avenger.chart.v1.lift) = true];
+  // Whether the element shows its title. When unset, the styles decide.
+  optional bool show = 2 [(avenger.chart.v1.lift) = true];
+  // The side of the node. When unset, the styles give it.
+  Side orient = 3;
   // How the text engine reads the text and the subtitle. When unset, it reads them as Typst
   // markup, because a title is the producer's text, so `*Revenue* in $"USD"$` draws bold text and
   // math. A title of text that is not markup, such as one from an untrusted source, sets
   // `TEXT_SYNTAX_PLAIN`. A title that a part takes from the data, such as the titles of an axis's
-  // encodings or the name of a facet's column, has no `Title` and reads as plain text.
-  TextSyntax syntax = 3;
-  // The style of the text.
-  TextStyle style = 4;
+  // encodings or the name of a facet's column, reads as plain text, also when a `Title` without a
+  // text styles it.
+  TextSyntax syntax = 4;
+  // A font family, such as `Lato`.
+  string font_family = 5;
+  // The font size, in pixels.
+  optional float font_size = 6;
+  // A weight from 100 to 900.
+  optional float font_weight = 7;
+  // A CSS color of the text.
+  string color = 8;
   // A line of text after the text, such as the units or the period of the data, or empty for no
   // subtitle.
-  string subtitle = 5;
-  // The style of the subtitle.
-  TextStyle subtitle_style = 6;
+  string subtitle = 9;
+  // The font family of the subtitle.
+  string subtitle_font_family = 10;
+  // The font size of the subtitle, in pixels.
+  optional float subtitle_font_size = 11;
+  // The font weight of the subtitle, from 100 to 900.
+  optional float subtitle_font_weight = 12;
+  // A CSS color of the subtitle.
+  string subtitle_color = 13;
   // Where the title stands along its side. When unset, the styles give it.
-  TitleAlign align = 7;
-}
-
-enum TitleSide {
-  // Unset, so the styles give the side.
-  TITLE_SIDE_UNSPECIFIED = 0;
-  TITLE_SIDE_TOP = 1;
-  TITLE_SIDE_LEFT = 2;
-  TITLE_SIDE_RIGHT = 3;
-  TITLE_SIDE_BOTTOM = 4;
+  TitleAlign align = 14;
 }
 
 // A place along a side, in the direction that the title reads: from the left of a title at the
@@ -64,7 +74,7 @@ message Labels {
   // syntax of `Chart.number_format_syntax`, and a pattern of dates or datetimes is in the syntax of
   // `Chart.datetime_format_syntax`. An empty pattern takes the default of the text engine's
   // formatter, which needs no syntax. Other values, such as strings, show as text.
-  string format = 1;
+  string format = 1 [(avenger.chart.v1.lift) = true];
   // Typst markup for each label, as `TEXT_SYNTAX_TYPST` reads it, where `#value` is the formatted
   // value, such as `#value m/s`. An empty markup shows the formatted value as plain text. The
   // label of a category of a band, a point, or an ordinal scale also binds `null`, whether it is
@@ -74,70 +84,36 @@ message Labels {
   // `#if other [#value (#count)] else [#value]`. `count` and `weight` are `?` when the rows that
   // the label stands for disagree.
   string markup = 2;
-  // The style of the labels.
-  TextStyle style = 3;
+  // Whether the element shows its labels. When unset, the styles decide. Invalid on the labels of
+  // a facet, of a tooltip field, and of a widget, which always show.
+  optional bool show = 3 [(avenger.chart.v1.lift) = true];
+  // A font family, such as `Lato`.
+  string font_family = 4;
+  // The font size, in pixels.
+  optional float font_size = 5;
+  // A weight from 100 to 900.
+  optional float font_weight = 6;
+  // A CSS color of the labels.
+  string color = 7;
 }
 
-// The ticks of an axis. A style field that is unset takes its value from the styles.
-message Ticks {
-  // Where the ticks stand. When unset, at the ticks of the scale, with a count that the axis fits
-  // to its length. On the axis of a band or a point scale, only `values` is valid, and on the axis
-  // of a nested band scale, which ticks at the bands of its leaf, none is.
-  oneof placement {
-    // About how many ticks of the scale to draw.
-    double count = 1;
-    // Ticks at a start and fixed steps, in place of the ticks of the scale.
-    TickInterval interval = 2;
-    // A list of these ticks in the type of the scale's domain, in place of the ticks of the scale:
-    // numbers, dates, or timestamps, or categories of a band or point scale, which the axis labels
-    // in its order.
-    ValueRef values = 3;
-  }
-  // The length of each tick, in pixels.
-  optional float length = 4;
-  // A CSS color.
-  string color = 5;
+// Ticks at a start and each whole multiple of a step before and after it, in place of the ticks
+// of the scale: a step of numbers on a linear, a log, a pow, or a symlog scale, and a step of
+// calendar units on a time scale, whose months and days step in the civil time of the scale.
+message TickStep {
+  // The distance between two ticks, more than 0: a distance in the domain's values, or with an
+  // `interval`, a whole number of its units.
+  double step = 1 [(avenger.chart.v1.lift) = true];
+  // The unit of the step on a time scale, which requires it. Invalid on another scale.
+  CalendarUnit interval = 2;
+  // A tick, which the other ticks step from, in the type of the scale's domain, such as a date on
+  // a time scale. When unset, 0, or the Unix epoch on a time scale.
+  ValueRef start = 3;
 }
 
-// The grid lines of a plot at the ticks of an axis. A style field that is unset takes its value
-// from the styles.
-message Grid {
-  // A CSS color.
-  string color = 2;
-  // The width of each grid line, in pixels.
-  optional float width = 3;
-}
-
-// Ticks at a start and each whole multiple of a step before and after it.
-message TickInterval {
-  oneof spacing {
-    option (avenger.chart.v1.required_oneof) = true;
-    NumericTicks numeric = 1;
-    CalendarTicks calendar = 2;
-  }
-}
-
-// Ticks of a numeric scale: a first tick and the step between two ticks.
-message NumericTicks {
-  // A tick, which the other ticks step from.
-  double start = 1;
-  // The distance between two ticks, more than 0.
-  double step = 2;
-}
-
-// Ticks of a time scale. Months and days step in the civil time of the scale.
-message CalendarTicks {
-  // The first tick, in milliseconds since the Unix epoch.
-  int64 start = 1;
-  // The number of units between two ticks, more than 0.
-  int64 count = 2;
-  // The unit of the step between two ticks.
-  CalendarUnit unit = 3 [(avenger.chart.v1.required) = true];
-}
-
-// The unit of the step of calendar ticks.
+// The unit of the step of the ticks of a time scale.
 enum CalendarUnit {
-  // No unit: calendar ticks have one.
+  // No unit, as the step of a scale that is not a time scale has.
   CALENDAR_UNIT_UNSPECIFIED = 0;
   // A month of the civil time of the scale.
   CALENDAR_UNIT_MONTH = 1;
