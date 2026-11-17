@@ -553,9 +553,6 @@ fn check_layer(out: &mut Output<'_>, name: &LayerName, span: Span) -> Result<(),
 struct RulePrelude {
     selectors: SelectorList<Selectors>,
     span: Span,
-    /// Whether the selectors match only nodes with keyboard focus, so the rule sets only the
-    /// outline properties.
-    focus: bool,
 }
 
 impl<'i> QualifiedRuleParser<'i> for RuleParser<'_, '_> {
@@ -650,11 +647,10 @@ fn selectors(
     };
     // The check reads the selectors with the parent in place of `&`, so a nested rule is checked
     // as the rule that it is.
-    let focus = selector::check_list(&list).map_err(|problem| out.error(span, problem))?;
+    selector::check_list(&list).map_err(|problem| out.error(span, problem))?;
     Ok(RulePrelude {
         selectors: list,
         span,
-        focus,
     })
 }
 
@@ -674,7 +670,6 @@ fn style_block(
         },
         span: prelude.span,
         run: Vec::new(),
-        focus: prelude.focus,
         failed_at: None,
     };
     let results: Vec<_> = RuleBodyParser::new(input, &mut body).collect();
@@ -694,8 +689,6 @@ struct BodyParser<'o, 't> {
     span: Span,
     /// The declarations since the start of the block or the last nested rule.
     run: Vec<Declaration>,
-    /// Whether the rule's selectors end with `:focus-visible`.
-    focus: bool,
     /// The offset of the last declaration that failed. The rule body parser then tries the same
     /// text as a nested rule, whose failure the declaration's diagnostic already reports.
     failed_at: Option<usize>,
@@ -732,11 +725,10 @@ impl<'i> DeclarationParser<'i> for BodyParser<'_, '_> {
         input: &mut Parser<'i>,
         start: &ParserState,
     ) -> Result<(), Failure> {
-        let declarations =
-            declaration(self.out, &name, input, start, self.focus).map_err(|reported| {
-                self.failed_at = Some(start.position().byte_index());
-                ParseError::custom(reported)
-            })?;
+        let declarations = declaration(self.out, &name, input, start).map_err(|reported| {
+            self.failed_at = Some(start.position().byte_index());
+            ParseError::custom(reported)
+        })?;
         self.run.extend(declarations);
         Ok(())
     }
@@ -823,7 +815,6 @@ impl<'i> AtRuleParser<'i> for BodyParser<'_, '_> {
         let prelude = RulePrelude {
             selectors: parent,
             span: self.span,
-            focus: self.focus,
         };
         let outer = Context {
             parent: None,
@@ -850,7 +841,6 @@ fn declaration<'i>(
     name: &str,
     input: &mut Parser<'i>,
     start: &ParserState,
-    focus: bool,
 ) -> Result<Vec<Declaration>, Reported> {
     let value_start = input.position();
     let mut important = false;
@@ -900,16 +890,7 @@ fn declaration<'i>(
     }
     let (longhands, shorthand) = match (Property::from_name(name), Shorthand::from_name(name)) {
         (Some(property), _) => (vec![property], None),
-        (None, Some(shorthand)) => {
-            let longhands = match (shorthand, focus) {
-                (Shorthand::All, true) => (Property::ALL.iter())
-                    .copied()
-                    .filter(|property| property.is_outline())
-                    .collect(),
-                _ => shorthand.longhands(),
-            };
-            (longhands, Some(shorthand))
-        }
+        (None, Some(shorthand)) => (shorthand.longhands(), Some(shorthand)),
         (None, None) => {
             out.diagnostics.push(Diagnostic::warning(
                 span,
@@ -918,20 +899,6 @@ fn declaration<'i>(
             return Ok(Vec::new());
         }
     };
-    let outline = shorthand.map_or_else(|| longhands[0].is_outline(), Shorthand::is_outline);
-    if outline && !focus {
-        return Err(out.error(
-            span,
-            Problem::new("outline properties apply only through :focus-visible"),
-        ));
-    }
-    if !outline && focus && shorthand != Some(Shorthand::All) {
-        return Err(out.error(
-            span,
-            Problem::new("only outline properties apply through :focus-visible"),
-        ));
-    }
-
     let declare = |property: Property, value: Declared| Declaration {
         name: Name::Property(property),
         value,
@@ -1034,24 +1001,12 @@ pub(crate) fn expand(shorthand: Shorthand, text: &str) -> Option<Vec<(Property, 
                 (Property::ContainIntrinsicHeight, Declared::Value(height)),
             ]
         }
-        Shorthand::Border | Shorthand::Outline => {
+        Shorthand::Border => {
             let parts = values(&Syntax::Line, &mut parser)?;
-            let (width, style, color) = match shorthand {
-                Shorthand::Border => (
-                    Property::BorderWidth,
-                    Property::BorderStyle,
-                    Property::BorderColor,
-                ),
-                _ => (
-                    Property::OutlineWidth,
-                    Property::OutlineStyle,
-                    Property::OutlineColor,
-                ),
-            };
             let mut expanded = vec![
-                (width, Declared::Wide(Wide::Initial)),
-                (style, Declared::Wide(Wide::Initial)),
-                (color, Declared::Wide(Wide::Initial)),
+                (Property::BorderWidth, Declared::Wide(Wide::Initial)),
+                (Property::BorderStyle, Declared::Wide(Wide::Initial)),
+                (Property::BorderColor, Declared::Wide(Wide::Initial)),
             ];
             for part in parts {
                 let slot = match &part {

@@ -30,7 +30,6 @@ fn syntax(syntax: &Syntax) -> String {
         Syntax::Color => "<color>".to_string(),
         Syntax::Boolean => "true | false".to_string(),
         Syntax::Keywords(keywords) => keywords.join(" | "),
-        Syntax::KeywordList(keywords) => format!("[{}]+", keywords.join(" | ")),
         Syntax::String => "<string>".to_string(),
         Syntax::FontFamilies => "<family-name>#".to_string(),
         Syntax::FontWeight => "normal | bold | <number [1,1000]>".to_string(),
@@ -54,7 +53,7 @@ fn elements(property: Property) -> String {
     let nodes: Vec<Element> = (Element::ALL.iter())
         .copied()
         // Every property applies to a variant of its parent, so the table leaves the variants out.
-        .filter(|element| !element.is_virtual() && !element.is_variant())
+        .filter(|element| !element.is_variant())
         .collect();
     let elements = property.elements();
     if elements.len() == nodes.len() && nodes.iter().all(|node| elements.contains(node)) {

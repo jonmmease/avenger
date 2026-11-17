@@ -15,7 +15,7 @@ struct Nodes {
     chart: NodeId,
     plot: NodeId,
     bar: NodeId,
-    bar_label: NodeId,
+    bar_other: NodeId,
     line: NodeId,
     axis: NodeId,
     axis_label: NodeId,
@@ -33,7 +33,7 @@ fn chart() -> (StyleTree, Nodes) {
     let bar = tree.add(plot, Element::Mark);
     tree.set_attribute_forms(bar, "type", "bar", "bar");
     tree.add_class(bar, "highlight");
-    let bar_label = tree.add(bar, Element::Label);
+    let bar_other = tree.add(bar, Element::Other);
     let line = tree.add(plot, Element::Mark);
     tree.set_attribute_forms(line, "type", "line", "line");
     let axis = tree.add(plot, Element::Axis);
@@ -56,7 +56,7 @@ fn chart() -> (StyleTree, Nodes) {
             chart,
             plot,
             bar,
-            bar_label,
+            bar_other,
             line,
             axis,
             axis_label,
@@ -458,10 +458,6 @@ fn the_base_stylesheet_derives_its_colors_from_its_parameters() {
         "#4c78a8"
     );
     assert_eq!(white[nodes.line].paint(Property::Fill), Paint::None);
-    assert!(matches!(
-        white[nodes.bar_label].paint(Property::Fill),
-        Paint::Contrast { .. }
-    ));
     assert!(
         !white[nodes.grid].is_hidden(),
         "a sequential axis draws its grid"
@@ -1051,30 +1047,30 @@ fn missing_components_carry_through_mixes_and_draw_as_zero() {
 #[test]
 fn inherited_colors_that_read_current_color_follow_each_nodes_color() {
     let (tree, nodes) = chart();
-    // Without the base stylesheet, which declares the paints of labels, the label inherits them.
+    // Without the base stylesheet, the Other marks of the bars inherit their paints.
     let only = |css: &str| StyleTable::new().with_author(sheet(css), Env::new());
     let table = only(
         "mark { color: red; fill: currentColor; stroke: color-mix(in srgb, currentColor, white); }
-         mark > label { color: blue; }",
+         mark > other { color: blue; }",
     );
     let computed = styles(&table, &tree, &HostInputs::default());
     assert_eq!(hex(computed[nodes.bar].color(Property::Fill)), "#ff0000");
-    // The label inherits `currentColor` and the mix, which read its own blue.
+    // The Other marks inherit `currentColor` and the mix, which read their own blue.
     assert_eq!(
-        hex(computed[nodes.bar_label].color(Property::Fill)),
+        hex(computed[nodes.bar_other].color(Property::Fill)),
         "#0000ff"
     );
     assert_eq!(
-        hex(computed[nodes.bar_label].color(Property::Stroke)),
+        hex(computed[nodes.bar_other].color(Property::Stroke)),
         "#8080ff"
     );
     assert_eq!(
-        computed[nodes.bar_label].paint(Property::Fill),
+        computed[nodes.bar_other].paint(Property::Fill),
         Paint::Color([0.0, 0.0, 1.0, 1.0])
     );
     // `color: currentColor` is the parent's color, which inherits as a color.
     let table =
-        with("plot { color: green; } mark { color: currentColor; } mark > label { color: blue; }");
+        with("plot { color: green; } mark { color: currentColor; } mark > other { color: blue; }");
     let computed = styles(&table, &tree, &HostInputs::default());
     assert_eq!(hex(computed[nodes.bar].color(Property::Color)), "#008000");
 }

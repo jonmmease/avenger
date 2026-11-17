@@ -35,8 +35,6 @@ elements! {
     Chart = "chart",
     Title = "title",
     Subtitle = "subtitle",
-    Footer = "footer",
-    Description = "description",
     Plot = "plot",
     Mark = "mark",
     Axis = "axis",
@@ -52,9 +50,6 @@ elements! {
     Grid = "grid",
     Swatch = "swatch",
     Ramp = "ramp",
-    Item = "item",
-    Group = "group",
-    Entry = "entry",
     Widget = "widget",
     Track = "track",
     Thumb = "thumb",
@@ -70,27 +65,6 @@ impl Element {
     /// changes.
     pub fn is_variant(self) -> bool {
         matches!(self, Element::Other | Element::Null)
-    }
-
-    /// Whether the element is a virtual node, which keyboard focus reaches and which a selector
-    /// matches only through `:focus-visible`.
-    pub fn is_virtual(self) -> bool {
-        matches!(self, Element::Item | Element::Group | Element::Entry)
-    }
-
-    /// Whether a node of the element can have keyboard focus, so `:focus-visible` is valid on it.
-    pub fn can_focus(self) -> bool {
-        matches!(
-            self,
-            Element::Chart
-                | Element::Widget
-                | Element::Axis
-                | Element::Legend
-                | Element::Mark
-                | Element::Entry
-                | Element::Group
-                | Element::Item
-        )
     }
 
     /// The names of the attributes that nodes of the element have.

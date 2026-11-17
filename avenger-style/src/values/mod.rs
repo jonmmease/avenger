@@ -79,8 +79,6 @@ pub enum Syntax {
     /// `true` or `false`.
     Boolean,
     Keywords(&'static [&'static str]),
-    /// One or more keywords separated by spaces.
-    KeywordList(&'static [&'static str]),
     /// A quoted string.
     String,
     /// Font families separated by commas, each a quoted string or a sequence of names.
@@ -168,13 +166,6 @@ pub(crate) fn parse(syntax: &Syntax, input: &mut Parser<'_>) -> Result<Value, ()
             _ => Err(()),
         },
         Syntax::Keywords(keywords) => keyword(input, keywords),
-        Syntax::KeywordList(keywords) => {
-            let mut values = vec![keyword(input, keywords)?];
-            while let Ok(value) = input.try_parse(|input| keyword(input, keywords)) {
-                values.push(value);
-            }
-            Ok(Value::Sequence(values))
-        }
         Syntax::String => Ok(Value::String(
             input.expect_string().map_err(|_| ())?.to_string(),
         )),

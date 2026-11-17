@@ -767,7 +767,7 @@ impl Computer<'_> {
         parent: Option<usize>,
         property: Property,
     ) -> Computed {
-        if let Some(text) = node_initial(self.tree, node, style, property) {
+        if let Some(text) = node_initial(self.tree, node, property) {
             let value = property.parse_value(text).expect("an initial value parses");
             return self.finish(style, parent, property, &value);
         }
@@ -965,12 +965,7 @@ fn table_initial(property: Property) -> &'static Value {
 
 /// The initial value of `property` that depends on the node, such as the `orient` of an axis,
 /// or `None` where the table's applies.
-fn node_initial(
-    tree: &StyleTree,
-    node: NodeId,
-    style: &ComputedStyle,
-    property: Property,
-) -> Option<&'static str> {
+fn node_initial(tree: &StyleTree, node: NodeId, property: Property) -> Option<&'static str> {
     let data = tree.node(node);
     let element = data.element;
     // The attributes are read only for the few properties and elements that need them.
@@ -982,33 +977,16 @@ fn node_initial(
         },
         (Property::Orient, Element::Legend) => Some("right"),
         (Property::Orient, Element::Facet | Element::Title) => Some("top"),
-        (Property::Direction, Element::Legend) => match style.keyword(Property::Orient) {
-            Some("top" | "bottom") => Some("horizontal"),
-            _ => Some("vertical"),
-        },
-        (Property::Axes, Element::Plot) => match kind() {
-            Some(kind) if kind.starts_with("facet_") => Some("outer"),
-            _ => Some("each"),
-        },
         (Property::Columns, Element::Plot) => match kind() {
             Some("hconcat") => Some("none"),
             _ => None,
         },
-        (Property::MaxLines, Element::Mark | Element::Description) => Some("none"),
-        (Property::Display, Element::Description) => Some("none"),
-        (Property::LabelPosition, Element::Mark) if kind() == Some("symbol") => Some("top"),
         (Property::Size, Element::Mark) if kind() == Some("text") => Some("11"),
         (Property::StrokeWidth, Element::Mark) if kind() == Some("line") => Some("2"),
         (Property::LabelOverlap, Element::Axis) => {
             match (data.attribute_str("scale"), data.attribute_str("kind")) {
                 (Some("log"), _) => Some("greedy"),
                 (_, Some("sequential" | "diverging")) => Some("parity"),
-                _ => None,
-            }
-        }
-        (Property::LabelFlush, Element::Axis) => {
-            match (data.attribute_str("channel"), data.attribute_str("kind")) {
-                (Some("x"), Some("sequential" | "diverging")) => Some("true"),
                 _ => None,
             }
         }
@@ -1031,17 +1009,9 @@ fn auto_paint(tree: &StyleTree, node: NodeId) -> AutoPaint {
             Some("line" | "rule" | "trail") => AutoPaint::Stroke,
             _ => AutoPaint::Fill,
         },
-        Element::Label => match tree.parent(node).map(|parent| tree.node(parent).element) {
-            Some(Element::Mark) => AutoPaint::MarkLabel,
-            _ => AutoPaint::Fill,
-        },
-        Element::Title
-        | Element::Subtitle
-        | Element::Footer
-        | Element::Description
-        | Element::Swatch
-        | Element::Ramp
-        | Element::Attribution => AutoPaint::Fill,
+        Element::Title | Element::Subtitle | Element::Label | Element::Attribution => {
+            AutoPaint::Fill
+        }
         Element::Tick | Element::Rule | Element::Grid => AutoPaint::Stroke,
         _ => AutoPaint::Nothing,
     }

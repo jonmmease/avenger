@@ -201,7 +201,6 @@ pub(crate) struct GuideInputs<'a> {
 pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
     match style.paint(property) {
         Paint::Color(color) => color,
-        Paint::Contrast { otherwise } => otherwise,
         Paint::None => [0.0, 0.0, 0.0, 0.0],
     }
 }
@@ -1194,9 +1193,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         match color {
             ColorOrGradient::Color(color) => match styles.paint_with(mark_node, property, *color) {
                 Paint::None => ColorOrGradient::transparent(),
-                Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                    ColorOrGradient::Color(color)
-                }
+                Paint::Color(color) => ColorOrGradient::Color(color),
             },
             gradient => gradient.clone(),
         }
@@ -1231,9 +1228,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         let color = style_color(&styles[other], Property::Color);
         match styles.paint_with(other, property, color) {
             Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                ColorOrGradient::Color(color)
-            }
+            Paint::Color(color) => ColorOrGradient::Color(color),
         }
     };
     let swatches = if line {

@@ -317,10 +317,7 @@ impl SelectorElement for NodeRef<'_> {
         pseudo_class: &PseudoClass,
         _context: &mut MatchingContext<Selectors>,
     ) -> bool {
-        match pseudo_class {
-            // No node has keyboard focus until the accessibility tree gives focus to one.
-            PseudoClass::FocusVisible => false,
-        }
+        match *pseudo_class {}
     }
 
     fn match_pseudo_element(

@@ -25,17 +25,14 @@ const POSITIVE_INTEGER: Syntax = Syntax::Integer { min: 1 };
 const SIZE_OR_AUTO: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["auto"])]);
 const SIZE_OR_NONE: Syntax = Syntax::Any(&[SIZE, Syntax::Keywords(&["none"])]);
 const PAINT: Syntax = Syntax::Any(&[Syntax::Keywords(&["auto", "none"]), Syntax::Color]);
-const SIDES: &[&str] = &["top", "bottom", "left", "right"];
 const LINE_STYLE: Syntax = Syntax::Keywords(&["none", "solid", "dashed", "dotted"]);
 const OUTPUT_OR_AUTO: Syntax = Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::OutputItem]);
 
-/// Every element that is not a virtual node.
+/// Every element except the variants, `other` and `null`.
 const NODES: &[Element] = &[
     Chart,
     Title,
     Subtitle,
-    Footer,
-    Description,
     Plot,
     Mark,
     Axis,
@@ -56,45 +53,67 @@ const NODES: &[Element] = &[
     Thumb,
     Readout,
 ];
-/// The nodes that draw a paint.
-const PAINTED: &[Element] = &[
-    Mark,
+/// The nodes that read `color`: through a text, a paint, `currentColor`, or the nodes below them.
+const COLORED: &[Element] = &[
+    Chart,
     Title,
     Subtitle,
-    Footer,
-    Description,
+    Plot,
+    Mark,
+    Axis,
+    Legend,
+    Facet,
+    Scale,
     Attribution,
+    Graticule,
     Label,
     Tick,
     Rule,
     Grid,
-    Swatch,
-    Ramp,
+    Widget,
     Track,
     Thumb,
     Readout,
 ];
-/// The nodes that draw text.
-const TEXTS: &[Element] = &[
+/// The nodes that draw text, and the nodes above them, which pass a font to them.
+const FONTED: &[Element] = &[
+    Chart,
     Title,
     Subtitle,
-    Footer,
-    Description,
-    Label,
+    Plot,
     Mark,
+    Axis,
+    Legend,
+    Facet,
     Attribution,
+    Graticule,
+    Label,
+    Widget,
     Readout,
 ];
+/// The nodes that draw text in a style of their own, and the nodes above them.
+const STYLED_TEXTS: &[Element] = &[Chart, Title, Subtitle, Plot, Mark, Widget, Readout];
+/// The nodes that fill a shape or a text.
+const FILLED: &[Element] = &[
+    Mark,
+    Title,
+    Subtitle,
+    Attribution,
+    Label,
+    Track,
+    Thumb,
+    Readout,
+];
+/// The nodes that stroke a line or an outline.
+const STROKED: &[Element] = &[Mark, Tick, Rule, Grid, Track, Thumb];
 const LINES: &[Element] = &[Mark, Tick, Rule, Grid];
 const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
 const GUIDES: &[Element] = &[Axis, Legend, Facet];
-const FOCUS: &[Element] = &[Chart, Axis, Legend, Mark, Entry, Group, Item, Widget];
 /// A widget and the parts of its control.
 const WIDGET: &[Element] = &[Widget, Track, Thumb];
 const MARK: &[Element] = &[Mark];
 const PLOT: &[Element] = &[Plot];
 const SCALE: &[Element] = &[Scale];
-const AXIS: &[Element] = &[Axis];
 
 // The sets of elements of the properties are bits of a `u32`.
 const _: () = assert!(Element::ALL.len() < 32);
@@ -196,44 +215,29 @@ properties! {
     MaxColumns = "max-columns", false, Syntax::Any(&[POSITIVE_INTEGER, Syntax::Keywords(&["none"])]), "none", PLOT;
     MinColumnWidth = "min-column-width", false, SIZE_OR_AUTO, "auto", PLOT;
     Align = "align", false, Syntax::Any(&[Syntax::Boolean, Syntax::Keywords(&["auto", "left", "center", "right"])]), "auto", &[Plot, Mark];
-    Axes = "axes", false, Syntax::Keywords(&["outer", "each"]), "each", PLOT;
     RowGap = "row-gap", false, SIZE, "0", &[Plot, Legend];
     ColumnGap = "column-gap", false, SIZE, "0", &[Plot, Legend];
 
     // Paint and marks.
-    Color = "color", true, Syntax::Color, "black", NODES;
+    Color = "color", true, Syntax::Color, "black", COLORED;
     AccentColor = "accent-color", true, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", WIDGET;
-    Fill = "fill", true, PAINT, "auto", PAINTED;
-    Stroke = "stroke", true, PAINT, "auto", PAINTED;
+    Fill = "fill", true, PAINT, "auto", FILLED;
+    Stroke = "stroke", true, PAINT, "auto", STROKED;
     Opacity = "opacity", false, UNIT, "1", MARK;
     FillOpacity = "fill-opacity", false, UNIT, "1", MARK;
     StrokeOpacity = "stroke-opacity", false, UNIT, "1", MARK;
     StrokeWidth = "stroke-width", false, SIZE, "1", LINES;
     StrokeDash = "stroke-dash", false, Syntax::Any(&[Syntax::Keywords(&["none"]), Syntax::Dash]), "none", LINES;
-    StrokeDashoffset = "stroke-dashoffset", false, LENGTH, "0", MARK;
     StrokeLinecap = "stroke-linecap", false, Syntax::Keywords(&["butt", "round", "square"]), "butt", MARK;
     StrokeLinejoin = "stroke-linejoin", false, Syntax::Keywords(&["miter", "round", "bevel"]), "miter", MARK;
-    StrokeMiterlimit = "stroke-miterlimit", false, Syntax::Number { min: Some(1.0), max: None }, "4", MARK;
     Shape = "shape", false, Syntax::Shape, "circle", &[Mark, Swatch];
     Angle = "angle", false, Syntax::Angle, "0", &[Mark, Title, Axis];
     Size = "size", false, Syntax::Any(&[NON_NEGATIVE, Syntax::Percentage]), "30", MARK;
     ContinuousSize = "continuous-size", false, SIZE, "5", MARK;
     BinSpacing = "bin-spacing", false, SIZE, "0", MARK;
     BandPosition = "band-position", false, UNIT, "0.5", &[Mark, Axis];
-    BandPadding = "band-padding", false, UNIT, "0", MARK;
     CornerRadius = "corner-radius", false, SIZE, "0", MARK;
-    CornerRadiusEnd = "corner-radius-end", false, SIZE_OR_AUTO, "auto", MARK;
-    CornerRadiusTopLeft = "corner-radius-top-left", false, SIZE_OR_AUTO, "auto", MARK;
-    CornerRadiusTopRight = "corner-radius-top-right", false, SIZE_OR_AUTO, "auto", MARK;
-    CornerRadiusBottomLeft = "corner-radius-bottom-left", false, SIZE_OR_AUTO, "auto", MARK;
-    CornerRadiusBottomRight = "corner-radius-bottom-right", false, SIZE_OR_AUTO, "auto", MARK;
     PadAngle = "pad-angle", false, Syntax::Angle, "0", MARK;
-    Dx = "dx", false, LENGTH, "0", MARK;
-    Dy = "dy", false, LENGTH, "0", MARK;
-    Dx2 = "dx2", false, LENGTH, "0", MARK;
-    Dy2 = "dy2", false, LENGTH, "0", MARK;
-    DRadius = "d-radius", false, LENGTH, "0", MARK;
-    DTheta = "d-theta", false, Syntax::Angle, "0", MARK;
     Inset = "inset", false, SIZE, "0", MARK;
     Baseline = "baseline", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "line-top", "line-bottom"]), "middle", MARK;
     WidthMode = "width-mode", false, Syntax::Keywords(&["max", "fixed"]), "max", MARK;
@@ -247,65 +251,45 @@ properties! {
     Pattern = "pattern", false, Syntax::Pattern, "none", &[Mark, Swatch];
 
     // Text.
-    FontSize = "font-size", true, SIZE, "1rem", NODES;
-    FontWeight = "font-weight", true, Syntax::FontWeight, "normal", NODES;
-    FontFamily = "font-family", true, Syntax::FontFamilies, "sans-serif", NODES;
-    FontStyle = "font-style", true, Syntax::Keywords(&["normal", "italic"]), "normal", NODES;
-    LineHeight = "line-height", true, Syntax::Any(&[Syntax::Keywords(&["normal"]), Syntax::Number { min: Some(0.0), max: None }, SIZE]), "normal", NODES;
-    MaxWidth = "max-width", false, SIZE_OR_NONE, "none", TEXTS;
-    MaxLines = "max-lines", false, Syntax::Any(&[POSITIVE_INTEGER, Syntax::Keywords(&["none"])]), "1", TEXTS;
-    TextAlign = "text-align", false, Syntax::Keywords(&["start", "center", "end", "auto"]), "auto", TEXTS;
-    VerticalAlign = "vertical-align", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "auto"]), "auto", TEXTS;
-    TitleFrame = "title-frame", false, Syntax::Keywords(&["plot", "chart"]), "chart", &[Chart];
+    FontSize = "font-size", true, SIZE, "1rem", FONTED;
+    FontWeight = "font-weight", true, Syntax::FontWeight, "normal", FONTED;
+    FontFamily = "font-family", true, Syntax::FontFamilies, "sans-serif", FONTED;
+    FontStyle = "font-style", true, Syntax::Keywords(&["normal", "italic"]), "normal", STYLED_TEXTS;
+    LineHeight = "line-height", true, Syntax::Any(&[Syntax::Keywords(&["normal"]), Syntax::Number { min: Some(0.0), max: None }, SIZE]), "normal", &[Chart, Plot, Mark];
+    MaxWidth = "max-width", false, SIZE_OR_NONE, "none", MARK;
+    MaxLines = "max-lines", false, Syntax::Any(&[POSITIVE_INTEGER, Syntax::Keywords(&["none"])]), "none", MARK;
+    TextAlign = "text-align", false, Syntax::Keywords(&["start", "center", "end", "auto"]), "auto", &[Title, Label, Attribution];
+    VerticalAlign = "vertical-align", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "auto"]), "auto", &[Label];
 
     // Guides.
     LabelAngle = "label-angle", false, Syntax::Any(&[Syntax::Angle, Syntax::Keywords(&["auto"])]), "0", &[Axis, Facet, Legend, Level];
     Orient = "orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "bottom", &[Axis, Legend, Facet, Title, Attribution, Widget];
     LabelOrient = "label-orient", false, Syntax::Keywords(&["top", "bottom", "left", "right", "radial", "tangential"]), "top", &[Facet, Axis];
-    TitleOrient = "title-orient", false, Syntax::Keywords(SIDES), "top", &[Facet];
-    Direction = "direction", false, Syntax::Keywords(&["horizontal", "vertical"]), "vertical", &[Legend];
     Wrap = "wrap", false, Syntax::Keywords(&["flow", "grid"]), "flow", &[Legend];
     TickCount = "tick-count", false, Syntax::Any(&[Syntax::Number { min: Some(0.0), max: None }, Syntax::Keywords(&["auto"])]), "auto", &[Axis, Legend];
     TickSpacing = "tick-spacing", false, SIZE_OR_AUTO, "auto", &[Axis];
     ThinTicks = "thin-ticks", false, Syntax::Boolean, "false", &[Axis];
     MaxEntries = "max-entries", false, Syntax::Any(&[Syntax::Integer { min: 2 }, Syntax::Keywords(&["none"])]), "none", &[Legend];
     TickSize = "tick-size", false, SIZE, "5", &[Tick];
-    LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Facet, Graticule, Mark];
+    LabelPadding = "label-padding", false, LENGTH, "2", &[Axis, Legend, Facet, Graticule];
     TitlePadding = "title-padding", false, LENGTH, "4", GUIDES;
     Offset = "offset", false, LENGTH, "0", &[Axis, Legend, Facet, Title, Attribution, Widget];
-    LabelOffset = "label-offset", false, LENGTH, "0", &[Axis, Mark];
-    MinExtent = "min-extent", false, SIZE_OR_NONE, "none", AXIS;
-    MaxExtent = "max-extent", false, SIZE_OR_NONE, "none", AXIS;
     Thickness = "thickness", false, SIZE, "16", &[Ramp];
     Length = "length", false, SIZE_OR_AUTO, "auto", &[Ramp];
     MaxLength = "max-length", false, SIZE_OR_NONE, "none", &[Ramp];
     AxisGap = "axis-gap", false, SIZE, "0", &[Legend];
-    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Legend, Mark];
-    LabelSeparation = "label-separation", false, SIZE, "0", AXIS;
-    LabelFlush = "label-flush", false, Syntax::Any(&[Syntax::Boolean, SIZE]), "false", AXIS;
-    TickBand = "tick-band", false, Syntax::Keywords(&["center", "extent"]), "center", AXIS;
-    ZIndex = "z-index", false, Syntax::Integer { min: 0 }, "0", AXIS;
+    LabelOverlap = "label-overlap", false, Syntax::Keywords(&["none", "parity", "greedy"]), "none", &[Axis, Legend];
     Separator = "separator", false, Syntax::String, "\" · \"", &[Attribution];
     SeparatorSpace = "separator-space", false, SIZE, "4", &[Attribution];
     LineGap = "line-gap", false, SIZE, "2", &[Attribution];
 
-    // The labels of marks.
-    LabelPosition = "label-position", false, Syntax::KeywordList(&["inside", "inside-start", "inside-end", "outside", "middle", "top", "bottom", "left", "right", "top-left", "top-right", "bottom-left", "bottom-right"]), "inside", MARK;
-    LabelOverflow = "label-overflow", false, Syntax::Keywords(&["hide", "outside", "shrink", "show"]), "show", MARK;
-    LabelAvoid = "label-avoid", false, Syntax::Keywords(&["labels", "marks"]), "labels", MARK;
-    LabelMinFontSize = "label-min-font-size", false, SIZE, "0.7rem", MARK;
-
-    // Boxes, visibility, focus, and forced colors.
+    // Boxes, visibility, and forced colors.
     Background = "background", false, Syntax::Color, "transparent", BOXES;
     BorderWidth = "border-width", false, SIZE, "1", BOXES;
     BorderStyle = "border-style", false, LINE_STYLE, "none", BOXES;
     BorderColor = "border-color", false, Syntax::Color, "currentColor", BOXES;
     BorderRadius = "border-radius", false, SIZE, "0", BOXES;
     Display = "display", false, Syntax::Keywords(&["none", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "contents", "flow-root", "list-item", "table"]), "block", NODES;
-    OutlineWidth = "outline-width", false, SIZE, "3", FOCUS;
-    OutlineStyle = "outline-style", false, LINE_STYLE, "none", FOCUS;
-    OutlineColor = "outline-color", false, Syntax::Color, "currentColor", FOCUS;
-    OutlineOffset = "outline-offset", false, LENGTH, "0", FOCUS;
     ForcedColorAdjust = "forced-color-adjust", true, Syntax::Keywords(&["auto", "none"]), "auto", NODES;
 
     // Scales.
@@ -318,17 +302,6 @@ properties! {
 }
 
 impl Property {
-    /// Whether the property draws the focus ring, which applies only through `:focus-visible`.
-    pub fn is_outline(self) -> bool {
-        matches!(
-            self,
-            Property::OutlineWidth
-                | Property::OutlineStyle
-                | Property::OutlineColor
-                | Property::OutlineOffset
-        )
-    }
-
     /// Whether a node of `element` accepts the property.
     #[inline]
     /// Whether the property applies to `element`. Every property applies to a variant of its
@@ -351,14 +324,12 @@ pub enum Shorthand {
     /// One to four lengths for the sides, and with one number the paddings of a scale.
     Padding,
     Border,
-    Outline,
     /// One length for rows and columns, or two for rows and then columns.
     Gap,
     /// `none`, or one length for the width and the height, or two for the width and then the
     /// height, that a plot counts at when nothing gives it a size.
     ContainIntrinsicSize,
-    /// Every property except the outline properties and the custom properties. It takes only a
-    /// CSS-wide keyword.
+    /// Every property except the custom properties. It takes only a CSS-wide keyword.
     All,
 }
 
@@ -367,7 +338,6 @@ impl Shorthand {
         Some(match name {
             "padding" => Shorthand::Padding,
             "border" => Shorthand::Border,
-            "outline" => Shorthand::Outline,
             "gap" => Shorthand::Gap,
             "contain-intrinsic-size" => Shorthand::ContainIntrinsicSize,
             "all" => Shorthand::All,
@@ -379,7 +349,6 @@ impl Shorthand {
         match self {
             Shorthand::Padding => "padding",
             Shorthand::Border => "border",
-            Shorthand::Outline => "outline",
             Shorthand::Gap => "gap",
             Shorthand::ContainIntrinsicSize => "contain-intrinsic-size",
             Shorthand::All => "all",
@@ -402,25 +371,12 @@ impl Shorthand {
                 Property::BorderStyle,
                 Property::BorderColor,
             ],
-            Shorthand::Outline => vec![
-                Property::OutlineWidth,
-                Property::OutlineStyle,
-                Property::OutlineColor,
-            ],
             Shorthand::Gap => vec![Property::RowGap, Property::ColumnGap],
             Shorthand::ContainIntrinsicSize => vec![
                 Property::ContainIntrinsicWidth,
                 Property::ContainIntrinsicHeight,
             ],
-            Shorthand::All => (Property::ALL.iter())
-                .copied()
-                .filter(|property| !property.is_outline())
-                .collect(),
+            Shorthand::All => Property::ALL.to_vec(),
         }
-    }
-
-    /// Whether the shorthand sets outline properties, which apply only through `:focus-visible`.
-    pub fn is_outline(self) -> bool {
-        self == Shorthand::Outline
     }
 }
