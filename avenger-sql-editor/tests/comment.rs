@@ -4,11 +4,11 @@ use avenger_sql_editor::comment::toggle;
 
 #[test]
 fn a_cursor_comments_its_line_and_then_uncomments_it() {
-    let text = "FROM penguins\n|> AGGREGATE bar(x => species)";
+    let text = "FROM penguins\n|> AGGREGATE mark_bar(x => species)";
     let (commented, cursor) = toggle(text, 20..20);
     assert_eq!(
         commented,
-        "FROM penguins\n-- |> AGGREGATE bar(x => species)"
+        "FROM penguins\n-- |> AGGREGATE mark_bar(x => species)"
     );
     assert_eq!(cursor, 23..23, "the cursor stays on its character");
     let (back, cursor) = toggle(&commented, cursor);
@@ -18,14 +18,14 @@ fn a_cursor_comments_its_line_and_then_uncomments_it() {
 
 #[test]
 fn a_selection_comments_its_lines_at_their_smallest_indentation() {
-    let text = "FROM t\n|> AGGREGATE bar(\n     x => a,\n\n     y => b)\nafter";
+    let text = "FROM t\n|> AGGREGATE mark_bar(\n     x => a,\n\n     y => b)\nafter";
     // From inside the second line to the start of the last line, which stays as it is.
     let start = text.find("AGGREGATE").unwrap();
     let end = text.find("after").unwrap();
     let (commented, selection) = toggle(text, start..end);
     assert_eq!(
         commented,
-        "FROM t\n-- |> AGGREGATE bar(\n--      x => a,\n\n--      y => b)\nafter"
+        "FROM t\n-- |> AGGREGATE mark_bar(\n--      x => a,\n\n--      y => b)\nafter"
     );
     assert_eq!(
         &commented[selection.clone()],

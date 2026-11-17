@@ -36,7 +36,7 @@ async fn each_result_has_its_shape() {
     let single = run(
         &ctx,
         "FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart",
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart",
     )
     .await;
     assert_eq!(single.shape(), Shape::Chart);
@@ -45,7 +45,7 @@ async fn each_result_has_its_shape() {
     let groups = run(
         &ctx,
         "FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
 |> ORDER BY species",
     )
     .await;
@@ -58,8 +58,8 @@ async fn each_result_has_its_shape() {
         &ctx,
         "FROM penguins
 |> AGGREGATE
-     symbol(x => bill_length_mm, y => bill_depth_mm) AS bills,
-     symbol(x => flipper_length_mm, y => body_mass_g) AS sizes
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS bills,
+     mark_symbol(x => flipper_length_mm, y => body_mass_g) AS sizes
    GROUP BY species",
     )
     .await;
@@ -142,7 +142,7 @@ async fn a_static_chart_draws_at_its_size() {
     let result = run(
         &ctx,
         "FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart",
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart",
     )
     .await;
     let chart = result.chart(0, 0).unwrap().clone();

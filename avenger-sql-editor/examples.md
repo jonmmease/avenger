@@ -6,9 +6,9 @@ Most queries end in a pipe `AGGREGATE` whose item is a mark call, which builds a
 
 - A channel that holds an aggregate, such as `y => count(*)`, is a measure. The other channels are keys, and the chart has one mark for each combination of the keys. A call without aggregates draws one mark for each row.
 - The transforms are written inline. A window that reads only rows, such as `bin`, `timeunit`, `lump`, or `NTILE(4) OVER (ORDER BY x)`, computes before the aggregates, and a window that reads an aggregate, such as `stack(count(*))` or `sum(count(*)) OVER panel`, reads the aggregated rows. `panel`, `position`, and `series` name the windows of the call's groups, positions, and series.
-- A `line` or an `area` connects its points along its key, `x` or `y`, or in the order of its `ordering` channel. A stacked `area` or `line` fills the keys that a series lacks with zero. A `|> CALL impute(...)` before the `AGGREGATE` adds the rows that the groups of a staged query lack.
-- An axis title is the text of its expression, such as `count(*)`. `scaled(..., title => '...')` sets another title.
-- `GROUP BY` draws one chart for each group. The result has the group columns and a column for each chart, named by its alias, or without one by its mark function, such as `bar`. Another item beside the mark call, such as `count(*) AS penguins`, is an aggregate of each group, and several mark calls draw a chart of each. An item can compose its mark calls, as in `layer(bar(...), rule(...))`.
+- A `mark_line` or a `mark_area` connects its points along its key, `x` or `y`, or in the order of its `order` channel. A stacked `mark_area` or `mark_line` fills the keys that a series lacks with zero. A `|> CALL impute(...)` before the `AGGREGATE` adds the rows that the groups of a staged query lack.
+- An axis title is the text of its expression, such as `count(*)`. A channel function's `title`, as `y(..., title => '...')`, sets another title.
+- `GROUP BY` draws one chart for each group. The result has the group columns and a column for each chart, named by its alias, or without one by its mark function, such as `mark_bar`. Another item beside the mark call, such as `count(*) AS penguins`, is an aggregate of each group, and several mark calls draw a chart of each. An item can compose its mark calls, as in `layer(mark_bar(...), mark_rule(...))`.
 - The Lifted SQL tab shows the query with each mark call that computes its statistics written as the stages that compute them, as a query that you could type, with the text that it adds highlighted.
 
 The scalar compositions `layer`, `hconcat`, and `vconcat` compose the charts of a row, such as the mark calls of an item. The aggregates `layer_agg`, `hconcat_agg`, `vconcat_agg`, `facet_row`, `facet_col`, and `facet_wrap` compose the charts of a group, in a pipe `AGGREGATE`.
@@ -23,9 +23,9 @@ Body mass against flipper length, by species.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE symbol(
-     x => scaled(flipper_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(body_mass_g, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(flipper_length_mm, scale => scale(zero => FALSE)),
+     y => y(body_mass_g, scale => scale(zero => FALSE)),
      color => species,
    )
 ```
@@ -37,9 +37,9 @@ Bill depth against bill length, with a shape for each island and axis titles.
 ```sql
 FROM samples.penguins
 |> WHERE bill_length_mm IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE), title => 'Bill length (mm)'),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE), title => 'Bill depth (mm)'),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE), title => 'Bill length (mm)'),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE), title => 'Bill depth (mm)'),
      color => species,
      shape => island,
      size => 60,
@@ -52,7 +52,7 @@ The number of penguins of each species.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(x => species, y => count(*))
+|> AGGREGATE mark_bar(x => species, y => count(*))
 ```
 
 ### Mean mass per island
@@ -61,8 +61,8 @@ The mean body mass on each island, as horizontal bars from the heaviest.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(
-     x => scaled(avg(body_mass_g), title => 'Mean body mass (g)'),
+|> AGGREGATE mark_bar(
+     x => x(avg(body_mass_g), title => 'Mean body mass (g)'),
      y => island,
      ORDER BY avg(body_mass_g) DESC
    )
@@ -74,9 +74,9 @@ The share of the penguins on each island, from a window of the counts.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => island,
-     y => scaled(CAST(count(*) AS FLOAT64) / sum(count(*)) OVER (), title => 'Share of penguins'),
+     y => y(CAST(count(*) AS FLOAT64) / sum(count(*)) OVER (), title => 'Share of penguins'),
    )
 ```
 
@@ -86,7 +86,7 @@ The penguins of each species, stacked by sex.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(x => species, y => stack(count(*)), color => sex)
+|> AGGREGATE mark_bar(x => species, y => stack(count(*)), color => sex)
 ```
 
 ### Stacked, largest at bottom
@@ -95,7 +95,7 @@ The penguins of each species, stacked by island with the largest group at the bo
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => species,
      y => stack(count(*)) OVER (position ORDER BY count(*) DESC),
      color => island,
@@ -108,9 +108,9 @@ The share of each island in the penguins of each species, from the offset `norma
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => species,
-     y => scaled(stack(count(*), offset => 'normalize'), title => 'Share'),
+     y => y(stack(count(*), offset => 'normalize'), title => 'Share'),
      color => island,
    )
 ```
@@ -122,9 +122,9 @@ A histogram of body mass.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(
-     x => scaled(bin(body_mass_g), title => 'Body mass (g)'),
-     y => scaled(count(*), title => 'Penguins'),
+|> AGGREGATE mark_bar(
+     x => x(bin(body_mass_g), title => 'Body mass (g)'),
+     y => y(count(*), title => 'Penguins'),
    )
 ```
 
@@ -136,9 +136,9 @@ A histogram of flipper length, stacked by species, in at most as many bins as th
 DECLARE bins FLOAT64 DEFAULT 20;
 FROM samples.penguins
 |> WHERE flipper_length_mm IS NOT NULL
-|> AGGREGATE bar(
-     x => scaled(bin(flipper_length_mm, maxbins => bins), title => 'Flipper length (mm)'),
-     y => scaled(stack(count(*)), title => 'Penguins'),
+|> AGGREGATE mark_bar(
+     x => x(bin(flipper_length_mm, maxbins => bins), title => 'Flipper length (mm)'),
+     y => y(stack(count(*)), title => 'Penguins'),
      color => species,
    )
 ```
@@ -151,7 +151,7 @@ The penguins of each species and island as a heat map, with 0 for the pairs that
 FROM samples.penguins
 |> AGGREGATE count(*) AS n GROUP BY species, island
 |> CALL impute(island, [species], n, value => 0)
-|> AGGREGATE rect(x => island, y => species, color => n)
+|> AGGREGATE mark_rect(x => island, y => species, color => n)
 ```
 
 ### Mean bills as labels
@@ -160,14 +160,14 @@ The mean bill length and depth of each species, as labels.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE text(
+|> AGGREGATE mark_text(
      text => species,
-     x => scaled(
+     x => x(
        avg(bill_length_mm),
        scale => scale(domain => [35, 52]),
        title => 'Mean bill length (mm)',
      ),
-     y => scaled(
+     y => y(
        avg(bill_depth_mm),
        scale => scale(domain => [14, 20]),
        title => 'Mean bill depth (mm)',
@@ -182,7 +182,7 @@ The penguins of each species as a donut.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE polar_bar(theta => stack(count(*)), color => species, coord => polar(inner_radius => 0.5))
+|> AGGREGATE mark_polar_bar(theta => stack(count(*)), color => species, coord => polar(inner_radius => 0.5))
 ```
 
 ### Rose of mean body mass
@@ -191,9 +191,9 @@ The mean body mass of each species as a rose.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE polar_bar(
+|> AGGREGATE mark_polar_bar(
      theta => species,
-     radius => scaled(avg(body_mass_g), scale => interval_fit(zero => TRUE)),
+     radius => radius(avg(body_mass_g), scale => scale(zero => TRUE)),
      color => species,
    )
 ```
@@ -205,7 +205,7 @@ A histogram with a title, a navigation, and tooltips.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => bin(body_mass_g, maxbins => 20),
      y => stack(count(*)),
      color => species,
@@ -222,7 +222,7 @@ Miles per gallon against weight, by origin, sized by the number of cylinders.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(x => weight, y => mpg, color => origin, size => cylinders, opacity => 0.7)
+|> AGGREGATE mark_symbol(x => weight, y => mpg, color => origin, size => cylinders, opacity => 0.7)
 ```
 
 ### Log-scale horsepower
@@ -232,9 +232,9 @@ Horsepower on a log scale against displacement.
 ```sql
 FROM samples.cars
 |> WHERE horsepower IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(displacement, scale => scale(type => 'log')),
-     y => scaled(horsepower, scale => scale(type => 'log')),
+|> AGGREGATE mark_symbol(
+     x => x(displacement, scale => scale(type => 'log')),
+     y => y(horsepower, scale => scale(type => 'log')),
      color => origin,
    )
 ```
@@ -245,7 +245,7 @@ The mean miles per gallon of each model year, by origin.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE line(x => year, y => avg(mpg), color => origin)
+|> AGGREGATE mark_line(x => year, y => avg(mpg), color => origin)
 ```
 
 ### Connected scatter by year
@@ -254,11 +254,11 @@ The mean horsepower and miles per gallon of each origin, connected from year to 
 
 ```sql
 FROM samples.cars
-|> AGGREGATE line(
-     x => scaled(avg(horsepower), scale => interval_fit(zero => FALSE), title => 'Horsepower'),
-     y => scaled(avg(mpg), scale => interval_fit(zero => FALSE), title => 'Miles per gallon'),
+|> AGGREGATE mark_line(
+     x => x(avg(horsepower), scale => scale(zero => FALSE), title => 'Horsepower'),
+     y => y(avg(mpg), scale => scale(zero => FALSE), title => 'Miles per gallon'),
      color => origin,
-     ordering => year,
+     order => year,
    )
 ```
 
@@ -268,10 +268,10 @@ The cars of each origin and number of cylinders.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE rect(
+|> AGGREGATE mark_rect(
      x => origin,
      y => CAST(cylinders AS STRING),
-     color => scaled(count(*), scale => scale(range_ => 'viridis')),
+     color => color(count(*), scale => scale(range => 'viridis')),
    )
 ```
 
@@ -282,7 +282,7 @@ A histogram of miles per gallon, stacked by origin.
 ```sql
 FROM samples.cars
 |> WHERE mpg IS NOT NULL
-|> AGGREGATE bar(x => bin(mpg), y => stack(count(*)), color => origin)
+|> AGGREGATE mark_bar(x => bin(mpg), y => stack(count(*)), color => origin)
 ```
 
 ## Movies
@@ -293,7 +293,7 @@ The IMDB rating against the Rotten Tomatoes rating.
 
 ```sql
 FROM samples.movies
-|> AGGREGATE symbol(x => rotten_tomatoes_rating, y => imdb_rating, opacity => 0.3, size => 20)
+|> AGGREGATE mark_symbol(x => rotten_tomatoes_rating, y => imdb_rating, opacity => 0.3, size => 20)
 ```
 
 ### Top genres with lump
@@ -304,7 +304,7 @@ The movies of each genre, with the largest genres, as many as the variable `top`
 DECLARE top INT64 DEFAULT 5;
 FROM samples.movies
 |> WHERE genre IS NOT NULL
-|> AGGREGATE bar(x => count(*), y => lump(genre, n => top) ORDER BY count(*) DESC)
+|> AGGREGATE mark_bar(x => count(*), y => lump(genre, n => top) ORDER BY count(*) DESC)
 ```
 
 ### Movies per five years
@@ -314,7 +314,7 @@ The movies of each five years, stacked by the four largest genres.
 ```sql
 FROM samples.movies
 |> WHERE genre IS NOT NULL AND year IS NOT NULL
-|> AGGREGATE bar(x => bin(year, step => 5), y => stack(count(*)), color => lump(genre, n => 4))
+|> AGGREGATE mark_bar(x => bin(year, step => 5), y => stack(count(*)), color => lump(genre, n => 4))
 ```
 
 ### Movies per year, time axis
@@ -324,7 +324,7 @@ The movies of each year, on a time axis.
 ```sql
 FROM samples.movies
 |> WHERE year IS NOT NULL
-|> AGGREGATE area(x => scaled(DATE(year, 1, 1), title => 'Year'), y => count(*))
+|> AGGREGATE mark_area(x => x(DATE(year, 1, 1), title => 'Year'), y => count(*))
 ```
 
 ### Stacked area of genres
@@ -334,8 +334,8 @@ The movies of each year, stacked by the four genres with the most movies and the
 ```sql
 FROM samples.movies
 |> WHERE year IS NOT NULL AND genre IS NOT NULL
-|> AGGREGATE area(
-     x => scaled(DATE(year, 1, 1), title => 'Year'),
+|> AGGREGATE mark_area(
+     x => x(DATE(year, 1, 1), title => 'Year'),
      y => stack(count(*)),
      color => lump(genre, n => 4),
    )
@@ -349,7 +349,7 @@ Petal width against petal length, by species.
 
 ```sql
 FROM samples.iris
-|> AGGREGATE symbol(x => `PetalLengthCm`, y => `PetalWidthCm`, color => `Species`)
+|> AGGREGATE mark_symbol(x => `PetalLengthCm`, y => `PetalWidthCm`, color => `Species`)
 ```
 
 ## Seattle weather
@@ -360,7 +360,7 @@ The highest temperature of each day.
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE line(x => date, y => temp_max)
+|> AGGREGATE mark_line(x => date, y => temp_max)
 ```
 
 ### Monthly temperature range
@@ -369,9 +369,9 @@ The range of temperatures of each month, as rules from the lowest to the highest
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE rule(
-     x => scaled(timeunit(date, unit => 'month').start, title => 'Month'),
-     y => scaled(min(temp_min), title => 'Temperature (°C)'),
+|> AGGREGATE mark_rule(
+     x => x(timeunit(date, unit => 'month').start, title => 'Month'),
+     y => y(min(temp_min), title => 'Temperature (°C)'),
      y2 => max(temp_max),
      stroke_width => 4,
    )
@@ -384,7 +384,7 @@ The precipitation of each unit of time, such as each month, as bars that span th
 ```sql
 DECLARE unit STRING DEFAULT 'month';
 FROM samples.seattle_weather
-|> AGGREGATE bar(x => timeunit(date, unit => unit), y => sum(precipitation))
+|> AGGREGATE mark_bar(x => timeunit(date, unit => unit), y => sum(precipitation))
 ```
 
 ### Weather days per month
@@ -393,7 +393,7 @@ The days of each kind of weather in each month.
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE bar(x => timeunit(date, unit => 'month'), y => stack(count(*)), color => weather)
+|> AGGREGATE mark_bar(x => timeunit(date, unit => 'month'), y => stack(count(*)), color => weather)
 ```
 
 ### Weather as a stacked area
@@ -402,7 +402,7 @@ The same days as a stacked area. Snow falls in 7 of the 48 months, and the stack
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE area(x => timeunit(date, unit => 'month'), y => stack(count(*)), color => weather)
+|> AGGREGATE mark_area(x => timeunit(date, unit => 'month'), y => stack(count(*)), color => weather)
 ```
 
 ### Weather lines, imputed zeros
@@ -413,7 +413,7 @@ The days of each kind of weather in each month, as lines with 0 for the months w
 FROM samples.seattle_weather
 |> AGGREGATE count(*) AS n GROUP BY DATE_TRUNC(date, MONTH) AS month, weather
 |> CALL impute(month, [weather], n, value => 0)
-|> AGGREGATE line(x => scaled(month, title => 'Month'), y => scaled(n, title => 'count(*)'), color => weather)
+|> AGGREGATE mark_line(x => x(month, title => 'Month'), y => y(n, title => 'count(*)'), color => weather)
 ```
 
 ### Weather lines with gaps
@@ -424,7 +424,7 @@ The same lines with a break at each month without that weather, from `impute => 
 FROM samples.seattle_weather
 |> AGGREGATE count(*) AS n GROUP BY DATE_TRUNC(date, MONTH) AS month, weather
 |> CALL impute(month, [weather], n, value => NULL)
-|> AGGREGATE line(x => scaled(month, title => 'Month'), y => scaled(n, title => 'count(*)'), color => weather)
+|> AGGREGATE mark_line(x => x(month, title => 'Month'), y => y(n, title => 'count(*)'), color => weather)
 ```
 
 ### Weather kinds, most first
@@ -433,7 +433,7 @@ The days of each kind of weather, from the most.
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE bar(x => weather, y => count(*), color => weather ORDER BY count(*) DESC)
+|> AGGREGATE mark_bar(x => weather, y => count(*), color => weather ORDER BY count(*) DESC)
 ```
 
 ### Wind vs. high temperature
@@ -442,7 +442,7 @@ The wind against the highest temperature, by weather.
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE symbol(x => temp_max, y => wind, color => weather, opacity => 0.5)
+|> AGGREGATE mark_symbol(x => temp_max, y => wind, color => weather, opacity => 0.5)
 ```
 
 ## Sales
@@ -453,7 +453,7 @@ The revenue of each month, stacked by region.
 
 ```sql
 FROM samples.sales
-|> AGGREGATE area(x => month, y => scaled(stack(sum(revenue)), title => 'Revenue'), color => region)
+|> AGGREGATE mark_area(x => month, y => y(stack(sum(revenue)), title => 'Revenue'), color => region)
 ```
 
 ### Normalized regional revenue
@@ -462,9 +462,9 @@ The share of each region in the revenue of each month, from the offset `normaliz
 
 ```sql
 FROM samples.sales
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => timeunit(month, unit => 'month'),
-     y => scaled(stack(sum(revenue), offset => 'normalize'), title => 'Share of revenue'),
+     y => y(stack(sum(revenue), offset => 'normalize'), title => 'Share of revenue'),
      color => region,
    )
 ```
@@ -476,7 +476,7 @@ A streamgraph of the units of each product, from the offset `center` of the vari
 ```sql
 DECLARE offset STRING DEFAULT 'center';
 FROM samples.sales
-|> AGGREGATE area(x => month, y => stack(sum(units), offset => offset), color => product)
+|> AGGREGATE mark_area(x => month, y => stack(sum(units), offset => offset), color => product)
 ```
 
 ### Units stacked by channel
@@ -485,7 +485,7 @@ The units of each product, stacked by channel.
 
 ```sql
 FROM samples.sales
-|> AGGREGATE bar(x => product, y => scaled(stack(sum(units)), title => 'Units'), color => channel)
+|> AGGREGATE mark_bar(x => product, y => y(stack(sum(units)), title => 'Units'), color => channel)
 ```
 
 ### Quarterly revenue, top two
@@ -495,7 +495,7 @@ The revenue of each quarter, stacked by the products with the most revenue, as m
 ```sql
 DECLARE top INT64 DEFAULT 2;
 FROM samples.sales
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => timeunit(month, unit => 'quarter'),
      y => stack(sum(revenue)),
      color => lump(product, n => top, weight => sum(revenue)),
@@ -515,7 +515,7 @@ DECLARE heavy INT64 DEFAULT 4500;
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
 |> EXTEND IF(body_mass_g >= heavy, 'heavy', 'light') AS class
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => species,
      y => stack(count(*)),
      color => class,
@@ -532,7 +532,7 @@ DECLARE start_date DATE DEFAULT DATE '2014-01-01';
 DECLARE months INT64 DEFAULT 6;
 FROM samples.seattle_weather
 |> WHERE date >= start_date AND date < DATE_ADD(start_date, INTERVAL months MONTH)
-|> AGGREGATE line(x => date, y => scaled(temp_max, title => 'Highest temperature (°C)'))
+|> AGGREGATE mark_line(x => date, y => y(temp_max, title => 'Highest temperature (°C)'))
 ```
 
 ### A bin width in a variable
@@ -543,8 +543,8 @@ A histogram of body mass whose bins are as wide as the variable `bin_width`, whi
 DECLARE bin_width FLOAT64 DEFAULT 250;
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(
-     x => scaled(bin(body_mass_g, step => bin_width), title => 'Body mass (g)'),
+|> AGGREGATE mark_bar(
+     x => x(bin(body_mass_g, step => bin_width), title => 'Body mass (g)'),
      y => stack(count(*)),
      color => species,
      title => 'Body mass in bins of ' || CAST(bin_width AS STRING) || ' g',
@@ -559,7 +559,7 @@ The ratings of the movies, colored by as many of the largest genres as the varia
 DECLARE genres INT64 DEFAULT 5;
 FROM samples.movies
 |> WHERE genre IS NOT NULL
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => rotten_tomatoes_rating,
      y => imdb_rating,
      color => lump(genre, n => genres),
@@ -575,9 +575,9 @@ The mean body mass of each species above the mean of every penguin, which a quer
 DECLARE mean_mass FLOAT64 DEFAULT (FROM samples.penguins |> AGGREGATE AVG(body_mass_g));
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => species,
-     y => scaled(avg(body_mass_g) - mean_mass, title => 'Mean body mass above the mean (g)'),
+     y => y(avg(body_mass_g) - mean_mass, title => 'Mean body mass above the mean (g)'),
    )
 ```
 
@@ -591,9 +591,9 @@ Body mass against flipper length for each species.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE symbol(
-     x => scaled(flipper_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(body_mass_g, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(flipper_length_mm, scale => scale(zero => FALSE)),
+     y => y(body_mass_g, scale => scale(zero => FALSE)),
      color => sex,
    ) GROUP BY species
 |> ORDER BY species
@@ -607,7 +607,7 @@ Bill depth against bill length on each island, with the number of penguins of ea
 FROM samples.penguins
 |> AGGREGATE
      count(*) AS penguins,
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart,
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS chart,
    GROUP BY island
 |> ORDER BY penguins DESC
 ```
@@ -620,7 +620,7 @@ A histogram of body mass on each island, in at most as many bins as the variable
 DECLARE bins FLOAT64 DEFAULT 20;
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(x => bin(body_mass_g, maxbins => bins), y => count(*)) GROUP BY island
+|> AGGREGATE mark_bar(x => bin(body_mass_g, maxbins => bins), y => count(*)) GROUP BY island
 |> ORDER BY island
 ```
 
@@ -631,7 +631,7 @@ The same histograms, with the bins of each island, from `OVER panel`.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(x => bin(body_mass_g, maxbins => 20) OVER panel, y => count(*)) GROUP BY island
+|> AGGREGATE mark_bar(x => bin(body_mass_g, maxbins => 20) OVER panel, y => count(*)) GROUP BY island
 |> ORDER BY island
 ```
 
@@ -641,9 +641,9 @@ The share of each species on each island, from a window of the counts of each pa
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(
+|> AGGREGATE mark_bar(
      x => species,
-     y => scaled(CAST(count(*) AS FLOAT64) / sum(count(*)) OVER panel, title => 'Share'),
+     y => y(CAST(count(*) AS FLOAT64) / sum(count(*)) OVER panel, title => 'Share'),
    ) GROUP BY island
 |> ORDER BY island
 ```
@@ -654,7 +654,7 @@ A donut of the sexes of each species.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE polar_bar(theta => stack(count(*)), color => sex, coord => polar(inner_radius => 0.5))
+|> AGGREGATE mark_polar_bar(theta => stack(count(*)), color => sex, coord => polar(inner_radius => 0.5))
    GROUP BY species
 |> ORDER BY species
 ```
@@ -667,8 +667,8 @@ Two charts for each species and island, the bills and the sizes, from an `AGGREG
 FROM samples.penguins
 |> AGGREGATE
      count(*) AS n,
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => sex) AS bills,
-     symbol(x => flipper_length_mm, y => body_mass_g, color => sex) AS sizes,
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => sex) AS bills,
+     mark_symbol(x => flipper_length_mm, y => body_mass_g, color => sex) AS sizes,
    GROUP BY species, island
 |> ORDER BY species, island
 ```
@@ -679,10 +679,10 @@ Miles per gallon against weight for each origin.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => weight,
      y => mpg,
-     color => scaled(CAST(cylinders AS STRING), title => 'Cylinders'),
+     color => color(CAST(cylinders AS STRING), title => 'Cylinders'),
    ) GROUP BY origin
 |> ORDER BY origin
 ```
@@ -693,10 +693,10 @@ The mean miles per gallon of each model year for each origin, by number of cylin
 
 ```sql
 FROM samples.cars
-|> AGGREGATE line(
+|> AGGREGATE mark_line(
      x => year,
      y => avg(mpg),
-     color => scaled(CAST(cylinders AS STRING), title => 'Cylinders'),
+     color => color(CAST(cylinders AS STRING), title => 'Cylinders'),
    ) GROUP BY origin
 |> ORDER BY origin
 ```
@@ -711,9 +711,9 @@ FROM samples.movies
 |> AGGREGATE
      count(*) AS movies,
      round(avg(imdb_rating), 1) AS mean_imdb_rating,
-     symbol(
-       x => scaled(rotten_tomatoes_rating, scale => scale(domain => [0, 100])),
-       y => scaled(imdb_rating, scale => scale(domain => [0, 10])),
+     mark_symbol(
+       x => x(rotten_tomatoes_rating, scale => scale(domain => [0, 100])),
+       y => y(imdb_rating, scale => scale(domain => [0, 10])),
        opacity => 0.4,
      ) AS chart,
    GROUP BY genre
@@ -727,7 +727,7 @@ A histogram of the IMDB ratings of each genre, with the bins of all the movies.
 ```sql
 FROM samples.movies
 |> WHERE genre IS NOT NULL AND imdb_rating IS NOT NULL
-|> AGGREGATE bar(x => scaled(bin(imdb_rating, maxbins => 20), title => 'IMDB rating'), y => count(*))
+|> AGGREGATE mark_bar(x => x(bin(imdb_rating, maxbins => 20), title => 'IMDB rating'), y => count(*))
    GROUP BY genre
 |> ORDER BY genre
 ```
@@ -739,8 +739,8 @@ Sepals and petals for each species of iris.
 ```sql
 FROM samples.iris
 |> AGGREGATE
-     symbol(x => `SepalLengthCm`, y => `SepalWidthCm`) AS sepals,
-     symbol(x => `PetalLengthCm`, y => `PetalWidthCm`) AS petals,
+     mark_symbol(x => `SepalLengthCm`, y => `SepalWidthCm`) AS sepals,
+     mark_symbol(x => `PetalLengthCm`, y => `PetalWidthCm`) AS petals,
    GROUP BY `Species`
 |> ORDER BY `Species`
 ```
@@ -751,7 +751,7 @@ The highest temperature of each day, a year to a row, grouped by an expression.
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE line(x => date, y => temp_max) GROUP BY EXTRACT(YEAR FROM date) AS year
+|> AGGREGATE mark_line(x => date, y => temp_max) GROUP BY EXTRACT(YEAR FROM date) AS year
 |> ORDER BY year
 ```
 
@@ -762,8 +762,8 @@ The revenue of each region, by month and stacked by product, and its units, by p
 ```sql
 FROM samples.sales
 |> AGGREGATE
-     area(x => month, y => stack(sum(revenue)), color => product) AS revenue,
-     bar(x => product, y => stack(sum(units)), color => channel) AS units,
+     mark_area(x => month, y => stack(sum(revenue)), color => product) AS revenue,
+     mark_bar(x => product, y => stack(sum(units)), color => channel) AS units,
      sum(revenue) AS total_revenue,
    GROUP BY region
 |> ORDER BY total_revenue DESC
@@ -780,12 +780,12 @@ Bill depth against bill length, a panel for each island.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE)),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE)),
      color => species,
    ) AS chart GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 ```
 
 ### Grid of sex and island
@@ -795,12 +795,12 @@ A grid of panels, a row for each sex and a column for each island, from a `facet
 ```sql
 FROM samples.penguins
 |> WHERE sex IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE)),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE)),
      color => species,
    ) AS chart GROUP BY sex, island
-|> AGGREGATE facet_col(chart, island) AS chart GROUP BY sex
+|> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex
 |> AGGREGATE facet_row(chart, sex) AS chart
 ```
 
@@ -811,8 +811,8 @@ A histogram of the IMDB ratings of each genre, in rows of at most four.
 ```sql
 FROM samples.movies
 |> WHERE genre IS NOT NULL
-|> AGGREGATE bar(x => bin(imdb_rating), y => count(*)) AS chart GROUP BY genre
-|> AGGREGATE facet_wrap(chart, genre, layout => wrap_layout(max_columns => 4)) AS chart
+|> AGGREGATE mark_bar(x => bin(imdb_rating), y => count(*)) AS chart GROUP BY genre
+|> AGGREGATE facet_wrap(chart, genre, max_columns => 4) AS chart
 ```
 
 ### Independent histogram scales
@@ -822,12 +822,12 @@ The same histograms, with the bins of each genre and a y scale for each panel.
 ```sql
 FROM samples.movies
 |> WHERE genre IS NOT NULL
-|> AGGREGATE bar(x => bin(imdb_rating) OVER panel, y => count(*)) AS chart GROUP BY genre
+|> AGGREGATE mark_bar(x => bin(imdb_rating) OVER panel, y => count(*)) AS chart GROUP BY genre
 |> AGGREGATE facet_wrap(
      chart,
      genre,
-     layout => wrap_layout(max_columns => 4),
-     resolve => [resolve(key => 'y', sharing => 'independent')],
+     max_columns => 4,
+     resolve => resolve(y => 'independent'),
    ) AS chart
 ```
 
@@ -837,7 +837,7 @@ Miles per gallon against weight for each number of cylinders, with a facet title
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(x => weight, y => mpg, color => origin) AS chart GROUP BY cylinders
+|> AGGREGATE mark_symbol(x => weight, y => mpg, color => origin) AS chart GROUP BY cylinders
 |> AGGREGATE facet_wrap(chart, cylinders, facet => facet(title => 'Cylinders')) AS chart
 ```
 
@@ -847,11 +847,11 @@ The highest temperature of each day, a year to a row, with an x scale for each y
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE line(x => date, y => temp_max) AS chart GROUP BY EXTRACT(YEAR FROM date) AS year
+|> AGGREGATE mark_line(x => date, y => temp_max) AS chart GROUP BY EXTRACT(YEAR FROM date) AS year
 |> AGGREGATE facet_row(
      chart,
      year,
-     resolve => [resolve(key => 'x', sharing => 'independent')],
+     resolve => resolve(x => 'independent'),
    ) AS chart
 ```
 
@@ -861,8 +861,8 @@ The revenue of each region, stacked by product, with a wider gap between the pan
 
 ```sql
 FROM samples.sales
-|> AGGREGATE area(x => month, y => stack(sum(revenue)), color => product) AS chart GROUP BY region
-|> AGGREGATE facet_col(chart, region, layout => concat_layout(gap => 24)) AS chart
+|> AGGREGATE mark_area(x => month, y => stack(sum(revenue)), color => product) AS chart GROUP BY region
+|> AGGREGATE facet_column(chart, region, gap => 24) AS chart
 ```
 
 ### Bars with a mean rule
@@ -874,8 +874,8 @@ Bars of the mean body mass of each species, with a rule at the mean of all the p
 ```sql
 FROM samples.penguins
 |> AGGREGATE layer(
-     bar(x => species, y => scaled(avg(body_mass_g), title => 'Mean body mass (g)')),
-     rule(y => scaled(avg(body_mass_g), title => 'Mean body mass (g)'), stroke_width => 2),
+     mark_bar(x => species, y => y(avg(body_mass_g), title => 'Mean body mass (g)')),
+     mark_rule(y => y(avg(body_mass_g), title => 'Mean body mass (g)'), stroke_width => 2),
    )
 ```
 
@@ -886,19 +886,19 @@ The penguins, with a label at the mean bill of each species.
 ```sql
 FROM samples.penguins
 |> AGGREGATE layer(
-     symbol(
-       x => scaled(
+     mark_symbol(
+       x => x(
          bill_length_mm,
-         scale => interval_fit(zero => FALSE),
+         scale => scale(zero => FALSE),
          title => 'Bill length (mm)',
        ),
-       y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE), title => 'Bill depth (mm)'),
+       y => y(bill_depth_mm, scale => scale(zero => FALSE), title => 'Bill depth (mm)'),
        color => species,
        opacity => 0.4,
      ),
-     text(
-       x => scaled(avg(bill_length_mm), title => 'Bill length (mm)'),
-       y => scaled(avg(bill_depth_mm), title => 'Bill depth (mm)'),
+     mark_text(
+       x => x(avg(bill_length_mm), title => 'Bill length (mm)'),
+       y => y(avg(bill_depth_mm), title => 'Bill depth (mm)'),
        text => species,
        size => 14,
      ),
@@ -913,15 +913,15 @@ The range of temperatures of each month, with a line and points at the mean of t
 FROM samples.seattle_weather
 |> EXTEND DATE_TRUNC(date, MONTH) AS month
 |> AGGREGATE layer(
-     rule(
+     mark_rule(
        x => month,
-       y => scaled(min(temp_min), title => 'Temperature (°C)'),
+       y => y(min(temp_min), title => 'Temperature (°C)'),
        y2 => max(temp_max),
        opacity => 0.3,
        stroke_width => 6,
      ),
-     line(x => month, y => scaled(avg(temp_max), title => 'Temperature (°C)')),
-     symbol(x => month, y => scaled(avg(temp_max), title => 'Temperature (°C)'), size => 40),
+     mark_line(x => month, y => y(avg(temp_max), title => 'Temperature (°C)')),
+     mark_symbol(x => month, y => y(avg(temp_max), title => 'Temperature (°C)'), size => 40),
    )
 ```
 
@@ -934,8 +934,8 @@ The bills and the sizes of the penguins, side by side.
 ```sql
 FROM samples.penguins
 |> AGGREGATE hconcat(
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
-     symbol(x => flipper_length_mm, y => body_mass_g, color => species),
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
+     mark_symbol(x => flipper_length_mm, y => body_mass_g, color => species),
    )
 ```
 
@@ -946,24 +946,22 @@ The same charts as named columns, composed after the `AGGREGATE`.
 ```sql
 FROM samples.penguins
 |> AGGREGATE
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills,
-     symbol(x => flipper_length_mm, y => body_mass_g, color => species) AS sizes,
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species) AS bills,
+     mark_symbol(x => flipper_length_mm, y => body_mass_g, color => species) AS sizes,
 |> SELECT hconcat(bills, sizes) AS chart
 ```
 
 ### Weighted concat tracks
 
-A scatter plot three times as wide as a bar chart of its species, from the tracks of a `concat_layout`.
+A scatter plot three times as wide as a bar chart of its species, from the tracks of an `hconcat`.
 
 ```sql
 FROM samples.penguins
 |> AGGREGATE hconcat(
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
-     bar(x => count(*), y => species, color => species),
-     layout => concat_layout(
-       gap => 30,
-       tracks => [track(size => share(weight => 3)), track(size => share(weight => 1))],
-     ),
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
+     mark_bar(x => count(*), y => species, color => species),
+     gap => 30,
+     tracks => [track(share => 3), track(share => 1)],
    )
 ```
 
@@ -974,9 +972,9 @@ The penguins by species, by island, and by sex, one above another, with a title.
 ```sql
 FROM samples.penguins
 |> AGGREGATE vconcat(
-     bar(x => species, y => count(*)),
-     bar(x => island, y => count(*)),
-     bar(x => sex, y => count(*)),
+     mark_bar(x => species, y => count(*)),
+     mark_bar(x => island, y => count(*)),
+     mark_bar(x => sex, y => count(*)),
      title => 'Penguins',
    )
 ```
@@ -988,8 +986,8 @@ The bills and the counts of the species on each island, a row for each island, f
 ```sql
 FROM samples.penguins
 |> AGGREGATE hconcat(
-     symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
-     bar(x => species, y => count(*), color => species),
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm, color => species),
+     mark_bar(x => species, y => count(*), color => species),
    ) AS chart GROUP BY island
 |> AGGREGATE facet_row(chart, island) AS chart
 ```
@@ -1000,13 +998,13 @@ FROM samples.penguins
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(x => species, y => count(*), color => species) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => species, y => count(*), color => species) AS chart GROUP BY island
 |> AGGREGATE vconcat_agg(chart ORDER BY island) AS chart
 ```
 
 ## Math
 
-A title, a subtitle, the label markup of an axis or a legend, and a `text` mark with `syntax => 'typst'` read Typst markup, so they can hold math. `display(...)` lays out a fraction, a root, a sum, or an integral at its full size inside a label, and `\` breaks the lines of a text mark. Each formula here is the subtitle of its chart, and each value that SQL computes is a `text` mark at a direct position in the plot, which `layer` composes with the chart. Labels do not support block equations, matrices, vectors, `cases`, alignment, or statements such as `#let`.
+A title, a subtitle, the label markup of an axis or a legend, and a `mark_text` with `syntax => 'typst'` read Typst markup, so they can hold math. `display(...)` lays out a fraction, a root, a sum, or an integral at its full size inside a label, and `\` breaks the lines of a text mark. Each formula here is the subtitle of its chart, and each value that SQL computes is a `mark_text` at a direct position in the plot, which `layer` composes with the chart. Labels do not support block equations, matrices, vectors, `cases`, alignment, or statements such as `#let`.
 
 ### Normal fit to body mass
 
@@ -1017,9 +1015,9 @@ DECLARE chosen STRING DEFAULT 'Gentoo';
 DECLARE bin_width FLOAT64 DEFAULT 200;
 FROM samples.penguins
 |> WHERE species = chosen AND body_mass_g IS NOT NULL
-|> AGGREGATE bar(
-     x => scaled(bin(body_mass_g, step => bin_width), title => 'Body mass (g)'),
-     y => scaled(count(*), title => 'Penguins'),
+|> AGGREGATE mark_bar(
+     x => x(bin(body_mass_g, step => bin_width), title => 'Body mass (g)'),
+     y => y(count(*), title => 'Penguins'),
      title => title(
        text => 'The body mass of the ' || chosen || ' penguins, with a normal fit',
        subtitle => '$display(f(x) = 1/(sigma sqrt(2 pi)) e^(-(x - mu)^2 / (2 sigma^2)))$'),
@@ -1031,15 +1029,15 @@ FROM samples.penguins
      |> CROSS JOIN UNNEST(GENERATE_ARRAY(0, 120)) AS i
      |> EXTEND 3800 + 20 * i AS x
      |> EXTEND n * bin_width * exp(-power(x - mu, 2) / (2 * power(sigma, 2))) / (sigma * sqrt(2 * 3.141592653589793)) AS density
-     |> AGGREGATE line(x => scaled(x, title => 'Body mass (g)'), y => scaled(density, title => 'Penguins'),
-          color => direct('#d62728'), stroke_width => direct(2.5)) AS curve
+     |> AGGREGATE mark_line(x => x(x, title => 'Body mass (g)'), y => y(density, title => 'Penguins'),
+          color => value('#d62728'), stroke_width => value(2.5)) AS curve
    )
 |> CROSS JOIN (
      FROM samples.penguins
      |> WHERE species = chosen AND body_mass_g IS NOT NULL
      |> AGGREGATE avg(body_mass_g) AS mu, stddev(body_mass_g) AS sigma
-     |> AGGREGATE text(
-          x => direct(0.99), y => direct(0.97), align => 'right', baseline => 'top', syntax => 'typst', size => direct(14),
+     |> AGGREGATE mark_text(
+          x => value(0.99), y => value(0.97), align => 'right', baseline => 'top', syntax => 'typst', size => value(14),
           text => '$mu = ' || CAST(CAST(ROUND(ANY_VALUE(mu)) AS INT64) AS STRING) || ', quad sigma = ' || CAST(CAST(ROUND(ANY_VALUE(sigma)) AS INT64) AS STRING) || '$') AS label
    )
 |> SELECT layer(bars, curve, label) AS chart
@@ -1054,13 +1052,13 @@ FROM UNNEST(GENERATE_ARRAY(0, 400)) AS i
 |> EXTEND -4 + i / 50.0 AS z
 |> EXTEND EXP(-z * z / 2) / SQRT(2 * 3.141592653589793) AS phi
 |> AGGREGATE
-     line(x => scaled(z, title => 'z'), y => scaled(phi, title => ''), color => direct('#2b6ca3'),
-       stroke_width => direct(2.5)) AS curve
+     mark_line(x => x(z, title => 'z'), y => y(phi, title => ''), color => value('#2b6ca3'),
+       stroke_width => value(2.5)) AS curve
 |> CROSS JOIN (
      FROM UNNEST(GENERATE_ARRAY(0, 298)) AS i
      |> EXTEND -4 + i / 50.0 AS z
      |> EXTEND EXP(-z * z / 2) / SQRT(2 * 3.141592653589793) AS phi
-     |> AGGREGATE area(x => scaled(z, title => 'z'), y => scaled(phi, title => ''), color => direct('#a6c8e4')) AS shaded
+     |> AGGREGATE mark_area(x => x(z, title => 'z'), y => y(phi, title => ''), color => value('#a6c8e4')) AS shaded
    )
 |> CROSS JOIN (
      FROM UNNEST(GENERATE_ARRAY(0, 298)) AS i
@@ -1069,8 +1067,8 @@ FROM UNNEST(GENERATE_ARRAY(0, 400)) AS i
      |> AGGREGATE (SUM(phi) - MAX(CASE WHEN i = 298 THEN phi END) / 2) / 50 AS p
      |> EXTEND 1.96 AS z
      |> AGGREGATE
-          rule(x => scaled(z, title => 'z'), color => direct('#555555'), stroke_dash => direct('4 3')) AS bound,
-          text(x => direct(0.76), y => direct(0.45), align => 'left', syntax => 'typst', size => direct(15),
+          mark_rule(x => x(z, title => 'z'), color => value('#555555'), stroke_dasharray => value('4 3')) AS bound,
+          mark_text(x => value(0.76), y => value(0.45), align => 'left', syntax => 'typst', size => value(15),
             text => '$Phi(1.96) approx ' || CAST(ROUND(ANY_VALUE(p), 3) AS STRING) || '$') AS value
    )
 |> SELECT layer(shaded, curve, bound, value,
@@ -1085,10 +1083,10 @@ Miles per gallon against weight with the least-squares line of `regr_intercept` 
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(
-     x => scaled(weight, title => 'Weight (lb)', scale => interval_fit(zero => FALSE)),
-     y => scaled(mpg, title => 'Miles per gallon'),
-     color => direct('#9aa7b8'),
+|> AGGREGATE mark_symbol(
+     x => x(weight, title => 'Weight (lb)', scale => scale(zero => FALSE)),
+     y => y(mpg, title => 'Miles per gallon'),
+     color => value('#9aa7b8'),
    ) AS points
 |> CROSS JOIN (
      FROM samples.cars
@@ -1099,8 +1097,8 @@ FROM samples.cars
      |> EXTEND my - b * mx AS a
      |> CROSS JOIN UNNEST([0, 1]) AS e
      |> EXTEND CASE WHEN e = 0 THEN low ELSE high END AS x
-     |> AGGREGATE line(x => scaled(x, title => 'Weight (lb)'), y => scaled(a + b * x, title => 'Miles per gallon'),
-          color => direct('#d62728'), stroke_width => direct(2.5)) AS fitted
+     |> AGGREGATE mark_line(x => x(x, title => 'Weight (lb)'), y => y(a + b * x, title => 'Miles per gallon'),
+          color => value('#d62728'), stroke_width => value(2.5)) AS fitted
    )
 |> CROSS JOIN (
      FROM samples.cars
@@ -1109,8 +1107,8 @@ FROM samples.cars
           AVG(mpg * mpg) AS myy
      |> EXTEND (mxy - mx * my) / (mxx - mx * mx) AS b
      |> EXTEND my - b * mx AS a, POW(mxy - mx * my, 2) / ((mxx - mx * mx) * (myy - my * my)) AS r2
-     |> AGGREGATE text(
-          x => direct(0.98), y => direct(0.97), align => 'right', baseline => 'top', syntax => 'typst', size => direct(15),
+     |> AGGREGATE mark_text(
+          x => value(0.98), y => value(0.97), align => 'right', baseline => 'top', syntax => 'typst', size => value(15),
           text => '$hat(y) = ' || CAST(ROUND(ANY_VALUE(a), 2) AS STRING) || ' - ' || CAST(ROUND(-ANY_VALUE(b), 5) AS STRING) || ' x, quad R^2 = ' || CAST(ROUND(ANY_VALUE(r2), 2) AS STRING) || '$') AS label
    )
 |> SELECT layer(points, fitted, label,
@@ -1129,7 +1127,7 @@ Miles per gallon against weight, with pan and zoom.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(x => weight, y => mpg, color => origin, tools => [navigate()])
+|> AGGREGATE mark_symbol(x => weight, y => mpg, color => origin, tools => [navigate()])
 ```
 
 ### Nearest-point tooltip
@@ -1139,11 +1137,11 @@ The same scatter plot, with a tooltip of the car nearest the pointer, within as 
 ```sql
 DECLARE radius FLOAT64 DEFAULT 20;
 FROM samples.cars
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => weight,
      y => mpg,
      color => origin,
-     tools => [navigate(), tooltip(find => nearest_find(max_radius => radius))],
+     tools => [navigate(), tooltip(nearest => TRUE, max_radius => radius)],
    )
 ```
 
@@ -1153,19 +1151,20 @@ A tooltip with the origin as its title and fields with titles of their own.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => weight,
      y => mpg,
      color => origin,
      size => cylinders,
      tools => [
        tooltip(
-         find => nearest_find(max_radius => 20),
-         title => tooltip_field(column => 'origin'),
+         nearest => TRUE,
+         max_radius => 20,
+         title => 'origin',
          fields => [
-           tooltip_field(column => 'weight', title => 'Weight (lb)'),
-           tooltip_field(column => 'mpg', title => 'Miles per gallon'),
-           tooltip_field(column => 'cylinders', title => 'Cylinders'),
+           field(column => 'weight', title => 'Weight (lb)'),
+           field(column => 'mpg', title => 'Miles per gallon'),
+           field(column => 'cylinders', title => 'Cylinders'),
          ],
        ),
      ],
@@ -1178,7 +1177,7 @@ A tooltip that follows the pointer, without the swatch of the mark's color.
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => weight,
      y => mpg,
      color => origin,
@@ -1192,10 +1191,10 @@ The highest temperature of each day, with pan and zoom along x only, and a toolt
 
 ```sql
 FROM samples.seattle_weather
-|> AGGREGATE line(
+|> AGGREGATE mark_line(
      x => date,
      y => temp_max,
-     tools => [navigate(channels => ['x']), tooltip(find => nearest_find(metric => 'along_x'))],
+     tools => [navigate(channels => ['x']), tooltip(nearest => TRUE, metric => 'along_x')],
    )
 ```
 
@@ -1205,14 +1204,14 @@ Pan and zoom that stay inside the data, with a smallest span of 200 lb and 2 mil
 
 ```sql
 FROM samples.cars
-|> AGGREGATE symbol(
-     x => scaled(
+|> AGGREGATE mark_symbol(
+     x => x(
        weight,
-       scale => scale(navigation_limits => navigation_limits(bounds => 'data', min_span => 200)),
+       scale => scale(navigation => navigation('data', min_span => 200)),
      ),
-     y => scaled(
+     y => y(
        mpg,
-       scale => scale(navigation_limits => navigation_limits(bounds => 'data', min_span => 2)),
+       scale => scale(navigation => navigation('data', min_span => 2)),
      ),
      color => origin,
      tools => [navigate()],
@@ -1225,7 +1224,7 @@ Stacked bars with a tooltip of each segment.
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE bar(x => species, y => stack(count(*)), color => island, tools => [tooltip()])
+|> AGGREGATE mark_bar(x => species, y => stack(count(*)), color => island, tools => [tooltip()])
 ```
 
 ### Histogram bin tooltips
@@ -1235,9 +1234,9 @@ A histogram with a tooltip of each bin.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE bar(
-     x => scaled(bin(body_mass_g, maxbins => 20), title => 'Body mass (g)'),
-     y => scaled(count(*), title => 'Penguins'),
+|> AGGREGATE mark_bar(
+     x => x(bin(body_mass_g, maxbins => 20), title => 'Body mass (g)'),
+     y => y(count(*), title => 'Penguins'),
      tools => [navigate(channels => ['x']), tooltip()],
    )
 ```
@@ -1249,12 +1248,12 @@ The ratings of the movies, with the four largest genres and the rest as Other, w
 ```sql
 FROM samples.movies
 |> WHERE genre IS NOT NULL
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => rotten_tomatoes_rating,
      y => imdb_rating,
      color => lump(genre, n => 4),
      opacity => 0.4,
-     tools => [navigate(), tooltip(find => nearest_find(max_radius => 10))],
+     tools => [navigate(), tooltip(nearest => TRUE, max_radius => 10)],
    )
 ```
 
@@ -1265,13 +1264,13 @@ A facet whose panels pan, zoom, and show tooltips. The panels share their scales
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE)),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE)),
      color => species,
      tools => [navigate(), tooltip()],
    ) AS chart GROUP BY island
-|> AGGREGATE facet_col(chart, island) AS chart
+|> AGGREGATE facet_column(chart, island) AS chart
 ```
 
 ### Panels that pan apart
@@ -1281,16 +1280,16 @@ The same panels with an x scale for each, so each pans on its own.
 ```sql
 FROM samples.penguins
 |> WHERE body_mass_g IS NOT NULL
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE)),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE)),
      color => species,
      tools => [navigate(), tooltip()],
    ) AS chart GROUP BY island
-|> AGGREGATE facet_col(
+|> AGGREGATE facet_column(
      chart,
      island,
-     resolve => [resolve(key => 'x', sharing => 'independent')],
+     resolve => resolve(x => 'independent'),
    ) AS chart
 ```
 
@@ -1301,8 +1300,8 @@ A layer whose plot pans, zooms, and shows the tooltips of both of its layers, fr
 ```sql
 FROM samples.penguins
 |> AGGREGATE layer(
-     bar(x => species, y => scaled(avg(body_mass_g), title => 'Mean body mass (g)')),
-     rule(y => scaled(avg(body_mass_g), title => 'Mean body mass (g)'), stroke_width => 2),
+     mark_bar(x => species, y => y(avg(body_mass_g), title => 'Mean body mass (g)')),
+     mark_rule(y => y(avg(body_mass_g), title => 'Mean body mass (g)'), stroke_width => 2),
      tools => [navigate(), tooltip()],
    )
 ```
@@ -1313,9 +1312,9 @@ A table of charts with tools, one for each species. Check "Interactive charts" t
 
 ```sql
 FROM samples.penguins
-|> AGGREGATE symbol(
-     x => scaled(bill_length_mm, scale => interval_fit(zero => FALSE)),
-     y => scaled(bill_depth_mm, scale => interval_fit(zero => FALSE)),
+|> AGGREGATE mark_symbol(
+     x => x(bill_length_mm, scale => scale(zero => FALSE)),
+     y => y(bill_depth_mm, scale => scale(zero => FALSE)),
      color => sex,
      tools => [navigate(), tooltip()],
    ) GROUP BY species

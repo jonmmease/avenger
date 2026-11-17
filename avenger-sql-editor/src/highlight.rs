@@ -26,6 +26,10 @@ pub enum Class {
     Variable,
     Number,
     String,
+    /// The format of files, as `'CSV'`.
+    Constant,
+    /// A URI of files, as `'data/files/sales.csv'`.
+    Path,
     Comment,
     /// An operator, such as `|>`, `=>`, or `+`.
     Operator,
@@ -44,6 +48,8 @@ fn class(highlight: Highlight) -> Class {
         Highlight::Keyword => Class::Keyword,
         Highlight::Comment => Class::Comment,
         Highlight::String | Highlight::EnumValue => Class::String,
+        Highlight::Format => Class::Constant,
+        Highlight::Uri => Class::Path,
         Highlight::Number => Class::Number,
         Highlight::QueryParameter => Class::Variable,
         Highlight::Operator => Class::Operator,
@@ -55,7 +61,7 @@ fn class(highlight: Highlight) -> Class {
             NameRole::Function(_) => Class::Function,
             NameRole::Parameter => Class::Argument,
             NameRole::Column => Class::Column,
-            NameRole::Table | NameRole::Query => Class::Table,
+            NameRole::Table | NameRole::Query | NameRole::Schema => Class::Table,
             NameRole::Type => Class::Type,
             NameRole::Variable | NameRole::RangeVariable => Class::Variable,
             _ => Class::Plain,
