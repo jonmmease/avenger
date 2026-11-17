@@ -3,12 +3,12 @@
 //!
 //! A constructor is valid only in an argument of a chart function: a mark, a composition, a
 //! channel function, or a constructor in them. A channel function is valid only as the value of
-//! the channel of its name, as `color => color(species, legend => FALSE)`. Its name resolves against what the argument's parameter
-//! takes, its [`Takes`](super::Takes), so one name builds different messages in different places,
-//! as `type => point(...)` is a point scale in `scale(...)` and a point selection in `select(...)`,
-//! and `log(...)` in `type =>` is a log scale where `LOG(x)` elsewhere is GoogleSQL's. The
-//! analysis, completion, hover, and signature help resolve a call through [`called`], which reads
-//! only the syntax, so it works on incomplete text.
+//! the channel of its name, as `color => color(species, legend => FALSE)`. A constructor's name
+//! resolves against what the argument's parameter takes, its [`Takes`](super::Takes), so one name
+//! builds different messages in different places, as `type => point(...)` is a point scale in
+//! `scale(...)` and a point selection in `select(...)`, and `log(...)` in `type =>` is a log scale
+//! where `LOG(x)` elsewhere is GoogleSQL's. The analysis, completion, hover, and signature help
+//! resolve a call through [`called`], which reads only the syntax, so it works on incomplete text.
 
 use avenger_sql_syntax::{
     ast::{self, AstNode},
