@@ -14,6 +14,7 @@ pub mod format;
 pub mod gallery;
 mod gpu;
 pub mod highlight;
+pub mod indent;
 mod input;
 mod live;
 pub mod query;
