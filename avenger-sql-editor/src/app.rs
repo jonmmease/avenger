@@ -17,6 +17,7 @@ use crate::charts;
 use crate::document::{self, Analyzed};
 use crate::editor::{self, CodeEditor};
 use crate::exec::{Exec, Task};
+use crate::format;
 use crate::gallery::{examples, Example};
 use crate::highlight;
 use crate::live::LiveChart;
@@ -532,6 +533,17 @@ impl EditorApp {
         });
     }
 
+    /// Formats the query, unless it has an error of the syntax.
+    fn format(&mut self, ctx: &egui::Context) {
+        let document = self.analyzed.document(&self.text);
+        if format::blocked(document).is_some() {
+            return;
+        }
+        if let Some(formatted) = format::formatted(document) {
+            self.editor.format(ctx, &mut self.text, &formatted);
+        }
+    }
+
     fn busy(&self) -> bool {
         self.running.is_some()
             || !self.pending.is_empty()
@@ -554,6 +566,17 @@ impl EditorApp {
                 ));
                 if run.clicked() {
                     self.run(ctx);
+                }
+                let blocked = format::blocked(self.analyzed.document(&self.text));
+                let button = ui.add_enabled(blocked.is_none(), egui::Button::new("Format"));
+                let button = button
+                    .on_hover_text(format!(
+                        "Format the query ({})",
+                        ctx.format_shortcut(&format::shortcut())
+                    ))
+                    .on_disabled_hover_text(blocked.unwrap_or_default());
+                if button.clicked() {
+                    self.format(ctx);
                 }
             });
         });
@@ -812,6 +835,19 @@ impl eframe::App for EditorApp {
         }
         if ctx.input_mut(|input| input.consume_shortcut(&run_shortcut())) {
             self.run(ctx);
+        }
+        let formatting = ctx.input_mut(|input| {
+            let pressed = input.consume_shortcut(&format::shortcut());
+            // ⇧⌥F types `Ï` on macOS, which the shortcut takes too.
+            if pressed {
+                input
+                    .events
+                    .retain(|event| !matches!(event, egui::Event::Text(_)));
+            }
+            pressed
+        });
+        if formatting {
+            self.format(ctx);
         }
 
         egui::SidePanel::left("data")
