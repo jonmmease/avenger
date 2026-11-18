@@ -42,6 +42,10 @@ The result holds only what can follow the text before the cursor. After an opera
 
 `highlight(root)` classifies the tokens of a tree for syntax highlighting, in the order of the text. A word is a keyword only where the parser read it as one, so a column named `name` is a name in `|> SELECT name` and `NAME` is a keyword in `BY NAME`. A name takes the role of the node around it, with the roles of completion: the path of a `FROM` item is a table, the path of a call is a function, and the first name of a path in an expression is a column. A function after `FROM` or a pipe `CALL` is a table function, and a `CREATE` tells the kind of the function that it defines, while the syntax leaves the kind of another call unresolved. Each range also says whether it defines a name, as an alias or a parameter does. Only scope tells a column from a variable of a script or a range variable, and a scalar function from an aggregate, so a semantic model refines these ranges, as avenger-sql's `Model::refine_highlights` does. The refinement also gives the classes that the syntax never gives: `RangeVariable`, the roles of the functions of avenger-chart, and `EnumValue`, a string that a parameter takes as one value of a set.
 
+## Layout
+
+`layout` lays out text in lines of at most 100 characters. A `Doc` is text with the places where it can break, and a group of a `Doc` stays on one line when it fits in the rest of its line, and otherwise breaks while the groups inside it decide again. `list` lays out a call or an array: on one line, or with each item on a line of its own, two spaces deeper than the line that opens it, followed by a comma, and the closer back at that line's depth. avenger-sql's printer of lifted calls writes the calls that it generates with it.
+
 ## Tests
 
 The tests check the corpora in `tests/common` against GoogleSQL's grammar and parser tests, and compare four trees with the baselines in `tests/baselines`. A test that finds a different tree writes it to `tests/output/`, and copying it to `tests/baselines/` accepts it.

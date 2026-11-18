@@ -13,6 +13,7 @@
 //! keeps of each call: the ranges of the text of its channels, its aggregates, and its windows,
 //! the names of their columns, and the keys and measures that its windows partition and order by.
 
+use avenger_sql_syntax::layout::{list, one_line, width, Doc};
 use avenger_sql_syntax::{ast, ast::AstNode, Offset as TextSize, SyntaxKind, TextRange};
 
 use super::Analysis;
@@ -548,34 +549,29 @@ impl PrintedCall {
                             read
                         });
                     if let Some((value, others)) = read.split_first() {
-                        let text = |text: &str| Doc::Text(text.to_string());
-                        let array = |items: &[String]| Doc::Group {
-                            open: "[".to_string(),
-                            items: items
-                                .iter()
-                                .map(|item| (String::new(), text(item)))
-                                .collect(),
-                            clauses: Vec::new(),
-                            close: "]",
+                        let text = |text: &str| Doc::text(text);
+                        let array = |items: &[String]| {
+                            list(
+                                "[",
+                                items.iter().map(|item| text(item)).collect(),
+                                vec![],
+                                "]",
+                            )
                         };
+                        let named = |name: &str, doc: Doc| Doc::concat([text(name), doc]);
                         let mut items = vec![
-                            (String::new(), text(&key)),
-                            (String::new(), array(&series)),
-                            (String::new(), text(value)),
-                            ("value => ".to_string(), text("0")),
+                            text(&key),
+                            array(&series),
+                            text(value),
+                            named("value => ", text("0")),
                         ];
                         if !group_columns.is_empty() {
-                            items.push(("partition_by => ".to_string(), array(&group_columns)));
+                            items.push(named("partition_by => ", array(&group_columns)));
                         }
                         if !others.is_empty() {
-                            items.push(("flag => ".to_string(), text("'imputed'")));
+                            items.push(named("flag => ", text("'imputed'")));
                         }
-                        let call = Doc::Group {
-                            open: "impute(".to_string(),
-                            items,
-                            clauses: Vec::new(),
-                            close: ")",
-                        };
+                        let call = list("impute(", items, vec![], ")");
                         stages.push(operator(indent, "|> CALL ", &call, "", ""));
                         for other in others {
                             stages.push(format!("|> SET {other} = IF(imputed, 0, {other})"));
@@ -638,132 +634,10 @@ impl PrintedCall {
             .find(|node| node.kind() == SyntaxKind::CALL_EXPR && node.text_range() == self.range);
         let mark = match call {
             Some(call) => writer.doc(&call),
-            None => Doc::Text(one_line(&writer.at(self.range))),
+            None => Doc::text(one_line(&writer.at(self.range))),
         };
         (stages, mark)
     }
-}
-
-/// The longest line of the layout of nested calls, in characters.
-const WIDTH: usize = 100;
-
-/// Text that the printer generates in the layout of nested calls: text that stays on one line, or
-/// a call or an array, whose items break onto lines of their own when it does not fit on its line.
-#[derive(Clone, Debug)]
-enum Doc {
-    Text(String),
-    /// A call, `name(` with `)`, or an array, `[` with `]`: its items, each with the text before
-    /// its value, such as `x => `, and the clauses after its items, such as an `ORDER BY`.
-    Group {
-        open: String,
-        items: Vec<(String, Doc)>,
-        clauses: Vec<String>,
-        close: &'static str,
-    },
-}
-
-/// The number of characters of `text`.
-fn width(text: &str) -> usize {
-    text.chars().count()
-}
-
-impl Doc {
-    /// The text on one line.
-    fn flat(&self) -> String {
-        match self {
-            Doc::Text(text) => text.clone(),
-            Doc::Group {
-                open,
-                items,
-                clauses,
-                close,
-            } => {
-                let items: Vec<String> = (items.iter())
-                    .map(|(before, item)| format!("{before}{}", item.flat()))
-                    .collect();
-                let mut text = format!("{open}{}", items.join(", "));
-                for clause in clauses {
-                    text.push(' ');
-                    text.push_str(clause);
-                }
-                text.push_str(close);
-                text
-            }
-        }
-    }
-
-    /// The text at `column` of a line of depth `depth`, which `suffix` characters follow on its
-    /// line: on one line when it fits in [`WIDTH`], and otherwise broken after its opening with
-    /// one item to a line, two spaces deeper than `depth`, each with a comma, and its closing on a
-    /// line of its own at `depth`. Each item follows the rule again at its own line's depth.
-    fn render(&self, column: usize, depth: usize, suffix: usize) -> String {
-        let flat = self.flat();
-        let Doc::Group {
-            open,
-            items,
-            clauses,
-            close,
-        } = self
-        else {
-            return flat;
-        };
-        if column + width(&flat) + suffix <= WIDTH || (items.is_empty() && clauses.is_empty()) {
-            return flat;
-        }
-        let inner = depth + 2;
-        let indent = " ".repeat(inner);
-        let mut text = format!("{open}\n");
-        for (before, item) in items {
-            let value = item.render(inner + width(before), inner, 1);
-            text.push_str(&format!("{indent}{before}{value},\n"));
-        }
-        for clause in clauses {
-            text.push_str(&format!("{indent}{clause}\n"));
-        }
-        text.push_str(&" ".repeat(depth));
-        text.push_str(close);
-        text
-    }
-}
-
-/// `text`, an expression, on one line: its spaces collapsed outside its literals, without spaces
-/// inside its brackets or a comma before a closing bracket. Text with a comment stays as written.
-fn one_line(text: &str) -> String {
-    use avenger_sql_syntax::lexer::tokenize;
-    let (tokens, _) = tokenize(text);
-    if (tokens.iter()).any(|token| token.kind == SyntaxKind::COMMENT) {
-        return text.to_string();
-    }
-    let solid: Vec<(SyntaxKind, &str, bool)> = {
-        let mut solid = Vec::new();
-        let mut spaced = false;
-        for token in &tokens {
-            match token.kind {
-                SyntaxKind::WHITESPACE => spaced = true,
-                kind => {
-                    solid.push((kind, &text[token.range], spaced));
-                    spaced = false;
-                }
-            }
-        }
-        solid
-    };
-    let closing = |kind: SyntaxKind| matches!(kind, SyntaxKind::R_PAREN | SyntaxKind::R_BRACK);
-    let mut out = String::new();
-    let mut previous: Option<SyntaxKind> = None;
-    for (index, (kind, token, spaced)) in solid.iter().enumerate() {
-        let next = solid.get(index + 1).map(|(kind, _, _)| *kind);
-        if *kind == SyntaxKind::COMMA && next.is_some_and(closing) {
-            continue;
-        }
-        let opened = matches!(previous, Some(SyntaxKind::L_PAREN | SyntaxKind::L_BRACK));
-        if *spaced && !out.is_empty() && !opened && !closing(*kind) && *kind != SyntaxKind::COMMA {
-            out.push(' ');
-        }
-        out.push_str(token);
-        previous = Some(*kind);
-    }
-    out
 }
 
 impl Writer<'_> {
@@ -772,7 +646,7 @@ impl Writer<'_> {
     /// elements, and any other expression is its text on one line.
     fn doc(&self, node: &avenger_sql_syntax::SyntaxNode) -> Doc {
         let range = node.text_range();
-        let text = || Doc::Text(one_line(&self.at(range)));
+        let text = || Doc::text(one_line(&self.at(range)));
         if self.replaced.iter().any(|(replaced, _)| *replaced == range) {
             return text();
         }
@@ -795,9 +669,9 @@ impl Writer<'_> {
                 let Some((before, expr)) = item else {
                     return text();
                 };
-                items.push((before, self.doc(expr.syntax())));
+                items.push(Doc::concat([Doc::Text(before), self.doc(expr.syntax())]));
             }
-            let clauses: Vec<String> = [
+            let clauses: Vec<Doc> = [
                 list.null_treatment()
                     .map(|clause| clause.syntax().text_range()),
                 list.having_clause()
@@ -807,14 +681,10 @@ impl Writer<'_> {
             ]
             .into_iter()
             .flatten()
-            .map(|range| one_line(&self.at(range)))
+            .map(|range| Doc::text(one_line(&self.at(range))))
             .collect();
-            return Doc::Group {
-                open: format!("{}(", one_line(&self.at(path.syntax().text_range()))),
-                items,
-                clauses,
-                close: ")",
-            };
+            let open = format!("{}(", one_line(&self.at(path.syntax().text_range())));
+            return avenger_sql_syntax::layout::list(open, items, clauses, ")");
         }
         if let Some(array) = ast::ArrayExpr::cast(node.clone()) {
             let Some(bracket) = array.l_brack() else {
@@ -822,14 +692,9 @@ impl Writer<'_> {
             };
             let head = TextRange::new(range.start(), bracket.text_range().start());
             let items = (array.exprs())
-                .map(|expr| (String::new(), self.doc(expr.syntax())))
+                .map(|expr| self.doc(expr.syntax()))
                 .collect();
-            return Doc::Group {
-                open: format!("{}[", one_line(&self.at(head))),
-                items,
-                clauses: Vec::new(),
-                close: "]",
-            };
+            return list(format!("{}[", one_line(&self.at(head))), items, vec![], "]");
         }
         text()
     }
@@ -840,21 +705,12 @@ impl Writer<'_> {
 /// nested calls and `clause`, such as a `GROUP BY`, on a line of its own at the depth of the
 /// operator's keyword.
 fn operator(indent: &str, head: &str, doc: &Doc, rest: &str, clause: &str) -> String {
-    let column = width(indent) + width(head);
-    let flat = doc.flat();
-    let spaced = match clause.is_empty() {
-        true => String::new(),
-        false => format!(" {clause}"),
-    };
-    if column + width(&flat) + width(rest) + width(&spaced) <= WIDTH {
-        return format!("{head}{flat}{rest}{spaced}");
+    let mut parts = vec![Doc::text(head), doc.clone(), Doc::text(rest)];
+    if !clause.is_empty() {
+        parts.extend([Doc::Line, Doc::text(clause)]);
     }
     let depth = width(indent) + 3;
-    let mut text = format!("{head}{}{rest}", doc.render(column, depth, width(rest)));
-    if !clause.is_empty() {
-        text.push_str(&format!("\n{}{clause}", " ".repeat(depth)));
-    }
-    text
+    Doc::nest(depth, Doc::group(Doc::Concat(parts))).render(width(indent))
 }
 
 impl Analysis {

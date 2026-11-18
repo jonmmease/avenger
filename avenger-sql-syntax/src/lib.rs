@@ -63,11 +63,18 @@
 //! names in their roles, expressions, types, pipe operators, and statements. [`highlight`]
 //! classifies the tokens of a tree for syntax highlighting: keywords where the parser read them
 //! as keywords, literals, operators, and names in the same roles.
+//!
+//! # Layout
+//!
+//! [`layout`] lays out text in lines of at most [`layout::WIDTH`] characters: a
+//! [`layout::Doc`] is text with the places where it can break, and [`layout::list`] lays out a
+//! call or an array on one line or with one item to a line.
 
 pub mod ast;
 pub mod diagnostic;
 mod escape;
 mod highlight;
+pub mod layout;
 pub mod lexer;
 mod parser;
 mod syntax_kind;
