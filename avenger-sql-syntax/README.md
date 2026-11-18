@@ -46,6 +46,10 @@ The result holds only what can follow the text before the cursor. After an opera
 
 `layout` lays out text in lines of at most 100 characters. A `Doc` is text with the places where it can break, and a group of a `Doc` stays on one line when it fits in the rest of its line, and otherwise breaks while the groups inside it decide again. `list` lays out a call or an array: on one line, or with each item on a line of its own, two spaces deeper than the line that opens it, followed by a comma, and the closer back at that line's depth. avenger-sql's printer of lifted calls writes the calls that it generates with it.
 
+## Formatting
+
+`format::format(text)` writes a script in the style of avenger-sql's `STYLE.md`. It reads the syntax tree alone and changes the whitespace between tokens, the case of keywords and of the names of functions, and the commas after the last items of lists. Each kind of part has its rule of layout on `layout`: pipe operators on lines of their own, lists in brackets and the items of pipe operators with one item to a line when they break, and chains of binary operators broken before their operators. A comma after the last item of a list keeps it broken, and a comment stays before or after the same tokens. A statement with an error stays as written. The tests check that the formatted text of every corpus input holds the same tokens and comments, parses as the input does, and formats to itself, and an ignored test checks the same of GoogleSQL's parser corpus.
+
 ## Tests
 
 The tests check the corpora in `tests/common` against GoogleSQL's grammar and parser tests, and compare four trees with the baselines in `tests/baselines`. A test that finds a different tree writes it to `tests/output/`, and copying it to `tests/baselines/` accepts it.

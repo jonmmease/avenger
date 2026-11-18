@@ -4,7 +4,7 @@ GoogleSQL pipe queries that build avenger charts, planned onto DataFusion. The m
 
 ```sql
 FROM penguins
-|> AGGREGATE COUNT(*) AS n GROUP BY species
+|> AGGREGATE count(*) AS n GROUP BY species
 |> AGGREGATE mark_bar(x => species, y => n) AS chart
 ```
 
@@ -12,7 +12,7 @@ FROM penguins
 
 ## The language
 
-[SPEC.md](SPEC.md) is a short guide to the language. A query is GoogleSQL's pipe syntax, the subset that avenger-sql-syntax parses, with a trailing comma allowed in every comma-separated list. It starts with `FROM`, and its pipe operators are `WHERE`, `SELECT`, `EXTEND`, `SET`, `DROP`, `RENAME`, `AS`, `AGGREGATE` with `GROUP BY`, `GROUPING SETS`, `ROLLUP` and `CUBE`, `ORDER BY`, `LIMIT`, `DISTINCT`, the joins, the set operations, `PIVOT`, `UNPIVOT`, `TABLESAMPLE`, `MATCH_RECOGNIZE`, `WITH`, and `CALL`. Expressions include subqueries, `UNNEST`, named windows, and the `WINDOW` clause. A standard `SELECT ... FROM` query isn't in the subset, and its error offers a rewrite to pipe syntax for a simple query. GoogleSQL's other syntax outside the subset, such as DDL and DML statements, gets an error that names it as unsupported.
+[SPEC.md](SPEC.md) is a short guide to the language. [STYLE.md](STYLE.md) is the layout of scripts, which avenger-sql-syntax's formatter writes. A query is GoogleSQL's pipe syntax, the subset that avenger-sql-syntax parses, with a trailing comma allowed in every comma-separated list. It starts with `FROM`, and its pipe operators are `WHERE`, `SELECT`, `EXTEND`, `SET`, `DROP`, `RENAME`, `AS`, `AGGREGATE` with `GROUP BY`, `GROUPING SETS`, `ROLLUP` and `CUBE`, `ORDER BY`, `LIMIT`, `DISTINCT`, the joins, the set operations, `PIVOT`, `UNPIVOT`, `TABLESAMPLE`, `MATCH_RECOGNIZE`, `WITH`, and `CALL`. Expressions include subqueries, `UNNEST`, named windows, and the `WINDOW` clause. A standard `SELECT ... FROM` query isn't in the subset, and its error offers a rewrite to pipe syntax for a simple query. GoogleSQL's other syntax outside the subset, such as DDL and DML statements, gets an error that names it as unsupported.
 
 A script is statements separated by `;`. `DECLARE` and `SET` give script variables, `CREATE TEMP TABLE` and `CREATE TEMP FUNCTION` define names for the statements after them, and `IMPORT MODULE` imports the public functions and constants of a module that the catalog holds. `sql` returns the rows of the last query, after the variables before it.
 
@@ -27,12 +27,10 @@ FROM prices
 |> MATCH_RECOGNIZE(
      PARTITION BY symbol
      ORDER BY day
-     MEASURES FIRST(day) AS start_day, MIN(dn.price) AS low, LAST(up.price) AS high
+     MEASURES first(day) AS start_day, min(dn.price) AS low, last(up.price) AS high
      PATTERN (st dn+ up+)
-     DEFINE
-       st AS TRUE,
-       dn AS price < PREV(price),
-       up AS price > PREV(price))
+     DEFINE st AS TRUE, dn AS price < prev(price), up AS price > prev(price)
+   )
 ```
 
 The output has one row for each match: the partition columns, then the measures. The clause supports GoogleSQL's subset of SQL:2016. `ALL ROWS PER MATCH`, `ONE ROW PER MATCH`, `RUNNING` and `FINAL`, `SUBSET`, `PERMUTE`, exclusion, and `AFTER MATCH SKIP TO` a variable are errors. avenger-sql behaves as follows where the syntax leaves a choice:
@@ -83,20 +81,20 @@ A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, a
 
 ```sql
 FROM penguins
-|> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g), color => sex) AS chart GROUP BY island
+|> AGGREGATE mark_bar(x => species, y => avg(body_mass_g), color => sex) AS chart GROUP BY island
 ```
 
 plans as
 
 ```sql
 FROM penguins
-|> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` GROUP BY island, species, sex
-|> AGGREGATE mark_bar(x => species, y => `AVG(body_mass_g)`, color => sex) AS chart GROUP BY island
+|> AGGREGATE avg(body_mass_g) AS `avg(body_mass_g)` GROUP BY island, species, sex
+|> AGGREGATE mark_bar(x => species, y => `avg(body_mass_g)`, color => sex) AS chart GROUP BY island
 ```
 
 - In a call that holds an aggregate, each channel that holds none is a key, and the call aggregates once for each combination of the operator's groups and its keys. Here the keys are `species` and `sex`.
-- A channel that holds an aggregate is a measure. Outside its aggregates, a measure reads only keys, groups, and constants, so `y => AVG(body_mass_g) / 1000` is a measure, and `y => body_mass_g + COUNT(*)` is an error, since `body_mass_g` is neither a key nor aggregated. A key of the call's `ORDER BY` is a channel, a group, or an aggregate.
-- Each channel's column takes the text of its value as written, with its spaces collapsed, such as `AVG(body_mass_g)`, which titles its axis or its legend. A column keeps its name.
+- A channel that holds an aggregate is a measure. Outside its aggregates, a measure reads only keys, groups, and constants, so `y => avg(body_mass_g) / 1000` is a measure, and `y => body_mass_g + count(*)` is an error, since `body_mass_g` is neither a key nor aggregated. A key of the call's `ORDER BY` is a channel, a group, or an aggregate.
+- Each channel's column takes the text of its value as written, with its spaces collapsed, such as `avg(body_mass_g)`, which titles its axis or its legend. A column keeps its name.
 - Each such call is a branch of the operator over its input, aggregated to one row for each group, and the branches and the other items join on the groups, with `NULL` equal to `NULL`. The input runs once for all of them.
 - An aggregate of an aggregate in one call, such as `SUM(COUNT(*))` without `OVER`, is an error, and so is such a call in an `AGGREGATE` grouped by `GROUPING SETS`, `ROLLUP`, or `CUBE`.
 - A channel also takes windows. A window that reads no aggregate runs on the rows, before the aggregate, so its value is a key: `x => bin(body_mass_g)` bins the penguins, `x => NTILE(4) OVER (ORDER BY body_mass_g)` puts each one in a quartile, and `AVG(m - AVG(m) OVER ())` averages the deviations from the mean. A window may read another, as `lump(timeunit(t, unit => 'month'), n => 3)` does. A call without an aggregate that holds a window draws one row for each row of its input.
@@ -153,8 +151,9 @@ The aggregates of a layer and the concats take the `_agg` names, as GoogleSQL na
 
 ```sql
 FROM catches
-|> EXTEND lump(port, weight => SUM(tons), keep => ROW_NUMBER() OVER ranked <= 3)
-     OVER (PARTITION BY region) AS l
+|> EXTEND lump(port, weight => sum(tons), keep => row_number() OVER ranked <= 3) OVER (
+     PARTITION BY region
+   ) AS l
 ```
 
 Its arguments read three scopes. The category reads each row. `weight`, `COUNT(*)` by default, is an aggregate of the rows of each category. `keep` is evaluated once for each category: like a `HAVING` clause it compares aggregates of the category's rows, and like `QUALIFY` it can use windows over the categories of the partition, which take no `PARTITION BY`. The named window `ranked` orders the categories by weight, the heaviest first. `n => 3` keeps the first 3 categories of `ranked`, in place of `keep`. `other` labels the Other group, and `null_category` keeps the `NULL` category as its own, lumps it into the Other group, or drops its rows from every lump. The result is `STRUCT<value, other, weight, category_count>`.
@@ -163,7 +162,7 @@ Its arguments read three scopes. The category reads each row. `weight`, `COUNT(*
 
 ```sql
 FROM sales
-|> AGGREGATE SUM(units) AS units GROUP BY month, region
+|> AGGREGATE sum(units) AS units GROUP BY month, region
 |> CALL impute(month, [region], units, value => 0, flag => 'imputed');
 
 FROM impute(TABLE monthly, month, [region], units, method => 'avg', frame => [-1, 1])

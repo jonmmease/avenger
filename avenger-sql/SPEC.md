@@ -13,7 +13,7 @@ CREATE TEMP FUNCTION kg(g FLOAT64) AS (g / 1000);
 
 FROM penguins
 |> WHERE body_mass_g >= min_mass
-|> AGGREGATE AVG(kg(body_mass_g)) AS kg GROUP BY species
+|> AGGREGATE avg(kg(body_mass_g)) AS kg GROUP BY species
 ```
 
 - `DECLARE name [type] [DEFAULT value]` declares variables, before any other statement. `SET name = value` and `SET (a, b) = (...)` assign them. A variable stands in the options of the transforms, as in `bin(x, step => width)`, also when its value is the result of a query, since the plan binds it before the query runs.
@@ -27,11 +27,10 @@ FROM penguins
 A query starts with `FROM` and continues with pipe operators. `SELECT ... FROM` and a standard `WITH` are errors that suggest the pipe form.
 
 ```sql
-FROM orders AS o
-JOIN customers AS c USING (customer_id)
+FROM orders AS o JOIN customers AS c USING (customer_id)
 |> WHERE o.total > 0
 |> EXTEND o.total * 0.2 AS tax
-|> AGGREGATE SUM(total) AS revenue, COUNT(*) AS n GROUP BY region
+|> AGGREGATE sum(total) AS revenue, count(*) AS n GROUP BY region
 |> ORDER BY revenue DESC
 |> LIMIT 10
 ```
@@ -49,10 +48,13 @@ Every comma-separated list takes a comma after its last item, whether GoogleSQL 
 
 ```sql
 FROM penguins
-|> WHERE species IN ('Adelie', 'Gentoo',)
+|> WHERE species IN (
+     'Adelie',
+     'Gentoo',
+   )
 |> AGGREGATE
-     COUNT(*) AS n,
-     AVG(body_mass_g) AS mass,
+     count(*) AS n,
+     avg(body_mass_g) AS mass,
    GROUP BY
      species,
      island,
@@ -69,7 +71,7 @@ A mark is an aggregate function, so `|> AGGREGATE` builds a chart of the rows, o
 
 ```sql
 FROM penguins
-|> AGGREGATE COUNT(*) AS n GROUP BY species
+|> AGGREGATE count(*) AS n GROUP BY species
 |> AGGREGATE mark_bar(x => species, y => n) AS chart
 ```
 
@@ -81,7 +83,7 @@ FROM penguins
 FROM penguins
 |> AGGREGATE mark_symbol(
      x => x(body_mass_g, axis => axis(grid => FALSE)),
-     y => y(AVG(flipper_length_mm), title => 'Flipper length (mm)'),
+     y => y(avg(flipper_length_mm), title => 'Flipper length (mm)'),
      color => color(datum('Adelie'), legend => FALSE),
    ) AS chart
    GROUP BY species
@@ -143,17 +145,9 @@ FROM penguins
    ) AS chart
 ```
 
-## The layout of nested calls
+## Layout
 
-Every example follows one layout of calls and arrays, which the printer of lifted calls writes too:
-
-1. A call or an array that fits in 100 columns stays on one line, however deep it nests.
-2. A call that doesn't fit breaks after its `(`, with one argument on each line, two spaces deeper than the line on which the call starts, and its `)` on its own line at that line's depth. A line's depth is the column of its first word, except that a pipe operator's line has the depth of its keyword, column 3 after `|> `. So the arguments of a mark in `|> AGGREGATE` start at column 5, and its `)` lines up with `AGGREGATE`. Each argument follows rule 1 again.
-3. A named argument's value starts on the line of its name: `y => y(` opens the call, and `),` closes it at the depth of `y`.
-4. Each line of a broken call ends with a comma, the last one included.
-5. An array follows the same rules with `[` and `]`.
-
-Arguments never align under the opening parenthesis.
+Every example follows the style of [STYLE.md](STYLE.md), which avenger-sql-syntax's formatter writes. A call that fits in 100 columns stays on one line. A call that doesn't fit breaks after its `(`, with one argument on each line, two spaces deeper than the depth of the line on which the call starts, followed by a comma, and its `)` on its own line at that depth. A pipe operator's line has the depth of its keyword, column 3 after `|> `, so the arguments of a mark in `|> AGGREGATE` start at column 5, and its `)` lines up with `AGGREGATE`. A comma after the last argument keeps a call broken.
 
 ```sql
 FROM penguins
@@ -193,9 +187,10 @@ FROM prices
 |> MATCH_RECOGNIZE(
      PARTITION BY symbol
      ORDER BY day
-     MEASURES FIRST(day) AS start_day, LAST(up.price) AS high
+     MEASURES first(day) AS start_day, last(up.price) AS high
      PATTERN (dn+ up+)
-     DEFINE dn AS price < PREV(price), up AS price > PREV(price))
+     DEFINE dn AS price < prev(price), up AS price > prev(price)
+   )
 ```
 
 ## Where to look
