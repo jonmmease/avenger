@@ -1246,3 +1246,52 @@ fn equal_style_trees_have_equal_styles() {
         assert_ne!(first, changed);
     }
 }
+
+#[test]
+fn a_widget_takes_the_outline_of_its_focus_rule_and_nothing_else() {
+    let (mut tree, nodes) = chart();
+    let widget = tree.add(nodes.plot, Element::Widget);
+    tree.set_attribute(widget, "type", "slider");
+    let host = HostInputs::default();
+    // Without a focus rule, the outline is `auto`: the widget's own ring.
+    let plain = styles(&with(""), &tree, &host);
+    assert_eq!(plain[widget].keyword(Property::OutlineStyle), Some("auto"));
+    assert_eq!(plain[widget].keyword(Property::OutlineColor), Some("auto"));
+    assert_eq!(plain[widget].number(Property::OutlineWidth), Some(2.0));
+    let focused = styles(
+        &with("widget:focus-visible { outline: 3 solid red; outline-offset: 1; }"),
+        &tree,
+        &host,
+    );
+    assert_eq!(
+        focused[widget].keyword(Property::OutlineStyle),
+        Some("solid")
+    );
+    assert_eq!(
+        hex(focused[widget].color(Property::OutlineColor)),
+        "#ff0000"
+    );
+    assert_eq!(focused[widget].number(Property::OutlineWidth), Some(3.0));
+    assert_eq!(focused[widget].number(Property::OutlineOffset), Some(1.0));
+    // A focus rule changes the outline alone, so nothing restyles when focus moves.
+    for property in Property::ALL
+        .iter()
+        .filter(|property| !property.is_outline())
+    {
+        assert_eq!(
+            plain[widget].get(*property),
+            focused[widget].get(*property),
+            "{property:?}"
+        );
+    }
+    // Forced colors give the ring the system's highlight.
+    let forced = HostInputs {
+        preferences: Preferences {
+            forced_colors: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let computed = styles(&with(""), &tree, &forced);
+    assert!(computed[widget].color(Property::OutlineColor).is_some());
+}

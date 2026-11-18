@@ -69,13 +69,16 @@ The language supports these selectors:
 - The combinators ` `, `>`, `+`, and `~`
 - `:is()`, `:where()`, `:not()`, and `:has()`, with selector lists that are not forgiving: an invalid selector in the list makes the rule invalid
 - `:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`, `:nth-last-child()`, the `of S` argument of both, and the `-of-type` forms of each
+- `:focus-visible`, the only interaction pseudo-class
 - Nested rules, with `&` or without it
 
 A selector that names an element outside the style tree is an error, as is an attribute that the element does not have, or an attribute that no element has when the compound selector names no element. Element names and attribute names are case-sensitive. A class or an id that is not a CSS identifier needs CSS escapes, such as `#\31 st` for the id `1st`.
 
-The checks of elements and attributes apply to each alternative of `:is()` and `:where()` with the rest of its compound selector, and to a nested rule with its parent in place of `&`, so `title { &[type=bar] { ... } }` is an error, as `title[type=bar]` is.
+`:focus-visible` styles the focus ring that a widget draws around its control while Tab gives it keyboard focus. It is valid only on `widget`, the one element that keyboard focus reaches, and only in the last compound selector of a rule, outside `:not()` and `:has()`. A rule with `:focus-visible` sets only the outline properties, and the outline properties apply only through `:focus-visible`. Every selector of a rule, and every alternative of an `:is()` or a `:where()` in its last compound, ends with `:focus-visible`, or none does, so a list such as `widget:focus-visible, axis` is an error. So a widget with focus differs from itself without focus in its outline alone, and the cascade computes each widget's outline once, as the ring that it draws while it has focus: nothing restyles when focus moves.
 
-The language does not support pseudo-elements, `:empty`, interaction pseudo-classes such as `:hover`, `:active`, `:focus`, and `:focus-visible`, other pseudo-classes such as `:link` or `:checked`, or namespaces. A chart draws no focus. An unsupported pseudo-class is an error, and `:hover` has a hint to style the marks of a selection with a selection condition.
+The checks of elements, attributes, and focus apply to each alternative of `:is()` and `:where()` with the rest of its compound selector, and to a nested rule with its parent in place of `&`, so `title { &[type=bar] { ... } }` is an error, as `title[type=bar]` is, and so is `title { &:focus-visible { ... } }`.
+
+The language does not support pseudo-elements, `:empty`, interaction pseudo-classes such as `:hover`, `:active`, and `:focus`, other pseudo-classes such as `:link` or `:checked`, or namespaces. An unsupported pseudo-class is an error with a hint: `:focus` suggests `:focus-visible`, and `:hover` suggests styling the marks of a selection with a selection condition.
 
 ## At-rules
 
@@ -103,7 +106,7 @@ The lengths are `px`, `rem`, and `em`. A number without a unit is a number of pi
 
 Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. `color-mix()` takes the other color's value for a missing component, also when the mix converts the color to another space, for the components of the same kind, such as the hues of `hsl()` and `oklch()`. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
 
-The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
+The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline` (a width, `none` or `solid`, and a color), `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
 
 ## Properties
 
@@ -200,6 +203,10 @@ The initial values of the table hold on every node except these, where they depe
 | `border-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-color` | `<color>` | `currentColor` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-radius` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `outline-width` | `<length [0,∞]>` | `2` | no | `widget` |
+| `outline-style` | `auto \| none \| solid` | `auto` | no | `widget` |
+| `outline-color` | `auto \| <color>` | `auto` | no | `widget` |
+| `outline-offset` | `<length>` | `2` | no | `widget` |
 | `display` | `none \| block \| inline \| inline-block \| flex \| inline-flex \| grid \| inline-grid \| contents \| flow-root \| list-item \| table` | `block` | no | every node |
 | `forced-color-adjust` | `auto \| none` | `auto` | yes | every node |
 | `scheme` | `auto \| <palette-name> <integer>? reverse?` | `auto` | no | `scale` |
@@ -251,7 +258,7 @@ A property without a declaration takes the value of the parent when it is inheri
 
 A custom property computes at the node that declares it, with the custom properties of that node and the `env()` values of its own stylesheet, and the children inherit the computed value. So `--b: var(--a)` on a plot keeps the plot's `--a` in the marks below it, also when a mark declares its own `--a`. Custom properties that refer to each other in a cycle, also through a fallback, are invalid, and an invalid custom property has no value, so a `var()` of it takes its fallback. `initial` removes an inherited custom property, and `inherit` and `unset` keep it. `1rem` is 10 pixels times the text scale, and `em` is the font size of the node, or of its parent for `font-size`. `currentColor` is the `color` of the node, or of its parent for `color`. A node that inherits a color that reads `currentColor`, such as `fill: currentColor` or a `color-mix()` of it, resolves it against its own `color`, as CSS Color 4 specifies.
 
-`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark or a text, and `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line. Other nodes paint nothing with `auto`. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
+`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark or a text, and `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line. Other nodes paint nothing with `auto`. `outline-style: auto` and `outline-color: auto` keep the focus ring of the widget's own style, a solid ring in its focus color, and `outline-style: none` draws no ring. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
 
 `ComputedStyles::needs_update` tells whether a render at new host inputs needs new styles: when the preferences or the host theme change, or when a condition changes its outcome. A resize within a breakpoint keeps the styles, so a renderer computes them again only when the host box crosses a breakpoint. Two `StyleTree`s are equal when their nodes have the same elements, ids, classes, attributes, inline styles, and places, so a renderer that builds the tree of an updated chart keeps the old computed styles when the trees are equal and the cascade and the host inputs are the same. On the tree of `examples/cascade_bench.rs`, the comparison takes about 1% of the time of `Cascade::compute`.
 

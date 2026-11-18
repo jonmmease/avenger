@@ -111,6 +111,8 @@ const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
 const GUIDES: &[Element] = &[Axis, Legend, Facet];
 /// A widget and the parts of its control.
 const WIDGET: &[Element] = &[Widget, Track, Thumb];
+/// The nodes that can have keyboard focus, which draw a focus ring.
+const FOCUS: &[Element] = &[Widget];
 const MARK: &[Element] = &[Mark];
 const PLOT: &[Element] = &[Plot];
 const SCALE: &[Element] = &[Scale];
@@ -283,12 +285,18 @@ properties! {
     SeparatorSpace = "separator-space", false, SIZE, "4", &[Attribution];
     LineGap = "line-gap", false, SIZE, "2", &[Attribution];
 
-    // Boxes, visibility, and forced colors.
+    // Boxes, visibility, focus, and forced colors.
     Background = "background", false, Syntax::Color, "transparent", BOXES;
     BorderWidth = "border-width", false, SIZE, "1", BOXES;
     BorderStyle = "border-style", false, LINE_STYLE, "none", BOXES;
     BorderColor = "border-color", false, Syntax::Color, "currentColor", BOXES;
     BorderRadius = "border-radius", false, SIZE, "0", BOXES;
+    // The focus ring of a widget, which applies only through `:focus-visible`. `auto` keeps the
+    // widget's own style and color.
+    OutlineWidth = "outline-width", false, SIZE, "2", FOCUS;
+    OutlineStyle = "outline-style", false, Syntax::Keywords(&["auto", "none", "solid"]), "auto", FOCUS;
+    OutlineColor = "outline-color", false, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", FOCUS;
+    OutlineOffset = "outline-offset", false, LENGTH, "2", FOCUS;
     Display = "display", false, Syntax::Keywords(&["none", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "contents", "flow-root", "list-item", "table"]), "block", NODES;
     ForcedColorAdjust = "forced-color-adjust", true, Syntax::Keywords(&["auto", "none"]), "auto", NODES;
 
@@ -302,7 +310,17 @@ properties! {
 }
 
 impl Property {
-    /// Whether a node of `element` accepts the property.
+    /// Whether the property draws the focus ring, which applies only through `:focus-visible`.
+    pub fn is_outline(self) -> bool {
+        matches!(
+            self,
+            Property::OutlineWidth
+                | Property::OutlineStyle
+                | Property::OutlineColor
+                | Property::OutlineOffset
+        )
+    }
+
     #[inline]
     /// Whether the property applies to `element`. Every property applies to a variant of its
     /// parent, `other` or `null`, which takes what its parent takes.
@@ -324,12 +342,14 @@ pub enum Shorthand {
     /// One to four lengths for the sides, and with one number the paddings of a scale.
     Padding,
     Border,
+    Outline,
     /// One length for rows and columns, or two for rows and then columns.
     Gap,
     /// `none`, or one length for the width and the height, or two for the width and then the
     /// height, that a plot counts at when nothing gives it a size.
     ContainIntrinsicSize,
-    /// Every property except the custom properties. It takes only a CSS-wide keyword.
+    /// Every property except the outline properties and the custom properties. It takes only a
+    /// CSS-wide keyword.
     All,
 }
 
@@ -338,6 +358,7 @@ impl Shorthand {
         Some(match name {
             "padding" => Shorthand::Padding,
             "border" => Shorthand::Border,
+            "outline" => Shorthand::Outline,
             "gap" => Shorthand::Gap,
             "contain-intrinsic-size" => Shorthand::ContainIntrinsicSize,
             "all" => Shorthand::All,
@@ -349,6 +370,7 @@ impl Shorthand {
         match self {
             Shorthand::Padding => "padding",
             Shorthand::Border => "border",
+            Shorthand::Outline => "outline",
             Shorthand::Gap => "gap",
             Shorthand::ContainIntrinsicSize => "contain-intrinsic-size",
             Shorthand::All => "all",
@@ -371,12 +393,25 @@ impl Shorthand {
                 Property::BorderStyle,
                 Property::BorderColor,
             ],
+            Shorthand::Outline => vec![
+                Property::OutlineWidth,
+                Property::OutlineStyle,
+                Property::OutlineColor,
+            ],
             Shorthand::Gap => vec![Property::RowGap, Property::ColumnGap],
             Shorthand::ContainIntrinsicSize => vec![
                 Property::ContainIntrinsicWidth,
                 Property::ContainIntrinsicHeight,
             ],
-            Shorthand::All => Property::ALL.to_vec(),
+            Shorthand::All => (Property::ALL.iter())
+                .copied()
+                .filter(|property| !property.is_outline())
+                .collect(),
         }
+    }
+
+    /// Whether the shorthand sets outline properties, which apply only through `:focus-visible`.
+    pub fn is_outline(self) -> bool {
+        self == Shorthand::Outline
     }
 }

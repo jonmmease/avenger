@@ -59,23 +59,25 @@ impl PrecomputedHash for Name {
     }
 }
 
-/// The style language has no pseudo-classes other than the structural ones of `selectors`.
+/// The only interaction pseudo-class of the style language.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PseudoClass {}
+pub enum PseudoClass {
+    FocusVisible,
+}
 
 impl ToCss for PseudoClass {
-    fn to_css<W: fmt::Write>(&self, _dest: &mut W) -> fmt::Result {
-        match *self {}
+    fn to_css<W: fmt::Write>(&self, dest: &mut W) -> fmt::Result {
+        dest.write_str(":focus-visible")
     }
 }
 
 impl NonTSPseudoClass for PseudoClass {
     fn is_active_or_hover(&self) -> bool {
-        match *self {}
+        false
     }
 
     fn is_user_action_state(&self) -> bool {
-        match *self {}
+        true
     }
 }
 
@@ -108,7 +110,7 @@ impl SelectorImpl for Selectors {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SelectorError {
     Parse(SelectorParseErrorKind),
-    /// A pseudo-class that is not structural, by its name.
+    /// A pseudo-class other than `:focus-visible`, by its name.
     PseudoClass(String),
     /// A pseudo-element, by its name.
     PseudoElement(String),
@@ -121,7 +123,7 @@ impl From<SelectorParseErrorKind> for SelectorError {
 }
 
 /// The parser hooks: `:has()`, `:is()`, `:where()`, `of S`, and `&`, no forgiving selector lists,
-/// and no pseudo-classes other than the structural ones.
+/// and `:focus-visible` as the only pseudo-class.
 struct Hooks;
 
 impl<'i> Parser<'i> for Hooks {
@@ -152,9 +154,12 @@ impl<'i> Parser<'i> for Hooks {
         &self,
         name: &str,
     ) -> Result<PseudoClass, ParseError<Self::Error>> {
-        Err(ParseError::custom(SelectorError::PseudoClass(
-            name.to_string(),
-        )))
+        match name.eq_ignore_ascii_case("focus-visible") {
+            true => Ok(PseudoClass::FocusVisible),
+            false => Err(ParseError::custom(SelectorError::PseudoClass(
+                name.to_string(),
+            ))),
+        }
     }
 
     fn parse_non_ts_functional_pseudo_class(
@@ -266,29 +271,60 @@ fn pseudo_class_message(name: &str) -> (String, Option<String>) {
     let lower = name.to_ascii_lowercase();
     match lower.as_str() {
         "hover" | "active" => (
-            format!("`:{name}` is not supported; the language has no interaction pseudo-classes"),
+            format!(
+                "`:{name}` is not supported; the only interaction pseudo-class is :focus-visible"
+            ),
             Some("style the marks of a selection with a selection condition".to_string()),
+        ),
+        "focus" | "focus-within" => (
+            format!("`:{name}` is not supported"),
+            Some("use :focus-visible".to_string()),
         ),
         _ => (format!("the pseudo-class `:{name}` is not supported"), None),
     }
 }
 
 /// Checks each selector of `list` against the vocabulary of the style tree: element names,
-/// attribute names, and the structural pseudo-classes that the style tree supports. A compound
-/// selector is checked once for each alternative of its `:is()` and `:where()` arguments, with
-/// their requirements, so `:is(axis, legend)[channel=x]` is checked as `axis[channel=x]` and
-/// as `legend[channel=x]`. Returns the first problem.
-pub(crate) fn check_list(list: &SelectorList<Selectors>) -> Result<(), Problem> {
+/// attribute names, the structural pseudo-classes that the style tree supports, and the rules of
+/// `:focus-visible`. A compound selector is checked once for each alternative of its `:is()` and
+/// `:where()` arguments, with their requirements, so `:is(title):focus-visible` is checked as
+/// `title:focus-visible`. Returns whether the selectors match only nodes with keyboard focus, or
+/// the first problem. Either every selector of the list, and every alternative of each, ends with
+/// `:focus-visible`, or none does.
+pub(crate) fn check_list(list: &SelectorList<Selectors>) -> Result<bool, Problem> {
+    let mut focus = None;
     for selector in list.slice() {
-        check_selector(selector, true)?;
+        for alternative in check_selector(selector, Context::Top, true)? {
+            match focus {
+                None => focus = Some(alternative.focus_visible),
+                Some(focus) if focus != alternative.focus_visible => {
+                    return Err(Problem::new(
+                        "the selectors of a rule all end with :focus-visible, or none does",
+                    )
+                    .with_help("write the selectors with :focus-visible as a rule of their own"));
+                }
+                Some(_) => {}
+            }
+        }
     }
-    Ok(())
+    Ok(focus.unwrap_or(false))
+}
+
+/// Where a selector stands, which decides where `:focus-visible` is valid.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Context {
+    /// A selector of a rule, or an argument of `:is()` or `:where()` in its last compound.
+    Top,
+    /// An argument of a pseudo-class in an earlier compound, of `:not()`, or of `:has()`, or a
+    /// selector of `of S`.
+    Inner,
 }
 
 /// What one alternative of a compound selector requires of the nodes that it matches.
 #[derive(Clone, Default)]
 struct Facts {
     element: Option<Element>,
+    focus_visible: bool,
     attributes: Vec<String>,
 }
 
@@ -297,6 +333,7 @@ impl Facts {
     fn and(&self, other: &Facts) -> Facts {
         Facts {
             element: self.element.or(other.element),
+            focus_visible: self.focus_visible || other.focus_visible,
             attributes: (self.attributes.iter())
                 .chain(&other.attributes)
                 .cloned()
@@ -307,7 +344,11 @@ impl Facts {
 
 /// Checks a selector and returns the alternatives of its last compound. `check_last` checks them
 /// too, and an argument of `:is()` or `:where()` leaves them to the compound that holds it.
-fn check_selector(selector: &Selector<Selectors>, check_last: bool) -> Result<Vec<Facts>, Problem> {
+fn check_selector(
+    selector: &Selector<Selectors>,
+    context: Context,
+    check_last: bool,
+) -> Result<Vec<Facts>, Problem> {
     // Parse order: the first compound first, with a combinator between compounds.
     let components: Vec<&Component<Selectors>> = selector.iter_raw_parse_order_from(0).collect();
     let compounds: Vec<&[&Component<Selectors>]> = components
@@ -316,7 +357,11 @@ fn check_selector(selector: &Selector<Selectors>, check_last: bool) -> Result<Ve
     let last = compounds.len().saturating_sub(1);
     let mut alternatives = Vec::new();
     for (index, compound) in compounds.iter().enumerate() {
-        alternatives = compound_facts(compound)?;
+        let inner = match (context, index == last) {
+            (Context::Top, true) => Context::Top,
+            _ => Context::Inner,
+        };
+        alternatives = compound_facts(compound, inner)?;
         if index != last || check_last {
             for facts in &alternatives {
                 check_facts(facts)?;
@@ -328,7 +373,10 @@ fn check_selector(selector: &Selector<Selectors>, check_last: bool) -> Result<Ve
 
 /// The alternatives of a compound selector: its own requirements with those of each combination
 /// of the selectors of its `:is()` and `:where()` arguments.
-fn compound_facts(components: &[&Component<Selectors>]) -> Result<Vec<Facts>, Problem> {
+fn compound_facts(
+    components: &[&Component<Selectors>],
+    context: Context,
+) -> Result<Vec<Facts>, Problem> {
     let mut own = Facts::default();
     let mut arguments: Vec<Vec<Facts>> = Vec::new();
     for component in components {
@@ -346,27 +394,35 @@ fn compound_facts(components: &[&Component<Selectors>]) -> Result<Vec<Facts>, Pr
             Component::AttributeOther(attribute) => {
                 own.attributes.push(attribute.local_name.0.clone());
             }
+            Component::NonTSPseudoClass(PseudoClass::FocusVisible) => {
+                if context == Context::Inner {
+                    return Err(Problem::new(
+                        ":focus-visible is valid only in the last compound selector, outside :not() and :has()",
+                    ));
+                }
+                own.focus_visible = true;
+            }
             Component::Root | Component::Nth(_) => {}
             Component::NthOf(nth) => {
                 for selector in nth.selectors() {
-                    check_selector(selector, true)?;
+                    check_selector(selector, Context::Inner, true)?;
                 }
             }
             Component::Negation(list) => {
                 for selector in list.slice() {
-                    check_selector(selector, true)?;
+                    check_selector(selector, Context::Inner, true)?;
                 }
             }
             Component::Is(list) | Component::Where(list) => {
                 let mut alternatives = Vec::new();
                 for selector in list.slice() {
-                    alternatives.extend(check_selector(selector, false)?);
+                    alternatives.extend(check_selector(selector, context, false)?);
                 }
                 arguments.push(alternatives);
             }
             Component::Has(relatives) => {
                 for relative in relatives.iter() {
-                    check_selector(&relative.selector, true)?;
+                    check_selector(&relative.selector, Context::Inner, true)?;
                 }
             }
             Component::ParentSelector | Component::RelativeSelectorAnchor => {}
@@ -402,6 +458,11 @@ fn check_facts(facts: &Facts) -> Result<(), Problem> {
                 "the element `{element}` has no attribute `{attribute}`"
             )));
         }
+    }
+    if facts.focus_visible && !element.can_focus() {
+        return Err(Problem::new(format!(
+            "`{element}` cannot have focus; :focus-visible is valid on widget"
+        )));
     }
     Ok(())
 }

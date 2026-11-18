@@ -720,7 +720,8 @@ impl<State: Send + Sync + 'static> Widget<State> for Control<State> {
 // Preparing and drawing
 
 /// The style of a widget from the computed style of its `widget` node: its font, the color of its
-/// text, and with an `accent-color` other than `auto`, the color of its checked and filled parts.
+/// text, with an `accent-color` other than `auto`, the color of its checked and filled parts, and
+/// from its outline, the focus ring that it draws while it has keyboard focus.
 pub(crate) fn widget_style(style: &ComputedStyle) -> WidgetStyle {
     let mut widget = WidgetStyle {
         font_family: font_family(style),
@@ -750,6 +751,17 @@ pub(crate) fn widget_style(style: &ComputedStyle) -> WidgetStyle {
             shade(0.72),
             widget.background,
         );
+    }
+    // `outline-style: auto` and `outline-color: auto` keep the widget's own ring.
+    widget.focus_width = match style.keyword(Property::OutlineStyle) {
+        Some("none") => 0.0,
+        _ => style
+            .number(Property::OutlineWidth)
+            .unwrap_or(widget.focus_width),
+    };
+    widget.focus_offset = (style.number(Property::OutlineOffset)).unwrap_or(widget.focus_offset);
+    if let Some(color) = style.color(Property::OutlineColor) {
+        widget.focus_color = color;
     }
     widget
 }

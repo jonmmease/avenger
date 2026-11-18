@@ -67,6 +67,12 @@ impl Element {
         matches!(self, Element::Other | Element::Null)
     }
 
+    /// Whether a node of the element can have keyboard focus, so `:focus-visible` is valid on it:
+    /// a widget, which Tab focuses and which draws a ring around its control while it has focus.
+    pub fn can_focus(self) -> bool {
+        self == Element::Widget
+    }
+
     /// The names of the attributes that nodes of the element have.
     pub fn attributes(self) -> &'static [&'static str] {
         match self {

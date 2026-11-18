@@ -69,24 +69,78 @@ fn unknown_elements_and_attributes_are_errors() {
 }
 
 #[test]
-fn pseudo_classes_other_than_the_structural_ones_are_errors() {
+fn interaction_pseudo_classes_other_than_focus_visible_are_errors() {
     let hover = error(
         "mark:hover { opacity: 1; }",
-        "`:hover` is not supported; the language has no interaction pseudo-classes",
+        "`:hover` is not supported; the only interaction pseudo-class is :focus-visible",
     );
     assert_eq!(
         hover.help.as_deref(),
         Some("style the marks of a selection with a selection condition")
     );
     let focus = error(
-        "mark:focus { opacity: 1; }",
-        "the pseudo-class `:focus` is not supported",
+        "widget:focus { outline: 2 solid; }",
+        "`:focus` is not supported",
     );
-    assert_eq!(focus.help, None);
+    assert_eq!(focus.help.as_deref(), Some("use :focus-visible"));
     error(
         "axis::before { stroke: red; }",
         "pseudo-elements are not supported",
     );
+}
+
+#[test]
+fn focus_visible_sets_the_outline_of_widgets_only() {
+    for css in [
+        "widget:focus-visible { outline: 3 solid red; outline-offset: 1; }",
+        ":focus-visible { outline-color: red; }",
+        "widget[type=slider]:focus-visible { outline-style: none; }",
+        ":is(widget):focus-visible { outline-width: 1; }",
+        "widget { &:focus-visible { outline-color: red; } }",
+    ] {
+        let (_, diagnostics) = parse(css);
+        assert!(diagnostics.is_empty(), "{css}: {diagnostics:#?}");
+    }
+    // The shorthand sets its three longhands.
+    let (sheet, _) = parse("widget:focus-visible { outline: 3 solid red; outline-offset: 1; }");
+    assert_eq!(sheet.rules[0].declarations.len(), 4);
+    for (css, message) in [
+        (
+            "axis:focus-visible { outline-color: red; }",
+            "`axis` cannot have focus; :focus-visible is valid on widget",
+        ),
+        (
+            "title { &:focus-visible { outline-color: red; } }",
+            "`title` cannot have focus",
+        ),
+        (
+            "widget { outline-color: red; }",
+            "outline properties apply only through :focus-visible",
+        ),
+        (
+            "widget:focus-visible { opacity: 1; }",
+            "only outline properties apply through :focus-visible",
+        ),
+        (
+            "chart:has(widget:focus-visible) { color: red; }",
+            ":focus-visible is valid only in the last compound selector",
+        ),
+        (
+            "widget:not(:focus-visible) { color: red; }",
+            ":focus-visible is valid only in the last compound selector",
+        ),
+        (
+            "widget:focus-visible, axis { outline-color: red; }",
+            "the selectors of a rule all end with :focus-visible, or none does",
+        ),
+        // A focus ring is solid.
+        (
+            "widget:focus-visible { outline: 2 dashed red; }",
+            "is not a valid value of `outline`",
+        ),
+    ] {
+        error(css, message);
+    }
 }
 
 #[test]

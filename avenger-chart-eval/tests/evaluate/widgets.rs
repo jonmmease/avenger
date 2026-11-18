@@ -379,6 +379,43 @@ fn a_stylesheet_colors_and_places_widgets() {
 }
 
 #[test]
+fn a_focus_visible_rule_styles_the_focus_ring_of_widgets() {
+    let style = |css: &str| {
+        let slider =
+            Widget::slider(SliderWidget::new("filter", "weight", data()).step(500.0)).key("weight");
+        let clause = Clause::new([Condition::range(
+            ValueRange::new("weight")
+                .low(3000.0)
+                .high(3500.0)
+                .exclude_end(true),
+        )])
+        .widget("weight");
+        let chart = cars_with(vec![slider], vec![clause], None);
+        let mut evaluator = avenger_chart_eval::ChartEvaluator::new(
+            chart,
+            cascade_with(css),
+            engine(),
+            avenger_chart_eval::Registry::new(),
+        )
+        .unwrap();
+        let evaluated = evaluator.evaluate(&host([400.0, 260.0])).unwrap();
+        evaluated.widgets[0].style.clone()
+    };
+    // `auto` keeps the widget's own ring.
+    let own = avenger_widgets::WidgetStyle::default();
+    let plain = style("");
+    assert_eq!(
+        (plain.focus_color, plain.focus_width, plain.focus_offset),
+        (own.focus_color, own.focus_width, own.focus_offset)
+    );
+    let styled = style("widget:focus-visible { outline: 3 solid red; outline-offset: 1; }");
+    assert_eq!(styled.focus_color, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!((styled.focus_width, styled.focus_offset), (3.0, 1.0));
+    let none = style("widget[key=weight]:focus-visible { outline-style: none; }");
+    assert_eq!(none.focus_width, 0.0);
+}
+
+#[test]
 fn mode_widgets_turn_the_modes_that_decide_the_active_tools() {
     let symbols = CartesianLayer::symbol(
         cars_dataset(),
