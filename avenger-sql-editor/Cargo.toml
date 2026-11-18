@@ -41,6 +41,7 @@ datafusion = { workspace = true, features = [
 eframe = { version = "0.33.3", default-features = false, features = [
     "accesskit",
     "default_fonts",
+    "persistence",
     "wgpu",
     "wayland",
     "x11",

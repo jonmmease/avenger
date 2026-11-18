@@ -40,13 +40,14 @@ pub struct CodeEditor {
 
 /// A layout of the editor's text and what it was laid out with: the highlights of the analysis,
 /// whether the text was the analyzed text, so that it took those highlights and not those of its
-/// syntax alone, the ranges on the faint background of references, and the pixels per point of
-/// the screen.
+/// syntax alone, the ranges on the faint background of references, whether the theme is dark,
+/// and the pixels per point of the screen.
 struct Layout {
     text: String,
     highlights: Vec<HighlightRange>,
     analyzed: bool,
     marked: Vec<Range<usize>>,
+    dark: bool,
     pixels_per_point: f32,
     galley: Arc<egui::Galley>,
 }
@@ -196,11 +197,13 @@ impl CodeEditor {
             let source = buffer.as_str();
             let is_analyzed = source == analyzed;
             let pixels_per_point = ui.pixels_per_point();
+            let dark = ui.visuals().dark_mode;
             if let Some(cache) = &self.cache {
                 if cache.text == source
                     && cache.highlights == highlights
                     && cache.analyzed == is_analyzed
                     && cache.marked == marked
+                    && cache.dark == dark
                     && cache.pixels_per_point == pixels_per_point
                 {
                     return cache.galley.clone();
@@ -220,13 +223,18 @@ impl CodeEditor {
                 true => &marked,
                 false => &[],
             };
-            let job = layout_job(source, ranges, font.clone(), marks, REFERENCE);
+            let reference = match dark {
+                true => REFERENCE_DARK,
+                false => REFERENCE,
+            };
+            let job = layout_job(source, ranges, font.clone(), marks, reference, dark);
             let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
             self.cache = Some(Layout {
                 text: source.to_string(),
                 highlights: highlights.to_vec(),
                 analyzed: is_analyzed,
                 marked: marked.clone(),
+                dark,
                 pixels_per_point,
                 galley: galley.clone(),
             });
@@ -839,8 +847,33 @@ fn byte_index(text: &str, char_index: usize) -> usize {
 /// The background of the definition and the uses of the name at the cursor.
 const REFERENCE: Color32 = Color32::from_rgba_premultiplied(0, 10, 22, 28);
 
-/// The color of each class, on egui's light theme.
-fn class_color(class: Class) -> Color32 {
+/// The background of the definition and the uses of the name at the cursor, on a dark theme: a
+/// translucent light blue.
+const REFERENCE_DARK: Color32 = Color32::from_rgba_premultiplied(22, 28, 38, 38);
+
+/// The color of each class, on egui's light theme, or on its dark theme with the same hues
+/// lightened, near VS Code's Dark+ colors.
+fn class_color(class: Class, dark: bool) -> Color32 {
+    if dark {
+        let (r, g, b) = match class {
+            Class::Plain => (0xd4, 0xd4, 0xd4),
+            Class::Keyword => (0x56, 0x9c, 0xd6),
+            Class::Function => (0xdc, 0xdc, 0xaa),
+            Class::Chart => (0xf0, 0xa0, 0x50),
+            Class::Argument => (0x9c, 0xdc, 0xfe),
+            Class::Column => (0x82, 0xb4, 0xe6),
+            Class::Table => (0xc5, 0x86, 0xc0),
+            Class::Type => (0x4e, 0xc9, 0xb0),
+            Class::Variable => (0xd7, 0xa5, 0x5f),
+            Class::Number => (0xb5, 0xce, 0xa8),
+            Class::String => (0xce, 0x91, 0x78),
+            Class::Constant => (0x4f, 0xc1, 0xff),
+            Class::Path => (0xd7, 0xba, 0x7d),
+            Class::Comment => (0x6a, 0x99, 0x55),
+            Class::Operator => (0xd7, 0x82, 0xc8),
+        };
+        return Color32::from_rgb(r, g, b);
+    }
     let (r, g, b) = match class {
         Class::Plain => (40, 40, 40),
         Class::Keyword => (0, 92, 197),
@@ -861,14 +894,16 @@ fn class_color(class: Class) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
-/// The layout job of `text`: each character in the color of its class by `highlights`, and the
-/// characters of the ranges `marked` on the background `background`.
+/// The layout job of `text`: each character in the color of its class by `highlights`, in the
+/// light or the `dark` theme's colors, and the characters of the ranges `marked` on the
+/// background `background`.
 pub(crate) fn layout_job(
     text: &str,
     highlights: &[HighlightRange],
     font: FontId,
     marked: &[Range<usize>],
     background: Color32,
+    dark: bool,
 ) -> LayoutJob {
     let mut job = LayoutJob::default();
     job.wrap.max_width = f32::INFINITY;
@@ -895,7 +930,7 @@ pub(crate) fn layout_job(
         }
         let format = TextFormat {
             font_id: font.clone(),
-            color: class_color(classes[start]),
+            color: class_color(classes[start], dark),
             italics: classes[start] == Class::Comment,
             background: match on[start] {
                 true => background,

@@ -12,7 +12,7 @@ use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{Key, MouseButton, WindowEvent, WindowResizeEvent};
-use avenger_style::Cascade;
+use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 use eframe::{egui, egui_wgpu::RenderState};
 
@@ -47,6 +47,7 @@ impl LiveChart {
     pub fn new(
         chart: Chart,
         cascade: Arc<Cascade>,
+        preferences: Preferences,
         engine: LabelEngine,
         size: [f32; 2],
         id: egui::Id,
@@ -56,6 +57,8 @@ impl LiveChart {
     ) -> Result<Self, String> {
         let dimensions = gpu::dimensions(egui::vec2(size[0], size[1]), ctx.pixels_per_point());
         let updates = ChartUpdates::new();
+        // The first build draws at the reader's preferences.
+        updates.set_preferences(preferences);
         let app = ChartApp::new(chart, cascade, engine)
             .size(dimensions.size)
             .updates(&updates)
@@ -92,6 +95,13 @@ impl LiveChart {
     /// the selections, as a chart update does by default.
     pub fn set_chart(&self, chart: Chart) {
         self.updates.send(ChartUpdate::new(chart));
+    }
+
+    /// Restyles the chart for a new theme: the cascade of its background and the reader's
+    /// preferences, keeping the chart, its views, and its selections.
+    pub fn restyle(&self, cascade: Arc<Cascade>, preferences: Preferences) {
+        self.updates.send(ChartUpdate::styles(cascade));
+        self.updates.set_preferences(preferences);
     }
 
     /// Whether the chart waits for work: a refresh, a redraw, or an update of its chart.

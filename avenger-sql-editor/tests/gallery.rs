@@ -1,7 +1,7 @@
 //! The examples of the gallery: how `examples.md` reads, and that every example runs against the
 //! sample tables and draws each of its charts at the size of a thumbnail.
 
-use avenger_sql_editor::charts::{cascade, engine, StaticChart};
+use avenger_sql_editor::charts::{engine, ChartTheme, StaticChart};
 use avenger_sql_editor::gallery::{examples, parse, Example};
 use avenger_sql_editor::{query, samples};
 
@@ -101,7 +101,7 @@ fn each_heading_of_the_examples_is_an_example_with_a_description() {
 async fn every_example_runs_and_draws_its_charts() {
     let ctx = query::session().unwrap();
     samples::register(&ctx).await.unwrap();
-    let (cascade, engine) = (cascade(), engine());
+    let (cascade, engine) = (ChartTheme::default().cascade(), engine());
     let mut failures = Vec::new();
     for example in examples() {
         let name = format!("{} / {}", example.section, example.title);
@@ -120,8 +120,13 @@ async fn every_example_runs_and_draws_its_charts() {
                     continue;
                 };
                 charts += 1;
-                let scene = StaticChart::new(chart.clone(), cascade.clone(), engine.clone())
-                    .and_then(|mut chart| chart.scene(THUMBNAIL));
+                let scene = StaticChart::new(
+                    chart.clone(),
+                    cascade.clone(),
+                    ChartTheme::default().preferences(),
+                    engine.clone(),
+                )
+                .and_then(|mut chart| chart.scene(THUMBNAIL));
                 if let Err(error) = scene {
                     failures.push(format!("{name}, row {row}, column {column}: {error}"));
                 }

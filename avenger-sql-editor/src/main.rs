@@ -17,7 +17,7 @@ fn main() -> eframe::Result {
         Ok(options) => options,
         Err(error) => {
             eprintln!("avenger-sql-editor: {error}");
-            eprintln!("usage: avenger-sql-editor [FILE ...] [--query FILE] [--screenshot PNG] [--cursor INDEX [--press KEYS]... [--hover]]");
+            eprintln!("usage: avenger-sql-editor [FILE ...] [--query FILE] [--screenshot PNG] [--cursor INDEX [--press KEYS]... [--hover]] [--theme system|light|dark]");
             std::process::exit(2);
         }
     };
