@@ -27,3 +27,6 @@ mod table;
 mod web;
 
 pub use app::{EditorApp, Options};
+
+/// The name of the native app, which names the folder of its settings and its images.
+pub const APP_ID: &str = "avenger-sql editor";

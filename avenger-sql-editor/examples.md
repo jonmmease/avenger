@@ -1,6 +1,6 @@
 # Example queries
 
-The editor's Examples tab shows a card for each example of this file, under its `###` title, and a click puts its query in the editor and runs it. A query copied into the editor runs with ⌘↵. Each query in the first seven sections returns one row with one chart column, so the editor shows it as an interactive chart that fills the result pane. The queries in "Grouped charts" return a chart for each group, in a table. The queries in "Composition" lay out several charts as one chart: facets, layers, and concats. The queries in "Pan, zoom, and tooltips" declare tools.
+The editor's Examples tab shows a card for each example of this file, under its `###` title, and a click puts its query in the editor and runs it. A query copied into the editor runs with ⌘↵. Each query in the first eight sections returns one row with one chart column, so the editor shows it as an interactive chart that fills the result pane. The queries in "Grouped charts" return a chart for each group, in a table. The queries in "Composition" lay out several charts as one chart: facets, layers, and concats. The queries in "Pan, zoom, and tooltips" declare tools.
 
 Most queries end in a pipe `AGGREGATE` whose item is a mark call, which builds a chart of the rows before it:
 
@@ -13,7 +13,7 @@ Most queries end in a pipe `AGGREGATE` whose item is a mark call, which builds a
 
 The scalar compositions `layer`, `hconcat`, and `vconcat` compose the charts of a row, such as the mark calls of an item. The aggregates `layer_agg`, `hconcat_agg`, `vconcat_agg`, `facet_row`, `facet_col`, and `facet_wrap` compose the charts of a group, in a pipe `AGGREGATE`.
 
-The editor holds the six datasets as the tables of the schema `samples`: `samples.penguins`, `samples.cars`, `samples.movies`, `samples.iris`, `samples.seattle_weather`, and `samples.sales`. [`samples/README.md`](samples/README.md) gives the source and the terms of each.
+The editor holds the nine datasets as the tables of the schema `samples`: `samples.penguins`, `samples.cars`, `samples.movies`, `samples.iris`, `samples.seattle_weather`, `samples.sales`, `samples.earthquakes`, `samples.countries`, and `samples.plate_boundaries`. [`samples/README.md`](samples/README.md) gives the source and the terms of each.
 
 ## Penguins
 
@@ -511,6 +511,159 @@ FROM samples.sales
      x => timeunit(month, unit => 'quarter'),
      y => stack(sum(revenue)),
      color => lump(product, n => top, weight => sum(revenue)),
+   )
+```
+
+## Maps
+
+A geo mark draws on a map: `mark_geo_symbol` at the `longitude` and `latitude` of each row, and `mark_geo_shape` of the GeoArrow `geometry` of each row, such as a country or a line. Its `coord => geo(...)` names its projection, `sphere` and `graticule` draw the globe behind the data and its lines of longitude and latitude, and `tiles` draws a street map under the data. With `navigate()` among its tools, a drag pans the map, or turns a globe, and the wheel zooms. `samples.earthquakes` holds the earthquakes of magnitude 6 and larger from 2000 through 2024, `samples.countries` the outlines of the countries, and `samples.plate_boundaries` the boundaries of the tectonic plates.
+
+### Earthquakes by depth
+
+The earthquakes on an Equal Earth map, sized by magnitude and colored by depth. A sideways drag turns the map around the poles, and the wheel zooms.
+
+```sql
+FROM samples.earthquakes
+|> AGGREGATE mark_geo_symbol(
+     longitude => longitude,
+     latitude => latitude,
+     size => size(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
+     color => depth_km,
+     coord => geo(projection => 'equal_earth', sphere => TRUE, graticule => TRUE),
+     tools => [navigate()],
+   )
+```
+
+### Countries by continent
+
+The countries, colored by continent.
+
+```sql
+FROM samples.countries
+|> AGGREGATE mark_geo_shape(
+     geometry => geometry,
+     color => continent,
+     coord => geo(projection => 'equal_earth', sphere => TRUE),
+     tools => [navigate()],
+   )
+```
+
+### Earthquakes over the land
+
+The earthquakes over the countries. Each table's chart is a column of one row, the `CROSS JOIN` puts the two in one row, and `layer` draws them on one map, as their projections are equal.
+
+```sql
+FROM (
+  FROM samples.countries
+  |> AGGREGATE mark_geo_shape(
+       geometry => geometry,
+       fill => 'gray',
+       fill_opacity => 0.4,
+       coord => geo(projection => 'equal_earth', sphere => TRUE),
+     ) AS land
+)
+|> CROSS JOIN (
+     FROM samples.earthquakes
+     |> AGGREGATE mark_geo_symbol(
+          longitude => longitude,
+          latitude => latitude,
+          size => size(magnitude, scale => scale(domain => [6, 9.5], range => [2, 120])),
+          color => depth_km,
+          coord => geo(projection => 'equal_earth', sphere => TRUE),
+        ) AS quakes
+   )
+|> SELECT layer(land, quakes, tools => [navigate()]) AS chart
+```
+
+### Plate boundaries on a globe
+
+The boundaries of the tectonic plates on an orthographic globe over the Pacific, with the subduction zones apart. A drag turns the globe, and the wheel zooms.
+
+```sql
+FROM (
+  FROM samples.countries
+  |> AGGREGATE mark_geo_shape(
+       geometry => geometry,
+       fill => 'gray',
+       fill_opacity => 0.4,
+       coord => geo(
+         projection => projection('orthographic', rotate => [170, -10]),
+         sphere => TRUE,
+         graticule => TRUE,
+       ),
+     ) AS land
+)
+|> CROSS JOIN (
+     FROM samples.plate_boundaries
+     |> AGGREGATE mark_geo_shape(
+          geometry => geometry,
+          stroke => stroke(if(subduction, 'Subduction zone', 'Other'), title => 'Boundary'),
+          stroke_width => 2,
+          coord => geo(
+            projection => projection('orthographic', rotate => [170, -10]),
+            sphere => TRUE,
+            graticule => TRUE,
+          ),
+        ) AS plates
+   )
+|> SELECT layer(land, plates, tools => [navigate()]) AS chart
+```
+
+### Earthquake tooltips
+
+The largest earthquakes, from magnitude 7.5, with a tooltip of the earthquake under the pointer, and pan and zoom.
+
+```sql
+FROM samples.earthquakes
+|> WHERE magnitude >= 7.5
+|> AGGREGATE mark_geo_symbol(
+     longitude => longitude,
+     latitude => latitude,
+     size => size(magnitude, scale => scale(domain => [7.5, 9.5], range => [20, 300])),
+     color => depth_km,
+     coord => geo(projection => 'natural_earth1', sphere => TRUE, graticule => TRUE),
+     tools => [navigate(), tooltip()],
+   )
+```
+
+### Earthquakes on a street map
+
+The earthquakes of magnitude 7 and larger on a globe of OpenStreetMap's tiles, with a tooltip of the earthquake under the pointer. A drag turns the globe, the wheel zooms in to the streets, and the tiles of each view load as it comes into view.
+
+```sql
+FROM samples.earthquakes
+|> WHERE magnitude >= 7
+|> AGGREGATE mark_geo_symbol(
+     longitude => longitude,
+     latitude => latitude,
+     size => size(magnitude, scale => scale(domain => [7, 9.5], range => [20, 300])),
+     color => color(
+       depth_km,
+       scale => scale(range => ['#f46d43', '#d53e4f', '#9e0142', '#5e3c99', '#2d004b']),
+       title => 'Depth (km)',
+     ),
+     stroke => 'white',
+     stroke_width => 0.5,
+     coord => geo(
+       projection => projection('orthographic', rotate => [170, -10], fit => 'whole_sphere'),
+       sphere => TRUE,
+       tiles => tiles('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
+     ),
+     attribution => attribution(credits => ['© OpenStreetMap contributors']),
+     tools => [navigate(), tooltip()],
+   )
+```
+
+### Earthquakes per year
+
+The number of earthquakes in each year, stacked by depth, where shallow earthquakes are less than 70 km deep.
+
+```sql
+FROM samples.earthquakes
+|> AGGREGATE mark_bar(
+     x => x(timeunit(time, unit => 'year'), title => 'Year'),
+     y => y(stack(count(*)), title => 'Earthquakes'),
+     color => color(if(depth_km < 70, 'Shallow', 'Deep'), title => 'Depth'),
    )
 ```
 

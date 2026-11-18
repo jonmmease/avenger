@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
+use avenger_image::ImageResolver;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
@@ -15,7 +16,7 @@ use egui_table::{CellInfo, Column, HeaderCellInfo, HeaderRow, Table, TableDelega
 
 use avenger_chart_eval::EvalError;
 
-use crate::charts::StaticChart;
+use crate::charts::{Images, StaticChart};
 use crate::exec::Exec;
 use crate::gpu::{self, Painter, Texture};
 use crate::live::LiveChart;
@@ -62,8 +63,8 @@ pub struct CellScene {
 }
 
 /// What the chart cells share with the app: the GPU, the runtime of the evaluations, the channel
-/// that brings their scenes back, the stylesheet and the reader's preferences of the theme, and
-/// the label engine.
+/// that brings their scenes back, the stylesheet and the reader's preferences of the theme, the
+/// label engine, and the images of the charts.
 pub struct Env<'a> {
     pub state: &'a RenderState,
     pub runtime: &'a Exec,
@@ -71,12 +72,16 @@ pub struct Env<'a> {
     pub cascade: &'a Arc<Cascade>,
     pub preferences: &'a Preferences,
     pub engine: &'a LabelEngine,
+    pub images: &'a Images,
 }
 
 #[derive(Default)]
 struct Cell {
     /// The texture of the cell and the size that it drew at.
     texture: Option<(Texture, Pixels)>,
+    /// The count of the images' arrivals when an image of the texture was still loading, so
+    /// that the texture draws again after the next arrival.
+    loading: Option<u64>,
     scenes: VecDeque<(Pixels, Arc<SceneGraph>)>,
     error: Option<String>,
 }
@@ -147,9 +152,9 @@ impl Cells {
         self.generation += 1;
     }
 
-    /// Whether an evaluation runs in the background.
+    /// Whether an evaluation runs in the background, or a cell waits for an image.
     pub fn busy(&self) -> bool {
-        !self.in_flight.is_empty()
+        !self.in_flight.is_empty() || self.cells.values().any(|cell| cell.loading.is_some())
     }
 
     /// Keeps the scene of a finished evaluation, when it belongs to the current result and
@@ -221,7 +226,14 @@ impl Cells {
             dimensions.to_physical_height(),
         ];
         let cell = self.cells.entry(key).or_default();
-        let drawn = cell.texture.as_ref().map(|(_, drawn)| *drawn);
+        let mut drawn = cell.texture.as_ref().map(|(_, drawn)| *drawn);
+        // A texture that drew before its images arrived draws again after an arrival.
+        if cell
+            .loading
+            .is_some_and(|count| count != env.images.arrivals())
+        {
+            drawn = None;
+        }
         if drawn != Some(pixels) && cell.error.is_none() {
             let mut scene = (cell.scenes.iter())
                 .find(|(size, _)| *size == pixels)
@@ -266,10 +278,12 @@ impl Cells {
                     }
                     None => Texture::new(env.state, dimensions),
                 };
-                let painter = self
-                    .painter
-                    .get_or_insert_with(|| Painter::new(env.state, None));
-                painter.draw(env.state, &texture, [scene.as_ref()], env.engine);
+                let painter = (self.painter)
+                    .get_or_insert_with(|| Painter::new(env.state, Some(env.images.statics())));
+                // The count before the draw, so that an image that arrives during it draws again.
+                let arrivals = env.images.arrivals();
+                let loading = painter.draw(env.state, &texture, [scene.as_ref()], env.engine);
+                cell.loading = loading.then_some(arrivals);
                 cell.texture = Some((texture, pixels));
             }
         }
@@ -303,21 +317,22 @@ fn scene_of(
             empty,
             chart.clone(),
             (env.cascade.clone(), env.preferences.clone()),
-            env.engine.clone(),
+            (env.engine.clone(), env.images.statics()),
             size,
         ),
     }
 }
 
-/// Prepares `chart` into the empty `evaluator`, and evaluates it at `size`.
+/// Prepares `chart` into the empty `evaluator`, with the tiles of its maps from `images`, and
+/// evaluates it at `size`.
 fn prepare(
     evaluator: &mut Option<StaticChart>,
     chart: avenger_chart::Chart,
     (cascade, preferences): (Arc<Cascade>, Preferences),
-    engine: LabelEngine,
+    (engine, images): (LabelEngine, Arc<dyn ImageResolver>),
     size: [f32; 2],
 ) -> Result<SceneGraph, EvalError> {
-    let mut prepared = StaticChart::new(chart, cascade, preferences, engine)?;
+    let mut prepared = StaticChart::new(chart, cascade, preferences, engine)?.with_images(images);
     let scene = prepared.scene(size);
     *evaluator = Some(prepared);
     scene
@@ -348,7 +363,7 @@ fn evaluate(
 ) {
     let (style, engine) = (
         (env.cascade.clone(), env.preferences.clone()),
-        env.engine.clone(),
+        (env.engine.clone(), env.images.statics()),
     );
     let (scenes, ctx) = (env.scenes.clone(), ctx.clone());
     env.runtime.spawn_blocking(move || {
@@ -455,6 +470,7 @@ impl LiveCells {
                 env.cascade.clone(),
                 env.preferences.clone(),
                 env.engine.clone(),
+                env.images,
                 [size.x, size.y],
                 egui::Id::new(("live cell", self.result, key)),
                 env.runtime,

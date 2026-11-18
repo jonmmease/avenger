@@ -13,7 +13,7 @@ use datafusion::prelude::SessionContext;
 use eframe::{egui, egui_wgpu::RenderState};
 
 use crate::cards::{Gallery, THUMBNAILS};
-use crate::charts::{self, ChartTheme};
+use crate::charts::{self, ChartTheme, Images};
 use crate::document::{self, Analyzed};
 use crate::editor::{self, CodeEditor};
 use crate::exec::{Exec, Task};
@@ -232,6 +232,8 @@ pub struct EditorApp {
     cascade: Arc<Cascade>,
     preferences: Preferences,
     engine: LabelEngine,
+    /// How the charts load their images, such as the tiles of a map.
+    images: Images,
     text: String,
     editor: CodeEditor,
     /// The analysis of `text`, which colors it, underlines its errors, and answers the editor.
@@ -299,6 +301,7 @@ impl EditorApp {
             cascade: theme.cascade(),
             preferences: theme.preferences(),
             engine: charts::engine(),
+            images: Images::new(&cc.egui_ctx)?,
             text,
             editor: CodeEditor::new("query"),
             analyzed: Analyzed::new(),
@@ -702,6 +705,7 @@ impl EditorApp {
                     cascade: &self.cascade,
                     preferences: &self.preferences,
                     engine: &self.engine,
+                    images: &self.images,
                 };
                 let output = self.gallery.show(ui, &env, self.samples.is_some());
                 self.run_examples(ctx, output.start);
@@ -741,6 +745,7 @@ impl EditorApp {
             cascade: &self.cascade,
             preferences: &self.preferences,
             engine: &self.engine,
+            images: &self.images,
         };
         if shown.result.shape() == Shape::Chart {
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
@@ -975,6 +980,7 @@ impl Pane {
                 env.cascade.clone(),
                 env.preferences.clone(),
                 env.engine.clone(),
+                env.images,
                 [size.x, size.y],
                 id,
                 env.runtime,
