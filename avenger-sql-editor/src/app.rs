@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-use avenger_style::Cascade;
+use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 use datafusion::prelude::SessionContext;
 use eframe::{egui, egui_wgpu::RenderState};
 
 use crate::cards::{Gallery, THUMBNAILS};
-use crate::charts;
+use crate::charts::{self, ChartTheme};
 use crate::document::{self, Analyzed};
 use crate::editor::{self, CodeEditor};
 use crate::exec::{Exec, Task};
@@ -50,12 +50,15 @@ pub struct Options {
     pub presses: Vec<(egui::Modifiers, egui::Key)>,
     /// Whether `--hover` holds the pointer over the character after the cursor.
     pub hover: bool,
+    /// The theme that `--theme <system|light|dark>` sets in place of the one that the editor
+    /// remembers.
+    pub theme: Option<egui::ThemePreference>,
 }
 
 impl Options {
     /// The options of `args`, which exclude the program name: file paths, `--query <FILE>`,
     /// `--screenshot <PNG>`, and the options that drive the editor before a screenshot,
-    /// `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`.
+    /// `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`, and `--theme <system|light|dark>`.
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut options = Self::default();
         let mut args = args.into_iter();
@@ -78,6 +81,19 @@ impl Options {
                     options.presses.push(press(&keys)?);
                 }
                 "--hover" => options.hover = true,
+                "--theme" => {
+                    let theme = value("--theme")?.to_string_lossy().to_ascii_lowercase();
+                    options.theme = Some(match theme.as_str() {
+                        "system" => egui::ThemePreference::System,
+                        "light" => egui::ThemePreference::Light,
+                        "dark" => egui::ThemePreference::Dark,
+                        _ => {
+                            return Err(format!(
+                                "--theme takes system, light, or dark, not {theme}"
+                            ))
+                        }
+                    });
+                }
                 flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
                 _ => options.files.push(PathBuf::from(arg)),
             }
@@ -210,7 +226,11 @@ pub struct EditorApp {
     runtime: Exec,
     session: SessionContext,
     functions: Functions,
+    /// The theme of the charts, and its cascade and the reader's preferences, which follow the
+    /// editor's visuals.
+    theme: ChartTheme,
     cascade: Arc<Cascade>,
+    preferences: Preferences,
     engine: LabelEngine,
     text: String,
     editor: CodeEditor,
@@ -252,8 +272,10 @@ pub struct EditorApp {
 
 impl EditorApp {
     pub fn new(cc: &eframe::CreationContext<'_>, options: Options) -> Result<Self, String> {
-        // The charts draw on a light background.
-        cc.egui_ctx.set_theme(egui::Theme::Light);
+        if let Some(theme) = options.theme {
+            cc.egui_ctx.set_theme(theme);
+        }
+        let theme = ChartTheme::of(&cc.egui_ctx.style().visuals);
         let runtime = Exec::new().map_err(|error| error.to_string())?;
         let session = query::session().map_err(|error| error.to_string())?;
         let functions = query::functions();
@@ -273,7 +295,9 @@ impl EditorApp {
             runtime,
             session,
             functions,
-            cascade: charts::cascade(),
+            theme,
+            cascade: theme.cascade(),
+            preferences: theme.preferences(),
             engine: charts::engine(),
             text,
             editor: CodeEditor::new("query"),
@@ -533,6 +557,27 @@ impl EditorApp {
         });
     }
 
+    /// Restyles the charts when the editor's visuals change, as when the theme turns dark, so that
+    /// each chart's background stays the panel's color: the live charts keep their views and
+    /// selections, and the static charts of the cells and the gallery evaluate again.
+    fn follow_theme(&mut self, ctx: &egui::Context, state: &RenderState) {
+        let theme = ChartTheme::of(&ctx.style().visuals);
+        if theme == self.theme {
+            return;
+        }
+        self.theme = theme;
+        self.cascade = theme.cascade();
+        self.preferences = theme.preferences();
+        let panes = std::iter::once(&self.pane).chain(self.opened.as_ref().map(|(_, pane)| pane));
+        for chart in panes.filter_map(|pane| pane.chart.as_ref()) {
+            chart.restyle(self.cascade.clone(), self.preferences.clone());
+        }
+        self.live_cells.restyle(&self.cascade, &self.preferences);
+        self.cells.restyle(state);
+        self.gallery.cells.restyle(state);
+        ctx.request_repaint();
+    }
+
     /// Formats the query, unless it has an error of the syntax.
     fn format(&mut self, ctx: &egui::Context) {
         let document = self.analyzed.document(&self.text);
@@ -578,6 +623,9 @@ impl EditorApp {
                 if button.clicked() {
                     self.format(ctx);
                 }
+                // System, Light, or Dark, which egui keeps in its memory across launches.
+                ui.separator();
+                egui::widgets::global_theme_preference_buttons(ui);
             });
         });
     }
@@ -652,6 +700,7 @@ impl EditorApp {
                     runtime: &self.runtime,
                     scenes: &self.scenes.0,
                     cascade: &self.cascade,
+                    preferences: &self.preferences,
                     engine: &self.engine,
                 };
                 let output = self.gallery.show(ui, &env, self.samples.is_some());
@@ -690,6 +739,7 @@ impl EditorApp {
             runtime: &self.runtime,
             scenes: &self.scenes.0,
             cascade: &self.cascade,
+            preferences: &self.preferences,
             engine: &self.engine,
         };
         if shown.result.shape() == Shape::Chart {
@@ -808,6 +858,12 @@ impl EditorApp {
 }
 
 impl eframe::App for EditorApp {
+    /// egui's memory, with the theme of the theme buttons, persists across launches, except from
+    /// a run that saves a screenshot, which leaves the remembered theme as it was.
+    fn persist_egui_memory(&self) -> bool {
+        self.screenshot.is_none()
+    }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         let drive = (self.screenshot.as_mut()).and_then(|screenshot| screenshot.drive.as_mut());
         if let Some(drive) = drive {
@@ -820,6 +876,7 @@ impl eframe::App for EditorApp {
             return;
         };
         self.receive(ctx, &state);
+        self.follow_theme(ctx, &state);
         #[cfg(not(target_arch = "wasm32"))]
         self.limit_window(ctx, &state);
         let dropped: Vec<PathBuf> = ctx.input(|input| {
@@ -916,6 +973,7 @@ impl Pane {
             let built = LiveChart::new(
                 chart.clone(),
                 env.cascade.clone(),
+                env.preferences.clone(),
                 env.engine.clone(),
                 [size.x, size.y],
                 id,
@@ -1031,6 +1089,7 @@ fn sql(ui: &mut egui::Ui, text: &str, marked: &[std::ops::Range<usize>]) {
             egui::FontId::monospace(13.0),
             marked,
             background,
+            ui.visuals().dark_mode,
         );
         ui.fonts_mut(|fonts| fonts.layout_job(job))
     };

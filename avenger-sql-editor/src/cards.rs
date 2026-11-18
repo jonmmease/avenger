@@ -187,8 +187,9 @@ impl Gallery {
         }
         let thumbnail = egui::Rect::from_min_size(rect.min, THUMBNAIL);
         let visuals = ui.visuals().clone();
-        ui.painter()
-            .rect_filled(rect, 6.0, visuals.extreme_bg_color);
+        // The panel's color, which the charts' backgrounds take, so that a thumbnail and its card
+        // are one surface.
+        ui.painter().rect_filled(rect, 6.0, visuals.panel_fill);
         match &self.cards[index] {
             Card::Waiting | Card::Running => {
                 egui::Spinner::new().paint_at(
