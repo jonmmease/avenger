@@ -84,7 +84,9 @@ empty text. A missing column hides the tooltip and logs an error.
   have no single anchor point.
 
 The tooltip outlines the instance's fill using the mark's clip. `TooltipStyle` configures the font,
-colors, spacing, corners, callout, pointer offset, and outline.
+colors, spacing, corners, callout, pointer offset, and outline, and `TooltipStyle::dark` gives the
+colors of a dark surface. `Tooltips::style_of` takes the style from the app's state on each update,
+so that a host whose surface turns dark restyles its tooltips.
 
 ## Navigation
 

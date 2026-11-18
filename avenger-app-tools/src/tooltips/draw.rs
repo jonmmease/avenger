@@ -53,6 +53,20 @@ pub struct TooltipStyle {
     pub highlight_width: f32,
 }
 
+impl TooltipStyle {
+    /// A dark style, for tooltips over a chart on a dark surface.
+    pub fn dark() -> Self {
+        Self {
+            color: [0.92, 0.92, 0.93, 1.0],
+            field_title_color: [0.66, 0.67, 0.7, 1.0],
+            fill: [0.16, 0.17, 0.19, 1.0],
+            stroke: [0.38, 0.39, 0.42, 1.0],
+            highlight: [0.95, 0.95, 0.97, 0.9],
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for TooltipStyle {
     fn default() -> Self {
         Self {

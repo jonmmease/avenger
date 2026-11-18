@@ -8,7 +8,9 @@ use avenger_chart_eval::{ChartEvaluator, EvaluatedChart, Registry};
 use avenger_format_datetime_d3::D3DateTimeFormatProvider;
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_render_fixtures::raster::{assert_baseline, svg_to_png};
-use avenger_style::{Cascade, Env, HostInputs, ParseOptions, Sheet, SourceId, StyleTable};
+use avenger_style::{
+    Cascade, ColorScheme, Env, HostInputs, ParseOptions, Preferences, Sheet, SourceId, StyleTable,
+};
 use avenger_svg::SvgRenderer;
 use avenger_typst_label::{EngineOptions, LabelEngine};
 
@@ -43,6 +45,49 @@ pub(crate) fn cascade_with(css: &str) -> Arc<Cascade> {
 
 pub(crate) fn cascade() -> Arc<Cascade> {
     cascade_with("")
+}
+
+/// The background of a dark host, such as a dark editor's panels.
+pub(crate) const DARK_BACKGROUND: &str = "#1b1b1b";
+
+/// The cascade of the base stylesheet on the background of a dark host.
+pub(crate) fn dark_cascade() -> Arc<Cascade> {
+    let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
+    let options = ParseOptions {
+        allow_import: true,
+        ..Default::default()
+    };
+    let (sheet, diagnostics) = Sheet::load(
+        "@import 'std:base.css';",
+        None,
+        SourceId(1),
+        options,
+        &mut no_files,
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    let env = Env::from([("background".to_string(), DARK_BACKGROUND.to_string())]);
+    Arc::new(Cascade::new(&StyleTable::new().with_author(sheet, env)))
+}
+
+/// A host box of `size` whose reader prefers the dark color scheme.
+pub(crate) fn dark_host([width, height]: [f32; 2]) -> HostInputs {
+    HostInputs {
+        preferences: Preferences {
+            color_scheme: ColorScheme::Dark,
+            ..Default::default()
+        },
+        ..HostInputs::sized(width, height)
+    }
+}
+
+/// Evaluates `chart` on a dark host at `size`, renders it, and compares it with the baseline
+/// `name`.
+pub(crate) fn render_dark(chart: &Chart, size: [f32; 2], name: &str) -> EvaluatedChart {
+    let mut evaluator =
+        ChartEvaluator::new(chart.clone(), dark_cascade(), engine(), Registry::new()).unwrap();
+    let evaluated = evaluator.evaluate(&dark_host(size)).unwrap();
+    assert_image(&evaluated, name);
+    evaluated
 }
 
 pub(crate) fn evaluator(chart: &Chart) -> ChartEvaluator {

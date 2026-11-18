@@ -193,6 +193,8 @@ fn a_globe_draws_the_places_of_its_near_side() {
         .build()
         .unwrap();
     render_both(&chart, "geo-globe");
+    // On a dark host, the sphere takes the dark color scheme's fill.
+    render_dark(&chart, [320.0, 240.0], "dark-geo-globe");
 
     // The far side of the globe hides the cities of the Americas and the Pacific, and the data
     // of the evaluation holds the rows that draw.

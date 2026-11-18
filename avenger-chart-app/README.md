@@ -32,8 +32,9 @@ above all.
 ## Updates and reports
 
 A host changes the app only through one `ChartUpdates` handle, which any thread clones and sends
-to: a `ChartUpdate` with a new chart, new style inputs, or both, the chart's modes, and the states of
-selections. The app prepares each new chart as a job of its runtime, so a native host gives the
+to: a `ChartUpdate` with a new chart, new style inputs, or both, the chart's modes, the states of
+selections, and the reader's preferences, such as the color scheme, which `@media` conditions of the
+chart's styles test and which its widgets, tooltips, and brushes follow. The app prepares each new chart as a job of its runtime, so a native host gives the
 built app a multi-thread runtime with `AvengerApp::with_runtime`, and it applies the updates and
 the commands in the order of the calls. A newer chart overtakes the preparation of an older one,
 and a chart that fails to prepare keeps the app's chart, with its error in `ChartUpdates::error`.

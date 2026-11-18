@@ -4,7 +4,7 @@
 use arrow::array::Array;
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{EvaluatedChart, SliderComparison as Comparison, WidgetSpec, WidgetValue};
-use avenger_widgets::Text;
+use avenger_widgets::{Text, WidgetStyle};
 
 use crate::support::*;
 
@@ -118,6 +118,25 @@ fn a_radio_group_and_a_check_box_list_list_their_items() {
         checkboxes[1] >= radio[1] + radio[3],
         "{checkboxes:?} {radio:?}"
     );
+}
+
+#[test]
+fn widgets_on_a_dark_host_draw_for_a_dark_surface() {
+    let radio = Widget::radio(RadioWidget::new("filter", "origin", data()).clear_label("All"))
+        .key("origin");
+    let checkboxes =
+        Widget::checkboxes(CheckboxesWidget::new("filter", "cylinders", data())).key("cylinders");
+    let clause =
+        Clause::new([Condition::set([SetColumn::new("origin", ["Japan"])])]).widget("origin");
+    let chart = cars_with(vec![radio, checkboxes], vec![clause], Some(Side::Right));
+    // The chart takes the host's background, its texts its contrast, and its widgets the dark
+    // widget style.
+    let evaluated = render_dark(&chart, [480.0, 320.0], "dark-widget-radio-checkboxes");
+    assert!(evaluated.warnings.is_empty(), "{:#?}", evaluated.warnings);
+    let [radio, _] = &evaluated.widgets[..] else {
+        panic!("two widgets: {:#?}", evaluated.widgets);
+    };
+    assert_eq!(radio.style.background, WidgetStyle::dark().background);
 }
 
 #[test]

@@ -20,7 +20,8 @@ use arrow::{
 };
 use avenger_app::app::{Tool, ToolHandler, ToolInstall};
 use avenger_app_tools::brushes::{
-    Brushes, Instances, Interval, KeyedIntervalBrush, KeyedLassoBrush, KeyedPointBrush, Lasso,
+    BrushStyle, Brushes, Instances, Interval, KeyedIntervalBrush, KeyedLassoBrush, KeyedPointBrush,
+    Lasso,
 };
 use avenger_chart::{
     proto::{self, select, tool, Channel},
@@ -36,6 +37,7 @@ use avenger_eventstream::{
 use avenger_layout::Rect;
 use avenger_scales::{categories::CategoryIndex, scalar::Scalar};
 use avenger_selection::{Condition, PixelGrid};
+use avenger_style::ColorScheme;
 
 use crate::{
     state::{ChartAppState, ChartChange, FocusDimension, SelectionFocus},
@@ -296,7 +298,11 @@ impl ToolHandler<ChartAppState, ()> for FollowFocus {
 /// only draw, and a point brush for the active point selections. An active box or lasso takes the
 /// presses on its plot over the plot's navigation, which pans and zooms below it.
 pub(crate) fn brushes() -> Brushes<ChartAppState> {
-    let mut brushes = Brushes::new(BRUSH_SCENE, 1);
+    let style = |state: &ChartAppState| match state.preferences.color_scheme {
+        ColorScheme::Light => BrushStyle::default(),
+        ColorScheme::Dark => BrushStyle::dark(),
+    };
+    let mut brushes = Brushes::new(BRUSH_SCENE, 1).style_of(style);
     for active in [false, true] {
         for covers in [[true, false], [false, true], [true, true]] {
             brushes = brushes.with(interval(covers, active));
