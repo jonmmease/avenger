@@ -93,6 +93,9 @@ const FONTED: &[Element] = &[
 ];
 /// The nodes that draw text in a style of their own, and the nodes above them.
 const STYLED_TEXTS: &[Element] = &[Chart, Title, Subtitle, Plot, Mark, Widget, Readout];
+/// The nodes that lay out text in a box of their own: text marks, and the labels and titles of
+/// guides.
+const TEXT_BOXES: &[Element] = &[Mark, Title, Subtitle, Label];
 /// The nodes that fill a shape or a text.
 const FILLED: &[Element] = &[
     Mark,
@@ -243,8 +246,8 @@ properties! {
     Inset = "inset", false, SIZE, "0", MARK;
     Baseline = "baseline", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "line-top", "line-bottom"]), "middle", MARK;
     WidthMode = "width-mode", false, Syntax::Keywords(&["max", "fixed"]), "max", MARK;
-    WhiteSpace = "white-space", false, Syntax::Keywords(&["normal", "nowrap"]), "normal", MARK;
-    TextOverflow = "text-overflow", false, Syntax::Keywords(&["clip", "ellipsis"]), "clip", MARK;
+    WhiteSpace = "white-space", false, Syntax::Keywords(&["normal", "nowrap"]), "normal", TEXT_BOXES;
+    TextOverflow = "text-overflow", false, Syntax::Keywords(&["clip", "ellipsis"]), "clip", TEXT_BOXES;
     RadiusSide = "radius-side", false, Syntax::Keywords(&["outward", "middle", "inward"]), "outward", MARK;
     ThetaSide = "theta-side", false, Syntax::Keywords(&["clockwise", "middle", "counterclockwise"]), "middle", MARK;
     TextOrient = "text-orient", false, Syntax::Keywords(&["horizontal", "radial", "tangential"]), "horizontal", MARK;
@@ -257,9 +260,9 @@ properties! {
     FontWeight = "font-weight", true, Syntax::FontWeight, "normal", FONTED;
     FontFamily = "font-family", true, Syntax::FontFamilies, "sans-serif", FONTED;
     FontStyle = "font-style", true, Syntax::Keywords(&["normal", "italic"]), "normal", STYLED_TEXTS;
-    LineHeight = "line-height", true, Syntax::Any(&[Syntax::Keywords(&["normal"]), Syntax::Number { min: Some(0.0), max: None }, SIZE]), "normal", &[Chart, Plot, Mark];
-    MaxWidth = "max-width", false, SIZE_OR_NONE, "none", MARK;
-    MaxLines = "max-lines", false, Syntax::Any(&[POSITIVE_INTEGER, Syntax::Keywords(&["none"])]), "none", MARK;
+    LineHeight = "line-height", true, Syntax::Any(&[Syntax::Keywords(&["normal"]), Syntax::Number { min: Some(0.0), max: None }, SIZE]), "normal", &[Chart, Plot, Mark, Axis, Legend, Facet, Graticule, Title, Subtitle, Label];
+    MaxWidth = "max-width", false, SIZE_OR_NONE, "none", TEXT_BOXES;
+    MaxLines = "max-lines", false, Syntax::Any(&[POSITIVE_INTEGER, Syntax::Keywords(&["none"])]), "none", TEXT_BOXES;
     TextAlign = "text-align", false, Syntax::Keywords(&["start", "center", "end", "auto"]), "auto", &[Title, Label, Attribution];
     VerticalAlign = "vertical-align", false, Syntax::Keywords(&["top", "middle", "bottom", "alphabetic", "auto"]), "auto", &[Label];
 

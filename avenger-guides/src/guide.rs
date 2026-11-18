@@ -1,9 +1,71 @@
-//! What every guide shares: the side it stands on, the answer that sizes one of its parts, and
-//! the background that a composed legend or colorbar draws behind its content.
+//! What every guide shares: the side it stands on, the answer that sizes one of its parts, the
+//! background that a composed legend or colorbar draws behind its content, and the box that its
+//! labels and titles lay out their lines in.
 
+use std::num::NonZeroUsize;
 use std::ops::RangeInclusive;
 
 use avenger_color::ColorOrGradient;
+use avenger_common::types::TextAlign;
+use avenger_scenegraph::marks::text::SceneTextMark;
+use avenger_typst_label::{LabelAlign, LabelLineHeight, LabelOptions, LabelWidth};
+
+/// How a guide's labels or title lay out their lines: the most width that each takes, whether
+/// its lines wrap at that width, the most lines that it keeps, whether "…" marks cut text, and
+/// the distance between its baselines. A guide measures and draws its text with one box, so the
+/// space that the layout gives the text is the space that it draws in. The default lays each
+/// label out as wide as its widest line, with every line.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TextBox {
+    /// The most width of each label, or `None` for no limit.
+    pub max_width: Option<f32>,
+    /// Whether lines wrap at `max_width`, rather than end only at explicit breaks. Without
+    /// wrapping, a line wider than `max_width` overflows it or, with `ellipsis`, is shortened.
+    pub wrap: bool,
+    /// The most lines that each label keeps, or `None` for every line.
+    pub max_lines: Option<NonZeroUsize>,
+    /// Whether "…" marks cut text.
+    pub ellipsis: bool,
+    /// The distance between the baselines of each label.
+    pub line_height: LabelLineHeight,
+}
+
+impl TextBox {
+    fn width(&self) -> LabelWidth {
+        self.max_width.map_or(LabelWidth::Auto, LabelWidth::Max)
+    }
+
+    /// `options` laid out in the box, for measuring the text.
+    pub fn options(&self, options: LabelOptions) -> LabelOptions {
+        LabelOptions {
+            width: self.width(),
+            wrap: self.wrap,
+            max_lines: self.max_lines,
+            ellipsis: self.ellipsis,
+            line_height: self.line_height,
+            ..options
+        }
+    }
+
+    /// `mark` laid out in the box, for drawing the text, with the lines of each label aligned as
+    /// the label aligns to its position: a label whose right end stands on its position aligns
+    /// its lines at the right.
+    pub fn mark(&self, mark: SceneTextMark) -> SceneTextMark {
+        SceneTextMark {
+            line_align: mark.align.map(|align| match align {
+                TextAlign::Left => LabelAlign::Left,
+                TextAlign::Center => LabelAlign::Center,
+                TextAlign::Right => LabelAlign::Right,
+            }),
+            width: self.width().into(),
+            wrap: self.wrap,
+            max_lines: self.max_lines,
+            ellipsis: self.ellipsis,
+            line_height: self.line_height.into(),
+            ..mark
+        }
+    }
+}
 
 /// The side of a plot that a guide stands on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -26,7 +26,7 @@ use avenger_scenegraph::marks::{
 };
 use avenger_typst_label::{LabelEngine, LabelOptions};
 
-use crate::{error::AvengerGuidesError, BackgroundStyle, GuideSide};
+use crate::{error::AvengerGuidesError, BackgroundStyle, GuideSide, TextBox};
 
 /// A symbol or line legend's settings: its title, each entry's label and swatch, and how the
 /// entries wrap on the legend's side.
@@ -135,11 +135,15 @@ pub struct LegendStyle {
     pub title_font_size: f32,
     pub title_font_weight: FontWeight,
     pub title_syntax: TextSyntaxMode,
+    /// The box that the title lays out its lines in.
+    pub title_box: TextBox,
     pub label_color: [f32; 4],
     pub label_font_family: String,
     pub label_font_size: f32,
     pub label_font_weight: FontWeight,
     pub label_syntax: TextSyntaxMode,
+    /// The box that each label lays out its lines in.
+    pub label_box: TextBox,
     /// The space between entries across the legend: between columns.
     pub column_gap: f32,
     /// The space between entries down the legend: between rows.
@@ -155,11 +159,13 @@ impl Default for LegendStyle {
             title_font_size: 12.0,
             title_font_weight: FontWeight::NORMAL,
             title_syntax: TextSyntaxMode::Plain,
+            title_box: TextBox::default(),
             label_color: [0.235, 0.235, 0.235, 1.0],
             label_font_family: "sans-serif".to_string(),
             label_font_size: 11.0,
             label_font_weight: FontWeight(300),
             label_syntax: TextSyntaxMode::Plain,
+            label_box: TextBox::default(),
             column_gap: 10.0,
             row_gap: 0.0,
         }
@@ -192,13 +198,14 @@ pub(crate) fn make_background(style: &BackgroundStyle, width: f32, height: f32) 
     })
 }
 
-/// The font of a legend's or colorbar's title.
+/// The font and the box of a legend's or colorbar's title.
 pub(crate) struct TitleFont<'a> {
     pub(crate) family: &'a str,
     pub(crate) size: f32,
     pub(crate) weight: FontWeight,
     pub(crate) color: [f32; 4],
     pub(crate) syntax: TextSyntaxMode,
+    pub(crate) text_box: TextBox,
 }
 
 impl LegendStyle {
@@ -209,6 +216,7 @@ impl LegendStyle {
             weight: self.title_font_weight,
             color: self.title_color,
             syntax: self.title_syntax,
+            text_box: self.title_box,
         }
     }
 }
@@ -239,12 +247,12 @@ pub(crate) fn make_title(
     let bounds = text_engine.bounds(&text_label(
         title,
         font.syntax,
-        LabelOptions {
+        font.text_box.options(LabelOptions {
             text: style,
             ..Default::default()
-        },
+        }),
     ))?;
-    let mark = SceneTextMark {
+    let mark = font.text_box.mark(SceneTextMark {
         clip: false,
         text: title.to_string().into(),
         font_size: font.size.into(),
@@ -255,7 +263,7 @@ pub(crate) fn make_title(
         baseline: TextBaseline::Top.into(),
         text_syntax: font.syntax,
         ..Default::default()
-    };
+    });
     Ok(Title {
         mark: SceneMark::Text(Arc::new(mark)).with_interactive(false),
         width: bounds.width,
@@ -275,7 +283,7 @@ fn title_group(title: &Title, padding: f32) -> SceneMark {
 
 /// An entry's label, left aligned and centered on `y`, which doesn't take hits.
 fn make_entry_label(text: &str, x: f32, y: f32, style: &LegendStyle) -> SceneMark {
-    SceneMark::Text(Arc::new(SceneTextMark {
+    SceneMark::Text(Arc::new(style.label_box.mark(SceneTextMark {
         clip: false,
         text: text.to_string().into(),
         x: x.round().into(),
@@ -288,8 +296,32 @@ fn make_entry_label(text: &str, x: f32, y: f32, style: &LegendStyle) -> SceneMar
         color: style.label_color.into(),
         text_syntax: style.label_syntax,
         ..Default::default()
-    }))
+    })))
     .with_interactive(false)
+}
+
+/// How far an entry's label of several lines moves its row down: half the height that its lines
+/// after the first add, so that the label stands below the row's start as a label of one line
+/// does, and the swatch centers on its lines. A label of one line moves nothing.
+fn extra_lines_shift(text: &str, style: &LegendStyle, engine: &LabelEngine) -> f32 {
+    use avenger_geometry::{marks::TextGeometryUtils, rtree::EnvelopeUtils};
+    let height = |text_box: TextBox| {
+        SceneTextMark {
+            text: text.to_string().into(),
+            font_size: style.label_font_size.into(),
+            font: style.label_font_family.clone().into(),
+            font_weight: style.label_font_weight.into(),
+            text_syntax: style.label_syntax,
+            ..text_box.mark(SceneTextMark::default())
+        }
+        .bounding_box(engine)
+        .height()
+    };
+    let first_line = TextBox {
+        max_lines: NonZeroUsize::new(1),
+        ..style.label_box
+    };
+    ((height(style.label_box) - height(first_line)) / 2.0).max(0.0)
 }
 
 /// A transparent rect that takes an entry's hits.

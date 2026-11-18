@@ -13,7 +13,7 @@ use avenger_typst_label::{LabelEngine, LabelOptions};
 use crate::{
     error::AvengerGuidesError,
     guide::{excess, fits, LENGTH_TOLERANCE},
-    GuideSide, PartExtent,
+    GuideSide, PartExtent, TextBox,
 };
 
 /// Where a title's lines align along its slab, in the direction that they read: from the left
@@ -36,6 +36,8 @@ pub struct TitleTextStyle {
     pub color: [f32; 4],
     /// How the text reads: plain, plain with newlines that end lines, or Typst markup.
     pub syntax: TextSyntaxMode,
+    /// The box that the text lays out its lines in.
+    pub text_box: TextBox,
 }
 
 /// How a title draws its title and its subtitle.
@@ -63,6 +65,7 @@ impl Default for TitleConfig {
                 font_style: FontStyle::default(),
                 color: [0.0, 0.0, 0.0, 1.0],
                 syntax: TextSyntaxMode::default(),
+                text_box: TextBox::default(),
             },
             subtitle: TitleTextStyle {
                 font_family: "sans-serif".to_string(),
@@ -71,6 +74,7 @@ impl Default for TitleConfig {
                 font_style: FontStyle::default(),
                 color: [0.35, 0.35, 0.35, 1.0],
                 syntax: TextSyntaxMode::default(),
+                text_box: TextBox::default(),
             },
             gap: 2.0,
         }
@@ -124,7 +128,7 @@ impl Title {
             return Err(AvengerGuidesError::TitleGap(config.gap));
         }
         let typeset = |text: &str, style: &TitleTextStyle| -> Result<Line, AvengerGuidesError> {
-            let options = LabelOptions {
+            let options = style.text_box.options(LabelOptions {
                 text: text_style(
                     &style.font_family,
                     style.font_size,
@@ -133,7 +137,7 @@ impl Title {
                     style.color,
                 ),
                 ..Default::default()
-            };
+            });
             let bounds = engine.bounds(&text_label(text, style.syntax, options))?;
             Ok(Line {
                 text: text.to_string(),
@@ -247,7 +251,7 @@ impl Title {
                 };
                 let [x, y] = side.point(along, across);
                 let style = &line.style;
-                SceneMark::Text(Arc::new(SceneTextMark {
+                SceneMark::Text(Arc::new(style.text_box.mark(SceneTextMark {
                     len: 1,
                     clip: false,
                     text: line.text.clone().into(),
@@ -263,7 +267,7 @@ impl Title {
                     font_style: style.font_style.into(),
                     color: style.color.into(),
                     ..Default::default()
-                }))
+                })))
             })
             .collect();
         Some(SceneGroup {

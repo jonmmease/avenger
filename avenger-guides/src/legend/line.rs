@@ -59,16 +59,17 @@ impl LineSwatches {
         engine: &LabelEngine,
     ) -> (f32, Vec<SceneGroup>) {
         let len = texts.len();
-        let row_height = SceneTextMark {
-            text: texts.to_vec().into(),
-            font: style.label_font_family.clone().into(),
-            font_size: style.label_font_size.into(),
-            font_weight: style.label_font_weight.into(),
-            text_syntax: style.label_syntax,
-            ..Default::default()
-        }
-        .bounding_box(engine)
-        .height();
+        let row_height = (style.label_box)
+            .mark(SceneTextMark {
+                text: texts.to_vec().into(),
+                font: style.label_font_family.clone().into(),
+                font_size: style.label_font_size.into(),
+                font_weight: style.label_font_weight.into(),
+                text_syntax: style.label_syntax,
+                ..Default::default()
+            })
+            .bounding_box(engine)
+            .height();
         let stroke_widths = self.stroke_width.as_vec(len, None);
         let stroke_dashes = self.stroke_dash.as_vec(len, None);
         let strokes = self.stroke.as_vec(len, None);

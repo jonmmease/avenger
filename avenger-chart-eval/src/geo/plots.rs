@@ -1234,6 +1234,7 @@ fn graticule_config(
             label_font_family: font_family(label),
             label_font_size: label.font_size(),
             label_font_weight: font_weight(label),
+            label_box: crate::guides::text_box(label),
             label_padding: style_number(graticule, Property::LabelPadding),
         },
     }

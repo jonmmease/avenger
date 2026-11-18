@@ -33,7 +33,7 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `scale` | A scale, which is not drawn | `type`, `channel`, `kind`, `marks` |
 | `attribution` | The credits of a plot's sources | |
 | `graticule` | The graticule of a geo plot | |
-| `level` | A level of the axis of a nested band scale | |
+| `level` | A level of the axis of a nested band scale. The `label` of a level shows or hides the level's labels, which draw in the font and the text box of the axis's `label`. | |
 | `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
 | `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
@@ -161,8 +161,8 @@ The initial values of the table hold on every node except these, where they depe
 | `inset` | `<length [0,∞]>` | `0` | no | `mark` |
 | `baseline` | `top \| middle \| bottom \| alphabetic \| line-top \| line-bottom` | `middle` | no | `mark` |
 | `width-mode` | `max \| fixed` | `max` | no | `mark` |
-| `white-space` | `normal \| nowrap` | `normal` | no | `mark` |
-| `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark` |
+| `white-space` | `normal \| nowrap` | `normal` | no | `mark`, `title`, `subtitle`, `label` |
+| `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark`, `title`, `subtitle`, `label` |
 | `radius-side` | `outward \| middle \| inward` | `outward` | no | `mark` |
 | `theta-side` | `clockwise \| middle \| counterclockwise` | `middle` | no | `mark` |
 | `text-orient` | `horizontal \| radial \| tangential` | `horizontal` | no | `mark` |
@@ -173,9 +173,9 @@ The initial values of the table hold on every node except these, where they depe
 | `font-weight` | `normal \| bold \| <number [1,1000]>` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
 | `font-family` | `<family-name>#` | `sans-serif` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
 | `font-style` | `normal \| italic` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `widget`, `readout` |
-| `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | `chart`, `plot`, `mark` |
-| `max-width` | `<length [0,∞]> \| none` | `none` | no | `mark` |
-| `max-lines` | `<integer [1,∞]> \| none` | `none` | no | `mark` |
+| `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | `chart`, `plot`, `mark`, `axis`, `legend`, `facet`, `graticule`, `title`, `subtitle`, `label` |
+| `max-width` | `<length [0,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
+| `max-lines` | `<integer [1,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
 | `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `label`, `attribution` |
 | `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `label` |
 | `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `facet`, `legend`, `level` |

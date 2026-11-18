@@ -20,7 +20,7 @@ use crate::{
     axis::label_text,
     error::AvengerGuidesError,
     guide::{excess, fits, LENGTH_TOLERANCE},
-    GuideSide, PartExtent,
+    GuideSide, PartExtent, TextBox,
 };
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
@@ -66,6 +66,8 @@ pub struct FacetGuideStyle {
     pub label_font_family: String,
     pub label_font_size: f32,
     pub label_font_weight: FontWeight,
+    /// The box that each label lays out its lines in.
+    pub label_box: TextBox,
     /// The space between the labels and the rule, which the ticks cross.
     pub rule_gap: f32,
     /// How far each tick reaches from the rule toward its label.
@@ -83,6 +85,8 @@ pub struct FacetGuideStyle {
     pub title_font_family: String,
     pub title_font_size: f32,
     pub title_font_weight: FontWeight,
+    /// The box that the title lays out its lines in.
+    pub title_box: TextBox,
 }
 
 impl Default for FacetGuideStyle {
@@ -94,6 +98,7 @@ impl Default for FacetGuideStyle {
             label_font_family: "sans-serif".to_string(),
             label_font_size: 12.0,
             label_font_weight: FontWeight::default(),
+            label_box: TextBox::default(),
             rule_gap: 5.0,
             tick_length: 4.0,
             rule_color: [0.5, 0.5, 0.5, 1.0],
@@ -105,6 +110,7 @@ impl Default for FacetGuideStyle {
             title_font_family: "sans-serif".to_string(),
             title_font_size: 12.0,
             title_font_weight: FontWeight::default(),
+            title_box: TextBox::default(),
         }
     }
 }
@@ -186,12 +192,13 @@ impl FacetGuide {
                        font: &str,
                        size: f32,
                        weight: FontWeight,
-                       color: [f32; 4]|
+                       color: [f32; 4],
+                       text_box: &TextBox|
          -> Result<Typeset, AvengerGuidesError> {
-            let options = LabelOptions {
+            let options = text_box.options(LabelOptions {
                 text: text_style(font, size, weight, FontStyle::default(), color),
                 ..Default::default()
-            };
+            });
             let bounds = engine.bounds(&text_label(&text, syntax, options))?;
             Ok(Typeset {
                 text,
@@ -209,6 +216,7 @@ impl FacetGuide {
                     style.label_font_size,
                     style.label_font_weight,
                     style.label_color,
+                    &style.label_box,
                 )
             })
             .collect::<Result<_, _>>()?;
@@ -220,6 +228,7 @@ impl FacetGuide {
                 style.title_font_size,
                 style.title_font_weight,
                 style.title_color,
+                &style.title_box,
             )?)
         } else {
             None
@@ -255,6 +264,7 @@ impl FacetGuide {
             label_font_family,
             label_font_size,
             label_font_weight,
+            label_box,
             rule_gap,
             tick_length,
             rule_color,
@@ -266,6 +276,7 @@ impl FacetGuide {
             title_font_family,
             title_font_size,
             title_font_weight,
+            title_box,
         } = &self.config.style;
         let side = self.config.side;
         let (name, drawn) = match part {
@@ -282,6 +293,7 @@ impl FacetGuide {
                     label_font_family,
                     label_font_size,
                     label_font_weight,
+                    label_box,
                     rule_gap,
                     tick_length,
                     rule_color,
@@ -301,6 +313,7 @@ impl FacetGuide {
                     title_font_family,
                     title_font_size,
                     title_font_weight,
+                    title_box,
                 );
                 ("title", format!("{title:?}{side:?}{style:?}"))
             }
@@ -386,27 +399,29 @@ impl FacetGuide {
             x.push(label_x);
             y.push(label_y);
         }
-        marks.push(SceneMark::from(SceneTextMark {
-            len: self.labels.len() as u32,
-            clip: false,
-            text: self
-                .labels
-                .iter()
-                .map(|label| label.text.clone())
-                .collect::<Vec<_>>()
-                .into(),
-            text_syntax: self.syntax,
-            x: x.into(),
-            y: y.into(),
-            align: TextAlign::Center.into(),
-            baseline: TextBaseline::Middle.into(),
-            angle: self.label_angle.into(),
-            font: style.label_font_family.clone().into(),
-            font_size: style.label_font_size.into(),
-            font_weight: style.label_font_weight.into(),
-            color: style.label_color.into(),
-            ..Default::default()
-        }));
+        marks.push(SceneMark::from(
+            style.label_box.mark(SceneTextMark {
+                len: self.labels.len() as u32,
+                clip: false,
+                text: self
+                    .labels
+                    .iter()
+                    .map(|label| label.text.clone())
+                    .collect::<Vec<_>>()
+                    .into(),
+                text_syntax: self.syntax,
+                x: x.into(),
+                y: y.into(),
+                align: TextAlign::Center.into(),
+                baseline: TextBaseline::Middle.into(),
+                angle: self.label_angle.into(),
+                font: style.label_font_family.clone().into(),
+                font_size: style.label_font_size.into(),
+                font_weight: style.label_font_weight.into(),
+                color: style.label_color.into(),
+                ..Default::default()
+            }),
+        ));
 
         if let Some(rule) = self.rule() {
             // The rule reaches half its width past the first and the last tick, so that its
@@ -471,7 +486,7 @@ impl FacetGuide {
             GuideSide::Right => 90.0,
             GuideSide::Top | GuideSide::Bottom => 0.0,
         };
-        let mark = SceneTextMark {
+        let mark = style.title_box.mark(SceneTextMark {
             len: 1,
             clip: false,
             text: title.text.clone().into(),
@@ -486,7 +501,7 @@ impl FacetGuide {
             font_weight: style.title_font_weight.into(),
             color: style.title_color.into(),
             ..Default::default()
-        };
+        });
         Some(SceneGroup {
             marks: vec![mark.into()],
             ..Default::default()
