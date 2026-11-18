@@ -18,7 +18,7 @@ use avenger_chart_eval::{
     Carry, EvalError, Fit, Fitted, PreparedChart, Registry, UpdateOptions, Views,
 };
 use avenger_selection::SelectionState;
-use avenger_style::Cascade;
+use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 
 /// An update of a chart app: a new chart with what the app carries over from the chart that it
@@ -114,16 +114,17 @@ enum Command {
     Mode(String, bool),
     /// The state of a selection, or `None` to clear it.
     Selection(String, Option<SelectionState>),
+    Preferences(Preferences),
 }
 
-/// What the app applies at a build: a prepared chart, new style inputs, a mode on or off, or the
-/// state of a
-/// selection, in the order of the calls.
+/// What the app applies at a build: a prepared chart, new style inputs, a mode on or off, the
+/// state of a selection, or the reader's preferences, in the order of the calls.
 pub(crate) enum Applied {
     Chart(Box<PreparedUpdate>),
     Styles(Arc<Cascade>),
     Mode(String, bool),
     Selection(String, Option<SelectionState>),
+    Preferences(Preferences),
 }
 
 /// A chart whose preparation waits for an app to bind the handle.
@@ -228,6 +229,14 @@ impl ChartUpdates {
         self.command(Command::Selection(name.to_string(), None));
     }
 
+    /// Sets the preferences of the reader, such as the color scheme, which `@media` conditions of
+    /// the chart's styles test, and which the app's widgets, tooltips, and brushes follow. A
+    /// host whose surface turns dark sends the dark color scheme with the styles of its new
+    /// background. The app reports no change.
+    pub fn set_preferences(&self, preferences: Preferences) {
+        self.command(Command::Preferences(preferences));
+    }
+
     /// The error of the last chart that failed to prepare, until a newer chart.
     pub fn error(&self) -> Option<Arc<BoxError>> {
         self.task.error()
@@ -302,6 +311,9 @@ impl ChartUpdates {
             match command {
                 Command::Mode(mode, on) => applied.push(Applied::Mode(mode, on)),
                 Command::Selection(name, state) => applied.push(Applied::Selection(name, state)),
+                Command::Preferences(preferences) => {
+                    applied.push(Applied::Preferences(preferences))
+                }
                 Command::Update { chart, styles } => {
                     if let Some(styles) = styles {
                         applied.push(Applied::Styles(styles));

@@ -17,6 +17,19 @@ pub struct BrushStyle {
     pub handle_fill: [f32; 4],
 }
 
+impl BrushStyle {
+    /// A dark style, for brushes over a chart on a dark surface: lighter blues, and handles in the
+    /// dark surface's color.
+    pub fn dark() -> Self {
+        Self {
+            fill: [0.42, 0.62, 0.95, 0.16],
+            stroke: [0.52, 0.7, 1.0, 0.95],
+            handle_fill: [0.12, 0.13, 0.15, 1.0],
+            ..Self::default()
+        }
+    }
+}
+
 impl Default for BrushStyle {
     fn default() -> Self {
         Self {

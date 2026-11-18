@@ -725,8 +725,12 @@ impl<State: Send + Sync + 'static> Widget<State> for Control<State> {
 /// part that its kind does not draw; its rail and its thumbs from theirs; with an
 /// `accent-color` other than `auto` on the `widget`, the color of its checked and filled parts;
 /// and from the outline of the `widget`, the focus ring that it draws while it has keyboard focus.
+/// The rest starts from the light or the dark widget style, by the reader's color scheme.
 pub(crate) fn widget_style(styles: &ComputedStyles, nodes: &WidgetNodes) -> WidgetStyle {
-    let own = WidgetStyle::default();
+    let own = match styles.preferences().color_scheme {
+        avenger_style::ColorScheme::Light => WidgetStyle::default(),
+        avenger_style::ColorScheme::Dark => WidgetStyle::dark(),
+    };
     let text = |node: Option<NodeId>| {
         let style = &styles[node.unwrap_or(nodes.widget)];
         TextStyle {

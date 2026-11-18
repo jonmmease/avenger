@@ -18,7 +18,7 @@ use avenger_chart_eval::{
 use avenger_coords::PlotCoords;
 use avenger_scales::{scalar::Scalar, scales::ConfiguredScale};
 use avenger_selection::{Clause, Condition, PixelGrid, Resolution, SelectionState};
-use avenger_style::Cascade;
+use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 
 use crate::{
@@ -229,6 +229,9 @@ pub struct ChartAppState {
     pub(crate) lassos: Vec<(SelectionArea, Lasso<Vec<Scalar>>)>,
     /// The widgets of the last evaluation and their controls.
     pub(crate) controls: WidgetControls,
+    /// The preferences of the reader, such as the color scheme, which the chart's styles and the
+    /// app's tooltips and brushes follow.
+    pub(crate) preferences: Preferences,
 }
 
 impl ChartAppState {
@@ -258,7 +261,13 @@ impl ChartAppState {
             written: Vec::new(),
             lassos: Vec::new(),
             controls: WidgetControls::default(),
+            preferences: Preferences::default(),
         })
+    }
+
+    /// The preferences of the reader that the app draws at.
+    pub fn preferences(&self) -> &Preferences {
+        &self.preferences
     }
 
     /// The chart that the app shows.

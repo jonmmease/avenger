@@ -31,8 +31,11 @@ pub struct Tooltips<State> {
     scene: String,
     z: i32,
     targets: Targets<State>,
-    style: TooltipStyle,
+    style: Style<State>,
 }
+
+/// The style of the tooltips from the app's state.
+type Style<State> = Arc<dyn Fn(&State) -> TooltipStyle + Send + Sync>;
 
 impl<State> Clone for Tooltips<State> {
     fn clone(&self) -> Self {
@@ -58,7 +61,7 @@ impl<State> Tooltips<State> {
             scene: scene.to_string(),
             z,
             targets: Arc::new(|_| Vec::new()),
-            style: TooltipStyle::default(),
+            style: Arc::new(|_| TooltipStyle::default()),
         }
     }
 
@@ -80,8 +83,18 @@ impl<State> Tooltips<State> {
     }
 
     /// Set the tooltip box and outline style.
-    pub fn with_style(mut self, style: TooltipStyle) -> Self {
-        self.style = style;
+    pub fn with_style(self, style: TooltipStyle) -> Self {
+        self.style_of(move |_| style.clone())
+    }
+
+    /// Set the tooltip box and outline style from the app state, which the tool reads on each
+    /// update, so that an app whose surface changes, such as from light to dark, restyles its
+    /// tooltips.
+    pub fn style_of(
+        mut self,
+        style: impl Fn(&State) -> TooltipStyle + Send + Sync + 'static,
+    ) -> Self {
+        self.style = Arc::new(style);
         self
     }
 
@@ -90,6 +103,7 @@ impl<State> Tooltips<State> {
     fn marks(
         &self,
         targets: &[InstanceTarget],
+        style: &TooltipStyle,
         scenes: &Scenes<'_>,
         pointer: [f32; 2],
         bounds: [f32; 4],
@@ -121,11 +135,10 @@ impl<State> Tooltips<State> {
                     TooltipAnchor::Pointer => Placement::AtPointer(pointer),
                 };
                 let mut marks: Vec<SceneMark> = Vec::new();
-                if let Some(outline) = highlight(instance, tree.clip(&mark.mark_path), &self.style)
-                {
+                if let Some(outline) = highlight(instance, tree.clip(&mark.mark_path), style) {
                     marks.push(outline.into());
                 }
-                marks.push(tooltip(&content, placement, bounds, &self.style, engine)?.into());
+                marks.push(tooltip(&content, placement, bounds, style, engine)?.into());
                 let tooltips = SceneGroup {
                     name: "tooltips".to_string(),
                     interactive: Some(false),
@@ -202,6 +215,7 @@ impl<State: Send + Sync + 'static> Tool<State> for Tooltips<State> {
         let marks = match own.pointer {
             Some(pointer) => (self.marks(
                 &(self.targets)(app),
+                &(self.style)(app),
                 scenes,
                 pointer,
                 [0.0, 0.0, width, height],

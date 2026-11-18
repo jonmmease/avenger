@@ -2,6 +2,7 @@
 //! lassos, and clicks of selections, the changes that the app reports, and updates through its
 //! handle.
 
+use avenger_style::{ColorScheme, Preferences};
 mod support;
 
 use std::{
@@ -1176,4 +1177,17 @@ async fn a_navigation_of_a_selection_domain_moves_the_selection() {
     assert!(changes
         .iter()
         .any(|change| change.selection("brush").is_some()));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_preferences_of_the_reader_reach_the_app() {
+    let (mut app, updates, _) = app(scatter(cars(), navigate())).await;
+    assert_eq!(app.state().preferences().color_scheme, ColorScheme::Light);
+    let dark = Preferences {
+        color_scheme: ColorScheme::Dark,
+        ..Default::default()
+    };
+    updates.set_preferences(dark.clone());
+    app.refresh().await;
+    assert_eq!(app.state().preferences(), &dark);
 }
