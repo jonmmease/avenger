@@ -13,8 +13,9 @@ crate-type = ["cdylib", "rlib"]
 arrow = { workspace = true }
 avenger-app = { path = "../avenger-app" }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
-avenger-chart-app = { path = "../avenger-chart-app" }
-avenger-chart-eval = { path = "../avenger-chart-eval" }
+# Maps, which the geo samples draw.
+avenger-chart-app = { path = "../avenger-chart-app", features = ["geo"] }
+avenger-chart-eval = { path = "../avenger-chart-eval", features = ["geo"] }
 avenger-common = { path = "../avenger-common" }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
 avenger-eventstream = { path = "../avenger-eventstream" }
@@ -55,6 +56,8 @@ egui_table = "0.7.0"
 image = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The fetches of the tiles of maps, which the browser makes with its own `fetch`.
+avenger-image = { path = "../avenger-image", default-features = false, features = ["reqwest"] }
 avenger-wgpu = { path = "../avenger-wgpu" }
 rfd = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
