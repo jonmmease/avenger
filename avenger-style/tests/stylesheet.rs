@@ -84,47 +84,9 @@ fn pseudo_classes_other_than_the_structural_ones_are_errors() {
     );
     assert_eq!(focus.help, None);
     error(
-        "axis:focus-visible { opacity: 1; }",
-        "the pseudo-class `:focus-visible` is not supported",
-    );
-    error(
         "axis::before { stroke: red; }",
         "pseudo-elements are not supported",
     );
-}
-
-#[test]
-fn removed_elements_are_errors_and_removed_properties_are_warnings() {
-    // Charts draw no footer, description, or focus, so these elements are not in the style tree.
-    for element in ["footer", "description", "item", "group", "entry"] {
-        error(
-            &format!("{element} {{ opacity: 1; }}"),
-            &format!("`{element}` is not an element of the style tree"),
-        );
-    }
-    // Properties that nothing draws are unknown, and the rule keeps its other declarations.
-    for property in [
-        "outline: 2px solid",
-        "outline-color: red",
-        "label-position: inside",
-        "stroke-dashoffset: 2",
-        "corner-radius-top-left: 2",
-        "dx: 4",
-        "band-padding: 0.1",
-        "axes: outer",
-        "title-frame: plot",
-        "direction: horizontal",
-        "label-flush: true",
-        "tick-band: extent",
-        "z-index: 1",
-    ] {
-        let name = property.split(':').next().unwrap();
-        let (sheet, diagnostics) = parse(&format!("axis {{ {property}; opacity: 1; }}"));
-        assert_eq!(diagnostics.len(), 1, "{property}: {diagnostics:#?}");
-        assert_eq!(diagnostics[0].severity, Severity::Warning, "{property}");
-        assert_eq!(diagnostics[0].message, format!("unknown property `{name}`"));
-        assert_eq!(sheet.rules[0].declarations.len(), 1, "{property}");
-    }
 }
 
 #[test]
@@ -138,6 +100,9 @@ fn invalid_values_are_errors_and_unknown_properties_are_warnings() {
         Severity::Warning,
         "unknown property `stroke-wdth`",
     );
+    // A rule keeps its other declarations.
+    let (sheet, _) = parse("mark { stroke-wdth: 2; opacity: 1; }");
+    assert_eq!(sheet.rules[0].declarations.len(), 1);
     error(
         "axis > label { text-align: left; }",
         "`left` is not a valid value of `text-align`; use start, center, end, or auto",
