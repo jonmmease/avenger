@@ -1,0 +1,16 @@
+-- the penguins
+FROM samples.penguins -- every row
+|> AGGREGATE mark_bar(
+     -- the x column
+     x => species,
+
+     -- the aggregation
+     y => count(*), -- a count
+     -- after the last argument
+   ) AS chart
+   GROUP BY island;
+
+-- a second statement
+FROM t /* inline */
+|> WHERE a > 0
+-- at the end

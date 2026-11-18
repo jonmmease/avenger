@@ -194,3 +194,23 @@ fn a_document_prints_the_stages_of_its_lifted_calls() {
     );
     assert_eq!(lifted.generated.len(), 1);
 }
+
+#[test]
+fn formatting_replaces_the_range_that_changes() {
+    let text = "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*), ) AS chart";
+    let document = document(text);
+    let edits = document.formatting();
+    assert_eq!(edits.len(), 1);
+    let mut formatted = text.to_string();
+    formatted.replace_range(
+        usize::from(edits[0].range.start())..usize::from(edits[0].range.end()),
+        &edits[0].replacement,
+    );
+    assert_eq!(
+        formatted,
+        "FROM penguins\n|> AGGREGATE mark_bar(\n     x => species,\n     y => count(*),\n   ) AS chart"
+    );
+    // The edit starts where the texts first differ, after `FROM penguins`.
+    assert_eq!(at(&document, edits[0].range).chars().next(), Some(' '));
+    assert!(common::document(&formatted).formatting().is_empty());
+}

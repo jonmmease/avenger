@@ -1,6 +1,6 @@
 # avenger-sql-language
 
-Editor features of avenger-sql scripts: diagnostics, semantic highlighting, the outline, folding and selection ranges, go to definition, references, rename, hover, completion, and signature help.
+Editor features of avenger-sql scripts: diagnostics, semantic highlighting, the outline, folding and selection ranges, go to definition, references, rename, hover, completion, signature help, and formatting.
 
 A `Document` parses a script's text with avenger-sql-syntax and analyzes it with avenger-sql once, and each request reads that parse and analysis. The tables of a script come from an avenger-sql `Catalog`, and its functions from a `Library`.
 
@@ -35,6 +35,7 @@ for item in document.completions((text.len() as u32).into()).items {
 | `hover(offset)` | Markdown on a name, a function, an argument's name, or a value of a set: a column's type and definition, a table's columns, a function's forms and summary, and an argument's parameter. A parameter that takes constructors shows what it takes in place of its type, as `pin => pin(value: ANY, position => 'low' \| 'mid' \| 'high')`, with three of its strings at most, then the constructors one level down. A constructor's hover names the place that it fills. |
 | `completions(offset)` | The items, and the text that an item replaces when an editor inserts it or replaces the whole name, as the Language Server Protocol's `InsertReplaceEdit` does: the columns of the operator's input, range variables, variables, the functions that the place takes, tables, the parameters and the values of a call's arguments, and keywords. In a quoted name, an item inserts the name, with the closing backtick that the name lacks. |
 | `signature_help(offset)` | The forms of the call at the offset, each with the ranges of its parameters, the form that the call takes, and the parameter at the offset. |
+| `formatting()` | The edit that formats the text in the style of `avenger-sql/STYLE.md`, or none when it is formatted. A statement with an error stays as written. |
 
 A `Document` is `Send` and `Sync`. Every edit of the text makes a new `Document`, and `analysis()` gives its analysis to a host that runs the script.
 
