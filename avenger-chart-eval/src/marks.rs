@@ -17,7 +17,7 @@ use avenger_common::{
     pattern::{PatternFill, PatternFills},
     types::{
         AreaOrientation, FontStyle, FontWeight, ImageAlign, ImageBaseline, PathTransform,
-        SymbolShape, TextAlign, TextBaseline, TextSyntaxMode,
+        StrokeCap, StrokeJoin, SymbolShape, TextAlign, TextBaseline, TextSyntaxMode,
     },
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
@@ -36,7 +36,7 @@ use avenger_scenegraph::marks::{
     trail::SceneTrailMark,
 };
 use avenger_style::{Computed, ComputedStyle, Property};
-use avenger_typst_label::{escape_text, LabelValue, LabelWidth};
+use avenger_typst_label::{escape_text, LabelLineHeight, LabelValue, LabelWidth};
 use lyon_path::geom::{euclid::Vector2D, Angle};
 
 use crate::{
@@ -194,6 +194,24 @@ pub(crate) fn shape_names(rows: &LayerRows) -> Result<ScalarOrArray<String>> {
     Ok(rows.with_variants(names, Channel::Shape, shape))
 }
 
+/// The computed `stroke-linecap` of a mark: the ends of its lines and of its outlines.
+pub(crate) fn stroke_cap(style: &ComputedStyle) -> StrokeCap {
+    match style.keyword(Property::StrokeLinecap) {
+        Some("round") => StrokeCap::Round,
+        Some("square") => StrokeCap::Square,
+        _ => StrokeCap::Butt,
+    }
+}
+
+/// The computed `stroke-linejoin` of a mark: the corners of its lines and of its outlines.
+pub(crate) fn stroke_join(style: &ComputedStyle) -> StrokeJoin {
+    match style.keyword(Property::StrokeLinejoin) {
+        Some("round") => StrokeJoin::Round,
+        Some("bevel") => StrokeJoin::Bevel,
+        _ => StrokeJoin::Miter,
+    }
+}
+
 /// The stroke width of a mark whose stroke shows, or none.
 pub(crate) fn stroke_width(rows: &LayerRows) -> Result<Option<f32>> {
     Ok(match rows.strokes()? {
@@ -269,6 +287,8 @@ fn lines(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
             stroke_dash: (dash.as_ref())
                 .map(|dash| at(dash, first))
                 .filter(|dash| !dash.is_empty()),
+            stroke_cap: stroke_cap(rows.style),
+            stroke_join: stroke_join(rows.style),
             ..Default::default()
         };
         Ok(Drawn {
@@ -376,6 +396,8 @@ fn areas(rows: &LayerRows, orient: i32) -> Result<Vec<Drawn>> {
             stroke_dash: (dash.as_ref())
                 .map(|dash| at(dash, first))
                 .filter(|dash| !dash.is_empty()),
+            stroke_cap: stroke_cap(rows.style),
+            stroke_join: stroke_join(rows.style),
             ..Default::default()
         };
         Ok(Drawn {
@@ -556,6 +578,7 @@ fn rules(rows: &LayerRows) -> Result<Vec<Drawn>> {
         stroke,
         stroke_width: rows.numbers_or(Channel::StrokeWidth, Property::StrokeWidth)?,
         stroke_dash: rows.dashes_or_style()?,
+        stroke_cap: scalar(stroke_cap(rows.style)),
         ..Default::default()
     };
     Ok(vec![Drawn {
@@ -706,16 +729,23 @@ pub(crate) fn text_mark(
         ColorOrGradient::GradientIndex(_) => fallback,
     });
     // The width passes through as it is, as the font size does: one point of the text engine is
-    // one pixel of the scene.
+    // one pixel of the scene. Without a `width` channel, the computed `max-width` is the most
+    // that a label takes.
     let fixed = style.keyword(Property::WidthMode) == Some("fixed");
+    let max_width = style.number(Property::MaxWidth);
     let width = match rows.numbers(Channel::Width)? {
         Some(widths) => widths.map(|width| match fixed {
             true => LabelWidth::Fixed(*width),
             false => LabelWidth::Max(*width),
         }),
-        None => scalar(LabelWidth::Auto),
+        None => scalar(max_width.map_or(LabelWidth::Auto, LabelWidth::Max)),
     };
     let wraps = style.keyword(Property::WhiteSpace) != Some("nowrap");
+    let has_width = rows.has(Channel::Width) || max_width.is_some();
+    let font_size = match rows.numbers(Channel::Size)? {
+        Some(sizes) => sizes,
+        None => scalar(style.font_size()),
+    };
     Ok(SceneTextMark {
         name: rows.name.clone(),
         len: rows.len() as u32,
@@ -728,17 +758,15 @@ pub(crate) fn text_mark(
         angle: rows.numbers_or(Channel::Angle, Property::Angle)?,
         color,
         font: scalar(font_family(style)),
-        font_size: match rows.numbers(Channel::Size)? {
-            Some(sizes) => sizes,
-            None => scalar(style.font_size()),
-        },
+        line_height: line_height(style, &font_size),
+        font_size,
         font_weight: rows
             .resolve(Channel::FontWeight, &font_weights)?
             .unwrap_or_else(|| scalar(font_weight(style))),
         font_style: rows
             .resolve(Channel::FontStyle, &font_styles)?
             .unwrap_or_else(|| scalar(font_style(style))),
-        wrap: wraps && rows.has(Channel::Width),
+        wrap: wraps && has_width,
         max_lines: style
             .integer(Property::MaxLines)
             .and_then(|lines| NonZeroUsize::new(lines as usize)),
@@ -746,6 +774,20 @@ pub(crate) fn text_mark(
         width,
         ..Default::default()
     })
+}
+
+/// The distance between the baselines of each label from the computed `line-height`: `normal`
+/// spaces the lines by their content, a length is the distance, and a number multiplies the
+/// label's font size, `font_size`.
+fn line_height(
+    style: &ComputedStyle,
+    font_size: &ScalarOrArray<f32>,
+) -> ScalarOrArray<LabelLineHeight> {
+    match style.get(Property::LineHeight) {
+        Computed::Number(distance) => scalar(LabelLineHeight::Fixed(*distance)),
+        Computed::Ratio(factor) => font_size.map(|size| LabelLineHeight::Fixed(factor * size)),
+        _ => scalar(LabelLineHeight::Auto),
+    }
 }
 
 /// The font weight of each value: a number from 100 to 900, or `normal` or `bold`.
@@ -1068,6 +1110,8 @@ pub(crate) fn path_mark(
             Some(width) => width,
             None => scalar(stroke_width(rows)?.unwrap_or(0.0)),
         },
+        stroke_cap: stroke_cap(rows.style),
+        stroke_join: stroke_join(rows.style),
         transform,
         fill_pattern: pattern_fills(row_patterns(rows)?),
         ..Default::default()

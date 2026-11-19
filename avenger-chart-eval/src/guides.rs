@@ -561,6 +561,7 @@ pub(crate) fn axis_style(
         title_font_size: title.font_size(),
         title_font_weight: font_weight(title),
         title_box: text_box(title),
+        title_margin: Some(style_number(title, Property::Margin)),
         domain_color: match visible(rule) {
             true => paint_color(rule, Property::Stroke),
             false => [0.0; 4],
@@ -1758,6 +1759,7 @@ fn facet_guide(
         title_font_size: title_style.font_size(),
         title_font_weight: font_weight(title_style),
         title_box: text_box(title_style),
+        title_padding: style_number(title_style, Property::Margin),
         ..FacetGuideStyle::default()
     };
     let labels = facet.labels.as_ref();

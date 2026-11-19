@@ -15,7 +15,7 @@ use avenger_typst_label::{LabelEngine, LabelValue};
 use super::opts::{AxisStyle, AxisTickInterval, AxisTicks};
 use crate::error::AvengerGuidesError;
 
-/// The gap between the labels and the title.
+/// The gap between the labels and the title, without `AxisStyle::title_margin`.
 pub(crate) const TITLE_MARGIN: f32 = 2.0;
 pub(crate) const DEFAULT_MAX_TICK_COUNT: f64 = 10.0;
 /// The default least distance between ticks, in label font sizes.

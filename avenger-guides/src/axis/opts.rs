@@ -91,6 +91,9 @@ pub struct AxisStyle {
     pub title_font_weight: FontWeight,
     /// The box that the title lays out its lines in.
     pub title_box: TextBox,
+    /// The space between the labels and the title, in pixels. When absent, 2 on a continuous
+    /// axis, and 4 on a band, a point, or a nested band axis.
+    pub title_margin: Option<f32>,
     pub domain_color: [f32; 4],
     pub grid_color: [f32; 4],
     pub grid_width: f32,
@@ -125,6 +128,7 @@ impl Default for AxisStyle {
             title_font_size: 12.0,
             title_font_weight: FontWeight::default(),
             title_box: TextBox::default(),
+            title_margin: None,
             domain_color: BLACK,
             // #E0E0E0 at half opacity
             grid_color: [0.878, 0.878, 0.878, 0.5],

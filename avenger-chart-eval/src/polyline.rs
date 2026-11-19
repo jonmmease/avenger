@@ -9,7 +9,7 @@ use avenger_style::Property;
 
 use crate::{
     encode::{at, LayerRows, Result},
-    marks::Drawn,
+    marks::{stroke_cap, stroke_join, Drawn},
 };
 
 /// The vertices of a polyline through the pieces of segments, with an undefined vertex between
@@ -116,6 +116,8 @@ pub(crate) fn series_lines(
                 stroke_dash: (dash.as_ref())
                     .map(|dash| at(dash, first))
                     .filter(|dash| !dash.is_empty()),
+                stroke_cap: stroke_cap(rows.style),
+                stroke_join: stroke_join(rows.style),
                 ..Default::default()
             };
             Ok(Drawn {
@@ -184,6 +186,8 @@ pub(crate) fn rule_lines(
                 stroke_dash: (dash.as_ref())
                     .map(|dash| at(dash, row))
                     .filter(|dash| !dash.is_empty()),
+                stroke_cap: stroke_cap(rows.style),
+                stroke_join: stroke_join(rows.style),
                 ..Default::default()
             };
             Ok(Drawn {

@@ -312,8 +312,6 @@ const CONTENT: &[(&str, &[&str])] = &[
         &[
             "projection",
             "family",
-            "aspect_ratio",
-            "free",
             "navigation",
             "graticule",
             "sphere",

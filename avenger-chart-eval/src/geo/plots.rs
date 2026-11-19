@@ -14,8 +14,8 @@ use arrow::{
 use avenger_chart::{
     layer::{LayerRef, MarkType},
     proto::{
-        self, encoding, geo, geo_layer, option_value, projection as spec_projection,
-        spherical_clip, Channel, ProjectionType,
+        self, encoding, geo_layer, option_value, projection as spec_projection, spherical_clip,
+        Channel, ProjectionType,
     },
     resolve::ProjectionGroup,
 };
@@ -42,7 +42,7 @@ use crate::{
     guides::{paint_color, text_color, visible},
     marks::{
         font_family, font_weight, image_mark, path_mark, pattern_fills, row_patterns, shape_names,
-        shapes, symbol_mark, text_mark, Drawn, TextFormat,
+        shapes, stroke_cap, stroke_join, symbol_mark, text_mark, Drawn, TextFormat,
     },
     polyline::{polyline, rule_lines, series_lines, series_trails, Polyline},
     reach::Reach,
@@ -494,11 +494,8 @@ impl GeoGroup {
     fn plot(&self, inputs: &GeoInputs, group: &ProjectionGroup, plot: usize) -> Result<GeoPlot> {
         let plot_ref = &inputs.resolved.tree.plots[plot];
         let spec = spec(inputs, plot).unwrap_or(group.spec);
-        let aspect = match spec.aspect {
-            Some(geo::Aspect::AspectRatio(ratio)) => Some(ratio),
-            Some(geo::Aspect::Free(_)) => None,
-            None => self.summary.aspect().map(|aspect| aspect as f32),
-        };
+        // The aspect of what the projection fits, which the layout keeps for `aspect-ratio: auto`.
+        let aspect = self.summary.aspect().map(|aspect| aspect as f32);
         let nodes = inputs.nodes.plot(&plot_ref.path);
         let styles = inputs.styles;
         let (graticule, rectangle, labels) = match (crate::geo::graticule(spec), &nodes.graticule) {
@@ -758,6 +755,8 @@ fn shapes_of(rows: &LayerRows, fit: &GeoFit) -> Result<Vec<Drawn>> {
         let (mark, mark_rows) = match mark {
             SceneMark::Path(mut path) => {
                 path.name = name;
+                path.stroke_cap = stroke_cap(rows.style);
+                path.stroke_join = stroke_join(rows.style);
                 if kind == "polygons" {
                     path.fill_pattern = patterns.clone();
                 }

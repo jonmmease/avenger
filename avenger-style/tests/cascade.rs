@@ -1264,13 +1264,14 @@ fn the_parts_of_a_guide_take_the_properties_of_their_parts() {
         (axis, title, label, tick)
     };
     let (x, x_title, x_label, x_tick) = axis(&mut tree, "x", "log", "sequential");
-    let (y, _, y_label, _) = axis(&mut tree, "y", "band", "categorical");
+    let (y, y_title, y_label, _) = axis(&mut tree, "y", "band", "categorical");
     let colorbar = tree.add(plot, Element::Legend);
     tree.set_attribute(colorbar, "type", "colorbar");
     let ramp = tree.add(colorbar, Element::Ramp);
     let colorbar_label = tree.add(colorbar, Element::Label);
     let facet = tree.add(plot, Element::Facet);
     tree.set_attribute(facet, "type", "row");
+    let facet_title = tree.add(facet, Element::Title);
     let facet_label = tree.add(facet, Element::Label);
 
     // Without stylesheets, the initial values hold, and some depend on the node.
@@ -1303,6 +1304,11 @@ fn the_parts_of_a_guide_take_the_properties_of_their_parts() {
     );
     assert_eq!(based[facet_label].number(Property::Angle), Some(90.0));
     assert_eq!(based[facet_label].number(Property::Margin), Some(4.0));
+    // A title stands 2 from the labels of a continuous axis, 4 from those of a discrete one, and 5
+    // from those of a facet.
+    assert_eq!(based[x_title].number(Property::Margin), Some(2.0));
+    assert_eq!(based[y_title].number(Property::Margin), Some(4.0));
+    assert_eq!(based[facet_title].number(Property::Margin), Some(5.0));
     let computed = styles(
         &with(
             "axis[channel=x] { value-count: 3; value-spacing: 40; value-thinning: true; }
@@ -1330,6 +1336,42 @@ fn the_parts_of_a_guide_take_the_properties_of_their_parts() {
     assert_eq!(computed[ramp].number(Property::Margin), Some(8.0));
     // The `angle` of an axis is its own, not its labels'.
     assert_eq!(computed[y].number(Property::Angle), Some(0.0));
+}
+
+#[test]
+fn the_strokes_of_shape_marks_are_round_and_only_marks_take_a_band_position() {
+    let mut tree = StyleTree::new(Element::Chart);
+    let plot = tree.add(tree.root(), Element::Plot);
+    tree.set_attribute(plot, "type", "geo");
+    let shape = tree.add(plot, Element::Mark);
+    tree.set_attribute_forms(shape, "type", "shape", "shape");
+    let line = tree.add(plot, Element::Mark);
+    tree.set_attribute_forms(line, "type", "line", "line");
+    let axis = tree.add(plot, Element::Axis);
+    let initial = styles(&StyleTable::new(), &tree, &HostInputs::default());
+    assert_eq!(
+        initial[shape].keyword(Property::StrokeLinecap),
+        Some("round")
+    );
+    assert_eq!(
+        initial[shape].keyword(Property::StrokeLinejoin),
+        Some("round")
+    );
+    assert_eq!(initial[line].keyword(Property::StrokeLinecap), Some("butt"));
+    assert_eq!(
+        initial[line].keyword(Property::StrokeLinejoin),
+        Some("miter")
+    );
+    assert_eq!(initial[plot].keyword(Property::AspectRatio), Some("auto"));
+    let computed = styles(
+        &with("plot { aspect-ratio: none; } mark, axis { band-position: 0; }"),
+        &tree,
+        &HostInputs::default(),
+    );
+    assert_eq!(computed[plot].keyword(Property::AspectRatio), Some("none"));
+    assert_eq!(computed[line].number(Property::BandPosition), Some(0.0));
+    assert!(!Property::BandPosition.applies_to(Element::Axis));
+    assert_eq!(computed[axis].number(Property::BandPosition), Some(0.5));
 }
 
 #[test]

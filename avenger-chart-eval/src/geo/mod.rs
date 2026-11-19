@@ -38,8 +38,9 @@ pub(crate) struct GeoInputs<'a> {
     pub(crate) engine: &'a LabelEngine,
 }
 
-/// What the layout keeps for a geo plot: the aspect ratio of its leaf, or `None` for a leaf of
-/// any shape, and the extent of the labels of its graticule on each side that has them.
+/// What the layout keeps for a geo plot: the aspect ratio of what its projection fits, or `None`
+/// for a view of any shape, which the plot keeps with `aspect-ratio: auto`, and the extent of the
+/// labels of its graticule on each side that has them.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct GeoGuide {
     pub(crate) aspect: Option<f32>,

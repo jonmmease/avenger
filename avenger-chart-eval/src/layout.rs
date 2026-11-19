@@ -930,22 +930,22 @@ impl Lowering<'_> {
         if let Some(height) = style.number(Property::Height) {
             leaf = leaf.min_height(height).max_height(height);
         }
-        // A polar plot keeps the shape of the box around its part of the circle, and a geo plot
-        // the aspect of its projection or none.
+        // A polar plot keeps the shape of the box around its part of the circle. Another plot
+        // keeps its computed `aspect-ratio`: a ratio, none for `none`, and for `auto` its natural
+        // aspect, which is the aspect of what a geo plot's projection fits and none for a
+        // Cartesian plot.
         let geo = self.geo_plots.guide(plot);
-        match (
+        let aspect = match (
             Sector::of_plot(plot_ref.plot),
-            geo,
             style.get(Property::AspectRatio),
         ) {
-            (Some(sector), _, _) => leaf = leaf.aspect(sector.aspect()),
-            (None, Some(geo), _) => {
-                if let Some(aspect) = geo.aspect {
-                    leaf = leaf.aspect(aspect);
-                }
-            }
-            (None, None, Computed::Ratio(ratio)) => leaf = leaf.aspect(*ratio),
-            (None, None, _) => {}
+            (Some(sector), _) => Some(sector.aspect()),
+            (None, Computed::Ratio(ratio)) => Some(*ratio),
+            (None, Computed::Keyword("auto")) => geo.and_then(|geo| geo.aspect),
+            (None, _) => None,
+        };
+        if let Some(aspect) = aspect {
+            leaf = leaf.aspect(aspect);
         }
         for (side, (guide_side, _)) in geo.into_iter().flat_map(|geo| &geo.labels).enumerate() {
             let id = ids.slab(SlabId::Graticule { plot, side });

@@ -9,13 +9,14 @@ use arrow::{
 };
 use avenger_chart::prelude::*;
 use avenger_chart_eval::{ChartEvaluator, EvalWarning, EvaluatedChart, Registry};
+use avenger_common::types::{StrokeCap, StrokeJoin};
 use avenger_format_number_d3::D3NumberFormatProvider;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_style::{
     Cascade, Element, Env, HostInputs, NodeId, ParseOptions, Property, Sheet, SourceId, StyleTable,
     StyleTree,
 };
-use avenger_typst_label::LabelEngine;
+use avenger_typst_label::{LabelEngine, LabelLineHeight, LabelWidth};
 
 fn engine() -> LabelEngine {
     avenger_typst_label::bundled_label_engine()
@@ -1006,5 +1007,458 @@ fn every_kind_of_widget_has_the_nodes_of_its_parts() {
     assert_eq!(
         text_named(&evaluated, "readout").font_size.first(),
         Some(&15.0)
+    );
+}
+
+/// The scene marks of the layer at `layer` of the first plot of a scene, whose names are the
+/// plot's name and the layer's position, with a series after them.
+fn layer_marks(evaluated: &EvaluatedChart, layer: usize) -> Vec<&SceneMark> {
+    let name = format!("{}/{layer}", evaluated.plots[0].name);
+    let of_layer = |mark: &str| mark == name || mark.starts_with(&format!("{name}/"));
+    (all_marks(evaluated).into_iter())
+        .filter(|mark| match mark {
+            SceneMark::Line(line) => of_layer(&line.name),
+            SceneMark::Area(area) => of_layer(&area.name),
+            SceneMark::Rule(rule) => of_layer(&rule.name),
+            SceneMark::Path(path) => of_layer(&path.name),
+            SceneMark::Text(text) => of_layer(&text.name),
+            SceneMark::Symbol(symbol) => of_layer(&symbol.name),
+            SceneMark::Arc(arc) => of_layer(&arc.name),
+            _ => false,
+        })
+        .collect()
+}
+
+/// The caps and the joins of the line, area, rule, and path marks of a scene, in drawing order. A
+/// rule has no joins.
+fn caps_and_joins(
+    evaluated: &EvaluatedChart,
+    layer: usize,
+) -> Vec<(StrokeCap, Option<StrokeJoin>)> {
+    (layer_marks(evaluated, layer).into_iter())
+        .filter_map(|mark| match mark {
+            SceneMark::Line(line) => Some((line.stroke_cap, Some(line.stroke_join))),
+            SceneMark::Area(area) => Some((area.stroke_cap, Some(area.stroke_join))),
+            SceneMark::Rule(rule) => Some((*rule.stroke_cap.first().unwrap(), None)),
+            SceneMark::Path(path) => Some((path.stroke_cap, Some(path.stroke_join))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The text mark of the layer `layer` of a scene.
+fn layer_text(
+    evaluated: &EvaluatedChart,
+    layer: usize,
+) -> &avenger_scenegraph::marks::text::SceneTextMark {
+    (layer_marks(evaluated, layer).into_iter())
+        .find_map(|mark| match mark {
+            SceneMark::Text(text) => Some(text),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a text mark of layer {layer}"))
+}
+
+/// The horizontal positions of the symbols of the layer `layer` of a scene.
+fn symbol_xs(evaluated: &EvaluatedChart, layer: usize) -> Vec<f32> {
+    (layer_marks(evaluated, layer).into_iter())
+        .find_map(|mark| match mark {
+            SceneMark::Symbol(symbol) => Some(symbol.x.as_vec(symbol.len as usize, None)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("a symbol mark of layer {layer}"))
+}
+
+/// The caps and the joins of lines, areas, rules, and paths, the line height and the most width of
+/// texts, and the band position of marks take the computed styles of the marks, whose initial
+/// values draw as the scene graph's defaults do.
+#[test]
+fn the_styles_of_marks_reach_what_they_draw() {
+    use StrokeCap::{Butt, Round, Square};
+    use StrokeJoin::{Bevel, Miter};
+    let lines = CartesianLayer::line(
+        penguins(),
+        LineMark::builder().x("flipper").y("mass").color("species"),
+    );
+    let areas = CartesianLayer::area(penguins(), AreaMark::builder().x("flipper").y("mass"));
+    let rules = CartesianLayer::rule(penguins(), RuleMark::builder().x("flipper"));
+    let paths = CartesianLayer::path(
+        penguins(),
+        PathMark::new(Encoding::direct_value("M0,0 L5,5 L10,0"))
+            .x("flipper")
+            .y("mass"),
+    );
+    let chart = Chart::builder(Plot::cartesian([lines, areas, rules, paths]))
+        .build()
+        .unwrap();
+    let plain = evaluated(&chart, "");
+    let initial = (Butt, Some(Miter));
+    assert_eq!(caps_and_joins(&plain, 0), [initial; 2]);
+    assert_eq!(caps_and_joins(&plain, 1), [initial]);
+    assert_eq!(caps_and_joins(&plain, 2), [(Butt, None)]);
+    assert_eq!(caps_and_joins(&plain, 3), [initial]);
+    let styled = evaluated(
+        &chart,
+        "mark { stroke-linecap: round; stroke-linejoin: bevel; }
+         mark[type=rule] { stroke-linecap: square; }",
+    );
+    assert_eq!(caps_and_joins(&styled, 0), [(Round, Some(Bevel)); 2]);
+    assert_eq!(caps_and_joins(&styled, 1), [(Round, Some(Bevel))]);
+    assert_eq!(caps_and_joins(&styled, 2), [(Square, None)]);
+    assert_eq!(caps_and_joins(&styled, 3), [(Round, Some(Bevel))]);
+
+    // Texts of the species, without a `width` channel, at the base stylesheet's 11 pixels.
+    let texts = CartesianLayer::text(
+        penguins(),
+        TextMark::new(Encoding::direct_field("species"))
+            .x("flipper")
+            .y("mass"),
+    );
+    let chart = Chart::builder(Plot::cartesian([texts])).build().unwrap();
+    let plain = evaluated(&chart, "");
+    let text = layer_text(&plain, 0);
+    assert_eq!(text.line_height.first(), Some(&LabelLineHeight::Auto));
+    assert_eq!(text.width.first(), Some(&LabelWidth::Auto));
+    assert!(!text.wrap);
+    // A number multiplies the font size, and a length is the distance between baselines.
+    let tall = evaluated(&chart, "mark[type=text] { line-height: 2; }");
+    let text = layer_text(&tall, 0);
+    assert_eq!(
+        text.line_height.first(),
+        Some(&LabelLineHeight::Fixed(22.0))
+    );
+    let fixed = evaluated(&chart, "chart { line-height: 15px; }");
+    let text = layer_text(&fixed, 0);
+    assert_eq!(
+        text.line_height.first(),
+        Some(&LabelLineHeight::Fixed(15.0))
+    );
+    // `max-width` is the most width of each text, which wraps it unless it does not wrap.
+    let narrow = evaluated(&chart, "mark[type=text] { max-width: 40; }");
+    let text = layer_text(&narrow, 0);
+    assert_eq!(text.width.first(), Some(&LabelWidth::Max(40.0)));
+    assert!(text.wrap);
+    let unwrapped = evaluated(
+        &chart,
+        "mark[type=text] { max-width: 40; white-space: nowrap; }",
+    );
+    assert!(!layer_text(&unwrapped, 0).wrap);
+
+    // Symbols in the bands of a band scale stand at the mark's band position, unless the
+    // encoding gives its own.
+    let banded = |x: EncodingBuilder| {
+        let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x(x).y("mass"));
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    let band = || Encoding::scaled_field("species").scale(Scale::band(BandScale::builder()));
+    let chart = banded(band());
+    let middle = symbol_xs(&evaluated(&chart, ""), 0);
+    let start = symbol_xs(&evaluated(&chart, "mark { band-position: 0; }"), 0);
+    let end = symbol_xs(&evaluated(&chart, "mark { band-position: 1; }"), 0);
+    for ((start, middle), end) in start.iter().zip(&middle).zip(&end) {
+        assert!(start < middle && middle < end, "{start} {middle} {end}");
+        assert!(((start + end) / 2.0 - middle).abs() < 1e-3);
+    }
+    let given = banded(band().band_position(1.0));
+    assert_eq!(
+        symbol_xs(&evaluated(&given, "mark { band-position: 0; }"), 0),
+        end
+    );
+    // An axis takes no band position.
+    let axis = evaluated(&chart, "axis { band-position: 0; }");
+    assert_eq!(
+        format!("{:?}", axis.scene),
+        format!("{:?}", evaluated(&chart, "").scene)
+    );
+}
+
+/// The lines, the rules, the outlines of areas, and the polygons of bars of a polar plot take the
+/// caps and the joins of their marks.
+#[test]
+fn the_lines_of_polar_plots_take_the_caps_and_joins_of_their_marks() {
+    use StrokeCap::{Butt, Round};
+    use StrokeJoin::{Bevel, Miter};
+    let lines = PolarLayer::line(
+        penguins(),
+        PolarLineMark::builder().theta("flipper").radius("mass"),
+    );
+    let rules = PolarLayer::rule(
+        penguins(),
+        PolarRuleMark::builder()
+            .theta(0.5)
+            .radius(Encoding::direct_value(0.0))
+            .radius2(Encoding::direct_value(1.0)),
+    );
+    let areas = PolarLayer::area(
+        penguins(),
+        PolarAreaMark::builder().theta("flipper").radius("mass"),
+    );
+    let bars = PolarLayer::bar(
+        penguins(),
+        PolarBarMark::builder()
+            .theta(Encoding::scaled_field("species"))
+            .radius("mass")
+            .route(Route::Canvas),
+    );
+    let lined = Chart::builder(Plot::polar([lines, rules, areas]))
+        .build()
+        .unwrap();
+    let barred = Chart::builder(Plot::polar([bars])).build().unwrap();
+    let outlined = "mark[type=area] { stroke: red; stroke-width: 1; }";
+    let styled = format!("{outlined} mark {{ stroke-linecap: round; stroke-linejoin: bevel; }}");
+    // The fill of an area draws no stroke, so only its outline, a line, takes them.
+    for (chart, layer, fills) in [
+        (&lined, 0, 0),
+        (&lined, 1, 0),
+        (&lined, 2, 1),
+        (&barred, 0, 0),
+    ] {
+        let plain = caps_and_joins(&evaluated(chart, outlined), layer);
+        let styled = caps_and_joins(&evaluated(chart, &styled), layer);
+        assert!(plain.len() > fills, "layer {layer}");
+        assert!(
+            plain.iter().all(|mark| *mark == (Butt, Some(Miter))),
+            "{plain:?}"
+        );
+        assert!(
+            styled[fills..]
+                .iter()
+                .all(|mark| *mark == (Round, Some(Bevel))),
+            "layer {layer}: {styled:?}"
+        );
+    }
+}
+
+/// The `pad-angle` of a polar bar pads its arc, and with the canvas route its polygon.
+#[test]
+fn the_pad_angle_of_polar_bars_pads_their_sectors() {
+    let rose = |route: Route| {
+        let bars = PolarLayer::bar(
+            penguins(),
+            PolarBarMark::builder()
+                .theta(Encoding::scaled_field("species"))
+                .radius("mass")
+                .route(route),
+        );
+        Chart::builder(Plot::polar([bars])).build().unwrap()
+    };
+    let pads = |evaluated: &EvaluatedChart| match layer_marks(evaluated, 0)[..] {
+        [SceneMark::Arc(arc)] => arc.pad_angle.as_vec(arc.len as usize, None),
+        ref marks => panic!("one arc mark: {marks:?}"),
+    };
+    let arcs = rose(Route::Coordinate);
+    assert!(pads(&evaluated(&arcs, "")).iter().all(|pad| *pad == 0.0));
+    let padded = evaluated(&arcs, "mark[type=bar] { pad-angle: 2deg; }");
+    for pad in pads(&padded) {
+        assert!((pad - 2f32.to_radians()).abs() < 1e-6, "{pad}");
+    }
+    let polygons = rose(Route::Canvas);
+    let path = |css: &str| {
+        let evaluated = evaluated(&polygons, css);
+        match layer_marks(&evaluated, 0)[..] {
+            [SceneMark::Path(path)] => format!("{:?}", path.path),
+            ref marks => panic!("one path mark: {marks:?}"),
+        }
+    };
+    assert_ne!(path(""), path("mark[type=bar] { pad-angle: 4deg; }"));
+}
+
+/// The space between an axis's labels and its title, and between a facet's labels and its title,
+/// is the computed `margin` of the title: by the base stylesheet, 2 on a continuous axis, 4 on a
+/// discrete one, and 5 on a facet.
+#[test]
+fn the_margin_of_a_title_spaces_it_from_its_guide() {
+    let symbols = |x: &str| {
+        let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x(x).y("mass"));
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    let margins = |chart: &Chart| {
+        let mut evaluator = evaluator(chart.clone(), cascade(""));
+        let tree = evaluator.style_tree();
+        let titles: Vec<NodeId> = (nodes_of(tree, Element::Axis).into_iter())
+            .map(|axis| part(tree, axis, Element::Title))
+            .collect();
+        let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
+        (titles.into_iter())
+            .map(|title| styles[title].number(Property::Margin).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let continuous = symbols("flipper");
+    let discrete = symbols("species");
+    assert_eq!(margins(&continuous), [2.0, 2.0]);
+    assert_eq!(margins(&discrete), [4.0, 2.0]);
+    // A wider margin of the x axis's title lowers the x axis and shortens the plot.
+    for chart in [&continuous, &discrete] {
+        let plain = evaluated(chart, "");
+        let spaced = evaluated(chart, "axis[channel=x] > title { margin: 14; }");
+        let [[_, _, _, shorter]] = moved(&spaced, &plain)[..] else {
+            panic!("one plot");
+        };
+        assert!(shorter < -9.0, "{shorter}");
+    }
+
+    let panels = Node::partitions(&penguins(), "species", PartitionOrder::Ascending, |rows| {
+        let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("flipper").y("mass"));
+        Ok(Plot::cartesian([symbols]))
+    })
+    .unwrap();
+    let facets = Chart::builder(Wrap::builder().facet("species").children(panels))
+        .build()
+        .unwrap();
+    let plain = evaluated(&facets, "");
+    // A title 15 from the labels, 10 more than the base stylesheet's 5, lowers the panels by 10.
+    let spaced = evaluated(&facets, "facet > title { margin: 15; }");
+    assert_eq!(moved(&spaced, &plain), [[0.0, 10.0, 0.0, -10.0]; 2]);
+}
+
+/// A plot keeps its computed `aspect-ratio`: a ratio, any shape with `none`, and with `auto` its
+/// natural aspect, none for a Cartesian plot. A polar plot keeps the shape of its sector.
+#[test]
+fn a_plot_keeps_its_aspect_ratio() {
+    let shape = |evaluated: &EvaluatedChart| {
+        let [_, _, width, height] = evaluated.plots[0].rect;
+        width / height
+    };
+    let symbols = CartesianLayer::symbol(penguins(), SymbolMark::builder().x("flipper").y("mass"));
+    let chart = Chart::builder(Plot::cartesian([symbols])).build().unwrap();
+    let plain = evaluated(&chart, "");
+    assert_eq!(
+        format!(
+            "{:?}",
+            evaluated(&chart, "plot { aspect-ratio: none; }").scene
+        ),
+        format!("{:?}", plain.scene)
+    );
+    let square = evaluated(&chart, "plot { aspect-ratio: 1; }");
+    assert!((shape(&square) - 1.0).abs() < 1e-3, "{}", shape(&square));
+
+    let rose = Chart::builder(Plot::polar([PolarLayer::bar(
+        penguins(),
+        PolarBarMark::builder()
+            .theta(Encoding::scaled_field("species"))
+            .radius("mass"),
+    )]))
+    .build()
+    .unwrap();
+    let plain = evaluated(&rose, "");
+    for css in ["plot { aspect-ratio: 3; }", "plot { aspect-ratio: none; }"] {
+        assert_eq!(
+            format!("{:?}", evaluated(&rose, css).scene),
+            format!("{:?}", plain.scene),
+            "{css}"
+        );
+    }
+}
+
+/// A geo plot keeps the aspect of what its projection fits, unless its computed `aspect-ratio`,
+/// which `Geo.aspect` sets inline, is a ratio or `none`.
+#[cfg(feature = "geo")]
+#[test]
+fn a_geo_plot_keeps_its_aspect_ratio() {
+    let cities = RecordBatch::try_from_iter([
+        (
+            "lon",
+            Arc::new(Float64Array::from(vec![-74.0, 2.35, 139.7])) as ArrayRef,
+        ),
+        ("lat", Arc::new(Float64Array::from(vec![40.7, 48.9, 35.7]))),
+    ])
+    .unwrap();
+    let chart = |options: GeoBuilder| {
+        let places = GeoLayer::symbol(
+            cities.clone(),
+            GeoSymbolMark::builder().longitude("lon").latitude("lat"),
+        );
+        Chart::builder(Plot::geo(GeoPlot::new(options, [places])))
+            .build()
+            .unwrap()
+    };
+    let world = || Projection::builtin(ProjectionType::EqualEarth).whole_sphere();
+    let at = |chart: &Chart, css: &str| {
+        let evaluated = evaluator(chart.clone(), cascade(css))
+            .evaluate(&HostInputs::sized(600.0, 600.0))
+            .unwrap();
+        let [_, _, width, height] = evaluated.plots[0].rect;
+        [width, height]
+    };
+    let kept = chart(Geo::new(world()));
+    let [width, height] = at(&kept, "");
+    assert!(width / height > 1.5, "{width} {height}");
+    assert_eq!(at(&kept, "plot { aspect-ratio: auto; }"), [width, height]);
+    let [width, height] = at(&kept, "plot[type=geo] { aspect-ratio: 1; }");
+    assert!((width - height).abs() < 1e-3, "{width} {height}");
+    // `none` fills the space, as `Geo.free` does.
+    let free = chart(Geo::free(world()));
+    let filled = at(&free, "");
+    assert!((filled[0] - filled[1]).abs() < 1.0, "{filled:?}");
+    assert_eq!(at(&kept, "plot[type=geo] { aspect-ratio: none; }"), filled);
+    // `Geo.aspect` is an inline style, which wins over the stylesheets.
+    assert_eq!(at(&free, "plot[type=geo] { aspect-ratio: 3; }"), filled);
+    let [width, height] = at(
+        &chart(Geo::aspect_ratio(world(), 3.0)),
+        "plot { aspect-ratio: 1; }",
+    );
+    assert!((width / height - 3.0).abs() < 1e-3, "{width} {height}");
+}
+
+/// The outlines of a geo plot's shapes are round at their ends and corners, and its lines take the
+/// initial butt caps and miter joins, unless the computed `stroke-linecap` and `stroke-linejoin`
+/// of their marks say otherwise.
+#[cfg(feature = "geo")]
+#[test]
+fn the_caps_and_joins_of_shapes_take_their_mark_styles() {
+    use arrow::datatypes::Schema;
+    use geo_types::{Geometry, LineString, Polygon};
+    use geoarrow_array::{builder::WkbBuilder, GeoArrowArray};
+    use geoarrow_schema::WkbType;
+    let mut builder = WkbBuilder::<i32>::new(WkbType::default());
+    let ring = LineString::from(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]);
+    builder
+        .push_geometry(Some(&Geometry::Polygon(Polygon::new(ring, Vec::new()))))
+        .unwrap();
+    let geometry = builder.finish();
+    let field = geometry.data_type().to_field("geometry", true);
+    let table = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![field])),
+        vec![geometry.into_array_ref()],
+    )
+    .unwrap();
+    let shapes = GeoLayer::shape(table, GeoShapeMark::new("geometry"));
+    let places = RecordBatch::try_from_iter([
+        (
+            "lon",
+            Arc::new(Float64Array::from(vec![-74.0, 2.35, 139.7])) as ArrayRef,
+        ),
+        ("lat", Arc::new(Float64Array::from(vec![40.7, 48.9, 35.7]))),
+    ])
+    .unwrap();
+    let lines = GeoLayer::line(
+        places,
+        GeoLineMark::builder().longitude("lon").latitude("lat"),
+    );
+    let options = Geo::new(Projection::builtin(ProjectionType::EqualEarth));
+    let chart = Chart::builder(Plot::geo(GeoPlot::new(options, [shapes, lines])))
+        .build()
+        .unwrap();
+    let plain = evaluated(&chart, "");
+    assert_eq!(
+        caps_and_joins(&plain, 0),
+        [(StrokeCap::Round, Some(StrokeJoin::Round))]
+    );
+    assert_eq!(
+        caps_and_joins(&plain, 1),
+        [(StrokeCap::Butt, Some(StrokeJoin::Miter))]
+    );
+    let styled = evaluated(
+        &chart,
+        "mark[type=shape] { stroke-linecap: square; stroke-linejoin: miter; }
+         mark[type=line] { stroke-linecap: round; stroke-linejoin: bevel; }",
+    );
+    assert_eq!(
+        caps_and_joins(&styled, 0),
+        [(StrokeCap::Square, Some(StrokeJoin::Miter))]
+    );
+    assert_eq!(
+        caps_and_joins(&styled, 1),
+        [(StrokeCap::Round, Some(StrokeJoin::Bevel))]
     );
 }
