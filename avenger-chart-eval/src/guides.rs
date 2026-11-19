@@ -32,13 +32,15 @@ use avenger_guides::{
         LegendWrap, LineSwatches, SymbolSwatches,
     },
     title::{Title, TitleAlign, TitleConfig, TitleTextStyle},
-    BackgroundStyle, GuideSide,
+    BackgroundStyle, GuideSide, TextBox,
 };
 use avenger_scales::scales::{
     coerce::Coercer, domain_summary::SummaryKind, fitting::FittingScale, ConfiguredScale,
 };
 use avenger_style::{Computed, ComputedStyle, ComputedStyles, Paint, Property};
-use avenger_typst_label::{bind, escape_text, LabelEngine, LabelValue, LabelValues};
+use avenger_typst_label::{
+    bind, escape_text, LabelEngine, LabelLineHeight, LabelValue, LabelValues,
+};
 
 use crate::{
     marks::{font_family, font_style, font_weight},
@@ -201,7 +203,6 @@ pub(crate) struct GuideInputs<'a> {
 pub(crate) fn paint_color(style: &ComputedStyle, property: Property) -> [f32; 4] {
     match style.paint(property) {
         Paint::Color(color) => color,
-        Paint::Contrast { otherwise } => otherwise,
         Paint::None => [0.0, 0.0, 0.0, 0.0],
     }
 }
@@ -270,6 +271,26 @@ pub(crate) fn text_color(style: &ComputedStyle) -> [f32; 4] {
     match style.paint(Property::Fill) {
         Paint::None => style_color(style, Property::Color),
         _ => paint_color(style, Property::Fill),
+    }
+}
+
+/// The box that a guide's label or title lays out its lines in, from the computed `max-width`,
+/// `white-space`, `max-lines`, `text-overflow`, and `line-height` of its node, as a text mark
+/// reads them: lines wrap at the width unless `white-space` is `nowrap`, and a `line-height`
+/// number multiplies the font size.
+pub(crate) fn text_box(style: &ComputedStyle) -> TextBox {
+    let max_width = style.number(Property::MaxWidth);
+    TextBox {
+        max_width,
+        wrap: max_width.is_some() && style.keyword(Property::WhiteSpace) != Some("nowrap"),
+        max_lines: (style.integer(Property::MaxLines))
+            .and_then(|lines| NonZeroUsize::new(lines as usize)),
+        ellipsis: style.keyword(Property::TextOverflow) == Some("ellipsis"),
+        line_height: match style.get(Property::LineHeight) {
+            Computed::Number(distance) => LabelLineHeight::Fixed(*distance),
+            Computed::Ratio(factor) => LabelLineHeight::Fixed(factor * style.font_size()),
+            _ => LabelLineHeight::Auto,
+        },
     }
 }
 
@@ -532,12 +553,14 @@ pub(crate) fn axis_style(
         label_font_family: font_family(label),
         label_font_size: label.font_size(),
         label_font_weight: font_weight(label),
+        label_box: text_box(label),
         title_visible: visible(title),
         title_syntax,
         title_color: text_color(title),
         title_font_family: font_family(title),
         title_font_size: title.font_size(),
         title_font_weight: font_weight(title),
+        title_box: text_box(title),
         domain_color: match visible(rule) {
             true => paint_color(rule, Property::Stroke),
             false => [0.0; 4],
@@ -1194,9 +1217,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         match color {
             ColorOrGradient::Color(color) => match styles.paint_with(mark_node, property, *color) {
                 Paint::None => ColorOrGradient::transparent(),
-                Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                    ColorOrGradient::Color(color)
-                }
+                Paint::Color(color) => ColorOrGradient::Color(color),
             },
             gradient => gradient.clone(),
         }
@@ -1231,9 +1252,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         let color = style_color(&styles[other], Property::Color);
         match styles.paint_with(other, property, color) {
             Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                ColorOrGradient::Color(color)
-            }
+            Paint::Color(color) => ColorOrGradient::Color(color),
         }
     };
     let swatches = if line {
@@ -1412,11 +1431,13 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         title_font_size: title_style.font_size(),
         title_font_weight: font_weight(title_style),
         title_syntax: title_syntax(spec.title.as_ref()),
+        title_box: text_box(title_style),
         label_color: text_color(label_style),
         label_font_family: font_family(label_style),
         label_font_size: label_style.font_size(),
         label_font_weight: font_weight(label_style),
         label_syntax,
+        label_box: text_box(label_style),
         column_gap: style_number(legend_style, Property::ColumnGap),
         row_gap: style_number(legend_style, Property::RowGap),
     };
@@ -1537,6 +1558,7 @@ fn title_text_style(style: &ComputedStyle, syntax: TextSyntaxMode) -> TitleTextS
         font_style: font_style(style),
         color: text_color(style),
         syntax,
+        text_box: text_box(style),
     }
 }
 
@@ -1722,6 +1744,7 @@ fn facet_guide(
         label_font_family: font_family(label),
         label_font_size: label.font_size(),
         label_font_weight: font_weight(label),
+        label_box: text_box(label),
         tick_length: style_number(&styles[nodes.tick], Property::TickSize),
         rule_color: paint_color(rule, Property::Stroke),
         rule_width: style_number(rule, Property::StrokeWidth),
@@ -1731,6 +1754,7 @@ fn facet_guide(
         title_font_family: font_family(title_style),
         title_font_size: title_style.font_size(),
         title_font_weight: font_weight(title_style),
+        title_box: text_box(title_style),
         ..FacetGuideStyle::default()
     };
     let labels = facet.labels.as_ref();

@@ -1056,6 +1056,10 @@ pub(crate) fn expand(shorthand: Shorthand, text: &str) -> Option<Vec<(Property, 
             for part in parts {
                 let slot = match &part {
                     Value::Numeric(_) => 0,
+                    // A focus ring is solid, so it takes no dashed or dotted style.
+                    Value::Keyword("dashed" | "dotted") if shorthand == Shorthand::Outline => {
+                        return None
+                    }
                     Value::Keyword(_) => 1,
                     Value::Color(_) => 2,
                     _ => return None,

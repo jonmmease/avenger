@@ -39,11 +39,6 @@ pub enum Computed {
 pub enum Paint {
     None,
     Color([f32; 4]),
-    /// The contrast color of what the label stands on, which the renderer picks for the label of
-    /// a mark inside its item, and the node's `color` otherwise.
-    Contrast {
-        otherwise: [f32; 4],
-    },
 }
 
 /// How `fill: auto` and `stroke: auto` paint a node, by its kind.
@@ -53,8 +48,6 @@ pub(crate) enum AutoPaint {
     Fill,
     /// A line: `stroke: auto` is the color.
     Stroke,
-    /// The label of a mark, whose fill contrasts with its item.
-    MarkLabel,
     /// A node that draws no paint.
     Nothing,
 }
@@ -151,7 +144,6 @@ impl ComputedStyle {
                 (Property::Fill, AutoPaint::Fill) | (Property::Stroke, AutoPaint::Stroke) => {
                     Paint::Color(color)
                 }
-                (Property::Fill, AutoPaint::MarkLabel) => Paint::Contrast { otherwise: color },
                 _ => Paint::None,
             },
             _ => Paint::None,
@@ -236,7 +228,6 @@ impl ComputedStyles {
                 (Property::Fill, AutoPaint::Fill) | (Property::Stroke, AutoPaint::Stroke) => {
                     Paint::Color(current)
                 }
-                (Property::Fill, AutoPaint::MarkLabel) => Paint::Contrast { otherwise: current },
                 _ => Paint::None,
             },
             _ => style.paint(property),

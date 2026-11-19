@@ -79,26 +79,10 @@ fn interaction_pseudo_classes_other_than_focus_visible_are_errors() {
         Some("style the marks of a selection with a selection condition")
     );
     let focus = error(
-        "mark:focus { outline: 2px solid; }",
+        "widget:focus { outline: 2 solid; }",
         "`:focus` is not supported",
     );
     assert_eq!(focus.help.as_deref(), Some("use :focus-visible"));
-    error(
-        "title:focus-visible { outline-color: red; }",
-        "`title` cannot have focus",
-    );
-    error(
-        "mark:has(item:focus-visible) { outline-color: red; }",
-        ":focus-visible is valid only in the last compound selector",
-    );
-    error(
-        "mark:not(:focus-visible) { outline-color: red; }",
-        ":focus-visible is valid only in the last compound selector",
-    );
-    error(
-        "chart:focus-visible mark { outline-color: red; }",
-        ":focus-visible is valid only in the last compound selector",
-    );
     error(
         "axis::before { stroke: red; }",
         "pseudo-elements are not supported",
@@ -106,35 +90,57 @@ fn interaction_pseudo_classes_other_than_focus_visible_are_errors() {
 }
 
 #[test]
-fn virtual_nodes_match_only_through_focus_visible() {
-    error(
-        "item { outline: 2px solid red; }",
-        "`item` is a virtual node; select it with item:focus-visible",
-    );
-    error(
-        "item[type=point]:focus-visible { outline-color: red; }",
-        "the virtual node `item` has no attributes",
-    );
-    let (sheet, diagnostics) = parse(
-        "mark[type=bar] > item:focus-visible { outline: 3px solid darkorange; outline-offset: 1px; }
-         legend > entry:focus-visible { outline-style: dashed; }",
-    );
-    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
-    assert_eq!(sheet.rules.len(), 2);
-    // The `outline` shorthand sets its three longhands.
+fn focus_visible_sets_the_outline_of_widgets_only() {
+    for css in [
+        "widget:focus-visible { outline: 3 solid red; outline-offset: 1; }",
+        ":focus-visible { outline-color: red; }",
+        "widget[type=slider]:focus-visible { outline-style: none; }",
+        ":is(widget):focus-visible { outline-width: 1; }",
+        "widget { &:focus-visible { outline-color: red; } }",
+    ] {
+        let (_, diagnostics) = parse(css);
+        assert!(diagnostics.is_empty(), "{css}: {diagnostics:#?}");
+    }
+    // The shorthand sets its three longhands.
+    let (sheet, _) = parse("widget:focus-visible { outline: 3 solid red; outline-offset: 1; }");
     assert_eq!(sheet.rules[0].declarations.len(), 4);
-}
-
-#[test]
-fn outline_properties_apply_only_through_focus_visible() {
-    error(
-        "legend { outline: 1px solid; }",
-        "outline properties apply only through :focus-visible",
-    );
-    error(
-        "item:focus-visible { opacity: 1; }",
-        "only outline properties apply through :focus-visible",
-    );
+    for (css, message) in [
+        (
+            "axis:focus-visible { outline-color: red; }",
+            "`axis` cannot have focus; :focus-visible is valid on widget",
+        ),
+        (
+            "title { &:focus-visible { outline-color: red; } }",
+            "`title` cannot have focus",
+        ),
+        (
+            "widget { outline-color: red; }",
+            "outline properties apply only through :focus-visible",
+        ),
+        (
+            "widget:focus-visible { opacity: 1; }",
+            "only outline properties apply through :focus-visible",
+        ),
+        (
+            "chart:has(widget:focus-visible) { color: red; }",
+            ":focus-visible is valid only in the last compound selector",
+        ),
+        (
+            "widget:not(:focus-visible) { color: red; }",
+            ":focus-visible is valid only in the last compound selector",
+        ),
+        (
+            "widget:focus-visible, axis { outline-color: red; }",
+            "the selectors of a rule all end with :focus-visible, or none does",
+        ),
+        // A focus ring is solid.
+        (
+            "widget:focus-visible { outline: 2 dashed red; }",
+            "is not a valid value of `outline`",
+        ),
+    ] {
+        error(css, message);
+    }
 }
 
 #[test]
@@ -148,6 +154,9 @@ fn invalid_values_are_errors_and_unknown_properties_are_warnings() {
         Severity::Warning,
         "unknown property `stroke-wdth`",
     );
+    // A rule keeps its other declarations.
+    let (sheet, _) = parse("mark { stroke-wdth: 2; opacity: 1; }");
+    assert_eq!(sheet.rules[0].declarations.len(), 1);
     error(
         "axis > label { text-align: left; }",
         "`left` is not a valid value of `text-align`; use start, center, end, or auto",
@@ -157,16 +166,8 @@ fn invalid_values_are_errors_and_unknown_properties_are_warnings() {
         "`10 20 30` is not a valid value of `gap`; use one length or two",
     );
     error(
-        "plot[type=facet_wrap] { axes: all; }",
-        "`all` is not a valid value of `axes`; use outer or each",
-    );
-    error(
-        "mark[type=symbol] { label-position: center; }",
-        "`center` is not a valid value of `label-position`",
-    );
-    error(
-        "mark[type=bar] { label-overflow: clip; }",
-        "`clip` is not a valid value of `label-overflow`; use hide, outside, shrink, or show",
+        "axis { label-overlap: all; }",
+        "`all` is not a valid value of `label-overlap`; use none, parity, or greedy",
     );
     error(
         "chart { forced-color-adjust: preserve-parent-color; }",
@@ -547,36 +548,6 @@ fn layer_statements_name_one_layer_or_several() {
 }
 
 #[test]
-fn focus_visible_is_checked_with_the_parent_in_place_of_the_nesting_selector() {
-    for css in [
-        "mark:focus-visible { & { outline-color: red; } }",
-        ":is(mark:focus-visible) { outline-color: red; }",
-        "mark:where(:focus-visible) { outline-color: red; }",
-        "mark { &:focus-visible { outline: 2px solid red; } }",
-        "legend { > entry:focus-visible { outline-offset: 2px; } }",
-    ] {
-        let (_, diagnostics) = parse(css);
-        assert!(diagnostics.is_empty(), "{css}: {diagnostics:#?}");
-    }
-    error(
-        "mark:focus-visible { & { fill: red; } }",
-        "only outline properties apply through :focus-visible",
-    );
-    error(
-        "mark:focus-visible { & > label { color: red; } }",
-        ":focus-visible is valid only in the last compound selector",
-    );
-    error(
-        ":is(mark:focus-visible, axis) { outline-color: red; }",
-        "the selectors of a rule all end with :focus-visible, or none does",
-    );
-    error(
-        "mark { & item { outline-color: red; } }",
-        "`item` is a virtual node",
-    );
-}
-
-#[test]
 fn nested_selectors_without_the_nesting_selector_are_descendants() {
     let (sheet, diagnostics) = parse("axis { label, > tick { stroke: red; } }");
     assert!(diagnostics.is_empty(), "{diagnostics:#?}");
@@ -643,57 +614,28 @@ fn palette_descriptors_read_tokens() {
 fn compound_selectors_are_checked_with_the_alternatives_of_is_and_where() {
     for (css, message) in [
         (
-            "title { &:focus-visible { outline-color: red; } }",
-            "`title` cannot have focus",
-        ),
-        (
-            "title:where(:focus-visible) { outline-color: red; }",
-            "`title` cannot have focus",
-        ),
-        (
             "title { &[type=bar] { color: red; } }",
             "the element `title` has no attribute `type`",
         ),
         (
-            "item:focus-visible { &.foo { outline-color: red; } }",
-            "the virtual node `item` takes no selector other than :focus-visible",
+            ":is(mark, title)[type=bar] { color: red; }",
+            "the element `title` has no attribute `type`",
         ),
         (
-            ":is(mark, title):focus-visible { outline-color: red; }",
-            "`title` cannot have focus",
+            "title:where([channel=x]) { color: red; }",
+            "the element `title` has no attribute `channel`",
         ),
     ] {
         error(css, message);
     }
     for css in [
-        ":is(item):focus-visible { outline-color: red; }",
-        ":is(mark, axis):focus-visible { outline-color: red; }",
+        ":is(axis, legend)[channel=x] { color: red; }",
         "mark:is([type=bar], [type=line]) { color: red; }",
         "axis { :is(label, tick) { color: red; } }",
     ] {
         let (_, diagnostics) = parse(css);
         assert!(diagnostics.is_empty(), "{css}: {diagnostics:#?}");
     }
-}
-
-#[test]
-fn the_selectors_of_a_rule_all_need_focus_or_none_does() {
-    let mixed = error(
-        "mark:focus-visible, axis { outline: 2px solid red; }",
-        "the selectors of a rule all end with :focus-visible, or none does",
-    );
-    assert_eq!(
-        mixed.help.as_deref(),
-        Some("write the selectors with :focus-visible as a rule of their own")
-    );
-    error(
-        ":is(mark:focus-visible, axis) { color: red; }",
-        "the selectors of a rule all end with :focus-visible, or none does",
-    );
-    error(
-        "mark { &:focus-visible, & > label { color: red; } }",
-        "the selectors of a rule all end with :focus-visible, or none does",
-    );
 }
 
 #[test]

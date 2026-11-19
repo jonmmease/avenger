@@ -184,14 +184,11 @@ fn colors_take_css_color_4_mixes_contrast_and_system_colors() {
 }
 
 #[test]
-fn keywords_lists_and_the_values_of_scales() {
+fn keywords_and_the_values_of_scales() {
     accepts(Property::TextAlign, &["start", "center", "END", "auto"]);
     rejects(Property::TextAlign, &["left", "justify"]);
-    accepts(
-        Property::LabelPosition,
-        &["inside", "top right bottom left"],
-    );
-    rejects(Property::LabelPosition, &["center", ""]);
+    accepts(Property::LabelOverlap, &["none", "parity", "greedy"]);
+    rejects(Property::LabelOverlap, &["none parity", ""]);
     accepts(
         Property::Scheme,
         &[
@@ -222,7 +219,7 @@ fn keywords_lists_and_the_values_of_scales() {
     accepts(Property::Shape, &["circle", "\"M0,0 L1,1 Z\""]);
     accepts(Property::Pattern, &["none", "\"stripes 45 8 2\""]);
     rejects(Property::Pattern, &["stripes", "\"zigzag\""]);
-    accepts(Property::LabelFlush, &["true", "false", "4"]);
+    accepts(Property::Align, &["true", "false", "left"]);
     accepts(Property::Display, &["none", "block", "flex"]);
     accepts(Property::Separator, &["\" · \""]);
 

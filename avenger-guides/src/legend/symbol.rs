@@ -10,7 +10,7 @@ use avenger_geometry::{
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark, symbol::SceneSymbolMark};
 use avenger_typst_label::LabelEngine;
 
-use super::{make_entry_label, make_hit_rect, LegendStyle};
+use super::{extra_lines_shift, make_entry_label, make_hit_rect, LegendStyle};
 
 /// Space above and below each symbol, within its row.
 const ROW_PADDING: f32 = 0.5;
@@ -112,7 +112,7 @@ fn symbol_group(
     let x = (max_width / 2.0).round();
     symbol.x = x.into();
     let symbol_height = symbol.bounding_box().height();
-    let y = (symbol_height / 2.0 + ROW_PADDING).round();
+    let y = (symbol_height / 2.0 + ROW_PADDING + extra_lines_shift(text, style, engine)).round();
     symbol.y = y.into();
     // A pattern anchors to its own swatch's nominal square, where mark-anchored patterns start
     // too, whatever the symbol's shape and stroke.

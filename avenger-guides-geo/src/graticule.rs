@@ -15,7 +15,7 @@ use avenger_geo::paths::geometry_path;
 use avenger_geo::{
     AvengerGeoError, FitSummary, GraticuleLine, GraticuleLineKind, Projection, Projector,
 };
-use avenger_guides::{GuideSide, PartExtent};
+use avenger_guides::{GuideSide, PartExtent, TextBox};
 use avenger_scenegraph::marks::{
     group::SceneGroup,
     path::ScenePathMark,
@@ -80,6 +80,8 @@ pub struct GraticuleStyle {
     pub label_font_family: String,
     pub label_font_size: f32,
     pub label_font_weight: FontWeight,
+    /// The box that each label lays out its lines in.
+    pub label_box: TextBox,
     /// The distance between a line's end and its label.
     pub label_padding: f32,
 }
@@ -93,6 +95,7 @@ impl Default for GraticuleStyle {
             label_font_family: "sans-serif".to_string(),
             label_font_size: 10.0,
             label_font_weight: FontWeight::default(),
+            label_box: TextBox::default(),
             label_padding: 4.0,
         }
     }
@@ -553,7 +556,7 @@ impl Graticule {
                 .map(|label| label.position[axis] + offset[axis])
                 .collect()
         };
-        Some(SceneTextMark {
+        Some(style.label_box.mark(SceneTextMark {
             len: labels.len() as u32,
             clip: false,
             text: text.into(),
@@ -567,7 +570,7 @@ impl Graticule {
             font_size: style.label_font_size.into(),
             font_weight: style.label_font_weight.into(),
             ..Default::default()
-        })
+        }))
     }
 }
 
@@ -610,7 +613,7 @@ fn line_labels(
         PrecisionSharing::PerValue,
     )?;
     let style = &config.style;
-    let options = LabelOptions {
+    let options = style.label_box.options(LabelOptions {
         text: text_style(
             &style.label_font_family,
             style.label_font_size,
@@ -619,7 +622,7 @@ fn line_labels(
             style.label_color,
         ),
         ..Default::default()
-    };
+    });
     lines
         .iter()
         .zip(&formatted)

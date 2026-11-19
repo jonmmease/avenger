@@ -735,3 +735,82 @@ fn a_title_without_a_text_styles_the_derived_title() {
     let texts = text_syntaxes(&evaluate(&chart, [320.0, 240.0]).scene.marks);
     assert!(texts.contains(&("weight".to_string(), Plain)), "{texts:?}");
 }
+
+/// Every text mark of a scene, its groups included.
+fn text_marks(
+    marks: &[avenger_scenegraph::marks::mark::SceneMark],
+) -> Vec<&avenger_scenegraph::marks::text::SceneTextMark> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    let mut found = Vec::new();
+    for mark in marks {
+        match mark {
+            SceneMark::Group(group) => found.extend(text_marks(&group.marks)),
+            SceneMark::Text(text) => found.push(text.as_ref()),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// `max-width`, `white-space`, `max-lines`, `text-overflow`, and `line-height` lay out the
+/// labels and the titles of the guides as they lay out text marks, and the layout makes room for
+/// the text as it draws.
+#[test]
+fn the_labels_and_titles_of_guides_lay_out_in_their_text_box() {
+    let bars = CartesianLayer::bar(
+        labels(),
+        BarMark::builder().x("width").y("name").color("name"),
+    );
+    let plot = Plot::cartesian([bars]).title(
+        Title::builder()
+            .text("Long names, shortened to fit their guides")
+            .subtitle("Each label and title ends in an ellipsis at 80 pixels"),
+    );
+    let chart = Chart::builder(plot).build().unwrap();
+    let css =
+        "label, title, subtitle { max-width: 80px; white-space: nowrap; text-overflow: ellipsis; }";
+    let evaluate_with = |css: &str| {
+        ChartEvaluator::new(chart.clone(), cascade_with(css), engine(), Registry::new())
+            .unwrap()
+            .evaluate(&host([480.0, 300.0]))
+            .unwrap()
+    };
+    let plain = evaluate_with("");
+    let boxed = evaluate_with(css);
+    assert_image(&boxed, "guide-text-boxes");
+    let marks = text_marks(&boxed.scene.marks);
+    assert!(!marks.is_empty());
+    for mark in marks {
+        assert_eq!(
+            mark.width.as_vec(1, None)[0],
+            avenger_typst_label::LabelWidth::Max(80.0),
+            "{:?}",
+            mark.text
+        );
+        assert!(mark.ellipsis && !mark.wrap, "{:?}", mark.text);
+    }
+    // The y axis's labels, cut to 80 pixels, leave the plot more of the width.
+    assert!(
+        boxed.plots[0].rect[0] < plain.plots[0].rect[0],
+        "{:?} {:?}",
+        boxed.plots[0].rect,
+        plain.plots[0].rect
+    );
+
+    // Wrapped lines at a fixed line height take two lines' room.
+    let wrapped = evaluate_with("label { max-width: 80px; max-lines: 2; line-height: 20px; }");
+    let label = (text_marks(&wrapped.scene.marks).into_iter())
+        .find(|mark| {
+            mark.text
+                .as_vec(mark.len as usize, None)
+                .iter()
+                .any(|text| text.starts_with("A label of"))
+        })
+        .expect("the y axis's labels");
+    assert!(label.wrap);
+    assert_eq!(label.max_lines.map(|lines| lines.get()), Some(2));
+    assert_eq!(
+        label.line_height.as_vec(1, None)[0],
+        avenger_typst_label::LabelLineHeight::Fixed(20.0)
+    );
+}

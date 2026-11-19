@@ -318,8 +318,12 @@ impl SelectorElement for NodeRef<'_> {
         _context: &mut MatchingContext<Selectors>,
     ) -> bool {
         match pseudo_class {
-            // No node has keyboard focus until the accessibility tree gives focus to one.
-            PseudoClass::FocusVisible => false,
+            // A rule with `:focus-visible` sets only outline properties, and the pseudo-class
+            // stands only in the last compound of its selector, so a node that can have focus
+            // differs from its focused self in its outline alone. Every such node matches: its
+            // outline is the ring that it draws while it has focus, and nothing restyles when
+            // focus moves.
+            PseudoClass::FocusVisible => self.data().element.can_focus(),
         }
     }
 

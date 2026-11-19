@@ -7,7 +7,7 @@ pub mod label_variant;
 pub mod legend;
 pub mod title;
 
-pub use guide::{BackgroundStyle, GuideSide, PartExtent};
+pub use guide::{BackgroundStyle, GuideSide, PartExtent, TextBox};
 
 /// The bundled fonts with D3 number and datetime formatting, in UTC.
 #[cfg(test)]

@@ -25,7 +25,7 @@ use super::{
     marks::{LabelRow, Labels, Separators, TEXT_MARGIN},
     opts::{AxisConfig, AxisStyle},
 };
-use crate::error::AvengerGuidesError;
+use crate::{error::AvengerGuidesError, TextBox};
 
 /// The space between adjacent levels' label rows.
 const LEVEL_GAP: f32 = 8.0;
@@ -185,6 +185,7 @@ fn nested_axis_level_label_layouts(
         let extent = level_label_cross_extent(
             &level_labels[level],
             &style,
+            &axis_style.label_box,
             syntax,
             angle,
             is_vertical,
@@ -217,6 +218,7 @@ fn level_label_angle(
 fn level_label_cross_extent(
     labels: &[String],
     style: &TextStyle,
+    text_box: &TextBox,
     syntax: TextSyntaxMode,
     angle: f32,
     is_vertical: bool,
@@ -227,10 +229,10 @@ fn level_label_cross_extent(
         let bounds = text_engine.bounds(&text_label(
             label,
             syntax,
-            LabelOptions {
+            text_box.options(LabelOptions {
                 text: style.clone(),
                 ..Default::default()
-            },
+            }),
         ))?;
         max_width = max_width.max(bounds.width);
         max_height = max_height.max(bounds.height);

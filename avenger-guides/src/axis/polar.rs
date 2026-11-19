@@ -1178,7 +1178,8 @@ fn label_text(labels: &Labels, placed: &PlacedLabels, style: &AxisStyle) -> Scen
         ScalarOrArray::new_array(placed.iter().map(|(_, shape)| pick(shape)).collect())
     }
     let shapes = placed.shapes();
-    let text = SceneTextMark {
+    // The box again, so that the lines align as the labels do.
+    let text = style.label_box.mark(SceneTextMark {
         name: "labels".to_string(),
         len: shapes.len() as u32,
         text: ScalarOrArray::new_array(
@@ -1190,7 +1191,7 @@ fn label_text(labels: &Labels, placed: &PlacedLabels, style: &AxisStyle) -> Scen
         text_syntax: labels.syntax,
         align: TextAlign::Center.into(),
         ..label_font(style)
-    };
+    });
     match placed {
         PlacedLabels::Straight(straight) => SceneTextMark {
             x: column(straight, |label| label.center[0]),

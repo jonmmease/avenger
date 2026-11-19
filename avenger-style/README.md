@@ -25,7 +25,6 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 |---|---|---|
 | `chart` | The root, and each chart inside a composition. It has one `plot` child. | |
 | `title`, `subtitle` | The title and the subtitle of a chart, or the title of a guide | |
-| `footer`, `description` | Texts of a chart | |
 | `plot` | The coordinate system of a chart, or the layout of a composition | `type`, `projection`, `discrete` |
 | `mark` | The marks of a layer, or the box or the lasso that a selection tool draws | `type`, `store` |
 | `axis` | An axis | `channel`, `scale`, `kind` |
@@ -34,10 +33,9 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `scale` | A scale, which is not drawn | `type`, `channel`, `kind`, `marks` |
 | `attribution` | The credits of a plot's sources | |
 | `graticule` | The graticule of a geo plot | |
-| `level` | A level of the axis of a nested band scale | |
-| `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule, and the labels of marks | |
+| `level` | A level of the axis of a nested band scale. The `label` of a level shows or hides the level's labels, which draw in the font and the text box of the axis's `label`. | |
+| `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
-| `item`, `group`, `entry` | Virtual nodes: a mark item, a group of items, and a legend entry | |
 | `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
 | `track`, `thumb`, `readout` | The parts of a slider: its track, its thumbs, and the readout of its value | |
 | `other` | The variant of its parent for the Other group of a lump: under a `mark`, the marks of the Other rows, and under the `label` of an axis or a legend, the Other label. Every property applies to it, and it keeps each value of its parent that no declaration changes. | |
@@ -76,7 +74,9 @@ The language supports these selectors:
 
 A selector that names an element outside the style tree is an error, as is an attribute that the element does not have, or an attribute that no element has when the compound selector names no element. Element names and attribute names are case-sensitive. A class or an id that is not a CSS identifier needs CSS escapes, such as `#\31 st` for the id `1st`.
 
-`:focus-visible` is valid only in the last compound selector of a rule, outside `:not()` and `:has()`, and only on the elements that keyboard focus reaches: `chart`, `axis`, `legend`, `mark`, `entry`, `group`, and `item`. A rule with `:focus-visible` sets only the outline properties, and the outline properties apply only through `:focus-visible`. Every selector of a rule, and every alternative of an `:is()` or a `:where()` in its last compound, ends with `:focus-visible`, or none does, so a list such as `mark:focus-visible, axis` is an error. The checks of elements, attributes, and focus apply to each alternative of `:is()` and `:where()` with the rest of its compound selector, and to a nested rule with its parent in place of `&`, so `title { &:focus-visible { ... } }` is an error, as `title:focus-visible` is. A virtual node has no attributes, classes, or id, so a selector matches it only as `item:focus-visible`, `group:focus-visible`, or `entry:focus-visible`.
+`:focus-visible` styles the focus ring that a widget draws around its control while Tab gives it keyboard focus. It is valid only on `widget`, the one element that keyboard focus reaches, and only in the last compound selector of a rule, outside `:not()` and `:has()`. A rule with `:focus-visible` sets only the outline properties, and the outline properties apply only through `:focus-visible`. Every selector of a rule, and every alternative of an `:is()` or a `:where()` in its last compound, ends with `:focus-visible`, or none does, so a list such as `widget:focus-visible, axis` is an error. So a widget with focus differs from itself without focus in its outline alone, and the cascade computes each widget's outline once, as the ring that it draws while it has focus: nothing restyles when focus moves.
+
+The checks of elements, attributes, and focus apply to each alternative of `:is()` and `:where()` with the rest of its compound selector, and to a nested rule with its parent in place of `&`, so `title { &[type=bar] { ... } }` is an error, as `title[type=bar]` is, and so is `title { &:focus-visible { ... } }`.
 
 The language does not support pseudo-elements, `:empty`, interaction pseudo-classes such as `:hover`, `:active`, and `:focus`, other pseudo-classes such as `:link` or `:checked`, or namespaces. An unsupported pseudo-class is an error with a hint: `:focus` suggests `:focus-visible`, and `:hover` suggests styling the marks of a selection with a selection condition.
 
@@ -106,7 +106,7 @@ The lengths are `px`, `rem`, and `em`. A number without a unit is a number of pi
 
 Colors are the named colors, `transparent`, hexadecimal colors, `rgb()`, `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`, `color(srgb ...)`, `currentColor`, the system colors `Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, and `LinkText`, `color-mix()` in `srgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, or `oklch` with a hue interpolation method, and `contrast-color()`. The components of a color can be `calc()` expressions. A component or an alpha written as `none` is missing, and it draws as zero. `color-mix()` takes the other color's value for a missing component, also when the mix converts the color to another space, for the components of the same kind, such as the hues of `hsl()` and `oklch()`. Colors are normalized as CSS Color 4 specifies: the chroma of `lch()` and `oklch()` and the saturation of `hsl()` are at least zero, the lightness of `lab()`, `lch()`, `oklab()`, and `oklch()` is within its range, the channels of `rgb()` are from 0 to 255, and in its comma syntax they are all numbers or all percentages, and the alpha is from 0 to 1.
 
-The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline`, `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
+The shorthands are `padding` (one to four lengths, and with one number the paddings of a band or point scale), `border`, `outline` (a width, `none` or `solid`, and a color), `gap` (one length, or two for rows and then columns), `contain-intrinsic-size` (`none`, or one length, or two for the width and then the height), and `all`, which takes only a CSS-wide keyword.
 
 ## Properties
 
@@ -115,14 +115,9 @@ The language has the properties of this table. A declaration on a node whose ele
 The initial values of the table hold on every node except these, where they depend on the node:
 
 - `orient`: `left` on an axis of `y` or `radius`, `right` on a legend, and `top` on a facet, a title, and a widget
-- `direction`: `horizontal` on a legend at the top or the bottom
-- `axes`: `outer` on a facet
 - `columns`: `none` on an `hconcat`
-- `max-lines`: `none` on a mark and a description, and `display`: `none` on a description
-- `label-position`: `top` on a symbol mark
 - `size`: `11` on a text mark, and `stroke-width`: `2` on a line mark
 - `label-overlap`: `greedy` on the axis of a log scale, and `parity` on the axis of a sequential or a diverging scale
-- `label-flush`: `true` on an x axis of a sequential or a diverging scale
 - `padding-outer`: `0.5` on a point scale
 
 <!-- properties -->
@@ -142,106 +137,77 @@ The initial values of the table hold on every node except these, where they depe
 | `max-columns` | `<integer [1,∞]> \| none` | `none` | no | `plot` |
 | `min-column-width` | `<length [0,∞]> \| auto` | `auto` | no | `plot` |
 | `align` | `true \| false \| auto \| left \| center \| right` | `auto` | no | `plot`, `mark` |
-| `axes` | `outer \| each` | `each` | no | `plot` |
 | `row-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
 | `column-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
-| `color` | `<color>` | `black` | yes | every node |
+| `color` | `<color>` | `black` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `scale`, `attribution`, `graticule`, `label`, `tick`, `rule`, `grid`, `widget`, `track`, `thumb`, `readout` |
 | `accent-color` | `auto \| <color>` | `auto` | yes | `widget`, `track`, `thumb` |
-| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp`, `track`, `thumb`, `readout` |
-| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `footer`, `description`, `attribution`, `label`, `tick`, `rule`, `grid`, `swatch`, `ramp`, `track`, `thumb`, `readout` |
+| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `attribution`, `label`, `track`, `thumb`, `readout` |
+| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `tick`, `rule`, `grid`, `track`, `thumb` |
 | `opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `fill-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-width` | `<length [0,∞]>` | `1` | no | `mark`, `tick`, `rule`, `grid` |
 | `stroke-dash` | `none \| <length>+` | `none` | no | `mark`, `tick`, `rule`, `grid` |
-| `stroke-dashoffset` | `<length>` | `0` | no | `mark` |
 | `stroke-linecap` | `butt \| round \| square` | `butt` | no | `mark` |
 | `stroke-linejoin` | `miter \| round \| bevel` | `miter` | no | `mark` |
-| `stroke-miterlimit` | `<number [1,∞]>` | `4` | no | `mark` |
 | `shape` | `<shape>` | `circle` | no | `mark`, `swatch` |
 | `angle` | `<angle>` | `0` | no | `mark`, `title`, `axis` |
 | `size` | `<number [0,∞]> \| <percentage>` | `30` | no | `mark` |
 | `continuous-size` | `<length [0,∞]>` | `5` | no | `mark` |
 | `bin-spacing` | `<length [0,∞]>` | `0` | no | `mark` |
 | `band-position` | `<number [0,1]>` | `0.5` | no | `mark`, `axis` |
-| `band-padding` | `<number [0,1]>` | `0` | no | `mark` |
 | `corner-radius` | `<length [0,∞]>` | `0` | no | `mark` |
-| `corner-radius-end` | `<length [0,∞]> \| auto` | `auto` | no | `mark` |
-| `corner-radius-top-left` | `<length [0,∞]> \| auto` | `auto` | no | `mark` |
-| `corner-radius-top-right` | `<length [0,∞]> \| auto` | `auto` | no | `mark` |
-| `corner-radius-bottom-left` | `<length [0,∞]> \| auto` | `auto` | no | `mark` |
-| `corner-radius-bottom-right` | `<length [0,∞]> \| auto` | `auto` | no | `mark` |
 | `pad-angle` | `<angle>` | `0` | no | `mark` |
-| `dx` | `<length>` | `0` | no | `mark` |
-| `dy` | `<length>` | `0` | no | `mark` |
-| `dx2` | `<length>` | `0` | no | `mark` |
-| `dy2` | `<length>` | `0` | no | `mark` |
-| `d-radius` | `<length>` | `0` | no | `mark` |
-| `d-theta` | `<angle>` | `0` | no | `mark` |
 | `inset` | `<length [0,∞]>` | `0` | no | `mark` |
 | `baseline` | `top \| middle \| bottom \| alphabetic \| line-top \| line-bottom` | `middle` | no | `mark` |
 | `width-mode` | `max \| fixed` | `max` | no | `mark` |
-| `white-space` | `normal \| nowrap` | `normal` | no | `mark` |
-| `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark` |
+| `white-space` | `normal \| nowrap` | `normal` | no | `mark`, `title`, `subtitle`, `label` |
+| `text-overflow` | `clip \| ellipsis` | `clip` | no | `mark`, `title`, `subtitle`, `label` |
 | `radius-side` | `outward \| middle \| inward` | `outward` | no | `mark` |
 | `theta-side` | `clockwise \| middle \| counterclockwise` | `middle` | no | `mark` |
 | `text-orient` | `horizontal \| radial \| tangential` | `horizontal` | no | `mark` |
 | `object-fit` | `contain \| fill` | `contain` | no | `mark` |
 | `image-rendering` | `auto \| smooth \| pixelated` | `auto` | no | `mark` |
 | `pattern` | `none \| <pattern>` | `none` | no | `mark`, `swatch` |
-| `font-size` | `<length [0,∞]>` | `1rem` | yes | every node |
-| `font-weight` | `normal \| bold \| <number [1,1000]>` | `normal` | yes | every node |
-| `font-family` | `<family-name>#` | `sans-serif` | yes | every node |
-| `font-style` | `normal \| italic` | `normal` | yes | every node |
-| `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | every node |
-| `max-width` | `<length [0,∞]> \| none` | `none` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
-| `max-lines` | `<integer [1,∞]> \| none` | `1` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
-| `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
-| `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `title`, `subtitle`, `footer`, `description`, `label`, `mark`, `attribution`, `readout` |
-| `title-frame` | `plot \| chart` | `chart` | no | `chart` |
+| `font-size` | `<length [0,∞]>` | `1rem` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
+| `font-weight` | `normal \| bold \| <number [1,1000]>` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
+| `font-family` | `<family-name>#` | `sans-serif` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
+| `font-style` | `normal \| italic` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `widget`, `readout` |
+| `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | `chart`, `plot`, `mark`, `axis`, `legend`, `facet`, `graticule`, `title`, `subtitle`, `label` |
+| `max-width` | `<length [0,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
+| `max-lines` | `<integer [1,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
+| `text-align` | `start \| center \| end \| auto` | `auto` | no | `title`, `label`, `attribution` |
+| `vertical-align` | `top \| middle \| bottom \| alphabetic \| auto` | `auto` | no | `label` |
 | `label-angle` | `<angle> \| auto` | `0` | no | `axis`, `facet`, `legend`, `level` |
 | `orient` | `top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right` | `bottom` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
 | `label-orient` | `top \| bottom \| left \| right \| radial \| tangential` | `top` | no | `facet`, `axis` |
-| `title-orient` | `top \| bottom \| left \| right` | `top` | no | `facet` |
-| `direction` | `horizontal \| vertical` | `vertical` | no | `legend` |
 | `wrap` | `flow \| grid` | `flow` | no | `legend` |
 | `tick-count` | `<number [0,∞]> \| auto` | `auto` | no | `axis`, `legend` |
 | `tick-spacing` | `<length [0,∞]> \| auto` | `auto` | no | `axis` |
 | `thin-ticks` | `true \| false` | `false` | no | `axis` |
 | `max-entries` | `<integer [2,∞]> \| none` | `none` | no | `legend` |
 | `tick-size` | `<length [0,∞]>` | `5` | no | `tick` |
-| `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `facet`, `graticule`, `mark` |
+| `label-padding` | `<length>` | `2` | no | `axis`, `legend`, `facet`, `graticule` |
 | `title-padding` | `<length>` | `4` | no | `axis`, `legend`, `facet` |
 | `offset` | `<length>` | `0` | no | `axis`, `legend`, `facet`, `title`, `attribution`, `widget` |
-| `label-offset` | `<length>` | `0` | no | `axis`, `mark` |
-| `min-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
-| `max-extent` | `<length [0,∞]> \| none` | `none` | no | `axis` |
 | `thickness` | `<length [0,∞]>` | `16` | no | `ramp` |
 | `length` | `<length [0,∞]> \| auto` | `auto` | no | `ramp` |
 | `max-length` | `<length [0,∞]> \| none` | `none` | no | `ramp` |
 | `axis-gap` | `<length [0,∞]>` | `0` | no | `legend` |
-| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `legend`, `mark` |
-| `label-separation` | `<length [0,∞]>` | `0` | no | `axis` |
-| `label-flush` | `true \| false \| <length [0,∞]>` | `false` | no | `axis` |
-| `tick-band` | `center \| extent` | `center` | no | `axis` |
-| `z-index` | `<integer [0,∞]>` | `0` | no | `axis` |
+| `label-overlap` | `none \| parity \| greedy` | `none` | no | `axis`, `legend` |
 | `separator` | `<string>` | `" · "` | no | `attribution` |
 | `separator-space` | `<length [0,∞]>` | `4` | no | `attribution` |
 | `line-gap` | `<length [0,∞]>` | `2` | no | `attribution` |
-| `label-position` | `[inside \| inside-start \| inside-end \| outside \| middle \| top \| bottom \| left \| right \| top-left \| top-right \| bottom-left \| bottom-right]+` | `inside` | no | `mark` |
-| `label-overflow` | `hide \| outside \| shrink \| show` | `show` | no | `mark` |
-| `label-avoid` | `labels \| marks` | `labels` | no | `mark` |
-| `label-min-font-size` | `<length [0,∞]>` | `0.7rem` | no | `mark` |
 | `background` | `<color>` | `transparent` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-width` | `<length [0,∞]>` | `1` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-color` | `<color>` | `currentColor` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
 | `border-radius` | `<length [0,∞]>` | `0` | no | `chart`, `plot`, `legend`, `attribution`, `widget` |
+| `outline-width` | `<length [0,∞]>` | `2` | no | `widget` |
+| `outline-style` | `auto \| none \| solid` | `auto` | no | `widget` |
+| `outline-color` | `auto \| <color>` | `auto` | no | `widget` |
+| `outline-offset` | `<length>` | `2` | no | `widget` |
 | `display` | `none \| block \| inline \| inline-block \| flex \| inline-flex \| grid \| inline-grid \| contents \| flow-root \| list-item \| table` | `block` | no | every node |
-| `outline-width` | `<length [0,∞]>` | `3` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
-| `outline-style` | `none \| solid \| dashed \| dotted` | `none` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
-| `outline-color` | `<color>` | `currentColor` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
-| `outline-offset` | `<length>` | `0` | no | `chart`, `axis`, `legend`, `mark`, `entry`, `group`, `item`, `widget` |
 | `forced-color-adjust` | `auto \| none` | `auto` | yes | every node |
 | `scheme` | `auto \| <palette-name> <integer>? reverse?` | `auto` | no | `scale` |
 | `range` | `auto \| <output>#` | `auto` | no | `scale` |
@@ -292,7 +258,7 @@ A property without a declaration takes the value of the parent when it is inheri
 
 A custom property computes at the node that declares it, with the custom properties of that node and the `env()` values of its own stylesheet, and the children inherit the computed value. So `--b: var(--a)` on a plot keeps the plot's `--a` in the marks below it, also when a mark declares its own `--a`. Custom properties that refer to each other in a cycle, also through a fallback, are invalid, and an invalid custom property has no value, so a `var()` of it takes its fallback. `initial` removes an inherited custom property, and `inherit` and `unset` keep it. `1rem` is 10 pixels times the text scale, and `em` is the font size of the node, or of its parent for `font-size`. `currentColor` is the `color` of the node, or of its parent for `color`. A node that inherits a color that reads `currentColor`, such as `fill: currentColor` or a `color-mix()` of it, resolves it against its own `color`, as CSS Color 4 specifies.
 
-`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark, a text, a swatch, or a ramp, `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line, and the `fill` of the label of a mark contrasts with the mark that it labels. Other nodes paint nothing with `auto`. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
+`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark or a text, and `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line. Other nodes paint nothing with `auto`. `outline-style: auto` and `outline-color: auto` keep the focus ring of the widget's own style, a solid ring in its focus color, and `outline-style: none` draws no ring. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
 
 `ComputedStyles::needs_update` tells whether a render at new host inputs needs new styles: when the preferences or the host theme change, or when a condition changes its outcome. A resize within a breakpoint keeps the styles, so a renderer computes them again only when the host box crosses a breakpoint. Two `StyleTree`s are equal when their nodes have the same elements, ids, classes, attributes, inline styles, and places, so a renderer that builds the tree of an updated chart keeps the old computed styles when the trees are equal and the cascade and the host inputs are the same. On the tree of `examples/cascade_bench.rs`, the comparison takes about 1% of the time of `Cascade::compute`.
 

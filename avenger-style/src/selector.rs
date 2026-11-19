@@ -286,11 +286,11 @@ fn pseudo_class_message(name: &str) -> (String, Option<String>) {
 
 /// Checks each selector of `list` against the vocabulary of the style tree: element names,
 /// attribute names, the structural pseudo-classes that the style tree supports, and the rules of
-/// `:focus-visible` and of virtual nodes. A compound selector is checked once for each
-/// alternative of its `:is()` and `:where()` arguments, with their requirements, so
-/// `:is(title):focus-visible` is checked as `title:focus-visible`. Returns whether the selectors
-/// match only nodes with keyboard focus, or the first problem. Either every selector of the list,
-/// and every alternative of each, ends with `:focus-visible`, or none does.
+/// `:focus-visible`. A compound selector is checked once for each alternative of its `:is()` and
+/// `:where()` arguments, with their requirements, so `:is(title):focus-visible` is checked as
+/// `title:focus-visible`. Returns whether the selectors match only nodes with keyboard focus, or
+/// the first problem. Either every selector of the list, and every alternative of each, ends with
+/// `:focus-visible`, or none does.
 pub(crate) fn check_list(list: &SelectorList<Selectors>) -> Result<bool, Problem> {
     let mut focus = None;
     for selector in list.slice() {
@@ -326,8 +326,6 @@ struct Facts {
     element: Option<Element>,
     focus_visible: bool,
     attributes: Vec<String>,
-    /// Whether it has a class, an id, or a pseudo-class other than `:focus-visible`.
-    other: bool,
 }
 
 impl Facts {
@@ -340,7 +338,6 @@ impl Facts {
                 .chain(&other.attributes)
                 .cloned()
                 .collect(),
-            other: self.other || other.other,
         }
     }
 }
@@ -389,8 +386,7 @@ fn compound_facts(
                     Element::from_name(&name.name.0).ok_or_else(|| unknown(&name.name.0))?;
                 own.element = Some(element);
             }
-            Component::ExplicitUniversalType => {}
-            Component::ID(_) | Component::Class(_) => own.other = true,
+            Component::ExplicitUniversalType | Component::ID(_) | Component::Class(_) => {}
             Component::AttributeInNoNamespaceExists { local_name, .. }
             | Component::AttributeInNoNamespace { local_name, .. } => {
                 own.attributes.push(local_name.0.clone());
@@ -406,15 +402,13 @@ fn compound_facts(
                 }
                 own.focus_visible = true;
             }
-            Component::Root | Component::Nth(_) => own.other = true,
+            Component::Root | Component::Nth(_) => {}
             Component::NthOf(nth) => {
-                own.other = true;
                 for selector in nth.selectors() {
                     check_selector(selector, Context::Inner, true)?;
                 }
             }
             Component::Negation(list) => {
-                own.other = true;
                 for selector in list.slice() {
                     check_selector(selector, Context::Inner, true)?;
                 }
@@ -427,7 +421,6 @@ fn compound_facts(
                 arguments.push(alternatives);
             }
             Component::Has(relatives) => {
-                own.other = true;
                 for relative in relatives.iter() {
                     check_selector(&relative.selector, Context::Inner, true)?;
                 }
@@ -460,32 +453,15 @@ fn check_facts(facts: &Facts) -> Result<(), Problem> {
         return Ok(());
     };
     for attribute in &facts.attributes {
-        if element.is_virtual() {
-            return Err(Problem::new(format!(
-                "the virtual node `{element}` has no attributes"
-            )));
-        }
         if !element.has_attribute(attribute) {
             return Err(Problem::new(format!(
                 "the element `{element}` has no attribute `{attribute}`"
             )));
         }
     }
-    if element.is_virtual() {
-        if !facts.focus_visible {
-            return Err(Problem::new(format!(
-                "`{element}` is a virtual node; select it with {element}:focus-visible"
-            )));
-        }
-        if facts.other {
-            return Err(Problem::new(format!(
-                "the virtual node `{element}` takes no selector other than :focus-visible"
-            )));
-        }
-    }
     if facts.focus_visible && !element.can_focus() {
         return Err(Problem::new(format!(
-            "`{element}` cannot have focus; :focus-visible is valid on chart, axis, legend, mark, entry, group, and item"
+            "`{element}` cannot have focus; :focus-visible is valid on widget"
         )));
     }
     Ok(())

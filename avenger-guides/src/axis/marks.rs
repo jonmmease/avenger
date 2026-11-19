@@ -158,16 +158,17 @@ fn placement(side: GuideSide, angle: f32, style: &AxisStyle) -> (TextAlign, Text
     (align, baseline, shift)
 }
 
-/// A text mark in the style's label font, with nothing else set.
+/// A text mark in the style's label font and label box, with nothing else set, which both
+/// measures the labels and draws them.
 pub(crate) fn label_font(style: &AxisStyle) -> SceneTextMark {
-    SceneTextMark {
+    style.label_box.mark(SceneTextMark {
         clip: false,
         color: style.label_color.into(),
         font: style.label_font_family.clone().into(),
         font_size: style.label_font_size.into(),
         font_weight: style.label_font_weight.into(),
         ..Default::default()
-    }
+    })
 }
 
 /// The four corners of a box laid out from `anchor`, turned `angle` degrees clockwise about it,
@@ -272,7 +273,8 @@ pub(crate) fn label_mark(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> 
         .iter()
         .map(|position| side.point(position - shift, row.distance))
         .collect();
-    SceneTextMark {
+    // The box again, so that the lines align as the labels do.
+    style.label_box.mark(SceneTextMark {
         len: row.labels.text.len() as u32,
         text: ScalarOrArray::new_array(row.labels.text.clone()),
         x: ScalarOrArray::new_array(anchors.iter().map(|anchor| anchor[0]).collect()),
@@ -282,7 +284,7 @@ pub(crate) fn label_mark(row: &LabelRow, side: GuideSide, style: &AxisStyle) -> 
         angle: row.angle.into(),
         text_syntax: row.labels.syntax,
         ..label_font(style)
-    }
+    })
 }
 
 /// The box of each label of `row` as it draws, or `None` for a label that draws nothing.
@@ -440,7 +442,7 @@ pub(crate) fn title_mark(
     style: &AxisStyle,
 ) -> SceneTextMark {
     let (anchor, baseline, angle) = title_placement(length, margin, side);
-    SceneTextMark {
+    style.title_box.mark(SceneTextMark {
         clip: false,
         len: 1,
         text: text.to_string().into(),
@@ -455,7 +457,7 @@ pub(crate) fn title_mark(
         font_weight: style.title_font_weight.into(),
         text_syntax: style.title_syntax,
         ..Default::default()
-    }
+    })
 }
 
 /// How far the title reaches on a part of `length`.

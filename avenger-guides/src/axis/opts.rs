@@ -2,7 +2,7 @@ use arrow::array::ArrayRef;
 use avenger_common::types::{FontWeight, TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_typst_label::LabelValues;
 
-use crate::{label_variant::LabelVariant, GuideSide};
+use crate::{label_variant::LabelVariant, GuideSide, TextBox};
 
 /// What an axis shows and how it looks, at any length.
 #[derive(Debug, Clone)]
@@ -80,12 +80,16 @@ pub struct AxisStyle {
     pub label_font_family: String,
     pub label_font_size: f32,
     pub label_font_weight: FontWeight,
+    /// The box that each label lays out its lines in.
+    pub label_box: TextBox,
     pub title_visible: bool,
     pub title_syntax: TextSyntaxMode,
     pub title_color: [f32; 4],
     pub title_font_family: String,
     pub title_font_size: f32,
     pub title_font_weight: FontWeight,
+    /// The box that the title lays out its lines in.
+    pub title_box: TextBox,
     pub domain_color: [f32; 4],
     pub grid_color: [f32; 4],
     pub grid_width: f32,
@@ -112,12 +116,14 @@ impl Default for AxisStyle {
             label_font_family: "sans-serif".to_string(),
             label_font_size: 12.0,
             label_font_weight: FontWeight::default(),
+            label_box: TextBox::default(),
             title_visible: true,
             title_syntax: TextSyntaxMode::default(),
             title_color: BLACK,
             title_font_family: "sans-serif".to_string(),
             title_font_size: 12.0,
             title_font_weight: FontWeight::default(),
+            title_box: TextBox::default(),
             domain_color: BLACK,
             // #E0E0E0 at half opacity
             grid_color: [0.878, 0.878, 0.878, 0.5],

@@ -136,6 +136,7 @@ impl Colorbar {
                 weight: style.title_font_weight,
                 color: style.title_color,
                 syntax: style.title_syntax,
+                text_box: style.title_box,
             };
             Some(make_title(title, &font, engine)?)
         } else {

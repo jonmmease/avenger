@@ -628,9 +628,7 @@ impl<'a> LayerRows<'a> {
         }
         let painted = |paint: Paint| match paint {
             Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                ColorOrGradient::Color(color)
-            }
+            Paint::Color(color) => ColorOrGradient::Color(color),
         };
         for (variant, node) in self.variants.nodes() {
             let Some(rows) = self.styled_rows(variant, channel) else {
@@ -670,9 +668,7 @@ impl<'a> LayerRows<'a> {
         }
         let painted = |paint: Paint| match paint {
             Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                ColorOrGradient::Color(color)
-            }
+            Paint::Color(color) => ColorOrGradient::Color(color),
         };
         let reads_color = matches!(
             self.style.get(property),
@@ -711,9 +707,7 @@ impl<'a> LayerRows<'a> {
         let color = style.color(Property::Color).unwrap_or([0.0, 0.0, 0.0, 1.0]);
         match self.styles.paint_with(node, property, color) {
             Paint::None => ColorOrGradient::transparent(),
-            Paint::Color(color) | Paint::Contrast { otherwise: color } => {
-                ColorOrGradient::Color(color)
-            }
+            Paint::Color(color) => ColorOrGradient::Color(color),
         }
     }
 
