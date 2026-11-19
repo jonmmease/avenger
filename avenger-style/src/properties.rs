@@ -41,6 +41,7 @@ const NODES: &[Element] = &[
     Scale,
     Attribution,
     Graticule,
+    Sphere,
     Level,
     Label,
     Tick,
@@ -49,7 +50,7 @@ const NODES: &[Element] = &[
     Swatch,
     Ramp,
     Widget,
-    Track,
+    Rail,
     Thumb,
     Readout,
 ];
@@ -71,8 +72,6 @@ const COLORED: &[Element] = &[
     Rule,
     Grid,
     Widget,
-    Track,
-    Thumb,
     Readout,
 ];
 /// The nodes that draw text, and the nodes above them, which pass a font to them.
@@ -92,7 +91,7 @@ const FONTED: &[Element] = &[
     Readout,
 ];
 /// The nodes that draw text in a style of their own, and the nodes above them.
-const STYLED_TEXTS: &[Element] = &[Chart, Title, Subtitle, Plot, Mark, Widget, Readout];
+const STYLED_TEXTS: &[Element] = &[Chart, Title, Subtitle, Plot, Mark, Label, Widget, Readout];
 /// The nodes that lay out text in a box of their own: text marks, and the labels and titles of
 /// guides.
 const TEXT_BOXES: &[Element] = &[Mark, Title, Subtitle, Label];
@@ -103,16 +102,17 @@ const FILLED: &[Element] = &[
     Subtitle,
     Attribution,
     Label,
-    Track,
+    Sphere,
+    Rail,
     Thumb,
     Readout,
 ];
 /// The nodes that stroke a line or an outline.
-const STROKED: &[Element] = &[Mark, Tick, Rule, Grid, Track, Thumb];
+const STROKED: &[Element] = &[Mark, Tick, Rule, Grid, Sphere, Thumb];
 const LINES: &[Element] = &[Mark, Tick, Rule, Grid];
+/// The lines and the outline of a geo plot's sphere.
+const OUTLINES: &[Element] = &[Mark, Tick, Rule, Grid, Sphere];
 const BOXES: &[Element] = &[Chart, Plot, Legend, Attribution, Widget];
-/// A widget and the parts of its control.
-const WIDGET: &[Element] = &[Widget, Track, Thumb];
 /// The nodes that can have keyboard focus, which draw a focus ring.
 const FOCUS: &[Element] = &[Widget];
 const MARK: &[Element] = &[Mark];
@@ -224,13 +224,13 @@ properties! {
 
     // Paint and marks.
     Color = "color", true, Syntax::Color, "black", COLORED;
-    AccentColor = "accent-color", true, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", WIDGET;
+    AccentColor = "accent-color", true, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", &[Widget];
     Fill = "fill", true, PAINT, "auto", FILLED;
     Stroke = "stroke", true, PAINT, "auto", STROKED;
     Opacity = "opacity", false, UNIT, "1", MARK;
     FillOpacity = "fill-opacity", false, UNIT, "1", MARK;
     StrokeOpacity = "stroke-opacity", false, UNIT, "1", MARK;
-    StrokeWidth = "stroke-width", false, SIZE, "1", LINES;
+    StrokeWidth = "stroke-width", false, SIZE, "1", OUTLINES;
     StrokeDasharray = "stroke-dasharray", false, Syntax::Any(&[Syntax::Keywords(&["none"]), Syntax::Dash]), "none", LINES;
     StrokeLinecap = "stroke-linecap", false, Syntax::Keywords(&["butt", "round", "square"]), "butt", MARK;
     StrokeLinejoin = "stroke-linejoin", false, Syntax::Keywords(&["miter", "round", "bevel"]), "miter", MARK;

@@ -6,7 +6,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use avenger_common::cursor::CursorIcon;
-use avenger_common::types::{FontStyle, FontWeight, TextBaseline};
+use avenger_common::types::TextBaseline;
 use avenger_eventstream::scene::{SceneComposingEvent, SceneGraphEvent, SceneKeyPressEvent};
 use avenger_eventstream::stream::{Disposition, Rebuild};
 use avenger_eventstream::window::{Key, MouseButton, NamedKey};
@@ -17,7 +17,7 @@ use avenger_scenegraph::marks::text::{text_style, SceneTextMark};
 use avenger_typst_label::{Affinity, LabelError, TextLayout, TextPosition};
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{cover, focus_ring, label_color, rect, Bounds, Text};
+use crate::draw::{cover, focus_ring, rect, Bounds, Text};
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 use edit::{boundary, Edit, Reach};
@@ -108,7 +108,7 @@ impl<State> TextInput<State> {
     fn label_size(&self, cx: &WidgetContext<'_>) -> [f32; 2] {
         match &self.label {
             Some(label) => {
-                let [width, height] = label.size(cx);
+                let [width, height] = label.size(cx, &cx.style.title);
                 [width, height + cx.style.label_gap]
             }
             None => [0.0; 2],
@@ -417,16 +417,17 @@ impl<State: Send + Sync + 'static> Widget<State> for TextInput<State> {
         );
         let shown = Shown::new(&line.text, cx)?;
         let scroll = shown.scroll(line.caret, view.scroll, &parts, cx);
-        let color = label_color(style, look);
         let mut marks: Vec<SceneMark> = Vec::new();
         if let Some(label) = &self.label {
-            label.bounds(cx)?;
+            label.bounds(cx, &style.title)?;
+            let color = style.title.color(look, style.background);
             marks.push(
                 label
-                    .mark("text_input_label", [r.x, r.y], color, style)
+                    .mark("text_input_label", [r.x, r.y], color, &style.title)
                     .into(),
             );
         }
+        let color = style.label.color(look, style.background);
         let field = style.neutral.paint(Look {
             hovered: false,
             pressed: false,
@@ -462,7 +463,14 @@ impl<State: Send + Sync + 'static> Widget<State> for TextInput<State> {
         }
         let text = match (&self.placeholder, line.text.is_empty()) {
             (Some(placeholder), true) => {
-                Some((placeholder.clone(), style.neutral.disabled.foreground))
+                let dimmed = Look {
+                    enabled: false,
+                    ..look
+                };
+                Some((
+                    placeholder.clone(),
+                    style.label.color(dimmed, style.background),
+                ))
             }
             (_, true) => None,
             (_, false) => Some((Text::plain(shown.text.clone()), color)),
@@ -470,7 +478,7 @@ impl<State: Send + Sync + 'static> Widget<State> for TextInput<State> {
         if let Some((text, color)) = text {
             let mark = SceneTextMark {
                 baseline: TextBaseline::Alphabetic.into(),
-                ..text.mark("text", [x - scroll, parts.baseline], color, style)
+                ..text.mark("text", [x - scroll, parts.baseline], color, &style.label)
             };
             marks_in_line.push(mark.into());
         }
@@ -653,7 +661,7 @@ impl<'a> Shown<'a> {
         let text: String = (value.chars())
             .map(|c| if spaced(c) { '\u{a0}' } else { c })
             .collect();
-        let layout = Text::plain(text.clone()).layout(cx)?;
+        let layout = Text::plain(text.clone()).layout(cx, &cx.style.label)?;
         Ok(Self {
             value,
             text,
@@ -747,17 +755,17 @@ fn single_line(text: &str) -> String {
 }
 
 /// The distance from the top of a line of text to its baseline, and the line's height, in the
-/// style's font. Without the font's metrics, both are the font size.
+/// font of the style's labels. Without the font's metrics, both are the font size.
 fn line(cx: &WidgetContext<'_>) -> [f32; 2] {
-    let style = cx.style;
+    let label = &cx.style.label;
     let text = text_style(
-        &style.font_family,
-        style.font_size,
-        FontWeight::NORMAL,
-        FontStyle::Normal,
+        &label.font_family,
+        label.font_size,
+        label.font_weight,
+        label.font_style,
         [0.0; 4],
     );
-    (cx.engine.font_metrics(&text)).map_or([style.font_size; 2], |font| {
+    (cx.engine.font_metrics(&text)).map_or([label.font_size; 2], |font| {
         [font.ascent, font.ascent + font.descent]
     })
 }

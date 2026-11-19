@@ -26,18 +26,19 @@ use avenger_layout::{Direction, Measurement, Rect};
 use avenger_scales::scalar::Scalar;
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_selection::{Clause, Condition, SelectionState};
-use avenger_style::{ComputedStyle, Property};
+use avenger_style::{ComputedStyle, ComputedStyles, NodeId, Property};
 use avenger_typst_label::LabelEngine;
 use avenger_widgets::{
     Checkbox, CheckboxList, CheckboxListState, CheckboxListView, CheckboxState, CheckboxView, Look,
     Paint, Palette, Placed, RadioDirection, RadioGroup, RadioGroupState, RadioGroupView,
-    RangeSlider, RangeSliderState, RangeSliderView, Slider, SliderState, SliderView, Text, Widget,
-    WidgetContext, WidgetError, WidgetEvent, WidgetStyle,
+    RangeSlider, RangeSliderState, RangeSliderView, Slider, SliderState, SliderView, Text,
+    TextStyle, Widget, WidgetContext, WidgetError, WidgetEvent, WidgetStyle,
 };
 
 use crate::{
-    marks::font_family,
-    style::{color as style_color, number as style_number},
+    guides::{paint_color, text_color},
+    marks::{font_family, font_style, font_weight},
+    style::{inline::WidgetNodes, number as style_number},
     EvalError, EvalWarning,
 };
 
@@ -719,40 +720,49 @@ impl<State: Send + Sync + 'static> Widget<State> for Control<State> {
 // ---------------------------------------------------------------------------------------------
 // Preparing and drawing
 
-/// The style of a widget from the computed style of its `widget` node: its font, the color of its
-/// text, with an `accent-color` other than `auto`, the color of its checked and filled parts, and
-/// from its outline, the focus ring that it draws while it has keyboard focus.
-pub(crate) fn widget_style(style: &ComputedStyle) -> WidgetStyle {
-    let mut widget = WidgetStyle {
-        font_family: font_family(style),
-        font_size: style.font_size(),
-        ..WidgetStyle::default()
+/// The style of a widget from the computed styles of its nodes: the font and the color of its
+/// title, the labels of its items, and its readout, from their nodes, or from the `widget` for a
+/// part that its kind does not draw; its rail and its thumbs from theirs; with an
+/// `accent-color` other than `auto` on the `widget`, the color of its checked and filled parts;
+/// and from the outline of the `widget`, the focus ring that it draws while it has keyboard focus.
+pub(crate) fn widget_style(styles: &ComputedStyles, nodes: &WidgetNodes) -> WidgetStyle {
+    let own = WidgetStyle::default();
+    let text = |node: Option<NodeId>| {
+        let style = &styles[node.unwrap_or(nodes.widget)];
+        TextStyle {
+            font_family: font_family(style),
+            font_size: style.font_size(),
+            font_weight: font_weight(style),
+            font_style: font_style(style),
+            color: text_color(style),
+        }
     };
-    let text = style_color(style, Property::Color);
-    for paint in [
-        &mut widget.neutral.normal,
-        &mut widget.neutral.hovered,
-        &mut widget.neutral.pressed,
-    ] {
-        paint.foreground = text;
-    }
-    if let Some(accent) = style.color(Property::AccentColor) {
-        let shade = |amount: f32| {
-            let [r, g, b, a] = accent;
-            [r * amount, g * amount, b * amount, a]
-        };
+    let part = |node: Option<NodeId>, own: &Palette, background| match node {
+        Some(node) => part_palette(own, &styles[node], background),
+        None => own.clone(),
+    };
+    let mut widget = WidgetStyle {
+        title: text(Some(nodes.title)),
+        label: text(nodes.label),
+        readout: text(nodes.readout),
+        rail: part(nodes.rail, &own.rail, own.background),
+        thumb: part(nodes.thumb, &own.thumb, own.background),
+        ..own
+    };
+    if let Some(accent) = styles[nodes.widget].color(Property::AccentColor) {
         widget.accent = Palette::shaded(
             Paint {
                 fill: accent,
                 border: accent,
                 foreground: widget.accent.normal.foreground,
             },
-            shade(0.85),
-            shade(0.72),
+            shade(accent, 0.85),
+            shade(accent, 0.72),
             widget.background,
         );
     }
     // `outline-style: auto` and `outline-color: auto` keep the widget's own ring.
+    let style = &styles[nodes.widget];
     widget.focus_width = match style.keyword(Property::OutlineStyle) {
         Some("none") => 0.0,
         _ => style
@@ -764,6 +774,43 @@ pub(crate) fn widget_style(style: &ComputedStyle) -> WidgetStyle {
         widget.focus_color = color;
     }
     widget
+}
+
+/// `color` darkened by `amount`, as the hovered and the pressed paints of a widget's part shade its
+/// fill.
+fn shade([r, g, b, a]: [f32; 4], amount: f32) -> [f32; 4] {
+    [r * amount, g * amount, b * amount, a]
+}
+
+/// The paint `color` of `property` that a part's computed style declares, or `None` for `auto`,
+/// which keeps the widget's own paint.
+fn declared_paint(style: &ComputedStyle, property: Property) -> Option<[f32; 4]> {
+    match style.keyword(property) {
+        Some("auto") => None,
+        _ => Some(paint_color(style, property)),
+    }
+}
+
+/// The palette of a rail or a thumb from its computed `fill` and `stroke`, where `auto` keeps the
+/// paint of `own`: a fill shades the hovered and the pressed paints, as `accent-color` does, and a
+/// stroke borders every state. The disabled paint blends the normal paint toward `background`.
+fn part_palette(own: &Palette, style: &ComputedStyle, background: [f32; 4]) -> Palette {
+    let fill = declared_paint(style, Property::Fill);
+    // A rail takes no `stroke`, so its stroke is `auto`.
+    let stroke = declared_paint(style, Property::Stroke);
+    if fill.is_none() && stroke.is_none() {
+        return own.clone();
+    }
+    let normal = Paint {
+        fill: fill.unwrap_or(own.normal.fill),
+        border: stroke.unwrap_or(own.normal.border),
+        ..own.normal
+    };
+    let [hovered, pressed] = match fill {
+        Some(fill) => [shade(fill, 0.85), shade(fill, 0.72)],
+        None => [own.hovered.fill, own.pressed.fill],
+    };
+    Palette::shaded(normal, hovered, pressed, background)
 }
 
 /// A widget prepared without a size: its evaluated form without rectangles, where it stands, its
@@ -790,9 +837,9 @@ pub(crate) struct WidgetInputs<'a> {
     pub(crate) chart: &'a Chart,
     pub(crate) resolved: &'a Resolved<'a>,
     pub(crate) drawn: &'a [RecordBatch],
-    /// The computed style of the `widget` node of each group, by its position in
-    /// `Resolved::widgets`.
-    pub(crate) styles: Vec<&'a ComputedStyle>,
+    pub(crate) styles: &'a ComputedStyles,
+    /// The nodes of each group, by its position in `Resolved::widgets`.
+    pub(crate) nodes: &'a [WidgetNodes],
     pub(crate) engine: &'a LabelEngine,
 }
 
@@ -963,7 +1010,8 @@ pub(crate) fn widgets(
 ) -> Vec<PreparedWidget> {
     let mut prepared = Vec::new();
     for (index, group) in inputs.resolved.widgets.iter().enumerate() {
-        let style = inputs.styles[index];
+        let nodes = &inputs.nodes[index];
+        let style = &inputs.styles[nodes.widget];
         if style.is_hidden() {
             continue;
         }
@@ -990,10 +1038,10 @@ pub(crate) fn widgets(
         };
         // A widget without a title takes the name of its column, a mode widget of a toggle takes
         // the toggle's label, and a mode widget of a group has none. A title without a text keeps
-        // that title, and a title that does not show draws none.
+        // that title, and a hidden title draws none.
         let declared = group.widget.title.as_ref();
         let title = match (crate::guides::authored(declared), &target, &spec) {
-            _ if declared.is_some_and(|title| title.show == Some(false)) => Text::plain(""),
+            _ if inputs.styles[nodes.title].is_hidden() => Text::plain(""),
             (Some(title), _, _) => Text::new(
                 title.text.as_str(),
                 crate::guides::title_syntax(Some(title)),
@@ -1013,7 +1061,7 @@ pub(crate) fn widgets(
             target,
             title,
             spec,
-            style: widget_style(style),
+            style: widget_style(inputs.styles, nodes),
             side,
             rects: Vec::new(),
         };

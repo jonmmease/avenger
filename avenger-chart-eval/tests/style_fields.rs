@@ -803,7 +803,8 @@ const CONTENT: &[(&str, &[&str])] = &[
 /// The fields of messages that the evaluator maps, which only a later evaluator PR draws.
 const DEFERRED_FIELDS: &[(&str, &[&str])] = &[];
 
-/// The messages that a later evaluator PR maps, whose nodes PR 1 does not build.
+/// The messages that the test does not classify field by field: the widgets, whose style fields are
+/// their `Title` and `Labels`, which the evaluator maps as those messages.
 const DEFERRED: &[(&str, &[&str])] = &[(
     "PR 7, widgets",
     &[

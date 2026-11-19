@@ -24,7 +24,8 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | Element | Node | Attributes |
 |---|---|---|
 | `chart` | The root, and each chart inside a composition. It has one `plot` child. | |
-| `title`, `subtitle` | The title and the subtitle of a chart, or the title of a guide | |
+| `title` | The title of a chart, a guide, or a widget | |
+| `subtitle` | The subtitle of a chart's title, below the `title` | |
 | `plot` | The coordinate system of a chart, or the layout of a composition | `type`, `projection`, `discrete` |
 | `mark` | The marks of a layer, or the box or the lasso that a selection tool draws | `type`, `store` |
 | `axis` | An axis | `channel`, `scale`, `kind` |
@@ -33,11 +34,12 @@ A renderer builds a style tree for each chart. Each node has an element, attribu
 | `scale` | A scale, which is not drawn | `type`, `channel`, `kind`, `marks` |
 | `attribution` | The credits of a plot's sources | |
 | `graticule` | The graticule of a geo plot | |
+| `sphere` | The sphere of a geo plot, which it fills and outlines | |
 | `level` | A level of the axis of a nested band scale. The `label` of a level shows or hides the level's labels, which draw in the font and the text box of the axis's `label`. | |
-| `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule | |
+| `label`, `tick`, `rule`, `grid` | The parts of an axis, a facet, a colorbar, or a graticule, and the labels of the items of a widget | |
 | `swatch`, `ramp` | The symbols of a legend and the color ramp of a colorbar | |
-| `widget` | A widget that writes a selection: a slider, a range slider, a radio group, a check box list, or a check box | `type`, `key` |
-| `track`, `thumb`, `readout` | The parts of a slider: its track, its thumbs, and the readout of its value | |
+| `widget` | A widget that writes a selection or turns the chart's modes on and off: a slider, a range slider, a radio group, a check box list, or a check box, whose `title` is its label | `type`, `key` |
+| `rail`, `thumb`, `readout` | The parts of a slider or a range slider: the line that its thumbs run along, its thumbs, and the readout of its value | |
 | `other` | The variant of its parent for the Other group of a lump: under a `mark`, the marks of the Other rows, and under the `label` of an axis or a legend, the Other label. Every property applies to it, and it keeps each value of its parent that no declaration changes. | |
 | `null` | The variant of its parent for the NULL category of a band, a point, or an ordinal scale, as `other` is for the Other group: under a `mark`, the marks of the NULL rows, and under the `label` of an axis or a legend, the NULL label. | |
 
@@ -52,7 +54,7 @@ The attributes have these values:
 | `mark[store]` | The name of the selection whose box or lasso the mark draws |
 | `legend[type]` | `colorbar` for the legend of a continuous color scale, and `symbol` for every other legend |
 | `facet[type]` | `row`, `column`, or `wrap`, the kind of the facet: rows, columns, or a wrapped grid |
-| `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, or `checkbox` |
+| `widget[type]` | `slider`, `range_slider`, `radio`, `checkboxes`, `checkbox`, or `mode` |
 | `widget[key]` | The key of the widget, which its copies share |
 | `channel` | The channel of the scale, such as `x`, `theta`, `fill`, or `stroke_dash` |
 | `axis[scale]`, `legend[scale]`, `scale[type]` | The type of the scale, such as `linear`, `log`, `band`, or `ordinal` |
@@ -144,14 +146,14 @@ The initial values of the table hold on every node except these, where they depe
 | `align` | `true \| false \| auto \| left \| center \| right` | `auto` | no | `plot`, `mark` |
 | `row-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
 | `column-gap` | `<length [0,∞]>` | `0` | no | `plot`, `legend` |
-| `color` | `<color>` | `black` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `scale`, `attribution`, `graticule`, `label`, `tick`, `rule`, `grid`, `widget`, `track`, `thumb`, `readout` |
-| `accent-color` | `auto \| <color>` | `auto` | yes | `widget`, `track`, `thumb` |
-| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `attribution`, `label`, `track`, `thumb`, `readout` |
-| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `tick`, `rule`, `grid`, `track`, `thumb` |
+| `color` | `<color>` | `black` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `scale`, `attribution`, `graticule`, `label`, `tick`, `rule`, `grid`, `widget`, `readout` |
+| `accent-color` | `auto \| <color>` | `auto` | yes | `widget` |
+| `fill` | `auto \| none \| <color>` | `auto` | yes | `mark`, `title`, `subtitle`, `attribution`, `label`, `sphere`, `rail`, `thumb`, `readout` |
+| `stroke` | `auto \| none \| <color>` | `auto` | yes | `mark`, `tick`, `rule`, `grid`, `sphere`, `thumb` |
 | `opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `fill-opacity` | `<number [0,1]>` | `1` | no | `mark` |
 | `stroke-opacity` | `<number [0,1]>` | `1` | no | `mark` |
-| `stroke-width` | `<length [0,∞]>` | `1` | no | `mark`, `tick`, `rule`, `grid` |
+| `stroke-width` | `<length [0,∞]>` | `1` | no | `mark`, `tick`, `rule`, `grid`, `sphere` |
 | `stroke-dasharray` | `none \| <length>+` | `none` | no | `mark`, `tick`, `rule`, `grid` |
 | `stroke-linecap` | `butt \| round \| square` | `butt` | no | `mark` |
 | `stroke-linejoin` | `miter \| round \| bevel` | `miter` | no | `mark` |
@@ -177,7 +179,7 @@ The initial values of the table hold on every node except these, where they depe
 | `font-size` | `<length [0,∞]>` | `1rem` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
 | `font-weight` | `normal \| bold \| <number [1,1000]>` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
 | `font-family` | `<family-name>#` | `sans-serif` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `axis`, `legend`, `facet`, `attribution`, `graticule`, `label`, `widget`, `readout` |
-| `font-style` | `normal \| italic` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `widget`, `readout` |
+| `font-style` | `normal \| italic` | `normal` | yes | `chart`, `title`, `subtitle`, `plot`, `mark`, `label`, `widget`, `readout` |
 | `line-height` | `normal \| <number [0,∞]> \| <length [0,∞]>` | `normal` | yes | `chart`, `plot`, `mark`, `axis`, `legend`, `facet`, `graticule`, `title`, `subtitle`, `label` |
 | `max-width` | `<length [0,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
 | `max-lines` | `<integer [1,∞]> \| none` | `none` | no | `mark`, `title`, `subtitle`, `label` |
@@ -258,7 +260,7 @@ A property without a declaration takes the value of the parent when it is inheri
 
 A custom property computes at the node that declares it, with the custom properties of that node and the `env()` values of its own stylesheet, and the children inherit the computed value. So `--b: var(--a)` on a plot keeps the plot's `--a` in the marks below it, also when a mark declares its own `--a`. Custom properties that refer to each other in a cycle, also through a fallback, are invalid, and an invalid custom property has no value, so a `var()` of it takes its fallback. `initial` removes an inherited custom property, and `inherit` and `unset` keep it. `1rem` is 10 pixels times the text scale, and `em` is the font size of the node, or of its parent for `font-size`. `currentColor` is the `color` of the node, or of its parent for `color`. A node that inherits a color that reads `currentColor`, such as `fill: currentColor` or a `color-mix()` of it, resolves it against its own `color`, as CSS Color 4 specifies.
 
-`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark or a text, and `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line. Other nodes paint nothing with `auto`. `outline-style: auto` and `outline-color: auto` keep the focus ring of the widget's own style, a solid ring in its focus color, and `outline-style: none` draws no ring. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
+`auto` paints by the kind of node: `fill: auto` is the `color` of a filled mark or a text, and `stroke: auto` is the `color` of a line, a trail, a rule, a tick, or a grid line. On a widget's `rail` and `thumb`, `auto` is the widget's own paint, as `accent-color: auto` is its own accent. Other nodes paint nothing with `auto`. `outline-style: auto` and `outline-color: auto` keep the focus ring of the widget's own style, a solid ring in its focus color, and `outline-style: none` draws no ring. When the reader prefers forced colors and a stylesheet imports the base stylesheet, its important declarations give the system colors, and `forced-color-adjust: none` on a node keeps its own colors.
 
 `ComputedStyles::needs_update` tells whether a render at new host inputs needs new styles: when the preferences or the host theme change, or when a condition changes its outcome. A resize within a breakpoint keeps the styles, so a renderer computes them again only when the host box crosses a breakpoint. Two `StyleTree`s are equal when their nodes have the same elements, ids, classes, attributes, inline styles, and places, so a renderer that builds the tree of an updated chart keeps the old computed styles when the trees are equal and the cascade and the host inputs are the same. On the tree of `examples/cascade_bench.rs`, the comparison takes about 1% of the time of `Cascade::compute`.
 

@@ -106,10 +106,10 @@ fn a_drag_moves_the_nearer_thumb_without_passing_the_other() {
     };
     let mut own = Default::default();
     let style = WidgetStyle::default();
-    // The track runs from half a thumb in to half a thumb from the end.
+    // The rail runs from half a thumb in to half a thumb from the end.
     let half = style.thumb_size / 2.0;
     let x = |value: f32| half + value / 10.0 * (220.0 - 2.0 * half);
-    // The middle of the row of the track.
+    // The middle of the row of the rail.
     let y = half;
     // A press near the low thumb moves it, and a drag past the high thumb stops at it.
     send(

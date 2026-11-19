@@ -13,7 +13,7 @@ use lyon_path::geom::point;
 use lyon_path::Path;
 
 use crate::binding::{self, Get, Set};
-use crate::draw::{cover, focus_ring, label_color, rect, Text};
+use crate::draw::{cover, focus_ring, rect, Text};
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 use avenger_common::value::ScalarOrArray;
 
@@ -83,7 +83,7 @@ impl<State> Checkbox<State> {
         let style = cx.style;
         match &self.label {
             Some(label) => {
-                let [width, height] = label.size(cx);
+                let [width, height] = label.size(cx, &style.title);
                 [
                     style.control_size + style.label_gap + width,
                     height.max(style.control_size),
@@ -145,7 +145,7 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
         let bounds = self
             .label
             .as_ref()
-            .map(|label| label.bounds(cx))
+            .map(|label| label.bounds(cx, &style.title))
             .transpose()?;
         let row = bounds
             .map_or(0.0, |bounds| bounds.height)
@@ -179,8 +179,8 @@ impl<State: Send + Sync + 'static> Widget<State> for Checkbox<State> {
                 r.x + size + style.label_gap,
                 r.y + (row - bounds.height) / 2.0,
             ];
-            let color = label_color(style, look);
-            marks.push(label.mark("checkbox_label", at, color, style).into());
+            let color = style.title.color(look, style.background);
+            marks.push(label.mark("checkbox_label", at, color, &style.title).into());
         }
         marks.push(cover([r.x, r.y, r.width, r.height]));
         if look.focus_visible {

@@ -11,7 +11,7 @@ use lyon_path::geom::point;
 use lyon_path::Path;
 
 use crate::binding::{self, Get};
-use crate::draw::{label_color, Text};
+use crate::draw::Text;
 use crate::style::WidgetStyle;
 use crate::widget::{Look, Placed, Widget, WidgetContext, WidgetError, WidgetEvent};
 use avenger_common::value::ScalarOrArray;
@@ -62,7 +62,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
 
     /// The title's width including side margins, or its height including the gap below it.
     fn max_content(&self, direction: Direction, cx: &WidgetContext<'_>) -> f32 {
-        let [width, height] = self.title.size(cx);
+        let [width, height] = self.title.size(cx, &cx.style.title);
         match direction {
             Direction::Horizontal => width + 2.0 * margin(cx.style),
             Direction::Vertical => height + cx.style.label_gap,
@@ -84,7 +84,7 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
         cx: &WidgetContext<'_>,
     ) -> Result<Vec<SceneMark>, WidgetError> {
         let style = cx.style;
-        let bounds = self.title.bounds(cx)?;
+        let bounds = self.title.bounds(cx, &style.title)?;
         let r = placed.rect;
         let inset = style.border_width / 2.0;
         let [left, right] = [r.x + inset, r.right() - inset];
@@ -124,10 +124,12 @@ impl<State: Send + Sync + 'static> Widget<State> for GroupBox<State> {
             ..Default::default()
         };
         let at = [gap[0] + margin(style), r.y];
-        let color = label_color(style, placed.look);
+        let color = style.title.color(placed.look, style.background);
         Ok(vec![
             border.into(),
-            self.title.mark("group_box_title", at, color, style).into(),
+            (self.title)
+                .mark("group_box_title", at, color, &style.title)
+                .into(),
         ])
     }
 
