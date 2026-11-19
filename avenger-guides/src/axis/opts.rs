@@ -36,14 +36,15 @@ pub struct CategoryLabels {
 /// `..Default::default()` keeps it for the settings that aren't given.
 #[derive(Debug, Clone)]
 pub struct AxisStyle {
-    /// About how many ticks to draw. Without it, the axis fits a count to its length, with ticks
-    /// at least `tick_spacing` apart, and a continuous axis takes coarser ticks where their labels
-    /// would overlap. `ticks` replaces it.
-    pub tick_count: Option<f64>,
-    /// The least distance between the ticks of a continuous axis that fits its tick count to its
+    /// About how many values to mark, which the ticks, the grid lines, and the labels stand at.
+    /// Without it, the axis fits a count to its length, with values at least `value_spacing`
+    /// apart, and a continuous axis takes coarser values where their labels would overlap. `ticks`
+    /// replaces it.
+    pub value_count: Option<f64>,
+    /// The least distance between the values of a continuous axis that fits its value count to its
     /// length, in pixels, along a horizontal axis and a vertical one alike. When absent, 2.5 times
-    /// the font size of the labels, so the ticks spread with the size of their labels.
-    pub tick_spacing: Option<f32>,
+    /// the font size of the labels, so the values spread with the size of their labels.
+    pub value_spacing: Option<f32>,
     /// Ticks in place of the scale's ticks. A band or point axis takes only values, and a nested
     /// band axis takes neither kind.
     pub ticks: Option<AxisTicks>,
@@ -51,11 +52,11 @@ pub struct AxisStyle {
     /// each category as `tick_format` formats it.
     pub category_labels: Option<CategoryLabels>,
     /// Whether the explicit `ticks` of a continuous axis thin to its length, as the edges of bins
-    /// do: every tick where they stand apart at the axis's tick count, and otherwise every 2nd,
+    /// do: every tick where they stand apart at the axis's value count, and otherwise every 2nd,
     /// 5th, 10th, 20th, and so on, starting at the tick nearest a whole multiple of the stride for
     /// numeric ticks at a start and a step, so the kept ticks land on round values. When false,
     /// the axis draws every explicit tick.
-    pub thin_ticks: bool,
+    pub value_thinning: bool,
     pub tick_length: f32,
     pub tick_color: [f32; 4],
     pub labels_visible: bool,
@@ -99,11 +100,11 @@ impl Default for AxisStyle {
     fn default() -> Self {
         const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
         Self {
-            tick_count: None,
-            tick_spacing: None,
+            value_count: None,
+            value_spacing: None,
             ticks: None,
             category_labels: None,
-            thin_ticks: false,
+            value_thinning: false,
             tick_length: 5.0,
             tick_color: BLACK,
             labels_visible: true,

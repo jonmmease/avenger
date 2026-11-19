@@ -144,6 +144,19 @@ fn focus_visible_sets_the_outline_of_widgets_only() {
 }
 
 #[test]
+fn the_properties_of_parts_parse_on_their_parts() {
+    // A property of a guide's part is a property of the part's element, and the values that place
+    // a guide's marks are `value-` properties of the guide.
+    let (_, diagnostics) = parse(
+        "axis { value-count: 5; value-spacing: 40; value-thinning: true; }
+         axis > label { angle: auto; text-orient: tangential; margin: 4; overlap: greedy; }
+         axis > title { margin: 4; }
+         legend > ramp { margin: 4; } tick { length: 4; } mark { stroke-dasharray: 4 2; }",
+    );
+    assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+}
+
+#[test]
 fn invalid_values_are_errors_and_unknown_properties_are_warnings() {
     error(
         "mark { stroke-width: wide; }",
@@ -166,8 +179,8 @@ fn invalid_values_are_errors_and_unknown_properties_are_warnings() {
         "`10 20 30` is not a valid value of `gap`; use one length or two",
     );
     error(
-        "axis { label-overlap: all; }",
-        "`all` is not a valid value of `label-overlap`; use none, parity, or greedy",
+        "axis > label { overlap: all; }",
+        "`all` is not a valid value of `overlap`; use none, parity, or greedy",
     );
     error(
         "chart { forced-color-adjust: preserve-parent-color; }",
@@ -340,10 +353,10 @@ fn diagnostics_carry_the_spans_of_their_text() {
 fn nested_rules_flatten_relative_to_their_parent() {
     let (sheet, diagnostics) = parse(
         "axis {
-           label-angle: 45;
+           value-count: 5;
            > label { font-size: 10px; }
            &[channel=x] > title { font-weight: bold; }
-           @container (width < 400px) { label-angle: 90; }
+           @container (width < 400px) { value-count: 3; }
            offset: 4;
          }",
     );
@@ -366,10 +379,10 @@ fn nested_rules_flatten_relative_to_their_parent() {
     assert_eq!(
         texts,
         [
-            "label-angle",
+            "value-count",
             "font-size",
             "font-weight",
-            "label-angle",
+            "value-count",
             "offset"
         ]
     );

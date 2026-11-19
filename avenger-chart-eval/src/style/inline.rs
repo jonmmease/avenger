@@ -476,16 +476,11 @@ pub(crate) struct FacetNodes {
 /// A `Facet` on its nodes.
 pub(crate) fn facet(tree: &mut Styled, nodes: &FacetNodes, facet: &proto::Facet) {
     keyword(tree, nodes.facet, Property::Orient, side(facet.orient));
-    deg(tree, nodes.facet, Property::LabelAngle, facet.label_angle);
-    px(
-        tree,
-        nodes.facet,
-        Property::LabelPadding,
-        facet.label_padding,
-    );
+    deg(tree, nodes.label, Property::Angle, facet.label_angle);
+    px(tree, nodes.label, Property::Margin, facet.label_padding);
     guide_title(tree, nodes.title, facet.title.as_ref());
     guide_labels(tree, nodes.label, facet.labels.as_ref());
-    px(tree, nodes.tick, Property::TickSize, facet.tick_size);
+    px(tree, nodes.tick, Property::Length, facet.tick_size);
     for node in [nodes.tick, nodes.rule] {
         color(tree, node, Property::Stroke, &facet.rule_color);
         px(tree, node, Property::StrokeWidth, facet.rule_width);
@@ -646,10 +641,9 @@ pub(crate) fn sphere(tree: &mut Styled, node: NodeId, sphere: &proto::SphereStyl
     px(tree, node, Property::BorderWidth, sphere.stroke_width);
 }
 
-/// The nodes of a graticule and its parts.
+/// The nodes of the parts of a graticule.
 #[derive(Clone, Debug)]
 pub(crate) struct GraticuleNodes {
-    pub(crate) graticule: NodeId,
     pub(crate) grid: NodeId,
     pub(crate) label: NodeId,
 }
@@ -673,12 +667,7 @@ pub(crate) fn graticule(tree: &mut Styled, nodes: &GraticuleNodes, graticule: &p
             color: &graticule.label_color,
         },
     );
-    px(
-        tree,
-        nodes.graticule,
-        Property::LabelPadding,
-        graticule.label_padding,
-    );
+    px(tree, nodes.label, Property::Margin, graticule.label_padding);
 }
 
 /// The fields that the text marks of every coordinate system share.
@@ -799,7 +788,7 @@ fn axis_fields(
     fields: AxisFields,
 ) {
     keyword(tree, axis, Property::Orient, side(fields.orient));
-    deg(tree, axis, Property::LabelAngle, fields.label_angle);
+    deg(tree, label, Property::Angle, fields.label_angle);
     guide_title(tree, title, fields.title);
     guide_labels(tree, label, fields.labels);
     shown(tree, tick, fields.ticks);
@@ -816,10 +805,10 @@ fn axis_fields(
         Property::VerticalAlign,
         vertical_align(fields.label_baseline),
     );
-    if let Some(count) = fields.tick_count {
-        set(tree, axis, Property::TickCount, &count.to_string());
+    if let Some(count) = fields.value_count {
+        set(tree, axis, Property::ValueCount, &count.to_string());
     }
-    px(tree, tick, Property::TickSize, fields.tick_size);
+    px(tree, tick, Property::Length, fields.tick_size);
     color(tree, tick, Property::Stroke, fields.tick_color);
     color(tree, rule, Property::Stroke, fields.rule_color);
 }
@@ -832,7 +821,7 @@ struct AxisFields<'a> {
     label_angle: Option<f32>,
     label_align: i32,
     label_baseline: i32,
-    tick_count: Option<f64>,
+    value_count: Option<f64>,
     ticks: Option<bool>,
     tick_size: Option<f32>,
     tick_color: &'a str,
@@ -859,7 +848,7 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
             },
             label_align: axis.label_align,
             label_baseline: axis.label_baseline,
-            tick_count: match axis.tick_placement {
+            value_count: match axis.tick_placement {
                 Some(proto::axis::TickPlacement::TickCount(count)) => Some(count),
                 _ => None,
             },
@@ -873,13 +862,13 @@ pub(crate) fn axis(tree: &mut Styled, nodes: &AxisNodes, axis: &proto::Axis) {
     shown(tree, nodes.grid, axis.grid);
     color(tree, nodes.grid, Property::Stroke, &axis.grid_color);
     px(tree, nodes.grid, Property::StrokeWidth, axis.grid_width);
-    for (level, (level_node, label_node)) in axis.levels.iter().zip(&nodes.levels) {
+    for (level, (_, label_node)) in axis.levels.iter().zip(&nodes.levels) {
         shown(
             tree,
             *label_node,
             level.labels.as_ref().and_then(|labels| labels.show),
         );
-        deg(tree, *level_node, Property::LabelAngle, level.label_angle);
+        deg(tree, *label_node, Property::Angle, level.label_angle);
     }
 }
 
@@ -896,8 +885,8 @@ pub(crate) fn polar_axis(
     if let Some(proto::axis::LabelRotation::LabelOrient(orient)) = axis_message.label_rotation {
         keyword(
             tree,
-            nodes.axis,
-            Property::LabelOrient,
+            nodes.label,
+            Property::TextOrient,
             polar_orient(orient),
         );
     }
@@ -932,14 +921,14 @@ pub(crate) fn legend(tree: &mut Styled, nodes: &LegendNodes, legend: &proto::Leg
     if let Some(columns) = legend.columns {
         set(tree, node, Property::Columns, &columns.to_string());
     }
-    px(tree, node, Property::LabelPadding, legend.label_padding);
+    px(tree, nodes.label, Property::Margin, legend.label_padding);
     px(tree, node, Property::ColumnGap, legend.column_gap);
     px(tree, node, Property::RowGap, legend.row_gap);
     legend_box(tree, node, legend);
     if let Some(proto::legend::TickPlacement::TickCount(count)) = legend.tick_placement {
-        set(tree, node, Property::TickCount, &count.to_string());
+        set(tree, node, Property::ValueCount, &count.to_string());
     }
-    deg(tree, node, Property::LabelAngle, legend.label_angle);
+    deg(tree, nodes.label, Property::Angle, legend.label_angle);
     shown(tree, nodes.swatch, legend.swatches);
     guide_title(tree, nodes.title, legend.title.as_ref());
     guide_labels(tree, nodes.label, legend.labels.as_ref());
@@ -972,7 +961,7 @@ pub(crate) struct ColorbarNodes {
 pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto::Legend) {
     px(tree, nodes.ramp, Property::Thickness, legend.thickness);
     px(tree, nodes.ramp, Property::MaxLength, legend.max_length);
-    px(tree, nodes.legend, Property::AxisGap, legend.axis_gap);
+    px(tree, nodes.ramp, Property::Margin, legend.axis_gap);
     legend_box(tree, nodes.legend, legend);
     axis_fields(
         tree,
@@ -988,7 +977,7 @@ pub(crate) fn colorbar(tree: &mut Styled, nodes: &ColorbarNodes, legend: &proto:
             label_angle: legend.label_angle,
             label_align: legend.label_align,
             label_baseline: legend.label_baseline,
-            tick_count: match legend.tick_placement {
+            value_count: match legend.tick_placement {
                 Some(proto::legend::TickPlacement::TickCount(count)) => Some(count),
                 _ => None,
             },

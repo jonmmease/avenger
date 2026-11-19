@@ -326,7 +326,7 @@ fn composition(
     if let Some(facet) = facet.filter(|facet| facet.show != Some(false)) {
         let facet_node = tree.add(plot_node, Element::Facet);
         let facet_type = match kind {
-            Node::Wrap(_) => "by",
+            Node::Wrap(_) => "wrap",
             Node::Concat(concat)
                 if matches!(
                     proto::Direction::try_from(concat.direction),
@@ -335,7 +335,7 @@ fn composition(
             {
                 "row"
             }
-            _ => "col",
+            _ => "column",
         };
         tree.set_attribute(facet_node, "type", facet_type);
         identify(tree, facet_node, &facet.id, &facet.classes);
@@ -389,7 +389,6 @@ fn geo_plot(tree: &mut Styled, plot_node: NodeId, plot: &proto::GeoPlot) -> Opti
     let graticule = crate::geo::graticule(spec)?;
     let graticule_node = tree.add(plot_node, Element::Graticule);
     let nodes = GraticuleNodes {
-        graticule: graticule_node,
         grid: tree.add(graticule_node, Element::Grid),
         label: tree.add(graticule_node, Element::Label),
     };

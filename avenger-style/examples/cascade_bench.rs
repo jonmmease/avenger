@@ -60,7 +60,7 @@ fn main() {
         allow_import: true,
         ..Default::default()
     };
-    let css = "@import 'std:base.css'; @container (width < 400px) { axis { label-angle: 45; } }";
+    let css = "@import 'std:base.css'; @container (width < 400px) { axis > label { angle: 45; } }";
     let (sheet, diagnostics) = Sheet::load(css, None, SourceId(1), options, &mut none);
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let table = StyleTable::new().with_author(sheet, Env::new());

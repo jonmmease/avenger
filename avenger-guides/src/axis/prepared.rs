@@ -15,7 +15,7 @@ use avenger_typst_label::LabelEngine;
 use super::{
     band::{self, category_text},
     continuous::{
-        self, axis_ticks, continuous_tick_text, min_tick_spacing, tick_count, values_in_range,
+        self, axis_ticks, continuous_tick_text, min_value_spacing, value_count, values_in_range,
         DEFAULT_MAX_TICK_COUNT,
     },
     label_text,
@@ -134,7 +134,7 @@ impl Axis {
             .any(|option| option.name == "band");
         let ticks = ContinuousTicks {
             band,
-            min_spacing: min_tick_spacing(&config.style),
+            min_spacing: min_value_spacing(&config.style),
             engine: engine.clone(),
             kept: Mutex::new(VecDeque::new()),
         };
@@ -652,9 +652,9 @@ impl ContinuousTicks {
         length: f32,
         overlap: Option<&LabelsOverlap>,
     ) -> (ArrayRef, Option<Arc<TickSet>>) {
-        let fitted = config.style.tick_count.is_none()
-            && (config.style.ticks.is_none() || config.style.thin_ticks);
-        let first = tick_count(&config.style, length, self.min_spacing);
+        let fitted = config.style.value_count.is_none()
+            && (config.style.ticks.is_none() || config.style.value_thinning);
+        let first = value_count(&config.style, length, self.min_spacing);
         let fewer = first.unwrap_or(DEFAULT_MAX_TICK_COUNT).ceil() as usize;
         let coarser = (1..fewer).rev().map(|count| Some(count as f64));
         let counts = std::iter::once(first).chain(coarser.filter(|_| fitted));
@@ -720,7 +720,7 @@ impl ContinuousTicks {
         tick_scale: &ConfiguredScale,
         length: f32,
     ) -> Result<(), AvengerGuidesError> {
-        let count = tick_count(&config.style, length, self.min_spacing);
+        let count = value_count(&config.style, length, self.min_spacing);
         let (_, labeled) = axis_ticks(tick_scale, &config.style, count)?;
         self.tick_set(config, tick_scale, labeled).map(|_| ())
     }
@@ -1143,17 +1143,17 @@ mod tests {
     fn a_fitted_axis_takes_coarser_ticks_before_thinning_its_labels() {
         let engine = crate::test_engine();
         let scale = LinearScale::configured((0.0, 1_000_000.0), (0.0, 1.0));
-        let config = |tick_count| AxisConfig {
+        let config = |value_count| AxisConfig {
             side: GuideSide::Bottom,
             tick_format: ",.0f".into(),
             tick_label: None,
             style: AxisStyle {
-                tick_count,
+                value_count,
                 ..Default::default()
             },
         };
-        let drawn = |tick_count| {
-            let axis = Axis::continuous(scale.clone(), "", &config(tick_count), &engine).unwrap();
+        let drawn = |value_count| {
+            let axis = Axis::continuous(scale.clone(), "", &config(value_count), &engine).unwrap();
             let ticks = axis.part(AxisPart::Ticks, 200.0).unwrap();
             let ticks = ticks
                 .marks

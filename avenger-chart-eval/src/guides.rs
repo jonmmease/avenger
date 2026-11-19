@@ -528,22 +528,22 @@ pub(crate) fn axis_style(
     };
     let ticks_shown = visible(tick);
     let mut style = AxisStyle {
-        tick_count: axis.number(Property::TickCount).map(f64::from),
-        tick_spacing: axis.number(Property::TickSpacing),
-        // `thin-ticks: true` thins the explicit ticks of the spec, such as `Axis.values`, to the
-        // axis's length.
-        thin_ticks: axis.boolean(Property::ThinTicks).unwrap_or(false),
+        value_count: axis.number(Property::ValueCount).map(f64::from),
+        value_spacing: axis.number(Property::ValueSpacing),
+        // `value-thinning: true` thins the explicit ticks of the spec, such as `Axis.values`, to
+        // the axis's length.
+        value_thinning: axis.boolean(Property::ValueThinning).unwrap_or(false),
         ticks: ticks(chart, spec_ticks),
         tick_length: match ticks_shown {
-            true => style_number(tick, Property::TickSize),
+            true => style_number(tick, Property::Length),
             false => 0.0,
         },
         tick_color: paint_color(tick, Property::Stroke),
         labels_visible: visible(label),
         // `auto` draws the thinnest labels that keep apart, horizontal, slanted at 315 degrees, or
         // turned to 270 degrees.
-        label_angle: axis.number(Property::LabelAngle).unwrap_or(0.0),
-        label_angles: match axis.keyword(Property::LabelAngle) {
+        label_angle: label.number(Property::Angle).unwrap_or(0.0),
+        label_angles: match label.keyword(Property::Angle) {
             Some("auto") => vec![0.0, 315.0, 270.0],
             _ => Vec::new(),
         },
@@ -572,7 +572,7 @@ pub(crate) fn axis_style(
         style.grid_width = style_number(grid, Property::StrokeWidth);
     }
     // `parity` and `greedy` both keep an even pattern of labels apart.
-    style.label_thinning = match axis.keyword(Property::LabelOverlap) {
+    style.label_thinning = match label.keyword(Property::Overlap) {
         Some("none") => avenger_guides::axis::LabelThinning::None,
         _ => avenger_guides::axis::LabelThinning::Stride,
     };
@@ -655,10 +655,10 @@ fn axis(
         );
         // The key axis of bars of bins ticks at the edges of the bins, unless the spec or the
         // styles give its ticks or their count.
-        if style.ticks.is_none() && style.tick_count.is_none() {
+        if style.ticks.is_none() && style.value_count.is_none() {
             if let Some(edges) = crate::bins::edges(inputs.resolved, index, inputs.kinds) {
                 style.ticks = Some(edges);
-                style.thin_ticks = true;
+                style.value_thinning = true;
             }
         }
         let labels = spec.labels.as_ref();
@@ -695,7 +695,7 @@ fn axis(
             "nested_band" => {
                 let levels: Vec<NestedBandAxisLevelConfig> = (nodes.levels.iter())
                     .enumerate()
-                    .map(|(position, (level, label))| {
+                    .map(|(position, (_, label))| {
                         let message = spec.levels.get(position);
                         let title = message.and_then(|level| level.title.clone());
                         NestedBandAxisLevelConfig {
@@ -703,7 +703,9 @@ fn axis(
                             // An empty title leaves the level out of the axis's title.
                             title_visible: title.as_deref() != Some(""),
                             title: title.filter(|title| !title.is_empty()),
-                            label_angle: styles[*level].number(Property::LabelAngle),
+                            // `auto` takes the angle of the axis's labels at the leaf, and 0 at
+                            // the other levels.
+                            label_angle: styles[*label].number(Property::Angle),
                             tick_format: (message.and_then(|level| level.labels.as_ref()))
                                 .map(|labels| labels.format.clone())
                                 .filter(|format| !format.is_empty()),
@@ -858,12 +860,12 @@ fn numbers(values: &ArrayRef) -> Result<Vec<f64>> {
 }
 
 /// The entries of the legend of a scale: its categories, the bins of a quantize, a quantile, or a
-/// threshold scale, or the ticks of another continuous scale at `tick_count`, or the scale's default
-/// count without one, with each entry's input to the scale and its label.
+/// threshold scale, or the ticks of another continuous scale at `value_count`, or the scale's
+/// default count without one, with each entry's input to the scale and its label.
 fn entries(
     scale: &ConfiguredScale,
     spec: &proto::Legend,
-    tick_count: Option<f64>,
+    value_count: Option<f64>,
     chart: &Chart,
     engine: &LabelEngine,
     lumps: Option<&crate::lumps::Lumps>,
@@ -928,7 +930,7 @@ fn entries(
         _ => {
             let values = match &spec.tick_placement {
                 Some(proto::legend::TickPlacement::Values(values)) => chart.list_elements(values),
-                _ => scale.ticks(tick_count)?,
+                _ => scale.ticks(value_count)?,
             };
             let (labels, syntax) = label_text(formatted(&values)?, markup)?;
             Ok((values, labels, syntax))
@@ -1060,13 +1062,13 @@ fn legends(inputs: &GuideInputs) -> Result<Vec<LegendSlot>> {
             }
             Some(Some(GuideNodes::Legend(nodes))) => {
                 let spec = group.legend.clone().unwrap_or_default();
-                let tick_count = inputs.styles[nodes.legend]
-                    .number(Property::TickCount)
+                let value_count = inputs.styles[nodes.legend]
+                    .number(Property::ValueCount)
                     .map(f64::from);
                 let (values, mut labels, label_syntax) = entries(
                     scale,
                     &spec,
-                    tick_count,
+                    value_count,
                     inputs.chart,
                     inputs.engine,
                     inputs.lumps[index].as_ref(),
@@ -1330,7 +1332,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
             }),
             angle: ScalarOrArray::new_scalar(match number(Channel::Angle)? {
                 Some(angle) => angle,
-                None => style_number(mark_style, Property::Angle),
+                None => crate::style::angle(mark_style),
             }),
             fill: ScalarOrArray::new_scalar(fill),
             stroke: ScalarOrArray::new_scalar(stroke),
@@ -1455,7 +1457,7 @@ fn legend(inputs: &GuideInputs, draft: LegendDraft) -> Result<LegendSlot> {
         title,
         text: ScalarOrArray::new_array(labels),
         swatches,
-        text_padding: style_number(legend_style, Property::LabelPadding),
+        text_padding: style_number(label_style, Property::Margin),
         layout: LegendLayout { side, wrap },
         style,
     };
@@ -1531,7 +1533,7 @@ fn colorbar(
             style,
         },
         thickness: style_number(ramp, Property::Thickness),
-        axis_gap: style_number(legend_style, Property::AxisGap),
+        axis_gap: style_number(ramp, Property::Margin),
         background: background(legend_style),
     };
     let title = guide_title(axis_spec.title.as_ref(), || {
@@ -1738,14 +1740,15 @@ fn facet_guide(
     let rule = &styles[nodes.rule];
     let title_syntax = title_syntax(facet.title.as_ref());
     let style = FacetGuideStyle {
-        label_padding: style_number(facet_style, Property::LabelPadding),
-        label_angle: facet_style.number(Property::LabelAngle),
+        label_padding: style_number(label, Property::Margin),
+        // `auto` reads along the guide.
+        label_angle: label.number(Property::Angle),
         label_color: text_color(label),
         label_font_family: font_family(label),
         label_font_size: label.font_size(),
         label_font_weight: font_weight(label),
         label_box: text_box(label),
-        tick_length: style_number(&styles[nodes.tick], Property::TickSize),
+        tick_length: style_number(&styles[nodes.tick], Property::Length),
         rule_color: paint_color(rule, Property::Stroke),
         rule_width: style_number(rule, Property::StrokeWidth),
         title_visible: visible(title_style),

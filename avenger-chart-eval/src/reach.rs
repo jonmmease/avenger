@@ -143,7 +143,7 @@ fn choices(rows: &LayerRows, channels: &[Channel]) -> Vec<Vec<(Channel, usize)>>
 /// `angle` without an encoding.
 fn angles(rows: &LayerRows) -> Result<Vec<Vec<f32>>> {
     let alternatives = rows.alternatives(Channel::Angle, &numbers)?;
-    let default = style_number(rows.style, Property::Angle);
+    let default = crate::style::angle(rows.style);
     Ok((0..rows.len())
         .map(|row| match alternatives.is_empty() {
             true => vec![default],

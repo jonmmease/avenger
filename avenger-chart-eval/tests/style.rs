@@ -8,8 +8,9 @@ use arrow::{
     datatypes::{DataType, Field},
 };
 use avenger_chart::prelude::*;
-use avenger_chart_eval::{ChartEvaluator, EvalWarning, Registry};
+use avenger_chart_eval::{ChartEvaluator, EvalWarning, EvaluatedChart, Registry};
 use avenger_format_number_d3::D3NumberFormatProvider;
+use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_style::{
     Cascade, Element, Env, HostInputs, NodeId, ParseOptions, Property, Sheet, SourceId, StyleTable,
     StyleTree,
@@ -78,6 +79,29 @@ fn elements(tree: &StyleTree, node: NodeId) -> Vec<Element> {
     (tree.children(node).iter())
         .map(|child| tree.node(*child).element)
         .collect()
+}
+
+/// The child of `node` with `element`.
+fn part(tree: &StyleTree, node: NodeId, element: Element) -> NodeId {
+    (tree.children(node).iter().copied())
+        .find(|child| tree.node(*child).element == element)
+        .unwrap()
+}
+
+/// The angles of the text marks of a scene, in degrees, one for each text.
+fn text_angles(evaluated: &EvaluatedChart) -> Vec<f32> {
+    fn walk(marks: &[SceneMark], out: &mut Vec<f32>) {
+        for mark in marks {
+            match mark {
+                SceneMark::Text(text) => out.extend(text.angle.as_vec(text.len as usize, None)),
+                SceneMark::Group(group) => walk(&group.marks, out),
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&evaluated.scene.marks, &mut out);
+    out
 }
 
 #[test]
@@ -205,7 +229,7 @@ fn a_nested_band_axis_has_a_level_for_each_level() {
 
 #[test]
 fn style_fields_are_inline_styles_that_win_over_stylesheets() {
-    let css = "axis { label-angle: 10deg; } mark { stroke-width: 3px; }";
+    let css = "axis > label { angle: 10deg; } mark { stroke-width: 3px; }";
     // Symbols of mass against flipper length, colored by species, and symbols filled by mass,
     // with an axis whose labels the chart turns.
     let by_species = CartesianLayer::symbol(
@@ -230,15 +254,16 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         .unwrap();
     let mut turned = evaluator(turned, cascade(css));
     let host = HostInputs::sized(400.0, 300.0);
-    let axis = {
+    let label = {
         let tree = turned.style_tree();
-        (nodes_of(tree, Element::Axis).into_iter())
+        let axis = (nodes_of(tree, Element::Axis).into_iter())
             .find(|axis| attribute(tree, *axis, "channel") == "x")
-            .unwrap()
+            .unwrap();
+        part(tree, axis, Element::Label)
     };
     let hollow = nodes_of(turned.style_tree(), Element::Mark)[1];
     let styles = turned.styles(&host);
-    assert_eq!(styles[axis].number(Property::LabelAngle), Some(-45.0));
+    assert_eq!(styles[label].number(Property::Angle), Some(-45.0));
     // `filled: false` declares no fill and a stroke of the mark's color.
     assert_eq!(
         styles[hollow].paint(Property::Fill),
@@ -268,7 +293,7 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
         .unwrap();
     let mut plain = evaluator(plain, cascade(css));
     let styles = plain.styles(&host);
-    assert_eq!(styles[axis].number(Property::LabelAngle), Some(10.0));
+    assert_eq!(styles[label].number(Property::Angle), Some(10.0));
 }
 
 #[test]
@@ -297,7 +322,7 @@ fn a_table_without_stylesheets_gives_initial_values() {
     let mut evaluator = evaluator(chart, empty);
     let tick = nodes_of(evaluator.style_tree(), Element::Tick)[0];
     let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
-    assert_eq!(styles[tick].number(Property::TickSize), Some(5.0));
+    assert_eq!(styles[tick].number(Property::Length), Some(5.0));
 }
 
 #[test]
@@ -324,15 +349,16 @@ fn a_resize_within_a_breakpoint_keeps_the_computed_styles() {
         .unwrap();
     let mut evaluator = evaluator(
         chart,
-        cascade("@container (width < 300px) { axis { label-angle: 30deg; } }"),
+        cascade("@container (width < 300px) { axis > label { angle: 30deg; } }"),
     );
     let first: *const _ = evaluator.styles(&HostInputs::sized(400.0, 300.0));
     let resized: *const _ = evaluator.styles(&HostInputs::sized(500.0, 320.0));
     assert!(std::ptr::eq(first, resized));
     let narrow: *const _ = evaluator.styles(&HostInputs::sized(250.0, 320.0));
     let axis = nodes_of(evaluator.style_tree(), Element::Axis)[0];
+    let label = part(evaluator.style_tree(), axis, Element::Label);
     let styles = evaluator.styles(&HostInputs::sized(250.0, 320.0));
-    assert_eq!(styles[axis].number(Property::LabelAngle), Some(30.0));
+    assert_eq!(styles[label].number(Property::Angle), Some(30.0));
     let _ = narrow;
 }
 
@@ -393,7 +419,8 @@ fn style_text_that_is_not_a_value_warns() {
     );
 }
 
-/// The leaf of a nested band axis takes the axis's label angle, and an outer level stays level.
+/// The labels of the leaf of a nested band axis take the angle of the axis's labels, and the labels
+/// of an outer level stay level.
 #[test]
 fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     // Bars over a nested band scale of regions and channels.
@@ -414,17 +441,24 @@ fn the_leaf_of_a_nested_band_axis_takes_the_axis_label_angle() {
     .unwrap();
     let bars = CartesianLayer::bar(sales, BarMark::builder().x("key").y("sales"));
     let chart = Chart::builder(Plot::cartesian([bars])).build().unwrap();
-    let mut evaluator = evaluator(chart, cascade("axis { label-angle: 30deg; }"));
+    let mut evaluator = evaluator(chart, cascade("axis[channel=x] > label { angle: 30deg; }"));
     let tree = evaluator.style_tree();
     let axis = (nodes_of(tree, Element::Axis).into_iter())
         .find(|axis| attribute(tree, *axis, "channel") == "x")
         .unwrap();
-    let levels: Vec<NodeId> = (tree.children(axis).iter().copied())
+    let labels: Vec<NodeId> = (tree.children(axis).iter().copied())
         .filter(|child| tree.node(*child).element == Element::Level)
+        .map(|level| part(tree, level, Element::Label))
         .collect();
-    let styles = evaluator.styles(&HostInputs::sized(400.0, 300.0));
-    assert_eq!(styles[levels[0]].number(Property::LabelAngle), Some(0.0));
-    assert_eq!(styles[levels[1]].number(Property::LabelAngle), Some(30.0));
+    let host = HostInputs::sized(400.0, 300.0);
+    let styles = evaluator.styles(&host);
+    assert_eq!(styles[labels[0]].number(Property::Angle), Some(0.0));
+    // `auto` on the leaf's labels takes the angle of the axis's labels where the axis draws them.
+    assert_eq!(styles[labels[1]].keyword(Property::Angle), Some("auto"));
+    let angles = text_angles(&evaluator.evaluate(&host).unwrap());
+    // The labels of the 3 channels turn, and those of the regions stay level.
+    let turned = angles.iter().filter(|angle| **angle == 30.0).count();
+    assert_eq!(turned, 3, "{angles:?}");
 }
 
 /// A select without a form is an interval, so its store has the `mark` of a box, as an interval
@@ -502,4 +536,127 @@ fn booleans_hide_the_parts_of_an_axis() {
     assert!(hidden.iter().all(|node| styles[*node].is_hidden()));
     assert!(shown.iter().all(|node| !styles[*node].is_hidden()));
     assert_eq!(styles[y_title].font_size(), 17.0);
+}
+
+/// Evaluates `chart` at 400 by 300 with the base stylesheet and `css`.
+fn evaluated(chart: &Chart, css: &str) -> EvaluatedChart {
+    evaluator(chart.clone(), cascade(css))
+        .evaluate(&HostInputs::sized(400.0, 300.0))
+        .unwrap()
+}
+
+/// The number of the texts of a scene.
+fn text_count(evaluated: &EvaluatedChart) -> usize {
+    text_angles(evaluated).len()
+}
+
+/// The left, the top, the width, and the height of each plot, less those of `plain`.
+fn moved(evaluated: &EvaluatedChart, plain: &EvaluatedChart) -> Vec<[f32; 4]> {
+    (evaluated.plots.iter().zip(&plain.plots))
+        .map(|(plot, plain)| std::array::from_fn(|index| plot.rect[index] - plain.rect[index]))
+        .collect()
+}
+
+/// A stylesheet that sets a property of a guide's part on the part, or a `value-` property on the
+/// guide, changes what the guide draws.
+#[test]
+fn the_properties_of_parts_reach_their_guides() {
+    // Symbols of mass against flipper length, colored by species, with a symbol legend.
+    let species = Chart::builder(Plot::cartesian([CartesianLayer::symbol(
+        penguins(),
+        SymbolMark::builder()
+            .x("flipper")
+            .y("mass")
+            .color("species"),
+    )]))
+    .build()
+    .unwrap();
+    let plain = evaluated(&species, "");
+    let turned = evaluated(&species, "axis[channel=x] > label { angle: -45; }");
+    assert!(!text_angles(&plain).contains(&-45.0));
+    assert!(text_angles(&turned).contains(&-45.0));
+    let fewer = evaluated(&species, "axis[channel=x] { value-count: 3; }");
+    assert!(text_count(&fewer) < text_count(&plain));
+    let spread = evaluated(&species, "axis { value-spacing: 100; }");
+    assert!(text_count(&spread) < text_count(&plain));
+    let crowded = evaluated(&species, "axis[channel=x] { value-count: 40; }");
+    let overlapping = evaluated(
+        &species,
+        "axis[channel=x] { value-count: 40; } axis[channel=x] > label { overlap: none; }",
+    );
+    // Crowded labels keep apart unless `overlap: none` shows them all.
+    assert!(text_count(&overlapping) > text_count(&crowded));
+    // On a mark, `auto` is the initial 0, for the marks and the swatches of their legend.
+    let auto = evaluated(&species, "mark { angle: auto; }");
+    assert_eq!(format!("{:?}", auto.scene), format!("{:?}", plain.scene));
+    // Longer ticks move the plot 4 from the y axis and the x axis, and labels 12 from their
+    // swatches, 10 more than the initial 2, narrow it by 10.
+    let long = evaluated(&species, "axis > tick { length: 9; }");
+    assert_eq!(moved(&long, &plain), [[4.0, 0.0, -4.0, -4.0]]);
+    let spaced = evaluated(&species, "legend > label { margin: 12; }");
+    assert_eq!(moved(&spaced, &plain), [[0.0, 0.0, -10.0, 0.0]]);
+
+    // Symbols filled by mass, with a colorbar.
+    let mass = Chart::builder(Plot::cartesian([CartesianLayer::symbol(
+        penguins(),
+        SymbolMark::builder().x("flipper").y("mass").fill("mass"),
+    )]))
+    .build()
+    .unwrap();
+    let plain = evaluated(&mass, "");
+    let apart = evaluated(&mass, "legend > ramp { margin: 8; }");
+    // Symbols sized by mass, with a symbol legend of the scale's values.
+    let sized = Chart::builder(Plot::cartesian([CartesianLayer::symbol(
+        penguins(),
+        SymbolMark::builder().x("flipper").y("mass").size("mass"),
+    )]))
+    .build()
+    .unwrap();
+    let fewer = evaluated(&sized, "legend[type=symbol] { value-count: 2; }");
+    assert!(text_count(&fewer) < text_count(&evaluated(&sized, "")));
+    assert_eq!(moved(&apart, &plain), [[0.0, 0.0, -8.0, 0.0]]);
+
+    // A wrap of a plot for each species, with a facet that labels them.
+    let panels = Node::partitions(&penguins(), "species", PartitionOrder::Ascending, |rows| {
+        let symbols = CartesianLayer::symbol(rows, SymbolMark::builder().x("flipper").y("mass"));
+        Ok(Plot::cartesian([symbols]))
+    })
+    .unwrap();
+    let facets = Chart::builder(Wrap::builder().facet("species").children(panels))
+        .build()
+        .unwrap();
+    let plain = evaluated(&facets, "");
+    // Labels 10 from the panels, 6 more than the base stylesheet's 4, lower the panels by 6.
+    let spaced = evaluated(&facets, "facet[type=wrap] > label { margin: 10; }");
+    assert_eq!(moved(&spaced, &plain), [[0.0, 6.0, 0.0, -6.0]; 2]);
+    let turned = evaluated(&facets, "facet[type=wrap] > label { angle: 30; }");
+    let count = |evaluated: &EvaluatedChart| {
+        (text_angles(evaluated).iter())
+            .filter(|angle| **angle == 30.0)
+            .count()
+    };
+    assert_eq!((count(&plain), count(&turned)), (0, 2));
+
+    // A rose chart, whose theta axis labels its categories around the rim.
+    let rose = Chart::builder(Plot::polar([PolarLayer::bar(
+        penguins(),
+        PolarBarMark::builder()
+            .theta(Encoding::scaled_field("species").axis(Axis::builder()))
+            .radius("mass"),
+    )]))
+    .build()
+    .unwrap();
+    let plain = evaluated(&rose, "");
+    let radial = evaluated(&rose, "axis > label { text-orient: radial; }");
+    assert_eq!(text_angles(&plain), [0.0, 0.0]);
+    assert_eq!(text_angles(&radial), [90.0, 90.0]);
+    // On a polar axis, `auto` is the initial 0, the plot's start angle.
+    let auto = evaluated(&rose, "axis { angle: auto; }");
+    assert_eq!(format!("{:?}", auto.scene), format!("{:?}", plain.scene));
+    let spaced = evaluated(&rose, "axis > label { margin: 20; }");
+    assert_ne!(
+        format!("{:?}", spaced.scene),
+        format!("{:?}", plain.scene),
+        "labels farther from their ticks"
+    );
 }

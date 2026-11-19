@@ -22,12 +22,12 @@ label { font-size: 1rem; }
 legend { offset: 12; }
 /* Widgets stand above their plots, apart from them as legends are. */
 widget { orient: top; offset: 12; }
-legend[type=symbol] { tick-count: 5; max-entries: 30; }
+legend[type=symbol] { value-count: 5; max-entries: 30; }
 legend[type=colorbar] > ramp { max-length: 200; }
 
-/* The ticks of a continuous axis fit their count to a spacing of 2.25 ems, so they spread with
+/* The values of a continuous axis fit their count to a spacing of 2.25 ems, so they spread with
    the size of the text: 24.75 pixels at the chart's font size, near 2.5 times the labels'. */
-axis { tick-spacing: 2.25em; }
+axis { value-spacing: 2.25em; }
 
 /* Guide lines: 7/15 and 2/15 of the foreground over the background. */
 axis > rule, axis > tick, legend > rule, legend > tick, facet > rule, facet > tick {
@@ -54,7 +54,7 @@ plot[type=geo] {
             env(foreground, contrast-color(env(background, white))) calc(100% * 7 / 15),
             env(background, white));
 }
-graticule { label-padding: 4; }
+graticule > label { margin: 4; }
 graticule > grid { stroke-width: 0.7; }
 plot[type=cartesian] {
   border: 1 solid color-mix(in srgb,
@@ -67,21 +67,23 @@ plot:is([type=hconcat], [type=vconcat], [type=wrap], [type=facet_row], [type=fac
 plot:is([type=wrap], [type=facet_wrap]) { min-column-width: 160; }
 /* The titles and labels of facets stand above their columns and wraps, and to the right of
    their rows, whose labels read down. */
-facet { orient: top; label-padding: 4; }
-facet[type=row] { orient: right; label-angle: 90deg; }
+facet { orient: top; }
+facet > label { margin: 4; }
+facet[type=row] { orient: right; }
+facet[type=row] > label { angle: 90deg; }
 axis:not([kind=sequential], [kind=diverging]) > grid { display: none; }
 /* The axes of polar plots draw their spokes and rings, as a radar chart's web. */
 axis:is([channel=theta], [channel=radius]) > grid { display: block; }
 
 /* The labels of axes and colorbars keep apart, except those of discrete axes, which all show and
-   slant or turn where they do not fit, and the leaf of a nested band axis takes the axis's label
-   angle. */
-axis, legend[type=colorbar] { label-overlap: parity; }
-axis:is([kind=categorical], [kind=ordinal]) { label-overlap: none; }
+   slant or turn where they do not fit, and the labels of the leaf of a nested band axis take the
+   angle of the axis's labels. */
+axis > label, legend[type=colorbar] > label { overlap: parity; }
+axis:is([kind=categorical], [kind=ordinal]) > label { overlap: none; }
 /* The labels of a discrete x axis read across where each fits its band, and otherwise slant or
    turn, whichever is thinner and keeps them apart. */
-axis[channel=x]:is([scale=band], [scale=point]) { label-angle: auto; }
-axis > level:last-of-type { label-angle: inherit; }
+axis[channel=x]:is([scale=band], [scale=point]) > label { angle: auto; }
+axis > level:last-of-type > label { angle: auto; }
 
 /* Marks: the accent, and the foreground for rules and texts. */
 plot > mark { color: env(accent, #4c78a8); }

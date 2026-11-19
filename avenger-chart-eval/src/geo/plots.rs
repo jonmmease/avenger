@@ -506,7 +506,6 @@ impl GeoGroup {
                 let config = graticule_config(
                     spec,
                     self.clipped,
-                    &styles[graticule_nodes.graticule],
                     &styles[graticule_nodes.grid],
                     &styles[graticule_nodes.label],
                 );
@@ -1178,14 +1177,13 @@ fn label_sides(spec: &proto::Graticule) -> Vec<GuideSide> {
     }
 }
 
-/// The configuration of a graticule from its spec and the computed styles of its `graticule`, its
-/// `grid`, and its `label`. Unless the spec sets their frame, its labels sit on the edges of the
-/// plot for a plot that `clipped` says fits a box or its data, and on the outline of the projection
-/// for a plot that fits the whole sphere. A hidden `label` labels no side.
+/// The configuration of a graticule from its spec and the computed styles of its `grid` and its
+/// `label`. Unless the spec sets their frame, its labels sit on the edges of the plot for a plot
+/// that `clipped` says fits a box or its data, and on the outline of the projection for a plot
+/// that fits the whole sphere. A hidden `label` labels no side.
 fn graticule_config(
     spec: &proto::Graticule,
     clipped: bool,
-    graticule: &ComputedStyle,
     grid: &ComputedStyle,
     label: &ComputedStyle,
 ) -> GraticuleConfig {
@@ -1235,7 +1233,7 @@ fn graticule_config(
             label_font_size: label.font_size(),
             label_font_weight: font_weight(label),
             label_box: crate::guides::text_box(label),
-            label_padding: style_number(graticule, Property::LabelPadding),
+            label_padding: style_number(label, Property::Margin),
         },
     }
 }

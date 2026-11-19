@@ -971,12 +971,15 @@ fn polar_axis(
             avenger_common::types::TextSyntaxMode::Plain,
         );
         // The computed `angle` of a radius axis runs from the plot's start angle.
-        config.angle = Some(sector.start + style_number(axis, Property::Angle));
-        config.label_padding = style_number(axis, Property::LabelPadding);
-        config.label_orient = match axis.keyword(Property::LabelOrient) {
+        config.angle = Some(sector.start + crate::style::angle(axis));
+        let label = &styles[nodes.label];
+        config.label_padding = style_number(label, Property::Margin);
+        // A `text-orient` of `radial` or `tangential` turns the labels with their angles, and
+        // `horizontal` keeps their `angle`, where `auto` is 0.
+        config.label_orient = match label.keyword(Property::TextOrient) {
             Some("radial") => PolarLabelOrient::Radial,
             Some("tangential") => PolarLabelOrient::Tangential,
-            _ => match style_number(axis, Property::LabelAngle) {
+            _ => match label.number(Property::Angle).unwrap_or(0.0) {
                 0.0 => PolarLabelOrient::Horizontal,
                 angle => PolarLabelOrient::Angle(angle),
             },

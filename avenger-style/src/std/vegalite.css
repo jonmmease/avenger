@@ -6,7 +6,7 @@
   mark[type=symbol]:is(.circle, .square) { fill: auto; stroke: none; }
 
   /* The labels of a discrete x axis are turned by 270 degrees. */
-  axis[channel=x]:is([scale=band], [scale=point]) { label-angle: 270; }
+  axis[channel=x]:is([scale=band], [scale=point]) > label { angle: 270; }
 
   /* Binned bars have 1px between them. A bar on a continuous key is 5px wide. */
   mark[type=bar] { bin-spacing: 1; continuous-size: 5; }
