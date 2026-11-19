@@ -180,10 +180,10 @@ impl Checker<'_> {
             ..
         }) = layer
         {
-            if text.orient != 0 && text.angle.is_some() {
+            if text.text_orient != 0 && text.angle.is_some() {
                 return Err(fail(
                     format!("{mark_path}.angle"),
-                    "a polar text turns by its `orient` or by its `angle`, not both",
+                    "a polar text turns by its `text_orient` or by its `angle`, not both",
                 ));
             }
         }
@@ -518,8 +518,8 @@ impl Checker<'_> {
                 scale::Range::Values(value) => {
                     self.values.list(value, &format!("{path}.values"))?;
                 }
-                scale::Range::Palette(name) => {
-                    named(name, &format!("{path}.palette"), "the name of a palette")?
+                scale::Range::Scheme(name) => {
+                    named(name, &format!("{path}.scheme"), "the name of a palette")?
                 }
             }
         }
@@ -680,8 +680,8 @@ impl Checker<'_> {
                     ),
                 ));
             }
-            if let Some(scale::Nice::TickCount(count)) = spec.nice {
-                positive(Some(count), &format!("{path}.tick_count"))?;
+            if let Some(scale::Nice::NiceCount(count)) = spec.nice {
+                positive(Some(count), &format!("{path}.nice_count"))?;
             }
             if let Some(empty) = &spec.domain_empty {
                 self.values.list(empty, &format!("{path}.domain_empty"))?;
@@ -1218,9 +1218,9 @@ fn summary_kind(fields: &Fields) -> Option<FitKind> {
 struct TextProps<'a> {
     format: &'a str,
     width_mode: i32,
-    wrap: Option<bool>,
+    white_space: i32,
     max_lines: Option<u32>,
-    ellipsis: Option<bool>,
+    text_overflow: i32,
 }
 
 fn text_props(layer: LayerRef<'_>) -> Option<TextProps<'_>> {
@@ -1232,9 +1232,9 @@ fn text_props(layer: LayerRef<'_>) -> Option<TextProps<'_>> {
         }) => Some(TextProps {
             format: &text.format,
             width_mode: text.width_mode,
-            wrap: text.wrap,
+            white_space: text.white_space,
             max_lines: text.max_lines,
-            ellipsis: text.ellipsis,
+            text_overflow: text.text_overflow,
         }),
         LayerRef::Polar(proto::PolarLayer {
             mark: Some(polar_layer::Mark::Text(text)),
@@ -1242,9 +1242,9 @@ fn text_props(layer: LayerRef<'_>) -> Option<TextProps<'_>> {
         }) => Some(TextProps {
             format: &text.format,
             width_mode: text.width_mode,
-            wrap: text.wrap,
+            white_space: text.white_space,
             max_lines: text.max_lines,
-            ellipsis: text.ellipsis,
+            text_overflow: text.text_overflow,
         }),
         LayerRef::Geo(proto::GeoLayer {
             mark: Some(geo_layer::Mark::Text(text)),
@@ -1252,17 +1252,17 @@ fn text_props(layer: LayerRef<'_>) -> Option<TextProps<'_>> {
         }) => Some(TextProps {
             format: &text.format,
             width_mode: text.width_mode,
-            wrap: text.wrap,
+            white_space: text.white_space,
             max_lines: text.max_lines,
-            ellipsis: text.ellipsis,
+            text_overflow: text.text_overflow,
         }),
         _ => None,
     }
 }
 
 impl TextProps<'_> {
-    /// Checks the wrapping of a text: it keeps a line or more, its width mode and its wrap need a
-    /// `width`, and its ellipsis needs a `width` or a most lines, which cut the text.
+    /// Checks the wrapping of a text: it keeps a line or more, its width mode and its white space
+    /// need a `width`, and its text overflow needs a `width` or a most lines, which cut the text.
     fn check(&self, width: bool, path: &str) -> Result<()> {
         if self.max_lines == Some(0) {
             return Err(fail(
@@ -1271,18 +1271,20 @@ impl TextProps<'_> {
             ));
         }
         if !width
-            && (self.width_mode != proto::TextWidthMode::Unspecified as i32 || self.wrap.is_some())
+            && (self.width_mode != proto::TextWidthMode::Unspecified as i32
+                || self.white_space != 0)
         {
             return Err(fail(
                 path,
-                "the width mode and the wrap of a text apply to its `width`, which it does not encode",
+                "the width mode and the white space of a text apply to its `width`, which it does not \
+                 encode",
             ));
         }
-        if !width && self.max_lines.is_none() && self.ellipsis.is_some() {
+        if !width && self.max_lines.is_none() && self.text_overflow != 0 {
             return Err(fail(
                 path,
-                "the ellipsis of a text marks the cut of its `width` or its most lines, and it has \
-                 neither",
+                "the text overflow of a text ends the cut of its `width` or its most lines, and it \
+                 has neither",
             ));
         }
         Ok(())
@@ -1360,7 +1362,7 @@ fn one_value_per_series(mark: &dyn MarkMessage, table: &RecordBatch, path: &str)
             Channel::Opacity,
             Channel::StrokeOpacity,
             Channel::StrokeWidth,
-            Channel::StrokeDash,
+            Channel::StrokeDasharray,
         ],
         MarkType::Trail => &[Channel::Opacity],
         MarkType::Area => &[
@@ -1368,7 +1370,7 @@ fn one_value_per_series(mark: &dyn MarkMessage, table: &RecordBatch, path: &str)
             Channel::FillOpacity,
             Channel::StrokeOpacity,
             Channel::StrokeWidth,
-            Channel::StrokeDash,
+            Channel::StrokeDasharray,
             Channel::Pattern,
         ],
         _ => return Ok(()),
@@ -1460,7 +1462,7 @@ fn raw_values(channel: Channel, data_type: &DataType, path: &str) -> Result<()> 
         | Channel::Latitude2
         | Channel::Width
         | Channel::Height => data_type.is_numeric(),
-        Channel::StrokeDash => {
+        Channel::StrokeDasharray => {
             is_string(data_type)
                 || matches!(
                     data_type,

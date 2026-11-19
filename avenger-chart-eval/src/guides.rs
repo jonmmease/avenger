@@ -797,7 +797,7 @@ fn swatch(channel: Channel, scale: &ConfiguredScale, values: &ArrayRef) -> Resul
         Channel::StrokeWidth => Swatch::StrokeWidth(numbers()?),
         Channel::Angle => Swatch::Angle(numbers()?),
         Channel::Shape => Swatch::Shape(scale.scale_to_string(values)?.as_vec(len, None)),
-        Channel::StrokeDash => Swatch::StrokeDash(
+        Channel::StrokeDasharray => Swatch::StrokeDash(
             Coercer::default()
                 .to_stroke_dash(&scale.scale(values)?)?
                 .as_vec(len, None),

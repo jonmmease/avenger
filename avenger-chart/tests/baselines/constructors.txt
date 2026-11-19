@@ -60,7 +60,7 @@ track(value, length, share, max)
   length: number
   share: number
   max: number
-resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, projection, independent_widgets)
+resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, projection, independent_widgets)
   x: one of shared, independent
   y: one of shared, independent
   theta: one of shared, independent
@@ -72,7 +72,7 @@ resolve(x, y, theta, radius, color, fill, stroke, opacity, fill_opacity, stroke_
   fill_opacity: one of shared, independent
   stroke_opacity: one of shared, independent
   stroke_width: one of shared, independent
-  stroke_dash: one of shared, independent
+  stroke_dasharray: one of shared, independent
   size: one of shared, independent
   shape: one of shared, independent
   angle: one of shared, independent
@@ -98,7 +98,7 @@ point_key(column, source)
   column (positional, required): string
   source: string
 interval_select(channels, cell)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   cell: number
 tooltip(nearest, max_radius, metric, title, fields, anchor, hide_swatch, modes)
   nearest: Boolean
@@ -119,7 +119,7 @@ tooltip_title(column, format, markup)
   format: string
   markup: string
 navigate(channels, modes)
-  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
+  channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   modes: array of string
 attribution(credits, orient, text_align, separator, separator_space, font_family, font_size, font_weight, color, line_gap, background, border_color, border_radius, padding)
   credits: array of string
@@ -136,24 +136,22 @@ attribution(credits, orient, text_align, separator, separator_space, font_family
   border_color: string
   border_radius: number
   padding: number
-geo(projection, family, aspect, navigation, graticule, sphere, tiles)
+geo(projection, family, aspect, navigation, graticule, sphere, sphere_fill, sphere_stroke, sphere_stroke_width, tiles)
   projection (required): string -> builtin; projection(...)
   family: string
   aspect: integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name; aspect(...)
   navigation: navigation(...)
   graticule: Boolean -> show; graticule(...)
-  sphere: Boolean -> show; sphere(...)
+  sphere: Boolean
+  sphere_fill: string
+  sphere_stroke: string
+  sphere_stroke_width: number
   tiles: string -> url_template; tiles(...)
 tile_layer(url_template, min_zoom, max_zoom, tile_size)
   url_template (positional, required): string
   min_zoom: integer
   max_zoom: integer
   tile_size: integer
-sphere_style(show, fill, stroke, stroke_width)
-  show (positional): Boolean
-  fill: string
-  stroke: string
-  stroke_width: number
 graticule(show, step, extent, step_major, extent_major, precision, labels, grid_stroke, grid_stroke_width)
   show (positional): Boolean
   step: array of number
@@ -198,8 +196,8 @@ polar(start_angle, end_angle, inner_radius)
   start_angle: number
   end_angle: number
   inner_radius: number
-cartesian(aspect)
-  aspect: number
+cartesian(aspect_ratio)
+  aspect_ratio: number
 legend(show, type, title, labels, orient, background, border_color, border_radius, padding, wrap, columns, column_gap, row_gap, value_placement, swatches, ramp_thickness, ramp_margin, ramp_max_length, ticks, tick_length, tick_stroke, rule, rule_stroke, classes, id)
   show (positional): Boolean
   type: one of symbol, colorbar
@@ -257,11 +255,11 @@ scale(value, type, domain, zero, nice, pin, domain_empty, sort, range, reverse, 
   type: string -> a member's name; type(...)
   domain: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit; domain(...)
   zero: Boolean
-  nice: Boolean -> enabled; integer -> tick_count; float -> tick_count; nice(...)
+  nice: Boolean -> enabled; integer -> nice_count; float -> nice_count; nice(...)
   pin: pin(...)
   domain_empty: any constant
   sort: Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; struct -> preferred; other -> preferred; sort(...)
-  range: Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; struct -> values; other -> values; range(...)
+  range: Boolean -> values; integer -> values; float -> values; string -> scheme; array -> values; struct -> values; other -> values; range(...)
   reverse: Boolean
   family: string
   navigation: string -> a member's name; navigation(...)
@@ -277,7 +275,7 @@ domain_pin(value, position)
   position (required): one of low, mid, high
 selection_domain(selection, channel, fallback)
   selection (required): string
-  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dash, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
+  channel (required): one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   fallback: Boolean -> explicit; integer -> explicit; float -> explicit; string -> explicit; array -> explicit; struct -> explicit; other -> explicit; fallback(...)
 custom_scale(name, options)
   name (positional, required): string
@@ -367,18 +365,18 @@ scale.domain(value, explicit, summary, selection)
   explicit: any constant
   summary: any constant
   selection: selection(...)
-scale.nice(value, enabled, tick_count)
-  value (positional): Boolean -> enabled; integer -> tick_count; float -> tick_count
+scale.nice(value, enabled, nice_count)
+  value (positional): Boolean -> enabled; integer -> nice_count; float -> nice_count
   enabled: Boolean
-  tick_count: number
+  nice_count: number
 scale.sort(value, direction, preferred)
   value (positional): Boolean -> preferred; integer -> preferred; float -> preferred; string -> direction; array -> preferred; struct -> preferred; other -> preferred
   direction: one of ascending, descending
   preferred: any constant
-scale.range(value, values, palette)
-  value (positional): Boolean -> values; integer -> values; float -> values; string -> palette; array -> values; struct -> values; other -> values
+scale.range(value, values, scheme)
+  value (positional): Boolean -> values; integer -> values; float -> values; string -> scheme; array -> values; struct -> values; other -> values
   values: any constant
-  palette: string
+  scheme: string
 navigation_limits.bounds(value, extent)
   value (positional): one of data, extent
   extent: extent(...)
@@ -466,7 +464,6 @@ lifts
   Projection.type (oneof)
   Scale.type (oneof)
   Select.selection
-  SphereStyle.show
   SphericalClip.clip (oneof)
   Subtitle.text
   TileLayer.url_template

@@ -530,17 +530,17 @@ async fn order_orders_a_path_and_order_by_draws_the_rows() {
 }
 
 #[tokio::test]
-async fn a_polar_text_takes_an_orient_or_an_angle() {
+async fn a_polar_text_takes_a_text_orient_or_an_angle() {
     let orient = |chart: &Chart| match layer(chart) {
         LayerRef::Polar(avenger_chart::proto::PolarLayer {
             mark: Some(avenger_chart::proto::polar_layer::Mark::Text(text)),
             ..
-        }) => text.orient,
+        }) => text.text_orient,
         _ => panic!("the layer draws polar texts"),
     };
     let tangential = chart(
         "FROM t
-         |> AGGREGATE polar_text(text => s, theta => a, radius => b, orient => 'tangential') AS chart",
+         |> AGGREGATE polar_text(text => s, theta => a, radius => b, text_orient => 'tangential') AS chart",
     )
     .await;
     assert_eq!(
@@ -560,12 +560,12 @@ async fn a_polar_text_takes_an_orient_or_an_angle() {
               text => s,
               theta => a,
               radius => b,
-              orient => 'radial',
+              text_orient => 'radial',
               angle => a,
             ) AS chart")
     .await
     {
-        Ok(_) => panic!("a polar text with an orient and an angle is invalid"),
+        Ok(_) => panic!("a polar text with a text orient and an angle is invalid"),
         Err(error) => error.to_string(),
     };
     assert!(message.contains("not both"), "{message}");

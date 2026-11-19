@@ -63,7 +63,7 @@ fn a_constructor_builds_its_fields_and_picks_a_member_by_the_type_of_its_value()
     assert_eq!(fragment.r#type, "avenger.chart.v1.Scale");
     let scale = proto::Scale::decode(fragment.message).unwrap();
     assert_eq!(scale.zero, Some(false));
-    assert_eq!(scale.nice, Some(proto::scale::Nice::TickCount(5.0)));
+    assert_eq!(scale.nice, Some(proto::scale::Nice::NiceCount(5.0)));
 }
 
 #[test]
@@ -833,7 +833,7 @@ fn each_channel_with_a_scale_has_a_function_with_the_options_of_its_channel() {
             "fill_opacity",
             "stroke_opacity",
             "stroke_width",
-            "stroke_dash",
+            "stroke_dasharray",
             "size",
             "shape",
             "angle",

@@ -133,7 +133,7 @@ fn ranges_come_from_the_computed_scheme_or_range() {
         panic!("shapes");
     };
     assert_eq!(shapes.as_string::<i32>().value(0), "circle");
-    let (styles, node) = scale_style("", "stroke_dash", "categorical", "line");
+    let (styles, node) = scale_style("", "stroke_dasharray", "categorical", "line");
     let Some(ScaleRange::Values(dashes)) = range(&styles[node], &styles, RangeShape::Discrete(2))
     else {
         panic!("dashes");
@@ -211,7 +211,7 @@ fn explicit_summary_and_data_domains_have_their_sources() {
             .x(Encoding::scaled_field("a").scale(
                 Scale::linear(LinearScale::builder())
                     .zero(true)
-                    .tick_count(5.0),
+                    .nice_count(5.0),
             ))
             .y("b"),
     );
@@ -267,7 +267,7 @@ fn nice_turns_nice_ends_on_and_off() {
     assert_eq!(nice(Scale::builder().enabled(false), Some(10.0)), None);
     assert_eq!(nice(Scale::builder().enabled(true), None), Some(10.0));
     assert_eq!(
-        nice(Scale::builder().tick_count(4.0), Some(10.0)),
+        nice(Scale::builder().nice_count(4.0), Some(10.0)),
         Some(4.0)
     );
 }
@@ -283,7 +283,7 @@ fn the_fit_fields_of_a_scale_fit_its_domain() {
                 .x(Encoding::scaled_field("a").scale(
                     spec.linear(LinearScale::builder())
                         .zero(true)
-                        .tick_count(5.0)
+                        .nice_count(5.0)
                         .pin(avenger_chart::proto::DomainPin::new(1.0, PinPosition::Low)),
                 ))
                 .y("b"),

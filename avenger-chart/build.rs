@@ -338,7 +338,7 @@ fn marks(set: &FileDescriptorSet, messages: &Messages) -> Result<String, String>
     writeln!(code, "impl Channel {{").unwrap();
     writeln!(
         code,
-        "    /// The name of the field of the channel in a mark, such as `stroke_dash`."
+        "    /// The name of the field of the channel in a mark, such as `stroke_dasharray`."
     )
     .unwrap();
     writeln!(

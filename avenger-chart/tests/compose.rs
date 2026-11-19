@@ -454,7 +454,7 @@ fn the_options_of_overlaid_plots_agree() {
                 points(),
                 SymbolMark::builder().x("a").y("b"),
             )])
-            .options(Cartesian::builder().aspect(ratio)),
+            .options(Cartesian::builder().aspect_ratio(ratio)),
         )
     };
     Chart::builder(Plot::overlay([shaped(1.5), shaped(1.5)]))

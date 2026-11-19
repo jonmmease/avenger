@@ -429,7 +429,7 @@ fn summary_fit(summary: &proto::WidgetSummaryDomain) -> proto::WidgetDataDomain 
         zero: summary.zero,
         nice: summary.nice.map(|nice| match nice {
             summary_domain::Nice::Enabled(enabled) => data::Nice::Enabled(enabled),
-            summary_domain::Nice::TickCount(count) => data::Nice::TickCount(count),
+            summary_domain::Nice::NiceCount(count) => data::Nice::NiceCount(count),
         }),
         pin: summary.pin,
         domain_empty: summary.domain_empty,
@@ -446,7 +446,7 @@ fn set_summary_fit(summary: &mut proto::WidgetSummaryDomain, fit: proto::WidgetD
     summary.zero = fit.zero;
     summary.nice = fit.nice.map(|nice| match nice {
         data::Nice::Enabled(enabled) => summary_domain::Nice::Enabled(enabled),
-        data::Nice::TickCount(count) => summary_domain::Nice::TickCount(count),
+        data::Nice::NiceCount(count) => summary_domain::Nice::NiceCount(count),
     });
     summary.pin = fit.pin;
     summary.domain_empty = fit.domain_empty;

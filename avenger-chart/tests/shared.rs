@@ -607,7 +607,7 @@ fn shared_fits_merge_field_by_field() {
         ..Default::default()
     };
     let nice = proto::Scale {
-        nice: Some(proto::scale::Nice::TickCount(5.0)),
+        nice: Some(proto::scale::Nice::NiceCount(5.0)),
         ..Default::default()
     };
     let chart = read(parts(
@@ -622,7 +622,7 @@ fn shared_fits_merge_field_by_field() {
         .unwrap();
     assert_eq!(x.members.len(), 2);
     assert_eq!(x.spec.zero, Some(true));
-    assert_eq!(x.spec.nice, Some(proto::scale::Nice::TickCount(5.0)));
+    assert_eq!(x.spec.nice, Some(proto::scale::Nice::NiceCount(5.0)));
     assert_eq!((x.spec.pin, x.spec.domain_empty), (None, None));
     let other_zero = proto::Scale {
         zero: Some(false),
@@ -671,7 +671,7 @@ fn a_shared_range_and_its_reverse_merge() {
         }
         layer
     };
-    let palette = || Some(proto::scale::Range::Palette("viridis".to_string()));
+    let palette = || Some(proto::scale::Range::Scheme("viridis".to_string()));
     let chart = read(parts(
         plot(vec![colored(palette(), false), colored(None, true)]),
         vec![],
@@ -682,7 +682,7 @@ fn a_shared_range_and_its_reverse_merge() {
         .unwrap();
     assert_eq!(color.spec.range, palette());
     assert!(color.spec.reverse);
-    let other = Some(proto::scale::Range::Palette("magma".to_string()));
+    let other = Some(proto::scale::Range::Scheme("magma".to_string()));
     invalid(
         parts(
             plot(vec![colored(palette(), false), colored(other, false)]),
@@ -731,7 +731,9 @@ fn a_reader_ignores_the_sizes_of_plots_in_a_wrap() {
         plot_mut(&mut node).width = Some(width);
         plot_mut(&mut node).height = Some(width);
         if let Some(plot::Coord::Cartesian(cartesian)) = &mut plot_mut(&mut node).coord {
-            cartesian.options = Some(proto::Cartesian { aspect: Some(1.5) });
+            cartesian.options = Some(proto::Cartesian {
+                aspect_ratio: Some(1.5),
+            });
         }
         node
     };

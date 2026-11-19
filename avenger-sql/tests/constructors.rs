@@ -294,7 +294,7 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     builds(
         "scale",
         "scale(nice => 5)",
-        Scale::builder().tick_count(5.0).to_fragment().unwrap(),
+        Scale::builder().nice_count(5.0).to_fragment().unwrap(),
     )
     .await;
     builds(
@@ -325,7 +325,7 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     builds(
         "scale",
         "scale(range => 'viridis')",
-        Scale::builder().palette("viridis").to_fragment().unwrap(),
+        Scale::builder().scheme("viridis").to_fragment().unwrap(),
     )
     .await;
     builds(
@@ -884,7 +884,7 @@ async fn the_options_of_a_mark_are_plan_time_constants() {
         ),
         (
             "FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, coord => geo(projection => 'identity'))",
-            "`coord` takes `coord => cartesian([aspect => ANY])`, not `geo(...)`",
+            "`coord` takes `coord => cartesian([aspect_ratio => ANY])`, not `geo(...)`",
         ),
     ] {
         let ctx = common::session();

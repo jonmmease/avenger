@@ -27,7 +27,7 @@ use crate::{
 /// The scale type follows the Arrow type of the values, the channel, and for categories on a
 /// position, the mark:
 ///
-/// | Values | Positions | `color`, `fill`, `stroke` | Other numeric channels | `shape`, `pattern`, `stroke_dash` |
+/// | Values | Positions | `color`, `fill`, `stroke` | Other numeric channels | `shape`, `pattern`, `stroke_dasharray` |
 /// |---|---|---|---|---|
 /// | numbers | linear | linear | linear | ordinal |
 /// | dates and timestamps | time | time | time | ordinal |
@@ -208,7 +208,7 @@ fn scale_type(data_type: &DataType, channel: Channel, mark_type: MarkType) -> Op
     );
     let categorical = matches!(
         channel,
-        Channel::Shape | Channel::Pattern | Channel::StrokeDash
+        Channel::Shape | Channel::Pattern | Channel::StrokeDasharray
     );
     Some(match values {
         Values::Paths if position => Type::NestedBand(proto::NestedBandScale::default()),

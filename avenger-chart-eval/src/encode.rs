@@ -530,23 +530,25 @@ impl<'a> LayerRows<'a> {
         }))
     }
 
-    /// The dashes of `stroke_dash`, or the computed `stroke-dasharray` of the mark node: no dash
+    /// The dashes of `stroke_dasharray`, or the computed `stroke-dasharray` of the mark node: no dash
     /// for `none`.
     pub(crate) fn dashes_or_style(&self) -> Result<Option<ScalarOrArray<Vec<f32>>>> {
-        let dashes = match self.dashes(Channel::StrokeDash)? {
+        let dashes = match self.dashes(Channel::StrokeDasharray)? {
             Some(dashes) => Some(dashes),
             None => style_dashes(self.style).map(scalar),
         };
         // The rows of a variant take its node's dashes, where no dashes is solid.
-        let styled = (Variant::ALL.into_iter())
-            .any(|variant| self.styled_rows(variant, Channel::StrokeDash).is_some());
+        let styled = (Variant::ALL.into_iter()).any(|variant| {
+            self.styled_rows(variant, Channel::StrokeDasharray)
+                .is_some()
+        });
         if !styled {
             return Ok(dashes);
         }
         let dashes = dashes.unwrap_or_else(|| scalar(Vec::new()));
         Ok(Some(self.with_variants(
             dashes,
-            Channel::StrokeDash,
+            Channel::StrokeDasharray,
             |style| style_dashes(style).unwrap_or_default(),
         )))
     }

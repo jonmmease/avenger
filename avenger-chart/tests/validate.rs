@@ -493,7 +493,7 @@ fn a_threshold_scale_has_no_data_domain() {
 #[test]
 fn the_plot_gives_the_range_of_a_position() {
     let mut parts = base();
-    x_scale(&mut parts.0).range = Some(scale::Range::Palette("tableau10".to_string()));
+    x_scale(&mut parts.0).range = Some(scale::Range::Scheme("tableau10".to_string()));
     invalid(
         parts.clone(),
         &format!("{X}.scale.range"),
@@ -581,7 +581,7 @@ fn a_guide_is_of_a_kind_that_its_channel_takes() {
 }
 
 #[test]
-fn a_polar_text_turns_by_its_orient_or_by_its_angle() {
+fn a_polar_text_turns_by_its_text_orient_or_by_its_angle() {
     let text = |orient: proto::PolarTextOrient, angle: Option<Encoding>| {
         let layer = proto::PolarLayer {
             table: Some(proto::TableRef { index: 0 }),
@@ -592,7 +592,7 @@ fn a_polar_text_turns_by_its_orient_or_by_its_angle() {
                     kind: Some(encoding::Kind::DirectField("a".to_string())),
                     ..Default::default()
                 }),
-                orient: orient as i32,
+                text_orient: orient as i32,
                 angle,
                 ..Default::default()
             })),
@@ -620,7 +620,7 @@ fn a_polar_text_turns_by_its_orient_or_by_its_angle() {
     invalid(
         text(proto::PolarTextOrient::Tangential, angle()),
         "root.plot.polar.layers[0].text.angle",
-        "by its `orient` or by its `angle`, not both",
+        "by its `text_orient` or by its `angle`, not both",
     );
 }
 
@@ -714,7 +714,9 @@ fn sizes_and_paddings_are_in_range() {
     plot.width = Some(300.0);
     plot.height = Some(200.0);
     if let Some(plot::Coord::Cartesian(cartesian)) = plot.coord.as_mut() {
-        cartesian.options = Some(proto::Cartesian { aspect: Some(1.5) });
+        cartesian.options = Some(proto::Cartesian {
+            aspect_ratio: Some(1.5),
+        });
     }
     invalid(parts, "root.plot", "is a conflict");
 }
@@ -779,6 +781,27 @@ fn geo_parts(geo: proto::Geo) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>)
     let mut parts = base();
     parts.0.root = Some(geo_plot(Some(geo)));
     parts
+}
+
+#[test]
+fn the_styles_of_the_sphere_need_the_sphere() {
+    let styled = |sphere: Option<bool>| {
+        geo_parts(geo_options(ProjectionType::EqualEarth, |geo| {
+            geo.sphere = sphere;
+            geo.sphere_fill = "aliceblue".to_string();
+        }))
+    };
+    invalid(
+        styled(None),
+        "root.plot.geo.options.sphere_fill",
+        "the styles of the sphere need `sphere`",
+    );
+    invalid(
+        styled(Some(false)),
+        "root.plot.geo.options.sphere_fill",
+        "the styles of the sphere need `sphere`",
+    );
+    read(styled(Some(true))).unwrap();
 }
 
 #[test]
@@ -1877,10 +1900,10 @@ fn a_track_has_a_maximum_only_with_a_share() {
 
 /// The tick count of nice ends is more than 0, since `nice: false` turns nice ends off.
 #[test]
-fn a_nice_tick_count_is_more_than_zero() {
+fn a_nice_count_is_more_than_zero() {
     let mut parts = base();
-    x_scale(&mut parts.0).nice = Some(scale::Nice::TickCount(0.0));
-    invalid(parts, &format!("{X}.scale.tick_count"), "more than 0");
+    x_scale(&mut parts.0).nice = Some(scale::Nice::NiceCount(0.0));
+    invalid(parts, &format!("{X}.scale.nice_count"), "more than 0");
 }
 
 /// A fit pins one value, a scalar that the chart's values hold.

@@ -126,7 +126,7 @@ scale:is([channel=color], [channel=fill], [channel=stroke]) { unknown: gray; }
 scale[channel=shape] {
   range: circle, square, triangle-up, cross, diamond, triangle-right, triangle-down, triangle-left;
 }
-scale[channel=stroke_dash] { range: 1 0, 4 2, 2 1, 1 1, 1 2 4 2; }
+scale[channel=stroke_dasharray] { range: 1 0, 4 2, 2 1, 1 1, 1 2 4 2; }
 scale[channel=opacity] { range: 0.3, 0.8; }
 scale[channel=fill_opacity], scale[channel=stroke_opacity] { range: 0.3, 0.8; }
 scale[channel=stroke_width] { range: 1, 4; }

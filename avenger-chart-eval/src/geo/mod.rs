@@ -23,9 +23,9 @@ pub(crate) fn graticule(spec: &proto::Geo) -> Option<&proto::Graticule> {
     (spec.graticule.as_ref()).filter(|graticule| graticule.show != Some(false))
 }
 
-/// The sphere of a geo spec that draws one: a sphere that is set and does not hide itself.
-pub(crate) fn sphere(spec: &proto::Geo) -> Option<&proto::SphereStyle> {
-    (spec.sphere.as_ref()).filter(|sphere| sphere.show != Some(false))
+/// Whether a geo spec draws its sphere.
+pub(crate) fn draws_sphere(spec: &proto::Geo) -> bool {
+    spec.sphere == Some(true)
 }
 
 /// What preparing the geo plots reads: the chart's models, its style nodes and their computed

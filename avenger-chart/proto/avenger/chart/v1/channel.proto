@@ -100,7 +100,7 @@ enum Channel {
   CHANNEL_STROKE_WIDTH = 23 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
   // The dash of a stroke, as alternating dash and gap lengths in pixels. Values: lists of numbers,
   // or strings of numbers such as `4 2`. No lengths draws a solid stroke.
-  CHANNEL_STROKE_DASH = 24 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
+  CHANNEL_STROKE_DASHARRAY = 24 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
   // The area of a symbol, or of the symbol of a point geometry, in square pixels, the font size of
   // a text, or the width of a trail at a row in pixels. Values: numbers.
   CHANNEL_SIZE = 25 [(avenger.chart.v1.channel_scale) = CHANNEL_SCALE_OWN];
