@@ -1152,9 +1152,14 @@ fn max_reach(a: Reach, b: &Reach) -> Reach {
     [0, 1, 2, 3].map(|side| a[side].max(b[side]))
 }
 
-/// The sides of a graticule's spec that label its lines: its own, or the left and the bottom.
+/// The sides of a graticule's spec that label its lines: its labels' own, or the left and the
+/// bottom.
 fn label_sides(spec: &proto::Graticule) -> Vec<GuideSide> {
-    match &spec.label_sides {
+    match spec
+        .labels
+        .as_ref()
+        .and_then(|labels| labels.sides.as_ref())
+    {
         Some(sides) => {
             let mut sides: Vec<GuideSide> = (sides.sides.iter())
                 .filter_map(|side| match proto::Side::try_from(*side).ok()? {
@@ -1210,7 +1215,8 @@ fn graticule_config(
     if let Some(precision) = spec.precision {
         lines.precision = precision;
     }
-    let frame = match proto::GeoFrame::try_from(spec.label_frame) {
+    let labels = spec.labels.as_ref();
+    let frame = match proto::GeoFrame::try_from(labels.map_or(0, |labels| labels.frame)) {
         Ok(proto::GeoFrame::Outline) => GeoFrame::Outline,
         Ok(proto::GeoFrame::Rectangle) => GeoFrame::Rectangle,
         _ if clipped => GeoFrame::Rectangle,
@@ -1224,7 +1230,7 @@ fn graticule_config(
             true => label_sides(spec),
             false => Vec::new(),
         },
-        label_format: spec.format.clone(),
+        label_format: labels.map_or_else(String::new, |labels| labels.format.clone()),
         style: GraticuleStyle {
             stroke: match shown {
                 true => paint_color(grid, Property::Stroke),

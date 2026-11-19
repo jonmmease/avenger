@@ -13,8 +13,8 @@ use arrow::{
 };
 
 use super::{
-    classes, dictionary_values, fail, is_string, named, non_negative, positive, title, within,
-    Checker, Result, REQUIRED,
+    classes, dictionary_values, fail, is_string, label_settings, named, non_negative, positive,
+    title, within, Checker, Result, REQUIRED,
 };
 use crate::{
     layer::{CoordKind, LayerRef, MarkMessage, MarkType},
@@ -738,10 +738,7 @@ impl Checker<'_> {
     ) -> Result<()> {
         let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
         title(axis.title.as_ref(), &format!("{path}.title"), false)?;
-        let polar_orient = matches!(
-            axis.label_rotation,
-            Some(axis::LabelRotation::LabelOrient(_))
-        );
+        let labels_path = format!("{path}.labels");
         match (kind, channel) {
             (CoordKind::Cartesian, Channel::X | Channel::Y) => {
                 if axis.angle.is_some() {
@@ -750,19 +747,17 @@ impl Checker<'_> {
                 if axis.route != 0 {
                     return invalid("route", "a route is valid only on the axis of a polar plot");
                 }
-                if polar_orient {
-                    return invalid(
-                        "label_orient",
-                        "an orient of labels is valid only on the axis of a polar plot",
-                    );
-                }
+                label_settings(
+                    axis.labels.as_ref(),
+                    &labels_path,
+                    "the axis of a Cartesian plot",
+                    &["angle", "text_align", "vertical_align"],
+                )?;
             }
             (CoordKind::Polar, Channel::Theta | Channel::Radius) => {
                 let cartesian = [
                     ("title", axis.title.is_some()),
                     ("orient", axis.orient != 0),
-                    ("label_align", axis.label_align != 0),
-                    ("label_baseline", axis.label_baseline != 0),
                     ("levels", !axis.levels.is_empty()),
                 ];
                 if let Some((field, _)) = cartesian.iter().find(|(_, set)| *set) {
@@ -771,6 +766,12 @@ impl Checker<'_> {
                 if axis.angle.is_some() && channel != Channel::Radius {
                     return invalid("angle", "an angle is valid only on the axis of `radius`");
                 }
+                label_settings(
+                    axis.labels.as_ref(),
+                    &labels_path,
+                    "the axis of a polar plot",
+                    &["angle", "text_orient"],
+                )?;
             }
             _ => {
                 return Err(fail(
@@ -781,14 +782,17 @@ impl Checker<'_> {
             }
         }
         classes(&axis.classes, path)?;
-        non_negative(axis.tick_size.map(f64::from), &format!("{path}.tick_size"))?;
         non_negative(
-            axis.grid_width.map(f64::from),
-            &format!("{path}.grid_width"),
+            axis.tick_length.map(f64::from),
+            &format!("{path}.tick_length"),
+        )?;
+        non_negative(
+            axis.grid_stroke_width.map(f64::from),
+            &format!("{path}.grid_stroke_width"),
         )?;
         self.labels(axis.labels.as_ref(), domain_type, path)?;
-        self.tick_placement(
-            axis.tick_placement.as_ref().map(Placement::of_axis),
+        self.value_placement(
+            axis.value_placement.as_ref().map(Placement::of_axis),
             scale_type,
             domain_type,
             path,
@@ -815,7 +819,8 @@ impl Checker<'_> {
             LegendForm::Unspecified => color && ticked(scale_type),
         };
         let invalid = |field: &str, reason: &str| Err(fail(format!("{path}.{field}"), reason));
-        let placement = legend.tick_placement.as_ref().map(Placement::of_legend);
+        let placement = legend.value_placement.as_ref().map(Placement::of_legend);
+        let labels_path = format!("{path}.labels");
         if colorbar {
             if !color || !ticked(scale_type) {
                 return Err(fail(
@@ -827,7 +832,6 @@ impl Checker<'_> {
             let symbol = [
                 ("wrap", legend.wrap != 0),
                 ("columns", legend.columns.is_some()),
-                ("label_padding", legend.label_padding.is_some()),
                 ("column_gap", legend.column_gap.is_some()),
                 ("row_gap", legend.row_gap.is_some()),
                 ("swatches", legend.swatches.is_some()),
@@ -835,28 +839,38 @@ impl Checker<'_> {
             if let Some((field, _)) = symbol.iter().find(|(_, set)| *set) {
                 return invalid(field, "a colorbar has no such part");
             }
-            non_negative(
-                legend.tick_size.map(f64::from),
-                &format!("{path}.tick_size"),
+            label_settings(
+                legend.labels.as_ref(),
+                &labels_path,
+                "a colorbar",
+                &["angle", "text_align", "vertical_align"],
             )?;
-            self.tick_placement(placement, scale_type, domain_type, path)?;
+            non_negative(
+                legend.tick_length.map(f64::from),
+                &format!("{path}.tick_length"),
+            )?;
+            self.value_placement(placement, scale_type, domain_type, path)?;
         } else {
             let colorbar_only = [
-                ("thickness", legend.thickness.is_some()),
-                ("axis_gap", legend.axis_gap.is_some()),
-                ("max_length", legend.max_length.is_some()),
-                ("label_align", legend.label_align != 0),
-                ("label_baseline", legend.label_baseline != 0),
-                ("tick_step", matches!(placement, Some(Placement::Step(_)))),
+                ("ramp_thickness", legend.ramp_thickness.is_some()),
+                ("ramp_margin", legend.ramp_margin.is_some()),
+                ("ramp_max_length", legend.ramp_max_length.is_some()),
+                ("value_step", matches!(placement, Some(Placement::Step(_)))),
                 ("ticks", legend.ticks.is_some()),
-                ("tick_size", legend.tick_size.is_some()),
-                ("tick_color", !legend.tick_color.is_empty()),
+                ("tick_length", legend.tick_length.is_some()),
+                ("tick_stroke", !legend.tick_stroke.is_empty()),
                 ("rule", legend.rule.is_some()),
-                ("rule_color", !legend.rule_color.is_empty()),
+                ("rule_stroke", !legend.rule_stroke.is_empty()),
             ];
             if let Some((field, _)) = colorbar_only.iter().find(|(_, set)| *set) {
                 return invalid(field, "a symbol legend has no such part");
             }
+            label_settings(
+                legend.labels.as_ref(),
+                &labels_path,
+                "a symbol legend",
+                &["angle", "margin"],
+            )?;
             if legend.columns.is_some()
                 && proto::LegendWrap::try_from(legend.wrap) == Ok(proto::LegendWrap::Flow)
             {
@@ -868,11 +882,11 @@ impl Checker<'_> {
             if !ticked(scale_type) && placement.is_some() {
                 return Err(fail(
                     path,
-                    "only the legend of a linear, log, pow, symlog, or time scale takes a tick \
+                    "only the legend of a linear, log, pow, symlog, or time scale takes a value \
                      count or values",
                 ));
             }
-            self.tick_placement(placement, scale_type, domain_type, path)?;
+            self.value_placement(placement, scale_type, domain_type, path)?;
         }
         self.labels(legend.labels.as_ref(), domain_type, path)
     }
@@ -928,6 +942,7 @@ impl Checker<'_> {
                     "the labels of every level take the markup and the font of the axis's labels",
                 ));
             }
+            label_settings(Some(labels), &path, "a level of an axis", &["angle"])?;
             self.pattern(&labels.format, field.data_type(), &format!("{path}.format"))?;
         }
         Ok(())
@@ -949,10 +964,10 @@ impl Checker<'_> {
         }
     }
 
-    /// Checks where the ticks of an axis or a colorbar, or the entries of a symbol legend, stand.
-    /// On the axis of a band or a point scale, only a list of ticks is valid, and on the axis of a
-    /// nested band scale, which ticks at the bands of its leaf, the ticks of the scale.
-    fn tick_placement(
+    /// Checks the values that the ticks of an axis or a colorbar, or the entries of a symbol legend,
+    /// stand at. On the axis of a band or a point scale, only a list of values is valid, and on the
+    /// axis of a nested band scale, which stands at the bands of its leaf, the ticks of the scale.
+    fn value_placement(
         &self,
         placement: Option<Placement>,
         scale_type: &scale::Type,
@@ -968,14 +983,14 @@ impl Checker<'_> {
             (Type::NestedBand(_), _) => {
                 return Err(fail(
                     at,
-                    "the axis of a nested band scale ticks at the bands of its leaf, so its ticks \
-                     stand nowhere else",
+                    "the axis of a nested band scale stands at the bands of its leaf, so its \
+                     values are nowhere else",
                 ))
             }
             (Type::Band(_) | Type::Point(_), Placement::Count(_) | Placement::Step(_)) => {
                 return Err(fail(
                     at,
-                    "only a list of ticks is valid on the axis of a band or a point scale",
+                    "only a list of values is valid on the axis of a band or a point scale",
                 ))
             }
             _ => {}
@@ -983,15 +998,15 @@ impl Checker<'_> {
         match placement {
             Placement::Count(count) => positive(Some(count), &at),
             Placement::Values(values) => self.domain_values(values, domain_type, &at),
-            Placement::Step(step) => self.tick_step(step, scale_type, &at),
+            Placement::Step(step) => self.value_step(step, scale_type, &at),
         }
     }
 
-    /// Checks the step of ticks: more than 0, with a unit on a time scale, where it is whole, and
+    /// Checks the step of values: more than 0, with a unit on a time scale, where it is whole, and
     /// without one on another scale, and a start in the type of the scale's domain.
-    fn tick_step(
+    fn value_step(
         &self,
-        step: &proto::TickStep,
+        step: &proto::ValueStep,
         scale_type: &scale::Type,
         path: &str,
     ) -> Result<()> {
@@ -1001,14 +1016,14 @@ impl Checker<'_> {
             (true, false) => {
                 return Err(fail(
                     format!("{path}.interval"),
-                    "the step of the ticks of a time scale has a unit",
+                    "the step of the values of a time scale has a unit",
                 ))
             }
             (false, true) => {
                 return Err(fail(
                     format!("{path}.interval"),
                     format!(
-                        "a unit of the step of ticks is valid only on a time scale, not on a {} \
+                        "a unit of the step of values is valid only on a time scale, not on a {} \
                          scale",
                         type_name(scale_type)
                     ),
@@ -1017,7 +1032,7 @@ impl Checker<'_> {
             (true, true) if step.step.fract() != 0.0 => {
                 return Err(fail(
                     format!("{path}.step"),
-                    "the step of the ticks of a time scale is a whole number of its unit",
+                    "the step of the values of a time scale is a whole number of its unit",
                 ))
             }
             _ => {}
@@ -1652,36 +1667,36 @@ fn spans(
     Ok(())
 }
 
-/// The member of the `tick_placement` of an axis or a legend.
+/// The member of the `value_placement` of an axis or a legend.
 #[derive(Clone, Copy)]
 enum Placement<'a> {
     Count(f64),
-    Step(&'a proto::TickStep),
+    Step(&'a proto::ValueStep),
     Values(&'a proto::ValueRef),
 }
 
 impl<'a> Placement<'a> {
-    fn of_axis(placement: &'a axis::TickPlacement) -> Self {
+    fn of_axis(placement: &'a axis::ValuePlacement) -> Self {
         match placement {
-            axis::TickPlacement::TickCount(count) => Placement::Count(*count),
-            axis::TickPlacement::TickStep(step) => Placement::Step(step),
-            axis::TickPlacement::Values(values) => Placement::Values(values),
+            axis::ValuePlacement::ValueCount(count) => Placement::Count(*count),
+            axis::ValuePlacement::ValueStep(step) => Placement::Step(step),
+            axis::ValuePlacement::Values(values) => Placement::Values(values),
         }
     }
 
-    fn of_legend(placement: &'a legend::TickPlacement) -> Self {
+    fn of_legend(placement: &'a legend::ValuePlacement) -> Self {
         match placement {
-            legend::TickPlacement::TickCount(count) => Placement::Count(*count),
-            legend::TickPlacement::TickStep(step) => Placement::Step(step),
-            legend::TickPlacement::Values(values) => Placement::Values(values),
+            legend::ValuePlacement::ValueCount(count) => Placement::Count(*count),
+            legend::ValuePlacement::ValueStep(step) => Placement::Step(step),
+            legend::ValuePlacement::Values(values) => Placement::Values(values),
         }
     }
 
     /// The name of the member.
     fn name(self) -> &'static str {
         match self {
-            Placement::Count(_) => "tick_count",
-            Placement::Step(_) => "tick_step",
+            Placement::Count(_) => "value_count",
+            Placement::Step(_) => "value_step",
             Placement::Values(_) => "values",
         }
     }

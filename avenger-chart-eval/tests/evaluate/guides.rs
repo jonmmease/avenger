@@ -21,7 +21,7 @@ fn titles_and_attributions() {
             Title::builder()
                 .text("Fuel economy")
                 .subtitle("By weight and origin")
-                .align(TitleAlign::Start),
+                .text_align(TextAlign::Start),
         )
         .attribution(Attribution::builder().credits(["Source: StatLib"]));
     let chart = Chart::builder(plot).build().unwrap();
@@ -230,7 +230,7 @@ fn a_colorbar_with_a_longest_length_beside_a_tall_plot() {
             Encoding::scaled_field("mpg").legend(
                 Legend::builder()
                     .type_(LegendForm::Colorbar)
-                    .max_length(120.0),
+                    .ramp_max_length(120.0),
             ),
         ),
     );
@@ -649,8 +649,8 @@ fn a_time_axis_steps_its_ticks_by_months() {
     // February, May, August, and November of 2024.
     let date = |day: i32| Value::scalar(Arc::new(Date32Array::from(vec![day])));
     let stepped = chart(
-        Axis::builder().tick_step(
-            TickStep::builder()
+        Axis::builder().value_step(
+            ValueStep::builder()
                 .step(3.0)
                 .interval(CalendarUnit::Month)
                 .start(date(days[1])),

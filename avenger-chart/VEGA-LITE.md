@@ -43,13 +43,13 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `format`, `labelFont`, `labelFontSize`, `labelFontWeight`, `labelColor` | `Axis.labels`, a `Labels` | `axis => labels(format => '%.1f', color => 'gray')` | `format` is a GoogleSQL pattern, and `axis(labels => '%Y-%m')` sets it alone |
 | `labels: false` | `Labels.show` | `axis(labels => FALSE)` | |
 | `labelExpr` | `Labels.markup` | `axis => labels(markup => '#value mm')` | Typst markup in which `#value` is the formatted value |
-| `labelAngle` | `Axis.label_rotation.label_angle` | `axis(label_rotation => -45)` | `label_rotation => 'radial'` or `'tangential'` turns the labels of a polar axis |
-| `labelAlign`, `labelBaseline` | `Axis.label_align`, `Axis.label_baseline` | `axis(label_align => 'right')` | |
-| `tickCount`, `values` | `Axis.tick_placement`: `tick_count` or `values` | `axis(tick_placement => 5)`, `axis(tick_placement => [35, 45, 55])` | |
-| `tickCount` as `{interval, step}` | `Axis.tick_placement.tick_step` | `axis(tick_placement => tick_step(3, interval => 'month'))` | A step of numbers or of months, days, or milliseconds, from a `start` |
-| `ticks`, `tickSize`, `tickColor` | `Axis.ticks`, `tick_size`, `tick_color` | `axis(ticks => FALSE, tick_size => 3)` | |
-| `domain`, `domainColor` | `Axis.rule`, `rule_color` | `axis(rule => FALSE)` | The axis line keeps the name of its CSS element, `rule` |
-| `grid`, `gridColor`, `gridWidth` | `Axis.grid`, `grid_color`, `grid_width` | `axis(grid => TRUE, grid_color => '#eee')` | |
+| `labelAngle` | `Labels.angle` of `Axis.labels` | `axis(labels => labels(angle => -45))` | `labels(text_orient => 'radial')` or `'tangential'` turns the labels of a polar axis. A stylesheet writes `axis > label { angle: -45 }` |
+| `labelAlign`, `labelBaseline` | `Labels.text_align`, `Labels.vertical_align` of `Axis.labels` | `axis(labels => labels(text_align => 'end'))` | `text_align` takes CSS's `start`, `center`, and `end` |
+| `tickCount`, `values` | `Axis.value_placement`: `value_count` or `values` | `axis(value_placement => 5)`, `axis(value_placement => [35, 45, 55])` | The values that the ticks, the grid lines, and the labels stand at |
+| `tickCount` as `{interval, step}` | `Axis.value_placement.value_step` | `axis(value_placement => value_step(3, interval => 'month'))` | A step of numbers or of months, days, or milliseconds, from a `start` |
+| `ticks`, `tickSize`, `tickColor` | `Axis.ticks`, `tick_length`, `tick_stroke` | `axis(ticks => FALSE)`, `axis(tick_length => 3)` | `tick` names only the tick marks, as `axis > tick { length; stroke }` styles them |
+| `domain`, `domainColor` | `Axis.rule`, `rule_stroke` | `axis(rule => FALSE)` | The axis line keeps the name of its CSS element, `rule` |
+| `grid`, `gridColor`, `gridWidth` | `Axis.grid`, `grid_stroke`, `grid_stroke_width` | `axis(grid => TRUE, grid_stroke => '#eee')` | |
 | `style` | `Axis.classes` | `axis(classes => ['minor'])` | Classes and ids of stylesheets |
 
 ### Legends
@@ -63,24 +63,24 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `orient` | `Legend.orient` | `legend(orient => 'bottom')` | One of the four sides, without corners or `none` |
 | `columns` | `Legend.columns` | `legend(columns => 2)` | `wrap => 'grid'` or `'flow'` picks the layout of the entries |
 | `fillColor`, `strokeColor`, `cornerRadius`, `padding` | `Legend.background`, `border_color`, `border_radius`, `padding` | `legend(background => 'white', border_color => '#ccc')` | CSS's names |
-| `labelPadding`, `columnPadding`, `rowPadding` | `Legend.label_padding`, `column_gap`, `row_gap` | `legend(column_gap => 8, row_gap => 2)` | |
-| `tickCount`, `values` | `Legend.tick_placement` | `legend(tick_placement => 5)` | As on an axis |
-| `gradientThickness`, `gradientLength` | `Legend.thickness`, `Legend.max_length` | `legend(thickness => 12, max_length => 200)` | `max_length` is a maximum, not a fixed length |
-| `labelAlign`, `labelBaseline` | `Legend.label_align`, `label_baseline` | `legend(label_align => 'left')` | |
-| None | `Legend.label_angle`, `swatches`, `ticks`, `rule` and their styles | `legend(label_angle => 30, swatches => FALSE)` | |
+| `labelPadding`, `columnPadding`, `rowPadding` | `Labels.margin` of `Legend.labels`, `column_gap`, `row_gap` | `legend(labels => labels(margin => 4), column_gap => 8)` | |
+| `tickCount`, `values` | `Legend.value_placement` | `legend(value_placement => 5)` | As on an axis, for a colorbar and a symbol legend alike |
+| `gradientThickness`, `gradientLength` | `Legend.ramp_thickness`, `Legend.ramp_max_length` | `legend(ramp_thickness => 12, ramp_max_length => 200)` | `ramp_max_length` is a maximum, not a fixed length |
+| `labelAlign`, `labelBaseline` | `Labels.text_align`, `vertical_align` of `Legend.labels` | `legend(labels => labels(text_align => 'start'))` | On colorbars |
+| None | `Labels.angle` of `Legend.labels`, `swatches`, `ticks`, `rule` and their styles | `legend(labels => labels(angle => 30), swatches => FALSE)` | |
 
 ### Titles and facet headers
 
 | Vega-Lite | Format | avenger-sql | Notes |
 |---|---|---|---|
 | `title`, `TitleParams.text`, `subtitle` | `Plot.title`, `Concat.title`, `Wrap.title`, a `Title` | `title => title('Penguins', subtitle => 'Palmer Archipelago')` | Typst markup, or plain text with `syntax => 'plain'` |
-| `font`, `fontSize`, `fontWeight`, `color`, `subtitleFont` and the other subtitle fonts | `Title.font_family`, `font_size`, `font_weight`, `color`, `subtitle_font_family` and the other subtitle fonts | `title('Penguins', font_size => 16)` | CSS's `font_family` in place of `font` |
+| `font`, `fontSize`, `fontWeight`, `color`, `subtitle`, `subtitleFont` and the other subtitle fonts | `Title.font_family`, `font_size`, `font_weight`, `color`, and `Title.subtitle`, a `Subtitle` with its text and fonts | `title('Penguins', subtitle => subtitle('By island', font_size => 11))` | CSS's `font_family` in place of `font`. The subtitle inherits the title's styles |
 | `TitleParams.orient` | `Title.orient` | `title(..., orient => 'bottom')` | |
-| `TitleParams.anchor`: `start`, `middle`, `end` | `Title.align`: `start`, `center`, `end` | `title(..., align => 'start')` | |
+| `TitleParams.anchor`: `start`, `middle`, `end` | `Title.text_align`: `start`, `center`, `end` | `title(..., text_align => 'start')` | |
 | `title` of a field | `Encoding.title` | `x(bill_length_mm, title => 'Bill length (mm)')` | Plain text. An axis or a legend without a title of its own takes the titles of its encodings |
-| `header` of a facet | `Concat.facet`, `Wrap.facet`, a `Facet` | `facet_column(chart, island, facet => facet(label_angle => 0))` | |
+| `header` of a facet | `Concat.facet`, `Wrap.facet`, a `Facet` | `facet_column(chart, island, facet => facet(labels => labels(angle => 0)))` | |
 | `header: null` | `Facet.show` | `facet => FALSE` | |
-| `Header.title`, `labelAngle`, `labelPadding`, `orient`, `format`, `labelExpr` | `Facet.title`, `label_angle`, `label_padding`, `orient`, `labels` | `facet => title('Island', font_size => 12)` | `labels` takes a GoogleSQL pattern, as on an axis. A facet also draws a rule with ticks, which `tick_size`, `rule_color`, and `rule_width` style |
+| `Header.title`, `labelAngle`, `labelPadding`, `orient`, `format`, `labelExpr` | `Facet.title`, `orient`, and `Facet.labels` with its `angle` and `margin` | `facet => title('Island', font_size => 12)` | `labels` takes a GoogleSQL pattern, as on an axis. A facet also draws a rule with ticks, which `tick_length`, `tick_stroke`, `tick_stroke_width`, `rule_stroke`, and `rule_stroke_width` style |
 
 ## Encodings and marks
 
@@ -169,7 +169,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `scale`, `translate`, `clipExtent` | None | None | The fit and the navigation give the scale and the translation, and the plot clips to its rectangle |
 | `lobes`, `ratio`, `tilt`, and the parameters of other projections | `CustomProjection.options` | `projection(type => custom('healpix', options => STRUCT(4 AS lobes)))` | A projection that an app adds |
 | The `graticule` generator | `Geo.graticule` | `geo(..., graticule => TRUE)` | |
-| `stepMinor`, `stepMajor`, `extentMinor`, `extentMajor`, `precision` | `Graticule.step`, `step_major`, `extent`, `extent_major`, `precision` | `graticule => graticule(step => [30, 30])` | A graticule also labels its lines |
+| `stepMinor`, `stepMajor`, `extentMinor`, `extentMajor`, `precision` | `Graticule.step`, `step_major`, `extent`, `extent_major`, `precision` | `graticule => graticule(step => [30, 30])` | A graticule also labels its lines, as `labels => labels(format => '%.0f', frame => 'outline', sides => ...)` sets, and `grid_stroke` and `grid_stroke_width` style its lines |
 | The `sphere` generator | `Geo.sphere` | `geo(..., sphere => sphere(fill => '#def'))` | |
 | `arc` with `theta` and `radius` | A polar plot, `Polar` | `coord => polar(start_angle => -90, end_angle => 90)` | Angles in degrees, clockwise from the top |
 

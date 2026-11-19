@@ -168,7 +168,7 @@ message TextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
   // How each text aligns to its position across its lines. When unset, centered.
-  TextAlign align = 2;
+  Align align = 2;
   // How each text aligns to its position along its lines. When unset, at its middle.
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
@@ -205,8 +205,8 @@ message TextMark {
 // The `image` value of each row. An image with `x2` and `y2` spans from (`x`, `y`) to (`x2`, `y2`),
 // and its `width`, its `height`, and its alignment do not apply.
 message ImageMark {
-  // The side of each image at its `x`.
-  ImageAlign align = 1;
+  // The side of each image at its `x`. When unset, the left.
+  Align align = 1;
   // The side of each image at its `y`.
   ImageBaseline baseline = 2;
   // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
@@ -548,7 +548,7 @@ message GeoTextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
   string format = 1;
   // How each text aligns to its position across its lines. When unset, centered.
-  TextAlign align = 2;
+  Align align = 2;
   // How each text aligns to its position along its lines. When unset, at its middle.
   TextBaseline baseline = 3;
   // The font family of the texts. When it is empty, the styles give it.
@@ -585,8 +585,8 @@ message GeoTextMark {
 // The `image` value of each row of a geo plot, at the projected point of its `longitude` and
 // `latitude`.
 message GeoImageMark {
-  // The side of each image at its `longitude`.
-  ImageAlign align = 1;
+  // The side of each image at its `longitude`. When unset, the left.
+  Align align = 1;
   // The side of each image at its `latitude`.
   ImageBaseline baseline = 2;
   // Whether each image keeps its own aspect ratio inside its box. When unset, it keeps it.
@@ -657,12 +657,14 @@ enum TextWidthMode {
   TEXT_WIDTH_MODE_FIXED = 2;
 }
 
-enum ImageAlign {
-  // As for `IMAGE_ALIGN_LEFT`.
-  IMAGE_ALIGN_UNSPECIFIED = 0;
-  IMAGE_ALIGN_LEFT = 1;
-  IMAGE_ALIGN_CENTER = 2;
-  IMAGE_ALIGN_RIGHT = 3;
+// A side of a text or an image at its horizontal position, as the keywords of the `align`
+// property.
+enum Align {
+  // Unset, so the comment of the field gives the side.
+  ALIGN_UNSPECIFIED = 0;
+  ALIGN_LEFT = 1;
+  ALIGN_CENTER = 2;
+  ALIGN_RIGHT = 3;
 }
 
 enum ImageBaseline {

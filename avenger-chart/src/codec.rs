@@ -25,7 +25,7 @@ use prost::{
 use crate::{proto, Chart, ChartError};
 
 /// The format version that this crate reads and writes.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The alignment of the IPC stream of each table and of the values from the start of a chart,
 /// which the IPC writer also uses for the buffers inside a stream.

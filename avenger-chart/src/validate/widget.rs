@@ -10,7 +10,8 @@ use arrow::{
 };
 
 use super::{
-    classes, dictionary_values, fail, shown_labels, title, tree::Scope, Checker, Result, REQUIRED,
+    classes, dictionary_values, fail, label_settings, shown_labels, title, tree::Scope, Checker,
+    Result, REQUIRED,
 };
 use crate::proto::{self, widget, widget_domain, SliderComparison};
 
@@ -324,7 +325,8 @@ impl Checker<'_> {
         Ok(())
     }
 
-    /// Checks the pattern of labels or of a readout for values of the domain's type.
+    /// Checks the pattern of labels or of a readout for values of the domain's type, and that they
+    /// take none of the settings of the labels of guides.
     fn widget_labels(
         &self,
         labels: Option<&proto::Labels>,
@@ -332,6 +334,7 @@ impl Checker<'_> {
         path: &str,
     ) -> Result<()> {
         shown_labels(labels, path, "a widget")?;
+        label_settings(labels, path, "a widget", &[])?;
         match (labels, domain) {
             (Some(labels), Some(domain)) => {
                 self.pattern(&labels.format, domain, &format!("{path}.format"))

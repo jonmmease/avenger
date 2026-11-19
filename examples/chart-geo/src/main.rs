@@ -258,7 +258,7 @@ fn chart() -> Chart {
             .rotate([170.0, -10.0])
             .whole_sphere(),
         // The globe's lines are unlabeled, since their labels crowd its edge.
-        graticule().label_sides(LabelSides::builder()),
+        graticule().labels(Labels::builder().sides(LabelSides::builder())),
         PanMode::Sphere,
         0.6,
     );

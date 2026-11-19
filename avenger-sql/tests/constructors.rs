@@ -130,11 +130,11 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // A Boolean, a number, a string, an enum, and an array.
     builds(
         "axis",
-        "axis(grid => TRUE, angle => 30, rule_color => 'gray', orient => 'left', classes => ['a', 'b'])",
+        "axis(grid => TRUE, angle => 30, rule_stroke => 'gray', orient => 'left', classes => ['a', 'b'])",
         Axis::builder()
             .grid(true)
             .angle(30.0)
-            .rule_color("gray")
+            .rule_stroke("gray")
             .orient(Side::Left)
             .classes(["a", "b"])
             .to_fragment()
@@ -163,12 +163,12 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
     // lifted field of a title or labels.
     builds(
         "axis",
-        "axis(title => FALSE, labels => '%.0f', ticks => FALSE, tick_placement => tick_step(5))",
+        "axis(title => FALSE, labels => '%.0f', ticks => FALSE, value_placement => value_step(5))",
         Axis::builder()
             .title(false)
             .labels("%.0f")
             .ticks(false)
-            .tick_step(5.0)
+            .value_step(5.0)
             .to_fragment()
             .unwrap(),
     )
@@ -305,15 +305,18 @@ async fn an_argument_picks_the_member_of_its_oneof() {
     .await;
     builds(
         "axis",
-        "axis(label_rotation => 45)",
-        Axis::builder().label_angle(45.0).to_fragment().unwrap(),
+        "axis(labels => labels(angle => 45))",
+        Axis::builder()
+            .labels(Labels::builder().angle(45.0))
+            .to_fragment()
+            .unwrap(),
     )
     .await;
     builds(
         "axis",
-        "axis(label_rotation => 'radial')",
+        "axis(labels => labels(text_orient => 'radial'))",
         Axis::builder()
-            .label_orient(PolarTextOrient::Radial)
+            .labels(Labels::builder().text_orient(PolarTextOrient::Radial))
             .to_fragment()
             .unwrap(),
     )
@@ -760,7 +763,7 @@ async fn a_channel_function_takes_the_options_of_its_encoding() {
              body_mass_g,
              scale => scale(type => 'log'),
              title => 'Mass',
-             axis => axis(label_rotation => -45, grid => FALSE),
+             axis => axis(labels => labels(angle => -45), grid => FALSE),
            ),
            y => y(flipper_length_mm, axis => FALSE),
            color => color(species, legend => legend(orient => 'bottom', columns => 2)),
@@ -781,10 +784,10 @@ async fn a_channel_function_takes_the_options_of_its_encoding() {
     // The axis and the legend are options of the encoding, and a Boolean shows or hides a part.
     let axis = encoding.axis.as_ref().unwrap();
     assert_eq!(axis.grid, Some(false));
-    assert!(matches!(
-        axis.label_rotation,
-        Some(avenger_chart::proto::axis::LabelRotation::LabelAngle(angle)) if angle == -45.0
-    ));
+    assert_eq!(
+        axis.labels.as_ref().and_then(|labels| labels.angle),
+        Some(-45.0)
+    );
     let y = mark.encoding(Channel::Y).unwrap();
     assert_eq!(y.axis.as_ref().unwrap().show, Some(false));
     let legend = mark
@@ -1189,4 +1192,117 @@ async fn datum_takes_a_constant_of_a_script_variable() {
         color.kind,
         Some(avenger_chart::proto::encoding::Kind::ScaledValue(_))
     ));
+}
+
+/// The error of reading the charts of `query`.
+async fn reading_error(query: &str) -> String {
+    let ctx = common::session();
+    let result = match avenger_sql::sql(&ctx, query).await {
+        Ok(frame) => frame.collect().await.map(|_| ()),
+        Err(error) => Err(error),
+    };
+    result.expect_err("the chart is invalid").to_string()
+}
+
+#[tokio::test]
+async fn labels_take_the_settings_that_their_guide_draws() {
+    let symbol = |x: &str, color: &str| {
+        format!("FROM penguins |> AGGREGATE symbol(x => {x}, y => bill_depth_mm{color}) AS chart")
+    };
+    let polar = |labels: &str| {
+        format!(
+            "FROM penguins |> AGGREGATE polar_bar(theta => species, radius => radius(body_mass_g, \
+             axis => axis(labels => labels({labels})))) AS chart"
+        )
+    };
+    // Each guide's labels take the settings that the guide draws.
+    for query in [
+        symbol(
+            "x(bill_length_mm, axis => axis(labels => labels(angle => -45, text_align => 'end')))",
+            "",
+        ),
+        symbol(
+            "bill_length_mm",
+            ", color => color(species, legend => legend(labels => labels(margin => 8, angle => 30)))",
+        ),
+        polar("text_orient => 'radial'"),
+    ] {
+        common::charts(&query).await;
+    }
+    // And no others.
+    for (query, expected) in [
+        (
+            symbol("x(bill_length_mm, axis => axis(labels => labels(margin => 4)))", ""),
+            "the labels of the axis of a Cartesian plot take no `margin`",
+        ),
+        (
+            symbol(
+                "bill_length_mm",
+                ", color => color(species, legend => legend(labels => labels(text_align => 'end')))",
+            ),
+            "the labels of a symbol legend take no `text_align`",
+        ),
+        (
+            polar("angle => 30, text_orient => 'radial'"),
+            "`angle` and `text_orient` both turn the labels",
+        ),
+    ] {
+        let message = reading_error(&query).await;
+        assert!(message.contains(expected), "{query}: {message}");
+    }
+}
+
+#[tokio::test]
+async fn a_legend_places_its_values_as_an_axis_does() {
+    for channel in ["color", "size"] {
+        let chart = chart(&format!(
+            "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+             {channel} => {channel}(body_mass_g, legend => legend(value_placement => 3))) AS chart"
+        ))
+        .await;
+        let Some(avenger_chart::proto::plot::Coord::Cartesian(_)) = &plot(&chart).coord else {
+            panic!("a Cartesian plot")
+        };
+        let layer = avenger_chart::LayerRef::of(plot(&chart)).remove(0);
+        let channel = match channel {
+            "color" => Channel::Color,
+            _ => Channel::Size,
+        };
+        let legend = layer
+            .mark()
+            .unwrap()
+            .encoding(channel)
+            .unwrap()
+            .legend
+            .clone();
+        assert_eq!(
+            legend.and_then(|legend| legend.value_placement),
+            Some(avenger_chart::proto::legend::ValuePlacement::ValueCount(
+                3.0
+            )),
+            "{channel:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_subtitle_is_a_text_or_its_constructor() {
+    for (title, color) in [
+        ("title('Penguins', subtitle => 'By island')", ""),
+        (
+            "title('Penguins', subtitle => subtitle('By island', color => 'gray'))",
+            "gray",
+        ),
+    ] {
+        let chart = chart(&format!(
+            "FROM penguins |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+             title => {title}) AS chart"
+        ))
+        .await;
+        let subtitle = (plot(&chart).title.as_ref())
+            .and_then(|title| title.subtitle.clone())
+            .unwrap();
+        assert_eq!(subtitle.text, "By island");
+        assert_eq!(subtitle.color, color);
+    }
 }

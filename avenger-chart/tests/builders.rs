@@ -168,7 +168,7 @@ fn a_guide_part_converts_from_a_boolean_and_from_its_other_lifted_field() {
     );
     let facet = FacetBuilder::from(false).build().unwrap();
     assert_eq!((facet.show, facet.column.as_str()), (Some(false), ""));
-    assert_eq!(TickStepBuilder::from(5.0).build().unwrap().step, 5.0);
+    assert_eq!(ValueStepBuilder::from(5.0).build().unwrap().step, 5.0);
 }
 
 #[test]
@@ -398,7 +398,7 @@ fn a_replaced_value_leaves_no_trace_in_the_chart() {
         let symbols = CartesianLayer::symbol(points(), SymbolMark::builder().x(x).y("b"));
         Chart::builder(Plot::cartesian([symbols])).build().unwrap()
     };
-    let replaced = ticked(Axis::builder().values([1.0, 2.0]).tick_count(3.0));
-    let once = ticked(Axis::builder().tick_count(3.0));
+    let replaced = ticked(Axis::builder().values([1.0, 2.0]).value_count(3.0));
+    let once = ticked(Axis::builder().value_count(3.0));
     assert_eq!(replaced, once);
 }

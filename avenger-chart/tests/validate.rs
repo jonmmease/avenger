@@ -1369,13 +1369,13 @@ fn the_levels_of_an_axis_belong_to_a_nested_band_scale() {
 #[test]
 fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
     let ticks = |placement| proto::Axis {
-        tick_placement: Some(placement),
+        value_placement: Some(placement),
         ..Default::default()
     };
     invalid(
-        nested(ticks(axis::TickPlacement::TickCount(3.0))),
-        &format!("{X}.axis.tick_count"),
-        "ticks at the bands of its leaf",
+        nested(ticks(axis::ValuePlacement::ValueCount(3.0))),
+        &format!("{X}.axis.value_count"),
+        "stands at the bands of its leaf",
     );
     let band = |placement| {
         let mut parts = base();
@@ -1388,11 +1388,11 @@ fn the_ticks_of_a_category_axis_stand_where_its_scale_allows() {
         parts
     };
     invalid(
-        band(axis::TickPlacement::TickCount(3.0)),
-        &format!("{X}.axis.tick_count"),
-        "only a list of ticks is valid",
+        band(axis::ValuePlacement::ValueCount(3.0)),
+        &format!("{X}.axis.value_count"),
+        "only a list of values is valid",
     );
-    let mut listed = band(axis::TickPlacement::Values(ValueRef { index: 0 }));
+    let mut listed = band(axis::ValuePlacement::Values(ValueRef { index: 0 }));
     listed.2 = vec![list_value(Arc::new(Float64Array::from(vec![1.0, 3.0])))];
     read(listed).unwrap();
 }
@@ -1966,23 +1966,6 @@ fn the_title_of_a_node_has_text_and_always_shows() {
     read(parts).unwrap();
 }
 
-#[test]
-fn a_subtitle_font_is_only_on_the_title_of_a_node() {
-    let mut parts = base();
-    x_encoding(&mut parts.0).axis = Some(proto::Axis {
-        title: Some(proto::Title {
-            subtitle_color: "gray".to_string(),
-            ..Default::default()
-        }),
-        ..Default::default()
-    });
-    invalid(
-        parts,
-        &format!("{X}.axis.title.subtitle_color"),
-        "only the title of a plot",
-    );
-}
-
 /// The base chart with a color encoding of `b` through a linear scale with `legend`.
 fn with_legend(legend: proto::Legend) -> (proto::Chart, Vec<RecordBatch>, Vec<ArrayRef>) {
     let mut parts = base();
@@ -2035,52 +2018,52 @@ fn a_legend_takes_the_fields_of_its_type() {
     );
     // A tick count and values place the entries of a symbol legend and the ticks of a colorbar,
     // and a step places only the ticks of a colorbar.
-    let count = Some(legend::TickPlacement::TickCount(4.0));
+    let count = Some(legend::ValuePlacement::ValueCount(4.0));
     read(with_legend(symbol(proto::Legend {
-        tick_placement: count,
+        value_placement: count,
         ..Default::default()
     })))
     .unwrap();
     read(with_legend(proto::Legend {
-        tick_placement: count,
+        value_placement: count,
         ..Default::default()
     }))
     .unwrap();
     let step = || {
-        Some(legend::TickPlacement::TickStep(proto::TickStep {
+        Some(legend::ValuePlacement::ValueStep(proto::ValueStep {
             step: 1.0,
             ..Default::default()
         }))
     };
     read(with_legend(proto::Legend {
-        tick_placement: step(),
+        value_placement: step(),
         ..Default::default()
     }))
     .unwrap();
     invalid(
         with_legend(symbol(proto::Legend {
-            tick_placement: step(),
+            value_placement: step(),
             ..Default::default()
         })),
-        &format!("{COLOR}.tick_step"),
+        &format!("{COLOR}.value_step"),
         "a symbol legend has no such part",
     );
 }
 
 #[test]
-fn a_tick_step_fits_its_scale() {
-    let stepped = |step: proto::TickStep, values: Vec<ArrayRef>| {
+fn a_value_step_fits_its_scale() {
+    let stepped = |step: proto::ValueStep, values: Vec<ArrayRef>| {
         let mut parts = base();
         x_encoding(&mut parts.0).axis = Some(proto::Axis {
-            tick_placement: Some(axis::TickPlacement::TickStep(step)),
+            value_placement: Some(axis::ValuePlacement::ValueStep(step)),
             ..Default::default()
         });
         parts.2 = values;
         parts
     };
-    let path = format!("{X}.axis.tick_step");
+    let path = format!("{X}.axis.value_step");
     read(stepped(
-        proto::TickStep {
+        proto::ValueStep {
             step: 0.5,
             start: Some(ValueRef { index: 0 }),
             ..Default::default()
@@ -2089,13 +2072,13 @@ fn a_tick_step_fits_its_scale() {
     ))
     .unwrap();
     invalid(
-        stepped(proto::TickStep::default(), vec![]),
+        stepped(proto::ValueStep::default(), vec![]),
         &format!("{path}.step"),
         "more than 0",
     );
     invalid(
         stepped(
-            proto::TickStep {
+            proto::ValueStep {
                 step: 3.0,
                 interval: proto::CalendarUnit::Month as i32,
                 ..Default::default()
@@ -2107,7 +2090,7 @@ fn a_tick_step_fits_its_scale() {
     );
     invalid(
         stepped(
-            proto::TickStep {
+            proto::ValueStep {
                 step: 1.0,
                 start: Some(ValueRef { index: 0 }),
                 ..Default::default()
@@ -2118,7 +2101,7 @@ fn a_tick_step_fits_its_scale() {
         "a start of type Utf8 is invalid on a linear scale",
     );
     // On a time scale of dates, the step has a unit and is a whole number of it, from a date.
-    let timed = |step: proto::TickStep| {
+    let timed = |step: proto::ValueStep| {
         let mut parts = stepped(step, vec![Arc::new(Date32Array::from(vec![19723]))]);
         let days: ArrayRef = Arc::new(Date32Array::from(vec![19723, 19754, 19783]));
         let schema = Schema::new(vec![
@@ -2130,19 +2113,19 @@ fn a_tick_step_fits_its_scale() {
         x_scale(&mut parts.0).r#type = Some(scale::Type::Time(proto::TimeScale::default()));
         parts
     };
-    let months = |step: f64| proto::TickStep {
+    let months = |step: f64| proto::ValueStep {
         step,
         interval: proto::CalendarUnit::Month as i32,
         start: Some(ValueRef { index: 0 }),
     };
     read(timed(months(3.0))).unwrap();
     invalid(
-        timed(proto::TickStep {
+        timed(proto::ValueStep {
             step: 3.0,
             ..Default::default()
         }),
         &format!("{path}.interval"),
-        "the step of the ticks of a time scale has a unit",
+        "the step of the values of a time scale has a unit",
     );
     invalid(
         timed(months(1.5)),
@@ -2191,7 +2174,11 @@ fn only_the_title_of_a_node_has_a_subtitle() {
     x_encoding(&mut parts.0).axis = Some(proto::Axis {
         title: Some(proto::Title {
             text: "x".to_string(),
-            subtitle: "units".to_string(),
+            subtitle: Some(proto::Subtitle {
+                text: "units".to_string(),
+                color: "gray".to_string(),
+                ..Default::default()
+            }),
             ..Default::default()
         }),
         ..Default::default()

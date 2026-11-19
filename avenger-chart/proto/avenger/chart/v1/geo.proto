@@ -5,8 +5,8 @@ syntax = "proto3";
 package avenger.chart.v1;
 
 import "avenger/chart/v1/annotation.proto";
+import "avenger/chart/v1/element.proto";
 import "avenger/chart/v1/option.proto";
-import "avenger/chart/v1/side.proto";
 
 // A geographic coordinate system: a map projection of `longitude`, `latitude`, `longitude2`,
 // `latitude2`, and `geometry`, for the `geo_` marks. A plot in this coordinate system is a geo
@@ -263,48 +263,12 @@ message Graticule {
   // The step between the points of each line, in degrees, which the projection resamples. When
   // unset, 2.5.
   optional double precision = 6;
-  // Where the labels sit. When unset, the labels sit on the edges of the plot for a plot that fits
-  // a box or its data, and on the outline of the projection for a plot that fits the whole sphere.
-  GeoFrame label_frame = 7;
-  // The sides that label the lines that reach them: meridians on the top and the bottom, and
-  // parallels on the left and the right. When unset, the left and the bottom label them.
-  LabelSides label_sides = 8;
-  // The pattern of the degrees of each label, in the syntax of `Chart.number_format_syntax`. An
-  // empty pattern takes the formatter's default.
-  string format = 9;
-  // The font family of the labels, such as `Lato`.
-  string label_font_family = 10;
-  // The font size of the labels, in pixels.
-  optional float label_font_size = 11;
-  // The font weight of the labels, from 100 to 900.
-  optional float label_font_weight = 12;
-  // The CSS color of the labels.
-  string label_color = 13;
-  // The distance between the end of a line and its label, in pixels.
-  optional float label_padding = 14;
+  // The labels of the lines, which take `margin`, `frame`, and `sides`, and no `markup`.
+  Labels labels = 7;
   // The CSS color of the lines.
-  string stroke = 15;
+  string grid_stroke = 8;
   // The width of the lines, in pixels.
-  optional float stroke_width = 16;
-}
-
-// The sides of a plot that carry labels, in any order, where a side that repeats counts once. No
-// sides draws no labels.
-message LabelSides {
-  // The sides, such as `left` and `bottom`.
-  repeated Side sides = 1;
-}
-
-// The edge of a geo plot where the lines of its graticule are labeled.
-enum GeoFrame {
-  // Unset, as `Graticule.label_frame` describes.
-  GEO_FRAME_UNSPECIFIED = 0;
-  // The outline of the projection, fitted in the plot, as a world map has. A line is labeled at
-  // its end nearest the side.
-  GEO_FRAME_OUTLINE = 1;
-  // The rectangle of the plot, which the projection fills and is clipped to, as a regional map
-  // has. A line is labeled where it crosses the edge of the side.
-  GEO_FRAME_RECTANGLE = 2;
+  optional float grid_stroke_width = 9;
 }
 
 // The look of the sphere. A field that is unset takes its value from the styles.

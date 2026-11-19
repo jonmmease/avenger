@@ -236,8 +236,11 @@ fn style_fields_are_inline_styles_that_win_over_stylesheets() {
     let by_species = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper")
-                .axis(Axis::builder().label_angle(-45.0).id("flippers")))
+            .x(Encoding::scaled_field("flipper").axis(
+                Axis::builder()
+                    .labels(Labels::builder().angle(-45.0))
+                    .id("flippers"),
+            ))
             .y("mass")
             .color("species"),
     )
@@ -406,7 +409,7 @@ fn style_text_that_is_not_a_value_warns() {
     let symbols = CartesianLayer::symbol(
         penguins(),
         SymbolMark::builder()
-            .x(Encoding::scaled_field("flipper").axis(Axis::builder().rule_color("bluish")))
+            .x(Encoding::scaled_field("flipper").axis(Axis::builder().rule_stroke("bluish")))
             .y("mass")
             .color(Encoding::scaled_field("species").legend(Legend::builder())),
     );
@@ -556,6 +559,32 @@ fn moved(evaluated: &EvaluatedChart, plain: &EvaluatedChart) -> Vec<[f32; 4]> {
     (evaluated.plots.iter().zip(&plain.plots))
         .map(|(plot, plain)| std::array::from_fn(|index| plot.rect[index] - plain.rect[index]))
         .collect()
+}
+
+/// The settings of a guide's labels in the format are inline styles of its `label` node, so they
+/// draw what the stylesheet's rule of the same property draws.
+#[test]
+fn the_settings_of_labels_draw_as_their_stylesheet_rules() {
+    let chart = |axis: AxisBuilder| {
+        Chart::builder(Plot::cartesian([CartesianLayer::symbol(
+            penguins(),
+            SymbolMark::builder()
+                .x(Encoding::scaled_field("flipper").axis(axis))
+                .y("mass"),
+        )]))
+        .build()
+        .unwrap()
+    };
+    let inline = evaluated(
+        &chart(Axis::builder().labels(Labels::builder().angle(-45.0).text_align(TextAlign::End))),
+        "",
+    );
+    let styled = evaluated(
+        &chart(Axis::builder()),
+        "axis[channel=x] > label { angle: -45; text-align: end; }",
+    );
+    assert!(text_angles(&inline).contains(&-45.0));
+    assert_eq!(format!("{:?}", inline.scene), format!("{:?}", styled.scene));
 }
 
 /// A stylesheet that sets a property of a guide's part on the part, or a `value-` property on the
@@ -742,9 +771,8 @@ fn a_subtitle_takes_the_text_styles_of_its_title() {
     // A subtitle with a color of its own keeps it.
     let blue = Title::builder()
         .text("Penguins")
-        .subtitle("By species")
-        .color("red")
-        .subtitle_color("blue");
+        .subtitle(Subtitle::new("By species").color("blue"))
+        .color("red");
     let mut blue = evaluator(chart(blue), cascade(""));
     let styles = blue.styles(&host);
     assert_eq!(

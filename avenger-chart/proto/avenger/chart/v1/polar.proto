@@ -53,7 +53,7 @@ message Polar {
 // it would read upside down. Its sides refer to the circle, so they place it alike on both
 // halves.
 enum PolarTextOrient {
-  // Horizontal, unless the text's `angle` or the axis's `label_angle` turns it.
+  // Horizontal, unless the text's `angle` or the `angle` of the axis's labels turns it.
   POLAR_TEXT_ORIENT_UNSPECIFIED = 0;
   // Along the spoke from the center through the text.
   POLAR_TEXT_ORIENT_RADIAL = 1;
