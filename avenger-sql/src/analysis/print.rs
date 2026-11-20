@@ -269,11 +269,17 @@ pub(crate) fn aggregates(
     found
 }
 
-/// The query that holds `node`, the start of its text.
+/// The query that holds `node`, the start of its text after the comments and the spaces before
+/// it, such as the comments at the start of a script, which a lifted branch's copy of the query
+/// leaves out.
 pub(crate) fn query_start(node: &avenger_sql_syntax::SyntaxNode) -> Option<TextSize> {
-    (node.ancestors())
-        .find(|node| node.kind() == SyntaxKind::QUERY)
-        .map(|query| query.text_range().start())
+    let query = (node.ancestors()).find(|node| node.kind() == SyntaxKind::QUERY)?;
+    let token = (query.descendants_with_tokens())
+        .filter_map(|element| element.into_token())
+        .find(|token| !token.kind().is_trivia());
+    Some(token.map_or(query.text_range().start(), |token| {
+        token.text_range().start()
+    }))
 }
 
 /// `name` as a quoted name.
