@@ -87,7 +87,7 @@ impl Document {
     /// The name at `offset` and the range that defines it. A table of the catalog, a module, a
     /// field, and a function of the library or of a module have no definition in the text.
     pub fn definition(&self, offset: Offset) -> Option<DefinitionLink> {
-        let name = self.analysis.model.name_at(self.clamp(offset))?;
+        let name = self.model().name_at(self.clamp(offset))?;
         let key = Key::of(&name.definition)?;
         Some(DefinitionLink {
             origin: name.range,
@@ -102,7 +102,7 @@ impl Document {
         let Some((_, key)) = self.key_at(&root, self.clamp(offset)) else {
             return Vec::new();
         };
-        references(&root, &self.analysis.model, &key)
+        references(&root, self.model(), &key)
     }
 
     /// The range of the name at `offset` when a rename can change it: an alias of a column or a
@@ -131,7 +131,7 @@ impl Document {
                 }),
             };
         }
-        let Some(name) = self.analysis.model.name_at(offset) else {
+        let Some(name) = self.model().name_at(offset) else {
             return Err("No name at the cursor".to_string());
         };
         Err(match &name.definition {
@@ -155,7 +155,7 @@ impl Document {
         let root = self.root();
         let (_, key) = (self.key_at(&root, self.clamp(offset))).expect("a name to rename");
         let replacement = quote(name);
-        let references = references(&root, &self.analysis.model, &key);
+        let references = references(&root, self.model(), &key);
         let edits: Vec<TextEdit> = (references.iter())
             .map(|reference| TextEdit {
                 range: reference.range,
@@ -165,20 +165,20 @@ impl Document {
 
         // The renamed text must mean what the text means: no new error, and the same names
         // refer to the renamed definition.
-        let text = apply(&self.text, &edits);
-        let parse = avenger_sql_syntax::parse(&text);
-        let analysis = avenger_sql::analyze(
-            &parse.syntax(),
-            self.catalog.as_ref(),
-            &self.library,
-            &self.options,
+        let renamed_document = Document::new(
+            apply(&self.text, &edits),
+            self.role,
+            self.catalog.clone(),
+            self.library.clone(),
+            self.options.clone(),
         );
-        if parse.diagnostics().len() + analysis.diagnostics.len()
-            > self.parse.diagnostics().len() + self.analysis.diagnostics.len()
-        {
-            let message = (analysis.diagnostics.iter())
+        let errors = |document: &Document| {
+            document.parse.diagnostics().len() + document.analysis_diagnostics().len()
+        };
+        if errors(&renamed_document) > errors(self) {
+            let message = (renamed_document.analysis_diagnostics().iter())
                 .map(|diagnostic| diagnostic.message.clone())
-                .chain(parse.diagnostics().iter().map(|d| d.message.clone()))
+                .chain((renamed_document.parse.diagnostics().iter()).map(|d| d.message.clone()))
                 .next()
                 .unwrap_or_default();
             return Err(format!("The rename to `{name}` makes an error: {message}"));
@@ -189,7 +189,7 @@ impl Document {
             .filter(|reference| !reference.definition)
             .map(|reference| moved(reference.range))
             .collect();
-        let resolved: Vec<TextRange> = (analysis.model.names.iter())
+        let resolved: Vec<TextRange> = (renamed_document.model().names.iter())
             .filter(|name| Key::of(&name.definition).as_ref() == Some(&renamed))
             .map(|name| name.range)
             .collect();
@@ -205,7 +205,7 @@ impl Document {
     /// definition, or a name that defines one, which the model knows by its uses or by the
     /// columns of an operator.
     fn key_at(&self, root: &SyntaxNode, offset: Offset) -> Option<(TextRange, Key)> {
-        let model = &self.analysis.model;
+        let model = &self.model();
         if let Some(name) = model.name_at(offset) {
             return Some((name.range, Key::of(&name.definition)?));
         }
