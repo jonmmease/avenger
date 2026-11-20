@@ -155,9 +155,13 @@ impl ComputedStyle {
         self.number(Property::FontSize).unwrap_or(10.0)
     }
 
-    /// Whether `display` hides the node.
+    /// Whether `display` hides the node: `false` or `none`.
     pub fn is_hidden(&self) -> bool {
-        self.keyword(Property::Display) == Some("none")
+        match self.get(Property::Display) {
+            Computed::Boolean(value) => !value,
+            Computed::Keyword(keyword) => *keyword == "none",
+            _ => false,
+        }
     }
 }
 

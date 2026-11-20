@@ -159,7 +159,7 @@ async fn each_kind_of_parameter_builds_the_fragment_of_its_builder() {
         Axis::builder().title("Mass").to_fragment().unwrap(),
     )
     .await;
-    // A Boolean shows or hides a part, through its lifted `show`, and a string fills the other
+    // A Boolean shows or hides a part, through its lifted `display`, and a string fills the other
     // lifted field of a title or labels.
     builds(
         "axis",
@@ -789,7 +789,7 @@ async fn a_channel_function_takes_the_options_of_its_encoding() {
         Some(-45.0)
     );
     let y = mark.encoding(Channel::Y).unwrap();
-    assert_eq!(y.axis.as_ref().unwrap().show, Some(false));
+    assert_eq!(y.axis.as_ref().unwrap().display, Some(false));
     let legend = mark
         .encoding(Channel::Color)
         .unwrap()

@@ -374,9 +374,9 @@ fn title(title: Option<&proto::Title>, path: &str, node: bool) -> Result<()> {
                 "the title of a plot, a concat, or a wrap has a text",
             ));
         }
-        if title.show.is_some() {
+        if title.display.is_some() {
             return Err(fail(
-                format!("{path}.show"),
+                format!("{path}.display"),
                 "the title of a plot, a concat, or a wrap always shows, so a node without a title \
                  has none",
             ));
@@ -434,12 +434,12 @@ fn label_settings(
     Ok(())
 }
 
-/// Checks labels at `path` that always show, such as the labels of a facet: `show` is invalid.
+/// Checks labels at `path` that always show, such as the labels of a facet: `display` is invalid.
 fn shown_labels(labels: Option<&proto::Labels>, path: &str, what: &str) -> Result<()> {
-    if labels.is_some_and(|labels| labels.show.is_some()) {
+    if labels.is_some_and(|labels| labels.display.is_some()) {
         return Err(fail(
-            format!("{path}.show"),
-            format!("{what} always shows its labels, so `show` is invalid on them"),
+            format!("{path}.display"),
+            format!("{what} always shows its labels, so `display` is invalid on them"),
         ));
     }
     Ok(())

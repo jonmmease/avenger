@@ -467,16 +467,16 @@ pub(crate) trait Finish: Renumber + Sized {
 
 /// Hides the axis of `encoding`, keeping its other fields.
 fn hide_axis(encoding: &mut proto::Encoding) {
-    encoding.axis.get_or_insert_with(Default::default).show = Some(false);
+    encoding.axis.get_or_insert_with(Default::default).display = Some(false);
 }
 
 /// Hides the legend of `encoding`, keeping its other fields.
 fn hide_legend(encoding: &mut proto::Encoding) {
-    encoding.legend.get_or_insert_with(Default::default).show = Some(false);
+    encoding.legend.get_or_insert_with(Default::default).display = Some(false);
 }
 
 impl proto::EncodingBuilder {
-    /// Draws no axis for the encoding's scale: sets `axis.show` to `false`. The encoding has a
+    /// Draws no axis for the encoding's scale: sets `axis.display` to `false`. The encoding has a
     /// scaled value on `x`, `y`, `theta`, or `radius`, as every encoding with an axis does.
     pub fn no_axis(mut self) -> Self {
         hide_axis(&mut self.message);

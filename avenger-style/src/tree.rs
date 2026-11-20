@@ -118,7 +118,16 @@ impl StyleTree {
     }
 
     /// Adds a child of `element` after the other children of `parent`.
+    ///
+    /// # Panics
+    ///
+    /// When `element` is not one of the [`Element::parts`] of the parent's element.
     pub fn add(&mut self, parent: NodeId, element: Element) -> NodeId {
+        let parent_element = self.nodes[parent.index()].element;
+        assert!(
+            parent_element.parts().contains(&element),
+            "`{element}` is not a part of `{parent_element}`"
+        );
         let id = NodeId(self.nodes.len() as u32);
         let position = self.nodes[parent.index()].children.len() as u32;
         self.nodes[parent.index()].children.push(id);

@@ -294,7 +294,8 @@ properties! {
     OutlineStyle = "outline-style", false, Syntax::Keywords(&["auto", "none", "solid"]), "auto", FOCUS;
     OutlineColor = "outline-color", false, Syntax::Any(&[Syntax::Keywords(&["auto"]), Syntax::Color]), "auto", FOCUS;
     OutlineOffset = "outline-offset", false, LENGTH, "2", FOCUS;
-    Display = "display", false, Syntax::Keywords(&["none", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid", "contents", "flow-root", "list-item", "table"]), "block", NODES;
+    // Whether the node draws: `true` or `block` draws it, and `false` or `none` hides it.
+    Display = "display", false, Syntax::Any(&[Syntax::Boolean, Syntax::Keywords(&["block", "none"])]), "true", NODES;
     ForcedColorAdjust = "forced-color-adjust", true, Syntax::Keywords(&["auto", "none"]), "auto", NODES;
 
     // Scales.

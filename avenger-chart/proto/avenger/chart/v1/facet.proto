@@ -32,7 +32,7 @@ message Facet {
   string column = 1 [(avenger.chart.v1.lift) = true];
   // Whether the facet draws its title and labels. When unset, it does. `false` draws neither, and
   // the children still split the column.
-  optional bool show = 2 [(avenger.chart.v1.lift) = true];
+  optional bool display = 2 [(avenger.chart.v1.lift) = true];
   // The title. When unset, or when its text is empty, the title is the facet's column.
   Title title = 3;
   // The side of the children. A concat in a row takes the top or the bottom, a concat in a column
@@ -40,7 +40,7 @@ message Facet {
   // wrap have the labels at the top, and a column at the right.
   Side orient = 4;
   // The labels of the values, such as `Grade #value`, which take `angle` and `margin`. A facet
-  // always shows its labels, so their `show` is invalid. When the angle is unset, the labels read
+  // always shows its labels, so their `display` is invalid. When the angle is unset, the labels read
   // along the side: level above or below the children, up beside a left side, and down beside a
   // right one.
   Labels labels = 5;

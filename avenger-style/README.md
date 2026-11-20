@@ -61,6 +61,26 @@ The attributes have these values:
 | `kind` | The kind of the scale: `categorical`, `ordinal`, `sequential`, or `diverging` |
 | `scale[marks]` | The types of the marks that use the scale, separated by spaces, in the two forms of `mark[type]` |
 
+The parts of the tree stand below their holders, as `Element::parts` declares them, and `StyleTree::add` panics when a child is not a part of its parent's element. The charts of a composition stand in the plot of their composition, and `other` and `null`, the variants of a category, stand below the marks and the labels that they style.
+
+```text
+chart
+├── title
+│   └── subtitle
+└── plot
+    ├── mark
+    ├── axis: title, label, tick, rule, grid, level (label)
+    ├── legend: title, label, swatch, ramp, tick, rule
+    ├── facet: title, label, tick, rule
+    ├── scale
+    ├── attribution
+    ├── sphere
+    ├── graticule: grid, label
+    └── widget: title, label, rail, thumb, readout
+```
+
+The fields of the chart format follow the tree, so a field reads as a selector and a property. A part with text of its own, such as a title or labels, is a message in its holder, and its fields are properties of the part's element: `Axis.labels.angle` is `axis > label { angle }`. A part that only draws is a prefix of its holder's fields: `Axis.tick_stroke` is `axis > tick { stroke }`. A field's leaf is a property of this vocabulary with its hyphens as underscores, and no property starts with the name of an element, so a property of a part is a property of the part's element. `avenger-chart-eval/tests/naming.rs` checks both rules against these parts and the elements that `STYLE_FIELDS` gives each message of the format.
+
 An attribute selector on `mark[type]` or `scale[marks]` matches a node when it matches either form. `mark[type=bar]` selects the bars of Cartesian and polar plots, `mark[type=polar_bar]` selects the polar ones, and `mark[type^=polar_]` selects every mark of a polar plot. Either form gives the selector the same specificity.
 
 ## Selectors
@@ -125,6 +145,8 @@ The initial values of the table hold on every node except these, where they depe
 - `padding-outer`: `0.5` on a point scale
 
 `angle: auto` turns labels by their guide. The labels of a band or a point axis on the top or the bottom read across where they keep apart, and otherwise slant to 315 degrees or turn to 270, whichever keeps them apart with thinner labels, the labels of a level of a nested band axis take the angle of the axis's labels at the last level and 0 at the others, and the labels of a facet read along it: down beside a facet on the right, up beside one on the left, and level above or below. On other labels, and on a mark, a title, or an axis, `auto` is `0`.
+
+`display` decides whether a node draws: `block` and `true` draw it, and `none` and `false` hide it with its parts. `block` and `none` are the same values as `true` and `false`, so a stylesheet can be written as CSS is. The `display` fields of the format set it.
 
 `margin` is the space between a part and what it labels: labels and the ticks, the swatches, the lines, or the edge that they label, a title and the rest of its guide, and a colorbar's ramp and its axis.
 
@@ -214,7 +236,7 @@ On marks, `stroke-linecap` styles the ends of the lines and outlines of line, ar
 | `outline-style` | `auto \| none \| solid` | `auto` | no | `widget` |
 | `outline-color` | `auto \| <color>` | `auto` | no | `widget` |
 | `outline-offset` | `<length>` | `2` | no | `widget` |
-| `display` | `none \| block \| inline \| inline-block \| flex \| inline-flex \| grid \| inline-grid \| contents \| flow-root \| list-item \| table` | `block` | no | every node |
+| `display` | `true \| false \| block \| none` | `true` | no | every node |
 | `forced-color-adjust` | `auto \| none` | `auto` | yes | every node |
 | `scheme` | `auto \| <palette-name> <integer>? reverse?` | `auto` | no | `scale` |
 | `range` | `auto \| <output>#` | `auto` | no | `scale` |

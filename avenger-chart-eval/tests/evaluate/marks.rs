@@ -646,6 +646,45 @@ fn a_range_that_only_reverses_reverses_the_stylesheets_palette() {
     assert_eq!(forward, reversed);
 }
 
+/// `reverse` reverses the range that wins the cascade: the spec's palette, or a palette that a
+/// stylesheet sets over it with `!important`.
+#[test]
+fn reverse_reverses_the_range_that_wins_the_cascade() {
+    let chart = |reverse: bool| {
+        let scale = Scale::builder().scheme("tableau10").reverse(reverse);
+        let symbols = CartesianLayer::symbol(
+            cars(),
+            SymbolMark::builder()
+                .x("weight")
+                .y("mpg")
+                .color(Encoding::scaled_field("origin").scale(scale)),
+        );
+        Chart::builder(Plot::cartesian([symbols])).build().unwrap()
+    };
+    // The legend's colors, each once, in the order of its entries.
+    let colors = |reverse, css| {
+        let evaluator =
+            ChartEvaluator::new(chart(reverse), cascade_with(css), engine(), Registry::new());
+        let evaluated = evaluator.unwrap().evaluate(&host([320.0, 240.0])).unwrap();
+        let mut colors = Vec::new();
+        for color in legend_symbol_fills(&evaluated) {
+            if !colors.contains(&color) {
+                colors.push(color);
+            }
+        }
+        colors
+    };
+    let mut spec = colors(false, "");
+    assert_eq!(spec.len(), 3);
+    spec.reverse();
+    assert_eq!(colors(true, ""), spec);
+    let important = "scale { scheme: dark2 !important; }";
+    let mut stylesheet = colors(false, important);
+    assert_ne!(stylesheet, colors(false, ""));
+    stylesheet.reverse();
+    assert_eq!(colors(true, important), stylesheet);
+}
+
 /// A layer whose mark computes `display: none` draws no marks and has no rows, and its values
 /// still fit the scales, so the axes stay as they are.
 #[test]

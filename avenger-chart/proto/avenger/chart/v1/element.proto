@@ -19,14 +19,14 @@ import "avenger/chart/v1/value.proto";
 // the bottom serves as a caption. The settings that place the title of a node and give its
 // subtitle, `orient`, `text_align`, and `subtitle`, are invalid on the title of another element,
 // which stands where its axis, legend, facet, or widget puts it. The title of a node has a text and
-// always shows, so `show` is invalid on it.
+// always shows, so `display` is invalid on it.
 message Title {
   // The text, in the syntax of `syntax`. The title of a node has a text. On the title of another
   // element, an empty text keeps the title that the element gives, such as the titles of an
   // axis's encodings, so the other fields of the title style that title.
   string text = 1 [(avenger.chart.v1.lift) = true];
   // Whether the element shows its title. When unset, the styles decide.
-  optional bool show = 2 [(avenger.chart.v1.lift) = true];
+  optional bool display = 2 [(avenger.chart.v1.lift) = true];
   // The side of the node. When unset, the styles give it.
   Side orient = 3;
   // How the text engine reads the text and the subtitle. When unset, it reads them as Typst
@@ -97,7 +97,7 @@ message Labels {
   string markup = 2;
   // Whether the element shows its labels. When unset, the styles decide. Invalid on the labels of
   // a facet and of a widget, which always show.
-  optional bool show = 3 [(avenger.chart.v1.lift) = true];
+  optional bool display = 3 [(avenger.chart.v1.lift) = true];
   // A font family, such as `Lato`.
   string font_family = 4;
   // The font size, in pixels.

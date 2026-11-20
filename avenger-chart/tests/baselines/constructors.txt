@@ -1,8 +1,8 @@
-facet(show, title, orient, labels, tick_length, tick_stroke, tick_stroke_width, rule_stroke, rule_stroke_width, classes, id)
-  show (positional): Boolean
-  title: Boolean -> show; string -> text; title(...)
+facet(display, title, orient, labels, tick_length, tick_stroke, tick_stroke_width, rule_stroke, rule_stroke_width, classes, id)
+  display (positional): Boolean
+  title: Boolean -> display; string -> text; title(...)
   orient: one of bottom, top, left, right
-  labels: Boolean -> show; string -> format; labels(...)
+  labels: Boolean -> display; string -> format; labels(...)
   tick_length: number
   tick_stroke: string
   tick_stroke_width: number
@@ -10,11 +10,11 @@ facet(show, title, orient, labels, tick_length, tick_stroke, tick_stroke_width, 
   rule_stroke_width: number
   classes: array of string
   id: string
-labels(value, format, markup, show, font_family, font_size, font_weight, color, angle, text_orient, text_align, vertical_align, margin, frame, sides)
-  value (positional): Boolean -> show; string -> format
+labels(value, format, markup, display, font_family, font_size, font_weight, color, angle, text_orient, text_align, vertical_align, margin, frame, sides)
+  value (positional): Boolean -> display; string -> format
   format: string
   markup: string
-  show: Boolean
+  display: Boolean
   font_family: string
   font_size: number
   font_weight: number
@@ -28,10 +28,10 @@ labels(value, format, markup, show, font_family, font_size, font_weight, color, 
   sides: sides(...)
 label_sides(sides)
   sides: array of one of bottom, top, left, right
-title(value, text, show, orient, syntax, font_family, font_size, font_weight, color, subtitle, text_align)
-  value (positional): Boolean -> show; string -> text
+title(value, text, display, orient, syntax, font_family, font_size, font_weight, color, subtitle, text_align)
+  value (positional): Boolean -> display; string -> text
   text: string
-  show: Boolean
+  display: Boolean
   orient: one of bottom, top, left, right
   syntax: one of plain, plain_lines, typst
   font_family: string
@@ -136,12 +136,12 @@ attribution(credits, orient, text_align, separator, separator_space, font_family
   border_color: string
   border_radius: number
   padding: number
-geo(projection, family, aspect, navigation, graticule, sphere, sphere_fill, sphere_stroke, sphere_stroke_width, tiles)
+geo(projection, family, aspect_ratio, navigation, graticule, sphere, sphere_fill, sphere_stroke, sphere_stroke_width, tiles)
   projection (required): string -> builtin; projection(...)
   family: string
-  aspect: integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name; aspect(...)
+  aspect_ratio: integer -> ratio; float -> ratio; string -> a member's name; aspect_ratio(...)
   navigation: navigation(...)
-  graticule: Boolean -> show; graticule(...)
+  graticule: Boolean -> display; graticule(...)
   sphere: Boolean
   sphere_fill: string
   sphere_stroke: string
@@ -152,14 +152,14 @@ tile_layer(url_template, min_zoom, max_zoom, tile_size)
   min_zoom: integer
   max_zoom: integer
   tile_size: integer
-graticule(show, step, extent, step_major, extent_major, precision, labels, grid_stroke, grid_stroke_width)
-  show (positional): Boolean
+graticule(display, step, extent, step_major, extent_major, precision, labels, grid_stroke, grid_stroke_width)
+  display (positional): Boolean
   step: array of number
   extent: array of number
   step_major: array of number
   extent_major: array of number
   precision: number
-  labels: Boolean -> show; string -> format; labels(...)
+  labels: Boolean -> display; string -> format; labels(...)
   grid_stroke: string
   grid_stroke_width: number
 geo_navigation(pan_mode, min_zoom, max_zoom)
@@ -198,11 +198,11 @@ polar(start_angle, end_angle, inner_radius)
   inner_radius: number
 cartesian(aspect_ratio)
   aspect_ratio: number
-legend(show, type, title, labels, orient, background, border_color, border_radius, padding, wrap, columns, column_gap, row_gap, value_placement, swatches, ramp_thickness, ramp_margin, ramp_max_length, ticks, tick_length, tick_stroke, rule, rule_stroke, classes, id)
-  show (positional): Boolean
+legend(display, type, title, labels, orient, background, border_color, border_radius, padding, wrap, columns, column_gap, row_gap, value_placement, swatches, ramp_thickness, ramp_margin, ramp_max_length, ticks, tick_length, tick_stroke, rule, rule_stroke, classes, id)
+  display (positional): Boolean
   type: one of symbol, colorbar
-  title: Boolean -> show; string -> text; title(...)
-  labels: Boolean -> show; string -> format; labels(...)
+  title: Boolean -> display; string -> text; title(...)
+  labels: Boolean -> display; string -> format; labels(...)
   orient: one of bottom, top, left, right
   background: string
   border_color: string
@@ -228,11 +228,11 @@ value_step(step, interval, start)
   step (positional): number
   interval: one of month, day, millisecond
   start: any constant
-axis(show, title, orient, labels, value_placement, ticks, tick_length, tick_stroke, rule, rule_stroke, grid, grid_stroke, grid_stroke_width, levels, angle, route, classes, id)
-  show (positional): Boolean
-  title: Boolean -> show; string -> text; title(...)
+axis(display, title, orient, labels, value_placement, ticks, tick_length, tick_stroke, rule, rule_stroke, grid, grid_stroke, grid_stroke_width, levels, angle, route, classes, id)
+  display (positional): Boolean
+  title: Boolean -> display; string -> text; title(...)
   orient: one of bottom, top, left, right
-  labels: Boolean -> show; string -> format; labels(...)
+  labels: Boolean -> display; string -> format; labels(...)
   value_placement: Boolean -> values; integer -> value_count; float -> value_count; string -> values; array -> values; struct -> values; other -> values; value_placement(...)
   ticks: Boolean
   tick_length: number
@@ -248,7 +248,7 @@ axis(show, title, orient, labels, value_placement, ticks, tick_length, tick_stro
   classes: array of string
   id: string
 nested_axis_level(labels, title)
-  labels: Boolean -> show; string -> format; labels(...)
+  labels: Boolean -> display; string -> format; labels(...)
   title: string
 scale(value, type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, navigation)
   value (positional): one of linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold
@@ -328,9 +328,9 @@ select.type(value, interval, point, lasso)
   interval: interval(...)
   point: point(...)
   lasso: lasso(...)
-geo.aspect(value, aspect_ratio)
-  value (positional): integer -> aspect_ratio; float -> aspect_ratio; string -> a member's name
-  aspect_ratio: number
+geo.aspect_ratio(value, ratio)
+  value (positional): integer -> ratio; float -> ratio; string -> a member's name
+  ratio: number
 projection.type(value, builtin, custom)
   value (positional): string -> builtin
   builtin: one of identity, equal_earth, natural_earth1, robinson, mollweide, eckert4, winkel_tripel, aitoff, sinusoidal, equirectangular, mercator, transverse_mercator, miller, orthographic, stereographic, gnomonic, azimuthal_equal_area, azimuthal_equidistant, conic_conformal, conic_equal_area, conic_equidistant, cylindrical_equal_area, hammer
@@ -386,7 +386,7 @@ selection_domain.fallback(value, explicit, summary)
   summary: any constant
 layer(chart, id, title, attribution, tools, resolve, width, height, classes)
   id: string
-  title: Boolean -> show; string -> text; title(...)
+  title: Boolean -> display; string -> text; title(...)
   attribution: attribution(...)
   tools: array of a member of tool(...); array of one of navigate, tooltip
   resolve: resolve(...)
@@ -401,7 +401,7 @@ hconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> show; string -> text; title(...)
+  title: Boolean -> display; string -> text; title(...)
   classes: array of string
 vconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, classes)
   id: string
@@ -411,7 +411,7 @@ vconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> show; string -> text; title(...)
+  title: Boolean -> display; string -> text; title(...)
   classes: array of string
 facet_row(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
   id: string
@@ -421,8 +421,8 @@ facet_row(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, ve
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> show; string -> text; title(...)
-  facet: Boolean -> show; facet(...)
+  title: Boolean -> display; string -> text; title(...)
+  facet: Boolean -> display; facet(...)
   classes: array of string
 facet_column(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
   id: string
@@ -432,8 +432,8 @@ facet_column(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute,
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> show; string -> text; title(...)
-  facet: Boolean -> show; facet(...)
+  title: Boolean -> display; string -> text; title(...)
+  facet: Boolean -> display; facet(...)
   classes: array of string
 facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, gap, parts, distribute, title, facet, classes)
   id: string
@@ -444,21 +444,21 @@ facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, g
   gap: number
   parts: parts(...)
   distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> show; string -> text; title(...)
-  facet: Boolean -> show; facet(...)
+  title: Boolean -> display; string -> text; title(...)
+  facet: Boolean -> display; facet(...)
   classes: array of string
 lifts
-  Axis.show
+  Axis.display
   CustomProjection.name
   CustomScale.name
   DomainPin.value
   Facet.column
-  Facet.show
+  Facet.display
   FitBox.bounds
-  Graticule.show
+  Graticule.display
+  Labels.display
   Labels.format
-  Labels.show
-  Legend.show
+  Legend.display
   NavigationLimits.bounds (oneof)
   PointKey.column
   Projection.type (oneof)
@@ -467,7 +467,7 @@ lifts
   SphericalClip.clip (oneof)
   Subtitle.text
   TileLayer.url_template
-  Title.show
+  Title.display
   Title.text
   Tool.kind (oneof)
   TooltipTitle.column

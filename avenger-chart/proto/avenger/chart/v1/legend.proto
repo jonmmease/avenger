@@ -28,7 +28,7 @@ import "avenger/chart/v1/value.proto";
 // scale does not merge.
 message Legend {
   // Whether the scale draws this legend. When unset, it does. `false` draws no legend.
-  optional bool show = 1 [(avenger.chart.v1.lift) = true];
+  optional bool display = 1 [(avenger.chart.v1.lift) = true];
   // The type of the legend. When unset, a continuous scale of `color`, `fill`, or `stroke` has a
   // colorbar, and another scale has a symbol legend.
   LegendForm type = 2;

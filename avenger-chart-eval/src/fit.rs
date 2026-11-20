@@ -324,10 +324,8 @@ pub(crate) fn non_position(
     };
     let scale = unfitted.with_domain(domain.clone());
     let shape = range_shape(spec, domain.len());
-    // A reverse without a range reverses the range of the styles, and a range of values or a
-    // palette is reversed in the styles already.
-    let reverse = spec.reverse && spec.range.is_none();
-    let range = match (range(style, styles, shape), reverse) {
+    // `reverse` reverses the range that the styles compute, from the spec's range or a stylesheet.
+    let range = match (range(style, styles, shape), spec.reverse) {
         (Some(range), true) => Some(range.reversed()?),
         (range, _) => range,
     };

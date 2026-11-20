@@ -288,7 +288,7 @@ impl Checker<'_> {
         let projection = geo.projection.as_ref().expect(REQUIRED);
         projection_takes(geo, path)?;
         self.projection(projection, &format!("{path}.projection"))?;
-        if let Some(proto::geo::Aspect::AspectRatio(ratio)) = geo.aspect {
+        if let Some(proto::geo::AspectRatio::Ratio(ratio)) = geo.aspect_ratio {
             positive(Some(f64::from(ratio)), &format!("{path}.aspect_ratio"))?;
         }
         if let Some(navigation) = &geo.navigation {
@@ -756,7 +756,9 @@ const PROJECTION_PARAMETERS: [(&str, fn(&proto::Geo) -> bool, Takers); 15] = {
         ),
         (
             "graticule",
-            |geo| (geo.graticule.as_ref()).is_some_and(|graticule| graticule.show != Some(false)),
+            |geo| {
+                (geo.graticule.as_ref()).is_some_and(|graticule| graticule.display != Some(false))
+            },
             Takers::Sphere,
         ),
         ("sphere", |geo| geo.sphere == Some(true), Takers::Sphere),

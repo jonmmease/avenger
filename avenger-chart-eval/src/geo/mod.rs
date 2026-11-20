@@ -20,7 +20,7 @@ pub(crate) use none::{marks, GeoPlots, ProjectionState};
 
 /// The graticule of a geo spec that draws one: a graticule that is set and does not hide itself.
 pub(crate) fn graticule(spec: &proto::Geo) -> Option<&proto::Graticule> {
-    (spec.graticule.as_ref()).filter(|graticule| graticule.show != Some(false))
+    (spec.graticule.as_ref()).filter(|graticule| graticule.display != Some(false))
 }
 
 /// Whether a geo spec draws its sphere.

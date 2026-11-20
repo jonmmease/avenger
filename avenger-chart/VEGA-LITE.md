@@ -37,11 +37,11 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | Vega-Lite | Format | avenger-sql | Notes |
 |---|---|---|---|
 | `axis` of a position | `Encoding.axis` | `x => x(bill_length_mm, axis => axis(grid => FALSE))` | Encodings that share a scale share its axis |
-| `axis: null` | `Axis.show` | `axis => FALSE` | |
+| `axis: null` | `Axis.display` | `axis => FALSE` | |
 | `title`, `titleFont`, `titleFontSize`, `titleFontWeight`, `titleColor` | `Axis.title`, a `Title` | `axis => title('Mass', font_size => 14)` | A title's text is Typst markup |
 | `orient` | `Axis.orient` | `axis(orient => 'top')` | |
 | `format`, `labelFont`, `labelFontSize`, `labelFontWeight`, `labelColor` | `Axis.labels`, a `Labels` | `axis => labels(format => '%.1f', color => 'gray')` | `format` is a GoogleSQL pattern, and `axis(labels => '%Y-%m')` sets it alone |
-| `labels: false` | `Labels.show` | `axis(labels => FALSE)` | |
+| `labels: false` | `Labels.display` | `axis(labels => FALSE)` | |
 | `labelExpr` | `Labels.markup` | `axis => labels(markup => '#value mm')` | Typst markup in which `#value` is the formatted value |
 | `labelAngle` | `Labels.angle` of `Axis.labels` | `axis(labels => labels(angle => -45))` | `labels(text_orient => 'radial')` or `'tangential'` turns the labels of a polar axis. A stylesheet writes `axis > label { angle: -45 }` |
 | `labelAlign`, `labelBaseline` | `Labels.text_align`, `Labels.vertical_align` of `Axis.labels` | `axis(labels => labels(text_align => 'end'))` | `text_align` takes CSS's `start`, `center`, and `end` |
@@ -57,7 +57,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | Vega-Lite | Format | avenger-sql | Notes |
 |---|---|---|---|
 | `legend` of a channel | `Encoding.legend` | `color => color(species, legend => legend(orient => 'bottom'))` | Encodings that share a scale share its legend |
-| `legend: null` | `Legend.show` | `legend => FALSE` | |
+| `legend: null` | `Legend.display` | `legend => FALSE` | |
 | `type`: `symbol`, `gradient` | `Legend.type`: `symbol`, `colorbar` | `legend(type => 'colorbar')` | |
 | `title`, `format`, `labelExpr`, `labelFont` and the other label fonts | `Legend.title`, `Legend.labels` | `legend => title('Species', font_size => 12)` | As on an axis, with GoogleSQL patterns |
 | `orient` | `Legend.orient` | `legend(orient => 'bottom')` | One of the four sides, without corners or `none` |
@@ -79,7 +79,7 @@ A `format` pattern in a chart of avenger-sql, on labels, a text mark, or a toolt
 | `TitleParams.anchor`: `start`, `middle`, `end` | `Title.text_align`: `start`, `center`, `end` | `title(..., text_align => 'start')` | |
 | `title` of a field | `Encoding.title` | `x(bill_length_mm, title => 'Bill length (mm)')` | Plain text. An axis or a legend without a title of its own takes the titles of its encodings |
 | `header` of a facet | `Concat.facet`, `Wrap.facet`, a `Facet` | `facet_column(chart, island, facet => facet(labels => labels(angle => 0)))` | |
-| `header: null` | `Facet.show` | `facet => FALSE` | |
+| `header: null` | `Facet.display` | `facet => FALSE` | |
 | `Header.title`, `labelAngle`, `labelPadding`, `orient`, `format`, `labelExpr` | `Facet.title`, `orient`, and `Facet.labels` with its `angle` and `margin` | `facet => title('Island', font_size => 12)` | `labels` takes a GoogleSQL pattern, as on an axis. A facet also draws a rule with ticks, which `tick_length`, `tick_stroke`, `tick_stroke_width`, `rule_stroke`, and `rule_stroke_width` style |
 
 ## Encodings and marks
