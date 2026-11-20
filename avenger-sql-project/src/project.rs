@@ -26,7 +26,7 @@ pub struct ModuleFile {
     pub names: Vec<String>,
 }
 
-/// Why a project does not open.
+/// Why a project does not open or load.
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectError {
     #[error("the project has no {MANIFEST} at its root")]
@@ -42,6 +42,13 @@ pub enum ProjectError {
     /// The files that the patterns of two roles match, in the order of their paths.
     #[error("{}", (.0.iter()).map(ToString::to_string).collect::<Vec<_>>().join("\n"))]
     Roles(Vec<RoleConflict>),
+    /// A session that the project can't load into, such as one whose query planner avenger-sql
+    /// can't replace.
+    #[error(transparent)]
+    Session(datafusion::common::DataFusionError),
+    /// A path to reload that is not a data script of the project.
+    #[error("'{0}' is not a data script of the project")]
+    NotDataScript(String),
 }
 
 impl ProjectFiles {

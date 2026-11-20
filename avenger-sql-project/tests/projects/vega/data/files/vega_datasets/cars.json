@@ -1,0 +1,9 @@
+[
+  {"Name": "chevrolet chevelle malibu", "Miles_per_Gallon": 18, "Cylinders": 8, "Weight_in_lbs": 3504, "Origin": "USA"},
+  {"Name": "buick skylark 320", "Miles_per_Gallon": 15, "Cylinders": 8, "Weight_in_lbs": 3693, "Origin": "USA"},
+  {"Name": "toyota corona mark ii", "Miles_per_Gallon": 24, "Cylinders": 4, "Weight_in_lbs": 2372, "Origin": "Japan"},
+  {"Name": "datsun pl510", "Miles_per_Gallon": 27, "Cylinders": 4, "Weight_in_lbs": 2130, "Origin": "Japan"},
+  {"Name": "volkswagen 1131 deluxe sedan", "Miles_per_Gallon": 26, "Cylinders": 4, "Weight_in_lbs": 1835, "Origin": "Europe"},
+  {"Name": "peugeot 504", "Miles_per_Gallon": 25, "Cylinders": 4, "Weight_in_lbs": 2672, "Origin": "Europe"},
+  {"Name": "mercedes-benz 280s", "Miles_per_Gallon": 16.5, "Cylinders": 6, "Weight_in_lbs": 3820, "Origin": "Europe"}
+]

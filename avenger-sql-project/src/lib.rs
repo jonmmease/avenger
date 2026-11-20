@@ -1,10 +1,15 @@
 #![doc = include_str!("../README.md")]
 
+mod load;
 mod manifest;
 mod project;
 mod source;
 mod style;
 
+pub use load::{
+    Change, ChartError, LoadedProject, LoadedScript, ProjectDiagnostic, ScriptLoad, ScriptStatus,
+    TableChange, UnloadedRead,
+};
 pub use manifest::{
     ChartsSection, DataSection, Manifest, ManifestError, ModulesSection, Pattern, ProjectSection,
     Role, RoleConflict, StyleSection, FORMAT, MANIFEST,

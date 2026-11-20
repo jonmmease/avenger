@@ -34,7 +34,7 @@ use datafusion::{
 };
 
 pub use data::analyze_data;
-pub(crate) use data::{script_targets, StatementTarget};
+pub(crate) use data::{script_targets, StatementTarget, NO_FILES};
 pub use model::{
     match_recognize_part, CallForm, Column, ConstructorUse, Definition, EnumValue, FieldBase,
     MatchRecognizePart, Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,

@@ -47,7 +47,9 @@ pub mod types;
 use datafusion::{common::Result, prelude::SessionContext};
 
 pub use analysis::{analyze, analyze_data};
-pub use pipeline::{lift, sql, sql_with_modules, ScriptError};
+pub use pipeline::{
+    lift, lift_with_modules, script_analysis, script_tree, sql, sql_with_modules, ScriptError,
+};
 
 /// Registers in `ctx` what the plans of avenger-sql need to run: [`QueryPlanner`], which plans the
 /// extension nodes of avenger, so `ctx` must have DataFusion's default query planner, the rule that
