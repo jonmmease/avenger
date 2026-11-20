@@ -1,6 +1,6 @@
-//! The editor's assistance outside egui: the analysis of the editor's text, a query's or a
-//! project file's, the state of the completion popup, which items it shows as the user types,
-//! and the text after an insert, the fixes of the errors at the cursor, the definition and the
+//! The editor's assistance outside egui: the analysis of the editor's text, a project file's, the
+//! state of the completion popup, which items it shows as the user types, and the text after an
+//! insert, the fixes of the errors at the cursor, the definition and the
 //! references of the name at the cursor, and the blocks of a hover. Positions are character
 //! indices, as egui's cursor counts them, and the requests of the `Document` take byte offsets,
 //! which [`Chars`] converts.
@@ -12,14 +12,14 @@ use avenger_sql_syntax::FunctionRole;
 
 use crate::highlight::Chars;
 
-/// The analysis of the editor's text: the document of a query, or of a file of a project, whose
-/// diagnostics are the project's, with its own errors and its loader's, and whose definitions
-/// can be in the project's other files.
+/// The analysis of the editor's text: the document of a file of a project, whose diagnostics are
+/// the project's, with its own errors and its loader's, and whose definitions can be in the
+/// project's other files.
 #[derive(Clone, Copy)]
 pub struct Analysis<'a> {
     pub document: &'a Document,
-    /// The project of the file, and the file's path.
-    file: Option<(&'a Project, &'a str)>,
+    project: &'a Project,
+    path: &'a str,
 }
 
 /// The place of a definition: a range of characters of the editor's text, or of the text of the
@@ -32,29 +32,19 @@ pub struct Target {
 }
 
 impl<'a> Analysis<'a> {
-    /// The analysis of a query, which reads `document` alone.
-    pub fn query(document: &'a Document) -> Self {
-        Self {
-            document,
-            file: None,
-        }
-    }
-
     /// The analysis of the file of `project` at `path`, or `None` when the project has no such
     /// file.
     pub fn file(project: &'a Project, path: &'a str) -> Option<Self> {
         Some(Self {
             document: project.document(path)?,
-            file: Some((project, path)),
+            project,
+            path,
         })
     }
 
     /// The errors and warnings of the text, in the order of their ranges.
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
-        match self.file {
-            Some((project, path)) => project.diagnostics(path),
-            None => self.document.diagnostics(),
-        }
+        self.project.diagnostics(self.path)
     }
 }
 
@@ -230,27 +220,19 @@ pub fn apply(text: &str, fix: &Fix) -> String {
     applied
 }
 
-/// The definition of the name at the character `cursor`: in the text, or, for a file of a
-/// project, in the project's file that defines it, as the statement of a data script that
-/// creates a table that a chart reads.
+/// The definition of the name at the character `cursor`: in the text, or in the project's file
+/// that defines it, as the statement of a data script that creates a table that a chart reads.
 pub fn definition(analysis: Analysis<'_>, cursor: usize) -> Option<Target> {
     let chars = Chars::new(analysis.document.text());
     let offset = (chars.offset(cursor) as u32).into();
-    let Some((project, path)) = analysis.file else {
-        let link = analysis.document.definition(offset)?;
-        return Some(Target {
-            path: None,
-            range: chars.range(link.target),
-        });
-    };
-    let link = project.definition(path, offset)?;
-    if link.path == path {
+    let link = analysis.project.definition(analysis.path, offset)?;
+    if link.path == analysis.path {
         return Some(Target {
             path: None,
             range: chars.range(link.target),
         });
     }
-    let text = project.document(&link.path)?.text();
+    let text = analysis.project.document(&link.path)?.text();
     Some(Target {
         range: Chars::new(text).range(link.target),
         path: Some(link.path),
@@ -258,20 +240,18 @@ pub fn definition(analysis: Analysis<'_>, cursor: usize) -> Option<Target> {
 }
 
 /// The ranges of characters of the definition of the name at the character `cursor` and of each
-/// use of it in the text, in the order of the text. For a file of a project, a table's are its
-/// reads and the statements that define it in the file.
+/// use of it in the text, in the order of the text. A table's are its reads and the statements
+/// that define it in the file.
 pub fn references(analysis: Analysis<'_>, cursor: usize) -> Vec<Range<usize>> {
     let chars = Chars::new(analysis.document.text());
     let offset = (chars.offset(cursor) as u32).into();
-    match analysis.file {
-        Some((project, path)) => (project.references(path, offset).into_iter())
-            .filter(|reference| reference.path == path)
-            .map(|reference| chars.range(reference.range))
-            .collect(),
-        None => (analysis.document.references(offset).into_iter())
-            .map(|reference| chars.range(reference.range))
-            .collect(),
-    }
+    (analysis
+        .project
+        .references(analysis.path, offset)
+        .into_iter())
+    .filter(|reference| reference.path == analysis.path)
+    .map(|reference| chars.range(reference.range))
+    .collect()
 }
 
 /// A run of the text of a block of Markdown, with its style.

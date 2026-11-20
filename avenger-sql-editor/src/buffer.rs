@@ -1,5 +1,4 @@
-//! A text of the editor and its last run: the query of the editor without a project, or the
-//! file of a tab of a project.
+//! A text of the editor and its last run: the file of a tab of a project.
 
 use avenger_common::time::{Duration, Instant};
 

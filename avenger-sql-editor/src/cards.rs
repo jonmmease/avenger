@@ -1,15 +1,16 @@
-//! The Examples tab: a card for each example of the gallery, in its section, with the live
-//! thumbnail of its chart, and a search box over the examples. A card runs its query the first
-//! time it comes into view, and keeps the result for the session.
+//! The Gallery tab: a card for each chart script of the open project, in its section, with the
+//! live thumbnail of its chart, and a search box over the charts. A card runs its chart the first
+//! time it comes into view, and keeps the result until the chart's file or the tables that it
+//! reads change.
 
 use eframe::{egui, egui_wgpu::RenderState};
 
-use crate::gallery::{examples, Example};
+use crate::gallery::Entry;
 use crate::result::QueryResult;
 use crate::table::{CellKey, CellScene, Cells, Env};
 
-/// The result id of the thumbnails' cells, apart from the ids of the queries that the user runs,
-/// which count up from 1.
+/// The result id of the thumbnails' cells, apart from the ids of the runs of the tabs, which count
+/// up from 1.
 pub const THUMBNAILS: u64 = u64::MAX;
 /// The size that a thumbnail's chart lays out at, in logical pixels, which the card shows at half.
 pub const LAYOUT: egui::Vec2 = egui::vec2(480.0, 300.0);
@@ -19,11 +20,27 @@ const THUMBNAIL: egui::Vec2 = egui::vec2(240.0, 150.0);
 const TITLE_HEIGHT: f32 = 24.0;
 /// The space between the cards.
 const GAP: f32 = 12.0;
-/// The most queries of cards that run at once.
+/// The most charts of cards that run at once.
 const QUERIES: usize = 4;
 
-/// The state of a card's query.
-enum Card {
+/// A card: its chart script, the count of the changes of its result, which keys its thumbnail,
+/// and the state of its run.
+struct Card {
+    entry: Entry,
+    version: usize,
+    run: Run,
+}
+
+impl Card {
+    /// Runs the card again when it is in view, under a new version, whose thumbnail draws anew.
+    fn reset(&mut self) {
+        self.version += 1;
+        self.run = Run::Waiting;
+    }
+}
+
+/// The state of a card's run.
+enum Run {
     /// Not yet in view.
     Waiting,
     Running,
@@ -37,20 +54,29 @@ struct Ran {
     charts: usize,
 }
 
+/// A run of a card's chart that the app starts: the card's index and version, and the path and
+/// the text of its chart script.
+pub struct Start {
+    pub index: usize,
+    pub version: usize,
+    pub path: String,
+    pub text: String,
+}
+
 /// What the user did in the gallery this frame.
 #[derive(Default)]
 pub struct GalleryOutput {
-    /// The examples whose queries the app starts, which came into view.
-    pub start: Vec<usize>,
-    /// The example that the user clicked.
-    pub open: Option<usize>,
+    /// The runs of the cards that came into view.
+    pub start: Vec<Start>,
+    /// The path of the chart script of the card that the user clicked.
+    pub open: Option<String>,
 }
 
-/// The cards of the examples, their thumbnails, and the search text.
+/// The cards of the open project's chart scripts, their thumbnails, and the search text.
 pub struct Gallery {
     cards: Vec<Card>,
     running: usize,
-    /// Whether a card in view waits for a query to start.
+    /// Whether a card in view waits for its run to start.
     waiting: bool,
     pub cells: Cells,
     pub search: String,
@@ -59,7 +85,7 @@ pub struct Gallery {
 impl Default for Gallery {
     fn default() -> Self {
         Self {
-            cards: examples().iter().map(|_| Card::Waiting).collect(),
+            cards: Vec::new(),
             running: 0,
             waiting: false,
             cells: Cells::new(THUMBNAILS),
@@ -69,9 +95,53 @@ impl Default for Gallery {
 }
 
 impl Gallery {
-    /// Keeps the result of the query of the example `index`.
-    pub fn ran(&mut self, index: usize, result: Result<QueryResult, String>) {
+    /// Shows the cards of `entries` in place of the cards before, whose thumbnails it drops. The
+    /// runs of the cards before end unseen: the app tells them apart by the project's generation.
+    pub fn set_entries(&mut self, entries: Vec<Entry>, state: &RenderState) {
+        self.cards = (entries.into_iter())
+            .map(|entry| Card {
+                entry,
+                version: 0,
+                run: Run::Waiting,
+            })
+            .collect();
+        self.running = 0;
+        self.cells.reset(THUMBNAILS, state);
+    }
+
+    /// Takes `entry`, of a chart script whose text changed, whose card runs again when it is in
+    /// view.
+    pub fn update(&mut self, entry: Entry) {
+        if let Some(card) = self
+            .cards
+            .iter_mut()
+            .find(|card| card.entry.path == entry.path)
+        {
+            card.entry = entry;
+            card.reset();
+        }
+    }
+
+    /// Runs again the cards whose chart scripts `rerun` selects, when they are in view.
+    pub fn rerun(&mut self, rerun: impl Fn(&Entry) -> bool) {
+        for card in &mut self.cards {
+            if rerun(&card.entry) {
+                card.reset();
+            }
+        }
+    }
+
+    /// Keeps the result of the run of the card `index` at its `version`, unless the card changed
+    /// since the run started.
+    pub fn ran(&mut self, index: usize, version: usize, result: Result<QueryResult, String>) {
         self.running = self.running.saturating_sub(1);
+        let Some(card) = self
+            .cards
+            .get_mut(index)
+            .filter(|card| card.version == version)
+        else {
+            return;
+        };
         let ran = result.map(|result| {
             let charts: Vec<CellKey> = (0..result.num_rows())
                 .flat_map(|row| {
@@ -85,7 +155,7 @@ impl Gallery {
                 result,
             }
         });
-        self.cards[index] = Card::Ran(ran);
+        card.run = Run::Ran(ran);
     }
 
     /// Keeps the scene of a thumbnail that a background evaluation finished.
@@ -93,7 +163,7 @@ impl Gallery {
         self.cells.receive(scene);
     }
 
-    /// Whether a query or an evaluation of a card in view runs, or waits to start.
+    /// Whether a run or an evaluation of a card in view runs, or waits to start.
     pub fn busy(&self) -> bool {
         self.running > 0 || self.waiting || self.cells.busy()
     }
@@ -108,40 +178,46 @@ impl Gallery {
     pub fn search_box(&mut self, ui: &mut egui::Ui) {
         ui.add(
             egui::TextEdit::singleline(&mut self.search)
-                .hint_text("Search the examples")
+                .hint_text("Search the charts")
                 .desired_width(220.0),
         );
     }
 
-    /// Shows the cards that match the search, by section. `ready` is whether the samples are in
-    /// the session, so that the queries can run.
+    /// Shows the cards that match the search, by section. `ready` is whether the project's tables
+    /// are loaded, so that the charts can run.
     pub fn show(&mut self, ui: &mut egui::Ui, env: &Env<'_>, ready: bool) -> GalleryOutput {
         let mut output = GalleryOutput::default();
         self.waiting = false;
+        if self.cards.is_empty() {
+            ui.weak(
+                "The charts of the project show here. Add a .sql file under charts/ to draw one.",
+            );
+            return output;
+        }
         let search = self.search.trim().to_lowercase();
-        let matching: Vec<usize> = (examples().iter().enumerate())
-            .filter(|(_, example)| search.is_empty() || matches(example, &search))
+        let matching: Vec<usize> = (self.cards.iter().enumerate())
+            .filter(|(_, card)| search.is_empty() || card.entry.matches(&search))
             .map(|(index, _)| index)
             .collect();
         if matching.is_empty() {
-            ui.weak(format!("No example matches “{}”.", self.search.trim()));
+            ui.weak(format!("No chart matches “{}”.", self.search.trim()));
             return output;
         }
         egui::ScrollArea::vertical()
-            .id_salt("examples")
+            .id_salt("gallery")
             .auto_shrink(false)
             .show(ui, |ui| {
                 let mut rest = matching.as_slice();
                 while let Some(&first) = rest.first() {
-                    let section = &examples()[first].section;
+                    let section = self.cards[first].entry.section.clone();
                     let count = (rest.iter())
-                        .take_while(|&&index| examples()[index].section == *section)
+                        .take_while(|&&index| self.cards[index].entry.section == section)
                         .count();
                     let (cards, after) = rest.split_at(count);
                     rest = after;
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.strong(section);
+                        ui.strong(&section);
                         ui.weak(count.to_string());
                     });
                     ui.add_space(4.0);
@@ -149,7 +225,7 @@ impl Gallery {
                         ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
                         for &index in cards {
                             if self.card(ui, index, env, ready, &mut output) {
-                                output.open = Some(index);
+                                output.open = Some(self.cards[index].entry.path.clone());
                             }
                         }
                     });
@@ -159,8 +235,8 @@ impl Gallery {
         output
     }
 
-    /// Shows the card of the example `index`, and starts its query when it comes into view.
-    /// Returns whether the user clicked it.
+    /// Shows the card `index`, and starts its run when it comes into view. Returns whether the
+    /// user clicked it.
     fn card(
         &mut self,
         ui: &mut egui::Ui,
@@ -169,40 +245,47 @@ impl Gallery {
         ready: bool,
         output: &mut GalleryOutput,
     ) -> bool {
-        let example = &examples()[index];
         let size = THUMBNAIL + egui::vec2(0.0, TITLE_HEIGHT);
         let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
         if !ui.is_rect_visible(rect) {
             return false;
         }
-        if matches!(self.cards[index], Card::Waiting) && ready {
+        let card = &mut self.cards[index];
+        if matches!(card.run, Run::Waiting) && ready {
             match self.running < QUERIES {
                 true => {
                     self.running += 1;
-                    self.cards[index] = Card::Running;
-                    output.start.push(index);
+                    card.run = Run::Running;
+                    output.start.push(Start {
+                        index,
+                        version: card.version,
+                        path: card.entry.path.clone(),
+                        text: card.entry.text.clone(),
+                    });
                 }
                 false => self.waiting = true,
             }
         }
+        let card = &self.cards[index];
         let thumbnail = egui::Rect::from_min_size(rect.min, THUMBNAIL);
         let visuals = ui.visuals().clone();
         // The panel's color, which the charts' backgrounds take, so that a thumbnail and its card
         // are one surface.
         ui.painter().rect_filled(rect, 6.0, visuals.panel_fill);
-        match &self.cards[index] {
-            Card::Waiting | Card::Running => {
+        match &card.run {
+            Run::Waiting | Run::Running => {
                 egui::Spinner::new().paint_at(
                     ui,
                     egui::Rect::from_center_size(thumbnail.center(), egui::vec2(16.0, 16.0)),
                 );
             }
-            Card::Ran(Err(error)) => message(ui, thumbnail, error, visuals.error_fg_color),
-            Card::Ran(Ok(ran)) => match ran.first {
+            Run::Ran(Err(error)) => message(ui, thumbnail, error, visuals.error_fg_color),
+            Run::Ran(Ok(ran)) => match ran.first {
                 Some(key) => {
                     let chart = ran.result.chart(key.0, key.1).expect("the first chart");
                     let inner = thumbnail.shrink(1.0);
-                    self.cells.show(ui, inner, (index, 0), chart, LAYOUT, env);
+                    let key = (index, card.version);
+                    self.cells.show(ui, inner, key, chart, LAYOUT, env);
                     if ran.charts > 1 {
                         badge(ui, thumbnail, ran.charts);
                     }
@@ -221,7 +304,7 @@ impl Gallery {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         label.add(
-            egui::Label::new(&example.title)
+            egui::Label::new(&card.entry.title)
                 .truncate()
                 .selectable(false),
         );
@@ -236,27 +319,17 @@ impl Gallery {
         }
         let response = response.on_hover_ui(|ui| {
             ui.set_max_width(360.0);
-            ui.strong(&example.title);
-            ui.label(&example.description);
+            ui.strong(&card.entry.title);
+            if !card.entry.description.is_empty() {
+                ui.label(&card.entry.description);
+            }
+            ui.weak(&card.entry.path);
         });
         response.clicked()
     }
 }
 
-/// Whether `example` holds the lowercase text `search` in its title, its description, its
-/// section, or its query, ignoring case.
-fn matches(example: &Example, search: &str) -> bool {
-    [
-        &example.title,
-        &example.description,
-        &example.section,
-        &example.sql,
-    ]
-    .iter()
-    .any(|text| text.to_lowercase().contains(search))
-}
-
-/// A short message in a thumbnail, such as the error of its query.
+/// A short message in a thumbnail, such as the error of its chart.
 fn message(ui: &egui::Ui, rect: egui::Rect, text: &str, color: egui::Color32) {
     let galley = ui.painter().layout(
         text.to_string(),

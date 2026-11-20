@@ -1,6 +1,6 @@
-//! The code editor: egui's `TextEdit` with a layouter that colors the tokens of a query or a
+//! The code editor: egui's `TextEdit` with a layouter that colors the tokens of a script or a
 //! stylesheet, a line-number gutter, and a wavy underline under the range of each error. In a
-//! query, ⌘/ (Ctrl+/ on other platforms) comments the lines of the selection out or back in, and
+//! script, ⌘/ (Ctrl+/ on other platforms) comments the lines of the selection out or back in, and
 //! Enter and Tab indent by the style.
 
 use std::ops::Range;
@@ -62,7 +62,7 @@ struct Fixes {
     cursor: usize,
 }
 
-/// The text of an editor and what colors it and underlines its errors: a query or a script of a
+/// The text of an editor and what colors it and underlines its errors: a script or a module of a
 /// project, which its analysis answers, or a stylesheet, which its tokens color.
 pub enum Text<'a> {
     Sql(Analysis<'a>),
@@ -186,7 +186,7 @@ impl CodeEditor {
     }
 
     /// Shows the editor in the rest of `ui`, with the tokens of `text` colored and a wavy
-    /// underline under each of its errors. A query or a script also has its analysis's
+    /// underline under each of its errors. A script or a module also has its analysis's
     /// completions, fixes, references, definitions, and hovers. Returns whether the text
     /// changed, and a definition in another file of the project that F12 or ⌘-click asked for.
     pub fn show(&mut self, ui: &mut egui::Ui, text: &mut String, of: Text<'_>) -> EditorOutput {
@@ -271,7 +271,7 @@ impl CodeEditor {
                     return cache.galley.clone();
                 }
             }
-            // A stylesheet colors by its tokens. A query that differs from the analysis, as in
+            // A stylesheet colors by its tokens. A script that differs from the analysis, as in
             // the frame of an edit, lays out with the highlights of its syntax.
             let spans = match (sql_text, is_analyzed) {
                 (false, _) => highlight::css(source),

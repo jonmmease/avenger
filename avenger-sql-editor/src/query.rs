@@ -1,74 +1,12 @@
-//! The session that runs queries, the functions that avenger-sql adds to it, and the outcome of a
-//! query: its result and plan, or its error with the range of the text that the error points to.
+//! The functions that avenger-sql adds, and the outcome of a chart script's query: its result and
+//! plan, or its error with the range of the text that the error points to, and its lifted form.
 
 use std::ops::Range;
-use std::path::Path;
 
-use datafusion::{
-    common::{DataFusionError, Result},
-    prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext},
-};
+use datafusion::{common::DataFusionError, prelude::DataFrame};
 
 use crate::highlight::Chars;
 use crate::result::QueryResult;
-use crate::sources::{FileKind, Source};
-
-/// A session with the rules and planners of avenger-sql.
-pub fn session() -> Result<SessionContext> {
-    let ctx = SessionContext::new_with_config(SessionConfig::new());
-    avenger_sql::register(&ctx)?;
-    Ok(ctx)
-}
-
-/// Registers the file at `path` as the table `name`, and returns it with its columns.
-pub async fn register(
-    ctx: &SessionContext,
-    name: &str,
-    path: &Path,
-    kind: FileKind,
-) -> Result<Source> {
-    // DataFusion reads a path that holds `*`, `?`, or `[` as a glob, so natively the file goes
-    // in as a `file:` URL, whose path DataFusion reads as it is. The web opens no files.
-    #[cfg(not(target_arch = "wasm32"))]
-    let text = std::path::absolute(path)
-        .ok()
-        .and_then(|path| url::Url::from_file_path(path).ok())
-        .map(String::from)
-        .unwrap_or_else(|| path.to_string_lossy().into_owned());
-    #[cfg(target_arch = "wasm32")]
-    let text = path.to_string_lossy().into_owned();
-    // DataFusion lists the files with the extension of the options, so the options take the
-    // file's own extension, in its own case.
-    let extension = path
-        .extension()
-        .map(|extension| format!(".{}", extension.to_string_lossy()))
-        .unwrap_or_default();
-    match kind {
-        FileKind::Csv => {
-            let options = CsvReadOptions::new().file_extension(&extension);
-            ctx.register_csv(name, &text, options).await?;
-        }
-        FileKind::Parquet => {
-            let options = ParquetReadOptions {
-                file_extension: &extension,
-                ..Default::default()
-            };
-            ctx.register_parquet(name, &text, options).await?;
-        }
-    }
-    let schema = ctx.table(name).await?.schema().inner().clone();
-    let columns = schema
-        .fields()
-        .iter()
-        .map(|field| (field.name().clone(), field.data_type().clone()))
-        .collect();
-    Ok(Source {
-        name: name.to_string(),
-        path: path.to_path_buf(),
-        kind,
-        columns,
-    })
-}
 
 /// A function that avenger-sql adds, with its documentation.
 #[derive(Clone, Debug)]
@@ -139,13 +77,6 @@ impl QueryError {
     }
 }
 
-/// Plans and collects the query `text` in `ctx`.
-pub async fn run(ctx: &SessionContext, text: &str) -> Result<Outcome, QueryError> {
-    let frame =
-        (avenger_sql::sql(ctx, text).await).map_err(|error| QueryError::new(&error, text))?;
-    outcome(frame, text).await
-}
-
 /// The outcome of `frame`, the planned query `text`: its optimized plan, and its collected
 /// result.
 pub async fn outcome(frame: DataFrame, text: &str) -> Result<Outcome, QueryError> {
@@ -189,14 +120,6 @@ pub fn lifted(
         text: lifted.text,
         generated,
     })
-}
-
-/// The lifted form of the query `text`, over the tables of `ctx`, as [`lifted`] gives it.
-pub async fn lift(
-    ctx: &datafusion::prelude::SessionContext,
-    text: &str,
-) -> Result<LiftedText, QueryError> {
-    lifted(avenger_sql::lift(ctx, text).await, text)
 }
 
 /// The range of characters that `error` points to: the range of the first diagnostic of a

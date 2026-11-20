@@ -1,7 +1,9 @@
 //! A project open in the editor: the loader's project, which loads the data scripts and runs the
 //! chart scripts in the background, the language project, which analyzes every script and module
 //! for the editor, the project's stylesheets, which style its charts, the sidebar's model of the
-//! files by role, and the tabs of the open files.
+//! files by role, the gallery's entries of the chart scripts, and the tabs of the open files. A
+//! project is a directory on disk, or the sample project that the editor embeds, which is
+//! read-only.
 //!
 //! The window owns a [`Workspace`], and the background work shares its [`Loader`]. Each load of
 //! the loader sends back a [`LoadState`], which the workspace applies to the language project and
@@ -28,6 +30,7 @@ use datafusion::prelude::SessionContext;
 use tokio::sync::RwLock;
 
 use crate::buffer::Buffer;
+use crate::gallery::{self, Entry};
 use crate::highlight::Chars;
 use crate::query::{self, LiftedText, Outcome, QueryError};
 
@@ -359,7 +362,9 @@ pub struct Sidebar {
 /// A project open in the editor: its root on disk, its files by role, the loader, the language
 /// project, the stylesheets, and the tabs of its open files.
 pub struct Workspace {
-    root: PathBuf,
+    /// The root of the project on disk, or `None` for the sample project, whose files the editor
+    /// embeds and which can't be saved.
+    root: Option<PathBuf>,
     files: ProjectFiles,
     loader: Arc<Loader>,
     language: Project,
@@ -395,7 +400,14 @@ pub async fn open(path: &Path) -> Result<(Workspace, Option<String>), String> {
         .ok()
         .filter(|path| path.is_file())
         .and_then(|path| relative(&root, &path));
-    Ok((Workspace::load(root, files).await?, file))
+    Ok((Workspace::load(Some(root), files).await?, file))
+}
+
+/// The sample project, which the editor embeds, loaded.
+pub async fn sample() -> Result<Workspace, String> {
+    let source = (crate::samples::source().await).map_err(|error| error.to_string())?;
+    let files = (ProjectFiles::open(source).await).map_err(|error| error.to_string())?;
+    Workspace::load(None, files).await
 }
 
 /// Makes a project in the directory `directory`: writes the smallest manifest, named after the
@@ -442,10 +454,10 @@ fn unchanged_on_disk(file: &Path, path: &str, saved: &str) -> Result<(), String>
 }
 
 impl Workspace {
-    /// Loads the project `files`, whose root on disk is `root`: loads its data scripts and its
-    /// stylesheets, and analyzes every data script, chart script, and module with the tables that
-    /// the load read.
-    pub async fn load(root: PathBuf, files: ProjectFiles) -> Result<Workspace, String> {
+    /// Loads the project `files`, whose root on disk is `root`, or `None` for files that can't be
+    /// saved: loads its data scripts and its stylesheets, and analyzes every data script, chart
+    /// script, and module with the tables that the load read.
+    pub async fn load(root: Option<PathBuf>, files: ProjectFiles) -> Result<Workspace, String> {
         let source = files.source().clone();
         let mut texts = Vec::new();
         let roles = (files.data_scripts().iter())
@@ -494,8 +506,14 @@ impl Workspace {
         &self.files.manifest().project.name
     }
 
-    pub fn root(&self) -> &Path {
-        &self.root
+    /// The root of the project on disk, or `None` for the sample project.
+    pub fn root(&self) -> Option<&Path> {
+        self.root.as_deref()
+    }
+
+    /// Whether the project can't be saved, as the sample project, whose edits run in memory.
+    pub fn read_only(&self) -> bool {
+        self.root.is_none()
     }
 
     pub fn loader(&self) -> &Arc<Loader> {
@@ -658,7 +676,12 @@ impl Workspace {
                 self.language.document(path)?.text().to_string(),
             ),
         };
-        let id = ("tab", self.root.clone(), path.to_string());
+        let id = (
+            "tab",
+            self.root.clone(),
+            self.name().to_string(),
+            path.to_string(),
+        );
         self.tabs.push(Tab {
             path: path.to_string(),
             kind,
@@ -741,7 +764,9 @@ impl Workspace {
     /// a data script loads again, a chart runs, the project loads again after a module changes,
     /// and the stylesheets load again after a stylesheet changes.
     pub fn save(&mut self, path: &str) -> Result<Saved, String> {
-        let file = self.root.join(path);
+        let file = (self.root.as_ref())
+            .ok_or_else(|| format!("{path} is a file of the sample project, which can't be saved"))?
+            .join(path);
         let tab = (self.tabs.iter_mut().find(|tab| tab.path == path))
             .ok_or_else(|| format!("{path} is not open"))?;
         unchanged_on_disk(&file, path, &tab.saved)?;
@@ -761,21 +786,43 @@ impl Workspace {
         })
     }
 
+    /// The entries of the gallery: a chart script of the project for each, with its text on
+    /// disk, or as the editor's tab last saved it.
+    pub fn gallery(&self) -> Vec<Entry> {
+        let charts = (self.files.chart_scripts().iter()).filter_map(|path| {
+            let text = match self.tab(path) {
+                Some(tab) => tab.saved.clone(),
+                None => self.language.document(path)?.text().to_string(),
+            };
+            Some((path.clone(), text))
+        });
+        gallery::entries(self.files.manifest(), charts)
+    }
+
+    /// The gallery's entry of the chart script at `path`, with its saved text.
+    pub fn entry(&self, path: &str) -> Option<Entry> {
+        let tab = self.tab(path)?;
+        Some(Entry::new(self.files.manifest(), path, tab.saved.clone()))
+    }
+
     /// The open chart tabs that a load that changed the tables `changes` runs again: those whose
     /// charts read a changed table, and those that import a module, whose functions can read
     /// tables that the chart's text doesn't name.
     pub fn reruns(&self, changes: &[TableChange]) -> Vec<String> {
         (self.tabs.iter())
             .filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart))
-            .filter(|tab| {
-                let root = avenger_sql_syntax::parse(&tab.buffer.text).syntax();
-                let read = references(&root);
-                !read.modules.is_empty()
-                    || (read.tables.iter()).any(|table| {
-                        (changes.iter()).any(|change| same_path(&change.names, &table.names))
-                    })
-            })
+            .filter(|tab| reads(&tab.buffer.text, changes))
             .map(|tab| tab.path.clone())
             .collect()
     }
+}
+
+/// Whether the chart script `text` reads a table of `changes`, or imports a module, whose
+/// functions can read tables that the chart's text doesn't name.
+pub fn reads(text: &str, changes: &[TableChange]) -> bool {
+    let root = avenger_sql_syntax::parse(text).syntax();
+    let read = references(&root);
+    !read.modules.is_empty()
+        || (read.tables.iter())
+            .any(|table| (changes.iter()).any(|change| same_path(&change.names, &table.names)))
 }
