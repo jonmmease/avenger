@@ -208,6 +208,26 @@ async fn two_lifted_marks_and_a_layer_of_two_grains() {
     .await;
 }
 
+/// The comments before a query stay before it, and out of the copies of the query in the
+/// branches of its lifted calls.
+#[tokio::test]
+async fn the_comments_before_a_query_stay_out_of_its_branches() {
+    same(
+        &format!(
+            "-- Bars and a rule.\n--\n-- A second paragraph.\n{PENGUINS} |> AGGREGATE \
+             layer(mark_bar(x => species, y => COUNT(*)), mark_rule(y => AVG(body_mass_g))) AS chart"
+        ),
+        &format!(
+            "{PENGUINS} |> AGGREGATE COUNT(*) AS `COUNT(*)` GROUP BY species \
+             |> AGGREGATE mark_bar(x => species, y => `COUNT(*)`) AS chart \
+             |> CROSS JOIN ({PENGUINS} |> AGGREGATE AVG(body_mass_g) AS `AVG(body_mass_g)` \
+             |> AGGREGATE mark_rule(y => `AVG(body_mass_g)`) AS r) \
+             |> SELECT layer(chart, r) AS chart"
+        ),
+    )
+    .await;
+}
+
 #[tokio::test]
 async fn a_facet_of_lifted_charts() {
     same(
