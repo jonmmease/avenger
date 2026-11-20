@@ -14,7 +14,8 @@ use avenger_sql::{
     analyze_data,
     catalog::{references, Catalog, SessionCatalog},
     data::{
-        file_reads, file_table, lower, DataAnalysis, Files, LoweringError, Registered, Registration,
+        file_reads, file_table, file_urls, lower, Compression, DataAnalysis, Files, Format,
+        LoweringError, Registered, Registration,
     },
     library::Library,
     project::ProjectCatalog,
@@ -950,6 +951,42 @@ async fn absolute_paths_and_file_urls() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn changes_of_files_and_directories_match_the_uris_that_read_them() {
+    let base = "memory://project/";
+    let files = |uri: &str, compression: Option<Compression>| Files {
+        format: Format::Csv,
+        uris: vec![uri.to_string()],
+        columns: None,
+        csv: None,
+        compression,
+        hive_partition_uri_prefix: None,
+        partitions: None,
+    };
+    let changed = |files: &Files, path: &str| {
+        let url = url::Url::parse(base).unwrap().join(path).unwrap();
+        file_urls(files, base)
+            .unwrap()
+            .iter()
+            .any(|uri| uri.changed_by(&url, true))
+    };
+    // A directory of compressed files reads the names with the compression's extension.
+    let gzip = files("data/gz/", Some(Compression::Gzip));
+    assert!(changed(&gzip, "data/gz/a.csv.gz"));
+    assert!(!changed(&gzip, "data/gz/a.csv"));
+    // A directory that holds the files changes them, and one beside or below them does not.
+    assert!(changed(&gzip, "data/gz"));
+    assert!(changed(&gzip, "data"));
+    assert!(!changed(&gzip, "data/other"));
+    assert!(!changed(&gzip, "data/gz/old"));
+    // A file, and the directories that hold it.
+    let file = files("data/a.csv", None);
+    assert!(changed(&file, "data/a.csv"));
+    assert!(changed(&file, "data"));
+    assert!(!changed(&file, "data/b.csv"));
+    assert!(!changed(&file, "data/a.csv.gz"));
+}
+
 /// A Windows path is absolute on any machine, and so not a path of a Unix machine, and `\`
 /// separates the names of a relative path, as `/` does.
 #[cfg(unix)]
@@ -1191,13 +1228,24 @@ async fn files_that_no_statement_writes_are_errors() {
         .files;
     let project = Project::new(&[("data/sales.csv", SALES_CSV)]).await;
     let state = project.ctx.state();
-    let without_options = Files { csv: None, ..files };
+    let without_options = Files {
+        csv: None,
+        ..files.clone()
+    };
     assert_eq!(
         file_table(&state, &without_options, BASE)
             .await
             .err()
             .unwrap(),
         "The CSV files have no options of CSV files"
+    );
+    let without_uris = Files {
+        uris: Vec::new(),
+        ..files
+    };
+    assert_eq!(
+        file_table(&state, &without_uris, BASE).await.err().unwrap(),
+        "A table of files reads a URI or more"
     );
 }
 

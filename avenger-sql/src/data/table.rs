@@ -65,17 +65,11 @@ use crate::{catalog::FilesTable, types};
 /// The paths of the store are the names of the files, as `Path::parse` keeps them, and not
 /// `Path::from`, which encodes characters such as `[`, `?` and `*`.
 pub async fn file_table(session: &dyn Session, files: &Files, base: &str) -> FilesTable {
-    let base = Url::parse(base)
-        .ok()
-        .filter(|url| !url.cannot_be_a_base() && url.path().ends_with('/'))
-        .ok_or_else(|| {
-            format!("The base URL {base} of the project's files is not the URL of a directory")
-        })?;
     let compression = compression_type(files.compression);
-    let paths = (files.uris.iter())
-        .map(|uri| table_url(&base, uri, files))
-        .collect::<Result<Vec<_>, String>>()?;
-    let store_url = paths[0].object_store();
+    let paths = file_urls(files, base)?;
+    let store_url = (paths.first())
+        .ok_or_else(|| "A table of files reads a URI or more".to_string())?
+        .object_store();
     if let Some(other) = (paths.iter()).find(|path| path.object_store() != store_url) {
         return Err(format!(
             "The URIs of a table are in one object store, and {} is not in {}",
@@ -397,6 +391,23 @@ fn key_type<'a>(values: impl Iterator<Item = &'a str> + Clone) -> DataType {
     }
 }
 
+/// The URL of each URI of `files`, relative to `base`, the URL of the project's root directory,
+/// as [`file_table`] resolves them, whose [`FileUrl::changed_by`] tells whether a change of a
+/// file or a directory changes the files that the URI reads, as the table matches the files that
+/// it lists, so a host that watches the files finds the tables that read what changed. The error
+/// is a message for the user, as the error of [`file_table`].
+pub fn file_urls(files: &Files, base: &str) -> Result<Vec<FileUrl>, String> {
+    let base = Url::parse(base)
+        .ok()
+        .filter(|url| !url.cannot_be_a_base() && url.path().ends_with('/'))
+        .ok_or_else(|| {
+            format!("The base URL {base} of the project's files is not the URL of a directory")
+        })?;
+    (files.uris.iter())
+        .map(|uri| table_url(&base, uri, files))
+        .collect()
+}
+
 /// The compression of DataFusion of `compression`.
 fn compression_type(compression: Option<Compression>) -> FileCompressionType {
     match compression {
@@ -410,14 +421,10 @@ fn compression_type(compression: Option<Compression>) -> FileCompressionType {
 
 /// The extension of the files of `files` in a directory: the format's, and the compression's.
 fn extension(files: &Files) -> String {
-    let compression = match files.compression {
-        None => "",
-        Some(Compression::Gzip) => ".gz",
-        Some(Compression::Bzip2) => ".bz2",
-        Some(Compression::Xz) => ".xz",
-        Some(Compression::Zstd) => ".zst",
-    };
-    format!("{}{compression}", files.format.extension())
+    match files.compression {
+        None => files.format.extension().to_string(),
+        Some(compression) => format!("{}.{}", files.format.extension(), compression.extension()),
+    }
 }
 
 /// The separators of the names of a path, as [`uri_kind`] reads them.
@@ -524,13 +531,35 @@ enum UrlFiles {
 }
 
 impl FileUrl {
+    /// Whether a change at `changed`, the URL of a file or a directory, changes the files that
+    /// the URI reads: a file that it reads, as the table matches the files that it lists, a
+    /// directory that holds its file, its directory, or its prefix, which a move or a removal of
+    /// the directory changes as a whole, or a directory under the prefix of a Hive layout, such
+    /// as a partition.
+    /// The match reads the URI and not the store, so it holds for a file or a directory that no
+    /// longer exists, or that no listing has seen. It compares the spellings of the paths, so a
+    /// file that the URI names with other cases of its letters, or through a symbolic link, does
+    /// not match. `ignore_subdirectory` is the session's `listing_table_ignore_subdirectory`.
+    pub fn changed_by(&self, changed: &Url, ignore_subdirectory: bool) -> bool {
+        let Ok(changed) = ListingTableUrl::try_new(changed.clone(), None) else {
+            return false;
+        };
+        if changed.object_store() != self.object_store() {
+            return false;
+        }
+        let path = changed.prefix();
+        self.reads(path, ignore_subdirectory)
+            || self.url.prefix().prefix_match(path).is_some()
+            || (self.files == UrlFiles::Hive && path.prefix_match(self.url.prefix()).is_some())
+    }
+
     /// The object store of the URL, which holds the files that it reads.
-    pub fn object_store(&self) -> ObjectStoreUrl {
+    fn object_store(&self) -> ObjectStoreUrl {
         self.url.object_store()
     }
 
     /// The URL, as text.
-    pub fn as_str(&self) -> &str {
+    fn as_str(&self) -> &str {
         self.url.as_str()
     }
 
@@ -540,7 +569,7 @@ impl FileUrl {
     /// directory, and not in a subdirectory, whose name matches, and a file under the prefix of
     /// a Hive layout that DataFusion's listing keeps, by `ListingTableUrl::contains`, which
     /// `ignore_subdirectory`, the session's `listing_table_ignore_subdirectory`, configures.
-    pub fn reads(&self, path: &Path, ignore_subdirectory: bool) -> bool {
+    fn reads(&self, path: &Path, ignore_subdirectory: bool) -> bool {
         match &self.files {
             UrlFiles::File => path == self.url.prefix(),
             UrlFiles::Names(names) => match self.url.strip_prefix(path) {
