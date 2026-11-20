@@ -64,6 +64,8 @@ avenger-sql = { path = "../avenger-sql", features = ["avro"] }
 # The fetches of the tiles of maps, which the browser makes with its own `fetch`.
 avenger-image = { path = "../avenger-image", default-features = false, features = ["reqwest"] }
 avenger-wgpu = { path = "../avenger-wgpu" }
+# The watch of a project's directory, which loads the data scripts that read a file that changes.
+notify = "8.0.0"
 rfd = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 
