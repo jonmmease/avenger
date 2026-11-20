@@ -16,6 +16,14 @@ use crate::{lexer::tokenize, SyntaxKind};
 /// The longest line of the layout, in characters.
 pub const WIDTH: usize = 100;
 
+/// The columns that a part that breaks onto lines of its own goes deeper than the line that opens
+/// it, as the items of a list or the operators of a chain.
+pub const INDENT: usize = 2;
+
+/// The columns of `|> `, which the keyword of a pipe operator and the lines of its body that break
+/// go deeper than the depth of its query.
+pub const PIPE: usize = 3;
+
 /// Text with the places where it can break.
 #[derive(Clone, Debug)]
 pub enum Doc {
@@ -295,7 +303,7 @@ pub fn list_of(
     }
     Doc::group(Doc::concat([
         open,
-        Doc::nest(2, Doc::Concat(inner)),
+        Doc::nest(INDENT, Doc::Concat(inner)),
         Doc::SoftLine,
         close,
     ]))

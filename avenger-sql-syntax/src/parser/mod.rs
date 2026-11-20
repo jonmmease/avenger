@@ -13,6 +13,8 @@ mod expr;
 mod query;
 mod script;
 
+pub(crate) use expr::binary_level;
+
 use std::cell::RefCell;
 
 use rowan::{GreenNode, TextRange, TextSize};

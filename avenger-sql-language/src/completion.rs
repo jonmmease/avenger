@@ -48,7 +48,9 @@ pub struct CompletionItem {
     pub documentation: Option<String>,
     /// The text that replaces the completion's range.
     pub insert: String,
-    /// The key that orders the items: columns, then variables, then functions, then keywords.
+    /// The key that orders the items: the items of a kind together, the kinds in the order of
+    /// their most relevant items, where arguments come before columns, then variables, then
+    /// functions, then keywords.
     pub sort: String,
 }
 
@@ -1143,6 +1145,20 @@ fn finish(range: TextRange, replace: TextRange, items: Items, quote: Option<bool
         }
     }
     items.sort_by(|a, b| a.sort.cmp(&b.sort));
+    // The items of each kind together, a function's kind by its role, the kinds in the order of
+    // their first items, so that the most relevant kind leads, and the items of a kind in the
+    // order of their keys.
+    let mut groups: Vec<CompletionKind> = Vec::new();
+    for item in &items {
+        if !groups.contains(&item.kind) {
+            groups.push(item.kind);
+        }
+    }
+    let position = |kind| groups.iter().position(|g| *g == kind).unwrap_or(0);
+    items.sort_by_key(|item| position(item.kind));
+    for item in &mut items {
+        item.sort = format!("{:02}{}", position(item.kind), item.sort);
+    }
     Completions {
         range,
         replace,

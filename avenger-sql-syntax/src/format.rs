@@ -15,7 +15,8 @@
 
 use std::collections::HashMap;
 
-use crate::layout::{list_of, Doc, Item};
+use crate::layout::{list_of, Doc, Item, INDENT, PIPE};
+use crate::parser::binary_level;
 use crate::{parse, Offset, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
 
 use SyntaxKind as K;
@@ -156,6 +157,56 @@ const ANGLES: &[SyntaxKind] = &[
     K::TYPED_LITERAL,
 ];
 
+/// A clause that goes on a line of its own when its part breaks: its node, the keywords that can
+/// start it, and whether its items go on the lines after its keywords, as those of `GROUP BY` do,
+/// when they do not fit on its line.
+pub(crate) struct Clause {
+    pub(crate) kind: SyntaxKind,
+    pub(crate) keywords: &'static [&'static str],
+    pub(crate) list: bool,
+}
+
+/// The clauses of a pipe operator, at the depth of the operator's keyword.
+pub(crate) const OPERATOR_CLAUSES: &[Clause] = &[
+    clause(K::GROUP_BY, &["GROUP"], true),
+    clause(K::WINDOW_CLAUSE, &["WINDOW"], true),
+];
+
+/// The clauses in the brackets of a call, a window, or `MATCH_RECOGNIZE`, at the depth of the
+/// arguments.
+pub(crate) const BRACKET_CLAUSES: &[Clause] = &[
+    clause(K::NULL_TREATMENT, &["IGNORE", "RESPECT"], false),
+    clause(K::HAVING_CLAUSE, &["HAVING"], false),
+    clause(K::ORDER_BY, &["ORDER"], true),
+    clause(K::CALL_LIMIT, &["LIMIT"], false),
+    clause(K::PARTITION_BY, &["PARTITION"], true),
+    clause(K::FRAME, &["ROWS", "RANGE"], false),
+    clause(K::MEASURES, &["MEASURES"], true),
+    clause(K::AFTER_MATCH_SKIP, &["AFTER"], false),
+    clause(K::ROW_PATTERN, &["PATTERN"], false),
+    clause(K::DEFINE, &["DEFINE"], true),
+    clause(K::OPTIONS, &["OPTIONS"], false),
+];
+
+const fn clause(kind: SyntaxKind, keywords: &'static [&'static str], list: bool) -> Clause {
+    Clause {
+        kind,
+        keywords,
+        list,
+    }
+}
+
+/// Whether `kind` is the node of one of `clauses`.
+fn is_clause(clauses: &[Clause], kind: SyntaxKind) -> bool {
+    clauses.iter().any(|clause| clause.kind == kind)
+}
+
+/// Whether `kind` is the node of a clause whose items go on the lines after its keywords.
+fn is_list_clause(kind: SyntaxKind) -> bool {
+    (OPERATOR_CLAUSES.iter().chain(BRACKET_CLAUSES))
+        .any(|clause| clause.kind == kind && clause.list)
+}
+
 fn parent_kind(token: &SyntaxToken) -> Option<SyntaxKind> {
     token.parent().map(|parent| parent.kind())
 }
@@ -205,22 +256,12 @@ fn spaced(prev: &SyntaxToken, next: &SyntaxToken) -> bool {
     }
 }
 
-/// The precedence of a binary operator, `>>` as its two tokens, from the loosest.
-fn precedence(operator: &[SyntaxElement]) -> u8 {
-    if operator.len() == 2 {
-        return 6;
-    }
-    match operator.first().map(|op| op.kind()).unwrap_or(K::STAR) {
-        K::OR_KW => 0,
-        K::AND_KW => 1,
-        K::EQ | K::NEQ | K::LT | K::LT_EQ | K::GT | K::GT_EQ => 2,
-        K::BIT_OR => 3,
-        K::CARET => 4,
-        K::AMP => 5,
-        K::SHL => 6,
-        K::PLUS | K::MINUS => 7,
-        _ => 8,
-    }
+/// The level of a binary operator, from its tokens, as the parser binds it.
+fn precedence(operator: &[SyntaxElement]) -> Option<u8> {
+    let tokens: Option<Vec<(SyntaxKind, &str)>> = (operator.iter())
+        .map(|element| element.as_token().map(|token| (token.kind(), token.text())))
+        .collect();
+    binary_level(&tokens?)
 }
 
 /// Parts in a row on one line, with spaces between their tokens where the style puts them.
@@ -437,13 +478,8 @@ impl Formatter {
             | K::REPLACE_LIST
             | K::UNNEST_SOURCE => self.bracketed(node),
             // A clause whose part puts its clauses on lines of their own.
-            K::GROUP_BY
-            | K::ORDER_BY
-            | K::PARTITION_BY
-            | K::WINDOW_CLAUSE
-            | K::MEASURES
-            | K::DEFINE
-                if node.parent().is_some_and(|parent| {
+            kind if is_list_clause(kind)
+                && node.parent().is_some_and(|parent| {
                     matches!(
                         parent.kind(),
                         K::PIPE_AGGREGATE
@@ -504,7 +540,7 @@ impl Formatter {
             | K::PIPE_SET_OPERATION => self.keyword_list(rest),
             _ => self.row(rest),
         };
-        Doc::concat([self.element(pipe), Doc::text(" "), Doc::nest(3, body)])
+        Doc::concat([self.element(pipe), Doc::text(" "), Doc::nest(PIPE, body)])
     }
 
     /// A keyword and its list of items, then its clauses, such as a pipe `AGGREGATE` and its
@@ -520,8 +556,7 @@ impl Formatter {
                 K::SELECT_AS | K::SET_OP_MODE | K::BY_NAME | K::CORRESPONDING
             ),
         };
-        let is_clause =
-            |element: &SyntaxElement| matches!(element.kind(), K::GROUP_BY | K::WINDOW_CLAUSE);
+        let is_clause = |element: &SyntaxElement| is_clause(OPERATOR_CLAUSES, element.kind());
         let start = children
             .iter()
             .position(|c| !is_head(c))
@@ -553,7 +588,7 @@ impl Formatter {
                 });
                 inner.extend(item.after_comma);
             }
-            let list = Doc::group(Doc::nest(2, Doc::Concat(inner)));
+            let list = Doc::group(Doc::nest(INDENT, Doc::Concat(inner)));
             docs.push(match trailing {
                 true => list.broken(),
                 false => list,
@@ -707,12 +742,7 @@ impl Formatter {
             return self.row(&children);
         }
         let inner = &children[1..children.len() - 1];
-        let is_clause = |element: &SyntaxElement| {
-            matches!(
-                element.kind(),
-                K::NULL_TREATMENT | K::HAVING_CLAUSE | K::ORDER_BY | K::CALL_LIMIT
-            )
-        };
+        let is_clause = |element: &SyntaxElement| is_clause(BRACKET_CLAUSES, element.kind());
         let end = inner.iter().position(is_clause).unwrap_or(inner.len());
         // `DISTINCT` goes with the first argument.
         let (distinct, arguments) = match inner.first() {
@@ -737,7 +767,7 @@ impl Formatter {
         };
         Doc::group(Doc::concat([
             self.element(open),
-            Doc::nest(2, Doc::concat([Doc::SoftLine, self.element(query)])),
+            Doc::nest(INDENT, Doc::concat([Doc::SoftLine, self.element(query)])),
             Doc::SoftLine,
             self.element(close),
         ]))
@@ -764,7 +794,7 @@ impl Formatter {
         }
         Doc::group(Doc::concat([
             self.element(first),
-            Doc::nest(2, Doc::Concat(docs)),
+            Doc::nest(INDENT, Doc::Concat(docs)),
         ]))
     }
 
@@ -793,7 +823,8 @@ impl Formatter {
         match &children[*lhs] {
             SyntaxElement::Node(left)
                 if left.kind() == K::BIN_EXPR
-                    && binary_precedence(left) == Some(precedence(&operator)) =>
+                    && precedence(&operator).is_some()
+                    && binary_precedence(left) == precedence(&operator) =>
             {
                 self.chain(left, operands, operators)
             }
@@ -822,7 +853,7 @@ impl Formatter {
         }
         Doc::group(Doc::concat([
             self.row(&children[..start]),
-            Doc::nest(2, Doc::Concat(inner)),
+            Doc::nest(INDENT, Doc::Concat(inner)),
             Doc::Line,
             self.row(&children[end..]),
         ]))
@@ -875,7 +906,7 @@ impl Formatter {
         }
         Some(Doc::group(Doc::concat([
             self.element(open),
-            Doc::nest(2, Doc::Concat(inner)),
+            Doc::nest(INDENT, Doc::Concat(inner)),
             Doc::SoftLine,
             self.element(close),
         ])))
@@ -892,7 +923,7 @@ fn binary_precedence(node: &SyntaxNode) -> Option<u8> {
     let [lhs, rhs] = nodes.as_slice() else {
         return None;
     };
-    Some(precedence(&children[lhs + 1..*rhs]))
+    precedence(&children[lhs + 1..*rhs])
 }
 
 fn is_pipe_operator(kind: SyntaxKind) -> bool {
