@@ -1,8 +1,10 @@
-//! The classes of the tokens of a query, and the characters of the language crate's byte ranges.
+//! The classes of the tokens of a script, and the characters of the language crate's byte ranges.
 
-use avenger_sql_editor::document::Analyzed;
+use std::sync::Arc;
+
+use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
 use avenger_sql_editor::highlight::{spans, syntax, Chars, Class};
-use avenger_sql_language::{HighlightRange, TextRange};
+use avenger_sql_language::{Document, HighlightRange, Role, TextRange};
 
 /// The text and class of each token of `text` by `highlights`.
 fn classes(text: &str, highlights: &[HighlightRange]) -> Vec<(String, Class)> {
@@ -63,8 +65,13 @@ fn an_unterminated_string_keeps_its_class() {
 #[test]
 fn the_analysis_colors_a_mark_as_a_chart_function() {
     let text = "FROM penguins |> AGGREGATE mark_bar(x => species, y => COUNT(*)) AS chart";
-    let mut analyzed = Analyzed::new();
-    let document = analyzed.document(text);
+    let document = Document::new(
+        text,
+        Role::Script,
+        Arc::new(MemoryCatalog::new()),
+        Arc::new(Library::new()),
+        Options::default(),
+    );
     let found = classes(text, &document.highlights());
     assert!(
         found.contains(&("mark_bar".to_string(), Class::Chart)),

@@ -1,37 +1,32 @@
-//! The editor's window: the data sidebar on the left, the query editor over the result pane on the
-//! right, and a status bar under them. With a project open, the sidebar lists the project's files
-//! by role, and the editor shows a tab for each open file.
+//! The editor's window: the open project's files by role in the sidebar on the left, the tabs of
+//! its open files and the editor of the active tab over the result pane on the right, and a status
+//! bar under them. The editor opens the sample project when it starts, and the result pane's
+//! gallery shows the open project's charts.
 
 use avenger_common::time::{Duration, Instant};
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 use avenger_sql::{catalog::FilesTable, data::Files};
 use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
-use datafusion::prelude::SessionContext;
 use eframe::{egui, egui_wgpu::RenderState};
 
 use crate::assist::{Analysis, Target};
 use crate::buffer::{Buffer, Running, Shown};
-use crate::cards::{Gallery, THUMBNAILS};
+use crate::cards::{Gallery, Start, THUMBNAILS};
 use crate::charts::{self, ChartTheme, Images};
-use crate::document::{self, Analyzed};
 use crate::editor::{self, CodeEditor, Text};
 use crate::exec::Exec;
 use crate::format;
-use crate::gallery::{examples, Example};
 use crate::highlight;
 use crate::live::LiveChart;
 use crate::query::{self, Functions, Outcome, QueryError};
 use crate::result::{QueryResult, Shape};
-use crate::samples::{self, Sample};
 use crate::sidebar;
-use crate::sources::{table_name, FileKind, Source};
 use crate::table::{CellKey, CellScene, Cells, Env, Grid, LiveCells};
-use crate::workspace::{LoadState, Saved, Styles, TabKind, Workspace};
+use crate::workspace::{self, LoadState, Saved, Styles, TabKind, Workspace};
 use avenger_sql_language::FileRole;
 use avenger_sql_project::TableChange;
 
@@ -43,13 +38,12 @@ const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(60);
 /// The command-line options of the editor.
 #[derive(Debug, Default)]
 pub struct Options {
-    /// The CSV and Parquet files to register at startup.
-    pub files: Vec<PathBuf>,
-    /// A file whose text the editor opens, and runs once the files are registered.
-    pub query: Option<PathBuf>,
-    /// The project to open: its directory, or a path under it. A file of the project opens in a
-    /// tab.
+    /// The project to open in place of the sample project: its directory, or a path under it. A
+    /// file of the project opens in a tab.
     pub project: Option<PathBuf>,
+    /// The file of the project to open in a tab, by its path relative to the project's root, such
+    /// as a chart of the sample project, which runs when it opens.
+    pub open: Option<String>,
     /// Where to save a PNG of the window once it settles, after which the editor exits.
     pub screenshot: Option<PathBuf>,
     /// The character index where `--cursor` focuses the editor, before a screenshot.
@@ -66,10 +60,10 @@ pub struct Options {
 }
 
 impl Options {
-    /// The options of `args`, which exclude the program name: file paths, `--query <FILE>`,
-    /// `--project <PATH>`, `--screenshot <PNG>`, and the options that drive the editor before a
-    /// screenshot,
-    /// `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`, and `--theme <system|light|dark>`.
+    /// The options of `args`, which exclude the program name: `--project <PATH>`,
+    /// `--open <PATH>`, `--screenshot <PNG>`, the options that drive the editor before a
+    /// screenshot, `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`, and
+    /// `--theme <system|light|dark>`.
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, String> {
         let mut options = Self::default();
         let mut args = args.into_iter();
@@ -80,8 +74,11 @@ impl Options {
                     .ok_or_else(|| format!("{flag} needs a path"))
             };
             match arg.as_str() {
-                "--query" => options.query = Some(value("--query")?),
                 "--project" => options.project = Some(value("--project")?),
+                "--open" => {
+                    let path = value("--open")?.to_string_lossy().into_owned();
+                    options.open = Some(path);
+                }
                 "--screenshot" => options.screenshot = Some(value("--screenshot")?),
                 "--cursor" => {
                     let index = value("--cursor")?;
@@ -107,15 +104,13 @@ impl Options {
                     });
                 }
                 flag if flag.starts_with("--") => return Err(format!("unknown option {flag}")),
-                _ => options.files.push(PathBuf::from(arg)),
+                _ => {
+                    return Err(format!(
+                        "{arg} is not an option: the editor opens a project, whose data scripts \
+                         read its files, with --project"
+                    ))
+                }
             }
-        }
-        if options.project.is_some() && (options.query.is_some() || !options.files.is_empty()) {
-            return Err(
-                "--project opens a project, whose files are its own: give the file to open as \
-                 the path of --project, without --query or files"
-                    .to_string(),
-            );
         }
         Ok(options)
     }
@@ -141,11 +136,6 @@ fn press(keys: &str) -> Result<(egui::Modifiers, egui::Key), String> {
 
 /// What the background tasks send back to the window.
 enum Message {
-    Registered {
-        name: String,
-        source: Result<Source, String>,
-        path: PathBuf,
-    },
     Ran {
         owner: Owner,
         id: u64,
@@ -165,15 +155,15 @@ enum Message {
         id: u64,
         lifted: Result<query::LiftedText, QueryError>,
     },
-    Samples(Result<Vec<Sample>, String>),
-    /// The result of the query of a card of the gallery.
-    Example {
+    /// The result of the chart of the card `index` of the gallery of the project that the editor
+    /// opened as its `generation`th, at the card's `version`.
+    Card {
+        generation: u64,
         index: usize,
+        version: usize,
         result: Result<QueryResult, String>,
     },
-    /// A project that opened, and the file of it to open in a tab. The web build opens no
-    /// projects of the user's yet.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// A project that opened, and the file of it to open in a tab.
     Opened {
         request: u64,
         opened: Result<(Box<Workspace>, Option<String>), String>,
@@ -191,18 +181,18 @@ enum Message {
     },
 }
 
-/// The buffer that a run belongs to: the query of the editor without a project, or the tab of a
-/// file of the project that the editor opened as its `generation`th.
+/// The buffer that a run belongs to: the tab of a file of the project that the editor opened as
+/// its `generation`th.
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum Owner {
-    Query,
-    Tab { generation: u64, path: String },
+struct Owner {
+    generation: u64,
+    path: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Result,
-    Examples,
+    Gallery,
     Lifted,
     Plan,
 }
@@ -265,7 +255,6 @@ impl Drive {
 /// What waits for the answer of the dialog of the edits that are not saved: a project that
 /// opened, by its request, with the file to open in a tab, or the close of the window.
 enum Confirm {
-    #[cfg(not(target_arch = "wasm32"))]
     Open {
         request: u64,
         workspace: Box<Workspace>,
@@ -277,7 +266,6 @@ enum Confirm {
 
 pub struct EditorApp {
     runtime: Exec,
-    session: SessionContext,
     functions: Functions,
     /// The theme of the charts, which follows the editor's visuals, the reader's preferences of
     /// the theme, and the cascade of the theme with the open project's stylesheets.
@@ -287,29 +275,18 @@ pub struct EditorApp {
     engine: LabelEngine,
     /// How the charts load their images, such as the tiles of a map.
     images: Images,
-    /// The query of the editor while no project is open.
-    query: Buffer,
-    /// The analysis of the query's text, which colors it, underlines its errors, and answers the
-    /// editor.
-    analyzed: Analyzed,
-    title: String,
-    sources: Vec<Source>,
-    pending: BTreeSet<String>,
-    /// The sample tables, once the session holds them.
-    samples: Option<Vec<Sample>>,
+    /// The cards of the open project's charts.
     gallery: Gallery,
-    run_when_ready: bool,
-    /// The open project, in place of the query.
+    /// The open project, which is `None` until the first project opens.
     workspace: Option<Workspace>,
     /// The count of the projects that the editor opened, which tells the messages of the open
     /// project from those of a project before it.
     generation: u64,
     /// The count of the projects that the editor began to open, which tells the last from those
-    /// that it began before. The web build opens no projects of the user's yet.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// that it began before.
     requests: u64,
-    /// The project that opens in the background.
-    opening: Option<PathBuf>,
+    /// The name of the project that opens in the background.
+    opening: Option<String>,
     messages: (Sender<Message>, Receiver<Message>),
     scenes: (Sender<CellScene>, Receiver<CellScene>),
     next_id: u64,
@@ -341,40 +318,18 @@ impl EditorApp {
         }
         let theme = ChartTheme::of(&cc.egui_ctx.style().visuals);
         let runtime = Exec::new().map_err(|error| error.to_string())?;
-        let session = query::session().map_err(|error| error.to_string())?;
         let functions = query::functions();
-        let (text, title) = match &options.query {
-            Some(path) => {
-                let text = std::fs::read_to_string(path)
-                    .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-                let title = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |name| name.to_string_lossy().into_owned(),
-                );
-                (text, title)
-            }
-            None => (String::new(), "Untitled query".to_string()),
-        };
         let mut app = Self {
             runtime,
-            session,
             functions,
             theme,
             cascade: theme.cascade(None),
             preferences: theme.preferences(),
             engine: charts::engine(),
             images: Images::new(&cc.egui_ctx)?,
-            query: Buffer::new(text, "query"),
-            analyzed: Analyzed::new(),
-            title,
-            sources: Vec::new(),
-            pending: BTreeSet::new(),
-            samples: None,
             gallery: Gallery::default(),
-            run_when_ready: options.query.is_some(),
             workspace: None,
             generation: 0,
-            #[cfg(not(target_arch = "wasm32"))]
             requests: 0,
             opening: None,
             messages: channel(),
@@ -382,7 +337,7 @@ impl EditorApp {
             next_id: 0,
             confirm: None,
             notice: None,
-            tab: Tab::Examples,
+            tab: Tab::Gallery,
             cells: Cells::default(),
             pane: Pane::default(),
             opened: None,
@@ -405,31 +360,13 @@ impl EditorApp {
             #[cfg(not(target_arch = "wasm32"))]
             window_limit: None,
         };
-        app.add_samples(&cc.egui_ctx);
-        for path in &options.files {
-            app.add_file(&cc.egui_ctx, path);
-        }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(path) = options.project {
-            app.open_project(&cc.egui_ctx, path);
+            app.open_project(&cc.egui_ctx, path, options.open);
+            return Ok(app);
         }
+        app.open_sample(&cc.egui_ctx, options.open);
         Ok(app)
-    }
-
-    /// Asks for CSV and Parquet files, and registers each.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn pick_files(&mut self, ctx: &egui::Context) {
-        let picked = rfd::FileDialog::new()
-            .add_filter("CSV or Parquet", &["csv", "parquet"])
-            .pick_files();
-        for path in picked.unwrap_or_default() {
-            self.add_file(ctx, &path);
-        }
-    }
-
-    /// The web build reads no files of the user's yet, only the samples.
-    #[cfg(target_arch = "wasm32")]
-    fn pick_files(&mut self, _ctx: &egui::Context) {
-        self.notice = Some("The browser build reads only the sample tables so far.".to_string());
     }
 
     /// Asks for the directory of a project, or of a new project with `new`, and opens it. A new
@@ -453,7 +390,7 @@ impl EditorApp {
             },
             false => directory,
         };
-        self.open_project(ctx, directory);
+        self.open_project(ctx, directory, None);
     }
 
     /// The web build opens no projects of the user's yet.
@@ -463,199 +400,131 @@ impl EditorApp {
     }
 
     /// Opens the project that holds `path`, a directory or a file under the project's root, in
-    /// the background, in place of the open project. A file of the project opens in a tab.
+    /// the background, in place of the open project. The file of `path`, or else the file `open`
+    /// of the project, opens in a tab.
     #[cfg(not(target_arch = "wasm32"))]
-    fn open_project(&mut self, ctx: &egui::Context, path: PathBuf) {
+    fn open_project(&mut self, ctx: &egui::Context, path: PathBuf, open: Option<String>) {
+        let name = path.display().to_string();
+        self.request(ctx, name, move || async move {
+            let (workspace, file) = workspace::open(&path).await?;
+            Ok((Box::new(workspace), file.or(open)))
+        });
+    }
+
+    /// Opens the sample project in the background, in place of the open project, and its file
+    /// `open` in a tab.
+    fn open_sample(&mut self, ctx: &egui::Context, open: Option<String>) {
+        self.request(ctx, "the sample project".to_string(), move || async move {
+            Ok((Box::new(workspace::sample().await?), open))
+        });
+    }
+
+    /// Opens the project that `open` loads in the background, with the file to open in a tab,
+    /// as the newest request, whose name the status bar shows.
+    fn request<W, F>(&mut self, ctx: &egui::Context, name: String, open: W)
+    where
+        W: FnOnce() -> F + Send + 'static,
+        F: std::future::Future<Output = Result<(Box<Workspace>, Option<String>), String>> + 'static,
+    {
         self.requests += 1;
         let request = self.requests;
-        self.opening = Some(path.clone());
+        self.opening = Some(name);
         let (sender, ctx) = (self.messages.0.clone(), ctx.clone());
         // A load is never stopped: it changes the session as it goes.
         drop(self.runtime.spawn(move || async move {
-            let opened = (crate::workspace::open(&path).await)
-                .map(|(workspace, file)| (Box::new(workspace), file));
+            let opened = open().await;
             let _ = sender.send(Message::Opened { request, opened });
             ctx.request_repaint();
         }));
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn open_project(&mut self, ctx: &egui::Context, _path: PathBuf) {
-        self.pick_project(ctx, false);
-    }
-
-    /// Registers the sample tables, in the background.
-    fn add_samples(&mut self, ctx: &egui::Context) {
-        let (session, sender, ctx) = (self.session.clone(), self.messages.0.clone(), ctx.clone());
-        self.runtime.spawn(move || async move {
-            let samples = samples::register(&session)
-                .await
-                .map_err(|error| error.to_string());
-            let _ = sender.send(Message::Samples(samples));
-            ctx.request_repaint();
-        });
-    }
-
-    /// Analyzes the text against the tables that the session holds now.
-    fn refresh_catalog(&mut self) {
-        let samples = self.samples.as_deref().unwrap_or_default();
-        self.analyzed
-            .set_catalog(document::catalog(&self.sources, samples));
-    }
-
-    /// Runs the query of each card of the gallery in `indices`, in the background.
-    fn run_examples(&mut self, ctx: &egui::Context, indices: Vec<usize>) {
-        for index in indices {
-            let (session, sender, ctx) =
-                (self.session.clone(), self.messages.0.clone(), ctx.clone());
-            let text = examples()[index].sql.clone();
+    /// Runs the chart of each card of the gallery in `starts`, in the background.
+    fn run_cards(&mut self, ctx: &egui::Context, starts: Vec<Start>) {
+        let Some(workspace) = &self.workspace else {
+            return;
+        };
+        let generation = self.generation;
+        for Start {
+            index,
+            version,
+            path,
+            text,
+        } in starts
+        {
+            let (loader, sender, ctx) = (
+                workspace.loader().clone(),
+                self.messages.0.clone(),
+                ctx.clone(),
+            );
             self.runtime.spawn(move || async move {
-                let result = query::run(&session, &text)
-                    .await
+                let result = (loader.run_chart(&path, &text).await)
                     .map(|outcome| outcome.result)
                     .map_err(|error| error.message);
-                let _ = sender.send(Message::Example { index, result });
+                let _ = sender.send(Message::Card {
+                    generation,
+                    index,
+                    version,
+                    result,
+                });
                 ctx.request_repaint();
             });
         }
     }
 
-    /// Puts the example `example` in the editor, in place of the text, and runs it.
-    fn open_example(&mut self, ctx: &egui::Context, example: &Example) {
-        let text = example_text(example);
-        (self.query.editor).replace(ctx, &mut self.query.text, &text);
-        self.title = example.title.clone();
-        self.run(ctx);
-    }
-
-    /// Registers the file at `path` as a table, in the background.
-    fn add_file(&mut self, ctx: &egui::Context, path: &Path) {
-        let Some(kind) = FileKind::of(path) else {
-            self.notice = Some(format!("{} is not a CSV or Parquet file.", path.display()));
-            return;
-        };
-        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let taken: BTreeSet<String> = (self.sources.iter())
-            .map(|source| source.name.clone())
-            .chain(self.pending.iter().cloned())
-            .collect();
-        let name = table_name(&path, &taken);
-        self.pending.insert(name.clone());
-        let (session, sender, ctx) = (self.session.clone(), self.messages.0.clone(), ctx.clone());
-        self.runtime.spawn(move || async move {
-            let source = query::register(&session, &name, &path, kind)
-                .await
-                .map_err(|error| error.to_string());
-            let _ = sender.send(Message::Registered { name, source, path });
-            ctx.request_repaint();
-        });
-    }
-
-    /// The buffer that the editor shows: the query without a project, or the active tab of the
-    /// project, which has none while no tab is open.
+    /// The buffer that the editor shows: the active tab of the project, which has none while no
+    /// tab is open.
     fn active(&self) -> Option<&Buffer> {
-        match &self.workspace {
-            Some(workspace) => workspace.active().map(|tab| &tab.buffer),
-            None => Some(&self.query),
-        }
+        let workspace = self.workspace.as_ref()?;
+        workspace.active().map(|tab| &tab.buffer)
     }
 
     fn active_mut(&mut self) -> Option<&mut Buffer> {
-        match &mut self.workspace {
-            Some(workspace) => workspace.active_mut().map(|tab| &mut tab.buffer),
-            None => Some(&mut self.query),
-        }
+        let workspace = self.workspace.as_mut()?;
+        workspace.active_mut().map(|tab| &mut tab.buffer)
     }
 
-    /// The buffer whose result the result pane shows: the query, or the shown tab of the project,
-    /// which is the active tab unless a stylesheet's tab is active.
+    /// The buffer whose result the result pane shows: the shown tab of the project, which is the
+    /// active tab unless a stylesheet's tab is active.
     fn shown(&self) -> Option<&Buffer> {
-        match &self.workspace {
-            Some(workspace) => workspace.shown().map(|tab| &tab.buffer),
-            None => Some(&self.query),
-        }
+        let workspace = self.workspace.as_ref()?;
+        workspace.shown().map(|tab| &tab.buffer)
     }
 
     fn shown_mut(&mut self) -> Option<&mut Buffer> {
-        match &mut self.workspace {
-            Some(workspace) => workspace.shown_mut().map(|tab| &mut tab.buffer),
-            None => Some(&mut self.query),
-        }
+        let workspace = self.workspace.as_mut()?;
+        workspace.shown_mut().map(|tab| &mut tab.buffer)
     }
 
     /// The owner of the shown buffer's runs.
     fn shown_owner(&self) -> Option<Owner> {
-        match &self.workspace {
-            Some(workspace) => workspace.shown().map(|tab| Owner::Tab {
-                generation: self.generation,
-                path: tab.path.clone(),
-            }),
-            None => Some(Owner::Query),
-        }
+        let workspace = self.workspace.as_ref()?;
+        workspace.shown().map(|tab| Owner {
+            generation: self.generation,
+            path: tab.path.clone(),
+        })
     }
 
     fn buffer_mut(&mut self, owner: &Owner) -> Option<&mut Buffer> {
-        match owner {
-            Owner::Query => Some(&mut self.query),
-            Owner::Tab { generation, path } if *generation == self.generation => {
-                let tab = self.workspace.as_mut()?.tab_mut(path)?;
-                Some(&mut tab.buffer)
-            }
-            Owner::Tab { .. } => None,
+        if owner.generation != self.generation {
+            return None;
         }
+        let tab = self.workspace.as_mut()?.tab_mut(&owner.path)?;
+        Some(&mut tab.buffer)
     }
 
-    /// Runs the active buffer: the query, or the chart script of the active tab.
+    /// Runs the chart script of the active tab, and shows its result.
     fn run(&mut self, ctx: &egui::Context) {
-        match &self.workspace {
-            Some(workspace) => {
-                let chart =
-                    (workspace.active()).filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
-                if let Some(path) = chart.map(|tab| tab.path.clone()) {
-                    self.run_tab(ctx, &path);
-                }
-            }
-            None => self.run_query(ctx),
-        }
-    }
-
-    /// Runs the query in the background, in place of the one that runs.
-    fn run_query(&mut self, ctx: &egui::Context) {
-        if self.query.text.trim().is_empty() {
+        let Some(workspace) = &self.workspace else {
             return;
+        };
+        let chart = (workspace.active()).filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
+        if let Some(path) = chart.map(|tab| tab.path.clone()) {
+            self.run_tab(ctx, &path);
+            self.tab = match self.tab {
+                Tab::Gallery => Tab::Result,
+                tab => tab,
+            };
         }
-        if self.tab == Tab::Examples {
-            self.tab = Tab::Result;
-        }
-        self.next_id += 1;
-        let id = self.next_id;
-        let (session, text) = (self.session.clone(), self.query.text.clone());
-        let (sender, ctx) = (self.messages.0.clone(), ctx.clone());
-        let task = self.runtime.spawn(move || async move {
-            let started = Instant::now();
-            let outcome = query::run(&session, &text).await;
-            let elapsed = started.elapsed();
-            let owner = Owner::Query;
-            let _ = (sender).send(Message::Ran {
-                owner: owner.clone(),
-                id,
-                outcome,
-                elapsed,
-            });
-            ctx.request_repaint();
-            // The lifting plans the input of each lifted AGGREGATE, after the result shows.
-            let lifted = query::lift(&session, &text).await;
-            let _ = sender.send(Message::Lifted { owner, id, lifted });
-            ctx.request_repaint();
-        });
-        self.query.cancel();
-        self.query.lifted = None;
-        self.query.latest = id;
-        self.query.running = Some(Running {
-            id,
-            task,
-            started: Instant::now(),
-        });
     }
 
     /// Runs the chart script of the tab of `path` against the project's tables, in the
@@ -671,7 +540,7 @@ impl EditorApp {
         };
         self.next_id += 1;
         let id = self.next_id;
-        let owner = Owner::Tab {
+        let owner = Owner {
             generation,
             path: path.to_string(),
         };
@@ -704,14 +573,12 @@ impl EditorApp {
             task,
             started: Instant::now(),
         });
-        if self.tab == Tab::Examples {
-            self.tab = Tab::Result;
-        }
     }
 
-    /// Saves the active tab to its file, and loads it again when it is a data script, runs it
-    /// when it is a chart script, loads the project again when it is a module, and loads the
-    /// stylesheets again and restyles the charts when it is a stylesheet.
+    /// Saves the active tab to its file, and loads it again when it is a data script, runs it and
+    /// its card when it is a chart script, loads the project again when it is a module, and loads
+    /// the stylesheets again and restyles the charts when it is a stylesheet. The sample project
+    /// can't be saved.
     fn save(&mut self, ctx: &egui::Context) {
         let Some(workspace) = &mut self.workspace else {
             return;
@@ -721,7 +588,12 @@ impl EditorApp {
         };
         match workspace.save(&path) {
             Ok(Saved::Data { path, text }) => self.reload(ctx, Some((path, text))),
-            Ok(Saved::Chart { path }) => self.run_tab(ctx, &path),
+            Ok(Saved::Chart { path }) => {
+                if let Some(entry) = workspace.entry(&path) {
+                    self.gallery.update(entry);
+                }
+                self.run_tab(ctx, &path);
+            }
             Ok(Saved::Module) => self.reload(ctx, None),
             Ok(Saved::Stylesheet) => self.reload_styles(ctx),
             Err(error) => self.notice = Some(format!("Cannot save: {error}")),
@@ -770,7 +642,8 @@ impl EditorApp {
         }));
     }
 
-    /// Shows the tab of the file at `path`, opening it, and runs a chart script that opens.
+    /// Shows the tab of the file at `path`, opening it, and runs a chart script that opens, whose
+    /// result the result pane shows.
     fn open_tab(&mut self, ctx: &egui::Context, state: &RenderState, path: &str) {
         let Some(workspace) = &mut self.workspace else {
             return;
@@ -782,6 +655,9 @@ impl EditorApp {
             (workspace.tab(path)).is_some_and(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
         if shown(workspace) != before {
             self.present(state);
+        }
+        if chart && self.tab == Tab::Gallery {
+            self.tab = Tab::Result;
         }
         if opened == Some(true) && chart {
             self.run_tab(ctx, path);
@@ -822,19 +698,22 @@ impl EditorApp {
     }
 
     /// The dialog of the edits that are not saved, before another project opens or the window
-    /// closes: Save all saves every modified tab, Discard drops their edits, and either goes on,
-    /// while Cancel keeps the open project and its edits. A save that fails cancels.
+    /// closes: Save all saves every modified tab, except in the sample project, which can't be
+    /// saved, Discard drops their edits, and either goes on, while Cancel keeps the open project
+    /// and its edits. A save that fails cancels.
     fn confirm(&mut self, ctx: &egui::Context) {
         if self.confirm.is_none() {
             return;
         }
+        let read_only = (self.workspace.as_ref()).is_some_and(Workspace::read_only);
         let (mut save, mut discard, mut cancel) = (false, false, false);
         let modal = egui::Modal::new(egui::Id::new("unsaved")).show(ctx, |ui| {
             ui.heading("Unsaved changes");
             ui.label("Some files have changes that are not saved.");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                save = ui.button("Save all").clicked();
+                // The sample project's edits run in memory, and can't be saved.
+                save = !read_only && ui.button("Save all").clicked();
                 discard = ui.button("Discard").clicked();
                 cancel = ui.button("Cancel").clicked();
             });
@@ -865,7 +744,6 @@ impl EditorApp {
             workspace.discard();
         }
         match self.confirm.take() {
-            #[cfg(not(target_arch = "wasm32"))]
             Some(Confirm::Open {
                 request,
                 workspace,
@@ -884,18 +762,6 @@ impl EditorApp {
     fn receive(&mut self, ctx: &egui::Context, state: &RenderState) {
         while let Ok(message) = self.messages.1.try_recv() {
             match message {
-                Message::Registered { name, source, path } => {
-                    self.pending.remove(&name);
-                    match source {
-                        Ok(source) => {
-                            self.sources.push(source);
-                            self.refresh_catalog();
-                        }
-                        Err(error) => {
-                            self.notice = Some(format!("Cannot read {}: {error}", path.display()));
-                        }
-                    }
-                }
                 Message::Ran {
                     owner,
                     id,
@@ -943,15 +809,16 @@ impl EditorApp {
                         }
                     }
                 }
-                Message::Samples(samples) => {
-                    self.samples = Some(samples.unwrap_or_else(|error| {
-                        self.notice = Some(format!("Cannot load the samples: {error}"));
-                        Vec::new()
-                    }));
-                    self.refresh_catalog();
+                Message::Card {
+                    generation,
+                    index,
+                    version,
+                    result,
+                } => {
+                    if generation == self.generation {
+                        self.gallery.ran(index, version, result);
+                    }
                 }
-                Message::Example { index, result } => self.gallery.ran(index, result),
-                #[cfg(not(target_arch = "wasm32"))]
                 Message::Opened { request, opened } => {
                     if request != self.requests {
                         continue;
@@ -979,9 +846,11 @@ impl EditorApp {
                                 }
                             }
                             self.notice = None;
-                            if self.tab == Tab::Examples {
-                                self.tab = Tab::Result;
-                            }
+                            self.tab = Tab::Gallery;
+                            let entries = (self.workspace.as_ref())
+                                .map(Workspace::gallery)
+                                .unwrap_or_default();
+                            self.gallery.set_entries(entries, state);
                             self.restyle(ctx, state);
                             self.present(state);
                             if let Some(file) = file {
@@ -1008,7 +877,10 @@ impl EditorApp {
                     match result {
                         Ok((changes, load)) => {
                             workspace.apply(load);
-                            for path in workspace.reruns(&changes) {
+                            let reruns = workspace.reruns(&changes);
+                            self.gallery
+                                .rerun(|entry| workspace::reads(&entry.text, &changes));
+                            for path in reruns {
                                 self.run_tab(ctx, &path);
                             }
                         }
@@ -1043,10 +915,6 @@ impl EditorApp {
                 true => self.gallery.receive(scene),
                 false => self.cells.receive(scene),
             }
-        }
-        if self.run_when_ready && self.pending.is_empty() && self.samples.is_some() {
-            self.run_when_ready = false;
-            self.run(ctx);
         }
     }
 
@@ -1117,63 +985,43 @@ impl EditorApp {
 
     /// Formats the active buffer, unless it has an error of the syntax.
     fn format(&mut self, ctx: &egui::Context) {
-        match &mut self.workspace {
-            Some(workspace) => {
-                let Some((tab, language, _)) = workspace.active_with_context() else {
-                    return;
-                };
-                let Some(document) = language.document(&tab.path) else {
-                    return;
-                };
-                if document.text() != tab.buffer.text || format::blocked(document).is_some() {
-                    return;
-                }
-                if let Some(formatted) = format::formatted(document) {
-                    (tab.buffer.editor).format(ctx, &mut tab.buffer.text, &formatted);
-                }
-            }
-            None => {
-                let document = self.analyzed.document(&self.query.text);
-                if format::blocked(document).is_some() {
-                    return;
-                }
-                if let Some(formatted) = format::formatted(document) {
-                    (self.query.editor).format(ctx, &mut self.query.text, &formatted);
-                }
-            }
+        let Some(workspace) = &mut self.workspace else {
+            return;
+        };
+        let Some((tab, language, _)) = workspace.active_with_context() else {
+            return;
+        };
+        let Some(document) = language.document(&tab.path) else {
+            return;
+        };
+        if document.text() != tab.buffer.text || format::blocked(document).is_some() {
+            return;
+        }
+        if let Some(formatted) = format::formatted(document) {
+            (tab.buffer.editor).format(ctx, &mut tab.buffer.text, &formatted);
         }
     }
 
     /// Why the active buffer can't be formatted, as the Format button says it.
-    fn format_blocked(&mut self) -> Option<&'static str> {
-        match &self.workspace {
-            Some(workspace) => {
-                let tab = workspace.active()?;
-                if tab.kind == TabKind::Stylesheet {
-                    return Some("The editor formats SQL, and not stylesheets");
-                }
-                let document = workspace.language().document(&tab.path)?;
-                format::blocked(document)
-            }
-            None => format::blocked(self.analyzed.document(&self.query.text)),
+    fn format_blocked(&self) -> Option<&'static str> {
+        let workspace = self.workspace.as_ref()?;
+        let tab = workspace.active()?;
+        if tab.kind == TabKind::Stylesheet {
+            return Some("The editor formats SQL, and not stylesheets");
         }
+        let document = workspace.language().document(&tab.path)?;
+        format::blocked(document)
     }
 
     fn busy(&self) -> bool {
-        let running = |buffer: &Buffer| buffer.running.is_some();
         let tabs = (self.workspace.iter())
             .flat_map(|workspace| workspace.tabs())
-            .any(|tab| running(&tab.buffer));
-        running(&self.query)
-            || tabs
-            || self.opening.is_some()
+            .any(|tab| tab.buffer.running.is_some());
+        tabs || self.opening.is_some()
             || (self.workspace)
                 .as_ref()
                 .is_some_and(|workspace| !workspace.loading.is_empty() || workspace.styling)
-            || !self.pending.is_empty()
-            || self.samples.is_none()
-            || self.run_when_ready
-            || (self.tab == Tab::Examples && self.gallery.busy())
+            || (self.tab == Tab::Gallery && self.gallery.busy())
             || self.cells.busy()
             || self.pane.busy()
             || self.opened.as_ref().is_some_and(|(_, pane)| pane.busy())
@@ -1191,28 +1039,33 @@ impl EditorApp {
                     ui.close();
                     self.pick_project(ctx, true);
                 }
+                if ui.button("Sample project").clicked() {
+                    ui.close();
+                    self.open_sample(ctx, None);
+                }
             });
             ui.separator();
             let title = match &self.workspace {
-                Some(workspace) => match workspace.active() {
-                    Some(tab) => format!("{} · {}", workspace.name(), tab.path),
-                    None => workspace.name().to_string(),
-                },
-                None => self.title.clone(),
+                Some(workspace) => {
+                    let name = match workspace.read_only() {
+                        true => format!("{} (read-only)", workspace.name()),
+                        false => workspace.name().to_string(),
+                    };
+                    match workspace.active() {
+                        Some(tab) => format!("{name} · {}", tab.path),
+                        None => name,
+                    }
+                }
+                None => String::new(),
             };
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (runs, what) = match &self.workspace {
-                    Some(workspace) => (
-                        (workspace.active())
-                            .is_some_and(|tab| tab.kind == TabKind::Sql(FileRole::Chart)),
-                        "the chart",
-                    ),
-                    None => (true, "the query"),
-                };
+                let runs = (self.workspace.as_ref())
+                    .and_then(Workspace::active)
+                    .is_some_and(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
                 let run = ui.add_enabled(runs, egui::Button::new("Run"));
                 let run = run
                     .on_hover_text(format!(
-                        "Run {what} ({})",
+                        "Run the chart ({})",
                         ctx.format_shortcut(&run_shortcut())
                     ))
                     .on_disabled_hover_text(
@@ -1224,11 +1077,19 @@ impl EditorApp {
                 }
                 if let Some(workspace) = &self.workspace {
                     let modified = workspace.active().is_some_and(|tab| tab.modified());
-                    let save = ui.add_enabled(modified, egui::Button::new("Save"));
+                    let saves = modified && !workspace.read_only();
+                    let save = ui.add_enabled(saves, egui::Button::new("Save"));
                     let save = save.on_hover_text(format!(
                         "Save the file ({})",
                         ctx.format_shortcut(&save_shortcut())
                     ));
+                    let save = match workspace.read_only() {
+                        true => save.on_disabled_hover_text(
+                            "A sample can't be saved: its edits run in memory. Open or make a \
+                             project to keep your charts.",
+                        ),
+                        false => save,
+                    };
                     if save.clicked() {
                         self.save(ctx);
                     }
@@ -1301,40 +1162,32 @@ impl EditorApp {
         }
     }
 
-    /// The code editor of the active buffer, analyzed by the query's document or by the
-    /// project's document of the tab's file, or of a stylesheet's tab, colored by its tokens with
-    /// the errors of the last load of the stylesheets. A definition in another file opens that
-    /// file.
+    /// The code editor of the active tab, analyzed by the project's document of the tab's file,
+    /// or of a stylesheet's tab, colored by its tokens with the errors of the last load of the
+    /// stylesheets. A definition in another file opens that file.
     fn code_editor(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, state: &RenderState) {
-        let output = match &mut self.workspace {
-            Some(workspace) => {
-                if let Some(path) = workspace.active().map(|tab| tab.path.clone()) {
-                    workspace.sync(&path);
-                }
-                let Some((tab, language, styles)) = workspace.active_with_context() else {
+        let Some(workspace) = &mut self.workspace else {
+            return;
+        };
+        if let Some(path) = workspace.active().map(|tab| tab.path.clone()) {
+            workspace.sync(&path);
+        }
+        let Some((tab, language, styles)) = workspace.active_with_context() else {
+            return;
+        };
+        let text = match tab.kind {
+            TabKind::Sql(_) => {
+                let Some(analysis) = Analysis::file(language, &tab.path) else {
                     return;
                 };
-                let text = match tab.kind {
-                    TabKind::Sql(_) => {
-                        let Some(analysis) = Analysis::file(language, &tab.path) else {
-                            return;
-                        };
-                        Text::Sql(analysis)
-                    }
-                    TabKind::Stylesheet => Text::Css {
-                        loaded: styles.text(&tab.path).unwrap_or_default(),
-                        diagnostics: styles.diagnostics(&tab.path),
-                    },
-                };
-                (tab.buffer.editor).show(ui, &mut tab.buffer.text, text)
+                Text::Sql(analysis)
             }
-            None => {
-                let analyzed = self.query.text.clone();
-                let document = self.analyzed.document(&analyzed);
-                let text = Text::Sql(Analysis::query(document));
-                (self.query.editor).show(ui, &mut self.query.text, text)
-            }
+            TabKind::Stylesheet => Text::Css {
+                loaded: styles.text(&tab.path).unwrap_or_default(),
+                diagnostics: styles.diagnostics(&tab.path),
+            },
         };
+        let output = (tab.buffer.editor).show(ui, &mut tab.buffer.text, text);
         if output.changed {
             // The error points into the text before the edit.
             if let Some(error) = self.active_mut().and_then(|buffer| buffer.error.as_mut()) {
@@ -1374,9 +1227,9 @@ impl EditorApp {
                 } else {
                     ui.ctx().request_repaint_after(CANCEL_AFTER - waited);
                 }
-            } else if let Some(path) = &self.opening {
+            } else if let Some(name) = &self.opening {
                 ui.spinner();
-                ui.label(format!("Opening the project of {}…", path.display()));
+                ui.label(format!("Opening {name}…"));
             } else if let Some(reloading) = reloading {
                 ui.spinner();
                 ui.label(reloading);
@@ -1396,13 +1249,16 @@ impl EditorApp {
                 let rows = shown.result.num_rows();
                 let noun = if rows == 1 { "row" } else { "rows" };
                 ui.label(format!("{rows} {noun} · {} ms", shown.elapsed.as_millis()));
+            } else if (self.workspace.as_ref()).is_some_and(Workspace::read_only) {
+                ui.weak(
+                    "Open a chart to run it. A sample's edits run in memory, and Project opens \
+                     or makes a project of your own.",
+                );
             } else if self.workspace.is_some() {
                 ui.weak(
                     "Open a chart to run it, save a data script to load it, and save a \
                      stylesheet to restyle the charts.",
                 );
-            } else {
-                ui.weak("Write a query and press Run.");
             }
         });
     }
@@ -1416,17 +1272,14 @@ impl EditorApp {
         });
         let stale = failed && shown.is_some();
         ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.tab, Tab::Gallery, "Gallery");
             ui.selectable_value(&mut self.tab, Tab::Result, "Result");
-            // A project's gallery is its charts, in the sidebar.
-            if self.workspace.is_none() {
-                ui.selectable_value(&mut self.tab, Tab::Examples, "Examples");
-            }
             ui.selectable_value(&mut self.tab, Tab::Lifted, "Lifted SQL");
             ui.selectable_value(&mut self.tab, Tab::Plan, "Plan");
-            if stale && self.tab != Tab::Examples {
+            if stale && self.tab != Tab::Gallery {
                 ui.weak("· the last result that ran");
             }
-            if self.tab == Tab::Examples {
+            if self.tab == Tab::Gallery {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.gallery.search_box(ui);
                 });
@@ -1446,7 +1299,7 @@ impl EditorApp {
         });
         ui.separator();
         match self.tab {
-            Tab::Examples => {
+            Tab::Gallery => {
                 let env = Env {
                     state,
                     runtime: &self.runtime,
@@ -1456,10 +1309,16 @@ impl EditorApp {
                     engine: &self.engine,
                     images: &self.images,
                 };
-                let output = self.gallery.show(ui, &env, self.samples.is_some());
-                self.run_examples(ctx, output.start);
-                if let Some(index) = output.open {
-                    self.open_example(ctx, &examples()[index]);
+                let output = self.gallery.show(ui, &env, self.workspace.is_some());
+                self.run_cards(ctx, output.start);
+                if let Some(path) = output.open {
+                    // A card runs its chart, in a tab that opens now or one already open.
+                    let open = (self.workspace.as_ref())
+                        .is_some_and(|workspace| workspace.tab(&path).is_some());
+                    self.open_tab(ctx, state, &path);
+                    if open {
+                        self.run_tab(ctx, &path);
+                    }
                 }
             }
             Tab::Result => self.result_tab(ui, state),
@@ -1471,7 +1330,7 @@ impl EditorApp {
             }
             Tab::Lifted => match self.shown().and_then(|buffer| buffer.lifted.as_ref()) {
                 None => {
-                    ui.weak("The lifted query shows here after the query runs.");
+                    ui.weak("The lifted query shows here after the chart runs.");
                 }
                 Some(Ok(lifted)) => {
                     ui.weak("The highlighted text computes the statistics of the mark calls.");
@@ -1485,15 +1344,11 @@ impl EditorApp {
     }
 
     fn result_tab(&mut self, ui: &mut egui::Ui, state: &RenderState) {
-        let shown = match &self.workspace {
-            Some(workspace) => workspace.shown().and_then(|tab| tab.buffer.shown.as_ref()),
-            None => self.query.shown.as_ref(),
-        };
+        let shown = (self.workspace.as_ref())
+            .and_then(Workspace::shown)
+            .and_then(|tab| tab.buffer.shown.as_ref());
         let Some(shown) = shown else {
-            match &self.workspace {
-                Some(_) => ui.weak("The result of the chart shows here."),
-                None => ui.weak("The result of the query shows here."),
-            };
+            ui.weak("The result of the chart shows here.");
             return;
         };
         let env = Env {
@@ -1608,10 +1463,9 @@ impl EditorApp {
         screenshot.idle_frames = if busy { 0 } else { screenshot.idle_frames + 1 };
         let timed_out = screenshot.started.elapsed() > SCREENSHOT_TIMEOUT;
         let settled = screenshot.idle_frames >= 10;
-        let editor = match &self.workspace {
-            Some(workspace) => workspace.active().map(|tab| &tab.buffer.editor),
-            None => Some(&self.query.editor),
-        };
+        let editor = (self.workspace.as_ref())
+            .and_then(Workspace::active)
+            .map(|tab| &tab.buffer.editor);
         let driven = match (&mut screenshot.drive, editor) {
             (Some(drive), Some(editor)) => settled && drive.step(ctx, editor),
             _ => true,
@@ -1657,14 +1511,12 @@ impl eframe::App for EditorApp {
                 .filter_map(|file| file.path.clone())
                 .collect()
         });
-        for path in dropped {
-            match self.workspace.is_some() {
-                true => {
-                    self.notice =
-                        Some("A project reads its files through its data scripts.".to_string())
-                }
-                false => self.add_file(ctx, &path),
-            }
+        if !dropped.is_empty() {
+            self.notice = Some(
+                "A project reads its files through its data scripts: write a CREATE EXTERNAL \
+                 TABLE statement in one to read a file."
+                    .to_string(),
+            );
         }
         if ctx.input_mut(|input| input.consume_shortcut(&run_shortcut())) {
             self.run(ctx);
@@ -1690,29 +1542,22 @@ impl eframe::App for EditorApp {
             .resizable(true)
             .default_width(240.0)
             .show(ctx, |ui| {
-                let output = match &self.workspace {
-                    Some(workspace) => {
-                        let active = workspace.active().map(|tab| tab.path.as_str());
-                        sidebar::project(
-                            ui,
-                            workspace.name(),
-                            &workspace.sidebar(),
-                            active,
-                            &workspace.loading,
-                            &self.functions,
-                        )
-                    }
-                    None => sidebar::show(
-                        ui,
-                        &self.sources,
-                        self.pending.len(),
-                        self.samples.as_deref(),
-                        &self.functions,
-                    ),
+                let Some(workspace) = &self.workspace else {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.weak("Opening the project…");
+                    });
+                    return;
                 };
-                if output.add_files {
-                    self.pick_files(ctx);
-                }
+                let active = workspace.active().map(|tab| tab.path.as_str());
+                let output = sidebar::project(
+                    ui,
+                    workspace.name(),
+                    &workspace.sidebar(),
+                    active,
+                    &workspace.loading,
+                    &self.functions,
+                );
                 if let Some(path) = output.open {
                     self.open_tab(ctx, &state, &path);
                 }
@@ -1728,10 +1573,8 @@ impl eframe::App for EditorApp {
             .default_height(240.0)
             .show(ctx, |ui| {
                 self.toolbar(ui, ctx);
-                if self.workspace.is_some() {
-                    ui.separator();
-                    self.tab_strip(ui, ctx, &state);
-                }
+                ui.separator();
+                self.tab_strip(ui, ctx, &state);
                 ui.separator();
                 self.code_editor(ui, ctx, &state);
             });
@@ -1820,39 +1663,6 @@ fn row_label(result: &QueryResult, (row, column): CellKey) -> String {
         .collect();
     parts.push(fields[column].name().clone());
     parts.join(" · ")
-}
-
-/// The editor text of `example`: its title and its description as comments, then its query.
-fn example_text(example: &Example) -> String {
-    let mut text = format!("-- {}\n", example.title);
-    for (index, paragraph) in example.description.split("\n\n").enumerate() {
-        if index > 0 {
-            text.push_str("--\n");
-        }
-        for line in wrap(paragraph, 96) {
-            text.push_str("-- ");
-            text.push_str(&line);
-            text.push('\n');
-        }
-    }
-    text.push_str(&example.sql);
-    text.push('\n');
-    text
-}
-
-/// The words of `text` in lines of at most `width` characters, except for a longer word.
-fn wrap(text: &str, width: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    for word in text.split_whitespace() {
-        match lines.last_mut() {
-            Some(line) if line.chars().count() + 1 + word.chars().count() <= width => {
-                line.push(' ');
-                line.push_str(word);
-            }
-            _ => lines.push(word.to_string()),
-        }
-    }
-    lines
 }
 
 fn run_shortcut() -> egui::KeyboardShortcut {
