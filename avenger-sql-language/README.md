@@ -39,6 +39,8 @@ for item in document.completions((text.len() as u32).into()).items {
 
 A `Document` is `Send` and `Sync`. Every edit of the text makes a new `Document`, and `analysis()` gives its analysis to a host that runs the script.
 
+`quote(name)` writes a name as a script writes it, as completion inserts it: as it is when it is a plain name, and in backticks otherwise, or when it is a reserved word, such as `` `unit price` `` or `` `order` ``. Names are case-insensitive, so `PetalLengthCm` stays as it is.
+
 ## Completion
 
 Completion offers what the grammar takes at the cursor, as avenger-sql-syntax's `expected_at` gives it, filled with the names that the analysis and the catalog know there. The analysis's place at the cursor decides the names and functions: a `WHERE` takes the columns of its input and scalar and window functions, an item of `|> AGGREGATE` takes aggregates and marks but no column by itself, `LIMIT` takes no column, and the functions of `MATCH_RECOGNIZE` stand only in its clauses, by the same rules that the analysis reports as errors. After a named argument, an argument takes only the name of a parameter. A subquery takes the columns and the range variables of the queries that it can read, after its own. Columns of the type that the place expects, such as `BOOL` in a `WHERE`, come first. At the start of an argument, the constructors that its parameter takes come first, under the names that the parameter gives them: the constructor named after the argument, then those one level down, as `scale`, `type`, and `pin` after `scale => `, then the values of the parameter's set, before the other items, and in a string, every value of the set.

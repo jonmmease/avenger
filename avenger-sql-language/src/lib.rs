@@ -292,8 +292,9 @@ fn node_at(root: &SyntaxNode, range: TextRange, kind: SyntaxKind) -> Option<Synt
 }
 
 /// `name` as a script writes it: as it is when it is a plain name, and in backticks when it is
-/// not, or when it is a reserved word.
-pub(crate) fn quote(name: &str) -> String {
+/// not, or when it is a reserved word, as completion inserts a name. A host that inserts a name of
+/// its own, such as a column that a list of tables shows, writes it the same way.
+pub fn quote(name: &str) -> String {
     let plain = (name.chars().next()).is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     match plain && !avenger_sql_syntax::is_reserved(name) {

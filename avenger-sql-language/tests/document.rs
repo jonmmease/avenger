@@ -214,3 +214,19 @@ fn formatting_replaces_the_range_that_changes() {
     assert_eq!(at(&document, edits[0].range).chars().next(), Some(' '));
     assert!(common::document(&formatted).formatting().is_empty());
 }
+
+#[test]
+fn quote_writes_a_name_as_a_script_writes_it() {
+    // A plain name stays as it is, in any case, since names are case-insensitive.
+    assert_eq!(avenger_sql_language::quote("body_mass_g"), "body_mass_g");
+    assert_eq!(
+        avenger_sql_language::quote("PetalLengthCm"),
+        "PetalLengthCm"
+    );
+    // Backticks around a name with other characters, a name that starts with a digit, and a
+    // reserved word, with a backslash before a backtick or a backslash inside.
+    assert_eq!(avenger_sql_language::quote("unit price"), "`unit price`");
+    assert_eq!(avenger_sql_language::quote("2024"), "`2024`");
+    assert_eq!(avenger_sql_language::quote("order"), "`order`");
+    assert_eq!(avenger_sql_language::quote("a`b\\c"), "`a\\`b\\\\c`");
+}
