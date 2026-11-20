@@ -69,10 +69,17 @@
 //! [`layout`] lays out text in lines of at most [`layout::WIDTH`] characters: a
 //! [`layout::Doc`] is text with the places where it can break, and [`layout::list`] lays out a
 //! call or an array on one line or with one item to a line.
+//!
+//! # Formatting
+//!
+//! [`format::format`] writes a script in the style of avenger-sql's `STYLE.md`, from the syntax
+//! tree alone: it changes whitespace, the case of keywords and of the names of functions, and
+//! the commas after the last items of lists, and keeps a statement with an error as written.
 
 pub mod ast;
 pub mod diagnostic;
 mod escape;
+pub mod format;
 mod highlight;
 pub mod layout;
 pub mod lexer;

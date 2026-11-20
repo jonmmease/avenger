@@ -37,6 +37,11 @@ pub enum Doc {
     Concat(Vec<Doc>),
     /// The first doc when its group breaks, and the second when the group stays on one line.
     IfBreak(Box<Doc>, Box<Doc>),
+    /// Text written at the end of its line, before the next line break, as a comment after the
+    /// last token of a line.
+    LineSuffix(String),
+    /// Nothing, which breaks each group around it, as a comment at the end of a line does.
+    BreakParent,
 }
 
 impl Doc {
@@ -76,22 +81,27 @@ impl Doc {
     /// Whether the doc holds a line that breaks in every layout.
     fn breaks(&self) -> bool {
         match self {
-            Doc::HardLine => true,
+            Doc::HardLine | Doc::BreakParent => true,
             Doc::Group { broken, .. } => *broken,
             Doc::Nest(_, doc) => doc.breaks(),
             Doc::Concat(docs) => docs.iter().any(Doc::breaks),
-            Doc::Text(_) | Doc::Line | Doc::SoftLine | Doc::IfBreak(..) => false,
+            Doc::Text(_) | Doc::Line | Doc::SoftLine | Doc::IfBreak(..) | Doc::LineSuffix(_) => {
+                false
+            }
         }
     }
 
     /// The doc laid out from `column` of its first line, with lines of at most [`WIDTH`]
     /// characters where its groups can break. A line that breaks has no trailing spaces, so a
-    /// blank line is empty.
+    /// blank line is empty. Text that holds a line break, as a statement kept as written, counts
+    /// its last line toward the column.
     pub fn render(&self, column: usize) -> String {
         let mut out = String::new();
         let mut column = column;
         // The indentation of the line that the last break started, written before its first text.
         let mut pending: Option<usize> = None;
+        // The text at the end of the current line, written before its line break.
+        let mut suffixes: Vec<&str> = Vec::new();
         let mut stack: Vec<(usize, Mode, &Doc)> = vec![(0, Mode::Break, self)];
         while let Some((indent, mode, doc)) = stack.pop() {
             match doc {
@@ -100,7 +110,10 @@ impl Doc {
                         out.extend(std::iter::repeat_n(' ', indent));
                     }
                     out.push_str(text);
-                    column += width(text);
+                    column = match text.rfind('\n') {
+                        Some(end) => width(&text[end + 1..]),
+                        None => column + width(text),
+                    };
                 }
                 Doc::Line | Doc::SoftLine if mode == Mode::Flat => {
                     if matches!(doc, Doc::Line) {
@@ -109,6 +122,9 @@ impl Doc {
                     }
                 }
                 Doc::Line | Doc::SoftLine | Doc::HardLine => {
+                    for suffix in suffixes.drain(..) {
+                        out.push_str(suffix);
+                    }
                     out.push('\n');
                     pending = Some(indent);
                     column = indent;
@@ -133,7 +149,12 @@ impl Doc {
                     };
                     stack.push((indent, mode, doc));
                 }
+                Doc::LineSuffix(text) => suffixes.push(text),
+                Doc::BreakParent => {}
             }
+        }
+        for suffix in suffixes {
+            out.push_str(suffix);
         }
         out
     }
@@ -161,7 +182,11 @@ fn fits(mut remaining: isize, doc: &Doc, rest: &[(usize, Mode, &Doc)]) -> bool {
             return true;
         };
         match doc {
-            Doc::Text(text) => remaining -= width(text) as isize,
+            Doc::Text(text) => match text.split_once('\n') {
+                Some((first, _)) => return remaining >= width(first) as isize,
+                None => remaining -= width(text) as isize,
+            },
+            Doc::LineSuffix(_) | Doc::BreakParent => {}
             Doc::Line | Doc::SoftLine if mode == Mode::Flat => {
                 if matches!(doc, Doc::Line) {
                     remaining -= 1;
@@ -193,22 +218,67 @@ pub fn width(text: &str) -> usize {
     text.chars().count()
 }
 
+/// An item of a list: its doc, whether a blank line comes before it, and the doc that follows
+/// its comma, such as a comment at the end of its line.
+#[derive(Clone, Debug)]
+pub struct Item {
+    pub doc: Doc,
+    pub blank: bool,
+    pub after_comma: Option<Doc>,
+}
+
+impl Item {
+    pub fn new(doc: Doc) -> Item {
+        Item {
+            doc,
+            blank: false,
+            after_comma: None,
+        }
+    }
+}
+
 /// A call or an array, `open` with its `items` and `clauses` and `close`: on one line, with the
 /// items separated by `, ` and each clause after a space, or broken after `open`, with each item
 /// on a line of its own, two spaces deeper, followed by a comma, then each clause on a line of
 /// its own, and `close` back at the depth of the line that opens it.
 pub fn list(open: impl Into<String>, items: Vec<Doc>, clauses: Vec<Doc>, close: &str) -> Doc {
-    let open = open.into();
-    if items.is_empty() && clauses.is_empty() {
-        return Doc::text(format!("{open}{close}"));
+    let items = items.into_iter().map(Item::new).collect();
+    list_of(
+        Doc::Text(open.into()),
+        items,
+        clauses,
+        None,
+        Doc::text(close),
+    )
+}
+
+/// The list of [`list`], with items that keep a blank line before them, which breaks the list,
+/// and `tail`, such as the comments before the closer, on lines of their own after the clauses,
+/// at the depth of the items.
+pub fn list_of(
+    open: Doc,
+    items: Vec<Item>,
+    clauses: Vec<Doc>,
+    tail: Option<Doc>,
+    close: Doc,
+) -> Doc {
+    if items.is_empty() && clauses.is_empty() && tail.is_none() {
+        return Doc::concat([open, close]);
     }
     let mut inner = vec![Doc::SoftLine];
     let count = items.len();
     for (index, item) in items.into_iter().enumerate() {
-        inner.push(item);
+        if item.blank && index > 0 {
+            inner.push(Doc::HardLine);
+        }
+        inner.push(item.doc);
         match index + 1 == count {
             true => inner.push(Doc::if_break(Doc::text(","), Doc::text(""))),
-            false => inner.extend([Doc::text(","), Doc::Line]),
+            false => inner.push(Doc::text(",")),
+        }
+        inner.extend(item.after_comma);
+        if index + 1 < count {
+            inner.push(Doc::Line);
         }
     }
     for clause in clauses {
@@ -217,11 +287,17 @@ pub fn list(open: impl Into<String>, items: Vec<Doc>, clauses: Vec<Doc>, close: 
         }
         inner.push(clause);
     }
+    if let Some(tail) = tail {
+        if inner.len() > 1 {
+            inner.push(Doc::HardLine);
+        }
+        inner.push(tail);
+    }
     Doc::group(Doc::concat([
-        Doc::Text(open),
+        open,
         Doc::nest(2, Doc::Concat(inner)),
         Doc::SoftLine,
-        Doc::text(close),
+        close,
     ]))
 }
 

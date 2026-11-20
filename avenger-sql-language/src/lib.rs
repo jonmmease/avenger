@@ -1,6 +1,6 @@
 //! Editor features of avenger-sql scripts: diagnostics, semantic highlighting, the outline,
-//! folding and selection ranges, go to definition, references, rename, hover, completion, and
-//! signature help.
+//! folding and selection ranges, go to definition, references, rename, hover, completion,
+//! signature help, and formatting.
 //!
 //! A [`Document`] parses and analyzes the text of a script once, and each of its requests reads
 //! that parse and analysis. The requests mirror those of the Language Server Protocol, without
@@ -190,6 +190,34 @@ impl Document {
         );
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         diagnostics
+    }
+
+    /// The edits that format the text in the style of `avenger-sql/STYLE.md`: one edit of the
+    /// range between the text's longest common prefix and suffix with the formatted text, or none
+    /// when the text is already formatted. A statement with an error stays as written.
+    pub fn formatting(&self) -> Vec<TextEdit> {
+        let formatted = avenger_sql_syntax::format::format(&self.text);
+        let (old, new) = (self.text.as_bytes(), formatted.as_bytes());
+        let mut prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+        while !self.text.is_char_boundary(prefix) {
+            prefix -= 1;
+        }
+        let limit = old.len().min(new.len()) - prefix;
+        let mut suffix = (old.iter().rev().zip(new.iter().rev()))
+            .take(limit)
+            .take_while(|(a, b)| a == b)
+            .count();
+        while !self.text.is_char_boundary(old.len() - suffix) {
+            suffix -= 1;
+        }
+        if prefix == old.len() && prefix == new.len() {
+            return Vec::new();
+        }
+        let range = TextRange::new(
+            Offset::from(prefix as u32),
+            Offset::from((old.len() - suffix) as u32),
+        );
+        vec![TextEdit::new(range, &formatted[prefix..new.len() - suffix])]
     }
 
     /// The classes of the tokens, for semantic highlighting: the classes of the syntax, which the
