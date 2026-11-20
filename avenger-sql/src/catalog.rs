@@ -168,8 +168,48 @@ fn same_name(a: &str, b: &str) -> bool {
 }
 
 /// Whether the paths `a` and `b` name the same table or module, without regard to case.
-pub(crate) fn same_path(a: &[String], b: &[String]) -> bool {
+pub fn same_path(a: &[String], b: &[String]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_name(a, b))
+}
+
+/// Whether the paths `a` and `b` of tables name the same table, without regard to case, with a
+/// path of one name in the schema `default_schema`, as DataFusion reads it: `t` and `public.t`
+/// name the same table when the default schema is `public`. A host without a session takes
+/// DataFusion's default schema.
+pub fn same_table(a: &[String], b: &[String], default_schema: &str) -> bool {
+    match (a, b) {
+        ([name], [schema, other]) | ([schema, other], [name]) => {
+            same_name(schema, default_schema) && same_name(name, other)
+        }
+        _ => same_path(a, b),
+    }
+}
+
+/// The modules that `references` imports, and those that they import in turn, each once, with
+/// the text that `modules` gives for each, in the order that the imports find them. `modules`
+/// returns the text of the module at a path, or `None` when it has none, so an import of a
+/// module that `modules` lacks finds nothing.
+pub fn imported_modules(
+    references: &References,
+    modules: &dyn Fn(&[String]) -> Option<String>,
+) -> Vec<(Vec<String>, String)> {
+    let mut found: Vec<(Vec<String>, String)> = Vec::new();
+    let mut pending: Vec<Vec<String>> = (references.modules.iter())
+        .map(|reference| reference.names.clone())
+        .collect();
+    while let Some(names) = pending.pop() {
+        if (found.iter()).any(|(path, _)| same_path(path, &names)) {
+            continue;
+        }
+        let Some(text) = modules(&names) else {
+            continue;
+        };
+        let parse = avenger_sql_syntax::parse_module(&text);
+        let imports = self::references(&parse.syntax()).modules;
+        pending.extend(imports.into_iter().map(|reference| reference.names));
+        found.push((names, text));
+    }
+    found
 }
 
 /// A catalog of the tables that a script names, loaded from a DataFusion session.
@@ -234,28 +274,14 @@ impl SessionCatalog {
     }
 
     /// The catalog with the modules that `modules` gives for the paths that `references` imports,
-    /// and for the paths that those modules import in turn. `modules` returns the text of the
-    /// module at a path, or `None` when it has none.
+    /// and for the paths that those modules import in turn, as [`imported_modules`] finds them.
+    /// `modules` returns the text of the module at a path, or `None` when it has none.
     pub fn with_modules(
         mut self,
         references: &References,
         modules: &dyn Fn(&[String]) -> Option<String>,
     ) -> Self {
-        let mut pending: Vec<Vec<String>> = (references.modules.iter())
-            .map(|reference| reference.names.clone())
-            .collect();
-        while let Some(names) = pending.pop() {
-            if self.module(&names).is_some() {
-                continue;
-            }
-            let Some(text) = modules(&names) else {
-                continue;
-            };
-            let parse = avenger_sql_syntax::parse_module(&text);
-            let imports = self::references(&parse.syntax()).modules;
-            pending.extend(imports.into_iter().map(|reference| reference.names));
-            self.modules.push((names, text));
-        }
+        self.modules.extend(imported_modules(references, modules));
         self
     }
 }

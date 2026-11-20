@@ -1221,15 +1221,25 @@ async fn tables_replace_those_of_the_same_name_in_any_case() {
         .ctx
         .register_batch(TableReference::bare("SALES"), sales_batch())
         .unwrap();
-    project
+    let replaced = |loaded: &Loaded| -> Vec<String> {
+        (loaded.registered[0].replaced.iter())
+            .map(|(name, _)| name.clone())
+            .collect()
+    };
+    let loaded = project
         .load("LOAD DATA OVERWRITE sales FROM FILES (format = 'CSV', uris = ['data/sales.csv']);")
         .await;
     assert_eq!(table_names(&project.ctx), ["sales"]);
+    // The registration holds the table of the host that it replaced, for a loader to restore.
+    assert_eq!(replaced(&loaded), ["SALES"]);
+    let (_, host) = &loaded.registered[0].replaced[0];
+    assert_eq!(host.schema(), sales_batch().schema());
     // A reload of the script with another case of the name.
-    project
+    let loaded = project
         .load("LOAD DATA OVERWRITE Sales FROM FILES (format = 'CSV', uris = ['data/sales.csv']);")
         .await;
     assert_eq!(table_names(&project.ctx), ["Sales"]);
+    assert_eq!(replaced(&loaded), ["sales"]);
     assert!(project
         .rows("FROM sales |> AGGREGATE count(*) AS n")
         .await

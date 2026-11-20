@@ -36,13 +36,26 @@ fn names(path: &str) -> Vec<String> {
     path.split('.').map(str::to_string).collect()
 }
 
-/// The graph of the data scripts `scripts`, by path and text, which have no syntax errors.
+/// The graph of the data scripts `scripts`, by path and text, which have no syntax errors, in a
+/// project without modules whose default schema is `public`.
 fn graph(scripts: &[(&str, &str)]) -> Graph {
-    Graph::new(scripts.iter().map(|(path, text)| {
+    graph_with_modules(scripts, &[])
+}
+
+/// The graph of the data scripts `scripts`, as [`graph`] gives it, in a project with the modules
+/// `modules`, by module path and text.
+fn graph_with_modules(scripts: &[(&str, &str)], modules: &[(&str, &str)]) -> Graph {
+    let roots = scripts.iter().map(|(path, text)| {
         let parse = parse_data(text);
         assert!(parse.ok(), "{path}: {:?}", parse.diagnostics());
         (*path, parse.syntax())
-    }))
+    });
+    let module = |path: &[String]| {
+        (modules.iter())
+            .find(|(names, _)| names.eq_ignore_ascii_case(&path.join(".")))
+            .map(|(_, text)| text.to_string())
+    };
+    Graph::new(roots, &module, "public")
 }
 
 /// The text of `scripts` at the path `path`.
@@ -909,4 +922,89 @@ CREATE VIEW finance.big_orders OPTIONS (description = 'Large orders') AS (
     // Without the project catalog, the schema and the table are missing.
     let alone = analyze(text, &MemoryCatalog::new());
     assert!(!alone.diagnostics.is_empty());
+}
+
+#[test]
+fn a_table_of_one_name_is_in_the_default_schema() {
+    // A read of `public.orders` reads `orders`, which the default schema holds.
+    let scripts = [
+        ("orders.sql", "CREATE VIEW orders AS (FROM host)"),
+        ("totals.sql", "CREATE VIEW totals AS (FROM PUBLIC.orders)"),
+    ];
+    let read = graph(&scripts);
+    assert!(read.errors().is_empty(), "{:?}", read.errors());
+    assert_eq!(read.order(), ["orders.sql", "totals.sql"]);
+    let edge = &read.edges()[0];
+    assert_eq!(
+        (edge.script.as_str(), edge.dependency.as_str()),
+        ("totals.sql", "orders.sql")
+    );
+    assert_eq!(edge.read.names, names("PUBLIC.orders"));
+
+    // `orders` and `public.orders` are one name, which two scripts define.
+    let scripts = [
+        ("a.sql", "CREATE VIEW orders AS (FROM host)"),
+        ("b.sql", "CREATE VIEW public.orders AS (FROM host)"),
+    ];
+    let duplicate = graph(&scripts);
+    let [GraphError::Duplicate { first, second, .. }] = duplicate.errors() else {
+        panic!("{:?}", duplicate.errors());
+    };
+    assert_eq!(
+        (first.path.as_str(), second.path.as_str()),
+        ("a.sql", "b.sql")
+    );
+
+    // Another schema holds another table.
+    let scripts = [
+        ("a.sql", "CREATE VIEW orders AS (FROM host)"),
+        (
+            "b.sql",
+            "CREATE VIEW orders_by_day AS (FROM finance.orders)",
+        ),
+    ];
+    assert!(graph(&scripts).edges().is_empty());
+}
+
+#[test]
+fn the_scripts_that_import_a_module_directly_or_through_modules() {
+    let modules = [
+        ("units", "MODULE units; CREATE PUBLIC FUNCTION twice(x INT64) AS (x * 2);"),
+        (
+            "weather",
+            "MODULE weather; IMPORT MODULE units; CREATE PUBLIC FUNCTION warm(t FLOAT64) AS (t > 20);",
+        ),
+        ("other", "MODULE other; CREATE PUBLIC FUNCTION one() AS (1);"),
+    ];
+    let scripts = [
+        (
+            "direct.sql",
+            "IMPORT MODULE units; CREATE VIEW direct AS (FROM host)",
+        ),
+        (
+            "through.sql",
+            "IMPORT MODULE Weather; CREATE VIEW through AS (FROM host)",
+        ),
+        ("none.sql", "CREATE VIEW none AS (FROM host)"),
+        (
+            "missing.sql",
+            "IMPORT MODULE missing; CREATE VIEW missing AS (FROM host)",
+        ),
+    ];
+    let graph = graph_with_modules(&scripts, &modules);
+    assert_eq!(
+        graph.importers(&names("units")),
+        ["direct.sql", "through.sql"]
+    );
+    assert_eq!(graph.importers(&names("WEATHER")), ["through.sql"]);
+    assert!(graph.importers(&names("other")).is_empty());
+    assert!(graph.importers(&names("missing")).is_empty());
+    assert_eq!(graph.imports("direct.sql"), [names("units")]);
+    let mut imports = graph.imports("through.sql").to_vec();
+    imports.sort();
+    assert_eq!(imports, [names("Weather"), names("units")]);
+    assert!(graph.imports("none.sql").is_empty());
+    // A module adds no dependency between scripts.
+    assert!(graph.edges().is_empty());
+    assert_eq!(graph.order().len(), 4);
 }

@@ -1,0 +1,3 @@
+MODULE weather;
+
+CREATE PUBLIC FUNCTION warm(t FLOAT64) AS (t >= 10);

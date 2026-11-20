@@ -18,7 +18,7 @@ use datafusion::{
     logical_expr::{LogicalPlan, TableType},
 };
 
-use super::{rows, Options, Pass};
+use super::{rows, Diagnostic, DiagnosticCode, Options, Pass};
 use crate::{
     catalog::{same_path, Catalog, Table},
     data::{
@@ -665,10 +665,12 @@ fn files_schema(pass: &mut Pass, files: &Files, at: TextRange) -> Option<SchemaR
             None
         }
         None => {
-            pass.error(
-                at,
-                "The catalog of this analysis reads no files, so the files have no schema",
-            );
+            pass.diagnostics.push(Diagnostic {
+                range: at,
+                message: "The catalog of this analysis reads no files, so the files have no schema"
+                    .to_string(),
+                code: Some(DiagnosticCode::NoFiles),
+            });
             None
         }
     }
