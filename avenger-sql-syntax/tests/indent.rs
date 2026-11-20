@@ -5,7 +5,7 @@ mod common;
 
 use std::path::PathBuf;
 
-use avenger_sql_syntax::{format::format, indent::depth, parse};
+use avenger_sql_syntax::{format::format, indent::depth, Role};
 
 /// The lines of `formatted`, a formatted text, whose depth differs from their indentation.
 fn mismatches(formatted: &str) -> Vec<String> {
@@ -26,11 +26,13 @@ fn mismatches(formatted: &str) -> Vec<String> {
     found
 }
 
-fn check(text: &str) {
-    if !parse(text).diagnostics().is_empty() {
+/// Checks the depth of each line of `text`, a text of `role`, once formatted. A text with an
+/// error stays as written, and has no depths to check.
+fn check(text: &str, role: Role) {
+    if !common::parse_as(text, role).ok() {
         return;
     }
-    let formatted = format(text);
+    let formatted = format(text, role);
     let found = mismatches(&formatted);
     assert!(found.is_empty(), "{}\n\nin\n{formatted}", found.join("\n"));
 }
@@ -42,15 +44,25 @@ fn every_line_of_the_formatted_corpora_has_its_depth() {
     texts.extend(common::QUERIES.iter().copied());
     texts.extend(common::TRAILING_COMMAS.iter().copied());
     for text in texts {
-        check(text);
+        check(text, Role::Script);
     }
-    // The formatter's snapshots, statement by statement, since one holds a statement with an
+    check(common::MODULE, Role::Module);
+    assert!(common::parse_as(common::DATA, Role::Data).ok());
+    check(common::DATA, Role::Data);
+    // The formatter's snapshots, statement by statement, since some hold a statement with an
     // error.
     let baselines = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/baselines");
-    for name in ["comments", "lists", "expressions", "statements"] {
+    let snapshots = [
+        ("comments", Role::Script),
+        ("lists", Role::Script),
+        ("expressions", Role::Script),
+        ("statements", Role::Script),
+        ("data", Role::Data),
+    ];
+    for (name, role) in snapshots {
         let text = std::fs::read_to_string(baselines.join(format!("format-{name}.txt"))).unwrap();
         for statement in text.split(";\n") {
-            check(statement);
+            check(statement, role);
         }
     }
 }
@@ -69,7 +81,7 @@ fn every_line_of_the_formatted_googlesql_corpus_has_its_depth() {
     for line in corpus.lines().skip(1).chain(["## end"]) {
         match line.starts_with("## ") {
             true => {
-                check(&input);
+                check(&input, Role::Script);
                 input.clear();
             }
             false => {
@@ -109,6 +121,32 @@ fn a_new_line_takes_the_depth_of_what_most_likely_comes_next() {
     // A new statement.
     assert_eq!(after("FROM t;"), 0);
     assert_eq!(after(""), 0);
+}
+
+#[test]
+fn a_new_line_of_a_data_script_takes_the_depth_of_its_statement_or_its_list() {
+    // The next clause, at the depth of the statement.
+    assert_eq!(after("CREATE EXTERNAL TABLE t"), 0);
+    assert_eq!(
+        after("LOAD DATA INTO t (day DATE)\nOPTIONS (description = 'x')"),
+        0
+    );
+    // An option, a column, and the query of a view or a table.
+    assert_eq!(after("CREATE EXTERNAL TABLE t\nOPTIONS ("), 2);
+    assert_eq!(
+        after("CREATE EXTERNAL TABLE t\nOPTIONS (\n  format = 'CSV',"),
+        2
+    );
+    assert_eq!(after("LOAD DATA INTO t\nFROM FILES ("), 2);
+    assert_eq!(after("CREATE TEMP EXTERNAL TABLE t ("), 2);
+    assert_eq!(after("CREATE VIEW v AS ("), 2);
+    assert_eq!(after("CREATE TABLE t AS (\n  FROM u"), 2);
+    // The closer of a list, and a new statement.
+    assert_eq!(
+        last("CREATE EXTERNAL TABLE t\nOPTIONS (\n  format = 'CSV',\n)"),
+        0
+    );
+    assert_eq!(after("CREATE SCHEMA s;"), 0);
 }
 
 /// The depth of the last line of `text`.

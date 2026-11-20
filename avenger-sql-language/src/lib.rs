@@ -40,7 +40,7 @@ use avenger_sql::{
     library::Library,
 };
 use avenger_sql_syntax::{
-    ast, ast::AstNode, highlight, Parse, SyntaxKind, SyntaxNode, SyntaxToken,
+    ast, ast::AstNode, highlight, Parse, Role, SyntaxKind, SyntaxNode, SyntaxToken,
 };
 
 pub use avenger_sql_syntax::{
@@ -196,7 +196,8 @@ impl Document {
     /// range between the text's longest common prefix and suffix with the formatted text, or none
     /// when the text is already formatted. A statement with an error stays as written.
     pub fn formatting(&self) -> Vec<TextEdit> {
-        let formatted = avenger_sql_syntax::format::format(&self.text);
+        // A document is a chart script.
+        let formatted = avenger_sql_syntax::format::format(&self.text, Role::Script);
         let (old, new) = (self.text.as_bytes(), formatted.as_bytes());
         let mut prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
         while !self.text.is_char_boundary(prefix) {

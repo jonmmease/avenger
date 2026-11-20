@@ -4,7 +4,7 @@
 mod common;
 
 use avenger_sql_syntax::{
-    expected_at, highlight, parse, parse_data, parse_module, SyntaxKind, SyntaxNode,
+    expected_at, highlight, parse, parse_data, parse_module, Role, SyntaxKind, SyntaxNode,
 };
 use common::*;
 
@@ -103,9 +103,17 @@ fn every_input_round_trips() {
 
 #[test]
 fn every_cursor_has_expectations_without_a_panic() {
-    for text in [OPERATORS, STATEMENTS, SOURCES, DATA] {
+    let texts = [
+        (OPERATORS, Role::Script),
+        (STATEMENTS, Role::Script),
+        (SOURCES, Role::Script),
+        (MODULE, Role::Module),
+        (DATA, Role::Script),
+        (DATA, Role::Data),
+    ];
+    for (text, role) in texts {
         for offset in (0..=text.len()).filter(|offset| text.is_char_boundary(*offset)) {
-            expected_at(text, (offset as u32).into());
+            expected_at(text, (offset as u32).into(), role);
         }
     }
 }

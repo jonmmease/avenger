@@ -33,8 +33,7 @@ use rowan::{TextRange, TextSize};
 use crate::{
     ast::{self, tokens, AstNode, CreateStmt, FunctionKind, Scope},
     diagnostic::{Diagnostic, DiagnosticCode},
-    escape,
-    parser::Entry,
+    escape, Role,
     SyntaxKind::{self, *},
     SyntaxNode, SyntaxToken,
 };
@@ -53,14 +52,14 @@ const LOAD_TEMP: &str = "a chart script loads its own files with `LOAD DATA OVER
 const IN_SCRIPT: &str =
     "a data script only registers tables, and queries, DECLARE and SET go in a chart script";
 
-/// The diagnostics of the checks of the validation pass on the tree `root`, which `entry` read.
-pub(crate) fn validate(root: &SyntaxNode, entry: Entry) -> Vec<Diagnostic> {
+/// The diagnostics of the checks of the validation pass on the tree `root` of a text of `role`.
+pub(crate) fn validate(root: &SyntaxNode, role: Role) -> Vec<Diagnostic> {
     let mut validator = Validator {
-        in_module: entry == Entry::Module,
-        in_data: entry == Entry::Data,
+        in_module: role == Role::Module,
+        in_data: role == Role::Data,
         diagnostics: Vec::new(),
     };
-    if let (Some(script), Entry::Script) = (ast::Script::cast(root.clone()), entry) {
+    if let (Some(script), Role::Script) = (ast::Script::cast(root.clone()), role) {
         validator.declare_order(script.stmts());
     }
     for node in root.descendants() {

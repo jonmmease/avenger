@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 
 use avenger_sql_syntax::{
-    parse, parse_data, parse_module, Diagnostic, Parse, SyntaxKind, SyntaxNode,
+    parse, parse_data, parse_module, Diagnostic, Parse, Role, SyntaxKind, SyntaxNode,
 };
 
 /// `shape`: the kinds of the children and the tokens that `sql.ungram` gives each node kind.
@@ -43,6 +43,15 @@ pub fn grammar_violations(root: &SyntaxNode) -> Vec<String> {
     violations.sort();
     violations.dedup();
     violations
+}
+
+/// The tree of `text`, a text of `role`.
+pub fn parse_as(text: &str, role: Role) -> Parse {
+    match role {
+        Role::Script => parse(text),
+        Role::Module => parse_module(text),
+        Role::Data => parse_data(text),
+    }
 }
 
 /// Parses `text` as a script, and checks that it has no diagnostics and that its tree holds the

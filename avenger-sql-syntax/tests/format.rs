@@ -9,12 +9,12 @@ mod common;
 
 use std::path::PathBuf;
 
-use avenger_sql_syntax::{format::format, parse, SyntaxElement, SyntaxKind};
+use avenger_sql_syntax::{format::format, Role, SyntaxElement, SyntaxKind};
 
-/// The tokens of `text` that are not whitespace or comments, in lower case, without the commas
-/// after the last item of a list, and the texts of its comments.
-fn tokens(text: &str) -> (Vec<String>, Vec<String>) {
-    let root = parse(text).syntax();
+/// The tokens of `text`, a text of `role`, that are not whitespace or comments, in lower case,
+/// without the commas after the last item of a list, and the texts of its comments.
+fn tokens(text: &str, role: Role) -> (Vec<String>, Vec<String>) {
+    let root = common::parse_as(text, role).syntax();
     let all: Vec<_> = (root.descendants_with_tokens())
         .filter_map(SyntaxElement::into_token)
         .collect();
@@ -55,21 +55,21 @@ fn tokens(text: &str) -> (Vec<String>, Vec<String>) {
     (kept, comments)
 }
 
-/// Checks the properties of the formatter on `text`.
-fn check(text: &str) {
-    let formatted = format(text);
+/// Checks the properties of the formatter on `text`, a text of `role`.
+fn check(text: &str, role: Role) {
+    let formatted = format(text, role);
     assert_eq!(
-        format(&formatted),
+        format(&formatted, role),
         formatted,
         "formatting again changes the text of\n{text}\nformatted as\n{formatted}"
     );
     assert_eq!(
-        tokens(&formatted),
-        tokens(text),
+        tokens(&formatted, role),
+        tokens(text, role),
         "the tokens differ in\n{text}\nformatted as\n{formatted}"
     );
-    let before = parse(text).diagnostics().len();
-    let after = parse(&formatted).diagnostics().len();
+    let before = common::parse_as(text, role).diagnostics().len();
+    let after = common::parse_as(&formatted, role).diagnostics().len();
     assert_eq!(
         after, before,
         "the formatted text has {after} errors and its input {before}:\n{text}\nformatted as\n{formatted}"
@@ -88,10 +88,37 @@ fn the_corpora_keep_their_tokens_and_comments_and_format_to_themselves() {
     texts.extend(common::QUERIES.iter().copied());
     texts.extend(common::TRAILING_COMMAS.iter().copied());
     for text in texts {
-        check(text);
+        check(text, Role::Script);
     }
-    for (_, text) in SNAPSHOTS {
-        check(text);
+    check(common::MODULE, Role::Module);
+    check(common::DATA, Role::Data);
+    for (_, role, text) in SNAPSHOTS {
+        check(text, *role);
+    }
+}
+
+#[test]
+fn the_data_corpus_is_formatted_as_a_data_script() {
+    // A data script that parses as one, so that no statement stays as written.
+    assert!(common::parse_as(common::DATA, Role::Data).ok());
+    // As a chart script, a statement of a data script has an error and stays as written.
+    let text = "create  external table t options (format = 'CSV', uris = ['t.csv'])";
+    assert_eq!(format(text, Role::Script), text);
+    assert_eq!(
+        format(text, Role::Data),
+        "CREATE EXTERNAL TABLE t OPTIONS (format = 'CSV', uris = ['t.csv'])"
+    );
+    // A chart script's own tables of files format as a data script's do.
+    for text in [
+        "create  temp external table t options (format = 'CSV', uris = ['t.csv'])",
+        "load data  overwrite temp table t from files (format = 'CSV', uris = ['t.csv'])",
+    ] {
+        assert_eq!(
+            format(text, Role::Script),
+            format(text, Role::Data),
+            "{text}"
+        );
+        assert_ne!(format(text, Role::Script), text, "{text}");
     }
 }
 
@@ -111,7 +138,7 @@ fn the_googlesql_corpus_keeps_its_tokens_and_formats_to_itself() {
         match line.starts_with("## ") {
             true => {
                 if !input.trim().is_empty() {
-                    check(&input);
+                    check(&input, Role::Script);
                 }
                 input.clear();
             }
@@ -123,9 +150,10 @@ fn the_googlesql_corpus_keeps_its_tokens_and_formats_to_itself() {
     }
 }
 
-const SNAPSHOTS: &[(&str, &str)] = &[
+const SNAPSHOTS: &[(&str, Role, &str)] = &[
     (
         "format-comments",
+        Role::Script,
         "-- the penguins
 FROM samples.penguins -- every row
 |> AGGREGATE mark_bar(
@@ -146,6 +174,7 @@ FROM t /* inline */ |> WHERE a > 0
     ),
     (
         "format-lists",
+        Role::Script,
         "from samples.penguins |> aggregate MARK_BAR(x => species, y => COUNT(*), );
 FROM samples.penguins |> AGGREGATE mark_symbol(x => x(flipper_length_mm, scale => scale(zero => FALSE)), y => body_mass_g, color => species);
 FROM t |> AGGREGATE avg(body_mass_g) AS mu, stddev(body_mass_g) AS sigma, count(*) AS n, min(body_mass_g) AS low GROUP BY species, island;
@@ -156,6 +185,7 @@ FROM t |> SELECT - -x, -(-x), + -x, a - -b, -1 AS n",
     ),
     (
         "format-expressions",
+        Role::Script,
         "FROM t |> WHERE species = 'Gentoo' AND body_mass_g IS NOT NULL AND flipper_length_mm > 200 AND bill_length_mm < 50
 |> EXTEND '$mu = ' || CAST(CAST(ROUND(ANY_VALUE(mu)) AS INT64) AS STRING) || ', quad sigma = ' || CAST(sigma AS STRING) || '$' AS label
 |> EXTEND CASE WHEN x > 0 THEN 'positive' WHEN x < 0 THEN 'negative' ELSE 'zero' END AS sign, -x AS negated, NOT flag AS unflagged
@@ -167,6 +197,7 @@ FROM t |> SELECT - -x, -(-x), + -x, a - -b, -1 AS n",
     ),
     (
         "format-statements",
+        Role::Script,
         "DECLARE lo, hi INT64 DEFAULT 3;
 DECLARE xs ARRAY<STRUCT<a INT64, b STRING>>;
 SET lo = (FROM t |> AGGREGATE MIN(x));
@@ -177,11 +208,39 @@ FROM evens(2) AS e |> JOIN (FROM u |> WHERE b > 0) AS u ON e.x = u.x |> CALL imp
 FROM t |> WHERE (;
 FROM t   |>   LIMIT 3",
     ),
+    (
+        "format-data",
+        Role::Data,
+        "create schema if not exists vega_datasets options (description = 'The datasets of the Vega examples');
+create external table vega_datasets.cars options (format = 'JSON', uris = ['data/files/vega_datasets/cars.json']);
+CREATE EXTERNAL TABLE trips OPTIONS (format = 'PARQUET', uris = ['data/files/trips/*.parquet']);
+CREATE TEMP EXTERNAL TABLE IF NOT EXISTS raw_events (id INT64 NOT NULL, kind STRING, observed_at TIMESTAMP, payload STRING)
+    WITH PARTITION COLUMNS (year INT64, month STRING)
+    OPTIONS (format = 'PARQUET', uris = ['data/files/events/2024/', 'data/files/events/2025/', 'data/files/events/2026/', 'data/files/events/2027/']);
+CREATE EXTERNAL TABLE logs -- every log
+WITH PARTITION COLUMNS OPTIONS (format = 'JSON', uris = ['logs/*.json'],);
+
+-- Rates, loaded once.
+LOAD DATA INTO TEMP TABLE staging.rates (day DATE, rate FLOAT64)
+    -- the table's own options
+    OPTIONS (description = 'daily rates')
+    FROM FILES (format = 'CSV', uris = ['data/files/rates.csv'], skip_leading_rows = 1)
+    WITH PARTITION COLUMNS (region STRING);
+load data overwrite sales from files (format = 'CSV', uris = ['data/files/sales.csv']);
+CREATE VIEW finance.recent OPTIONS (description = 'the orders of the last week') AS (FROM finance.orders |> WHERE day > DATE '2025-01-01');
+CREATE TEMP VIEW kinds AS FROM raw_events |> AGGREGATE COUNT(*) GROUP BY kind;
+CREATE TABLE events
+-- Only the events with a kind.
+AS (FROM raw_events |> WHERE kind IS NOT NULL);
+CREATE OR REPLACE TABLE totals (n INT64) OPTIONS (description = 'counts') AS (FROM events |> AGGREGATE COUNT(*) AS n);
+CREATE EXTERNAL TABLE broken OPTIONS (format = 'CSV', uris = ['a.csv']) WITH PARTITION   COLUMNS;
+CREATE TEMP FUNCTION cleaned(s STRING) AS (TRIM(s))",
+    ),
 ];
 
 #[test]
 fn snapshots_of_the_style() {
-    for (name, text) in SNAPSHOTS {
-        common::assert_text_baseline(name, &format(text));
+    for (name, role, text) in SNAPSHOTS {
+        common::assert_text_baseline(name, &format(text, *role));
     }
 }

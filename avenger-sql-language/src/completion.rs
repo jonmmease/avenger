@@ -12,7 +12,8 @@ use avenger_sql::{
 };
 use avenger_sql_syntax::{
     ast::{self, AstNode, CreateStmt},
-    expected_at, Expected, FunctionRole, NameRole, SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
+    expected_at, Expected, FunctionRole, NameRole, Role, SyntaxKind, SyntaxNode, SyntaxToken,
+    TextRange,
 };
 use datafusion::arrow::datatypes::DataType;
 
@@ -218,7 +219,8 @@ impl Document {
         let mut names = false;
         let mut tables = false;
         let mut table_functions = false;
-        for expected in expected_at(&self.text, start) {
+        // A document is a chart script.
+        for expected in expected_at(&self.text, start, Role::Script) {
             match expected {
                 Expected::Keyword(kind) => {
                     if before
