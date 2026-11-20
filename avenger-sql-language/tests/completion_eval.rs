@@ -785,7 +785,7 @@ fn evaluate(name: &str, missed: bool) -> Evaluation {
             text.to_string()
         })
         .collect();
-    assert_eq!(queries.len(), 107);
+    assert_eq!(queries.len(), 110);
     for (index, text) in queries.iter().enumerate() {
         let diagnostics = env.document(text).diagnostics();
         assert!(diagnostics.is_empty(), "query {index}: {diagnostics:?}");
