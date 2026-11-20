@@ -2,7 +2,9 @@
 
 mod common;
 
-use avenger_sql_syntax::{highlight, parse, parse_module, FunctionRole, Highlight, NameRole};
+use avenger_sql_syntax::{
+    highlight, parse, parse_data, parse_module, FunctionRole, Highlight, NameRole,
+};
 use common::*;
 
 /// The highlighted ranges of `text`: their text, class and whether they define a name.
@@ -158,4 +160,40 @@ fn a_reserved_word_that_names_an_argument_or_a_call_is_a_name() {
         "{ranges:?}"
     );
     assert_eq!(class_of(text, "SELECT"), (Highlight::Keyword, false));
+}
+
+#[test]
+fn a_data_script_defines_tables_and_schemas() {
+    let text = "CREATE SCHEMA finance; \
+                CREATE EXTERNAL TABLE finance.orders (id INT64) OPTIONS (format = 'CSV'); \
+                LOAD DATA INTO TEMP TABLE rates FROM FILES (uris = ['r.csv']); \
+                CREATE VIEW recent AS FROM finance.orders";
+    let classes: Vec<(String, Highlight, bool)> = highlight(&parse_data(text).syntax())
+        .into_iter()
+        .map(|range| {
+            (
+                text[range.range].to_string(),
+                range.highlight,
+                range.definition,
+            )
+        })
+        .collect();
+    let class = |word: &str| {
+        (classes.iter())
+            .find(|(found, _, _)| found == word)
+            .map(|(_, highlight, definition)| (*highlight, *definition))
+            .unwrap_or_else(|| panic!("no range `{word}`: {classes:?}"))
+    };
+    assert_eq!(class("finance"), (name(NameRole::Schema), true));
+    assert_eq!(class("orders"), (name(NameRole::Table), true));
+    assert_eq!(class("id"), (name(NameRole::Column), true));
+    assert_eq!(class("format"), (name(NameRole::Option), true));
+    assert_eq!(class("rates"), (name(NameRole::Table), true));
+    assert_eq!(class("uris"), (name(NameRole::Option), true));
+    assert_eq!(class("recent"), (name(NameRole::Table), true));
+    for keyword in [
+        "EXTERNAL", "LOAD", "DATA", "INTO", "TEMP", "FILES", "VIEW", "SCHEMA",
+    ] {
+        assert_eq!(class(keyword), (Highlight::Keyword, false), "{keyword}");
+    }
 }

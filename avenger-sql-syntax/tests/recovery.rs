@@ -2,11 +2,19 @@
 
 mod common;
 
-use avenger_sql_syntax::{parse, DiagnosticCode, SyntaxKind::*};
+use avenger_sql_syntax::{parse, parse_data, DiagnosticCode, Parse, SyntaxKind::*};
 use common::*;
 
 fn recovered(text: &str, errors: usize) -> avenger_sql_syntax::SyntaxNode {
-    let parse = parse(text);
+    checked(text, parse(text), errors)
+}
+
+/// As [`recovered`], for a data script.
+fn recovered_data(text: &str, errors: usize) -> avenger_sql_syntax::SyntaxNode {
+    checked(text, parse_data(text), errors)
+}
+
+fn checked(text: &str, parse: Parse, errors: usize) -> avenger_sql_syntax::SyntaxNode {
     assert_eq!(parse.syntax().text().to_string(), text);
     let messages: Vec<_> = parse
         .diagnostics()
@@ -55,6 +63,61 @@ fn a_missing_parenthesis_leaves_the_next_operator() {
 fn a_bad_statement_leaves_the_next_statement() {
     let root = recovered("SELECT a FROM t; FROM u |> SELECT b", 1);
     assert_eq!(text_of(&root, PIPE_SELECT), "|> SELECT b");
+}
+
+#[test]
+fn an_unclosed_options_list_leaves_the_next_statement() {
+    let root = recovered_data(
+        "CREATE EXTERNAL TABLE t OPTIONS (format = 'CSV';\n\
+         LOAD DATA INTO u FROM FILES (format = 'CSV')",
+        1,
+    );
+    assert_eq!(text_of(&root, FROM_FILES), "FROM FILES (format = 'CSV')");
+    assert_eq!(nodes(&root, CREATE_EXTERNAL_TABLE_STMT).len(), 1);
+}
+
+#[test]
+fn unfinished_statements_of_a_data_script_are_one_error_each() {
+    for text in [
+        "LOAD DATA INTO t FROM FILES (",
+        "LOAD DATA INTO t FROM FILES (format =",
+        "LOAD DATA INTO t FROM FILES",
+        "LOAD DATA",
+        "LOAD DATA OVERWRITE",
+        "CREATE EXTERNAL TABLE t OPTIONS (",
+        "CREATE EXTERNAL TABLE t (a INT64",
+        "CREATE EXTERNAL TABLE t WITH PARTITION COLUMNS (",
+        "CREATE EXTERNAL TABLE",
+        "CREATE VIEW v AS",
+        "CREATE VIEW v AS (FROM t",
+        "CREATE SCHEMA",
+        "CREATE SCHEMA s OPTIONS (",
+    ] {
+        recovered_data(text, 1);
+    }
+}
+
+#[test]
+fn an_unclosed_list_at_the_end_is_one_error() {
+    for text in [
+        "CREATE TEMP TABLE t (",
+        "CREATE TEMP TABLE t (a INT64) OPTIONS (",
+        "IMPORT MODULE m OPTIONS (",
+    ] {
+        recovered(text, 1);
+    }
+}
+
+#[test]
+fn a_bad_clause_leaves_the_next_statement() {
+    let root = recovered_data(
+        "LOAD DATA INTO t CLUSTER BY a, b FROM FILES (format = 'CSV'); CREATE SCHEMA s",
+        1,
+    );
+    assert_eq!(text_of(&root, FROM_FILES), "FROM FILES (format = 'CSV')");
+    assert_eq!(text_of(&root, CREATE_SCHEMA_STMT), "CREATE SCHEMA s");
+    let root = recovered_data("CREATE VIEW v AS FROM t |> WHERE; CREATE SCHEMA s", 1);
+    assert_eq!(text_of(&root, CREATE_SCHEMA_STMT), "CREATE SCHEMA s");
 }
 
 #[test]

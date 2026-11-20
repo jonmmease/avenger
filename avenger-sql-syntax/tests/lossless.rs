@@ -3,11 +3,13 @@
 
 mod common;
 
-use avenger_sql_syntax::{expected_at, highlight, parse, parse_module, SyntaxKind, SyntaxNode};
+use avenger_sql_syntax::{
+    expected_at, highlight, parse, parse_data, parse_module, SyntaxKind, SyntaxNode,
+};
 use common::*;
 
 fn inputs() -> Vec<String> {
-    let mut inputs: Vec<String> = [OPERATORS, STATEMENTS, SOURCES, MODULE]
+    let mut inputs: Vec<String> = [OPERATORS, STATEMENTS, SOURCES, MODULE, DATA]
         .iter()
         .map(|text| text.to_string())
         .collect();
@@ -26,8 +28,10 @@ fn inputs() -> Vec<String> {
             .iter()
             .map(|(text, _, _)| text.to_string()),
     );
+    inputs.extend(REJECTED_DATA.iter().map(|(text, _, _)| text.to_string()));
+    inputs.extend(VALIDATED_DATA.iter().map(|(text, _, _)| text.to_string()));
     // Prefixes of the longer inputs, as an editor sees them while a user types.
-    for text in [OPERATORS, STATEMENTS, SOURCES] {
+    for text in [OPERATORS, STATEMENTS, SOURCES, DATA] {
         let mut end = 0;
         while end < text.len() {
             inputs.push(text[..end].to_string());
@@ -83,7 +87,7 @@ fn check_edges(node: &SyntaxNode) {
 #[test]
 fn every_input_round_trips() {
     for text in inputs() {
-        for parse in [parse(&text), parse_module(&text)] {
+        for parse in [parse(&text), parse_module(&text), parse_data(&text)] {
             let root = parse.syntax();
             assert_eq!(root.text().to_string(), text);
             check_edges(&root);
@@ -99,7 +103,7 @@ fn every_input_round_trips() {
 
 #[test]
 fn every_cursor_has_expectations_without_a_panic() {
-    for text in [OPERATORS, STATEMENTS, SOURCES] {
+    for text in [OPERATORS, STATEMENTS, SOURCES, DATA] {
         for offset in (0..=text.len()).filter(|offset| text.is_char_boundary(*offset)) {
             expected_at(text, (offset as u32).into());
         }

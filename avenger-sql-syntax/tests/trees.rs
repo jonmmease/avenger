@@ -1,4 +1,4 @@
-//! The trees of scripts and a module with every kind of node, against baselines.
+//! The trees of scripts, a module and a data script with every kind of node, against baselines.
 
 mod common;
 
@@ -22,4 +22,9 @@ fn the_tree_of_every_source() {
 #[test]
 fn the_tree_of_a_module() {
     assert_baseline("module", &accepts_module(MODULE));
+}
+
+#[test]
+fn the_tree_of_a_data_script() {
+    assert_baseline("data", &accepts_data(DATA));
 }

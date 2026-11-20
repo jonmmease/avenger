@@ -27,8 +27,10 @@
 // followed by pipe operators. A script holds queries, `IMPORT MODULE`, `DECLARE`, `SET`,
 // `CREATE TEMP TABLE`, and `CREATE FUNCTION` of scalar, aggregate and table functions. A module
 // holds `IMPORT MODULE` and `CREATE PUBLIC` or `CREATE PRIVATE` functions, table functions and
-// constants. Within the subset, the parser accepts what GoogleSQL accepts and rejects what
-// GoogleSQL rejects, with its first error where GoogleSQL reports one.
+// constants. A data script holds `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`,
+// `CREATE TABLE ... AS`, `CREATE SCHEMA`, `CREATE TEMP FUNCTION` and `IMPORT MODULE`, which
+// register the tables of a project. Within the subset, the parser accepts what GoogleSQL
+// accepts and rejects what GoogleSQL rejects, with its first error where GoogleSQL reports one.
 //
 // Left out, each rejected with an error at the form:
 //
@@ -47,15 +49,18 @@
 // - Graph queries, protocol buffers, `NEW`, `ENUM` and macros.
 // - Table function arguments other than values and `TABLE name`.
 // - The procedural statements of scripts, and `SET` of a system variable.
-// - Other `CREATE` statements, modules' views, procedures and macros, and `IMPORT PROTO`.
-// - The physical clauses of `CREATE TABLE`, and the defaults, options and constraints of its
+// - Other `CREATE` statements, such as `CREATE MATERIALIZED VIEW`, procedures and macros, and
+//   `IMPORT PROTO`.
+// - The physical clauses of `CREATE TABLE`, `CREATE EXTERNAL TABLE` and `LOAD DATA`, `WITH
+//   CONNECTION`, the column lists of views, and the defaults, options and constraints of
 //   columns.
 // - Function clauses: `LANGUAGE`, determinism, `SQL SECURITY`, parameter defaults and aliases,
 //   and the templated types `ANY STRUCT`, `ANY ARRAY` and `ANY STRING`.
 //
 // The validation pass, `src/validation.rs`, makes the checks that GoogleSQL makes after its
-// parser, in its resolver or module catalog, when they are about syntax: the rules of modules,
-// the order of `DECLARE`, the clauses that a kind of function takes, and the escapes of literals.
+// parser, in its resolver or module catalog, when they are about syntax: the rules of modules
+// and of data scripts, the order of `DECLARE`, the clauses that a kind of function takes, and
+// the escapes of literals.
 
 // --- Scripts and modules ---
 
@@ -75,6 +80,10 @@ Stmt =
 | CreateTableStmt
 | CreateFunctionStmt
 | CreateConstantStmt
+| CreateExternalTableStmt
+| CreateViewStmt
+| CreateSchemaStmt
+| LoadDataStmt
 
 /// `MODULE path [OPTIONS (...)]`
 ModuleStmt =
@@ -95,9 +104,10 @@ DeclareStmt =
 SetStmt =
   'set' (NameRef | NameList) '=' Expr
 
-// In a script, a `CREATE` is `TEMP` or `TEMPORARY`, or has no scope; in a module, it is
-// `PUBLIC` or `PRIVATE`, and takes no `OR REPLACE` or `IF NOT EXISTS`. `OR REPLACE` and
-// `IF NOT EXISTS` don't go together. These are checks of the validation pass.
+// In a script or a data script, a `CREATE` is `TEMP` or `TEMPORARY`, or has no scope, though a
+// script's table and a data script's function are `TEMP`; in a module, it is `PUBLIC` or
+// `PRIVATE`, and takes no `OR REPLACE` or `IF NOT EXISTS`. `OR REPLACE` and `IF NOT EXISTS`
+// don't go together. These are checks of the validation pass.
 /// `CREATE [OR REPLACE] [TEMP] TABLE [IF NOT EXISTS] name [(columns)] [OPTIONS (...)] [AS query]`
 CreateTableStmt =
   'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
@@ -114,6 +124,43 @@ CreateFunctionStmt =
 CreateConstantStmt =
   'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
   'constant' ('if' 'not' 'exists')? Path '=' Expr
+
+// The statements of a data script, which registers a project's tables. A chart script or a
+// module that holds one, or a `CREATE TABLE` without `TEMP`, has an error of the validation
+// pass that names the data scripts. As in GoogleSQL's grammar, `WITH PARTITION COLUMNS` comes
+// before `WITH CONNECTION`, which avenger-sql reports as unsupported, and `OPTIONS` is required.
+/// `CREATE [OR REPLACE] [TEMP] EXTERNAL TABLE [IF NOT EXISTS] name [(columns)]
+/// [WITH PARTITION COLUMNS [(columns)]] OPTIONS (...)`
+CreateExternalTableStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  'external' 'table' ('if' 'not' 'exists')? Path ColumnList? PartitionColumns? Options
+
+/// `CREATE [OR REPLACE] [TEMP] VIEW [IF NOT EXISTS] name [OPTIONS (...)] AS query`
+CreateViewStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  'view' ('if' 'not' 'exists')? Path Options? 'as' Query
+
+// As in GoogleSQL, a schema takes no scope, which the parser reports at `SCHEMA`.
+/// `CREATE [OR REPLACE] SCHEMA [IF NOT EXISTS] name [OPTIONS (...)]`
+CreateSchemaStmt =
+  'create' ('or' 'replace')? scope:('temp' | 'temporary' | 'public' | 'private')?
+  'schema' ('if' 'not' 'exists')? Path Options?
+
+// The clause order is BigQuery's, which GoogleSQL's grammar shares. Its `PARTITIONS`,
+// `PARTITION BY`, `CLUSTER BY` and `WITH CONNECTION` are reported as unsupported.
+/// `LOAD DATA {OVERWRITE | INTO} [TEMP TABLE] name [(columns)] [OPTIONS (...)] FROM FILES (...)
+/// [WITH PARTITION COLUMNS [(columns)]]`
+LoadDataStmt =
+  'load' 'data' mode:('overwrite' | 'into') (scope:('temp' | 'temporary') 'table')? Path
+  ColumnList? Options? FromFiles PartitionColumns?
+
+/// `FROM FILES (name = value, ...)`: the options of the files that a `LOAD DATA` reads.
+FromFiles =
+  'from' 'files' '(' (OptionEntry (',' OptionEntry)* ','?)? ')'
+
+/// `WITH PARTITION COLUMNS [(columns)]`: the columns of the keys of a Hive layout's paths.
+PartitionColumns =
+  'with' 'partition' 'columns' ColumnList?
 
 /// `(name type [NOT NULL], ...)`
 ColumnList =

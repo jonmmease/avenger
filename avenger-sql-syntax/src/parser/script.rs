@@ -2,9 +2,16 @@
 //! `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE`, or `CREATE FUNCTION` of a scalar,
 //! aggregate or table function. A module, a `.sqlm` file, starts with `MODULE name` and holds
 //! `IMPORT MODULE` and `CREATE PUBLIC` or `CREATE PRIVATE` statements of functions, table
-//! functions and constants, following GoogleSQL's modules.
+//! functions and constants, following GoogleSQL's modules. A data script registers the tables of
+//! a project with `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS` and
+//! `CREATE SCHEMA`, following GoogleSQL's DDL, and a script reads its own files with `CREATE TEMP
+//! EXTERNAL TABLE` and `LOAD DATA ... TEMP TABLE`.
+//!
+//! The parser reads the statements of every role in every entry, and the validation pass checks
+//! each statement against the role of its text, so a statement out of its place has an error
+//! that names its place.
 
-use super::Parser;
+use super::{Entry, Parser};
 use crate::{ast::FunctionKind, diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
 
 /// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
@@ -37,11 +44,22 @@ enum Object {
     Table,
     Function(FunctionKind),
     Constant,
+    ExternalTable,
+    View,
+    Schema,
 }
 
 /// The help of a statement that a script doesn't hold.
 const SCRIPT_HOLDS: &str =
-    "a script holds pipe queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE and CREATE TEMP FUNCTION";
+    "a script holds pipe queries, IMPORT MODULE, DECLARE, SET, CREATE TEMP TABLE, CREATE TEMP FUNCTION, CREATE TEMP EXTERNAL TABLE and LOAD DATA ... TEMP TABLE";
+
+/// The help of a statement that a data script doesn't hold.
+const DATA_SCRIPT_HOLDS: &str =
+    "a data script holds CREATE EXTERNAL TABLE, LOAD DATA, CREATE VIEW, CREATE TABLE ... AS, CREATE SCHEMA, CREATE TEMP FUNCTION and IMPORT MODULE";
+
+/// An example of the options of a table's files, for the help of a missing `OPTIONS` or `FROM
+/// FILES`.
+const FILE_OPTIONS: &str = "(format = 'CSV', uris = ['data/files/sales.csv'])";
 
 impl Parser<'_> {
     /// A script, which, as in GoogleSQL, can hold no statements.
@@ -63,7 +81,6 @@ impl Parser<'_> {
                 Some("a module starts with its name, as in `MODULE charts.scales;`".to_string());
         }
         statement.complete(self, MODULE_STMT);
-        self.in_module = true;
         if !self.eat(SEMICOLON) && !self.at_eof() {
             self.error_expected("`;` or the end of the module");
             self.skip_until(|p| p.current() == SEMICOLON);
@@ -73,12 +90,20 @@ impl Parser<'_> {
         marker.complete(self, MODULE);
     }
 
+    /// The help of a statement that the text's role doesn't hold.
+    fn holds(&self) -> &'static str {
+        match self.entry {
+            Entry::Data => DATA_SCRIPT_HOLDS,
+            Entry::Script | Entry::Module => SCRIPT_HOLDS,
+        }
+    }
+
     /// The statements up to the end, separated by `;`. A statement starts at the start of the
     /// text or after a `;`.
     fn statements(&mut self) {
-        let place = match self.in_module {
-            true => "module",
-            false => "script",
+        let place = match self.entry {
+            Entry::Module => "module",
+            Entry::Script | Entry::Data => "script",
         };
         loop {
             self.record(Expected::Statement);
@@ -111,14 +136,15 @@ impl Parser<'_> {
     }
 
     fn statement(&mut self) -> Option<super::CompletedMarker> {
+        let in_module = self.entry == Entry::Module;
         if self.at_keyword("MODULE") {
-            let message = match self.in_module {
+            let message = match in_module {
                 true => "a module has one MODULE statement, its first",
                 false => "a MODULE statement starts a module, not a script",
             };
             let range = self.range();
             // GoogleSQL takes a MODULE statement in a script, and avenger reads it in a module.
-            let code = match self.in_module {
+            let code = match in_module {
                 true => DiagnosticCode::InvalidStatement,
                 false => DiagnosticCode::Unsupported,
             };
@@ -126,7 +152,11 @@ impl Parser<'_> {
             self.skip_until(|p| p.current() == SEMICOLON);
             return None;
         }
-        if self.in_module && !self.at_keyword("IMPORT") && !self.at_keyword("CREATE") {
+        // A `LOAD DATA` belongs to a data script, and the validation pass reports it elsewhere.
+        if self.keyword_at(0, "LOAD") && self.keyword_at(1, "DATA") {
+            return Some(self.load_data());
+        }
+        if in_module && !self.at_keyword("IMPORT") && !self.at_keyword("CREATE") {
             let range = self.range();
             self.error(
                 DiagnosticCode::InvalidStatement,
@@ -158,6 +188,7 @@ impl Parser<'_> {
             (UNSUPPORTED_STATEMENTS.iter()).find(|word| self.keyword_at(first, word))
         {
             let range = self.range();
+            let help = self.holds();
             self.error(
                 DiagnosticCode::Unsupported,
                 range,
@@ -166,7 +197,7 @@ impl Parser<'_> {
                     word.to_ascii_uppercase()
                 ),
             )
-            .help(SCRIPT_HOLDS);
+            .help(help);
             self.skip_statement();
             return None;
         }
@@ -336,22 +367,26 @@ impl Parser<'_> {
     }
 
     /// A `CREATE` statement. The validation pass checks its modifiers against its object and
-    /// against the scripts and modules.
+    /// against the role of the text.
     fn create(&mut self) -> super::CompletedMarker {
         let marker = self.start();
         self.bump_keyword();
         self.eat_keywords(&["OR", "REPLACE"]);
         // A script creates temporary objects and a module public or private ones, as the
         // validation pass checks, so the parser expects the scopes of the text that it reads.
+        let in_module = self.entry == Entry::Module;
         let scopes: [(&str, bool); 4] = [
-            ("TEMP", !self.in_module),
-            ("TEMPORARY", !self.in_module),
-            ("PUBLIC", self.in_module),
-            ("PRIVATE", self.in_module),
+            ("TEMP", !in_module),
+            ("TEMPORARY", !in_module),
+            ("PUBLIC", in_module),
+            ("PRIVATE", in_module),
         ];
-        if let Some((scope, _)) = (scopes.iter()).find(|(word, expected)| {
-            (*expected && self.at_keyword(word)) || self.keyword_at(0, word)
-        }) {
+        let scope = (scopes.iter())
+            .find(|(word, expected)| {
+                (*expected && self.at_keyword(word)) || self.keyword_at(0, word)
+            })
+            .map(|(word, _)| *word);
+        if let Some(scope) = scope {
             self.eat_keyword(scope);
         }
         let object = if self.eat_keywords(&["AGGREGATE", "FUNCTION"]) {
@@ -365,16 +400,40 @@ impl Parser<'_> {
             Some(Object::Function(FunctionKind::Scalar))
         } else if self.eat_keyword("TABLE") {
             Some(Object::Table)
-        } else if (self.in_module && self.at_keyword("CONSTANT")) || self.keyword_at(0, "CONSTANT")
-        {
+        } else if (in_module && self.at_keyword("CONSTANT")) || self.keyword_at(0, "CONSTANT") {
             // A constant belongs to a module, so a script doesn't expect one.
             self.bump_keyword();
             Some(Object::Constant)
+        } else if !self.keyword_at(2, "FUNCTION") && self.eat_data_keywords(&["EXTERNAL", "TABLE"])
+        {
+            Some(Object::ExternalTable)
+        } else if self.eat_data_keywords(&["VIEW"]) {
+            Some(Object::View)
+        } else if (self.entry == Entry::Data && self.at_keyword("SCHEMA"))
+            || self.keyword_at(0, "SCHEMA")
+        {
+            // As in GoogleSQL, a schema takes no scope, an error at its keyword.
+            let range = self.range();
+            self.bump_keyword();
+            if let Some(scope) = scope {
+                self.error(
+                    DiagnosticCode::InvalidStatement,
+                    range,
+                    format!("a SCHEMA takes no {scope}"),
+                )
+                .help("a schema groups the tables of a project, which every script reads");
+            }
+            Some(Object::Schema)
         } else if self.current() == WORD {
-            // An object of GoogleSQL's that avenger-sql doesn't create, such as a view.
+            // An object of GoogleSQL's that avenger-sql doesn't create, such as a materialized
+            // view.
             let range = self.range();
             let mut words = vec![self.nth_text(0).to_ascii_uppercase()];
-            for n in 1..3 {
+            // GoogleSQL's `EXTERNAL TABLE FUNCTION`, which its parser rejects.
+            let external_function = self.keyword_at(0, "EXTERNAL")
+                && self.keyword_at(1, "TABLE")
+                && self.keyword_at(2, "FUNCTION");
+            for n in 1..4 {
                 let word = self.nth_text(n).to_ascii_uppercase();
                 if self.nth(n) != WORD || matches!(word.as_str(), "IF" | "AS") {
                     break;
@@ -384,6 +443,7 @@ impl Parser<'_> {
                     words[0].as_str(),
                     "MATERIALIZED"
                         | "EXTERNAL"
+                        | "RECURSIVE"
                         | "ROW"
                         | "SEARCH"
                         | "VECTOR"
@@ -394,24 +454,30 @@ impl Parser<'_> {
                         | "SNAPSHOT"
                         | "PRIVILEGE"
                         | "LOCALITY"
-                ) || n > 1
+                ) || n > 2
+                    || (n > 1 && !external_function)
                 {
                     break;
                 }
                 words.push(word);
             }
+            let help = self.holds();
             self.error(
                 DiagnosticCode::Unsupported,
                 range,
                 format!("avenger-sql's scripts create no {}", words.join(" ")),
             )
-            .help(SCRIPT_HOLDS);
+            .help(help);
             self.skip_statement();
             return marker.complete(self, ERROR);
         } else {
-            self.error_expected(
-                "`TABLE`, `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION` or `CONSTANT`",
-            );
+            let data = match self.entry {
+                Entry::Data => ", `EXTERNAL TABLE`, `VIEW`, `SCHEMA`",
+                Entry::Script | Entry::Module => "",
+            };
+            self.error_expected(&format!(
+                "`TABLE`, `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION`{data} or `CONSTANT`"
+            ));
             None
         };
         self.eat_keywords(&["IF", "NOT", "EXISTS"]);
@@ -419,21 +485,28 @@ impl Parser<'_> {
             self.skip_until(|p| p.current() == SEMICOLON);
             return marker.complete(self, ERROR);
         };
-        self.record_name(match object {
-            Object::Table => NameRole::Table,
+        let role = match object {
+            Object::Table | Object::ExternalTable | Object::View => NameRole::Table,
             Object::Function(kind) => NameRole::Function(kind.into()),
             Object::Constant => NameRole::Variable,
-        });
-        match object {
-            Object::Table => {
-                self.table_path();
-            }
-            Object::Function(kind) => {
-                self.path(NameRole::Function(kind.into()));
-            }
-            Object::Constant => {
-                self.path(NameRole::Variable);
-            }
+            Object::Schema => NameRole::Schema,
+        };
+        self.record_name(role);
+        let named = match object {
+            Object::Table | Object::ExternalTable | Object::View => self.table_path(),
+            Object::Function(_) | Object::Constant | Object::Schema => self.path(role).is_some(),
+        };
+        // The statements of a data script without a name skip the rest, whose errors would
+        // follow from the missing name.
+        let data_kind = match object {
+            Object::ExternalTable => Some(CREATE_EXTERNAL_TABLE_STMT),
+            Object::View => Some(CREATE_VIEW_STMT),
+            Object::Schema => Some(CREATE_SCHEMA_STMT),
+            Object::Table | Object::Function(_) | Object::Constant => None,
+        };
+        if let (false, Some(kind)) = (named, data_kind) {
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return marker.complete(self, kind);
         }
         let kind = match object {
             Object::Table => {
@@ -449,8 +522,256 @@ impl Parser<'_> {
                 self.expr();
                 CREATE_CONSTANT_STMT
             }
+            Object::ExternalTable => {
+                self.create_external_table();
+                CREATE_EXTERNAL_TABLE_STMT
+            }
+            Object::View => {
+                self.create_view();
+                CREATE_VIEW_STMT
+            }
+            Object::Schema => {
+                self.create_schema();
+                CREATE_SCHEMA_STMT
+            }
         };
         marker.complete(self, kind)
+    }
+
+    /// Whether the next tokens are the keywords `keywords` of a statement of a data script,
+    /// which it consumes when they are. Only a data script records them at the cursor, so that a
+    /// completion in a chart script or a module doesn't offer them.
+    fn eat_data_keywords(&mut self, keywords: &'static [&'static str]) -> bool {
+        let found = match (self.entry, keywords) {
+            (Entry::Data, [keyword]) => self.at_keyword(keyword),
+            (Entry::Data, _) => self.at_keywords(keywords),
+            (Entry::Script | Entry::Module, _) => {
+                (keywords.iter().enumerate()).all(|(n, keyword)| self.keyword_at(n, keyword))
+            }
+        };
+        if found {
+            for _ in keywords {
+                self.bump_keyword();
+            }
+        }
+        found
+    }
+
+    /// Reports the clause of two keywords at the current token, GoogleSQL's clause of `what`
+    /// that avenger-sql doesn't read, when it is one of `clauses`, and skips the tokens before
+    /// the next token that `stop` accepts.
+    fn unsupported_clause(
+        &mut self,
+        what: &str,
+        clauses: &[[&str; 2]],
+        stop: impl Fn(&Self) -> bool,
+    ) -> bool {
+        let Some(clause) = (clauses.iter())
+            .find(|clause| self.keyword_at(0, clause[0]) && self.keyword_at(1, clause[1]))
+        else {
+            return false;
+        };
+        let range = self.range().cover(self.nth_range(1));
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            format!("avenger-sql's {what} take no {} {}", clause[0], clause[1]),
+        );
+        self.skip_until(|p| p.current() == SEMICOLON || stop(p));
+        true
+    }
+
+    /// The rest of `CREATE EXTERNAL TABLE`, after its name.
+    fn create_external_table(&mut self) {
+        if self.copied_table() {
+            return;
+        }
+        if self.current() == L_PAREN {
+            self.column_list();
+        }
+        if self.copied_table() {
+            return;
+        }
+        self.unsupported_clause("external tables", &[["DEFAULT", "COLLATE"]], |p| {
+            p.keyword_at(0, "WITH") || p.keyword_at(0, "OPTIONS")
+        });
+        self.partition_columns();
+        self.with_connection();
+        // A `WITH` of another clause, which GoogleSQL reports at the word after it.
+        if self.keyword_at(0, "WITH") && !self.keyword_at(1, "PARTITION") {
+            let error = self.start();
+            self.bump_keyword();
+            error.complete(self, ERROR);
+            self.error_expected("`PARTITION COLUMNS` or `CONNECTION`");
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return;
+        }
+        if !self.at_keyword("OPTIONS") {
+            if self.reported_at_end() {
+                return;
+            }
+            self.error_expected("`OPTIONS`").help = Some(format!(
+                "an external table names its files in its options, as in `OPTIONS {FILE_OPTIONS}`"
+            ));
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return;
+        }
+        let options = self.start();
+        self.bump_keyword();
+        self.option_entries();
+        options.complete(self, OPTIONS);
+    }
+
+    /// `[WITH PARTITION COLUMNS [(columns)]]`
+    fn partition_columns(&mut self) {
+        let at = self.at_keywords(&["WITH", "PARTITION", "COLUMNS"])
+            || (self.keyword_at(0, "WITH") && self.keyword_at(1, "PARTITION"));
+        if !at {
+            return;
+        }
+        let marker = self.start();
+        self.bump_keyword();
+        self.bump_keyword();
+        if self.expect_keyword("COLUMNS") && self.current() == L_PAREN {
+            self.column_list();
+        }
+        marker.complete(self, PARTITION_COLUMNS);
+    }
+
+    /// Reports GoogleSQL's `WITH CONNECTION` of a table of files, which avenger-sql reads without
+    /// connections, and skips it.
+    fn with_connection(&mut self) {
+        if !(self.keyword_at(0, "WITH") && self.keyword_at(1, "CONNECTION")) {
+            return;
+        }
+        let range = self.range().cover(self.nth_range(1));
+        self.error(
+            DiagnosticCode::Unsupported,
+            range,
+            "avenger-sql reads files without connections, so no WITH CONNECTION",
+        );
+        self.skip_until(|p| {
+            p.current() == SEMICOLON
+                || p.keyword_at(0, "OPTIONS")
+                || (p.keyword_at(0, "WITH") && p.keyword_at(1, "PARTITION"))
+        });
+    }
+
+    /// The rest of `CREATE VIEW`, after its name.
+    fn create_view(&mut self) {
+        if self.current() == L_PAREN {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's views take their columns from their queries, so no column list",
+            );
+            let error = self.start();
+            self.skip_balanced();
+            error.complete(self, ERROR);
+        }
+        if self.keyword_at(0, "SQL") && self.keyword_at(1, "SECURITY") {
+            let n = if self.nth(2) == WORD { 3 } else { 2 };
+            self.unsupported_tokens(n, "avenger-sql's views take no SQL SECURITY");
+        }
+        self.options();
+        if !self.at_keyword("AS") {
+            if !self.reported_at_end() {
+                self.error_expected("`AS`");
+            }
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return;
+        }
+        self.bump_keyword();
+        self.query();
+    }
+
+    /// The rest of `CREATE SCHEMA`, after its name.
+    fn create_schema(&mut self) {
+        self.unsupported_clause("schemas", &[["DEFAULT", "COLLATE"]], |p| {
+            p.keyword_at(0, "OPTIONS")
+        });
+        self.options();
+    }
+
+    /// `LOAD DATA {OVERWRITE | INTO} [TEMP TABLE] name [(columns)] [OPTIONS (...)] FROM FILES
+    /// (...) [WITH PARTITION COLUMNS [(columns)]]`
+    fn load_data(&mut self) -> super::CompletedMarker {
+        let marker = self.start();
+        self.bump_keyword();
+        self.bump_keyword();
+        if !self.expect_keyword_of(&["OVERWRITE", "INTO"]) {
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return marker.complete(self, LOAD_DATA_STMT);
+        }
+        // `TEMP` is a scope only before `TABLE`, and otherwise a table's name.
+        if self.at_keywords(&["TEMP", "TABLE"]) || self.at_keywords(&["TEMPORARY", "TABLE"]) {
+            self.bump_keyword();
+            self.bump_keyword();
+        }
+        self.record_name(NameRole::Table);
+        if !self.table_path() {
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return marker.complete(self, LOAD_DATA_STMT);
+        }
+        if self.current() == L_PAREN {
+            self.column_list();
+        }
+        // GoogleSQL's clauses of the partitions, the collation and the clusters of the table.
+        let stop = |p: &Self| {
+            p.keyword_at(0, "OPTIONS") || (p.keyword_at(0, "FROM") && p.keyword_at(1, "FILES"))
+        };
+        let n = match self.keyword_at(0, "OVERWRITE") && self.keyword_at(1, "PARTITIONS") {
+            true => 2,
+            false => usize::from(self.keyword_at(0, "PARTITIONS") || self.keyword_at(0, "COLLATE")),
+        };
+        if n > 0 {
+            let range = self.range().cover(self.nth_range(n - 1));
+            let clause = (0..n)
+                .map(|k| self.nth_text(k).to_ascii_uppercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                format!("avenger-sql's LOAD DATA statements take no {clause}"),
+            );
+            self.skip_until(|p| p.current() == SEMICOLON || stop(p));
+        }
+        self.unsupported_clause(
+            "LOAD DATA statements",
+            &[["PARTITION", "BY"], ["CLUSTER", "BY"]],
+            stop,
+        );
+        self.options();
+        if !self.files() {
+            self.skip_until(|p| p.current() == SEMICOLON);
+            return marker.complete(self, LOAD_DATA_STMT);
+        }
+        self.partition_columns();
+        self.with_connection();
+        marker.complete(self, LOAD_DATA_STMT)
+    }
+
+    /// `FROM FILES (name = value, ...)`, and whether it is there.
+    fn files(&mut self) -> bool {
+        if !(self.at_keywords(&["FROM", "FILES"]) || self.keyword_at(0, "FROM")) {
+            if self.reported_at_end() {
+                return false;
+            }
+            self.error_expected("`FROM FILES`").help = Some(format!(
+                "LOAD DATA names its files in FROM FILES, as in `FROM FILES {FILE_OPTIONS}`"
+            ));
+            return false;
+        }
+        let marker = self.start();
+        self.bump_keyword();
+        let files = self.expect_keyword("FILES");
+        if files {
+            self.option_entries();
+        }
+        marker.complete(self, FROM_FILES);
+        files
     }
 
     /// Whether GoogleSQL's table that copies another's schema or data, with `LIKE`, `CLONE` or
@@ -476,11 +797,7 @@ impl Parser<'_> {
             return;
         }
         if self.current() == L_PAREN {
-            let list = self.start();
-            self.parens(|p| {
-                p.comma_list_until(Self::column_definition, |p| p.current() == R_PAREN);
-            });
-            list.complete(self, COLUMN_LIST);
+            self.column_list();
         }
         if self.copied_table() {
             return;
@@ -491,17 +808,9 @@ impl Parser<'_> {
             ["CLUSTER", "BY"],
             ["WITH", "CONNECTION"],
         ] {
-            if self.keyword_at(0, clause[0]) && self.keyword_at(1, clause[1]) {
-                let range = self.range().cover(self.nth_range(1));
-                self.error(
-                    DiagnosticCode::Unsupported,
-                    range,
-                    format!("avenger-sql's tables take no {} {}", clause[0], clause[1]),
-                );
-                self.skip_until(|p| {
-                    p.current() == SEMICOLON || p.at_keyword("OPTIONS") || p.at_keyword("AS")
-                });
-            }
+            self.unsupported_clause("tables", &[clause], |p| {
+                p.at_keyword("OPTIONS") || p.at_keyword("AS")
+            });
         }
         self.options();
         if self.eat_keyword("AS") {
@@ -509,9 +818,41 @@ impl Parser<'_> {
         }
     }
 
+    /// `(name type [NOT NULL], ...)`
+    fn column_list(&mut self) {
+        let list = self.start();
+        self.parens(|p| {
+            // Where the text ends after the `(`, the `)` is missing, and a name can start.
+            if p.at_eof() {
+                p.record_name(NameRole::Column);
+            } else {
+                p.comma_list_until(Self::column_definition, |p| p.current() == R_PAREN);
+            }
+        });
+        list.complete(self, COLUMN_LIST);
+    }
+
     /// `name type [NOT NULL]`
     fn column_definition(&mut self) {
         let marker = self.start();
+        // GoogleSQL's constraints of a table, as `PRIMARY KEY (a)` or `CONSTRAINT c CHECK (a > 0)`,
+        // among its columns.
+        let constraint = (self.keyword_at(0, "PRIMARY") && self.keyword_at(1, "KEY"))
+            || (self.keyword_at(0, "FOREIGN") && self.keyword_at(1, "KEY"))
+            || (self.keyword_at(0, "CHECK") && self.nth(1) == L_PAREN)
+            || (self.keyword_at(0, "CONSTRAINT")
+                && (self.keyword_at(2, "FOREIGN") || self.keyword_at(2, "CHECK")));
+        if constraint {
+            let range = self.range();
+            self.error(
+                DiagnosticCode::Unsupported,
+                range,
+                "avenger-sql's tables take no constraints, such as PRIMARY KEY",
+            );
+            self.skip_until(|p| matches!(p.current(), COMMA | R_PAREN | SEMICOLON));
+            marker.complete(self, ERROR);
+            return;
+        }
         self.name(NameRole::Column);
         self.ty();
         self.eat_keywords(&["NOT", "NULL"]);
@@ -537,31 +878,43 @@ impl Parser<'_> {
         }
         let marker = self.start();
         self.bump_keyword();
-        self.paren_list(
-            |p| {
-                let entry = p.start();
-                // As in GoogleSQL, an option's name can also be HASH, PROTO or PARTITION.
-                let hint_word = ["HASH", "PROTO", "PARTITION"]
-                    .iter()
-                    .any(|word| p.keyword_at(0, word));
-                if hint_word {
-                    let name = p.start();
-                    p.bump();
-                    name.complete(p, NAME);
-                } else {
-                    p.name(NameRole::Option);
-                }
-                // GoogleSQL's `+=` and `-=` of an ALTER's options.
-                if matches!(p.current(), PLUS | MINUS) && p.nth(1) == EQ {
-                    p.unsupported_tokens(1, "avenger-sql's OPTIONS set each option with `=`");
-                }
-                p.expect(EQ, "`=`");
-                p.expr();
-                entry.complete(p, OPTION_ENTRY);
-            },
-            true,
-        );
+        self.option_entries();
         marker.complete(self, OPTIONS);
+    }
+
+    /// `(name = value, ...)`, the entries of `OPTIONS` or of `FROM FILES`.
+    fn option_entries(&mut self) {
+        self.parens(|p| {
+            // Where the text ends after the `(`, the `)` is missing, and a name can start.
+            if p.at_eof() {
+                p.record_name(NameRole::Option);
+            } else if p.current() != R_PAREN {
+                p.comma_list(Self::option_entry);
+            }
+        });
+    }
+
+    /// `name = value`
+    fn option_entry(&mut self) {
+        let entry = self.start();
+        // As in GoogleSQL, an option's name can also be HASH, PROTO or PARTITION.
+        let hint_word = ["HASH", "PROTO", "PARTITION"]
+            .iter()
+            .any(|word| self.keyword_at(0, word));
+        if hint_word {
+            let name = self.start();
+            self.bump();
+            name.complete(self, NAME);
+        } else {
+            self.name(NameRole::Option);
+        }
+        // GoogleSQL's `+=` and `-=` of an ALTER's options.
+        if matches!(self.current(), PLUS | MINUS) && self.nth(1) == EQ {
+            self.unsupported_tokens(1, "avenger-sql's OPTIONS set each option with `=`");
+        }
+        self.expect(EQ, "`=`");
+        self.expr();
+        entry.complete(self, OPTION_ENTRY);
     }
 
     /// The rest of `CREATE [AGGREGATE | TABLE] FUNCTION`, after its name.
