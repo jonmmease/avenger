@@ -19,7 +19,7 @@ use crate::buffer::{Buffer, Running, Shown};
 use crate::cards::{Gallery, THUMBNAILS};
 use crate::charts::{self, ChartTheme, Images};
 use crate::document::{self, Analyzed};
-use crate::editor::{self, CodeEditor};
+use crate::editor::{self, CodeEditor, Text};
 use crate::exec::Exec;
 use crate::format;
 use crate::gallery::{examples, Example};
@@ -31,7 +31,7 @@ use crate::samples::{self, Sample};
 use crate::sidebar;
 use crate::sources::{table_name, FileKind, Source};
 use crate::table::{CellKey, CellScene, Cells, Env, Grid, LiveCells};
-use crate::workspace::{LoadState, Saved, Workspace};
+use crate::workspace::{LoadState, Saved, Styles, TabKind, Workspace};
 use avenger_sql_language::FileRole;
 use avenger_sql_project::TableChange;
 
@@ -184,6 +184,11 @@ enum Message {
         path: Option<String>,
         result: Result<(Vec<TableChange>, LoadState), String>,
     },
+    /// A load of the project's stylesheets that ended.
+    Styled {
+        generation: u64,
+        styles: Result<Styles, String>,
+    },
 }
 
 /// The buffer that a run belongs to: the query of the editor without a project, or the tab of a
@@ -274,8 +279,8 @@ pub struct EditorApp {
     runtime: Exec,
     session: SessionContext,
     functions: Functions,
-    /// The theme of the charts, and its cascade and the reader's preferences, which follow the
-    /// editor's visuals.
+    /// The theme of the charts, which follows the editor's visuals, the reader's preferences of
+    /// the theme, and the cascade of the theme with the open project's stylesheets.
     theme: ChartTheme,
     cascade: Arc<Cascade>,
     preferences: Preferences,
@@ -355,7 +360,7 @@ impl EditorApp {
             session,
             functions,
             theme,
-            cascade: theme.cascade(),
+            cascade: theme.cascade(None),
             preferences: theme.preferences(),
             engine: charts::engine(),
             images: Images::new(&cc.egui_ctx)?,
@@ -562,10 +567,26 @@ impl EditorApp {
         }
     }
 
-    /// The owner of the active buffer's runs.
-    fn active_owner(&self) -> Option<Owner> {
+    /// The buffer whose result the result pane shows: the query, or the shown tab of the project,
+    /// which is the active tab unless a stylesheet's tab is active.
+    fn shown(&self) -> Option<&Buffer> {
         match &self.workspace {
-            Some(workspace) => workspace.active().map(|tab| Owner::Tab {
+            Some(workspace) => workspace.shown().map(|tab| &tab.buffer),
+            None => Some(&self.query),
+        }
+    }
+
+    fn shown_mut(&mut self) -> Option<&mut Buffer> {
+        match &mut self.workspace {
+            Some(workspace) => workspace.shown_mut().map(|tab| &mut tab.buffer),
+            None => Some(&mut self.query),
+        }
+    }
+
+    /// The owner of the shown buffer's runs.
+    fn shown_owner(&self) -> Option<Owner> {
+        match &self.workspace {
+            Some(workspace) => workspace.shown().map(|tab| Owner::Tab {
                 generation: self.generation,
                 path: tab.path.clone(),
             }),
@@ -588,7 +609,8 @@ impl EditorApp {
     fn run(&mut self, ctx: &egui::Context) {
         match &self.workspace {
             Some(workspace) => {
-                let chart = (workspace.active()).filter(|tab| tab.role == FileRole::Chart);
+                let chart =
+                    (workspace.active()).filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
                 if let Some(path) = chart.map(|tab| tab.path.clone()) {
                     self.run_tab(ctx, &path);
                 }
@@ -688,7 +710,8 @@ impl EditorApp {
     }
 
     /// Saves the active tab to its file, and loads it again when it is a data script, runs it
-    /// when it is a chart script, and loads the project again when it is a module.
+    /// when it is a chart script, loads the project again when it is a module, and loads the
+    /// stylesheets again and restyles the charts when it is a stylesheet.
     fn save(&mut self, ctx: &egui::Context) {
         let Some(workspace) = &mut self.workspace else {
             return;
@@ -700,8 +723,25 @@ impl EditorApp {
             Ok(Saved::Data { path, text }) => self.reload(ctx, Some((path, text))),
             Ok(Saved::Chart { path }) => self.run_tab(ctx, &path),
             Ok(Saved::Module) => self.reload(ctx, None),
+            Ok(Saved::Stylesheet) => self.reload_styles(ctx),
             Err(error) => self.notice = Some(format!("Cannot save: {error}")),
         }
+    }
+
+    /// Loads the project's stylesheets again in the background, after which the charts restyle.
+    fn reload_styles(&mut self, ctx: &egui::Context) {
+        let generation = self.generation;
+        let Some(workspace) = &mut self.workspace else {
+            return;
+        };
+        workspace.styling = true;
+        let files = workspace.files().clone();
+        let (sender, ctx) = (self.messages.0.clone(), ctx.clone());
+        drop(self.runtime.spawn(move || async move {
+            let styles = Styles::load(&files).await;
+            let _ = sender.send(Message::Styled { generation, styles });
+            ctx.request_repaint();
+        }));
     }
 
     /// Loads the data script `script`, a path and its text, again in the background, or every
@@ -735,10 +775,12 @@ impl EditorApp {
         let Some(workspace) = &mut self.workspace else {
             return;
         };
-        let before = workspace.active().map(|tab| tab.path.clone());
+        let shown = |workspace: &Workspace| workspace.shown().map(|tab| tab.path.clone());
+        let before = shown(workspace);
         let opened = workspace.open_tab(path);
-        let chart = (workspace.tab(path)).is_some_and(|tab| tab.role == FileRole::Chart);
-        if before.as_deref() != Some(path) {
+        let chart =
+            (workspace.tab(path)).is_some_and(|tab| tab.kind == TabKind::Sql(FileRole::Chart));
+        if shown(workspace) != before {
             self.present(state);
         }
         if opened == Some(true) && chart {
@@ -751,17 +793,18 @@ impl EditorApp {
         let Some(workspace) = &mut self.workspace else {
             return;
         };
-        let active = workspace.active().is_some_and(|tab| tab.path == path);
+        let shown = |workspace: &Workspace| workspace.shown().map(|tab| tab.path.clone());
+        let before = shown(workspace);
         if let Some(mut tab) = workspace.close_tab(path) {
             tab.buffer.cancel();
         }
-        if active {
+        if shown(workspace) != before {
             self.present(state);
         }
     }
 
     fn cancel(&mut self) {
-        if self.active_mut().is_some_and(Buffer::cancel) {
+        if self.shown_mut().is_some_and(Buffer::cancel) {
             self.notice = Some("Canceled the query.".to_string());
         }
     }
@@ -859,7 +902,7 @@ impl EditorApp {
                     outcome,
                     elapsed,
                 } => {
-                    let active = self.active_owner().as_ref() == Some(&owner);
+                    let shown = self.shown_owner().as_ref() == Some(&owner);
                     let Some(buffer) = self.buffer_mut(&owner) else {
                         continue;
                     };
@@ -878,7 +921,7 @@ impl EditorApp {
                                 plan,
                                 elapsed,
                             });
-                            if active {
+                            if shown {
                                 self.notice = None;
                                 self.show_result(state);
                             }
@@ -939,6 +982,7 @@ impl EditorApp {
                             if self.tab == Tab::Examples {
                                 self.tab = Tab::Result;
                             }
+                            self.restyle(ctx, state);
                             self.present(state);
                             if let Some(file) = file {
                                 self.open_tab(ctx, state, &file);
@@ -974,6 +1018,24 @@ impl EditorApp {
                         }
                     }
                 }
+                Message::Styled { generation, styles } => {
+                    if generation != self.generation {
+                        continue;
+                    }
+                    let Some(workspace) = &mut self.workspace else {
+                        continue;
+                    };
+                    workspace.styling = false;
+                    match styles {
+                        Ok(styles) => {
+                            workspace.set_styles(styles);
+                            self.restyle(ctx, state);
+                        }
+                        Err(error) => {
+                            self.notice = Some(format!("Cannot load the stylesheets: {error}"));
+                        }
+                    }
+                }
             }
         }
         while let Ok(scene) = self.scenes.1.try_recv() {
@@ -988,10 +1050,10 @@ impl EditorApp {
         }
     }
 
-    /// Shows the new result of the active buffer: the chart of the pane takes a single chart
-    /// and keeps its pans and zooms, and the cells of a table start over.
+    /// Shows the new result of the shown buffer: the chart of the pane takes a single chart and
+    /// keeps its pans and zooms, and the cells of a table start over.
     fn show_result(&mut self, state: &RenderState) {
-        let Some(shown) = self.active().and_then(|buffer| buffer.shown.as_ref()) else {
+        let Some(shown) = self.shown().and_then(|buffer| buffer.shown.as_ref()) else {
             return;
         };
         let id = shown.id;
@@ -1011,10 +1073,10 @@ impl EditorApp {
         }
     }
 
-    /// Shows the result of the buffer that became active, from the start: its chart builds
-    /// again, and its cells draw again.
+    /// Shows the result of the buffer that became the shown buffer, from the start: its chart
+    /// builds again, and its cells draw again.
     fn present(&mut self, state: &RenderState) {
-        let id = (self.active())
+        let id = (self.shown())
             .and_then(|buffer| buffer.shown.as_ref())
             .map_or(0, |shown| shown.id);
         self.cells.reset(id, state);
@@ -1026,16 +1088,23 @@ impl EditorApp {
     }
 
     /// Restyles the charts when the editor's visuals change, as when the theme turns dark, so that
-    /// each chart's background stays the panel's color: the live charts keep their views and
-    /// selections, and the static charts of the cells and the gallery evaluate again.
+    /// each chart's background stays the panel's color.
     fn follow_theme(&mut self, ctx: &egui::Context, state: &RenderState) {
         let theme = ChartTheme::of(&ctx.style().visuals);
         if theme == self.theme {
             return;
         }
         self.theme = theme;
-        self.cascade = theme.cascade();
-        self.preferences = theme.preferences();
+        self.restyle(ctx, state);
+    }
+
+    /// Restyles the charts with the cascade of the theme and the open project's stylesheets, and
+    /// the reader's preferences of the theme: the live charts keep their views and selections,
+    /// and the static charts of the cells and the gallery evaluate again.
+    fn restyle(&mut self, ctx: &egui::Context, state: &RenderState) {
+        let sheet = (self.workspace.as_ref()).and_then(|workspace| workspace.styles().sheet());
+        self.cascade = self.theme.cascade(sheet);
+        self.preferences = self.theme.preferences();
         let panes = std::iter::once(&self.pane).chain(self.opened.as_ref().map(|(_, pane)| pane));
         for chart in panes.filter_map(|pane| pane.chart.as_ref()) {
             chart.restyle(self.cascade.clone(), self.preferences.clone());
@@ -1050,7 +1119,7 @@ impl EditorApp {
     fn format(&mut self, ctx: &egui::Context) {
         match &mut self.workspace {
             Some(workspace) => {
-                let Some((tab, language)) = workspace.active_with_language() else {
+                let Some((tab, language, _)) = workspace.active_with_context() else {
                     return;
                 };
                 let Some(document) = language.document(&tab.path) else {
@@ -1080,6 +1149,9 @@ impl EditorApp {
         match &self.workspace {
             Some(workspace) => {
                 let tab = workspace.active()?;
+                if tab.kind == TabKind::Stylesheet {
+                    return Some("The editor formats SQL, and not stylesheets");
+                }
                 let document = workspace.language().document(&tab.path)?;
                 format::blocked(document)
             }
@@ -1097,7 +1169,7 @@ impl EditorApp {
             || self.opening.is_some()
             || (self.workspace)
                 .as_ref()
-                .is_some_and(|workspace| !workspace.loading.is_empty())
+                .is_some_and(|workspace| !workspace.loading.is_empty() || workspace.styling)
             || !self.pending.is_empty()
             || self.samples.is_none()
             || self.run_when_ready
@@ -1131,7 +1203,8 @@ impl EditorApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let (runs, what) = match &self.workspace {
                     Some(workspace) => (
-                        (workspace.active()).is_some_and(|tab| tab.role == FileRole::Chart),
+                        (workspace.active())
+                            .is_some_and(|tab| tab.kind == TabKind::Sql(FileRole::Chart)),
                         "the chart",
                     ),
                     None => (true, "the query"),
@@ -1142,7 +1215,10 @@ impl EditorApp {
                         "Run {what} ({})",
                         ctx.format_shortcut(&run_shortcut())
                     ))
-                    .on_disabled_hover_text("Save a data script to load it, and run a chart");
+                    .on_disabled_hover_text(
+                        "Save a data script to load it, or a stylesheet to restyle the charts, \
+                         and run a chart",
+                    );
                 if run.clicked() {
                     self.run(ctx);
                 }
@@ -1226,25 +1302,37 @@ impl EditorApp {
     }
 
     /// The code editor of the active buffer, analyzed by the query's document or by the
-    /// project's document of the tab's file. A definition in another file opens that file.
+    /// project's document of the tab's file, or of a stylesheet's tab, colored by its tokens with
+    /// the errors of the last load of the stylesheets. A definition in another file opens that
+    /// file.
     fn code_editor(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, state: &RenderState) {
         let output = match &mut self.workspace {
             Some(workspace) => {
                 if let Some(path) = workspace.active().map(|tab| tab.path.clone()) {
                     workspace.sync(&path);
                 }
-                let Some((tab, language)) = workspace.active_with_language() else {
+                let Some((tab, language, styles)) = workspace.active_with_context() else {
                     return;
                 };
-                let Some(analysis) = Analysis::file(language, &tab.path) else {
-                    return;
+                let text = match tab.kind {
+                    TabKind::Sql(_) => {
+                        let Some(analysis) = Analysis::file(language, &tab.path) else {
+                            return;
+                        };
+                        Text::Sql(analysis)
+                    }
+                    TabKind::Stylesheet => Text::Css {
+                        loaded: styles.text(&tab.path).unwrap_or_default(),
+                        diagnostics: styles.diagnostics(&tab.path),
+                    },
                 };
-                (tab.buffer.editor).show(ui, &mut tab.buffer.text, analysis)
+                (tab.buffer.editor).show(ui, &mut tab.buffer.text, text)
             }
             None => {
                 let analyzed = self.query.text.clone();
                 let document = self.analyzed.document(&analyzed);
-                (self.query.editor).show(ui, &mut self.query.text, Analysis::query(document))
+                let text = Text::Sql(Analysis::query(document));
+                (self.query.editor).show(ui, &mut self.query.text, text)
             }
         };
         if output.changed {
@@ -1274,7 +1362,7 @@ impl EditorApp {
                     false => format!("Loading {path}…"),
                 })
             });
-            let buffer = self.active();
+            let buffer = self.shown();
             if let Some(running) = buffer.and_then(|buffer| buffer.running.as_ref()) {
                 ui.spinner();
                 ui.label("Running…");
@@ -1292,6 +1380,9 @@ impl EditorApp {
             } else if let Some(reloading) = reloading {
                 ui.spinner();
                 ui.label(reloading);
+            } else if (self.workspace.as_ref()).is_some_and(|workspace| workspace.styling) {
+                ui.spinner();
+                ui.label("Loading the stylesheets…");
             } else if let Some(error) = buffer.and_then(|buffer| buffer.error.as_ref()) {
                 let first = error.message.lines().next().unwrap_or_default();
                 ui.add(
@@ -1306,7 +1397,10 @@ impl EditorApp {
                 let noun = if rows == 1 { "row" } else { "rows" };
                 ui.label(format!("{rows} {noun} · {} ms", shown.elapsed.as_millis()));
             } else if self.workspace.is_some() {
-                ui.weak("Open a chart to run it, and save a data script to load it.");
+                ui.weak(
+                    "Open a chart to run it, save a data script to load it, and save a \
+                     stylesheet to restyle the charts.",
+                );
             } else {
                 ui.weak("Write a query and press Run.");
             }
@@ -1314,7 +1408,7 @@ impl EditorApp {
     }
 
     fn results(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, state: &RenderState) {
-        let buffer = self.active();
+        let buffer = self.shown();
         let shown = buffer.and_then(|buffer| buffer.shown.as_ref());
         let failed = buffer.is_some_and(|buffer| buffer.error.is_some());
         let charts_in_table = shown.is_some_and(|shown| {
@@ -1370,12 +1464,12 @@ impl EditorApp {
             }
             Tab::Result => self.result_tab(ui, state),
             Tab::Plan => {
-                let plan = (self.active())
+                let plan = (self.shown())
                     .and_then(|buffer| buffer.shown.as_ref())
                     .map_or("", |shown| shown.plan.as_str());
                 code(ui, plan);
             }
-            Tab::Lifted => match self.active().and_then(|buffer| buffer.lifted.as_ref()) {
+            Tab::Lifted => match self.shown().and_then(|buffer| buffer.lifted.as_ref()) {
                 None => {
                     ui.weak("The lifted query shows here after the query runs.");
                 }
@@ -1392,7 +1486,7 @@ impl EditorApp {
 
     fn result_tab(&mut self, ui: &mut egui::Ui, state: &RenderState) {
         let shown = match &self.workspace {
-            Some(workspace) => workspace.active().and_then(|tab| tab.buffer.shown.as_ref()),
+            Some(workspace) => workspace.shown().and_then(|tab| tab.buffer.shown.as_ref()),
             None => self.query.shown.as_ref(),
         };
         let Some(shown) = shown else {
@@ -1788,9 +1882,10 @@ fn sql(ui: &mut egui::Ui, text: &str, marked: &[std::ops::Range<usize>]) {
         false => egui::Color32::from_rgb(255, 241, 194),
     };
     let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
+        let text = buffer.as_str();
         let job = editor::layout_job(
-            buffer.as_str(),
-            &highlight::syntax(buffer.as_str()),
+            text,
+            &highlight::spans(text, &highlight::syntax(text)),
             egui::FontId::monospace(13.0),
             marked,
             background,
