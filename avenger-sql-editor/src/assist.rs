@@ -1,15 +1,62 @@
-//! The editor's assistance outside egui: the state of the completion popup, which items it shows
-//! as the user types, and the text after an insert, the fixes of the errors at the cursor, the
-//! definition and the references of the name at the cursor, and the blocks of a hover.
-//! Positions are character indices, as egui's cursor counts them, and the requests of the
-//! `Document` take byte offsets, which [`Chars`] converts.
+//! The editor's assistance outside egui: the analysis of the editor's text, a query's or a
+//! project file's, the state of the completion popup, which items it shows as the user types,
+//! and the text after an insert, the fixes of the errors at the cursor, the definition and the
+//! references of the name at the cursor, and the blocks of a hover. Positions are character
+//! indices, as egui's cursor counts them, and the requests of the `Document` take byte offsets,
+//! which [`Chars`] converts.
 
 use std::ops::Range;
 
-use avenger_sql_language::{CompletionItem, CompletionKind, Document, Fix};
+use avenger_sql_language::{CompletionItem, CompletionKind, Diagnostic, Document, Fix, Project};
 use avenger_sql_syntax::FunctionRole;
 
 use crate::highlight::Chars;
+
+/// The analysis of the editor's text: the document of a query, or of a file of a project, whose
+/// diagnostics are the project's, with its own errors and its loader's, and whose definitions
+/// can be in the project's other files.
+#[derive(Clone, Copy)]
+pub struct Analysis<'a> {
+    pub document: &'a Document,
+    /// The project of the file, and the file's path.
+    file: Option<(&'a Project, &'a str)>,
+}
+
+/// The place of a definition: a range of characters of the editor's text, or of the text of the
+/// project's file at `path`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// The path of another file of the project, or `None` for the editor's text.
+    pub path: Option<String>,
+    pub range: Range<usize>,
+}
+
+impl<'a> Analysis<'a> {
+    /// The analysis of a query, which reads `document` alone.
+    pub fn query(document: &'a Document) -> Self {
+        Self {
+            document,
+            file: None,
+        }
+    }
+
+    /// The analysis of the file of `project` at `path`, or `None` when the project has no such
+    /// file.
+    pub fn file(project: &'a Project, path: &'a str) -> Option<Self> {
+        Some(Self {
+            document: project.document(path)?,
+            file: Some((project, path)),
+        })
+    }
+
+    /// The errors and warnings of the text, in the order of their ranges.
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        match self.file {
+            Some((project, path)) => project.diagnostics(path),
+            None => self.document.diagnostics(),
+        }
+    }
+}
 
 /// The most items that the popup lists at once.
 pub const SHOWN: usize = 8;
@@ -158,10 +205,10 @@ pub fn details(item: &CompletionItem) -> Vec<Block> {
     }
 }
 
-/// The fixes of the errors of `document` whose ranges hold the character `cursor`.
-pub fn fixes(document: &Document, cursor: usize) -> Vec<Fix> {
-    let chars = Chars::new(document.text());
-    (document.diagnostics().into_iter())
+/// The fixes of the errors of `analysis` whose ranges hold the character `cursor`.
+pub fn fixes(analysis: Analysis<'_>, cursor: usize) -> Vec<Fix> {
+    let chars = Chars::new(analysis.document.text());
+    (analysis.diagnostics().into_iter())
         .filter(|diagnostic| {
             let range = chars.range(diagnostic.range);
             range.start <= cursor && cursor <= range.end
@@ -183,22 +230,48 @@ pub fn apply(text: &str, fix: &Fix) -> String {
     applied
 }
 
-/// The range of characters of the definition of the name at the character `cursor`.
-pub fn definition(document: &Document, cursor: usize) -> Option<Range<usize>> {
-    let chars = Chars::new(document.text());
-    let link = document.definition((chars.offset(cursor) as u32).into())?;
-    Some(chars.range(link.target))
+/// The definition of the name at the character `cursor`: in the text, or, for a file of a
+/// project, in the project's file that defines it, as the statement of a data script that
+/// creates a table that a chart reads.
+pub fn definition(analysis: Analysis<'_>, cursor: usize) -> Option<Target> {
+    let chars = Chars::new(analysis.document.text());
+    let offset = (chars.offset(cursor) as u32).into();
+    let Some((project, path)) = analysis.file else {
+        let link = analysis.document.definition(offset)?;
+        return Some(Target {
+            path: None,
+            range: chars.range(link.target),
+        });
+    };
+    let link = project.definition(path, offset)?;
+    if link.path == path {
+        return Some(Target {
+            path: None,
+            range: chars.range(link.target),
+        });
+    }
+    let text = project.document(&link.path)?.text();
+    Some(Target {
+        range: Chars::new(text).range(link.target),
+        path: Some(link.path),
+    })
 }
 
 /// The ranges of characters of the definition of the name at the character `cursor` and of each
-/// use of it, in the order of the text.
-pub fn references(document: &Document, cursor: usize) -> Vec<Range<usize>> {
-    let chars = Chars::new(document.text());
-    (document
-        .references((chars.offset(cursor) as u32).into())
-        .into_iter())
-    .map(|reference| chars.range(reference.range))
-    .collect()
+/// use of it in the text, in the order of the text. For a file of a project, a table's are its
+/// reads and the statements that define it in the file.
+pub fn references(analysis: Analysis<'_>, cursor: usize) -> Vec<Range<usize>> {
+    let chars = Chars::new(analysis.document.text());
+    let offset = (chars.offset(cursor) as u32).into();
+    match analysis.file {
+        Some((project, path)) => (project.references(path, offset).into_iter())
+            .filter(|reference| reference.path == path)
+            .map(|reference| chars.range(reference.range))
+            .collect(),
+        None => (analysis.document.references(offset).into_iter())
+            .map(|reference| chars.range(reference.range))
+            .collect(),
+    }
 }
 
 /// A run of the text of a block of Markdown, with its style.

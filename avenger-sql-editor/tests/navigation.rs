@@ -2,9 +2,10 @@
 //! a variable, a temporary function, and a pipe alias.
 
 use arrow::datatypes::DataType;
-use avenger_sql_editor::assist::{definition, references};
+use avenger_sql_editor::assist::{definition, references, Analysis, Target};
 use avenger_sql_editor::document::{catalog, Analyzed};
 use avenger_sql_editor::samples::Sample;
+use avenger_sql_language::Document;
 
 /// A script whose names are each defined once and used after, with a multi-byte character in
 /// a comment before them, so that character indices differ from byte offsets.
@@ -40,6 +41,15 @@ fn range(name: &str, nth: usize) -> std::ops::Range<usize> {
     at(name, nth)..at(name, nth) + name.chars().count()
 }
 
+/// The definition of the name at the character `cursor` of the script, in the script.
+fn defined(document: &Document, cursor: usize) -> Option<std::ops::Range<usize>> {
+    let target = definition(Analysis::query(document), cursor)?;
+    let Target { path: None, range } = target else {
+        panic!("a definition in another file: {target:?}");
+    };
+    Some(range)
+}
+
 /// The range of the first character of the `nth` occurrence of `text`, such as the alias `p` of
 /// `p.species`.
 fn first(text: &str, nth: usize) -> std::ops::Range<usize> {
@@ -56,18 +66,12 @@ fn the_definition_of_a_use_is_the_name_that_defines_it() {
         document.diagnostics()
     );
     assert_eq!(
-        definition(document, at("threshold", 1) + 2),
+        defined(document, at("threshold", 1) + 2),
         Some(range("threshold", 0))
     );
-    assert_eq!(
-        definition(document, at("grams", 1)),
-        Some(range("grams", 0))
-    );
-    assert_eq!(
-        definition(document, at("p.species", 0)),
-        Some(first("p\n", 0))
-    );
-    assert_eq!(definition(document, at("FROM", 0)), None);
+    assert_eq!(defined(document, at("grams", 1)), Some(range("grams", 0)));
+    assert_eq!(defined(document, at("p.species", 0)), Some(first("p\n", 0)));
+    assert_eq!(defined(document, at("FROM", 0)), None);
 }
 
 #[test]
@@ -75,15 +79,15 @@ fn the_references_of_a_name_are_its_definition_and_each_use() {
     let mut analyzed = analyzed();
     let document = analyzed.document(SCRIPT);
     assert_eq!(
-        references(document, at("threshold", 0)),
+        references(Analysis::query(document), at("threshold", 0)),
         [range("threshold", 0), range("threshold", 1)]
     );
     assert_eq!(
-        references(document, at("grams", 1)),
+        references(Analysis::query(document), at("grams", 1)),
         [range("grams", 0), range("grams", 1)]
     );
     assert_eq!(
-        references(document, at("p.species", 0)),
+        references(Analysis::query(document), at("p.species", 0)),
         [first("p\n", 0), first("p.body", 0), first("p.species", 0)]
     );
 }

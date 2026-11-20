@@ -1,9 +1,11 @@
 //! A lightweight editor of avenger-sql queries. CSV and Parquet files become tables of a
 //! DataFusion session with the functions of avenger-sql, and the result of each query shows as a
-//! chart, or as a table whose chart columns show the chart of each row.
+//! chart, or as a table whose chart columns show the chart of each row. A project of
+//! avenger-sql-project opens with its files by role, each open file in a tab.
 
 pub mod app;
 pub mod assist;
+mod buffer;
 mod cards;
 pub mod charts;
 pub mod comment;
@@ -25,6 +27,7 @@ pub mod sources;
 mod table;
 #[cfg(target_arch = "wasm32")]
 mod web;
+pub mod workspace;
 
 pub use app::{EditorApp, Options};
 
