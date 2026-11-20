@@ -142,7 +142,7 @@ pub(crate) fn build(
     for (index, layer) in resolved.tree.layers.iter().enumerate() {
         let plot_node = nodes[&resolved.tree.plots[layer.plot].path].plot;
         let node = tree.add(plot_node, Element::Mark);
-        tree.set_attribute_forms(node, "type", layer.mark.name(), function_name(layer.mark));
+        tree.set_attribute_forms(node, "type", layer.mark.name(), prefixed_name(layer.mark));
         identify(&mut tree, node, layer.layer.id(), layer.layer.classes());
         match layer.layer {
             LayerRef::Cartesian(cartesian) => {
@@ -615,31 +615,31 @@ fn identify(tree: &mut StyleTree, node: NodeId, id: &str, classes: &[String]) {
     }
 }
 
-/// The function name of a mark, as avenger-sql names it: its kind with the prefix of its
-/// coordinate system, such as `polar_bar`, and a Cartesian mark's kind as it is.
-fn function_name(mark: &dyn MarkMessage) -> String {
+/// The prefixed name of a mark: its kind with the prefix of its coordinate system, such as
+/// `polar_bar`, and a Cartesian mark's kind as it is.
+fn prefixed_name(mark: &dyn MarkMessage) -> String {
     match mark.kind() {
         CoordKind::Cartesian => mark.name().to_string(),
         kind => format!("{}_{}", kind.field(), mark.name()),
     }
 }
 
-/// The kinds and the function names of the marks of the layers of a scale group, each once, in
+/// The kinds and the prefixed names of the marks of the layers of a scale group, each once, in
 /// tree order, separated by spaces.
 fn mark_names(resolved: &Resolved, group: &ScaleGroup) -> [String; 2] {
     let mut kinds: Vec<&str> = Vec::new();
-    let mut functions: Vec<String> = Vec::new();
+    let mut prefixed: Vec<String> = Vec::new();
     for member in &group.members {
         let mark = resolved.tree.layers[member.layer].mark;
         if !kinds.contains(&mark.name()) {
             kinds.push(mark.name());
         }
-        let function = function_name(mark);
-        if !functions.contains(&function) {
-            functions.push(function);
+        let name = prefixed_name(mark);
+        if !prefixed.contains(&name) {
+            prefixed.push(name);
         }
     }
-    [kinds.join(" "), functions.join(" ")]
+    [kinds.join(" "), prefixed.join(" ")]
 }
 
 /// The Arrow type of the values that a scale group maps: of its first member's scaled column or

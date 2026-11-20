@@ -50,7 +50,7 @@ async fn a_query_reads_the_tables_of_the_session() {
 
 #[tokio::test]
 async fn a_named_argument_after_an_omitted_one_binds() {
-    let query = "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => body_mass_g, fill => species) AS chart";
+    let query = "FROM penguins |> AGGREGATE mark_symbol(x => body_mass_g, y => body_mass_g, fill => species) AS chart";
     assert_eq!(charts(query).await.len(), 1);
 }
 
@@ -69,10 +69,12 @@ FROM penguins |> WHERE body_mass_g >= heavy";
 #[tokio::test]
 async fn the_errors_of_a_script_are_its_diagnostics_at_their_text() {
     assert_eq!(
-        errors("FROM penguins |> AGGREGATE symbol(x => body_mass_g, colour => species) AS chart")
-            .await,
+        errors(
+            "FROM penguins |> AGGREGATE mark_symbol(x => body_mass_g, colour => species) AS chart"
+        )
+        .await,
         [(
-            "symbol has no parameter named `colour`".to_string(),
+            "mark_symbol has no parameter named `colour`".to_string(),
             "colour => species".to_string()
         )]
     );
@@ -92,7 +94,7 @@ async fn the_errors_of_a_script_are_its_diagnostics_at_their_text() {
 
 #[tokio::test]
 async fn a_syntax_error_comes_before_the_analysis() {
-    let found = errors("FROM penguins |> AGGREGATE symbol(x => ) AS chart").await;
+    let found = errors("FROM penguins |> AGGREGATE mark_symbol(x => ) AS chart").await;
     assert_eq!(found.len(), 1, "{found:?}");
     // The message gives the line and column of each diagnostic.
     let ctx = session();

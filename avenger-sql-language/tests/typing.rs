@@ -15,7 +15,7 @@ FROM big AS p
 |> EXTEND twice(p.body_mass_g) AS doubled, SUBSTR(species, 1, 3) AS short
 |> WHERE doubled > lo AND species IN (FROM heavy |> SELECT species) AND island != 'Bïscoe'
 |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share
-|> AGGREGATE bar(x => species, y => share.end, orient => 'vertical') AS chart",
+|> AGGREGATE mark_bar(x => species, y => share.end, orient => 'vertical') AS chart",
     "FROM islands |> WHERE location.lat > 0 |> SELECT name, `order` |> CALL impute(TABLE x)",
 ];
 

@@ -2,10 +2,10 @@
 charts
 FROM penguins
 |> AGGREGATE count(*) AS n GROUP BY species
-|> AGGREGATE bar(x => species, y => n ORDER BY species) AS chart
+|> AGGREGATE mark_bar(x => species, y => n ORDER BY species) AS chart
 charts
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(flipper_length_mm, scale => scale(zero => FALSE)),
      y => y(body_mass_g, scale => scale(zero => FALSE)),
      color => island,
@@ -13,13 +13,13 @@ FROM penguins
    GROUP BY species
 |> ORDER BY species
 marks
-FROM t |> AGGREGATE symbol(x => 1, y => 2)
+FROM t |> AGGREGATE mark_symbol(x => 1, y => 2)
 transforms
 FROM penguins
 |> WHERE body_mass_g IS NOT NULL
 |> EXTEND bin(body_mass_g) OVER () AS b
 |> AGGREGATE COUNT(*) AS n GROUP BY b
-|> AGGREGATE bar(x => b, y => n) AS chart
+|> AGGREGATE mark_bar(x => b, y => n) AS chart
 transforms
 FROM penguins
 |> EXTEND lump(island, n => 1) OVER (PARTITION BY species) AS l
@@ -46,29 +46,29 @@ transforms
 FROM penguins
 |> EXTEND lump(island, n => 1, weight => SUM(body_mass_g)) OVER (PARTITION BY species) AS l
 constructors
-FROM penguins |> AGGREGATE bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart
+FROM penguins |> AGGREGATE mark_bar(x => body_mass_g, y => species, orient => 'horizontal', corner_radius => 2) AS chart
 constructors
-FROM penguins |> AGGREGATE polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart
+FROM penguins |> AGGREGATE mark_polar_bar(theta => species, radius => body_mass_g, coord => polar(inner_radius => 0.5)) AS chart
 constructors
-FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(projection => 'mercator')) AS chart
+FROM penguins |> AGGREGATE mark_geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm, coord => geo(projection => 'mercator')) AS chart
 constructors
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(body_mass_g, scale => scale(type => 'log'), title => 'Mass', axis => axis(grid => FALSE)),
      y => y(flipper_length_mm, axis => FALSE),
      color => color(species, legend => legend(columns => 2)),
    ) AS chart
 constructors
-FROM penguins |> AGGREGATE bar(x => species, y => body_mass_g, corner_radius => body_mass_g)
+FROM penguins |> AGGREGATE mark_bar(x => species, y => body_mass_g, corner_radius => body_mass_g)
 constructors
-FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)
+FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, title => species), y => flipper_length_mm)
 constructors
-FROM penguins |> AGGREGATE geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
+FROM penguins |> AGGREGATE mark_geo_symbol(longitude => bill_length_mm, latitude => bill_depth_mm)
 constructors
-FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => pin(1000, position => 'low')), y => flipper_length_mm) AS chart
+FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, scale => pin(1000, position => 'low')), y => flipper_length_mm) AS chart
 constructors
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(
        body_mass_g,
        axis => axis(title => title('Mass', font_size => 14), labels => labels(font_size => 9)),
@@ -77,7 +77,7 @@ FROM penguins
    ) AS chart
 constructors
 FROM penguins
-|> AGGREGATE symbol(
+|> AGGREGATE mark_symbol(
      x => x(body_mass_g, scale => scale(type => log(base => 2))),
      y => species,
      tools => [navigate(), tooltip(nearest => TRUE)],
@@ -118,7 +118,7 @@ highlight
 FROM penguins
 |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share,
 lump(island, n => 2, null_category => 'drop', other => 'Rest') OVER () AS isle
-|> AGGREGATE bar(x => species, y => y(share.end, title => 'Share'), orient => 'vertical') AS chart;
+|> AGGREGATE mark_bar(x => species, y => y(share.end, title => 'Share'), orient => 'vertical') AS chart;
 FROM sales |> CALL impute(isl, [sp], m, method => 'avg')
 googlesql_pipe_5a
 FROM t |> UNION ALL (FROM u)
@@ -258,22 +258,22 @@ googlesql_pipe_5c
 DECLARE k INT64 DEFAULT 10; CREATE TEMP AGGREGATE FUNCTION h(v INT64) AS (SUM(v) + k); FROM t |> AGGREGATE h(x) AS total
 compositions
 FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
 compositions
 FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY sex, island
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY sex, island
 |> AGGREGATE facet_column(chart, island) AS chart GROUP BY sex
 |> AGGREGATE facet_row(chart, sex) AS chart
 compositions
 FROM penguins
-|> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
+|> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY species
 |> AGGREGATE hconcat_agg(chart ORDER BY species) AS chart
 compositions
 FROM penguins
 |> AGGREGATE layer(
-     symbol(x => bill_length_mm, y => bill_depth_mm),
-     symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
+     mark_symbol(x => bill_length_mm, y => bill_depth_mm),
+     mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart
    GROUP BY island
 |> AGGREGATE facet_column(chart, island) AS chart
 
@@ -282,18 +282,18 @@ FROM penguins
 |> WHERE body_mass_g IS NOT NULL
 |> AGGREGATE
      COUNT(*) AS n,
-     bar(x => species, y => AVG(body_mass_g), color => sex) AS chart
+     mark_bar(x => species, y => AVG(body_mass_g), color => sex) AS chart
    GROUP BY island
 
 lifting
 FROM penguins
 |> WHERE body_mass_g IS NOT NULL
 |> AGGREGATE
-     bar(x => bin(body_mass_g) OVER panel, y => COUNT(*), color => lump(species, n => 2)) AS chart
+     mark_bar(x => bin(body_mass_g) OVER panel, y => COUNT(*), color => lump(species, n => 2)) AS chart
    GROUP BY island
 
 lifting
 FROM penguins
 |> AGGREGATE
-     bar(x => island, y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart
+     mark_bar(x => island, y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart
 

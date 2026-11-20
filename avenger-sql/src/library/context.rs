@@ -45,7 +45,7 @@ pub struct Fills<'l> {
 }
 
 impl Fills<'_> {
-    /// The place in words, such as `` the `pin` of the `scale` of `y` of `symbol(...)` ``.
+    /// The place in words, such as `` the `pin` of the `scale` of `y` of `mark_symbol(...)` ``.
     pub fn describe(&self) -> String {
         let mut parts: Vec<String> = Vec::new();
         if let Some(part) = &self.builds.part {

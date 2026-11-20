@@ -3,7 +3,7 @@
 //!
 //! ```sql
 //! FROM penguins
-//! |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
+//! |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart GROUP BY island
 //! |> AGGREGATE facet_column(chart, island) AS chart
 //! ```
 //!

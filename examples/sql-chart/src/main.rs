@@ -8,7 +8,7 @@
 //! FROM movies
 //! |> WHERE genre IS NOT NULL
 //! |> AGGREGATE count(*) AS n GROUP BY genre
-//! |> AGGREGATE bar(x => n, y => genre ORDER BY n DESC) AS chart
+//! |> AGGREGATE mark_bar(x => n, y => genre ORDER BY n DESC) AS chart
 //! ```
 //!
 //! The query returns one row, whose `chart` column holds the chart, which the chart app shows at
@@ -35,7 +35,7 @@ use datafusion::{datasource::MemTable, prelude::SessionContext};
 const QUERY: &str = "FROM movies
 |> WHERE genre IS NOT NULL
 |> AGGREGATE count(*) AS n GROUP BY genre
-|> AGGREGATE bar(x => n, y => genre ORDER BY n DESC) AS chart";
+|> AGGREGATE mark_bar(x => n, y => genre ORDER BY n DESC) AS chart";
 
 /// The size of the window.
 const SIZE: [f32; 2] = [800.0, 600.0];

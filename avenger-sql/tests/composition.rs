@@ -14,7 +14,7 @@ const PENGUINS: &str = "FROM penguins |> WHERE body_mass_g IS NOT NULL";
 /// The scatter plot of the penguins of each group of `keys`.
 fn scatter(keys: &str) -> String {
     format!(
-        "{PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) AS chart \
+        "{PENGUINS} |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS chart \
          GROUP BY {keys}"
     )
 }
@@ -240,9 +240,9 @@ async fn the_order_by_of_a_layer_orders_its_charts() {
     // On 8 partitions, the rows of the union reach the aggregate in no defined order.
     let ctx = session_with(SessionConfig::new().with_target_partitions(8));
     let union = format!(
-        "FROM ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm, \
+        "FROM ({PENGUINS} |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm, \
          fill => 'black') AS chart |> EXTEND 2 AS k) \
-         |> UNION ALL ({PENGUINS} |> AGGREGATE symbol(x => bill_length_mm, y => bill_depth_mm) \
+         |> UNION ALL ({PENGUINS} |> AGGREGATE mark_symbol(x => bill_length_mm, y => bill_depth_mm) \
          AS chart |> EXTEND 1 AS k)"
     );
     for (order, expected) in [("k", [false, true]), ("k DESC", [true, false])] {
@@ -333,9 +333,9 @@ async fn the_errors_of_a_composition() {
 fn three() -> String {
     format!(
         "{PENGUINS} |> AGGREGATE \
-         symbol(x => bill_length_mm, y => bill_depth_mm) AS a, \
-         symbol(x => flipper_length_mm, y => body_mass_g) AS b, \
-         bar(x => species, y => body_mass_g) AS c"
+         mark_symbol(x => bill_length_mm, y => bill_depth_mm) AS a, \
+         mark_symbol(x => flipper_length_mm, y => body_mass_g) AS b, \
+         mark_bar(x => species, y => body_mass_g) AS c"
     )
 }
 
@@ -454,8 +454,8 @@ async fn a_scalar_composition_takes_the_options_of_its_composition() {
 async fn a_scalar_composition_of_mark_aggregates_composes_each_group() {
     let query = format!(
         "{PENGUINS} |> AGGREGATE layer(\
-           symbol(x => bill_length_mm, y => bill_depth_mm), \
-           symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart \
+           mark_symbol(x => bill_length_mm, y => bill_depth_mm), \
+           mark_symbol(x => flipper_length_mm, y => body_mass_g, size => 20)) AS chart \
          GROUP BY island"
     );
     assert_eq!(charts(&query).await.len(), 3, "one chart of each island");

@@ -148,7 +148,7 @@ fn floats(table: &RecordBatch, column: &str) -> Vec<f64> {
 #[tokio::test]
 async fn a_call_binds_at_planning_and_keeps_its_name() {
     let ctx = session();
-    let query = "FROM t |> AGGREGATE symbol(x => a, y => b)";
+    let query = "FROM t |> AGGREGATE mark_symbol(x => a, y => b)";
     let frame = avenger_sql::sql(&ctx, query).await.unwrap();
     let name = frame.schema().field(0).name().clone();
     let plan = frame.clone().into_optimized_plan().unwrap();
@@ -172,7 +172,8 @@ async fn a_call_binds_at_planning_and_keeps_its_name() {
 
 #[tokio::test]
 async fn a_chart_holds_the_columns_of_its_channels() {
-    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b * 2, color => c) AS chart").await;
+    let chart =
+        chart("FROM t |> AGGREGATE mark_symbol(x => a, y => b * 2, color => c) AS chart").await;
     let table = table(&chart);
     let names: Vec<&str> = table
         .schema_ref()
@@ -190,7 +191,7 @@ async fn a_chart_holds_the_columns_of_its_channels() {
 
 #[tokio::test]
 async fn channels_with_one_expression_share_a_column() {
-    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, color => a) AS chart").await;
+    let chart = chart("FROM t |> AGGREGATE mark_symbol(x => a, y => b, color => a) AS chart").await;
     assert_eq!(table(&chart).num_columns(), 2);
     assert!(matches!(
         encoding(&chart, Channel::Color),
@@ -200,7 +201,7 @@ async fn channels_with_one_expression_share_a_column() {
 
 #[tokio::test]
 async fn a_constant_argument_arrives_folded() {
-    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => 2 * 50) AS chart").await;
+    let chart = chart("FROM t |> AGGREGATE mark_symbol(x => a, y => 2 * 50) AS chart").await;
     let Some(encoding::Kind::ScaledValue(value)) = encoding(&chart, Channel::Y) else {
         panic!("a constant of a position is a scaled value")
     };
@@ -214,9 +215,10 @@ async fn a_constant_argument_arrives_folded() {
 
 #[tokio::test]
 async fn bare_values_take_the_kinds_of_the_builders() {
-    let symbols =
-        chart("FROM t |> AGGREGATE symbol(x => a, y => 3, color => c, fill => 'red') AS chart")
-            .await;
+    let symbols = chart(
+        "FROM t |> AGGREGATE mark_symbol(x => a, y => 3, color => c, fill => 'red') AS chart",
+    )
+    .await;
     assert!(matches!(
         encoding(&symbols, Channel::X),
         Some(encoding::Kind::ScaledField(field)) if field == "a"
@@ -236,7 +238,7 @@ async fn bare_values_take_the_kinds_of_the_builders() {
         ),
         "a constant of a channel other than a position is drawn as it is"
     );
-    let text = chart("FROM t |> AGGREGATE text(text => s, x => a, y => b) AS chart").await;
+    let text = chart("FROM t |> AGGREGATE mark_text(text => s, x => a, y => b) AS chart").await;
     assert!(matches!(
         encoding(&text, Channel::Text),
         Some(encoding::Kind::DirectField(field)) if field == "s"
@@ -245,7 +247,7 @@ async fn bare_values_take_the_kinds_of_the_builders() {
 
 #[tokio::test]
 async fn datum_and_value_give_their_kinds() {
-    let query = "FROM t |> AGGREGATE symbol(x => value(0.5), y => b, color => datum('p'), fill => value(c), \
+    let query = "FROM t |> AGGREGATE mark_symbol(x => value(0.5), y => b, color => datum('p'), fill => value(c), \
                  stroke => value(CAST(NULL AS STRING))) AS chart";
     let chart = chart(query).await;
     assert!(
@@ -275,10 +277,12 @@ async fn datum_and_value_give_their_kinds() {
 #[tokio::test]
 async fn a_channel_function_keeps_the_kind_of_its_value() {
     // A bare value in a channel function takes the kind that it takes bare.
-    let bare = chart("FROM t |> AGGREGATE symbol(x => a, y => 0, fill => 'red') AS chart").await;
-    let wrapped =
-        chart("FROM t |> AGGREGATE symbol(x => x(a), y => y(0), fill => fill('red')) AS chart")
-            .await;
+    let bare =
+        chart("FROM t |> AGGREGATE mark_symbol(x => a, y => 0, fill => 'red') AS chart").await;
+    let wrapped = chart(
+        "FROM t |> AGGREGATE mark_symbol(x => x(a), y => y(0), fill => fill('red')) AS chart",
+    )
+    .await;
     for channel in [Channel::X, Channel::Y, Channel::Fill] {
         assert_eq!(
             encoding(&bare, channel),
@@ -297,7 +301,7 @@ async fn a_channel_function_keeps_the_kind_of_its_value() {
     // `datum` and `value` give their kinds bare and in the channel's function.
     for color in ["datum('Adelie')", "color(datum('Adelie'))"] {
         let query =
-            format!("FROM t |> AGGREGATE symbol(x => a, y => b, color => {color}) AS chart");
+            format!("FROM t |> AGGREGATE mark_symbol(x => a, y => b, color => {color}) AS chart");
         let chart = chart(&query).await;
         assert!(
             matches!(
@@ -308,7 +312,8 @@ async fn a_channel_function_keeps_the_kind_of_its_value() {
         );
     }
     for fill in ["value(c)", "fill(value(c))"] {
-        let query = format!("FROM t |> AGGREGATE symbol(x => a, y => b, fill => {fill}) AS chart");
+        let query =
+            format!("FROM t |> AGGREGATE mark_symbol(x => a, y => b, fill => {fill}) AS chart");
         let chart = chart(&query).await;
         assert!(
             matches!(
@@ -329,7 +334,7 @@ async fn a_null_means_the_same_bare_and_in_a_channel_function() {
         "color(CAST(NULL AS STRING))",
     ] {
         let query =
-            format!("FROM t |> AGGREGATE symbol(x => a, y => b, color => {color}) AS chart");
+            format!("FROM t |> AGGREGATE mark_symbol(x => a, y => b, color => {color}) AS chart");
         let chart = chart(&query).await;
         assert!(encoding(&chart, Channel::Color).is_none(), "{color}");
     }
@@ -339,7 +344,7 @@ async fn a_null_means_the_same_bare_and_in_a_channel_function() {
         "stroke(value(CAST(NULL AS STRING)))",
     ] {
         let query =
-            format!("FROM t |> AGGREGATE symbol(x => a, y => b, stroke => {stroke}) AS chart");
+            format!("FROM t |> AGGREGATE mark_symbol(x => a, y => b, stroke => {stroke}) AS chart");
         let chart = chart(&query).await;
         assert!(
             matches!(
@@ -353,7 +358,7 @@ async fn a_null_means_the_same_bare_and_in_a_channel_function() {
 
 #[tokio::test]
 async fn a_channel_function_sets_the_options_of_its_encoding() {
-    let query = "FROM t |> AGGREGATE symbol(x => x(a, title => 'A', axis => FALSE), y => b, \
+    let query = "FROM t |> AGGREGATE mark_symbol(x => x(a, title => 'A', axis => FALSE), y => b, \
                  color => color(datum('p'), legend => FALSE, title => 'P')) AS chart";
     let chart = chart(query).await;
     let mark = layer(&chart).mark().expect("a mark");
@@ -367,19 +372,21 @@ async fn a_channel_function_sets_the_options_of_its_encoding() {
 
 #[tokio::test]
 async fn a_null_argument_leaves_its_channel_unset() {
-    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, color => NULL) AS chart").await;
+    let chart =
+        chart("FROM t |> AGGREGATE mark_symbol(x => a, y => b, color => NULL) AS chart").await;
     assert!(encoding(&chart, Channel::Color).is_none());
 }
 
 #[tokio::test]
 async fn a_named_argument_after_an_omitted_one_binds() {
-    let chart = chart("FROM t |> AGGREGATE symbol(x => a, y => b, opacity => a) AS chart").await;
+    let chart =
+        chart("FROM t |> AGGREGATE mark_symbol(x => a, y => b, opacity => a) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 8);
 }
 
 #[tokio::test]
 async fn the_draw_order_survives_a_partial_aggregation() {
-    let query = "FROM t |> AGGREGATE symbol(x => a, y => b ORDER BY k DESC) AS chart";
+    let query = "FROM t |> AGGREGATE mark_symbol(x => a, y => b ORDER BY k DESC) AS chart";
     let chart = chart(query).await;
     let table = table(&chart);
     assert_eq!(table.num_columns(), 2, "the order keys are no columns");
@@ -388,9 +395,10 @@ async fn the_draw_order_survives_a_partial_aggregation() {
 
 #[tokio::test]
 async fn group_by_gives_a_chart_for_each_group() {
-    let batches = run("FROM t |> AGGREGATE bar(x => c, y => a) AS chart GROUP BY c |> ORDER BY c")
-        .await
-        .unwrap();
+    let batches =
+        run("FROM t |> AGGREGATE mark_bar(x => c, y => a) AS chart GROUP BY c |> ORDER BY c")
+            .await
+            .unwrap();
     let batch = arrow::compute::concat_batches(&batches[0].schema(), &batches).unwrap();
     let charts = charts_from_arrow(batch.column_by_name("chart").unwrap(), Decode::Auto).unwrap();
     assert_eq!(charts.len(), 2);
@@ -406,13 +414,14 @@ async fn group_by_gives_a_chart_for_each_group() {
 
 #[tokio::test]
 async fn a_where_selects_the_rows() {
-    let chart = chart("FROM t |> WHERE c = 'p' |> AGGREGATE symbol(x => a, y => b) AS chart").await;
+    let chart =
+        chart("FROM t |> WHERE c = 'p' |> AGGREGATE mark_symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 4);
 }
 
 #[tokio::test]
 async fn a_call_builds_the_chart_of_its_builder() {
-    let chart = chart("FROM t |> AGGREGATE bar(x => c, y => a ORDER BY k) AS chart").await;
+    let chart = chart("FROM t |> AGGREGATE mark_bar(x => c, y => a ORDER BY k) AS chart").await;
     let table = table(&chart).clone();
     let layer = CartesianLayer::bar(table, BarMark::builder().x("c").y("a"));
     // A chart of avenger-sql names GoogleSQL's syntaxes of format patterns.
@@ -426,7 +435,7 @@ async fn a_call_builds_the_chart_of_its_builder() {
 
 #[tokio::test]
 async fn field_metadata_and_struct_types_reach_the_layer_table() {
-    let chart = chart("FROM t |> AGGREGATE bar(x => st, y => m) AS chart").await;
+    let chart = chart("FROM t |> AGGREGATE mark_bar(x => st, y => m) AS chart").await;
     let schema = table(&chart).schema();
     assert!(matches!(
         schema.field_with_name("st").unwrap().data_type(),
@@ -439,33 +448,35 @@ async fn field_metadata_and_struct_types_reach_the_layer_table() {
 #[tokio::test]
 async fn every_mark_builds_a_chart_of_its_channels() {
     let names: Vec<&str> = marks().iter().map(|mark| mark.name).collect();
-    assert!(names.contains(&"bar") && names.contains(&"polar_bar"));
-    assert!(names.contains(&"geo_shape") && names.contains(&"geo_symbol"));
+    assert!(names.contains(&"mark_bar") && names.contains(&"mark_polar_bar"));
+    assert!(names.contains(&"mark_geo_shape") && names.contains(&"mark_geo_symbol"));
     // A geo mark needs `coord`, which the tests of the constructors give.
-    for name in names.into_iter().filter(|name| !name.starts_with("geo_")) {
+    for name in names
+        .into_iter()
+        .filter(|name| !name.starts_with("mark_geo_"))
+    {
         // The required channels take strings, which every one of them takes, and the positions
         // are numbers, or the categories that a rect spans the bands of.
         let required = match name {
-            "text" | "polar_text" => "text => s, ",
-            "image" | "polar_image" => "image => s, ",
-            "path" | "polar_path" => "path => s, ",
+            "mark_text" | "mark_polar_text" => "text => s, ",
+            "mark_image" | "mark_polar_image" => "image => s, ",
+            "mark_path" | "mark_polar_path" => "path => s, ",
             _ => "",
         };
         let positions = match name {
-            "rect" => "x => c, y => s",
-            "polar_rect" => "theta => c, radius => s",
-            "polar_bar" => "theta => c, radius => a",
-            _ if name.starts_with("polar_") => "theta => a, radius => b",
+            "mark_rect" => "x => c, y => s",
+            "mark_polar_rect" => "theta => c, radius => s",
+            "mark_polar_bar" => "theta => c, radius => a",
+            _ if name.starts_with("mark_polar_") => "theta => a, radius => b",
             _ => "x => a, y => b",
         };
         let query = format!("FROM t |> AGGREGATE {name}({required}{positions}) AS chart");
         let charts = charts(&query).await;
         let chart = &charts[0];
         let layer = layer(chart);
-        let expected = match name.strip_prefix("polar_") {
-            Some(base) => base,
-            None => name,
-        };
+        // The mark's kind: its name without `mark_` and its coordinate system's prefix.
+        let kind = name.strip_prefix("mark_").unwrap();
+        let expected = kind.strip_prefix("polar_").unwrap_or(kind);
         assert_eq!(layer.mark().unwrap().name(), expected, "{query}");
         assert_eq!(table(chart).num_rows(), 8, "{query}");
     }
@@ -475,35 +486,35 @@ async fn every_mark_builds_a_chart_of_its_channels() {
 async fn invalid_calls_fail_at_planning() {
     for (query, expected) in [
         (
-            "FROM t |> AGGREGATE text(text => NULL, x => a)",
-            "text() needs a value for `text`",
+            "FROM t |> AGGREGATE mark_text(text => NULL, x => a)",
+            "mark_text() needs a value for `text`",
         ),
         (
-            "FROM t |> AGGREGATE symbol(DISTINCT a, b)",
+            "FROM t |> AGGREGATE mark_symbol(DISTINCT a, b)",
             "symbol does not support DISTINCT",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => value(a) + 1, y => b)",
+            "FROM t |> AGGREGATE mark_symbol(x => value(a) + 1, y => b)",
             "value() is the whole value",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => datum(value(1)), y => b)",
+            "FROM t |> AGGREGATE mark_symbol(x => datum(value(1)), y => b)",
             "value() is the whole value",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => x(x(a)), y => b)",
+            "FROM t |> AGGREGATE mark_symbol(x => x(x(a)), y => b)",
             "`value` takes no constructor, not `x(...)`",
         ),
         (
-            "FROM t |> AGGREGATE text(text => datum('s'), x => a)",
-            "datum() needs a channel with a scale, and `text` of text() has none",
+            "FROM t |> AGGREGATE mark_text(text => datum('s'), x => a)",
+            "datum() needs a channel with a scale, and `text` of mark_text() has none",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => a, y => b, color => datum(c))",
-            "datum() takes a constant, and `color` of symbol() holds `c`",
+            "FROM t |> AGGREGATE mark_symbol(x => a, y => b, color => datum(c))",
+            "datum() takes a constant, and `color` of mark_symbol() holds `c`",
         ),
         (
-            "FROM t |> AGGREGATE symbol(x => 1, y => 2)",
+            "FROM t |> AGGREGATE mark_symbol(x => 1, y => 2)",
             "needs a channel that reads a column",
         ),
     ] {
@@ -515,13 +526,14 @@ async fn invalid_calls_fail_at_planning() {
 #[tokio::test]
 async fn order_orders_a_path_and_order_by_draws_the_rows() {
     // The `order` channel of a line orders its path by a column.
-    let line = chart("FROM t |> AGGREGATE line(x => a, y => b, order => k) AS chart").await;
+    let line = chart("FROM t |> AGGREGATE mark_line(x => a, y => b, order => k) AS chart").await;
     assert!(matches!(
         encoding(&line, Channel::Order),
         Some(encoding::Kind::DirectField(field)) if field == "k"
     ));
     // A mark without a path has no `order`, and its error names `ORDER BY`.
-    let message = error("FROM t |> AGGREGATE symbol(x => a, y => b, order => k) AS chart").await;
+    let message =
+        error("FROM t |> AGGREGATE mark_symbol(x => a, y => b, order => k) AS chart").await;
     assert!(
         message.contains("symbol has no parameter named `order`")
             && message.contains("`ORDER BY` of the call gives the draw order of the rows"),
@@ -540,7 +552,7 @@ async fn a_polar_text_takes_a_text_orient_or_an_angle() {
     };
     let tangential = chart(
         "FROM t
-         |> AGGREGATE polar_text(text => s, theta => a, radius => b, text_orient => 'tangential') AS chart",
+         |> AGGREGATE mark_polar_text(text => s, theta => a, radius => b, text_orient => 'tangential') AS chart",
     )
     .await;
     assert_eq!(
@@ -548,7 +560,7 @@ async fn a_polar_text_takes_a_text_orient_or_an_angle() {
         avenger_chart::proto::PolarTextOrient::Tangential as i32
     );
     let turned = chart(
-        "FROM t |> AGGREGATE polar_text(text => s, theta => a, radius => b, angle => a) AS chart",
+        "FROM t |> AGGREGATE mark_polar_text(text => s, theta => a, radius => b, angle => a) AS chart",
     )
     .await;
     assert!(matches!(
@@ -556,7 +568,7 @@ async fn a_polar_text_takes_a_text_orient_or_an_angle() {
         Some(encoding::Kind::ScaledField(field)) if field == "a"
     ));
     let message = match run("FROM t
-         |> AGGREGATE polar_text(
+         |> AGGREGATE mark_polar_text(
               text => s,
               theta => a,
               radius => b,
@@ -573,14 +585,15 @@ async fn a_polar_text_takes_a_text_orient_or_an_angle() {
 
 #[tokio::test]
 async fn an_empty_group_gives_a_chart_of_no_rows() {
-    let chart = chart("FROM t |> WHERE a > 100 |> AGGREGATE symbol(x => a, y => b) AS chart").await;
+    let chart =
+        chart("FROM t |> WHERE a > 100 |> AGGREGATE mark_symbol(x => a, y => b) AS chart").await;
     assert_eq!(table(&chart).num_rows(), 0);
 }
 
 #[tokio::test]
 async fn a_mark_call_places_its_options_on_its_plot_and_its_layer() {
     let chart = chart(
-        "FROM t |> AGGREGATE symbol(x => a, y => b, title => 'Points', \
+        "FROM t |> AGGREGATE mark_symbol(x => a, y => b, title => 'Points', \
          tools => [navigate(), tooltip(nearest => TRUE, max_radius => 20)], width => 200, \
          id => 'points') AS chart",
     )
@@ -617,7 +630,7 @@ async fn a_mark_call_places_a_select_tool_on_its_layer() {
     // The selection tool lands on the call's layer, whose reader then names the selection that the
     // chart does not declare.
     let message = run(
-        "FROM t |> AGGREGATE symbol(x => a, y => b, id => 'points', \
+        "FROM t |> AGGREGATE mark_symbol(x => a, y => b, id => 'points', \
          tools => [select('brush', type => interval(channels => ['x']))]) \
          AS chart",
     )
@@ -633,6 +646,7 @@ async fn a_mark_call_places_a_select_tool_on_its_layer() {
 
 #[tokio::test]
 async fn an_option_of_a_mark_is_a_constant() {
-    let message = error("FROM t |> AGGREGATE symbol(x => a, y => b, title => s) AS chart").await;
+    let message =
+        error("FROM t |> AGGREGATE mark_symbol(x => a, y => b, title => s) AS chart").await;
     assert!(message.contains("plan-time constant"), "{message}");
 }

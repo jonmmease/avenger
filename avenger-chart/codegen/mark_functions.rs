@@ -3,8 +3,8 @@
 //!
 //! The rules, for the mark message `FooMark` of a layer:
 //!
-//! - the function's name is the message's name without `Mark`, in snake case: `bar` for
-//!   `BarMark`, and `polar_bar` for `PolarBarMark`
+//! - the function's name is `mark_` and the message's name without `Mark`, in snake case:
+//!   `mark_bar` for `BarMark`, and `mark_polar_bar` for `PolarBarMark`
 //! - its channels, which are its parameters, are the `Encoding` fields of the message: the
 //!   required channels first, then the others, each in the order of the field numbers
 //! - its documentation is the comment of the message, and each channel's is the comment of its
@@ -71,7 +71,7 @@ pub(super) fn mark_functions(
                 .ok_or_else(|| format!("`{}.{}` is a message", layer.name(), member.name()))?;
             let base = (mark.name().strip_suffix("Mark"))
                 .ok_or_else(|| format!("the mark `{}` ends with `Mark`", mark.name()))?;
-            let name = snake(base);
+            let name = format!("mark_{}", snake(base));
             if names.contains(&name) {
                 return Err(format!("two marks take the function name `{name}`"));
             }

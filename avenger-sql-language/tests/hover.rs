@@ -12,7 +12,7 @@ FROM penguins AS p
 |> EXTEND twice(p.body_mass_g) AS doubled, SUBSTR(species, 1, 3) AS short
 |> WHERE doubled > lo AND species IN (FROM heavy |> SELECT species)
 |> EXTEND stack(body_mass_g, offset => 'normalize') OVER (PARTITION BY island ORDER BY species) AS share
-|> AGGREGATE bar(x => species, y => share.end) AS chart";
+|> AGGREGATE mark_bar(x => species, y => share.end) AS chart";
 
 /// The hover at the `n`th `needle`, with the text of its range.
 fn hover(document: &Document, needle: &str, n: usize) -> Option<(String, String)> {
@@ -82,9 +82,9 @@ fn hover_shows_functions_with_their_resolved_forms() {
         "{markdown}"
     );
     // A mark's form, with its every channel, is longer than a hover writes.
-    let (_, markdown) = hover(&document, "bar", 0).unwrap();
+    let (_, markdown) = hover(&document, "mark_bar", 0).unwrap();
     assert!(
-        markdown.starts_with("```googlesql\nbar(...) -> CHART\n```\n\nA rectangle"),
+        markdown.starts_with("```googlesql\nmark_bar(...) -> CHART\n```\n\nA rectangle"),
         "{markdown}"
     );
     let (_, markdown) = hover(&document, "twice", 1).unwrap();
@@ -126,11 +126,12 @@ fn hover_shows_the_parameter_of_an_argument_name() {
         "{markdown}"
     );
     assert!(
-        markdown.contains("```\n\nA parameter of `bar`: "),
+        markdown.contains("```\n\nA parameter of `mark_bar`: "),
         "{markdown}"
     );
     // At the start of the name of an argument of a call in the value of another argument.
-    let nested = common::document("FROM penguins |> AGGREGATE bar(x => x(species, title => 'S'))");
+    let nested =
+        common::document("FROM penguins |> AGGREGATE mark_bar(x => x(species, title => 'S'))");
     let start = nested.text().find("title").unwrap() as u32;
     let found = nested.hover(start.into()).unwrap();
     assert_eq!(at(&nested, found.range), "title");
@@ -147,7 +148,7 @@ fn hover_shows_the_parameter_of_an_argument_name() {
 #[test]
 fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     let document = common::document(
-        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), \
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), \
          scale => scale(pin => pin(0, position => 'low')))) AS chart",
     );
     assert!(
@@ -170,7 +171,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
     assert!(
         markdown.starts_with(
             "```googlesql\npin(value: ANY, position => 'low' | 'mid' | 'high') -> BYTES\n```\n\n\
-             Builds the `pin` of the `scale` of the `y` of `bar(...)`."
+             Builds the `pin` of the `scale` of the `y` of `mark_bar(...)`."
         ),
         "{markdown}"
     );
@@ -194,7 +195,7 @@ fn hover_shows_the_forms_of_a_parameter_that_takes_constructors() {
 #[test]
 fn hover_shows_a_channel_function_and_the_channel_that_takes_it() {
     let document = common::document(
-        "FROM penguins |> AGGREGATE bar(x => species, y => y(COUNT(*), title => 'N')) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), title => 'N')) AS chart",
     );
     assert!(
         document.diagnostics().is_empty(),
@@ -205,7 +206,7 @@ fn hover_shows_a_channel_function_and_the_channel_that_takes_it() {
     let (range, markdown) = hover(&document, "y(COUNT", 0).unwrap();
     assert_eq!(range, "y");
     assert!(
-        markdown.contains("Builds the `y` of `bar(...)`."),
+        markdown.contains("Builds the `y` of `mark_bar(...)`."),
         "{markdown}"
     );
     assert!(markdown.contains("Sets the channel `y`"), "{markdown}");
@@ -226,8 +227,9 @@ fn a_keyword_has_no_hover() {
 
 #[test]
 fn hover_shows_a_column_inside_an_aggregate_of_a_mark() {
-    let document =
-        document("FROM penguins |> AGGREGATE bar(x => species, y => AVG(body_mass_g)) AS chart");
+    let document = document(
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => AVG(body_mass_g)) AS chart",
+    );
     assert!(
         document.diagnostics().is_empty(),
         "{:?}",

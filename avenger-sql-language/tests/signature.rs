@@ -76,9 +76,13 @@ fn the_active_form_is_the_one_that_the_call_resolved() {
 
 #[test]
 fn a_named_argument_of_a_mark_is_the_active_parameter() {
-    let help = help("FROM penguins |> AGGREGATE bar(x => species, y => $0) AS chart").unwrap();
+    let help = help("FROM penguins |> AGGREGATE mark_bar(x => species, y => $0) AS chart").unwrap();
     let signature = &help.signatures[help.active_signature];
-    assert!(signature.label.starts_with("bar("), "{}", signature.label);
+    assert!(
+        signature.label.starts_with("mark_bar("),
+        "{}",
+        signature.label
+    );
     assert_eq!(active(signature), Some("y: ANY"), "{}", signature.label);
 }
 
@@ -122,7 +126,8 @@ fn the_charts_of_a_layer_repeat_and_its_options_go_by_name() {
         let signature = &help.signatures[help.active_signature];
         active(signature).map(str::to_string)
     };
-    let charts = "FROM (FROM penguins |> AGGREGATE bar(x => species) AS a, bar(x => island) AS b)";
+    let charts =
+        "FROM (FROM penguins |> AGGREGATE mark_bar(x => species) AS a, mark_bar(x => island) AS b)";
     for text in [
         format!("{charts} |> SELECT layer($0a, b) AS c"),
         format!("{charts} |> SELECT layer(a, b, $0) AS c"),
@@ -145,7 +150,7 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         parameter.documentation.clone().unwrap()
     };
     let pin = doc(
-        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(pin => $0)), \
+        "FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, scale => scale(pin => $0)), \
          y => species) AS f",
     );
     assert!(
@@ -155,7 +160,7 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
         "{pin}"
     );
     let scale = doc(
-        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => $0), y => species) AS s",
+        "FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, scale => $0), y => species) AS s",
     );
     assert!(
         scale.contains("\n- One level down: `type(...)`, `domain(...)`"),
@@ -163,7 +168,7 @@ fn a_parameter_that_takes_constructors_documents_its_forms() {
     );
     // The forms of a constructor under the name that its place gives it.
     let help = help(
-        "FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, scale => scale(type => log($0))), \
+        "FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, scale => scale(type => log($0))), \
          y => species) AS s",
     )
     .unwrap();
@@ -178,17 +183,19 @@ fn a_channel_function_shows_the_options_of_its_channel() {
         help.signatures[help.active_signature].label.clone()
     };
     // A position with a scale of its own takes its axis, and the second position takes only its value.
-    let x = label("FROM penguins |> AGGREGATE symbol(x => x(body_mass_g, $0), y => species) AS s");
+    let x =
+        label("FROM penguins |> AGGREGATE mark_symbol(x => x(body_mass_g, $0), y => species) AS s");
     assert!(
         x.starts_with("x(value: T[, scale => ") && x.contains("axis => ") && !x.contains("legend"),
         "{x}"
     );
-    let x2 =
-        label("FROM penguins |> AGGREGATE rule(x => body_mass_g, x2 => x2(body_mass_g, $0)) AS s");
+    let x2 = label(
+        "FROM penguins |> AGGREGATE mark_rule(x => body_mass_g, x2 => x2(body_mass_g, $0)) AS s",
+    );
     assert!(x2.starts_with("x2(value: T) -> T"), "{x2}");
     // Another channel takes its legend.
     let color = label(
-        "FROM penguins |> AGGREGATE symbol(x => body_mass_g, y => species, \
+        "FROM penguins |> AGGREGATE mark_symbol(x => body_mass_g, y => species, \
          color => color(species, $0)) AS s",
     );
     assert!(

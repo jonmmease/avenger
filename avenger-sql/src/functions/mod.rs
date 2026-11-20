@@ -10,7 +10,7 @@
 //!
 //! ```sql
 //! FROM counts
-//! |> AGGREGATE bar(x => species, y => n, color => island) AS chart
+//! |> AGGREGATE mark_bar(x => species, y => n, color => island) AS chart
 //! ```
 //!
 //! A channel argument that reads the rows is a column of the chart's layer table, named by the

@@ -166,6 +166,30 @@ async fn query_examples_return_their_rows() {
     assert!(checked > 20, "{checked} examples");
 }
 
+#[tokio::test]
+async fn chart_examples_build_their_charts() {
+    // An example that builds a chart, as `datum` and `value` show their channels, is a query of
+    // `penguins` that names its chart `chart`, which runs without diagnostics.
+    let library = Library::new();
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for function in library.functions() {
+        for example in &function.examples {
+            if !example.query.contains("AS chart") {
+                continue;
+            }
+            match pass::run(&example.query).await {
+                Ok(batches) if batches.iter().any(|b| b.column_by_name("chart").is_some()) => {}
+                Ok(_) => failures.push(format!("{}: no column `chart`", example.query)),
+                Err(errors) => failures.push(format!("{}: {errors:?}", example.query)),
+            }
+            checked += 1;
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    assert!(checked >= 2, "{checked} examples");
+}
+
 /// The concrete argument lists of a form of GoogleSQL's listing, as `[STRING, INT64]`, with an
 /// optional argument present and absent, a repeated argument as `X...`, and `DOUBLE` as
 /// `FLOAT64`, or none for a form of a type or an argument that avenger-sql doesn't have.

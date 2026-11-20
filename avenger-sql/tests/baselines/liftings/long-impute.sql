@@ -12,7 +12,7 @@ FROM penguins
    )
 |> EXTEND stack(`SUM(flipper_length_mm)`) OVER (PARTITION BY `island`, `mass` ORDER BY `species` DESC NULLS FIRST, `sex` DESC NULLS FIRST) AS `stack(SUM(flipper_length_mm))`
 |> SELECT `island`, `mass`, `stack(SUM(flipper_length_mm))` AS `SUM(flipper_length_mm)`, `species`, `sex`
-|> AGGREGATE area(
+|> AGGREGATE mark_area(
      x => `mass`,
      y => `SUM(flipper_length_mm)`,
      color => `species`,

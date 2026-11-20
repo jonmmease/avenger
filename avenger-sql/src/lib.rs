@@ -7,7 +7,7 @@
 //! ```sql
 //! FROM penguins
 //! |> AGGREGATE count(*) AS n GROUP BY species
-//! |> AGGREGATE bar(x => species, y => n) AS chart
+//! |> AGGREGATE mark_bar(x => species, y => n) AS chart
 //! ```
 //!
 //! [`sql`] plans a script of GoogleSQL's pipe syntax, the subset that [`avenger_sql_syntax`]
