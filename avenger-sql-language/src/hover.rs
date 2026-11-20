@@ -27,11 +27,12 @@ const QUOTE: usize = 60;
 pub(crate) const STRINGS: usize = 3;
 
 impl Document {
-    /// Markdown on what is at `offset`: a name that the analysis resolved, or a string that a
-    /// parameter takes as one value of a set.
+    /// Markdown on what is at `offset`: a name that the analysis resolved, a string that a
+    /// parameter takes as one value of a set, or in a data script, an option, a schema, or a
+    /// name that a statement defines.
     pub fn hover(&self, offset: Offset) -> Option<Hover> {
         let offset = self.clamp(offset);
-        let model = &self.analysis.model;
+        let model = &self.model();
         let root = self.root();
         if let Some(value) = (model.enum_values.iter()).find(|v| v.range.contains_inclusive(offset))
         {
@@ -59,6 +60,9 @@ impl Document {
         if let Some(hover) = self.argument_name(&root, offset) {
             return Some(hover);
         }
+        if let Some((range, markdown)) = self.data_hover(&root, offset) {
+            return Some(Hover { range, markdown });
+        }
         let name = model.name_at(offset)?;
         // A constructor of a chart's option, by the name that its place gives it.
         if let Some(constructor) = (model.constructors.iter()).rfind(|c| c.range == name.range) {
@@ -85,21 +89,7 @@ impl Document {
                     typed(name, ty.as_ref().map(googlesql_name))
                 )
             }
-            Definition::Table { names } => {
-                let path = names.join(".");
-                let table = self.catalog.table(names)?;
-                let schema = table.schema();
-                let columns: Vec<String> = (schema.fields().iter())
-                    .map(|field| {
-                        format!(
-                            "- `{}`: {}",
-                            field.name(),
-                            googlesql_name(field.data_type())
-                        )
-                    })
-                    .collect();
-                format!("```googlesql\nTABLE {path}\n```\n\n{}", columns.join("\n"))
-            }
+            Definition::Table { names } => self.table_read_hover(names, offset)?,
             Definition::Query { name, definition } => {
                 let columns = (definition.and_then(|range| self.query_columns(&root, range)))
                     .map(|output| format!("\n\nA query of the columns:\n\n{}", columns(output)))
@@ -169,7 +159,7 @@ impl Document {
         let call = named.syntax().parent()?.parent()?;
         let called = self.called(&call)?;
         let function = called.function;
-        let resolved = (self.analysis.model.calls.iter())
+        let resolved = (self.model().calls.iter())
             .rfind(|form| form.range == call.text_range())
             .and_then(|form| form.index);
         let takes = |form: &avenger_sql::library::Form| {
@@ -232,7 +222,7 @@ impl Document {
                 (None, None) => return None,
             },
         };
-        (self.analysis.model.operators.iter())
+        (self.model().operators.iter())
             .rfind(|scope| scope.range == last)
             .map(|scope| scope.output.as_slice())
     }

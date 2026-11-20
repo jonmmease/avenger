@@ -7,6 +7,7 @@ use avenger_sql::{
     analysis::{
         match_recognize_part, Column, Definition, OperatorScope, Place, PlaceKind, RangeVariable,
     },
+    data::{Compression, DefinitionKind, FileOption, Format, OptionType},
     library::{entry, Accept, Arity, Family, FormArg, Function, FunctionKind, Need, Over},
     types::googlesql_name,
 };
@@ -18,7 +19,9 @@ use avenger_sql_syntax::{
 use datafusion::arrow::datatypes::DataType;
 
 use crate::{
-    collapse, escape,
+    collapse,
+    data::{self, FileString, OptionList},
+    escape,
     hover::{callee, create_header},
     quote, statements, token_before, Document, Offset,
 };
@@ -28,11 +31,12 @@ use crate::{
 pub struct Completions {
     /// The text that an item replaces when an editor inserts it at the cursor: the part of the
     /// name before the cursor, without the opening backtick of a quoted name, or the string
-    /// literal that holds the cursor.
+    /// literal that holds the cursor, or in a URI of a data script, the text inside its quotes
+    /// before the cursor.
     pub range: TextRange,
     /// The text that an item replaces when an editor replaces the whole name at the cursor: the
-    /// name through its end, or a quoted name up to its closing backtick. It starts where `range`
-    /// starts.
+    /// name through its end, a quoted name up to its closing backtick, or a URI up to its
+    /// closing quote. It starts where `range` starts.
     pub replace: TextRange,
     /// The items, in the order of their sort keys.
     pub items: Vec<CompletionItem>,
@@ -77,6 +81,12 @@ pub enum CompletionKind {
     Type,
     /// A named window of a `WINDOW` clause.
     Window,
+    /// An option of a statement of a data script, as `format = ` in `OPTIONS (...)`.
+    Option,
+    /// A file of the project, in a URI.
+    File,
+    /// A directory of the project, in a URI, which ends with `/`.
+    Folder,
 }
 
 /// The rank of each kind of item, the first part of its sort key.
@@ -89,13 +99,34 @@ mod rank {
     pub const KEYWORD: u8 = 5;
 }
 
-/// The keywords that start a statement of a script.
+/// The keywords that start a statement of a chart script.
 const STATEMENTS: &[&str] = &[
     "FROM",
     "DECLARE",
     "SET",
     "CREATE TEMP TABLE",
     "CREATE TEMP FUNCTION",
+    "CREATE TEMP EXTERNAL TABLE",
+    "IMPORT MODULE",
+];
+
+/// The keywords that start a statement of a data script, beside `LOAD DATA`, which the grammar
+/// gives.
+const DATA_STATEMENTS: &[&str] = &[
+    "CREATE EXTERNAL TABLE",
+    "CREATE VIEW",
+    "CREATE TABLE",
+    "CREATE SCHEMA",
+    "CREATE TEMP FUNCTION",
+    "IMPORT MODULE",
+];
+
+/// The keywords that start a statement of a module after its `MODULE` statement.
+const MODULE_STATEMENTS: &[&str] = &[
+    "CREATE PUBLIC FUNCTION",
+    "CREATE PRIVATE FUNCTION",
+    "CREATE PUBLIC CONSTANT",
+    "CREATE PRIVATE CONSTANT",
     "IMPORT MODULE",
 ];
 
@@ -150,11 +181,19 @@ impl Document {
         let root = self.root();
         let mut items = Items(Vec::new(), HashSet::new());
 
-        // In a string literal, the values of the set that its parameter takes, if any.
+        // In a string literal, the values of the set that its parameter takes, if any, and in
+        // the options of a statement of files or of a data script's statement, the values of the
+        // option or the paths of a URI.
         if let Some(string) = (root.token_at_offset(offset).left_biased()).filter(|token| {
             token.kind() == SyntaxKind::STRING && token.text_range().start() < offset
         }) {
-            self.enum_values(&string, &mut items);
+            match data::file_string(&string, self.role) {
+                Some(FileString::Value(option)) => push_option_values(option, true, &mut items),
+                Some(FileString::Uri(format, compression)) => {
+                    return self.uris(&string, offset, format, compression)
+                }
+                None => self.enum_values(&string, &mut items),
+            }
             return finish(string.text_range(), string.text_range(), items, None);
         }
 
@@ -212,15 +251,44 @@ impl Document {
             }
         }
 
+        // In the options of a statement of files or of a data script's statement, the names of
+        // the options that it takes, and in the value of an option, the values that the option
+        // takes, if any.
+        if let Some(before) = before.as_ref() {
+            if let Some(list) = OptionList::of_separator(before, self.role) {
+                // A name of an entry that has its value replaces the name alone.
+                let value = list.has_value_at(offset);
+                for option in list.options_at(offset) {
+                    items.push(CompletionItem {
+                        sort: sort(rank::ARGUMENT, option.name),
+                        insert: match value {
+                            true => option.name.to_string(),
+                            false => format!("{} = ", option.name),
+                        },
+                        label: option.name.to_string(),
+                        kind: CompletionKind::Option,
+                        detail: Some(option.ty.to_string()),
+                        documentation: Some(option.meaning.to_string()),
+                    });
+                }
+                return finish(range, replace, items, quote);
+            }
+            if let Some(option) = data::value_after(before, self.role) {
+                if let Some(option) = option {
+                    push_option_values(option, false, &mut items);
+                }
+                return finish(range, replace, items, quote);
+            }
+        }
+
         let place = before
             .as_ref()
-            .and_then(|token| self.analysis.model.place_at(token.text_range().start()));
+            .and_then(|token| self.model().place_at(token.text_range().start()));
         let mut expression = false;
         let mut names = false;
         let mut tables = false;
         let mut table_functions = false;
-        // A document is a chart script.
-        for expected in expected_at(&self.text, start, Role::Script) {
+        for expected in expected_at(&self.text, start, self.role) {
             match expected {
                 Expected::Keyword(kind) => {
                     if before
@@ -295,7 +363,12 @@ impl Document {
                     let declares = statements(&root)
                         .filter(|stmt| stmt.syntax().text_range().end() <= start)
                         .all(|stmt| matches!(stmt, ast::Stmt::DeclareStmt(_)));
-                    for keyword in STATEMENTS {
+                    let keywords = match self.role {
+                        Role::Script => STATEMENTS,
+                        Role::Data => DATA_STATEMENTS,
+                        Role::Module => MODULE_STATEMENTS,
+                    };
+                    for keyword in keywords {
                         if *keyword != "DECLARE" || declares {
                             items.simple(
                                 keyword.to_string(),
@@ -350,10 +423,91 @@ impl Document {
         finish(range, replace, items, quote)
     }
 
+    /// The paths of the project's files and directories that extend the value of the URI
+    /// `string` before `offset`, those of the files of `format` and `compression` first, when
+    /// the statement sets a format. An item replaces the text inside the string's quotes, up to
+    /// the cursor, or to the closing quote of a closed string, with the path escaped for the
+    /// string.
+    fn uris(
+        &self,
+        string: &SyntaxToken,
+        offset: Offset,
+        format: Option<Format>,
+        compression: Option<Compression>,
+    ) -> Completions {
+        let text = string.text();
+        // A raw or a bytes string's prefix, then one quote, or three.
+        let prefix = text.len() - text.trim_start_matches(['r', 'R', 'b', 'B']).len();
+        let raw = text[..prefix].contains(['r', 'R']);
+        let quote = text.as_bytes()[prefix];
+        let quotes = text.as_bytes()[prefix..]
+            .iter()
+            .take(3)
+            .take_while(|byte| **byte == quote)
+            .count();
+        let delimiter = match quotes {
+            3 => 3,
+            _ => 1,
+        };
+        let open = string.text_range().start() + Offset::from((prefix + delimiter) as u32);
+        // A string is closed by its quotes at its end, unless a backslash escapes the first, as
+        // in a raw string too.
+        let body = &text.as_bytes()[prefix + delimiter..];
+        let closed = body.len() >= delimiter && {
+            let end = body.len() - delimiter;
+            let backslashes = (body[..end].iter().rev())
+                .take_while(|byte| **byte == b'\\')
+                .count();
+            body[end..].iter().all(|byte| *byte == quote) && backslashes % 2 == 0
+        };
+        let offset = offset.max(open);
+        let end = match closed {
+            true => string.text_range().end() - Offset::from(delimiter as u32),
+            false => offset,
+        };
+        let mut items = Items(Vec::new(), HashSet::new());
+        // After the closing quote, the cursor is outside the URI.
+        if offset > end {
+            return finish(
+                TextRange::empty(offset),
+                TextRange::empty(offset),
+                items,
+                None,
+            );
+        }
+        let typed = unescape(&self.text[usize::from(open)..usize::from(offset)], raw);
+        for found in data::paths(&self.paths, &typed, format, compression) {
+            let rank = match found.matches {
+                true => rank::ARGUMENT,
+                false => rank::COLUMN,
+            };
+            items.push(CompletionItem {
+                sort: sort(rank, &found.path),
+                insert: match raw {
+                    true => found.path.clone(),
+                    false => escape_string(&found.path, quote as char),
+                },
+                label: found.path,
+                kind: match found.directory {
+                    true => CompletionKind::Folder,
+                    false => CompletionKind::File,
+                },
+                detail: None,
+                documentation: None,
+            });
+        }
+        finish(
+            TextRange::new(open, offset),
+            TextRange::new(open, end),
+            items,
+            None,
+        )
+    }
+
     /// The scope of the innermost operator that holds `token`, by its start: a token that ends
     /// where an operator starts, as `(` before a subquery, is outside it.
     fn scope_at(&self, token: &SyntaxToken) -> Option<&OperatorScope> {
-        self.analysis.model.operator_at(token.text_range().start())
+        self.model().operator_at(token.text_range().start())
     }
 
     /// The columns of `scope`'s input, its range variables, and the columns and the range
@@ -435,8 +589,8 @@ impl Document {
     /// column `name`.
     fn fields(&self, dot: &SyntaxToken, scope: Option<&OperatorScope>, items: &mut Items) {
         let Some(scope) = scope else {
-            if let Some(fields) = (self.analysis.model.field_base_at(dot.text_range().start()))
-                .and_then(struct_fields)
+            if let Some(fields) =
+                (self.model().field_base_at(dot.text_range().start())).and_then(struct_fields)
             {
                 push_fields(fields, items);
             }
@@ -468,7 +622,7 @@ impl Document {
         let ty = (own.iter())
             .find(|column| column.name.eq_ignore_ascii_case(&qualifier))
             .and_then(|column| column.ty.as_ref())
-            .or_else(|| self.analysis.model.field_base_at(dot.text_range().start()));
+            .or_else(|| self.model().field_base_at(dot.text_range().start()));
         if let Some(fields) = ty.and_then(struct_fields) {
             push_fields(fields, items);
         }
@@ -485,7 +639,7 @@ impl Document {
                     continue;
                 };
                 let ty = (declare.ty().map(|ty| ty.syntax().to_string())).or_else(|| {
-                    (self.analysis.model.names.iter()).find_map(|use_| match &use_.definition {
+                    (self.model().names.iter()).find_map(|use_| match &use_.definition {
                         Definition::Variable {
                             definition: Some(definition),
                             ty: Some(ty),
@@ -526,6 +680,20 @@ impl Document {
                 Some(format!("{} columns", table.schema().fields().len())),
                 rank::COLUMN,
             );
+        }
+        // The tables and views that the statements of the script before `start` define: a data
+        // script's, and a chart script's own tables of files.
+        let defined = (self.definitions().iter())
+            .filter(|definition| definition.range.end() <= start && definition.appends().is_none())
+            .filter(|definition| !matches!(definition.kind, DefinitionKind::Schema));
+        for definition in defined {
+            let label = (definition.names.iter())
+                .map(|name| quote(name))
+                .collect::<Vec<_>>()
+                .join(".");
+            let detail = (definition.schema.as_ref())
+                .map(|schema| format!("{} columns", schema.fields().len()));
+            items.simple(label, CompletionKind::Table, detail, rank::COLUMN);
         }
         // The pipe `WITH` names and the temporary tables in scope, as the analysis knows them.
         for name in scope.iter().flat_map(|scope| &scope.queries) {
@@ -642,7 +810,7 @@ impl Document {
         }
         match kind {
             // A `PIVOT` takes the call of an aggregate, which `NOT` doesn't start.
-            SyntaxKind::NOT_KW => (self.analysis.model.place_at(before.text_range().end()))
+            SyntaxKind::NOT_KW => (self.model().place_at(before.text_range().end()))
                 .is_none_or(|place| place.kind != PlaceKind::Pivot),
             SyntaxKind::OVER_KW => {
                 let Some(call) = (before.kind() == SyntaxKind::R_PAREN)
@@ -654,7 +822,7 @@ impl Document {
                 };
                 let windowed = (self.called(&call))
                     .is_some_and(|called| called.function.clauses.over != Over::Forbidden);
-                let place = self.analysis.model.place_at(call.text_range().start());
+                let place = self.model().place_at(call.text_range().start());
                 windowed && place.is_some_and(|place| place.windows)
             }
             SyntaxKind::ORDER_KW | SyntaxKind::ROWS_KW | SyntaxKind::RANGE_KW => {
@@ -960,6 +1128,66 @@ fn positional_param(function: &Function, position: usize) -> Option<String> {
             .is_some_and(|param| !param.takes.constructors.is_empty());
         (matches!(arg.accept, Accept::OneOf(_)) || constructors).then(|| arg.param.clone())
     })
+}
+
+/// The value of the part `text` of the body of a string, with its escapes of a backslash and of
+/// quotes, which the paths of files hold, decoded, unless the string is raw, `raw`. Other escapes
+/// stay as they are, since no path of a project holds them.
+fn unescape(text: &str, raw: bool) -> String {
+    if raw {
+        return text.to_string();
+    }
+    let mut value = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match (c, chars.clone().next()) {
+            ('\\', Some(next @ ('\\' | '\'' | '"' | '`'))) => {
+                value.push(next);
+                chars.next();
+            }
+            _ => value.push(c),
+        }
+    }
+    value
+}
+
+/// `path` as the body of a string that `quote` quotes writes it, with `\` before a backslash
+/// and before the quote.
+fn escape_string(path: &str, quote: char) -> String {
+    let mut text = String::with_capacity(path.len());
+    for c in path.chars() {
+        if c == '\\' || c == quote {
+            text.push('\\');
+        }
+        text.push(c);
+    }
+    text
+}
+
+/// The values that `option` of a data script's statement takes, as string literals, and `TRUE`
+/// and `FALSE` for a `BOOL` outside of a string, `in_string`.
+fn push_option_values(option: &FileOption, in_string: bool, items: &mut Items) {
+    for value in data::values(option) {
+        let literal = format!("'{value}'");
+        items.push(CompletionItem {
+            sort: sort(rank::ARGUMENT, value),
+            insert: literal.clone(),
+            label: literal,
+            kind: CompletionKind::EnumValue,
+            detail: Some(format!("a value of `{}`", option.name)),
+            documentation: Some(option.meaning.to_string()),
+        });
+    }
+    if option.ty == OptionType::Bool && !in_string {
+        for value in ["TRUE", "FALSE"] {
+            items.simple(
+                value.to_string(),
+                CompletionKind::Keyword,
+                None,
+                rank::KEYWORD,
+            );
+        }
+    }
 }
 
 /// The values of the sets that `param` of `function` takes, as string literals.
