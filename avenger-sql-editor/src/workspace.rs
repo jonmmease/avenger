@@ -22,13 +22,15 @@ use avenger_sql::{
 };
 use avenger_sql_language::{Diagnostic, FileRole, Project, Severity, Source};
 use avenger_sql_project::{
-    ChartError, LoadedProject, ModuleFile, ProjectFiles, ProjectStylesheet, ScriptStatus,
-    TableChange,
+    ChartError, FilesReload, LoadedProject, ModuleFile, ProjectFiles, ProjectStylesheet,
+    ScriptStatus, TableChange,
 };
 use avenger_style::{Sheet, SourceId, Span};
 use datafusion::prelude::SessionContext;
 use tokio::sync::RwLock;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::add_file;
 use crate::buffer::Buffer;
 use crate::gallery::{self, Entry};
 use crate::highlight::Chars;
@@ -159,6 +161,21 @@ impl Loader {
         let mut project = self.project.write().await;
         let changes = (project.reload(path, text).await).map_err(|error| error.to_string())?;
         Ok((changes, LoadState::of(&project)))
+    }
+
+    /// Loads the data scripts that read the files at `paths`, relative to the project's root,
+    /// again, after the files changed on disk, and the scripts downstream of them, and returns
+    /// what changed, the tables and the charts whose own tables of files read the files, which
+    /// run again, and the state of the load, or `None` when no data script and no chart reads
+    /// the files, so that nothing loads.
+    pub async fn reload_files(&self, paths: &[String]) -> Option<(FilesReload, LoadState)> {
+        let mut project = self.project.write().await;
+        let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+        if (paths.iter()).all(|path| project.scripts_reading(path).is_empty()) {
+            return None;
+        }
+        let reload = project.reload_files(&paths).await;
+        Some((reload, LoadState::of(&project)))
     }
 
     /// Opens the project again from its files, as they are on disk, and loads every data script
@@ -332,6 +349,120 @@ impl Tab {
     }
 }
 
+/// What Add file did: the data script or the chart script that took the statements, the names of
+/// the tables, the files that it copied into the project, relative to the root, the errors of the
+/// files that it did not add, and what loads or runs next, or `None` while the script's tab holds
+/// edits that are not saved.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Added {
+    pub script: String,
+    pub tables: Vec<String>,
+    pub copied: Vec<String>,
+    pub errors: Vec<String>,
+    pub load: Option<Load>,
+    /// The chart script that runs, when the statements went into a chart that saved.
+    pub run: Option<String>,
+}
+
+/// The data files of Add file before their copies: the data script that takes their statements,
+/// and each file by its name, with its URI under the project's root, or its path outside the
+/// root, which [`Adding::copy`] copies into the project in the background.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct Adding {
+    root: PathBuf,
+    script: String,
+    files: Vec<(String, AddedFile)>,
+    errors: Vec<String>,
+}
+
+/// Where a data file of Add file is.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+enum AddedFile {
+    /// A file under the root, by its URI relative to the root.
+    Under(String),
+    /// A file outside the root, by its path on disk.
+    Outside(PathBuf),
+}
+
+/// The data files of Add file after their copies, by name and URI, which [`Workspace::add`]
+/// writes the statements of, with the paths of the copies, relative to the root, and the errors
+/// of the files that are not added.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct Copied {
+    script: String,
+    files: Vec<(String, String)>,
+    copied: Vec<String>,
+    errors: Vec<String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Adding {
+    /// Copies each file from outside the project's root into [`add_file::FILES`], under a name
+    /// that no file there has. The copies are I/O, which the editor makes in the background. A
+    /// file that does not copy is not added, with its error.
+    pub fn copy(self) -> Copied {
+        let Adding {
+            root,
+            script,
+            files,
+            mut errors,
+        } = self;
+        let (mut added, mut copied) = (Vec::new(), Vec::new());
+        for (name, file) in files {
+            let uri = match file {
+                AddedFile::Under(uri) => uri,
+                AddedFile::Outside(path) => {
+                    let data = add_file::DataFile::of(&name).expect("a data file of Add file");
+                    match copy(&root, &path, &data) {
+                        Ok(uri) => {
+                            copied.push(uri.clone());
+                            uri
+                        }
+                        Err(error) => {
+                            errors.push(error);
+                            continue;
+                        }
+                    }
+                }
+            };
+            added.push((name, uri));
+        }
+        Copied {
+            script,
+            files: added,
+            copied,
+            errors,
+        }
+    }
+}
+
+/// A file under the root of the open project that changed on disk, by its path relative to the
+/// root.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Watched {
+    /// A file of the project's own, a script, a module, or a stylesheet, which
+    /// [`Workspace::reread`] reads again.
+    Project(String),
+    /// Another file, such as a data file, which can change a table: the editor loads the data
+    /// scripts that read it again, with [`Loader::reload_files`].
+    Data(String),
+}
+
+/// A load of data scripts that the editor starts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Load {
+    /// The data script at `path`, with `text`, and the scripts downstream of it.
+    Script { path: String, text: String },
+    /// The data scripts that read the files at these paths, relative to the root, after they
+    /// changed on disk.
+    Files(Vec<String>),
+    /// Every data script, from the project's files as they are on disk.
+    All,
+}
+
 /// What a save asks the editor to do next.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Saved {
@@ -427,6 +558,48 @@ pub fn create(directory: &Path) -> Result<PathBuf, String> {
             .map_err(|error| format!("cannot write {}: {error}", manifest.display()))?;
     }
     Ok(directory)
+}
+
+/// Copies the data file `file` at `path`, outside the project's root, into the directory of the
+/// project's data files under a name that no file there has, and returns its path relative to
+/// the root.
+#[cfg(not(target_arch = "wasm32"))]
+fn copy(root: &Path, path: &Path, file: &add_file::DataFile<'_>) -> Result<String, String> {
+    let directory = root.join(add_file::FILES);
+    let cannot = |error: std::io::Error| format!("cannot copy {}: {error}", path.display());
+    let mut from = std::fs::File::open(path).map_err(cannot)?;
+    std::fs::create_dir_all(&directory).map_err(cannot)?;
+    loop {
+        let name = file.free_name(|name| directory.join(name).exists());
+        let target = directory.join(&name);
+        let mut to = match std::fs::File::create_new(&target) {
+            Ok(to) => to,
+            // A file of the name that appeared since the name was free.
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(cannot(error)),
+        };
+        if let Err(error) = std::io::copy(&mut from, &mut to) {
+            let _ = std::fs::remove_file(&target);
+            return Err(cannot(error));
+        }
+        return Ok(format!("{}/{name}", add_file::FILES));
+    }
+}
+
+/// The error of Add file when it adds no file: the errors of the files, or else that it has none.
+#[cfg(not(target_arch = "wasm32"))]
+fn no_file(errors: &[String]) -> String {
+    match errors.is_empty() {
+        true => "No file to add".to_string(),
+        false => errors.join("\n"),
+    }
+}
+
+/// Writes `bytes` to a new file at `path`, and never over a file that is there.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    std::fs::File::create_new(path)?.write_all(bytes)
 }
 
 /// The path of `path` relative to `root`, with `/` between its names.
@@ -799,19 +972,298 @@ impl Workspace {
         gallery::entries(self.files.manifest(), charts)
     }
 
-    /// The gallery's entry of the chart script at `path`, with its saved text.
+    /// The gallery's entry of the chart script at `path`, with its saved text, or its text on
+    /// disk without a tab.
     pub fn entry(&self, path: &str) -> Option<Entry> {
-        let tab = self.tab(path)?;
-        Some(Entry::new(self.files.manifest(), path, tab.saved.clone()))
+        let text = match self.tab(path) {
+            Some(tab) => tab.saved.clone(),
+            None => self.language.document(path)?.text().to_string(),
+        };
+        Some(Entry::new(self.files.manifest(), path, text))
+    }
+
+    /// The data files at `paths`, on disk, that Add file and a drop on the window add to the
+    /// project, before their copies: a file under the project's root keeps its place, and
+    /// [`Adding::copy`] copies a file outside it into [`add_file::FILES`] under a name that no
+    /// file there has. The statements go into the script of [`add_file::script`]: the active
+    /// chart script, or a data script. A file of no format that a data script reads is not
+    /// added, with its error in [`Added::errors`].
+    ///
+    /// Adding fails for the sample project, which is read-only, when it adds no file, and when
+    /// the script changed on disk since the editor read it, and its tab holds no edits that are
+    /// not saved, since the save of the statements would lose that change.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn adding(&self, paths: &[PathBuf]) -> Result<Adding, String> {
+        let root = (self.root.clone()).ok_or_else(|| {
+            "The sample project is read-only: open or make a project to add files".to_string()
+        })?;
+        let active = (self.active()).map(|tab| tab.path.clone());
+        let (data, charts) = (self.files.data_scripts(), self.files.chart_scripts());
+        let script = add_file::script(active.as_deref(), data, charts).to_string();
+        let new = !data.contains(&script) && !charts.contains(&script);
+        let role = self.files.manifest().role(&script);
+        if new && !matches!(role, Ok(Some(avenger_sql_project::Role::DataScript))) {
+            return Err(format!(
+                "The project has no data script, and its manifest gives {script} no role of a \
+                 data script: make a data script to add files to"
+            ));
+        }
+        if !new {
+            let saved = match self.tab(&script) {
+                Some(tab) => (!tab.modified()).then(|| tab.saved.clone()),
+                None => (self.language.document(&script)).map(|document| document.text().into()),
+            };
+            if let Some(saved) = saved {
+                unchanged_on_disk(&root.join(&script), &script, &saved)?;
+            }
+        }
+        let (mut files, mut errors) = (Vec::new(), Vec::new());
+        for path in paths {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                errors.push(format!("{} has a name that is not UTF-8", path.display()));
+                continue;
+            };
+            if let Err(error) = add_file::DataFile::of(name) {
+                errors.push(error);
+                continue;
+            }
+            let under = (std::fs::canonicalize(path).ok())
+                .and_then(|canonical| relative(&root, &canonical));
+            let file = match under {
+                Some(uri) if uri.contains('*') => {
+                    errors.push(format!(
+                        "{uri} has `*` in its path, which a URI reads as a pattern of names"
+                    ));
+                    continue;
+                }
+                Some(uri) => AddedFile::Under(uri),
+                None => AddedFile::Outside(path.clone()),
+            };
+            files.push((name.to_string(), file));
+        }
+        if files.is_empty() {
+            return Err(no_file(&errors));
+        }
+        Ok(Adding {
+            root,
+            script,
+            files,
+            errors,
+        })
+    }
+
+    /// Writes the `CREATE EXTERNAL TABLE` statement of each file of `copied`, with a table name
+    /// that no table of the project has, at the end of its data script, whose tab opens, and adds
+    /// the copies to the files of the project. A chart script takes `CREATE TEMP EXTERNAL TABLE`
+    /// statements before its query, after its other statements of files, with names that no
+    /// table of the project and no table of the chart has.
+    ///
+    /// A script whose tab holds edits that are not saved takes the statements in its tab, which
+    /// stays modified, and loads or runs when it is saved. Otherwise the script is saved, and
+    /// [`Added::load`] tells what loads: the saved data script, or, for a new script, the whole
+    /// project, whose loader lists its files again, and [`Added::run`] the saved chart, which
+    /// runs. Adding fails when no file copied.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn add(&mut self, copied: Copied) -> Result<Added, String> {
+        let Copied {
+            script,
+            files,
+            copied,
+            errors,
+        } = copied;
+        let root = (self.root.clone()).ok_or("The sample project is read-only")?;
+        // An earlier Add file can have made the script since the copies began.
+        let chart = self.files.chart_scripts().contains(&script);
+        let new = !chart && !self.files.data_scripts().contains(&script);
+        let mut taken = self.table_names();
+        let role = match chart {
+            true => {
+                let text = self.tab(&script).map(|tab| tab.buffer.text.clone());
+                let text = text.or_else(|| {
+                    (self.language.document(&script)).map(|document| document.text().to_string())
+                });
+                taken.extend(add_file::chart_tables(&text.unwrap_or_default()));
+                avenger_sql_language::Role::Script
+            }
+            false => avenger_sql_language::Role::Data,
+        };
+        let (mut statements, mut tables) = (Vec::new(), Vec::new());
+        for (name, uri) in &files {
+            let file = add_file::DataFile::of(name).expect("a data file of Add file");
+            let table = add_file::table_name(file.stem, &taken);
+            taken.insert(table.clone());
+            statements.push(add_file::statement(&table, &file, uri, role));
+            tables.push(table);
+        }
+        if statements.is_empty() {
+            return Err(no_file(&errors));
+        }
+        let mut listed = copied.clone();
+        if new {
+            let text = add_file::append("", &statements);
+            let file = root.join(&script);
+            let written = std::fs::create_dir_all(file.parent().unwrap_or(&root))
+                .and_then(|()| write_new(&file, text.as_bytes()));
+            if let Err(error) = written {
+                self.list(listed)?;
+                return Err(format!("cannot write {}: {error}", file.display()));
+            }
+            listed.push(script.clone());
+            self.list(listed)?;
+            self.language.add(&script, FileRole::Data, text);
+            self.open_tab(&script);
+            return Ok(Added {
+                script,
+                tables,
+                copied,
+                errors,
+                load: Some(Load::All),
+                run: None,
+            });
+        }
+        self.list(listed)?;
+        self.open_tab(&script);
+        let tab = (self.tab(&script)).ok_or_else(|| format!("{script} does not open"))?;
+        let modified = tab.modified();
+        let text = match chart {
+            true => add_file::insert(&tab.buffer.text, &statements),
+            false => add_file::append(&tab.buffer.text, &statements),
+        };
+        self.edit(&script, &text);
+        let (load, run) = match modified {
+            true => (None, None),
+            false => match self.save(&script)? {
+                Saved::Data { path, text } => (Some(Load::Script { path, text }), None),
+                Saved::Chart { path } => (None, Some(path)),
+                saved => unreachable!("a script of Add file saves as one, not {saved:?}"),
+            },
+        };
+        Ok(Added {
+            script,
+            tables,
+            copied,
+            errors,
+            load,
+            run,
+        })
+    }
+
+    /// The names of the tables, views, and schemas that the data scripts define, in lowercase,
+    /// as the language project analyzes their texts, with the edits of their tabs.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn table_names(&self) -> BTreeSet<String> {
+        let graph = self.language.graph();
+        (graph.paths())
+            .filter_map(|path| graph.names(path))
+            .flat_map(|names| &names.definitions)
+            .filter_map(|name| match name.names.as_slice() {
+                [name] => Some(name.to_ascii_lowercase()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Adds the files at `paths`, relative to the root, to the files of the project, whose
+    /// paths completion offers in a URI.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn list(&mut self, paths: Vec<String>) -> Result<(), String> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut files = self.files.files().to_vec();
+        files.extend(paths);
+        let (manifest, source) = (self.files.manifest().clone(), self.files.source().clone());
+        self.files = ProjectFiles::new(manifest, source, files).map_err(|conflicts| {
+            (conflicts.iter().map(ToString::to_string))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+        self.language.set_paths(self.files.files().into());
+        Ok(())
+    }
+
+    /// The file at `path` on disk that changed, when it is a file under the root that is not
+    /// hidden, nor under a hidden directory: a file of the project's own, or another file, such
+    /// as a data file. The manifest and a file that two roles match are neither.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn watched(&self, path: &Path) -> Option<Watched> {
+        let root = self.root.as_deref()?;
+        // The root is a canonical path, and a removed file's directory still is one.
+        let canonical = || match std::fs::canonicalize(path) {
+            Ok(path) => Some(path),
+            Err(_) => Some(
+                std::fs::canonicalize(path.parent()?)
+                    .ok()?
+                    .join(path.file_name()?),
+            ),
+        };
+        let path = match path.strip_prefix(root) {
+            Ok(_) => path.to_path_buf(),
+            Err(_) => canonical()?,
+        };
+        let relative = relative(root, &path)?;
+        let hidden = relative.split('/').any(|name| name.starts_with('.'));
+        if relative.is_empty() || hidden || relative == avenger_sql_project::MANIFEST {
+            return None;
+        }
+        match self.files.manifest().role(&relative) {
+            Ok(None) => Some(Watched::Data(relative)),
+            Ok(Some(_)) => Some(Watched::Project(relative)),
+            Err(_) => None,
+        }
+    }
+
+    /// Reads the file at `path`, relative to the root, a script, a module, or a stylesheet,
+    /// again after it changed on disk, and returns what the editor does next, as after a save:
+    /// the language project analyzes the text on disk, and a tab of the file shows it. A tab
+    /// with edits that are not saved keeps them, and its save fails, since it would lose the
+    /// change. A file whose text is the one that the editor holds, as after the editor's own
+    /// save, and a file that is not a file of the project, do nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn reread(&mut self, path: &str) -> Option<Saved> {
+        let file = self.root.as_deref()?.join(path);
+        let text = std::fs::read_to_string(file).ok()?;
+        let kind = match self.styles.text(path) {
+            Some(_) => TabKind::Stylesheet,
+            None => TabKind::Sql(self.language.role(path)?.clone()),
+        };
+        let held = match self.tab(path) {
+            Some(tab) if tab.modified() => return None,
+            Some(tab) => Some(tab.saved.as_str()),
+            None if kind == TabKind::Stylesheet => self.styles.text(path),
+            None => (self.language.document(path)).map(|document| document.text()),
+        };
+        if held == Some(text.as_str()) {
+            return None;
+        }
+        if let Some(tab) = self.tab_mut(path) {
+            tab.saved = text.clone();
+            tab.buffer.text = text.clone();
+        }
+        if kind != TabKind::Stylesheet {
+            self.language.set_text(path, text.clone());
+        }
+        Some(match kind {
+            TabKind::Sql(FileRole::Data) => Saved::Data {
+                path: path.to_string(),
+                text,
+            },
+            TabKind::Sql(FileRole::Chart) => Saved::Chart {
+                path: path.to_string(),
+            },
+            TabKind::Sql(FileRole::Module { .. }) => Saved::Module,
+            TabKind::Stylesheet => Saved::Stylesheet,
+        })
     }
 
     /// The open chart tabs that a load that changed the tables `changes` runs again: those whose
-    /// charts read a changed table, and those that import a module, whose functions can read
-    /// tables that the chart's text doesn't name.
-    pub fn reruns(&self, changes: &[TableChange]) -> Vec<String> {
+    /// charts read a changed table, those that import a module, whose functions can read
+    /// tables that the chart's text doesn't name, and those of `charts`, whose own tables of
+    /// files read files that changed.
+    pub fn reruns(&self, changes: &[TableChange], charts: &[String]) -> Vec<String> {
         (self.tabs.iter())
             .filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart))
-            .filter(|tab| reads(&tab.buffer.text, changes))
+            .filter(|tab| reads(&tab.buffer.text, changes) || charts.contains(&tab.path))
             .map(|tab| tab.path.clone())
             .collect()
     }
