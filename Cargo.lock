@@ -1168,10 +1168,13 @@ dependencies = [
  "avenger-typst-label",
  "chrono",
  "datafusion",
+ "futures",
+ "glob",
  "prost",
  "regex",
  "serde_json",
  "tokio",
+ "url",
 ]
 
 [[package]]

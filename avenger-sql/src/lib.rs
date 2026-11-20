@@ -29,7 +29,9 @@
 //! A project's [`data`] scripts register the tables that its scripts read, with GoogleSQL's
 //! `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`, and `CREATE
 //! SCHEMA`. [`analyze_data`] analyzes a data script: what each statement defines, its schema,
-//! and the reads that leave the script. [`project`] orders a project's data scripts by the names
+//! and the reads that leave the script. [`data::file_table`] builds the table of a script's
+//! files over a session's object stores, and [`data::lower`] registers the tables, views and
+//! schemas of an analyzed script in a session. [`project`] orders a project's data scripts by the names
 //! that they read from each other, and holds the catalog of the tables that they define.
 
 pub mod analysis;

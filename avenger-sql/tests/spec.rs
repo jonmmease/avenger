@@ -9,8 +9,13 @@ use std::sync::Arc;
 
 use avenger_chart::{charts_from_arrow, Decode};
 use avenger_sql::catalog::MemoryCatalog;
+use avenger_sql::data::ScriptTables;
 use datafusion::{
-    arrow::datatypes::{DataType, Field, Schema},
+    arrow::{
+        array::{Float64Array, Int64Array, RecordBatch, StringArray},
+        datatypes::{DataType, Field, Schema},
+    },
+    dataframe::DataFrame,
     datasource::MemTable,
     prelude::SessionContext,
 };
@@ -85,16 +90,26 @@ fn session() -> SessionContext {
 }
 
 /// A catalog of a table for each file read of `parse`, whose files all have the columns
-/// `region`, `month`, and `amount`.
+/// `region`, `month`, and `amount`, and one row.
 fn files_catalog(parse: &avenger_sql_syntax::Parse) -> MemoryCatalog {
     let schema = Arc::new(Schema::new(vec![
         Field::new("region", DataType::Utf8, true),
         Field::new("month", DataType::Int64, true),
         Field::new("amount", DataType::Float64, true),
     ]));
+    let row = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(StringArray::from(vec!["east"])),
+            Arc::new(Int64Array::from(vec![1])),
+            Arc::new(Float64Array::from(vec![10.5])),
+        ],
+    )
+    .unwrap();
+    let table = Arc::new(MemTable::try_new(schema, vec![vec![row]]).unwrap());
     let reads = avenger_sql::data::file_reads(&parse.syntax(), Default::default());
     (reads.into_iter()).fold(MemoryCatalog::new(), |catalog, read| {
-        catalog.with_files_schema(read.files, schema.clone())
+        catalog.with_files(read.files, table.clone())
     })
 }
 
@@ -112,17 +127,27 @@ fn analyze_data(example: &str) -> Result<usize, String> {
     }
 }
 
-/// The errors of the analysis of the chart script `example` with its own tables of files, over
-/// the tables of [`files_catalog`]: a project runs such a chart.
-fn analyze_chart(example: &str) -> Result<usize, String> {
+/// The number of charts of the chart script `example` with its own tables of files, over the
+/// tables of [`files_catalog`], as a project runs such a chart, or its error.
+async fn run_chart(ctx: &SessionContext, example: &str) -> Result<usize, String> {
     let parse = avenger_sql_syntax::parse(example);
     let catalog = files_catalog(&parse);
     let library = avenger_sql::library::Library::new();
     let analysis = avenger_sql::analyze(&parse.syntax(), &catalog, &library, &Default::default());
-    match analysis.diagnostics.is_empty() {
-        true => Ok(0),
-        false => Err(format!("{:?}", analysis.diagnostics)),
+    if !analysis.diagnostics.is_empty() {
+        return Err(format!("{:?}", analysis.diagnostics));
     }
+    let tables = ScriptTables::build(ctx, &analysis.file_tables, &catalog)
+        .await
+        .map_err(|errors| format!("{errors:?}"))?;
+    let analysis = analysis
+        .with_tables(&tables)
+        .map_err(|error| error.to_string())?;
+    let frame = analysis
+        .dataframe(ctx)
+        .await
+        .map_err(|error| error.to_string())?;
+    count_charts(frame).await
 }
 
 /// Whether the chart script `example` has its own tables of files.
@@ -142,11 +167,16 @@ async fn run(ctx: &SessionContext, example: &str) -> Result<usize, String> {
         return Err(format!("{:?}", parse.diagnostics()));
     }
     if reads_files(example) {
-        return analyze_chart(example);
+        return run_chart(ctx, example).await;
     }
     let frame = avenger_sql::sql(ctx, example)
         .await
         .map_err(|error| error.to_string())?;
+    count_charts(frame).await
+}
+
+/// The number of charts that the rows of `frame` build in their column `chart`.
+async fn count_charts(frame: DataFrame) -> Result<usize, String> {
     let batches = frame.collect().await.map_err(|error| error.to_string())?;
     let mut count = 0;
     for column in (batches.iter()).filter_map(|batch| batch.column_by_name("chart")) {
@@ -175,7 +205,7 @@ async fn check(text: &str, count: usize) {
         let charts = run(&ctx, example)
             .await
             .unwrap_or_else(|error| panic!("{example}\n{error}"));
-        if example.contains("AS chart") && !reads_files(example) {
+        if example.contains("AS chart") {
             assert!(charts > 0, "{example}builds no chart");
         } else {
             assert_eq!(charts, 0, "{example}");

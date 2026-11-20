@@ -896,6 +896,36 @@ OPTIONS (format = 'CSV', uris = ['other/*'], hive_partition_uri_prefix = 'events
     );
     assert_eq!(at, "'other/*'");
     assert!(message.starts_with("The URI doesn't start with the hive_partition_uri_prefix"));
+    // An empty prefix, or a separator alone, names no directory of a Hive layout.
+    for prefix in ["''", "'/'", r"'\\'"] {
+        let text = format!(
+            "CREATE EXTERNAL TABLE t WITH PARTITION COLUMNS
+OPTIONS (format = 'CSV', uris = ['events/*'], hive_partition_uri_prefix = {prefix})"
+        );
+        let (at, message) = error(&text);
+        assert_eq!(at, prefix);
+        assert!(
+            message.starts_with("hive_partition_uri_prefix is the path of the directory"),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn a_star_matches_the_names_of_one_directory() {
+    for uri in ["data/*/x.csv", r"data\*\x.csv", "*/x.csv"] {
+        let text = format!("CREATE EXTERNAL TABLE t OPTIONS (format = 'CSV', uris = [r'{uri}'])");
+        let (at, message) = error(&text);
+        assert_eq!(at, format!("r'{uri}'"));
+        assert_eq!(
+            message,
+            r"A * matches the names of the files of one directory, so no / or \ follows it"
+        );
+    }
+    for uri in ["data/x*.csv", r"data\x*", "*.csv"] {
+        let text = format!("CREATE EXTERNAL TABLE t OPTIONS (format = 'CSV', uris = [r'{uri}'])");
+        assert_eq!(reads(&text).len(), 1, "{uri}");
+    }
 }
 
 #[test]
