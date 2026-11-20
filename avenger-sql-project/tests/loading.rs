@@ -343,8 +343,8 @@ async fn a_failed_data_script_names_itself_downstream_and_in_charts() {
 async fn the_file_tables_of_the_scripts_are_those_of_their_last_loads() {
     // The table of each set of files that a script read, by its URIs, and whether it read.
     let tables = |project: &LoadedProject| -> Vec<(Vec<String>, bool)> {
-        (project.file_tables())
-            .map(|(files, table)| (files.uris.clone(), table.is_ok()))
+        (project.file_tables().into_iter())
+            .map(|(files, table)| (files.uris, table.is_ok()))
             .collect()
     };
     let uris = |uri: &str| vec![uri.to_string()];

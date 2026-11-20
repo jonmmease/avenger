@@ -10,7 +10,7 @@ use std::{
 use avenger_sql::{
     analysis::Options,
     analyze_data,
-    catalog::{references, Catalog, FilesTable, SessionCatalog},
+    catalog::{references, same_path, Catalog, FilesTable, SessionCatalog},
     data::{
         file_reads, file_table, file_urls, lower, DataAnalysis, Files, Registered, Registration,
     },
@@ -252,10 +252,16 @@ impl LoadedProject {
     }
 
     /// The table of each set of files that the data scripts read in their last loads, or the
-    /// error of reading it, by the scripts in the order of the load, as an editor's analysis
-    /// of the scripts takes them.
-    pub fn file_tables(&self) -> impl Iterator<Item = &(Files, FilesTable)> {
-        self.scripts().flat_map(|script| &script.files)
+    /// error of reading it, by the scripts in the order of the load, and then those that the
+    /// chart scripts' own tables of files read in their last runs, by path, as an editor's
+    /// analysis of the scripts takes them.
+    pub fn file_tables(&self) -> Vec<(Files, FilesTable)> {
+        let mut tables: Vec<(Files, FilesTable)> = (self.scripts())
+            .flat_map(|script| script.files.iter().cloned())
+            .collect();
+        let charts = self.charts.lock().expect("the tables of the charts");
+        tables.extend((charts.values()).flat_map(|chart| chart.files.iter().cloned()));
+        tables
     }
 
     /// The data scripts whose last loads read the file at `path`, relative to the project's
@@ -934,10 +940,4 @@ fn changes(before: Vec<Vec<String>>, after: Vec<Vec<String>>) -> Vec<TableChange
 
 fn lowercase(names: &[String]) -> Vec<String> {
     names.iter().map(|name| name.to_ascii_lowercase()).collect()
-}
-
-/// Whether the paths `a` and `b` name the same table or module, without regard to case, as in
-/// GoogleSQL.
-fn same_path(a: &[String], b: &[String]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.eq_ignore_ascii_case(b))
 }

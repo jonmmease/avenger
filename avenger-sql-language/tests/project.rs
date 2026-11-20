@@ -1,0 +1,751 @@
+//! The requests of a project across its files, over the texts of the fixture project of
+//! avenger-sql-project, `tests/projects/vega/`, with the tables of its files and the listing of
+//! its paths that the tests give.
+
+use std::{collections::BTreeMap, sync::Arc};
+
+use avenger_sql::{
+    analysis::Options,
+    catalog::{FilesTable, MemoryCatalog},
+    data::file_reads,
+    library::Library,
+    types::TypeOptions,
+};
+use avenger_sql_language::{
+    CompletionKind, Diagnostic, FileRole, Offset, Project, ProjectLink, ProjectReference, Severity,
+    Source, TextEdit, TextRange,
+};
+use avenger_sql_syntax::parse_data;
+use datafusion::{
+    arrow::datatypes::{DataType, Field, Schema},
+    catalog::TableProvider,
+    datasource::empty::EmptyTable,
+};
+
+macro_rules! fixture {
+    ($path:literal) => {
+        include_str!(concat!(
+            "../../avenger-sql-project/tests/projects/vega/",
+            $path
+        ))
+    };
+}
+
+const DATASETS: &str = "data/vega_datasets.sql";
+const REGIONS: &str = "data/regions.sql";
+const SUMMARIES: &str = "data/summaries.sql";
+const ORIGINS: &str = "charts/origins.sql";
+const WARM_DAYS: &str = "charts/weather/warm-days.sql";
+const WEATHER: &str = "modules/weather.sqlm";
+
+/// The files of the fixture project, with their roles and texts.
+fn files() -> Vec<(&'static str, FileRole, &'static str)> {
+    let weather = FileRole::Module {
+        names: vec!["weather".to_string()],
+    };
+    vec![
+        (DATASETS, FileRole::Data, fixture!("data/vega_datasets.sql")),
+        (REGIONS, FileRole::Data, fixture!("data/regions.sql")),
+        (SUMMARIES, FileRole::Data, fixture!("data/summaries.sql")),
+        (ORIGINS, FileRole::Chart, fixture!("charts/origins.sql")),
+        (
+            WARM_DAYS,
+            FileRole::Chart,
+            fixture!("charts/weather/warm-days.sql"),
+        ),
+        (WEATHER, weather, fixture!("modules/weather.sqlm")),
+    ]
+}
+
+/// The schema of the files at `uri`, as the loader reads it.
+fn schema(uri: &str) -> Schema {
+    let f = |name: &str, ty: DataType| Field::new(name, ty, true);
+    let fields = match uri {
+        "data/files/vega_datasets/cars.json" => vec![
+            f("Name", DataType::Utf8),
+            f("Miles_per_Gallon", DataType::Int64),
+            f("Cylinders", DataType::Int64),
+            f("Weight_in_lbs", DataType::Int64),
+            f("Origin", DataType::Utf8),
+        ],
+        "data/files/vega_datasets/seattle-weather.csv" => vec![
+            f("date", DataType::Utf8),
+            f("precipitation", DataType::Float64),
+            f("temp_max", DataType::Float64),
+            f("temp_min", DataType::Float64),
+            f("wind", DataType::Float64),
+            f("weather", DataType::Utf8),
+        ],
+        "data/files/regions.csv" => vec![f("Origin", DataType::Utf8), f("region", DataType::Utf8)],
+        _ => panic!("no files at {uri}"),
+    };
+    Schema::new(fields)
+}
+
+/// The tables of the files that the data scripts `texts` read, by the files that the loader reads
+/// the schema of: every file set of the fixture.
+fn tables(texts: &[&str]) -> Vec<(avenger_sql::data::Files, FilesTable)> {
+    let mut tables = Vec::new();
+    for text in texts {
+        for read in file_reads(&parse_data(text).syntax(), TypeOptions::default()) {
+            if read
+                .files
+                .uris
+                .iter()
+                .all(|uri| uri.starts_with("data/files/"))
+            {
+                let schema = Arc::new(schema(&read.files.uris[0]));
+                let table: Arc<dyn TableProvider> = Arc::new(EmptyTable::new(schema));
+                tables.push((read.files, Ok(table)));
+            }
+        }
+    }
+    tables
+}
+
+/// The paths of the fixture project's files.
+fn paths() -> Arc<[String]> {
+    let mut paths: Vec<String> = files()
+        .iter()
+        .map(|(path, _, _)| path.to_string())
+        .collect();
+    paths.extend(
+        [
+            "avenger.toml",
+            "data/files/regions.csv",
+            "data/files/vega_datasets/cars.json",
+            "data/files/vega_datasets/seattle-weather.csv",
+        ]
+        .map(str::to_string),
+    );
+    paths.sort();
+    paths.into()
+}
+
+/// The project of the fixture, with the host's table `host_sales`.
+fn project() -> Project {
+    let host = Schema::new(vec![Field::new("amount", DataType::Float64, true)]);
+    let base = MemoryCatalog::new().with_schema(&["host_sales"], Arc::new(host));
+    let texts: Vec<&str> = files().iter().map(|(_, _, text)| *text).collect();
+    Project::new(Arc::new(base), Arc::new(Library::new()), Options::default())
+        .with_file_tables(tables(&texts))
+        .with_paths(paths())
+        .with_files(files())
+}
+
+/// The text of the file at `path` of `project`.
+fn text<'a>(project: &'a Project, path: &str) -> &'a str {
+    project.document(path).unwrap().text()
+}
+
+/// The offset of the `n`th `needle` in the file at `path`, plus `plus` bytes.
+fn find(project: &Project, path: &str, needle: &str, n: usize, plus: usize) -> Offset {
+    let text = text(project, path);
+    let at = text.match_indices(needle).nth(n).unwrap().0 + plus;
+    Offset::from(at as u32)
+}
+
+/// The range of the `n`th `needle` in the file at `path`.
+fn range(project: &Project, path: &str, needle: &str, n: usize) -> TextRange {
+    let start = find(project, path, needle, n, 0);
+    TextRange::at(start, (needle.len() as u32).into())
+}
+
+/// The diagnostics of the file at `path`, as its source, its severity, and the text of its range.
+fn diagnostics(project: &Project, path: &str) -> Vec<(Source, Severity, String)> {
+    let text = text(project, path);
+    (project.diagnostics(path).into_iter())
+        .map(|d| {
+            let at = text[std::ops::Range::<usize>::from(d.range)].to_string();
+            (d.source, d.severity, at)
+        })
+        .collect()
+}
+
+/// The texts of `edits`, applied to the files of `project`, by path.
+fn applied(project: &Project, edits: &BTreeMap<String, Vec<TextEdit>>) -> BTreeMap<String, String> {
+    let mut texts = BTreeMap::new();
+    for (path, edits) in edits {
+        let mut text = text(project, path).to_string();
+        for edit in edits.iter().rev() {
+            text.replace_range(
+                std::ops::Range::<usize>::from(edit.range),
+                &edit.replacement,
+            );
+        }
+        texts.insert(path.clone(), text);
+    }
+    texts
+}
+
+#[test]
+fn the_fixture_has_no_diagnostics() {
+    let project = project();
+    for path in project.files() {
+        assert_eq!(project.diagnostics(path), Vec::new(), "{path}");
+    }
+    assert_eq!(project.graph().order(), [DATASETS, REGIONS, SUMMARIES]);
+}
+
+#[test]
+fn duplicate_names_are_errors_at_both_definitions() {
+    let mut project = project();
+    let text = "CREATE VIEW heavy_by_origin AS (FROM vega_datasets.cars);";
+    project.add("data/more.sql", FileRole::Data, text);
+    let duplicate = |path: &str| {
+        (project.diagnostics(path).into_iter())
+            .filter(|d| d.source == Source::Project)
+            .map(|d| (d.range, d.message))
+            .collect::<Vec<_>>()
+    };
+    let in_more = duplicate("data/more.sql");
+    let in_summaries = duplicate(SUMMARIES);
+    assert_eq!(in_more.len(), 1);
+    assert_eq!(
+        in_more[0].0,
+        range(&project, "data/more.sql", "heavy_by_origin", 0)
+    );
+    assert!(in_more[0]
+        .1
+        .contains("defined by both data/more.sql and data/summaries.sql"));
+    assert_eq!(
+        in_summaries,
+        [(
+            range(&project, SUMMARIES, "heavy_by_origin", 0),
+            in_more[0].1.clone()
+        )]
+    );
+}
+
+#[test]
+fn a_cycle_is_an_error_at_each_read() {
+    let mut project = project();
+    project.add("data/a.sql", FileRole::Data, "CREATE VIEW a AS (FROM b);");
+    project.add("data/b.sql", FileRole::Data, "CREATE VIEW b AS (FROM a);");
+    assert_eq!(project.graph().blocked(), ["data/a.sql", "data/b.sql"]);
+    for (path, read) in [("data/a.sql", "b"), ("data/b.sql", "a")] {
+        let cycle: Vec<Diagnostic> = (project.diagnostics(path).into_iter())
+            .filter(|d| d.source == Source::Project)
+            .collect();
+        assert_eq!(cycle.len(), 1, "{path}");
+        let at = find(&project, path, &format!("FROM {read}"), 0, 5);
+        assert_eq!(cycle[0].range, TextRange::at(at, 1.into()));
+        assert!(cycle[0].message.contains("in a cycle"));
+    }
+    // A read of the cycle has the cycle's error alone: the first script of the cycle analyzes
+    // before the table that it reads, and the second reads a table without a schema.
+    for path in ["data/a.sql", "data/b.sql"] {
+        assert_eq!(project.diagnostics(path).len(), 1, "{path}");
+    }
+}
+
+#[test]
+fn a_uri_outside_the_root_is_a_warning() {
+    let mut project = project();
+    let text = "LOAD DATA OVERWRITE vega_datasets.regions
+FROM FILES (
+  format = 'CSV',
+  uris = ['data/files/regions.csv', '../regions.csv', 'data/../../regions.csv', '/data/regions.csv', 'file:///data/regions.csv', 'data/files/../regions.csv', 'C:/data/regions.csv', r'data\\..\\..\\regions.csv']
+);";
+    assert!(project.set_text(REGIONS, text));
+    // A Windows path is outside the root on any machine, and `\` separates names, as `/` does.
+    // Each warning is at the literal of its URI.
+    assert_eq!(
+        diagnostics(&project, REGIONS),
+        [
+            "'../regions.csv'",
+            "'data/../../regions.csv'",
+            "'/data/regions.csv'",
+            "'file:///data/regions.csv'",
+            "'C:/data/regions.csv'",
+            r"r'data\..\..\regions.csv'"
+        ]
+        .map(|uri| (Source::Project, Severity::Warning, uri.to_string()))
+    );
+    // The loader has read no schema of these files, so their URIs have no error, and the chart's
+    // read of their table has the error that names the data script.
+    let errors = messages(&project, ORIGINS);
+    assert_eq!(
+        errors,
+        ["Table vega_datasets.regions is defined by the data script data/regions.sql, whose files have no table, since the project has not read them"]
+    );
+}
+
+/// The messages of the diagnostics of the file at `path`.
+fn messages(project: &Project, path: &str) -> Vec<String> {
+    (project.diagnostics(path).into_iter())
+        .map(|d| d.message)
+        .collect()
+}
+
+#[test]
+fn the_tables_of_files_come_from_the_host() {
+    // Without the tables of files, their URIs have no errors, and each read of their tables in
+    // another script has the error that names the data script, without the errors of the
+    // analysis that its statement would have without the table's schema.
+    let base = MemoryCatalog::new();
+    let mut project = Project::new(Arc::new(base), Arc::new(Library::new()), Options::default())
+        .with_files(files());
+    let unread = |names: &str, script: &str| {
+        format!("Table {names} is defined by the data script {script}, whose files have no table, since the project has not read them")
+    };
+    let broken = |names: &str, script: &str| {
+        format!("Table {names} is defined by the data script {script}, which has errors")
+    };
+    assert_eq!(messages(&project, DATASETS), Vec::<String>::new());
+    assert_eq!(messages(&project, REGIONS), Vec::<String>::new());
+    assert_eq!(
+        messages(&project, SUMMARIES),
+        [
+            unread("vega_datasets.cars", DATASETS),
+            unread("vega_datasets.seattle_weather", DATASETS)
+        ]
+    );
+    assert_eq!(
+        messages(&project, ORIGINS),
+        [
+            broken("heavy_by_origin", SUMMARIES),
+            unread("vega_datasets.regions", REGIONS)
+        ]
+    );
+    assert_eq!(
+        messages(&project, WARM_DAYS),
+        [unread("vega_datasets.seattle_weather", DATASETS)]
+    );
+    // The host's error of reading the files of `vega_datasets.regions`, at its URIs, and at the
+    // chart's read of the table.
+    let texts: Vec<&str> = files().iter().map(|(_, _, text)| *text).collect();
+    let mut tables = tables(&texts);
+    let regions = (tables.iter_mut())
+        .find(|(files, _)| files.uris == ["data/files/regions.csv"])
+        .unwrap();
+    regions.1 = Err("No file matches the URI 'data/files/regions.csv'".to_string());
+    project.set_file_tables(tables.clone());
+    assert_eq!(
+        diagnostics(&project, REGIONS),
+        [(
+            Source::Analysis,
+            Severity::Error,
+            "['data/files/regions.csv']".to_string()
+        )]
+    );
+    assert_eq!(
+        diagnostics(&project, ORIGINS),
+        [(
+            Source::Project,
+            Severity::Error,
+            "vega_datasets.regions".to_string()
+        )]
+    );
+    assert_eq!(
+        messages(&project, ORIGINS),
+        ["Table vega_datasets.regions is defined by the data script data/regions.sql, whose files could not be read"]
+    );
+    // The table of the files, whose columns lack the chart's `region`.
+    let schema = Schema::new(vec![Field::new("Origin", DataType::Utf8, true)]);
+    let table: Arc<dyn TableProvider> = Arc::new(EmptyTable::new(Arc::new(schema)));
+    let regions = (tables.iter_mut())
+        .find(|(files, _)| files.uris == ["data/files/regions.csv"])
+        .unwrap();
+    regions.1 = Ok(table);
+    project.set_file_tables(tables);
+    assert_eq!(project.diagnostics(REGIONS), Vec::new());
+    let errors: Vec<String> = (project.diagnostics(ORIGINS).into_iter())
+        .map(|d| d.message)
+        .collect();
+    assert_eq!(errors, ["Unrecognized name: region"]);
+}
+
+#[test]
+fn a_read_of_a_broken_data_script_s_table_names_the_script() {
+    let mut project = project();
+    // An error in the query of `heavy_by_origin`, which a chart and another data script read.
+    let summaries = fixture!("data/summaries.sql").replace("GROUP BY Origin", "GROUP BY nope");
+    project.set_text(SUMMARIES, summaries);
+    let more = "CREATE VIEW many AS (\n  FROM heavy_by_origin\n  |> WHERE cars > 100\n);";
+    project.add("data/more.sql", FileRole::Data, more);
+    assert_eq!(messages(&project, SUMMARIES), ["Unrecognized name: nope"]);
+    let message =
+        "Table heavy_by_origin is defined by the data script data/summaries.sql, which has errors";
+    for path in [ORIGINS, "data/more.sql"] {
+        let read = range(&project, path, "heavy_by_origin", 0);
+        let errors: Vec<(TextRange, String)> = (project.diagnostics(path).into_iter())
+            .map(|d| (d.range, d.message))
+            .collect();
+        assert_eq!(errors, [(read, message.to_string())], "{path}");
+    }
+}
+
+#[test]
+fn a_broken_data_script_s_table_hides_the_host_s() {
+    let mut project = project();
+    // A view of the host's table, of the same name, whose statement has an error.
+    let view = "CREATE VIEW host_sales AS (FROM host_sales |> WHERE nope > 0);";
+    project.add("data/host.sql", FileRole::Data, view);
+    project.add("charts/host.sql", FileRole::Chart, "FROM host_sales");
+    // The view's statement reads the host's table, and has its own error alone.
+    assert_eq!(
+        messages(&project, "data/host.sql"),
+        ["Unrecognized name: nope"]
+    );
+    // A chart reads the view, which has no table, and not the host's table.
+    assert_eq!(
+        messages(&project, "charts/host.sql"),
+        ["Table host_sales is defined by the data script data/host.sql, which has errors"]
+    );
+}
+
+#[test]
+fn a_duplicate_appears_and_goes_in_both_scripts() {
+    let mut project = project();
+    let duplicates = |project: &Project, path: &str| {
+        (project.diagnostics(path).into_iter())
+            .filter(|d| d.source == Source::Project)
+            .map(|d| d.range)
+            .collect::<Vec<_>>()
+    };
+    let regions = fixture!("data/regions.sql");
+    let edited = format!("{regions}\nCREATE VIEW wet_days AS (FROM vega_datasets.cars);\n");
+    project.set_text(REGIONS, edited);
+    assert_eq!(
+        duplicates(&project, REGIONS),
+        [range(&project, REGIONS, "wet_days", 0)]
+    );
+    assert_eq!(
+        duplicates(&project, SUMMARIES),
+        [range(&project, SUMMARIES, "wet_days", 0)]
+    );
+    project.set_text(REGIONS, regions);
+    assert_eq!(project.diagnostics(REGIONS), Vec::new());
+    assert_eq!(project.diagnostics(SUMMARIES), Vec::new());
+}
+
+#[test]
+fn the_loader_diagnostics_join_the_project_s() {
+    let mut project = project();
+    let uris = range(&project, REGIONS, "['data/files/regions.csv']", 0);
+    let error = |message: &str| Diagnostic {
+        range: uris,
+        message: message.to_string(),
+        help: None,
+        severity: Severity::Error,
+        source: Source::Loader,
+        code: None,
+        fixes: Vec::new(),
+    };
+    let message = "No file matches the URI 'data/files/regions.csv'";
+    // A loader's error that repeats one of the project's is left out.
+    project.set_loader_diagnostics(REGIONS, vec![error(message), error(message)]);
+    let loader = |project: &Project| {
+        (project.diagnostics(REGIONS).into_iter())
+            .filter(|d| d.source == Source::Loader)
+            .count()
+    };
+    assert_eq!(loader(&project), 1);
+    assert_eq!(project.diagnostics(REGIONS)[0], error(message));
+    // An edit leaves out the loader's errors, whose ranges are in the text before the edit.
+    let edited = format!("{}\n", text(&project, REGIONS));
+    project.set_text(REGIONS, edited);
+    assert_eq!(loader(&project), 0);
+}
+
+#[test]
+fn a_read_of_a_table_that_did_not_load_has_one_error() {
+    let mut project = project();
+    // The files of `vega_datasets.cars` could not be read, and the loader's error at the read of
+    // `summaries.sql` says why the script that defines it did not load.
+    let texts: Vec<&str> = files().iter().map(|(_, _, text)| *text).collect();
+    let mut tables = tables(&texts);
+    let cars = (tables.iter_mut())
+        .find(|(files, _)| files.uris == ["data/files/vega_datasets/cars.json"])
+        .unwrap();
+    cars.1 = Err("No file matches 'data/files/vega_datasets/cars.json'".to_string());
+    project.set_file_tables(tables);
+    let read = range(&project, SUMMARIES, "vega_datasets.cars", 0);
+    let loader = Diagnostic {
+        range: read,
+        message: "Table vega_datasets.cars is defined by the data script data/vega_datasets.sql, which failed to load".to_string(),
+        help: None,
+        severity: Severity::Error,
+        source: Source::Loader,
+        code: None,
+        fixes: Vec::new(),
+    };
+    project.set_loader_diagnostics(SUMMARIES, vec![loader]);
+    let errors: Vec<(Source, String)> = (project.diagnostics(SUMMARIES).into_iter())
+        .filter(|d| d.range == read)
+        .map(|d| (d.source, d.message))
+        .collect();
+    assert_eq!(
+        errors,
+        [(
+            Source::Project,
+            "Table vega_datasets.cars is defined by the data script data/vega_datasets.sql, whose files could not be read".to_string()
+        )]
+    );
+}
+
+#[test]
+fn a_module_completes_the_tables_of_the_data_scripts() {
+    const STATS: &str = "modules/stats.sqlm";
+    let stats = FileRole::Module {
+        names: vec!["stats".to_string()],
+    };
+    let text = "MODULE stats;\nCREATE PUBLIC TABLE FUNCTION heavy() AS (FROM v);";
+    let tables_at = |project: &Project| -> Vec<String> {
+        let at = find(project, STATS, "FROM v", 0, "FROM v".len());
+        let items = project.document(STATS).unwrap().completions(at).items;
+        (items.into_iter())
+            .filter(|item| item.kind == CompletionKind::Table)
+            .map(|item| item.label)
+            .collect()
+    };
+    // A module of the first files has the tables of the data scripts.
+    let mut files = files();
+    files.push((STATS, stats, text));
+    let texts: Vec<&str> = files.iter().map(|(_, _, text)| *text).collect();
+    let mut project = Project::new(
+        Arc::new(MemoryCatalog::new()),
+        Arc::new(Library::new()),
+        Options::default(),
+    )
+    .with_file_tables(tables(&texts))
+    .with_paths(paths())
+    .with_files(files);
+    assert!(
+        tables_at(&project).contains(&"vega_datasets.cars".to_string()),
+        "{:?}",
+        tables_at(&project)
+    );
+    // And those after a change of a data script.
+    let datasets =
+        fixture!("data/vega_datasets.sql").replace("vega_datasets.cars", "vega_datasets.autos");
+    project.set_text(DATASETS, datasets);
+    let tables = tables_at(&project);
+    assert!(
+        tables.contains(&"vega_datasets.autos".to_string()),
+        "{tables:?}"
+    );
+    assert!(
+        !tables.contains(&"vega_datasets.cars".to_string()),
+        "{tables:?}"
+    );
+}
+
+#[test]
+fn definition_across_files() {
+    let project = project();
+    let link = |path: &str, needle: &str, n: usize, plus: usize| {
+        project.definition(path, find(&project, path, needle, n, plus))
+    };
+    let target =
+        |path: &str, needle: &str, n: usize| (path.to_string(), range(&project, path, needle, n));
+    let of = |link: Option<ProjectLink>| link.map(|link| (link.path, link.target));
+
+    // From a chart script to the statements of data scripts.
+    let heavy_by_origin = link(ORIGINS, "heavy_by_origin", 0, 3).unwrap();
+    assert_eq!(
+        heavy_by_origin.origin,
+        range(&project, ORIGINS, "heavy_by_origin", 0)
+    );
+    assert_eq!(
+        of(Some(heavy_by_origin)),
+        Some(target(SUMMARIES, "heavy_by_origin", 0))
+    );
+    assert_eq!(
+        of(link(ORIGINS, "vega_datasets.regions", 0, 15)),
+        Some(target(REGIONS, "vega_datasets.regions", 0))
+    );
+    // From a data script to another data script, and to a TEMP table of its own.
+    assert_eq!(
+        of(link(SUMMARIES, "vega_datasets.cars", 0, 15)),
+        Some(target(DATASETS, "vega_datasets.cars", 0))
+    );
+    assert_eq!(
+        of(link(SUMMARIES, "FROM heavy\n", 0, 6)),
+        Some(target(SUMMARIES, "heavy", 0))
+    );
+    // From IMPORT MODULE to the MODULE statement of the module's file.
+    let import = link(WARM_DAYS, "weather;", 0, 2).unwrap();
+    assert_eq!(import.origin, range(&project, WARM_DAYS, "weather", 0));
+    assert_eq!(of(Some(import)), Some(target(WEATHER, "MODULE weather", 0)));
+    // A table of the host has no definition in the project, and a column's is in its file.
+    let mut project = project;
+    let host = "FROM host_sales |> SELECT amount AS total |> WHERE total > 0";
+    project.add("charts/host.sql", FileRole::Chart, host);
+    assert_eq!(project.definition("charts/host.sql", 7.into()), None);
+    let total = find(&project, "charts/host.sql", "total", 1, 1);
+    let alias = range(&project, "charts/host.sql", "total", 0);
+    let link = project.definition("charts/host.sql", total).unwrap();
+    assert_eq!(
+        (link.path.as_str(), link.target),
+        ("charts/host.sql", alias)
+    );
+}
+
+#[test]
+fn references_across_files() {
+    let project = project();
+    let at = find(&project, DATASETS, "seattle_weather", 0, 2);
+    let references = project.references(DATASETS, at);
+    let reference = |path: &str, definition: bool| ProjectReference {
+        path: path.to_string(),
+        range: range(&project, path, "vega_datasets.seattle_weather", 0),
+        definition,
+    };
+    assert_eq!(
+        references,
+        [
+            reference(WARM_DAYS, false),
+            reference(SUMMARIES, false),
+            reference(DATASETS, true),
+        ]
+    );
+    // The same references from a read in a chart.
+    let at = find(&project, WARM_DAYS, "seattle_weather", 0, 2);
+    assert_eq!(project.references(WARM_DAYS, at), references);
+    // A TEMP table's are in its data script alone.
+    let at = find(&project, SUMMARIES, "FROM heavy\n", 0, 6);
+    let paths: Vec<String> = (project.references(SUMMARIES, at).into_iter())
+        .map(|reference| reference.path)
+        .collect();
+    assert_eq!(paths, [SUMMARIES, SUMMARIES]);
+}
+
+#[test]
+fn rename_across_files() {
+    let project = project();
+    // A table in a schema keeps its schema.
+    let at = find(&project, SUMMARIES, "vega_datasets.cars", 0, 16);
+    assert_eq!(
+        project.prepare_rename(SUMMARIES, at),
+        Ok(range(&project, SUMMARIES, "cars", 0))
+    );
+    let edits = project.rename(SUMMARIES, at, "autos").unwrap();
+    let texts = applied(&project, &edits);
+    assert_eq!(texts.keys().collect::<Vec<_>>(), [SUMMARIES, DATASETS]);
+    assert!(texts[DATASETS].contains("CREATE EXTERNAL TABLE vega_datasets.autos\n"));
+    assert!(texts[SUMMARIES].contains("FROM vega_datasets.autos\n"));
+
+    // A table from a chart, with the appends of LOAD DATA INTO.
+    let mut project = project;
+    let regions = format!(
+        "{}\nLOAD DATA INTO vega_datasets.regions\nFROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\n",
+        fixture!("data/regions.sql")
+    );
+    project.set_text(REGIONS, regions);
+    assert_eq!(project.diagnostics(REGIONS), Vec::new());
+    let at = find(&project, ORIGINS, "regions", 0, 1);
+    let edits = project.rename(ORIGINS, at, "areas").unwrap();
+    assert_eq!(
+        edits
+            .iter()
+            .map(|(path, edits)| (path.as_str(), edits.len()))
+            .collect::<Vec<_>>(),
+        [(ORIGINS, 1), (REGIONS, 2)]
+    );
+    let texts = applied(&project, &edits);
+    assert!(texts[ORIGINS].contains("JOIN vega_datasets.areas USING"));
+    assert_eq!(texts[REGIONS].matches("vega_datasets.areas\n").count(), 2);
+
+    // A TEMP table renames in its data script alone.
+    let at = find(&project, SUMMARIES, "FROM heavy\n", 0, 6);
+    let edits = project.rename(SUMMARIES, at, "weighty").unwrap();
+    assert_eq!(edits.keys().collect::<Vec<_>>(), [SUMMARIES]);
+    let texts = applied(&project, &edits);
+    assert!(texts[SUMMARIES].contains("CREATE TEMP TABLE weighty AS"));
+    assert!(texts[SUMMARIES].contains("FROM weighty\n"));
+}
+
+#[test]
+fn refused_renames() {
+    let mut project = project();
+    project.add("charts/host.sql", FileRole::Chart, "FROM host_sales");
+    // The name of another table of the project, of the host, or of the script of a TEMP table.
+    let at = find(&project, ORIGINS, "heavy_by_origin", 0, 1);
+    for name in ["wet_days", "host_sales"] {
+        let error = project.rename(ORIGINS, at, name).unwrap_err();
+        assert!(error.contains("the name of another table"), "{error}");
+    }
+    let at = find(&project, SUMMARIES, "FROM heavy\n", 0, 6);
+    let error = project
+        .rename(SUMMARIES, at, "heavy_by_origin")
+        .unwrap_err();
+    assert!(error.contains("the name of another table"), "{error}");
+    // A table of the host, and a schema.
+    let host = project.prepare_rename("charts/host.sql", 7.into());
+    assert_eq!(host, Err("A table of the host has no rename".to_string()));
+    let at = find(&project, ORIGINS, "vega_datasets", 0, 2);
+    let schema = project.prepare_rename(ORIGINS, at);
+    assert_eq!(schema, Err("A schema has no rename".to_string()));
+    // A rename that adds an error, with errors of the loader that the renamed project lacks.
+    let loader = Diagnostic {
+        range: TextRange::default(),
+        message: "The data script did not load".to_string(),
+        help: None,
+        severity: Severity::Error,
+        source: Source::Loader,
+        code: None,
+        fixes: Vec::new(),
+    };
+    project.set_loader_diagnostics(ORIGINS, vec![loader.clone(), loader]);
+    let at = find(&project, SUMMARIES, "AS cars", 0, 4);
+    let error = project.rename(SUMMARIES, at, "n").unwrap_err();
+    assert!(
+        error.contains("makes an error: Unrecognized name: cars"),
+        "{error}"
+    );
+    // A rename whose reads would read another table: a temporary table of a chart.
+    let temp = "CREATE TEMP TABLE dry AS (FROM host_sales);\nFROM wet_days";
+    project.add("charts/temp.sql", FileRole::Chart, temp);
+    assert_eq!(project.diagnostics("charts/temp.sql"), Vec::new());
+    let at = find(&project, "charts/temp.sql", "wet_days", 0, 1);
+    let error = project.rename("charts/temp.sql", at, "dry").unwrap_err();
+    assert!(error.contains("changes the table"), "{error}");
+}
+
+#[test]
+fn an_edit_analyzes_its_dependents_again() {
+    let mut project = project();
+    let summaries = fixture!("data/summaries.sql");
+    // The chart reads the column `cars` of `heavy_by_origin`, which the edit renames.
+    let edited = summaries.replace("COUNT(*) AS cars", "COUNT(*) AS n");
+    assert!(project.set_text(SUMMARIES, edited));
+    let errors: Vec<String> = (project.diagnostics(ORIGINS).into_iter())
+        .map(|d| d.message)
+        .collect();
+    assert_eq!(errors, ["Unrecognized name: cars"]);
+    assert_eq!(project.diagnostics(WARM_DAYS), Vec::new());
+    // And back.
+    project.set_text(SUMMARIES, summaries);
+    assert_eq!(project.diagnostics(ORIGINS), Vec::new());
+    // A removed data script removes its tables from the charts that read them.
+    assert!(project.remove(REGIONS));
+    let errors: Vec<String> = (project.diagnostics(ORIGINS).into_iter())
+        .map(|d| d.message)
+        .collect();
+    assert_eq!(
+        errors.first().map(String::as_str),
+        Some("Table not found: vega_datasets.regions")
+    );
+}
+
+#[test]
+fn completion_offers_the_project_s_paths() {
+    let project = project();
+    let document = project.document(REGIONS).unwrap();
+    let at = find(
+        &project,
+        REGIONS,
+        "data/files/regions.csv",
+        0,
+        "data/files/".len(),
+    );
+    let labels: Vec<String> = (document.completions(at).items.into_iter())
+        .map(|item| item.label)
+        .collect();
+    assert!(
+        labels.iter().any(|label| label == "data/files/regions.csv"),
+        "{labels:?}"
+    );
+}

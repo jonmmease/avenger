@@ -168,7 +168,7 @@ fn same_name(a: &str, b: &str) -> bool {
 }
 
 /// Whether the paths `a` and `b` name the same table or module, without regard to case.
-pub(crate) fn same_path(a: &[String], b: &[String]) -> bool {
+pub fn same_path(a: &[String], b: &[String]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_name(a, b))
 }
 

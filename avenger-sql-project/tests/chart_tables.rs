@@ -189,3 +189,26 @@ async fn a_changed_file_drops_the_tables_of_the_charts_that_read_it() {
         .await
         .is_ok());
 }
+
+#[tokio::test]
+async fn the_file_tables_hold_the_files_of_the_charts_last_runs() {
+    let (_root, project) = project().await;
+    let uris = |project: &LoadedProject| -> Vec<Vec<String>> {
+        (project.file_tables().into_iter())
+            .map(|(files, _)| files.uris)
+            .collect()
+    };
+    assert_eq!(uris(&project), [["data/files/regions.csv"]]);
+    rows(&project, "charts/sales.sql", &total(EXTERNAL))
+        .await
+        .unwrap();
+    assert_eq!(
+        uris(&project),
+        [["data/files/regions.csv"], ["data/files/sales.csv"]]
+    );
+    // A chart that no longer reads files keeps none.
+    rows(&project, "charts/sales.sql", "FROM regions")
+        .await
+        .unwrap();
+    assert_eq!(uris(&project), [["data/files/regions.csv"]]);
+}

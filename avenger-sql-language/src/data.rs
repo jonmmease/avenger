@@ -2,10 +2,10 @@
 //! values, the URIs of files, and the tables, views, and schemas that a script defines.
 
 use avenger_sql::{
+    catalog::same_path,
     data::{
-        file_option, option_format, option_places, unsupported_option, Compression, DataAnalysis,
-        Definition, DefinitionKind, FileOption, Files, Format, OptionPlace, OptionType,
-        FILE_OPTIONS,
+        file_option, option_format, option_places, unsupported_option, Compression, Definition,
+        DefinitionKind, FileOption, Files, Format, OptionPlace, OptionType, FILE_OPTIONS,
     },
     types::googlesql_name,
 };
@@ -205,11 +205,6 @@ pub(crate) fn option_hover(name: &str) -> Option<String> {
     Some(markdown)
 }
 
-/// Whether the paths `a` and `b` name the same table or schema, without regard to case.
-fn same_path(a: &[String], b: &[String]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.eq_ignore_ascii_case(b))
-}
-
 impl Document {
     /// The hover of the name of a data script at `offset` that the tree tells: an option of a
     /// statement's `OPTIONS` or `FROM FILES`, or the path that a statement defines, as a table, a
@@ -254,22 +249,15 @@ impl Document {
                 self.schema_hover(definitions, &definition.names[..1]),
             ));
         }
-        Some((definition.name_range, definition_hover(definitions, index)))
+        Some((definition.name_range, table_hover(definitions, index)))
     }
 
     /// The hover of the table at the path `names`, read at `offset`: the definition of the data
     /// script before the read, or the table of the catalog, with the place that defines it and
     /// its description.
     pub(crate) fn table_read_hover(&self, names: &[String], offset: Offset) -> Option<String> {
-        if let Some(analysis) = self.data_analysis() {
-            let defined = (analysis.definitions.iter()).rposition(|definition| {
-                definition.range.end() <= offset
-                    && !matches!(definition.kind, DefinitionKind::Schema)
-                    && same_path(&definition.names, names)
-            });
-            if let Some(index) = defined {
-                return Some(table_hover(analysis, index));
-            }
+        if let Some(index) = self.own_table(names, offset) {
+            return Some(table_hover(self.definitions(), index));
         }
         let table = self.catalog.table(names)?;
         let mut markdown = format!("```googlesql\nTABLE {}\n```", names.join("."));
@@ -281,6 +269,18 @@ impl Document {
         }
         markdown.push_str(&format!("\n\n{}", columns(&table.schema())));
         Some(markdown)
+    }
+
+    /// The definition of this script that a read of the table `names` at `offset` reads: the
+    /// last definition of the table that ends before the read, by its index in the definitions
+    /// of a data script or of a chart script's own tables of files. `None` for a read of a
+    /// table of the catalog, and in a module.
+    pub(crate) fn own_table(&self, names: &[String], offset: Offset) -> Option<usize> {
+        (self.definitions().iter()).rposition(|definition| {
+            definition.range.end() <= offset
+                && !matches!(definition.kind, DefinitionKind::Schema)
+                && same_path(&definition.names, names)
+        })
     }
 
     /// The hover of the schema `names`: a schema that this script creates, or that the catalog
@@ -312,16 +312,10 @@ impl Document {
     }
 }
 
-/// The hover of the table of the definition at `index` of a data script's analysis, as
-/// [`definition_hover`] gives it.
-fn table_hover(analysis: &DataAnalysis, index: usize) -> String {
-    definition_hover(&analysis.definitions, index)
-}
-
 /// The hover of the table of the definition at `index` of `definitions`, or of the table that it
 /// appends to: what defines it, its description, the format and the URIs of the files of its
 /// statements, and its columns.
-fn definition_hover(definitions: &[Definition], index: usize) -> String {
+fn table_hover(definitions: &[Definition], index: usize) -> String {
     let root = definitions[index].appends().unwrap_or(index);
     let definition = &definitions[root];
     let temp = match definition.temp {
