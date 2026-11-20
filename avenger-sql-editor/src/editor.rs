@@ -11,10 +11,10 @@ use eframe::egui::{
     Modifiers, Pos2, Stroke, TextFormat, Vec2,
 };
 
-use avenger_sql_language::{CompletionItem, Document, Fix, HighlightRange};
+use avenger_sql_language::{CompletionItem, Diagnostic, Document, Fix, HighlightRange};
 
 use crate::{
-    assist::{self, Block, Popup, Span},
+    assist::{self, Analysis, Block, Popup, Span, Target},
     comment,
     highlight::{self, Chars, Class},
     indent,
@@ -60,6 +60,14 @@ struct Fixes {
     selected: usize,
     text: String,
     cursor: usize,
+}
+
+/// What the user did in the editor this frame.
+pub struct EditorOutput {
+    /// Whether the text changed.
+    pub changed: bool,
+    /// The definition in another file of the project that F12 or ⌘-click asked for.
+    pub jump: Option<Target>,
 }
 
 impl CodeEditor {
@@ -157,22 +165,31 @@ impl CodeEditor {
     }
 
     /// Shows the editor in the rest of `ui`, with the tokens colored by the highlights of
-    /// `document`, the analysis of the text, a wavy underline under each of its errors, and its
-    /// completions, fixes, and hovers. Returns whether the text changed.
-    pub fn show(&mut self, ui: &mut egui::Ui, text: &mut String, document: &Document) -> bool {
+    /// `analysis`, the analysis of the text, a wavy underline under each of its errors, and its
+    /// completions, fixes, and hovers. Returns whether the text changed, and a definition in
+    /// another file of the project that F12 or ⌘-click asked for.
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        text: &mut String,
+        analysis: Analysis<'_>,
+    ) -> EditorOutput {
+        let document = analysis.document;
+        let diagnostics = analysis.diagnostics();
         let analyzed = document.text().to_string();
         let highlights = document.highlights();
         let chars = Chars::new(&analyzed);
-        let errors: Vec<Range<usize>> = (document.diagnostics().iter())
+        let errors: Vec<Range<usize>> = (diagnostics.iter())
             .map(|diagnostic| chars.range(diagnostic.range))
             .collect();
+        let mut jump = None;
         let (analyzed, highlights) = (analyzed.as_str(), highlights.as_slice());
         let focused = ui.memory(|memory| memory.has_focus(self.id));
         let toggled = focused
             && ui.input_mut(|input| input.consume_shortcut(&comment_shortcut()))
             && self.toggle_comments(ui.ctx(), text);
         // The keys of the popup and the fixes, before the text edit takes them.
-        let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, document);
+        let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, analysis);
         // Enter and Tab by the style, when no menu takes them.
         if focused && self.popup.is_none() && self.fixes.is_none() {
             edited |= self.indent_keys(ui, text, document);
@@ -180,15 +197,15 @@ impl CodeEditor {
         // The text and the cursor before the text edit, to find a typed character.
         let typing = focused.then(|| (text.clone(), self.cursor(ui.ctx())));
         if focused && text.as_str() == analyzed {
-            let jump = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::F12));
-            if let Some(cursor) = self.cursor(ui.ctx()).filter(|_| jump) {
-                self.jump(ui.ctx(), document, cursor);
+            let pressed = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::F12));
+            if let Some(cursor) = self.cursor(ui.ctx()).filter(|_| pressed) {
+                jump = self.jump(ui.ctx(), analysis, cursor);
             }
         }
         // The definition and the uses of the name at the cursor, on a faint background.
         let marked = match text.as_str() == analyzed {
             true => (self.cursor(ui.ctx()))
-                .map(|cursor| assist::references(document, cursor))
+                .map(|cursor| assist::references(analysis, cursor))
                 .unwrap_or_default(),
             false => Vec::new(),
         };
@@ -289,7 +306,7 @@ impl CodeEditor {
         let command = ui.input(|input| input.modifiers.command);
         if current && command && output.response.clicked() {
             if let Some(cursor) = cursor {
-                self.jump(ui.ctx(), document, cursor);
+                jump = self.jump(ui.ctx(), analysis, cursor);
             }
         }
         if let (true, Some((old, Some(before))), Some(after)) =
@@ -305,9 +322,12 @@ impl CodeEditor {
         }
         edited |= self.menus(ui, &output, text, cursor);
         if current {
-            hover(&output, document);
+            hover(&output, document, &diagnostics);
         }
-        toggled || edited || output.response.changed()
+        EditorOutput {
+            changed: toggled || edited || output.response.changed(),
+            jump,
+        }
     }
 
     /// Takes Enter, Tab, and Shift+Tab before the text edit does: Enter starts a line at its depth,
@@ -349,19 +369,33 @@ impl CodeEditor {
         false
     }
 
-    /// Selects the definition of the name at the character `cursor`, and scrolls it into view in
+    /// Selects the definition of the name at the character `cursor` when it is in the text, and
+    /// scrolls it into view in the next frame, or returns it when it is in another file.
+    fn jump(
+        &mut self,
+        ctx: &egui::Context,
+        analysis: Analysis<'_>,
+        cursor: usize,
+    ) -> Option<Target> {
+        let target = assist::definition(analysis, cursor)?;
+        if target.path.is_some() {
+            return Some(target);
+        }
+        self.select(ctx, target.range);
+        None
+    }
+
+    /// Focuses the editor with the characters `range` selected, and scrolls them into view in
     /// the next frame.
-    fn jump(&mut self, ctx: &egui::Context, document: &Document, cursor: usize) {
-        let Some(target) = assist::definition(document, cursor) else {
-            return;
-        };
+    pub fn select(&mut self, ctx: &egui::Context, range: Range<usize>) {
         let mut state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
-        let (start, end) = (CCursor::new(target.start), CCursor::new(target.end));
+        let (start, end) = (CCursor::new(range.start), CCursor::new(range.end));
         state
             .cursor
             .set_char_range(Some(CCursorRange::two(start, end)));
         state.store(ctx, self.id);
-        self.reveal = Some(target.start);
+        ctx.memory_mut(|memory| memory.request_focus(self.id));
+        self.reveal = Some(range.start);
     }
 
     /// The character index of the cursor, when the editor has one.
@@ -374,7 +408,7 @@ impl CodeEditor {
     /// Option+Space or Ctrl+Space opens the popup, ⌘. (Ctrl+. off macOS) the fixes of the error
     /// at the cursor, the arrows move the selection, Enter or Tab inserts it, and Escape closes
     /// the menu. Returns whether the text changed.
-    fn keys(&mut self, ui: &egui::Ui, text: &mut String, document: &Document) -> bool {
+    fn keys(&mut self, ui: &egui::Ui, text: &mut String, analysis: Analysis<'_>) -> bool {
         let ctx = ui.ctx().clone();
         let Some(cursor) = self.cursor(&ctx) else {
             return false;
@@ -391,11 +425,11 @@ impl CodeEditor {
             pressed
         });
         if complete {
-            self.popup = Popup::open(document, cursor);
+            self.popup = Popup::open(analysis.document, cursor);
             self.fixes = None;
         }
         if ui.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::Period)) {
-            let found = assist::fixes(document, cursor);
+            let found = assist::fixes(analysis, cursor);
             self.fixes = (!found.is_empty()).then(|| Fixes {
                 fixes: found,
                 selected: 0,
@@ -684,7 +718,11 @@ fn wave(x0: f32, x1: f32, y: f32, color: Color32) -> egui::Shape {
 /// The hover of the character under the pointer: the message and the help of an error there, or
 /// else the document's hover of the name there, as a tooltip at the pointer. The pointer reads
 /// only the character whose box holds it, so the space past the end of a line has none.
-fn hover(output: &egui::text_edit::TextEditOutput, document: &Document) {
+fn hover(
+    output: &egui::text_edit::TextEditOutput,
+    document: &Document,
+    diagnostics: &[Diagnostic],
+) {
     let Some(pointer) = output.response.hover_pos() else {
         return;
     };
@@ -693,13 +731,13 @@ fn hover(output: &egui::text_edit::TextEditOutput, document: &Document) {
     };
     let chars = Chars::new(document.text());
     let offset = chars.offset(index);
-    let error = (document.diagnostics().into_iter()).find(|diagnostic| {
+    let error = (diagnostics.iter()).find(|diagnostic| {
         let range = usize::from(diagnostic.range.start())..usize::from(diagnostic.range.end());
         range.contains(&offset) || (range.is_empty() && range.start == offset)
     });
     let blocks: Vec<Block> = match error {
         Some(error) => {
-            let mut blocks = vec![Block::Paragraph(vec![Span::Plain(error.message)])];
+            let mut blocks = vec![Block::Paragraph(vec![Span::Plain(error.message.clone())])];
             blocks.extend(
                 error
                     .help

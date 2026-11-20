@@ -25,6 +25,7 @@ avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-language = { path = "../avenger-sql-language" }
+avenger-sql-project = { path = "../avenger-sql-project" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 avenger-style = { path = "../avenger-style" }
 avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
@@ -68,7 +69,7 @@ url = "2.5"
 # DataFusion draws random numbers, which need the browser's source on the web.
 getrandom = { version = "0.3", features = ["wasm_js"] }
 log = "0.4"
-tokio = { workspace = true, features = ["rt"] }
+tokio = { workspace = true, features = ["rt", "sync"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasElement", "Window"] }
@@ -76,4 +77,5 @@ web-sys = { version = "0.3", features = ["Document", "Element", "HtmlCanvasEleme
 wgpu = { workspace = true, features = ["webgl", "webgpu"] }
 
 [dev-dependencies]
+tempfile = "3.14"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
