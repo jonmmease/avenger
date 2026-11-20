@@ -75,12 +75,15 @@
 //! [`format::format`] writes a script in the style of avenger-sql's `STYLE.md`, from the syntax
 //! tree alone: it changes whitespace, the case of keywords and of the names of functions, and
 //! the commas after the last items of lists, and keeps a statement with an error as written.
+//! [`indent::depth`] gives the depth of a line by the same style from the lexer's tokens, so
+//! that an editor can indent unfinished text on Enter and Tab.
 
 pub mod ast;
 pub mod diagnostic;
 mod escape;
 pub mod format;
 mod highlight;
+pub mod indent;
 pub mod layout;
 pub mod lexer;
 mod parser;

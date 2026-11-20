@@ -161,7 +161,9 @@ FROM t |> SELECT - -x, -(-x), + -x, a - -b, -1 AS n",
 |> EXTEND CASE WHEN x > 0 THEN 'positive' WHEN x < 0 THEN 'negative' ELSE 'zero' END AS sign, -x AS negated, NOT flag AS unflagged
 |> EXTEND CASE WHEN body_mass_g > 5000 THEN 'heavy' WHEN body_mass_g > 4000 THEN 'medium' ELSE 'light' END AS weight_class
 |> EXTEND row_number() OVER (PARTITION BY species ORDER BY body_mass_g DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS place
-|> WHERE x IN (1, 2, 3) AND y BETWEEN 1 AND 2 AND z LIKE 'a%' AND d > DATE '2020-01-01' AND arr[OFFSET(0)] > 1 AND a >> 2 > 0",
+|> WHERE x IN (1, 2, 3) AND y BETWEEN 1 AND 2 AND z LIKE 'a%' AND d > DATE '2020-01-01' AND arr[OFFSET(0)] > 1 AND a >> 2 > 0
+|> EXTEND first_measurement_in_millimeters * scale_factor_of_the_chart || ' millimeters across' || suffix AS mixed
+|> WHERE first_column_with_a_long_name << 2 <> second_column_with_a_long_name_and_more_text_after_it_to_break",
     ),
     (
         "format-statements",

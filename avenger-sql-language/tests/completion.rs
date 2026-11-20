@@ -642,3 +642,26 @@ fn an_element_of_an_array_completes_the_constructors_of_its_elements() {
         "{labels:?}"
     );
 }
+
+#[test]
+fn the_items_of_each_kind_come_together() {
+    for text in [
+        "FROM penguins |> WHERE $0",
+        "FROM penguins AS p |> AGGREGATE $0",
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => y(COUNT(*), scale => $0)) AS chart",
+        "FROM penguins |> AGGREGATE mark_bar($0) AS chart",
+    ] {
+        let (completions, _) = complete(text);
+        let mut seen: Vec<CompletionKind> = Vec::new();
+        for item in &completions.items {
+            if seen.last() != Some(&item.kind) {
+                assert!(
+                    !seen.contains(&item.kind),
+                    "{:?} again in {text}",
+                    item.kind
+                );
+                seen.push(item.kind);
+            }
+        }
+    }
+}

@@ -90,6 +90,28 @@ const INFIX_OPERATORS: &[(Infix, u8)] = &[
     (Infix::Token(SLASH), MULTIPLICATIVE),
 ];
 
+/// The level at which the operator of a binary expression binds, from its tokens, each a kind and
+/// its text: `OR`, `AND`, an operator of one token, or `>>` and `<>`, which are two. `None` for
+/// tokens that are not the operator of a binary expression, such as `LIKE`, whose comparison is
+/// an expression of its own. The formatter breaks a chain of one level before its operators, and
+/// the indentation continues a chain on a line that starts with one.
+pub(crate) fn binary_level(tokens: &[(SyntaxKind, &str)]) -> Option<u8> {
+    match tokens {
+        [(GT, _), (GT, _)] => Some(SHIFT),
+        [(LT, _), (GT, _)] => Some(COMPARISON),
+        [(kind, text)] => INFIX_OPERATORS
+            .iter()
+            .find_map(|&(operator, level)| match operator {
+                Infix::Token(token) => (token == *kind).then_some(level),
+                Infix::Keyword(word) if level != COMPARISON => {
+                    text.eq_ignore_ascii_case(word).then_some(level)
+                }
+                _ => None,
+            }),
+        _ => None,
+    }
+}
+
 /// The keywords of typed literals, such as `DATE '2024-01-01'`. avenger-sql has no JSON type, so
 /// the parser reads `JSON` but does not expect it.
 const TYPED_LITERALS: &[&str] = &[

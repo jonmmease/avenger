@@ -28,3 +28,8 @@ FROM t
      AND d > DATE '2020-01-01'
      AND arr[offset(0)] > 1
      AND a >> 2 > 0
+|> EXTEND first_measurement_in_millimeters * scale_factor_of_the_chart
+     || ' millimeters across'
+     || suffix AS mixed
+|> WHERE first_column_with_a_long_name << 2
+     <> second_column_with_a_long_name_and_more_text_after_it_to_break
