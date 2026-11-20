@@ -1,13 +1,15 @@
-//! The formatter of scripts, which writes the style of `avenger-sql/STYLE.md`.
+//! The formatter of chart scripts, modules, and data scripts, which writes the style of
+//! `avenger-sql/STYLE.md`.
 //!
-//! The formatter reads the syntax tree alone. It changes the whitespace between tokens, the case
+//! The formatter reads the syntax tree alone, which it parses in the role of the text. It changes the whitespace between tokens, the case
 //! of keywords and of the names of functions, and the commas after the last item of a list, and
 //! leaves every other token as written. A statement with an error stays exactly as written.
 //!
 //! Each kind of part has its rule of layout: the pipe operators of a query start lines of their
 //! own, a call, an array, or another list in brackets breaks with one item to a line, the items
-//! of a pipe operator and of a clause break in the same way after its keyword, and a chain of
-//! binary operators breaks before its operators. A comma after the last item of a list keeps the
+//! of a pipe operator and of a clause break in the same way after its keyword, a chain of
+//! binary operators breaks before its operators, and the clauses of a statement that defines a
+//! table, such as `OPTIONS` and `FROM FILES`, go on lines of their own. A comma after the last item of a list keeps the
 //! list broken. A part without a rule keeps its tokens on one line, with one space between them
 //! where the style puts one. Each comment stays before or after the same tokens: a comment on a
 //! line of its own stays on a line of its own, and a comment at the end of a line stays at the
@@ -17,13 +19,17 @@ use std::collections::HashMap;
 
 use crate::layout::{list_of, Doc, Item, INDENT, PIPE};
 use crate::parser::binary_level;
-use crate::{parse, Offset, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange};
+use crate::{
+    parse_role, Offset, Role, SyntaxElement, SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
+};
 
 use SyntaxKind as K;
 
-/// `text`, a script, in the style. A statement with an error stays as written.
-pub fn format(text: &str) -> String {
-    let parse = parse(text);
+/// `text`, a text of `role`, in the style. A statement with an error stays as written, so a
+/// statement that the role of its text doesn't hold, such as a query in a data script, stays as
+/// written too.
+pub fn format(text: &str, role: Role) -> String {
+    let parse = parse_role(text, role);
     let root = parse.syntax();
     let formatter = Formatter {
         comments: Comments::new(&root),
@@ -140,7 +146,6 @@ const CALL_LIKE: &[SyntaxKind] = &[
     K::ROLLUP_KW,
     K::CUBE_KW,
     K::SETS_KW,
-    K::OPTIONS_KW,
     K::REPLACE_KW,
     K::REPEATABLE_KW,
     K::MATCH_RECOGNIZE_KW,
@@ -156,6 +161,10 @@ const ANGLES: &[SyntaxKind] = &[
     K::STRUCT_EXPR,
     K::TYPED_LITERAL,
 ];
+
+/// The clauses of a statement that defines a table, a view, or a schema, which go on lines of
+/// their own at the depth of the statement when it breaks.
+const DEFINITION_CLAUSES: &[SyntaxKind] = &[K::PARTITION_COLUMNS, K::OPTIONS, K::FROM_FILES];
 
 /// A clause that goes on a line of its own when its part breaks: its node, the keywords that can
 /// start it, and whether its items go on the lines after its keywords, as those of `GROUP BY` do,
@@ -250,6 +259,8 @@ fn spaced(prev: &SyntaxToken, next: &SyntaxToken) -> bool {
         return false;
     }
     match n {
+        // The columns of a table follow its name after a space, unlike a call's arguments.
+        K::L_PAREN if np == Some(K::COLUMN_LIST) => true,
         K::L_PAREN => !(matches!(p, K::WORD | K::QUOTED_IDENT) || CALL_LIKE.contains(&p)),
         K::L_BRACK => !(np == Some(K::SUBSCRIPT_EXPR) || p == K::ARRAY_KW),
         _ => true,
@@ -471,6 +482,7 @@ impl Formatter {
             | K::PARAM_LIST
             | K::COLUMN_LIST
             | K::OPTIONS
+            | K::FROM_FILES
             | K::ROLLUP
             | K::CUBE
             | K::GROUPING_SETS
@@ -494,12 +506,55 @@ impl Formatter {
             {
                 self.keyword_list(&solid_children(node))
             }
+            K::CREATE_TABLE_STMT
+            | K::CREATE_EXTERNAL_TABLE_STMT
+            | K::CREATE_VIEW_STMT
+            | K::CREATE_SCHEMA_STMT
+            | K::LOAD_DATA_STMT => self.definition(node),
             K::BIN_EXPR => self.binary(node),
             K::CASE_EXPR => self.case(node),
             K::WINDOW_SPEC => self.window(node),
             K::MATCH_RECOGNIZE_CLAUSE => self.match_recognize(node),
             _ => self.row(&solid_children(node)),
         }
+    }
+
+    /// A statement that defines a table, a view, or a schema: on one line when it fits, and
+    /// otherwise with each of its clauses, `WITH PARTITION COLUMNS`, `OPTIONS`, and `FROM FILES`,
+    /// on a line of its own at the depth of the statement. Its name and its columns stay on the
+    /// line of its keywords, and `AS` and its query follow the last clause, where a query in
+    /// parentheses breaks as it does in any statement.
+    fn definition(&self, node: &SyntaxNode) -> Doc {
+        let children = solid_children(node);
+        let is_clause = |element: &SyntaxElement| DEFINITION_CLAUSES.contains(&element.kind());
+        let end = (children.iter())
+            .position(|child| child.kind() == K::AS_KW)
+            .unwrap_or(children.len());
+        let start = children[..end].iter().position(is_clause).unwrap_or(end);
+        let (Some(first), Some(last)) = (
+            children.first().and_then(first_token),
+            children[..end].last().and_then(last_token),
+        ) else {
+            return self.row(&children);
+        };
+        let mut docs = vec![self.row(&children[..start])];
+        for clause in &children[start..end] {
+            docs.extend([Doc::Line, self.element(clause)]);
+        }
+        let mut row = Row::new();
+        row.push(Doc::group(Doc::Concat(docs)), &first, last);
+        for element in &children[end..] {
+            let (Some(first), Some(last)) = (first_token(element), last_token(element)) else {
+                continue;
+            };
+            // A comment on a line of its own before `AS` keeps its line.
+            if self.commented(element) {
+                row.docs.push(Doc::HardLine);
+                row.last = None;
+            }
+            row.push(self.element(element), &first, last);
+        }
+        row.doc()
     }
 
     /// A query: its source, then each pipe operator on a line of its own.

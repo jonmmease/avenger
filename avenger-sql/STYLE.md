@@ -13,7 +13,23 @@ This is the layout of avenger-sql scripts. avenger-sql-syntax's formatter, `form
 
 - Each statement starts at column 0, and a statement other than the last ends with `;`.
 - A blank line stays where the author wrote one: between statements, between pipe operators, and between the items of a list. A run of blank lines becomes one. Blank lines right after an opener, right before a closer, and at the start or end of the script are removed, and the formatter never adds one. A blank line inside a list keeps the list broken, as a comment does.
-- A `DECLARE`, `SET`, `IMPORT`, or `CREATE` statement stays on one line when it fits, and the expression or the query in it otherwise breaks by the rules below.
+- A `DECLARE`, `SET`, `IMPORT`, `CREATE`, or `LOAD DATA` statement stays on one line when it fits, and the expression or the query in it otherwise breaks by the rules below.
+- A statement that defines a table, a view, or a schema, as a data script's statements do, puts its clauses `WITH PARTITION COLUMNS`, `OPTIONS`, and `FROM FILES` on lines of their own at column 0 when it does not fit on one line. Its name and its column list stay on the line of its keywords, a column list follows the name after a space, and `AS` and its query follow the last clause, as the query in parentheses of any statement does.
+
+  ```sql
+  CREATE EXTERNAL TABLE vega_datasets.cars
+  OPTIONS (format = 'JSON', uris = ['data/files/vega_datasets/cars.json']);
+
+  LOAD DATA INTO TEMP TABLE staging.rates (day DATE, rate FLOAT64)
+  OPTIONS (description = 'daily rates')
+  FROM FILES (format = 'CSV', uris = ['data/files/rates.csv'], skip_leading_rows = 1)
+  WITH PARTITION COLUMNS (region STRING);
+
+  CREATE VIEW finance.recent OPTIONS (description = 'the orders of the last week') AS (
+    FROM finance.orders
+    |> WHERE day > DATE '2025-01-01'
+  );
+  ```
 
 ## Pipe queries
 

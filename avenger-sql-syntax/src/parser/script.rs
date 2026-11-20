@@ -7,12 +7,14 @@
 //! `CREATE SCHEMA`, following GoogleSQL's DDL, and a script reads its own files with `CREATE TEMP
 //! EXTERNAL TABLE` and `LOAD DATA ... TEMP TABLE`.
 //!
-//! The parser reads the statements of every role in every entry, and the validation pass checks
+//! The parser reads the statements of every role in every text, and the validation pass checks
 //! each statement against the role of its text, so a statement out of its place has an error
 //! that names its place.
 
-use super::{Entry, Parser};
-use crate::{ast::FunctionKind, diagnostic::DiagnosticCode, Expected, NameRole, SyntaxKind::*};
+use super::Parser;
+use crate::{
+    ast::FunctionKind, diagnostic::DiagnosticCode, Expected, NameRole, Role, SyntaxKind::*,
+};
 
 /// The first keywords of GoogleSQL's statements that avenger-sql doesn't run: procedural
 /// statements and blocks, DDL, DML, transactions and the rest.
@@ -37,6 +39,9 @@ const BLOCKS: &[&str] = &["BEGIN", "IF", "LOOP", "WHILE", "FOR", "REPEAT", "CASE
 
 /// The keywords after which a statement starts, inside a block.
 const STATEMENT_STARTS: &[&str] = &["THEN", "ELSE", "DO", "BEGIN", "LOOP", "REPEAT"];
+
+/// The keywords that start a `LOAD DATA` statement.
+const LOAD_DATA: &[&str] = &["LOAD", "DATA"];
 
 /// The kind of object that a `CREATE` statement creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,21 +97,26 @@ impl Parser<'_> {
 
     /// The help of a statement that the text's role doesn't hold.
     fn holds(&self) -> &'static str {
-        match self.entry {
-            Entry::Data => DATA_SCRIPT_HOLDS,
-            Entry::Script | Entry::Module => SCRIPT_HOLDS,
+        match self.role {
+            Role::Data => DATA_SCRIPT_HOLDS,
+            Role::Script | Role::Module => SCRIPT_HOLDS,
         }
     }
 
     /// The statements up to the end, separated by `;`. A statement starts at the start of the
     /// text or after a `;`.
     fn statements(&mut self) {
-        let place = match self.entry {
-            Entry::Module => "module",
-            Entry::Script | Entry::Data => "script",
+        let place = match self.role {
+            Role::Module => "module",
+            Role::Script | Role::Data => "script",
         };
         loop {
             self.record(Expected::Statement);
+            // `LOAD DATA` starts a statement of a data script or a chart script, though the text
+            // ends here.
+            if self.role != Role::Module {
+                self.record(Expected::Phrase(LOAD_DATA));
+            }
             if self.at_eof() {
                 break;
             }
@@ -136,7 +146,7 @@ impl Parser<'_> {
     }
 
     fn statement(&mut self) -> Option<super::CompletedMarker> {
-        let in_module = self.entry == Entry::Module;
+        let in_module = self.role == Role::Module;
         if self.at_keyword("MODULE") {
             let message = match in_module {
                 true => "a module has one MODULE statement, its first",
@@ -152,8 +162,9 @@ impl Parser<'_> {
             self.skip_until(|p| p.current() == SEMICOLON);
             return None;
         }
-        // A `LOAD DATA` belongs to a data script, and the validation pass reports it elsewhere.
-        if self.keyword_at(0, "LOAD") && self.keyword_at(1, "DATA") {
+        // A `LOAD DATA` belongs to a data script, or with `TEMP TABLE` to a chart script, and the
+        // validation pass reports it elsewhere.
+        if self.at_data_keywords(LOAD_DATA, true) {
             return Some(self.load_data());
         }
         if in_module && !self.at_keyword("IMPORT") && !self.at_keyword("CREATE") {
@@ -374,7 +385,7 @@ impl Parser<'_> {
         self.eat_keywords(&["OR", "REPLACE"]);
         // A script creates temporary objects and a module public or private ones, as the
         // validation pass checks, so the parser expects the scopes of the text that it reads.
-        let in_module = self.entry == Entry::Module;
+        let in_module = self.role == Role::Module;
         let scopes: [(&str, bool); 4] = [
             ("TEMP", !in_module),
             ("TEMPORARY", !in_module),
@@ -389,6 +400,8 @@ impl Parser<'_> {
         if let Some(scope) = scope {
             self.eat_keyword(scope);
         }
+        // A chart script's own table of files is `TEMP`.
+        let temp = matches!(scope, Some("TEMP" | "TEMPORARY"));
         let object = if self.eat_keywords(&["AGGREGATE", "FUNCTION"]) {
             Some(Object::Function(FunctionKind::Aggregate))
         } else if self.at_keywords(&["TABLE", "FUNCTION"]) {
@@ -404,12 +417,13 @@ impl Parser<'_> {
             // A constant belongs to a module, so a script doesn't expect one.
             self.bump_keyword();
             Some(Object::Constant)
-        } else if !self.keyword_at(2, "FUNCTION") && self.eat_data_keywords(&["EXTERNAL", "TABLE"])
+        } else if !self.keyword_at(2, "FUNCTION")
+            && self.eat_data_keywords(&["EXTERNAL", "TABLE"], temp)
         {
             Some(Object::ExternalTable)
-        } else if self.eat_data_keywords(&["VIEW"]) {
+        } else if self.eat_data_keywords(&["VIEW"], false) {
             Some(Object::View)
-        } else if (self.entry == Entry::Data && self.at_keyword("SCHEMA"))
+        } else if (scope.is_none() && self.at_data_keywords(&["SCHEMA"], false))
             || self.keyword_at(0, "SCHEMA")
         {
             // As in GoogleSQL, a schema takes no scope, an error at its keyword.
@@ -471,9 +485,10 @@ impl Parser<'_> {
             self.skip_statement();
             return marker.complete(self, ERROR);
         } else {
-            let data = match self.entry {
-                Entry::Data => ", `EXTERNAL TABLE`, `VIEW`, `SCHEMA`",
-                Entry::Script | Entry::Module => "",
+            let data = match self.role {
+                Role::Data => ", `EXTERNAL TABLE`, `VIEW`, `SCHEMA`",
+                Role::Script if temp => ", `EXTERNAL TABLE`",
+                Role::Script | Role::Module => "",
             };
             self.error_expected(&format!(
                 "`TABLE`, `FUNCTION`, `AGGREGATE FUNCTION`, `TABLE FUNCTION`{data} or `CONSTANT`"
@@ -538,17 +553,29 @@ impl Parser<'_> {
         marker.complete(self, kind)
     }
 
-    /// Whether the next tokens are the keywords `keywords` of a statement of a data script,
-    /// which it consumes when they are. Only a data script records them at the cursor, so that a
-    /// completion in a chart script or a module doesn't offer them.
-    fn eat_data_keywords(&mut self, keywords: &'static [&'static str]) -> bool {
-        let found = match (self.entry, keywords) {
-            (Entry::Data, [keyword]) => self.at_keyword(keyword),
-            (Entry::Data, _) => self.at_keywords(keywords),
-            (Entry::Script | Entry::Module, _) => {
+    /// Whether the next tokens are the keywords `keywords` of a statement of a data script. A
+    /// data script records them at the cursor, and a chart script when `in_chart` holds, for its
+    /// own tables of files, so that a completion offers only the statements that the text's role
+    /// holds.
+    fn at_data_keywords(&self, keywords: &'static [&'static str], in_chart: bool) -> bool {
+        let expected = match self.role {
+            Role::Data => true,
+            Role::Script => in_chart,
+            Role::Module => false,
+        };
+        match (expected, keywords) {
+            (true, [keyword]) => self.at_keyword(keyword),
+            (true, _) => self.at_keywords(keywords),
+            (false, _) => {
                 (keywords.iter().enumerate()).all(|(n, keyword)| self.keyword_at(n, keyword))
             }
-        };
+        }
+    }
+
+    /// Whether the next tokens are the keywords `keywords` of a statement of a data script, as
+    /// [`Self::at_data_keywords`] reads them, which it consumes when they are.
+    fn eat_data_keywords(&mut self, keywords: &'static [&'static str], in_chart: bool) -> bool {
+        let found = self.at_data_keywords(keywords, in_chart);
         if found {
             for _ in keywords {
                 self.bump_keyword();

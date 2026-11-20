@@ -1,17 +1,30 @@
 //! What the grammar accepts at a cursor, for completion.
 
 use avenger_sql_syntax::{
-    expected_at, parse, Expected, NameRole, SyntaxKind::*, DATE_PARTS, INTERVAL_PARTS,
+    expected_at, parse, Expected, NameRole, Role, SyntaxKind::*, DATE_PARTS, INTERVAL_PARTS,
 };
 
+/// What the grammar takes at the end of `text`, a chart script.
 fn at_end(text: &str) -> Vec<Expected> {
-    expected_at(text, (text.len() as u32).into())
+    at_end_of(text, Role::Script)
 }
 
-/// The words and phrases that the grammar takes at the end of `text`, each as one string.
+/// What the grammar takes at the end of `text`, a text of `role`.
+fn at_end_of(text: &str, role: Role) -> Vec<Expected> {
+    expected_at(text, (text.len() as u32).into(), role)
+}
+
+/// The words and phrases that the grammar takes at the end of `text`, a chart script, each as one
+/// string.
 fn words(text: &str) -> Vec<String> {
+    words_of(text, Role::Script)
+}
+
+/// The words and phrases that the grammar takes at the end of `text`, a text of `role`, each as
+/// one string.
+fn words_of(text: &str, role: Role) -> Vec<String> {
     let mut words = Vec::new();
-    for expected in at_end(text) {
+    for expected in at_end_of(text, role) {
         match expected {
             Expected::Words(set) => words.extend(set.iter().map(|word| word.to_string())),
             Expected::Phrase(phrase) => words.push(phrase.join(" ")),
@@ -157,19 +170,67 @@ fn completion_offers_what_the_place_of_the_cursor_takes() {
 }
 
 #[test]
-fn a_script_is_offered_no_statements_of_data_scripts() {
-    let after_create = at_end("CREATE ");
-    assert!(
-        after_create.contains(&Expected::Keyword(TABLE_KW)),
-        "{after_create:?}"
-    );
-    for word in ["EXTERNAL", "VIEW", "SCHEMA"] {
+fn completion_offers_the_statements_of_the_role_of_the_text() {
+    // A module starts with its `MODULE` statement.
+    let has = |role: Role, text: &str, word: &str| {
+        let text = match role {
+            Role::Module => format!("MODULE m; {text}"),
+            Role::Script | Role::Data => text.to_string(),
+        };
+        words_of(&text, role).iter().any(|w| w == word)
+    };
+    // After `CREATE`, a data script takes its objects, and a chart script and a module don't,
+    // since a chart script's are TEMP.
+    for word in [
+        "EXTERNAL TABLE",
+        "VIEW",
+        "SCHEMA",
+        "TABLE",
+        "TEMP",
+        "TEMPORARY",
+    ] {
+        assert!(has(Role::Data, "CREATE ", word), "{word}");
+    }
+    for role in [Role::Script, Role::Module] {
+        for word in ["EXTERNAL TABLE", "VIEW", "SCHEMA"] {
+            assert!(!has(role, "CREATE ", word), "{role:?}: {word}");
+        }
+    }
+    assert!(has(Role::Script, "CREATE ", "TABLE"));
+    assert!(has(Role::Module, "CREATE ", "PUBLIC"));
+    // A schema takes no scope, so `CREATE TEMP` offers the other objects.
+    for word in ["EXTERNAL TABLE", "VIEW", "TABLE"] {
+        assert!(has(Role::Data, "CREATE TEMP ", word), "{word}");
+    }
+    assert!(!has(Role::Data, "CREATE TEMP ", "SCHEMA"));
+    assert!(!has(Role::Script, "CREATE TEMP ", "VIEW"));
+    // A chart script's own tables of files are TEMP, so `CREATE TEMP` offers an external table
+    // there, and a module offers none.
+    assert!(has(Role::Script, "CREATE TEMP ", "EXTERNAL TABLE"));
+    assert!(has(Role::Script, "CREATE TEMPORARY ", "EXTERNAL TABLE"));
+    assert!(!has(Role::Module, "CREATE TEMP ", "EXTERNAL TABLE"));
+    // `LOAD DATA` starts a statement of a data script or a chart script, and `DATA` follows
+    // `LOAD` there.
+    assert!(at_end_of("", Role::Data).contains(&Expected::Statement));
+    for role in [Role::Data, Role::Script] {
+        assert!(has(role, "", "LOAD DATA"), "{role:?}");
         assert!(
-            !words("CREATE ").iter().any(|found| found.starts_with(word)),
-            "{word}"
+            has(role, "CREATE TEMP FUNCTION f() AS (1); ", "LOAD DATA"),
+            "{role:?}"
+        );
+        assert!(has(role, "LOAD ", "DATA"), "{role:?}");
+    }
+    assert!(has(Role::Data, "CREATE SCHEMA s; ", "LOAD DATA"));
+    assert!(!has(Role::Module, "", "LOAD DATA"));
+    assert!(!has(Role::Module, "LOAD ", "DATA"));
+    // The clauses of the statements of files, in both roles.
+    for role in [Role::Data, Role::Script] {
+        assert!(has(role, "LOAD DATA ", "OVERWRITE"), "{role:?}");
+        assert!(has(role, "LOAD DATA INTO ", "TEMP TABLE"), "{role:?}");
+        assert!(has(role, "LOAD DATA INTO t ", "FROM FILES"), "{role:?}");
+        assert!(
+            has(role, "CREATE TEMP EXTERNAL TABLE t ", "OPTIONS"),
+            "{role:?}"
         );
     }
-    assert!(!words("CREATE TEMP ")
-        .iter()
-        .any(|found| found.starts_with("VIEW")));
 }

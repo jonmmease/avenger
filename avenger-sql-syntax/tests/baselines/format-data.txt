@@ -1,0 +1,53 @@
+CREATE SCHEMA IF NOT EXISTS vega_datasets
+OPTIONS (description = 'The datasets of the Vega examples');
+CREATE EXTERNAL TABLE vega_datasets.cars
+OPTIONS (format = 'JSON', uris = ['data/files/vega_datasets/cars.json']);
+CREATE EXTERNAL TABLE trips OPTIONS (format = 'PARQUET', uris = ['data/files/trips/*.parquet']);
+CREATE TEMP EXTERNAL TABLE IF NOT EXISTS raw_events (
+  id INT64 NOT NULL,
+  kind STRING,
+  observed_at TIMESTAMP,
+  payload STRING,
+)
+WITH PARTITION COLUMNS (year INT64, month STRING)
+OPTIONS (
+  format = 'PARQUET',
+  uris = [
+    'data/files/events/2024/',
+    'data/files/events/2025/',
+    'data/files/events/2026/',
+    'data/files/events/2027/',
+  ],
+);
+CREATE EXTERNAL TABLE logs -- every log
+WITH PARTITION COLUMNS
+OPTIONS (
+  format = 'JSON',
+  uris = ['logs/*.json'],
+);
+
+-- Rates, loaded once.
+LOAD DATA INTO TEMP TABLE staging.rates (day DATE, rate FLOAT64)
+-- the table's own options
+OPTIONS (description = 'daily rates')
+FROM FILES (format = 'CSV', uris = ['data/files/rates.csv'], skip_leading_rows = 1)
+WITH PARTITION COLUMNS (region STRING);
+LOAD DATA OVERWRITE sales FROM FILES (format = 'CSV', uris = ['data/files/sales.csv']);
+CREATE VIEW finance.recent OPTIONS (description = 'the orders of the last week') AS (
+  FROM finance.orders
+  |> WHERE day > DATE '2025-01-01'
+);
+CREATE TEMP VIEW kinds AS FROM raw_events
+|> AGGREGATE count(*) GROUP BY kind;
+CREATE TABLE events
+-- Only the events with a kind.
+AS (
+  FROM raw_events
+  |> WHERE kind IS NOT NULL
+);
+CREATE OR REPLACE TABLE totals (n INT64) OPTIONS (description = 'counts') AS (
+  FROM events
+  |> AGGREGATE count(*) AS n
+);
+CREATE EXTERNAL TABLE broken OPTIONS (format = 'CSV', uris = ['a.csv']) WITH PARTITION   COLUMNS;
+CREATE TEMP FUNCTION cleaned(s STRING) AS (trim(s))
