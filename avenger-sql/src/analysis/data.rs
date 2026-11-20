@@ -74,17 +74,145 @@ pub fn analyze_data(
     }
 }
 
-/// The path that `statement` defines, and whether it is a schema.
-fn defines(statement: &ast::Stmt) -> Option<(Vec<String>, bool)> {
-    let (path, schema) = match statement {
-        ast::Stmt::CreateExternalTableStmt(create) => (create.path(), false),
-        ast::Stmt::LoadDataStmt(load) => (load.path(), false),
-        ast::Stmt::CreateViewStmt(create) => (create.path(), false),
-        ast::Stmt::CreateTableStmt(create) => (create.path(), false),
-        ast::Stmt::CreateSchemaStmt(create) => (create.path(), true),
-        _ => return None,
-    };
-    Some((path?.names()?, schema))
+/// The name that a statement of a data script defines, as its syntax writes it, which the
+/// dependency graph of a project's data scripts reads without analyzing them.
+#[derive(Clone, Debug)]
+pub(crate) struct StatementTarget {
+    pub names: Vec<String>,
+    /// The path of the name.
+    pub path: ast::Path,
+    /// Whether it names a schema, not a table or a view.
+    pub schema: bool,
+    pub temp: bool,
+    /// Whether the statement replaces an earlier definition of its name, as `CREATE OR REPLACE`
+    /// does. A `LOAD DATA` replaces none: `INTO` appends to it, and `OVERWRITE` is an error.
+    pub replaces: bool,
+}
+
+impl StatementTarget {
+    /// What `statement` defines, or `None` for a statement that defines no table, view, or
+    /// schema, or whose path the tree lacks.
+    pub fn of(statement: &ast::Stmt) -> Option<StatementTarget> {
+        match statement {
+            ast::Stmt::CreateExternalTableStmt(statement) => Self::create(statement, false),
+            ast::Stmt::CreateViewStmt(statement) => Self::create(statement, false),
+            ast::Stmt::CreateTableStmt(statement) => Self::create(statement, false),
+            ast::Stmt::CreateSchemaStmt(statement) => Self::create(statement, true),
+            ast::Stmt::LoadDataStmt(load) => Self::load(load),
+            _ => None,
+        }
+    }
+
+    /// What the `CREATE` statement `create` defines, a schema when `schema` holds.
+    fn create(create: &impl CreateStmt, schema: bool) -> Option<StatementTarget> {
+        let path = create.name_path()?;
+        Some(StatementTarget {
+            names: path.names()?,
+            path,
+            schema,
+            temp: create.scope_kind() == Some(CreateScope::Temp),
+            replaces: create.or_replace(),
+        })
+    }
+
+    /// What the `LOAD DATA` statement `load` defines.
+    fn load(load: &ast::LoadDataStmt) -> Option<StatementTarget> {
+        let path = load.path()?;
+        Some(StatementTarget {
+            names: path.names()?,
+            path,
+            schema: false,
+            temp: load.scope().is_some(),
+            replaces: false,
+        })
+    }
+
+    /// The error of a path whose length the target does not take, or `None`: a schema has one
+    /// name, and a table has one name, or a schema and a name.
+    fn path_error(&self) -> Option<&'static str> {
+        match (self.schema, self.names.len()) {
+            (true, 1) | (false, 1) | (false, 2) => None,
+            (true, _) => Some("A schema has one name"),
+            (false, _) => {
+                Some("A data script names a table by its name, or by its schema and its name")
+            }
+        }
+    }
+
+    /// The schema of a table in a schema, which the statement reads: its path, and the range of
+    /// its name.
+    pub fn read_schema(&self) -> Option<(Vec<String>, TextRange)> {
+        let [schema, _] = self.names.as_slice() else {
+            return None;
+        };
+        if self.schema {
+            return None;
+        }
+        let range = (self.path.name_refs().next())
+            .map_or(self.path.syntax().text_range(), |name| {
+                name.syntax().text_range()
+            });
+        Some((vec![schema.clone()], range))
+    }
+
+    /// Whether `other` names what the target names: a schema or a table at the same path.
+    fn same_name(&self, other: &StatementTarget) -> bool {
+        self.schema == other.schema && same_path(&self.names, &other.names)
+    }
+}
+
+/// What a statement of a data script defines among the statements of its script, by their
+/// syntax alone, as the analysis of the script decides it when the statements have no errors.
+#[derive(Clone, Debug)]
+pub(crate) struct ScriptTarget {
+    pub target: StatementTarget,
+    /// Whether the statement defines its name: its path has a length that the target takes, and
+    /// no earlier statement of the script defines the name, or the statement replaces it. An
+    /// append of `LOAD DATA INTO`, and a repeat without `OR REPLACE`, define nothing.
+    pub defines: bool,
+    /// Whether a later statement of the script defines the name again, which replaces the
+    /// statement's definition.
+    pub replaced: bool,
+}
+
+impl ScriptTarget {
+    /// Whether the statement defines its name for the other scripts of a project: it defines
+    /// the name without `TEMP`, and no later statement replaces it, as
+    /// [`DataAnalysis::exported`] gives the definitions of an analysis.
+    pub fn exported(&self) -> bool {
+        self.defines && !self.target.temp && !self.replaced
+    }
+}
+
+/// What each of the statements `statements` of a data script defines, in the order of the text,
+/// or `None` for a statement that defines no table, view, or schema.
+pub(crate) fn script_targets(statements: &[ast::Stmt]) -> Vec<Option<ScriptTarget>> {
+    let mut targets: Vec<Option<ScriptTarget>> = Vec::with_capacity(statements.len());
+    for statement in statements {
+        let Some(target) = StatementTarget::of(statement) else {
+            targets.push(None);
+            continue;
+        };
+        let earlier = (targets.iter().flatten())
+            .any(|earlier| earlier.defines && earlier.target.same_name(&target));
+        let defines = target.path_error().is_none() && (!earlier || target.replaces);
+        targets.push(Some(ScriptTarget {
+            target,
+            defines,
+            replaced: false,
+        }));
+    }
+    for index in 0..targets.len() {
+        let replaced = targets[index].as_ref().is_some_and(|defined| {
+            defined.defines
+                && (targets[index + 1..].iter().flatten())
+                    .any(|later| later.defines && later.target.same_name(&defined.target))
+        });
+        if let Some(defined) = &mut targets[index] {
+            defined.replaced = replaced;
+        }
+    }
+    targets
 }
 
 /// The state of the analysis of a data script, or of the tables of files of a chart script,
@@ -92,8 +220,8 @@ fn defines(statement: &ast::Stmt) -> Option<(Vec<String>, bool)> {
 #[derive(Default)]
 pub(super) struct DataScript {
     pub definitions: Vec<Definition>,
-    /// What each statement of the script defines, as [`defines`] gives it.
-    defined: Vec<Option<(Vec<String>, bool)>>,
+    /// What each statement of the script defines, as [`script_targets`] gives it.
+    defined: Vec<Option<ScriptTarget>>,
     /// The schemas that the later statements create.
     later_schemas: Vec<Vec<String>>,
 }
@@ -109,7 +237,7 @@ impl DataScript {
     /// The analysis of the statements of the script `statements`, before its first statement.
     pub fn new(statements: &[ast::Stmt]) -> Self {
         DataScript {
-            defined: statements.iter().map(defines).collect(),
+            defined: script_targets(statements),
             ..DataScript::default()
         }
     }
@@ -117,14 +245,14 @@ impl DataScript {
     /// Sets the tables and the schemas that the statements after the statement at `index`
     /// define, which that statement can't read yet.
     pub fn later(&mut self, pass: &mut Pass, index: usize) {
-        let later = self.defined[index + 1..].iter().flatten();
+        let later = (self.defined[index + 1..].iter().flatten()).map(|later| &later.target);
         pass.later_tables = (later.clone())
-            .filter(|(_, schema)| !schema)
-            .map(|(names, _)| names.clone())
+            .filter(|target| !target.schema)
+            .map(|target| target.names.clone())
             .collect();
         self.later_schemas = later
-            .filter(|(_, schema)| *schema)
-            .map(|(names, _)| names.clone())
+            .filter(|target| target.schema)
+            .map(|target| target.names.clone())
             .collect();
     }
 
@@ -202,10 +330,9 @@ impl DataScript {
     }
 
     fn load_data(&mut self, pass: &mut Pass, load: &ast::LoadDataStmt) {
-        let Some(path) = load.path() else {
-            return;
-        };
-        let Some(target) = self.target(pass, &path, false, load.scope().is_some()) else {
+        let Some(target) =
+            (StatementTarget::load(load)).and_then(|target| self.target(pass, target))
+        else {
             return;
         };
         let statement = FileStatement::load(load);
@@ -385,10 +512,10 @@ impl DataScript {
         create: &impl CreateStmt,
         schema: bool,
     ) -> Option<Target> {
-        let path = create.name_path()?;
-        let temp = create.scope_kind() == Some(CreateScope::Temp);
-        let target = self.target(pass, &path, schema, temp)?;
-        if self.existing(&target.names, schema).is_none() || create.or_replace() {
+        let statement = StatementTarget::create(create, schema)?;
+        let replaces = statement.replaces;
+        let target = self.target(pass, statement)?;
+        if self.existing(&target.names, schema).is_none() || replaces {
             return Some(target);
         }
         if !create.if_not_exists() {
@@ -407,45 +534,28 @@ impl DataScript {
         None
     }
 
-    /// The target of the path `path`, which names a schema when `schema` holds: a table's path is
-    /// a name, or a schema and a name, whose schema an earlier statement or the catalog holds.
-    fn target(
-        &mut self,
-        pass: &mut Pass,
-        path: &ast::Path,
-        schema: bool,
-        temp: bool,
-    ) -> Option<Target> {
-        let names = path.names()?;
-        let range = path.syntax().text_range();
+    /// The target of `statement`: a table's path is a name, or a schema and a name, whose schema
+    /// an earlier statement or the catalog holds.
+    fn target(&mut self, pass: &mut Pass, statement: StatementTarget) -> Option<Target> {
+        let range = statement.path.syntax().text_range();
         // A chart script's temporary table of a query, which the pass inlines, has its name.
-        let name = names.join(".");
+        let name = statement.names.join(".");
         if (pass.temp_tables.iter()).any(|table| table.name.eq_ignore_ascii_case(&name)) {
             pass.error(range, format!("Table {name} already exists"));
             return None;
         }
-        match (schema, names.len()) {
-            (true, 1) | (false, 1) => {}
-            (true, _) => {
-                pass.error(range, "A schema has one name");
-                return None;
-            }
-            (false, 2) => {
-                let at = path
-                    .name_refs()
-                    .next()
-                    .map_or(range, |name| name.syntax().text_range());
-                self.read_schema(pass, &names[..1], at);
-            }
-            (false, _) => {
-                pass.error(
-                    range,
-                    "A data script names a table by its name, or by its schema and its name",
-                );
-                return None;
-            }
+        if let Some(error) = statement.path_error() {
+            pass.error(range, error);
+            return None;
         }
-        Some(Target { names, range, temp })
+        if let Some((schema, at)) = statement.read_schema() {
+            self.read_schema(pass, &schema, at);
+        }
+        Some(Target {
+            names: statement.names,
+            range,
+            temp: statement.temp,
+        })
     }
 
     /// Checks that the schema `names`, at `range`, exists: an earlier statement creates it, or

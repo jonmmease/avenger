@@ -29,7 +29,8 @@
 //! A project's [`data`] scripts register the tables that its scripts read, with GoogleSQL's
 //! `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`, and `CREATE
 //! SCHEMA`. [`analyze_data`] analyzes a data script: what each statement defines, its schema,
-//! and the reads that leave the script.
+//! and the reads that leave the script. [`project`] orders a project's data scripts by the names
+//! that they read from each other, and holds the catalog of the tables that they define.
 
 pub mod analysis;
 pub mod catalog;
@@ -37,6 +38,7 @@ pub mod data;
 mod functions;
 pub mod library;
 mod pipeline;
+pub mod project;
 pub mod streaming;
 pub mod types;
 
