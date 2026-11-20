@@ -101,7 +101,7 @@ fn each_heading_of_the_examples_is_an_example_with_a_description() {
 async fn every_example_runs_and_draws_its_charts() {
     let ctx = query::session().unwrap();
     samples::register(&ctx).await.unwrap();
-    let (cascade, engine) = (ChartTheme::default().cascade(), engine());
+    let (cascade, engine) = (ChartTheme::default().cascade(None), engine());
     let mut failures = Vec::new();
     for example in examples() {
         let name = format!("{} / {}", example.section, example.title);

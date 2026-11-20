@@ -1,6 +1,6 @@
-//! What every chart of the editor shares, the stylesheet, its theme, the label engine, and how its
-//! images load, and the static chart of a table cell, which evaluates at the size that the editor
-//! gives it.
+//! What every chart of the editor shares, the stylesheets, their theme, the label engine, and how
+//! its images load, and the static chart of a table cell, which evaluates at the size that the
+//! editor gives it.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -129,11 +129,13 @@ impl ChartTheme {
         }
     }
 
-    /// The cascade of the base stylesheet, `std:base.css`, on the theme's background.
-    pub fn cascade(&self) -> Arc<Cascade> {
+    /// The cascade of the base stylesheet, `std:base.css`, and of the entry stylesheet of a
+    /// project, `project`, as an author stylesheet after it, both on the theme's background.
+    /// Without a project, the base stylesheet styles the charts alone.
+    pub fn cascade(&self, project: Option<&Sheet>) -> Arc<Cascade> {
         let [r, g, b, _] = self.background.to_array();
         let background = format!("#{r:02x}{g:02x}{b:02x}");
-        cascade_on(Env::from([("background".to_string(), background)]))
+        cascade_on(Env::from([("background".to_string(), background)]), project)
     }
 }
 
@@ -144,8 +146,9 @@ impl Default for ChartTheme {
     }
 }
 
-/// The cascade of the base stylesheet, `std:base.css`, with the `env()` values `env`.
-fn cascade_on(env: Env) -> Arc<Cascade> {
+/// The cascade of the base stylesheet, `std:base.css`, and the author stylesheet `project`, each
+/// with the `env()` values `env`.
+fn cascade_on(env: Env, project: Option<&Sheet>) -> Arc<Cascade> {
     let mut no_files = |url: &str, _: Option<&str>| Err(format!("no file `{url}`"));
     let options = ParseOptions {
         allow_import: true,
@@ -159,7 +162,12 @@ fn cascade_on(env: Env) -> Arc<Cascade> {
         &mut no_files,
     );
     debug_assert!(diagnostics.is_empty(), "{diagnostics:#?}");
-    Arc::new(Cascade::new(&StyleTable::new().with_author(sheet, env)))
+    let table = StyleTable::new().with_author(sheet, env.clone());
+    let table = match project {
+        Some(project) => table.with_author(project.clone(), env),
+        None => table,
+    };
+    Arc::new(Cascade::new(&table))
 }
 
 /// The chart of a table cell, which draws without an app, at any size.

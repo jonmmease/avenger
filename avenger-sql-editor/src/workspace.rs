@@ -1,12 +1,13 @@
 //! A project open in the editor: the loader's project, which loads the data scripts and runs the
-//! chart scripts in the background, the language project, which analyzes every file for the
-//! editor, the sidebar's model of the files by role, and the tabs of the open files.
+//! chart scripts in the background, the language project, which analyzes every script and module
+//! for the editor, the project's stylesheets, which style its charts, the sidebar's model of the
+//! files by role, and the tabs of the open files.
 //!
 //! The window owns a [`Workspace`], and the background work shares its [`Loader`]. Each load of
 //! the loader sends back a [`LoadState`], which the workspace applies to the language project and
 //! the sidebar, so that the window never waits for the loader.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,8 +20,10 @@ use avenger_sql::{
 };
 use avenger_sql_language::{Diagnostic, FileRole, Project, Severity, Source};
 use avenger_sql_project::{
-    ChartError, LoadedProject, ModuleFile, ProjectFiles, ScriptStatus, TableChange,
+    ChartError, LoadedProject, ModuleFile, ProjectFiles, ProjectStylesheet, ScriptStatus,
+    TableChange,
 };
+use avenger_style::{Sheet, SourceId, Span};
 use datafusion::prelude::SessionContext;
 use tokio::sync::RwLock;
 
@@ -200,11 +203,115 @@ impl Loader {
     }
 }
 
-/// A file of an open project in a tab: its path, its role, the text that its file holds on disk,
+/// The stylesheets of a project, as their last load read them: the text of each `.css` file, and
+/// the entry stylesheet loaded with its imports, which styles every chart of the project.
+#[derive(Clone, Debug)]
+pub struct Styles {
+    entry: String,
+    texts: BTreeMap<String, String>,
+    loaded: ProjectStylesheet,
+}
+
+impl Styles {
+    /// Reads the `.css` files of `files`, and loads the entry stylesheet with its imports. A
+    /// `.css` file that does not read has no text, and an import of it is an error of the load.
+    pub async fn load(files: &ProjectFiles) -> Result<Styles, String> {
+        let mut texts = BTreeMap::new();
+        for path in files.stylesheets() {
+            if let Ok(text) = files.source().read_text(path).await {
+                texts.insert(path.clone(), text);
+            }
+        }
+        let loaded = (files.load_stylesheet().await).map_err(|error| error.to_string())?;
+        Ok(Styles {
+            entry: files.manifest().style.stylesheet.clone(),
+            texts,
+            loaded,
+        })
+    }
+
+    /// The entry stylesheet with its imports, or `None` when the project has none.
+    pub fn sheet(&self) -> Option<&Sheet> {
+        self.loaded.sheet.as_ref()
+    }
+
+    /// The text of the stylesheet at `path`, as the load read it.
+    pub fn text(&self, path: &str) -> Option<&str> {
+        self.texts.get(path).map(String::as_str)
+    }
+
+    /// The errors and warnings of the stylesheet at `path`, at byte spans of its text as the load
+    /// read it: those of the load of the entry stylesheet, and a warning on the first line of a
+    /// stylesheet that the entry stylesheet does not reach, which styles no chart.
+    pub fn diagnostics(&self, path: &str) -> Vec<avenger_style::Diagnostic> {
+        let Some(source) = (self.loaded.sources.iter()).position(|source| source == path) else {
+            return Vec::new();
+        };
+        let source = SourceId(source as u32);
+        let mut diagnostics: Vec<avenger_style::Diagnostic> = (self.loaded.diagnostics.iter())
+            .filter(|diagnostic| diagnostic.span.source == source)
+            .cloned()
+            .collect();
+        if self
+            .loaded
+            .unreached
+            .iter()
+            .any(|unreached| unreached == path)
+        {
+            let text = self.text(path).unwrap_or_default();
+            let line = text.find('\n').unwrap_or(text.len());
+            let message = match self.loaded.sheet {
+                Some(_) => format!(
+                    "this stylesheet is not imported by the entry stylesheet `{}`, so it styles \
+                     no chart",
+                    self.entry
+                ),
+                None => format!(
+                    "the project has no entry stylesheet `{}` to import this stylesheet, so it \
+                     styles no chart",
+                    self.entry
+                ),
+            };
+            let mut warning =
+                avenger_style::Diagnostic::warning(Span::new(source, 0, line), message);
+            warning.help = Some(format!(
+                "Add `@import '{}';` to `{}`.",
+                relative_import(&self.entry, path),
+                self.entry
+            ));
+            diagnostics.insert(0, warning);
+        }
+        diagnostics
+    }
+}
+
+/// The URL of an `@import` in the stylesheet at `importer` of the stylesheet at `path`, both
+/// relative to the project root.
+fn relative_import(importer: &str, path: &str) -> String {
+    let folder: Vec<&str> = importer.split('/').collect();
+    let folder = &folder[..folder.len() - 1];
+    let names: Vec<&str> = path.split('/').collect();
+    let shared = (folder.iter().zip(&names))
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut url: Vec<&str> = vec![".."; folder.len() - shared];
+    url.extend(&names[shared..]);
+    url.join("/")
+}
+
+/// What the file of a tab is: a script or a module, which the language project analyzes, or a
+/// stylesheet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TabKind {
+    Sql(FileRole),
+    Stylesheet,
+}
+
+/// A file of an open project in a tab: its path, its kind, the text that its file holds on disk,
 /// and its buffer, whose text the editor edits.
 pub struct Tab {
     pub path: String,
-    pub role: FileRole,
+    pub kind: TabKind,
     /// The text of the file on disk, as the last open or save left it.
     saved: String,
     pub buffer: Buffer,
@@ -231,6 +338,8 @@ pub enum Saved {
     Chart { path: String },
     /// Load the project again, since a module that its scripts import changed.
     Module,
+    /// Load the stylesheets again, and restyle the charts.
+    Stylesheet,
 }
 
 /// The files of a project by role, as the sidebar lists them.
@@ -248,20 +357,26 @@ pub struct Sidebar {
 }
 
 /// A project open in the editor: its root on disk, its files by role, the loader, the language
-/// project, and the tabs of its open files.
+/// project, the stylesheets, and the tabs of its open files.
 pub struct Workspace {
     root: PathBuf,
     files: ProjectFiles,
     loader: Arc<Loader>,
     language: Project,
+    styles: Styles,
     /// The result of the last load of each data script, in the order of the load.
     scripts: Vec<ScriptState>,
     /// The table of each set of files that the loader read, as the language project has them.
     file_tables: Vec<(Files, FilesTable)>,
     tabs: Vec<Tab>,
     active: Option<usize>,
+    /// The path of the script whose result the result pane shows: the active tab's, or while a
+    /// stylesheet's tab is active, that of the script tab that was active before it.
+    shown: Option<String>,
     /// The data scripts that load again in the background.
     pub loading: BTreeSet<String>,
+    /// Whether the stylesheets load again in the background.
+    pub styling: bool,
 }
 
 /// The project on disk that holds `path`, a directory or a file under the project's root, loaded,
@@ -327,8 +442,9 @@ fn unchanged_on_disk(file: &Path, path: &str, saved: &str) -> Result<(), String>
 }
 
 impl Workspace {
-    /// Loads the project `files`, whose root on disk is `root`: loads its data scripts, and
-    /// analyzes every data script, chart script, and module with the tables that the load read.
+    /// Loads the project `files`, whose root on disk is `root`: loads its data scripts and its
+    /// stylesheets, and analyzes every data script, chart script, and module with the tables that
+    /// the load read.
     pub async fn load(root: PathBuf, files: ProjectFiles) -> Result<Workspace, String> {
         let source = files.source().clone();
         let mut texts = Vec::new();
@@ -346,6 +462,7 @@ impl Workspace {
             texts.push((path.clone(), role, text));
         }
         let paths: Arc<[String]> = files.files().into();
+        let styles = Styles::load(&files).await?;
         let (loader, state) = Loader::load(files.clone()).await?;
         let language = Project::new(
             Arc::new(MemoryCatalog::new()),
@@ -359,11 +476,14 @@ impl Workspace {
             files,
             loader: Arc::new(loader),
             language,
+            styles,
             scripts: Vec::new(),
             tabs: Vec::new(),
             file_tables: Vec::new(),
             active: None,
+            shown: None,
             loading: BTreeSet::new(),
+            styling: false,
         };
         workspace.apply(state);
         Ok(workspace)
@@ -382,9 +502,23 @@ impl Workspace {
         &self.loader
     }
 
+    pub fn files(&self) -> &ProjectFiles {
+        &self.files
+    }
+
     /// The language project, whose documents the editor analyzes the tabs with.
     pub fn language(&self) -> &Project {
         &self.language
+    }
+
+    /// The stylesheets, as their last load read them.
+    pub fn styles(&self) -> &Styles {
+        &self.styles
+    }
+
+    /// Takes the stylesheets of a new load.
+    pub fn set_styles(&mut self, styles: Styles) {
+        self.styles = styles;
     }
 
     /// Takes the state of a load: the tables of the files for the language project, the
@@ -490,31 +624,59 @@ impl Workspace {
         self.tabs.get_mut(self.active?)
     }
 
-    /// The tab that the editor shows, and the language project that analyzes it.
-    pub fn active_with_language(&mut self) -> Option<(&mut Tab, &Project)> {
+    /// The tab that the editor shows, the language project that analyzes it, and the
+    /// stylesheets.
+    pub fn active_with_context(&mut self) -> Option<(&mut Tab, &Project, &Styles)> {
         let tab = self.tabs.get_mut(self.active?)?;
-        Some((tab, &self.language))
+        Some((tab, &self.language, &self.styles))
+    }
+
+    /// The tab whose result the result pane shows: the active tab, or while a stylesheet's tab
+    /// is active, the script tab that was active before it, so that its chart shows the styles
+    /// as they are saved.
+    pub fn shown(&self) -> Option<&Tab> {
+        self.tab(self.shown.as_deref()?)
+    }
+
+    pub fn shown_mut(&mut self) -> Option<&mut Tab> {
+        let path = self.shown.clone()?;
+        self.tab_mut(&path)
     }
 
     /// Shows the tab of the file at `path`, and opens it first when it is not open. Returns
-    /// whether the tab opened now, or `None` for a path that is not a script or a module of the
-    /// project.
+    /// whether the tab opened now, or `None` for a path that is not a script, a module, or a
+    /// stylesheet of the project.
     pub fn open_tab(&mut self, path: &str) -> Option<bool> {
         if let Some(index) = self.tabs.iter().position(|tab| tab.path == path) {
-            self.active = Some(index);
+            self.activate(index);
             return Some(false);
         }
-        let role = self.language.role(path)?.clone();
-        let text = self.language.document(path)?.text().to_string();
+        let (kind, text) = match self.styles.text(path) {
+            Some(text) => (TabKind::Stylesheet, text.to_string()),
+            None => (
+                TabKind::Sql(self.language.role(path)?.clone()),
+                self.language.document(path)?.text().to_string(),
+            ),
+        };
         let id = ("tab", self.root.clone(), path.to_string());
         self.tabs.push(Tab {
             path: path.to_string(),
-            role,
+            kind,
             saved: text.clone(),
             buffer: Buffer::new(text, id),
         });
-        self.active = Some(self.tabs.len() - 1);
+        self.activate(self.tabs.len() - 1);
         Some(true)
+    }
+
+    /// Makes the tab at `index` the active tab, and the tab whose result shows unless it is a
+    /// stylesheet's.
+    fn activate(&mut self, index: usize) {
+        self.active = Some(index);
+        let tab = &self.tabs[index];
+        if tab.kind != TabKind::Stylesheet {
+            self.shown = Some(tab.path.clone());
+        }
     }
 
     /// Closes the tab of the file at `path`, and shows the tab after it, or else the one before.
@@ -522,14 +684,17 @@ impl Workspace {
     pub fn close_tab(&mut self, path: &str) -> Option<Tab> {
         let index = self.tabs.iter().position(|tab| tab.path == path)?;
         let tab = self.tabs.remove(index);
-        self.active = match self.active {
-            _ if self.tabs.is_empty() => None,
-            Some(active) if active > index => Some(active - 1),
-            Some(active) => Some(active.min(self.tabs.len() - 1)),
-            None => None,
-        };
+        if self.shown.as_deref() == Some(path) {
+            self.shown = None;
+        }
+        match self.active {
+            _ if self.tabs.is_empty() => self.active = None,
+            Some(active) if active > index => self.active = Some(active - 1),
+            Some(active) => self.activate(active.min(self.tabs.len() - 1)),
+            None => {}
+        }
         // The language project goes back to the text on disk, which the loader read.
-        if tab.modified() {
+        if tab.modified() && tab.kind != TabKind::Stylesheet {
             self.language.set_texts([(path, tab.saved.clone())]);
         }
         Some(tab)
@@ -573,8 +738,8 @@ impl Workspace {
     }
 
     /// Writes the text of the tab of `path` to its file, and returns what the editor does next:
-    /// a data script loads again, a chart runs, and the project loads again after a module
-    /// changes.
+    /// a data script loads again, a chart runs, the project loads again after a module changes,
+    /// and the stylesheets load again after a stylesheet changes.
     pub fn save(&mut self, path: &str) -> Result<Saved, String> {
         let file = self.root.join(path);
         let tab = (self.tabs.iter_mut().find(|tab| tab.path == path))
@@ -583,15 +748,16 @@ impl Workspace {
         std::fs::write(&file, &tab.buffer.text)
             .map_err(|error| format!("cannot save {}: {error}", file.display()))?;
         tab.saved = tab.buffer.text.clone();
-        Ok(match &tab.role {
-            FileRole::Data => Saved::Data {
+        Ok(match &tab.kind {
+            TabKind::Sql(FileRole::Data) => Saved::Data {
                 path: path.to_string(),
                 text: tab.saved.clone(),
             },
-            FileRole::Chart => Saved::Chart {
+            TabKind::Sql(FileRole::Chart) => Saved::Chart {
                 path: path.to_string(),
             },
-            FileRole::Module { .. } => Saved::Module,
+            TabKind::Sql(FileRole::Module { .. }) => Saved::Module,
+            TabKind::Stylesheet => Saved::Stylesheet,
         })
     }
 
@@ -600,7 +766,7 @@ impl Workspace {
     /// tables that the chart's text doesn't name.
     pub fn reruns(&self, changes: &[TableChange]) -> Vec<String> {
         (self.tabs.iter())
-            .filter(|tab| tab.role == FileRole::Chart)
+            .filter(|tab| tab.kind == TabKind::Sql(FileRole::Chart))
             .filter(|tab| {
                 let root = avenger_sql_syntax::parse(&tab.buffer.text).syntax();
                 let read = references(&root);
