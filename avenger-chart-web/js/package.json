@@ -1,0 +1,50 @@
+{
+  "name": "avenger-chart-web",
+  "version": "0.1.0",
+  "description": "Avenger charts in the browser: a lazy-loading wrapper, the WebAssembly renderer, and TypeScript bindings of the chart format",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonmmease/avenger",
+    "directory": "avenger-chart-web/js"
+  },
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": "20.19.6"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./wasm/avenger_chart_web.d.ts",
+      "default": "./wasm/avenger_chart_web.js"
+    },
+    "./proto": {
+      "types": "./dist/proto.d.ts",
+      "default": "./dist/proto.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "wasm/",
+    "licenses/"
+  ],
+  "scripts": {
+    "build": "scripts/build.sh",
+    "check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "scripts/test.sh"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.17.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "1.75.0",
+    "@bufbuild/protoc-gen-es": "2.17.0",
+    "@types/node": "20.19.43",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+wasm/
+src/gen/
+test-output/
+LICENSE
+licenses/

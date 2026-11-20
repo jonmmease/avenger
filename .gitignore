@@ -8,6 +8,10 @@
 /avenger-format-number-icu/tests/output/
 .DS_Store
 examples/*/pkg/
+avenger-chart-web/pkg/
+examples/chart-web/site/charts/
+examples/chart-web/site/manifest.json
+examples/chart-web/site/avenger-chart-web
 examples/*/target/
 scratch/
 
