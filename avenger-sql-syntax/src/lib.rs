@@ -6,8 +6,11 @@
 //! functions. A query is a `FROM` clause, or a query in parentheses, and pipe operators, and
 //! every nested query has the same form. [`parse_module`] reads a module, a `.sqlm` file of
 //! GoogleSQL, whose public functions, table functions and constants a script imports with
-//! `IMPORT MODULE`. Within the subset, the crate accepts what GoogleSQL accepts, rejects what
-//! it rejects, and reports its first error where GoogleSQL does.
+//! `IMPORT MODULE`. [`parse_data`] reads a data script, which registers the tables of a project
+//! with GoogleSQL's `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`
+//! and `CREATE SCHEMA`, and the scripts of [`parse`] read those tables. Within the subset, the
+//! crate accepts what GoogleSQL accepts, rejects what it rejects, and reports its first error
+//! where GoogleSQL does.
 //!
 //! The one exception reads reserved words as names where avenger's charts need them: a word
 //! that `=>` follows is an argument's name, as in `scale(range => 'tableau10')`, and `SELECT`
@@ -52,10 +55,10 @@
 //! Each error is a [`Diagnostic`], with a code, a range, a message, help, and the edits that
 //! fix it. The lexer reports malformed tokens. The parser reports the errors of the grammar and
 //! puts what it cannot read into `ERROR` nodes, so it can go on. A validation pass, which
-//! [`parse`] runs on every tree, reports the checks that GoogleSQL makes after its parser: the
-//! rules of modules, the order of `DECLARE`, the clauses that each kind of function takes, and
-//! the escapes of literals. [`Parse::diagnostics`] holds all of them in the order of their
-//! ranges.
+//! [`parse`] runs on every tree, reports the checks that GoogleSQL makes after its parser, and
+//! the statements that the role of the text doesn't hold: the rules of modules and of data
+//! scripts, the order of `DECLARE`, the clauses that each kind of function takes, and the
+//! escapes of literals. [`Parse::diagnostics`] holds all of them in the order of their ranges.
 //!
 //! # Completion and highlighting
 //!
@@ -106,10 +109,13 @@ pub struct Parse {
 }
 
 impl Parse {
-    /// A parse of the tree `green`, with the diagnostics of the lexer and the parser, to which
-    /// it adds those of the validation pass.
-    fn new(green: GreenNode, mut diagnostics: Vec<Diagnostic>) -> Self {
-        diagnostics.extend(validation::validate(&SyntaxNode::new_root(green.clone())));
+    /// A parse of the tree `green` of a text that `entry` read, with the diagnostics of the
+    /// lexer and the parser, to which it adds those of the validation pass.
+    fn new(green: GreenNode, mut diagnostics: Vec<Diagnostic>, entry: parser::Entry) -> Self {
+        diagnostics.extend(validation::validate(
+            &SyntaxNode::new_root(green.clone()),
+            entry,
+        ));
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         Parse { green, diagnostics }
     }
@@ -132,14 +138,37 @@ impl Parse {
 
 /// The tree of a script, the text of statements separated by `;`.
 pub fn parse(source: &str) -> Parse {
-    let (green, diagnostics, _) = parser::parse(source, parser::Entry::Script, None);
-    Parse::new(green, diagnostics)
+    parse_entry(source, parser::Entry::Script)
 }
 
 /// The tree of a module, the text of a `.sqlm` file.
 pub fn parse_module(source: &str) -> Parse {
-    let (green, diagnostics, _) = parser::parse(source, parser::Entry::Module, None);
-    Parse::new(green, diagnostics)
+    parse_entry(source, parser::Entry::Module)
+}
+
+/// The tree of a data script, whose statements register the tables of a project: `CREATE
+/// EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS` and `CREATE SCHEMA`, with
+/// `CREATE TEMP FUNCTION` and `IMPORT MODULE` for its own statements. Its root is a
+/// [`SyntaxKind::SCRIPT`] node, as a script's is, and [`Parse::script`] gives it.
+///
+/// ```
+/// use avenger_sql_syntax::{parse, parse_data};
+///
+/// let text = "CREATE EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['sales.csv'])";
+/// assert!(parse_data(text).ok());
+/// // A script reads the tables of the data scripts, and its own tables of files are TEMP.
+/// assert!(!parse(text).ok());
+/// assert!(parse(&text.replace("CREATE", "CREATE TEMP")).ok());
+/// // A data script registers tables, and runs no queries.
+/// assert!(!parse_data("FROM sales").ok());
+/// ```
+pub fn parse_data(source: &str) -> Parse {
+    parse_entry(source, parser::Entry::Data)
+}
+
+fn parse_entry(source: &str, entry: parser::Entry) -> Parse {
+    let (green, diagnostics, _) = parser::parse(source, entry, None);
+    Parse::new(green, diagnostics, entry)
 }
 
 /// What the grammar accepts at `offset` of a script's text: the forms that a completion can
@@ -242,8 +271,11 @@ pub const DATE_PARTS: &[&str] = &[
 pub enum NameRole {
     /// A column, or the first name of a path in an expression.
     Column,
-    /// A table, a pipe `WITH` name, or a temporary table.
+    /// A table, a pipe `WITH` name, a temporary table, or a table or a view of a data script.
     Table,
+    /// A schema, which groups tables under its name, as `finance` in `finance.orders`, and which
+    /// a data script's `CREATE SCHEMA` defines.
+    Schema,
     /// A function, by what a call of it computes.
     Function(FunctionRole),
     Type,

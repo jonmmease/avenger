@@ -13,6 +13,7 @@ fn accepts_the_queries_and_scripts_of_the_subset() {
         accepts(text);
     }
     accepts_module(MODULE);
+    accepts_data(DATA);
 }
 
 #[test]
@@ -29,5 +30,8 @@ fn rejects_what_googlesql_rejects_at_its_first_error() {
     }
     for (text, message, at) in REJECTED_MODULES {
         rejects_module(text, message, at);
+    }
+    for (text, message, at) in REJECTED_DATA {
+        rejects_data(text, message, at);
     }
 }

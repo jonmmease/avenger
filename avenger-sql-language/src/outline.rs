@@ -116,7 +116,14 @@ impl Document {
                         children: Vec::new(),
                     });
                 }
-                ast::Stmt::SetStmt(_) | ast::Stmt::CreateConstantStmt(_) => {}
+                // A SET, a constant, which belongs to a module, and the statements of data scripts,
+                // which a script holds only with an error, have no symbols.
+                ast::Stmt::SetStmt(_)
+                | ast::Stmt::CreateConstantStmt(_)
+                | ast::Stmt::CreateExternalTableStmt(_)
+                | ast::Stmt::CreateViewStmt(_)
+                | ast::Stmt::CreateSchemaStmt(_)
+                | ast::Stmt::LoadDataStmt(_) => {}
             }
         }
         symbols

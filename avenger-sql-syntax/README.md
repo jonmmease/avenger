@@ -1,6 +1,6 @@
 # avenger-sql-syntax
 
-The syntax of avenger-sql: a subset of GoogleSQL's grammar, read into a lossless syntax tree with typed nodes. The crate reads scripts of pipe queries, `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE` and `CREATE FUNCTION`, and `.sqlm` modules of public functions, table functions and constants. Within the subset, it accepts what GoogleSQL accepts, rejects what GoogleSQL rejects, and reports its first error where GoogleSQL does, with one extension: every comma-separated list takes a trailing comma, where GoogleSQL takes one only in the lists of the pipe operators and the columns of `CREATE TABLE`. A value in parentheses, `(x,)`, takes none, since GoogleSQL has no tuple of one value, and neither do the names of a `DECLARE`, which a type can follow. Outside the subset, it reports each construct of GoogleSQL's that avenger doesn't plan, such as a `CREATE VIEW`, a hint or a standard `SELECT` query, as unsupported, with its name, instead of a syntax error, and skips it to a boundary, such as the end of its clause or statement.
+The syntax of avenger-sql: a subset of GoogleSQL's grammar, read into a lossless syntax tree with typed nodes. The crate reads scripts of pipe queries, `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE`, `CREATE FUNCTION`, and the `TEMP` forms of `CREATE EXTERNAL TABLE` and `LOAD DATA`, `.sqlm` modules of public functions, table functions and constants, and data scripts, which register the tables of a project. Within the subset, it accepts what GoogleSQL accepts, rejects what GoogleSQL rejects, and reports its first error where GoogleSQL does, with one extension: every comma-separated list takes a trailing comma, where GoogleSQL takes one only in the lists of the pipe operators and the columns of `CREATE TABLE`. A value in parentheses, `(x,)`, takes none, since GoogleSQL has no tuple of one value, and neither do the names of a `DECLARE`, which a type can follow. Outside the subset, it reports each construct of GoogleSQL's that avenger doesn't plan, such as a `CREATE MATERIALIZED VIEW`, a hint or a standard `SELECT` query, as unsupported, with its name, instead of a syntax error, and skips it to a boundary, such as the end of its clause or statement.
 
 ```rust
 use avenger_sql_syntax::{ast, parse};
@@ -14,9 +14,34 @@ for operator in query.pipe_operators() {
 }
 ```
 
+## Data scripts
+
+`parse_data` reads a data script, a `.sql` file of a project whose statements register the tables that the project's scripts read, with a subset of GoogleSQL's DDL:
+
+```sql
+CREATE SCHEMA finance OPTIONS (description = 'the books');
+
+CREATE EXTERNAL TABLE finance.orders
+OPTIONS (format = 'CSV', uris = ['data/files/orders/*.csv']);
+
+LOAD DATA OVERWRITE finance.rates (day DATE, rate FLOAT64)
+FROM FILES (format = 'CSV', uris = ['data/files/rates.csv'], skip_leading_rows = 1);
+
+CREATE TEMP EXTERNAL TABLE raw_events
+OPTIONS (format = 'PARQUET', uris = ['data/files/events/*.parquet']);
+
+CREATE VIEW recent AS (FROM finance.orders |> WHERE day > DATE '2025-01-01');
+
+CREATE TABLE events AS (FROM raw_events |> WHERE kind IS NOT NULL);
+```
+
+`CREATE EXTERNAL TABLE` declares a table over files, with an optional column list, `WITH PARTITION COLUMNS` and the required `OPTIONS`. `LOAD DATA {OVERWRITE | INTO} [TEMP TABLE]` loads files into a table, with an optional column list and `OPTIONS` before `FROM FILES (...)`, whose entries take the form of `OPTIONS`, and `WITH PARTITION COLUMNS` after it. `CREATE VIEW` names a query, `CREATE TABLE ... AS` keeps the result of one, and `CREATE SCHEMA` creates a namespace. `TEMP` keeps a table or a view inside its data script. A chart script holds `CREATE TEMP EXTERNAL TABLE` and `LOAD DATA {OVERWRITE | INTO} TEMP TABLE` too, whose tables are its own. A data script also holds `CREATE TEMP FUNCTION` and `IMPORT MODULE`, for its own statements. The clause order follows GoogleSQL's grammar, and `WITH CONNECTION`, the partitions and clusters of `LOAD DATA`, and constraints are unsupported.
+
+The parser reads the statements of every role in `parse`, `parse_module` and `parse_data`, and the validation pass checks each statement against the role of its text. A query, `DECLARE`, `SET`, a `CREATE TABLE` without `AS`, or a function without `TEMP` in a data script is an error whose help names the chart scripts, and a statement of a data script or a `CREATE TABLE` without `TEMP` in a script or a module is an error whose help names the data scripts. GoogleSQL takes the statements of data scripts in a script, so in a script they are unsupported. A data script's root is a `SCRIPT` node, as a script's is.
+
 ## The tree
 
-`parse` and `parse_module` never fail. Each returns a `rowan` tree that holds every byte of the text, comments and whitespace included, with a range on every node. Every node is a `SyntaxNode` of a `SyntaxKind`. A comment before a statement or a pipe operator belongs to that node, and no node starts or ends with trivia.
+`parse`, `parse_module` and `parse_data` never fail. Each returns a `rowan` tree that holds every byte of the text, comments and whitespace included, with a range on every node. Every node is a `SyntaxNode` of a `SyntaxKind`. A comment before a statement or a pipe operator belongs to that node, and no node starts or ends with trivia.
 
 `sql.ungram` describes the children of each kind of node, with notes on the GoogleSQL sources, the subset, and the forms left out. The grammar describes the tree, and the hand-written parser builds it. A test checks that every tree of the test corpora has the shape that the grammar describes.
 
@@ -30,7 +55,7 @@ Each error is a `Diagnostic`, with a `DiagnosticCode`, a range, a message, help,
 
 - The lexer reports malformed tokens, such as an unclosed string.
 - The parser reports the errors of the grammar. It puts what it cannot read into `ERROR` nodes and goes on at the next `,`, `)`, `|>` or `;`.
-- The validation pass, `src/validation.rs`, reports the checks that GoogleSQL makes after its parser: the rules of modules, the order of `DECLARE`, the clauses that each kind of function takes, the joins after comma joins, and the escapes of literals.
+- The validation pass, `src/validation.rs`, reports the checks that GoogleSQL makes after its parser and the statements that each role of a text holds: the rules of modules and of data scripts, the order of `DECLARE`, the clauses that each kind of function takes, the joins after comma joins, and the escapes of literals.
 
 ## Completion
 
@@ -56,11 +81,11 @@ The result holds only what can follow the text before the cursor. After an opera
 
 ## Tests
 
-The tests check the corpora in `tests/common` against GoogleSQL's grammar and parser tests, and compare four trees with the baselines in `tests/baselines`. A test that finds a different tree writes it to `tests/output/`, and copying it to `tests/baselines/` accepts it.
+The tests check the corpora in `tests/common` against GoogleSQL's grammar and parser tests, and compare five trees with the baselines in `tests/baselines`. A test that finds a different tree writes it to `tests/output/`, and copying it to `tests/baselines/` accepts it.
 
 ## Conformance with GoogleSQL
 
-The ignored test `tests/conformance.rs` compares the parser with GoogleSQL's `execute_query` 2026.11.1: it parses each input of a corpus with `execute_query --mode=parse --sql_mode=script --enabled_language_features=MAXIMUM` and with `parse`, and compares whether each accepts the input and where each finds its first error. The corpus is the inputs of this crate's tests and every input of GoogleSQL's parser tests apart from the tests of SQL graph syntax, including the pipe operators of a standard query with the query before its first `|>` written as `FROM t`. An input that avenger reports as unsupported agrees where GoogleSQL accepts it. A difference that `tests/conformance/known.txt` lists, such as a check that GoogleSQL makes as it analyzes, is explained, and any other fails the test, as does an entry that explains no difference. The report is in `tests/output/conformance.md`.
+The ignored test `tests/conformance.rs` compares the parser with GoogleSQL's `execute_query` 2026.11.1: it parses each input of a corpus with `execute_query --mode=parse --sql_mode=script --enabled_language_features=MAXIMUM` and with `parse`, and compares whether each accepts the input and where each finds its first error. The corpus is the inputs of this crate's tests and every input of GoogleSQL's parser tests apart from the tests of SQL graph syntax, including the pipe operators of a standard query with the query before its first `|>` written as `FROM t`. The inputs of the tests of `CREATE EXTERNAL TABLE`, `CREATE VIEW` and `CREATE SCHEMA`, and this crate's data scripts, parse with `parse_data`, and the others with `parse`. An input that avenger reports as unsupported agrees where GoogleSQL accepts it. A difference that `tests/conformance/known.txt` lists, such as a check that GoogleSQL makes as it analyzes, is explained, and any other fails the test, as does an entry that explains no difference. The report is in `tests/output/conformance.md`.
 
 The check needs the binary at `scratch/tools/googlesql/execute_query_macos` and the corpus, which `tests/conformance/extract.py` writes to `scratch/tools/googlesql/parser-corpus.txt` from a checkout of GoogleSQL at the binary's tag, so the repository holds no text of GoogleSQL's tests. Without them, the test skips with a message. From the repository's root:
 

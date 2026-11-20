@@ -209,7 +209,7 @@ impl PrefixExpr {
 /// The scope of an object that a `CREATE` statement creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Scope {
-    /// `TEMP` or `TEMPORARY`, in a script.
+    /// `TEMP` or `TEMPORARY`, in a script or a data script.
     Temp,
     /// `PUBLIC`, in a module.
     Public,
@@ -256,6 +256,9 @@ pub trait CreateStmt: AstNode {
 impl CreateStmt for CreateTableStmt {}
 impl CreateStmt for CreateFunctionStmt {}
 impl CreateStmt for CreateConstantStmt {}
+impl CreateStmt for CreateExternalTableStmt {}
+impl CreateStmt for CreateViewStmt {}
+impl CreateStmt for CreateSchemaStmt {}
 
 /// The kind of a function that a [`CreateFunctionStmt`] creates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -278,7 +281,7 @@ impl CreateFunctionStmt {
 }
 
 impl crate::Parse {
-    /// The root as a [`Script`], when the text was parsed as a script.
+    /// The root as a [`Script`], when the text was parsed as a script or a data script.
     pub fn script(&self) -> Option<Script> {
         Script::cast(self.syntax())
     }

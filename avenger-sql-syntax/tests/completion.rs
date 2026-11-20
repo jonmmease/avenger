@@ -155,3 +155,21 @@ fn completion_offers_what_the_place_of_the_cursor_takes() {
     assert!(mode.contains(&"ALL BY NAME".to_string()), "{mode:?}");
     assert!(!mode.contains(&"ALL".to_string()), "{mode:?}");
 }
+
+#[test]
+fn a_script_is_offered_no_statements_of_data_scripts() {
+    let after_create = at_end("CREATE ");
+    assert!(
+        after_create.contains(&Expected::Keyword(TABLE_KW)),
+        "{after_create:?}"
+    );
+    for word in ["EXTERNAL", "VIEW", "SCHEMA"] {
+        assert!(
+            !words("CREATE ").iter().any(|found| found.starts_with(word)),
+            "{word}"
+        );
+    }
+    assert!(!words("CREATE TEMP ")
+        .iter()
+        .any(|found| found.starts_with("VIEW")));
+}

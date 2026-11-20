@@ -1,16 +1,22 @@
 //! The validation pass: the checks that GoogleSQL makes after its parser, in its resolver or
-//! module catalog, when they are about syntax. [`crate::parse`] and [`crate::parse_module`] run
-//! it on every tree.
+//! module catalog, when they are about syntax, and the statements that each role of a text
+//! holds. [`crate::parse`], [`crate::parse_module`] and [`crate::parse_data`] run it on every
+//! tree.
 //!
 //! The pass reads the typed tree of [`crate::ast`] and checks:
 //!
 //! - the rules of modules: a `CREATE` in a module is `PUBLIC` or `PRIVATE`, takes no `OR
 //!   REPLACE` or `IF NOT EXISTS`, names its object by one name, and creates no table, and a
 //!   script's `CREATE` is not `PUBLIC` or `PRIVATE` and creates no constant;
+//! - the rules of data scripts: a data script holds `CREATE EXTERNAL TABLE`, `LOAD DATA`,
+//!   `CREATE VIEW`, `CREATE TABLE ... AS`, `CREATE SCHEMA`, `CREATE TEMP FUNCTION` and `IMPORT
+//!   MODULE`, and no query, `DECLARE` or `SET`, while a module holds none of the statements of
+//!   data scripts, and a script holds of them only `CREATE TEMP EXTERNAL TABLE` and `LOAD DATA
+//!   ... TEMP TABLE`, since a script's tables are `TEMP`;
 //! - `OR REPLACE` with `IF NOT EXISTS`;
 //! - the order of `DECLARE`, which comes before a script's other statements, and that a
 //!   `DECLARE` takes a type or a `DEFAULT`;
-//! - that a `CREATE TABLE` takes columns or a query;
+//! - that a `CREATE TABLE` takes columns or a query, and in a data script a query;
 //! - the parameters of functions: a table parameter belongs to a table function, `NOT AGGREGATE`
 //!   to an aggregate function, and the columns of `TABLE<...>` each take a name;
 //! - sources: a table function's name has no dashes, `LATERAL` goes before a query or a table
@@ -28,17 +34,33 @@ use crate::{
     ast::{self, tokens, AstNode, CreateStmt, FunctionKind, Scope},
     diagnostic::{Diagnostic, DiagnosticCode},
     escape,
+    parser::Entry,
     SyntaxKind::{self, *},
     SyntaxNode, SyntaxToken,
 };
 
-/// The diagnostics of the checks of the validation pass on the tree `root`.
-pub(crate) fn validate(root: &SyntaxNode) -> Vec<Diagnostic> {
+/// The help of a statement of a data script in a script or a module.
+const IN_DATA_SCRIPT: &str =
+    "a project's data scripts register the tables, views and schemas that its scripts read";
+
+/// The help of a script's `CREATE EXTERNAL TABLE` without `TEMP`.
+const EXTERNAL_TEMP: &str = "a chart script reads its own files with `CREATE TEMP EXTERNAL TABLE t OPTIONS (...)`, and a project's data scripts register the tables that its scripts read";
+
+/// The help of a script's `LOAD DATA` without `TEMP TABLE`.
+const LOAD_TEMP: &str = "a chart script loads its own files with `LOAD DATA OVERWRITE TEMP TABLE t FROM FILES (...)`, and a project's data scripts register the tables that its scripts read";
+
+/// The help of a statement of a script in a data script.
+const IN_SCRIPT: &str =
+    "a data script only registers tables, and queries, DECLARE and SET go in a chart script";
+
+/// The diagnostics of the checks of the validation pass on the tree `root`, which `entry` read.
+pub(crate) fn validate(root: &SyntaxNode, entry: Entry) -> Vec<Diagnostic> {
     let mut validator = Validator {
-        in_module: root.kind() == MODULE,
+        in_module: entry == Entry::Module,
+        in_data: entry == Entry::Data,
         diagnostics: Vec::new(),
     };
-    if let Some(script) = ast::Script::cast(root.clone()) {
+    if let (Some(script), Entry::Script) = (ast::Script::cast(root.clone()), entry) {
         validator.declare_order(script.stmts());
     }
     for node in root.descendants() {
@@ -55,6 +77,7 @@ pub(crate) fn validate(root: &SyntaxNode) -> Vec<Diagnostic> {
 
 struct Validator {
     in_module: bool,
+    in_data: bool,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -99,15 +122,89 @@ impl Validator {
 
     fn node(&mut self, node: &SyntaxNode) {
         match node.kind() {
+            DECLARE_STMT if self.in_data => {
+                self.in_script(node, DECLARE_KW, "a data script declares no variables")
+            }
             DECLARE_STMT => self.declare(node),
+            SET_STMT if self.in_data => {
+                self.in_script(node, SET_KW, "a data script sets no variables")
+            }
+            QUERY if self.in_data && node.parent().is_some_and(|p| p.kind() == SCRIPT) => {
+                self.error(
+                    DiagnosticCode::InvalidStatement,
+                    cast::<ast::Query>(node).range(),
+                    "a data script runs no queries",
+                )
+                .help(IN_SCRIPT);
+            }
             CREATE_TABLE_STMT => {
                 let statement = cast::<ast::CreateTableStmt>(node);
+                if self.permanent_table(&statement) {
+                    return;
+                }
                 self.create(&statement, &[TABLE_KW]);
                 self.create_table(&statement);
             }
             CREATE_FUNCTION_STMT => {
                 let statement = cast::<ast::CreateFunctionStmt>(node);
-                self.create(&statement, &[AGGREGATE_KW, TABLE_KW, FUNCTION_KW]);
+                let object = [AGGREGATE_KW, TABLE_KW, FUNCTION_KW];
+                self.create(&statement, &object);
+                if let (true, None) = (self.in_data, statement.scope_token()) {
+                    if let Some(range) = tokens_range(node, &object, FUNCTION_KW) {
+                        self.error(
+                            DiagnosticCode::InvalidStatement,
+                            range,
+                            "a function of a data script is TEMP",
+                        )
+                        .help(
+                            "a data script's functions are its own, and the functions that scripts share go in a module",
+                        );
+                    }
+                }
+            }
+            CREATE_EXTERNAL_TABLE_STMT => {
+                let statement = cast::<ast::CreateExternalTableStmt>(node);
+                if self.in_chart() && statement.scope_kind() == Some(Scope::Temp) {
+                    self.create(&statement, &[EXTERNAL_KW, TABLE_KW]);
+                    return;
+                }
+                self.data_statement(&statement, &[EXTERNAL_KW, TABLE_KW], "an EXTERNAL TABLE");
+            }
+            CREATE_VIEW_STMT => {
+                let statement = cast::<ast::CreateViewStmt>(node);
+                self.data_statement(&statement, &[VIEW_KW], "a VIEW");
+            }
+            CREATE_SCHEMA_STMT => {
+                let statement = cast::<ast::CreateSchemaStmt>(node);
+                self.data_statement(&statement, &[SCHEMA_KW], "a SCHEMA");
+            }
+            LOAD_DATA_STMT if !self.in_data => {
+                let load = cast::<ast::LoadDataStmt>(node);
+                let Some(range) = tokens_range(node, &[LOAD_KW], DATA_KW) else {
+                    return;
+                };
+                match (self.in_module, load.scope().is_some()) {
+                    (false, true) => {}
+                    // At the table's name, where `TEMP TABLE` goes.
+                    (false, false) => {
+                        if let Some(path) = load.path() {
+                            self.error(
+                                DiagnosticCode::Unsupported,
+                                path.syntax().text_range(),
+                                "LOAD DATA without TEMP TABLE belongs to a data script",
+                            )
+                            .help(LOAD_TEMP);
+                        }
+                    }
+                    (true, _) => {
+                        self.error(
+                            DiagnosticCode::Unsupported,
+                            range,
+                            "LOAD DATA belongs to a data script",
+                        )
+                        .help(IN_DATA_SCRIPT);
+                    }
+                }
             }
             CREATE_CONSTANT_STMT => {
                 let statement = cast::<ast::CreateConstantStmt>(node);
@@ -152,6 +249,76 @@ impl Validator {
             }
             after_others |= !declare;
         }
+    }
+
+    /// Reports a statement of a script, whose first keyword is `keyword`, in a data script.
+    fn in_script(&mut self, node: &SyntaxNode, keyword: SyntaxKind, message: &str) {
+        if let Some(token) = tokens(node).find(|token| token.kind() == keyword) {
+            self.error(
+                DiagnosticCode::InvalidStatement,
+                token.text_range(),
+                message,
+            )
+            .help(IN_SCRIPT);
+        }
+    }
+
+    /// Whether the text is a chart script.
+    fn in_chart(&self) -> bool {
+        !self.in_module && !self.in_data
+    }
+
+    /// Checks a statement of a data script, `name` of the object of the keywords `object`: in
+    /// a data script, the modifiers of its `CREATE`, and in a script or a module, the statement
+    /// itself, with one error. GoogleSQL takes these statements in a script, and avenger reads
+    /// them in a data script. A script's external table without `TEMP` has the help of the
+    /// script's own form.
+    fn data_statement(&mut self, statement: &impl CreateStmt, object: &[SyntaxKind], name: &str) {
+        if self.in_data {
+            self.create(statement, object);
+            return;
+        }
+        let last = *object.last().expect("an object's keywords");
+        let Some(range) = tokens_range(statement.syntax(), object, last) else {
+            return;
+        };
+        match (self.in_chart(), statement.syntax().kind()) {
+            (true, CREATE_EXTERNAL_TABLE_STMT) => {
+                self.error(
+                    DiagnosticCode::Unsupported,
+                    range,
+                    &format!("{name} without TEMP belongs to a data script"),
+                )
+                .help(EXTERNAL_TEMP);
+            }
+            _ => {
+                self.error(
+                    DiagnosticCode::Unsupported,
+                    range,
+                    &format!("{name} belongs to a data script"),
+                )
+                .help(IN_DATA_SCRIPT);
+            }
+        }
+    }
+
+    /// Whether `statement` is a script's `CREATE TABLE` without a scope, which it reports: a
+    /// table that the charts read belongs to a data script, and a script's own tables are
+    /// `TEMP`.
+    fn permanent_table(&mut self, statement: &ast::CreateTableStmt) -> bool {
+        if self.in_module || self.in_data || statement.scope_token().is_some() {
+            return false;
+        }
+        let Some(table) = statement.table_kw() else {
+            return false;
+        };
+        self.error(
+            DiagnosticCode::Unsupported,
+            table.text_range(),
+            "a table without TEMP belongs to a data script",
+        )
+        .help("a script creates temporary tables, as in `CREATE TEMP TABLE t AS (FROM u)`, and a project's data scripts the tables that its scripts read");
+        true
     }
 
     fn declare(&mut self, node: &SyntaxNode) {
@@ -215,15 +382,19 @@ impl Validator {
                         DiagnosticCode::InvalidStatement,
                         range,
                         "a module creates functions, table functions and constants, not tables",
-                    );
+                    )
+                    .help(IN_DATA_SCRIPT);
                 }
                 (CREATE_CONSTANT_STMT, false) => {
-                    self.error(
+                    let in_data = self.in_data;
+                    let error = self.error(
                         DiagnosticCode::Unsupported,
                         range,
                         "a CONSTANT belongs to a module",
-                    )
-                    .help("a script declares a variable, as in `DECLARE x DEFAULT 1`");
+                    );
+                    if !in_data {
+                        error.help("a script declares a variable, as in `DECLARE x DEFAULT 1`");
+                    }
                 }
                 _ => {}
             }
@@ -248,14 +419,26 @@ impl Validator {
         }
     }
 
+    /// A `CREATE TABLE` takes columns or a query, and in a data script, which gives a table its
+    /// rows, a query.
     fn create_table(&mut self, statement: &ast::CreateTableStmt) {
-        if statement.column_list().is_some() || statement.as_kw().is_some() {
+        let columns = statement.column_list().is_some() && !self.in_data;
+        if columns || statement.as_kw().is_some() {
             return;
         }
         let range = match statement.options() {
             Some(options) => options.range(),
             None => TextRange::empty(next_token_start(statement.syntax())),
         };
+        if self.in_data {
+            self.error(
+                DiagnosticCode::InvalidStatement,
+                range,
+                "a table of a data script takes AS and a query",
+            )
+            .help("a data script gives a table its rows with AS or LOAD DATA, and a table of columns alone goes in a chart script as a CREATE TEMP TABLE");
+            return;
+        }
         // GoogleSQL declares a table without either.
         self.error(
             DiagnosticCode::Unsupported,

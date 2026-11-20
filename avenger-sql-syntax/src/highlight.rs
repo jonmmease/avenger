@@ -13,7 +13,7 @@
 //! `keyword`, `Comment` to `comment`, `String` to `string`, `EnumValue` to `enumMember`, `Number`
 //! to `number`, `Operator` to `operator`, and the roles of names to `class` (tables), `function`
 //! (every role of a function), `type`, `parameter`, `variable` (variables and range variables),
-//! `property` (fields) and `namespace` (modules).
+//! `property` (fields) and `namespace` (modules and schemas).
 
 use rowan::TextRange;
 
@@ -185,7 +185,10 @@ fn path_role(name: &SyntaxNode, path: &SyntaxNode) -> (NameRole, bool) {
         }
         UNPIVOT_CLAUSE => return (NameRole::Column, true),
         PATH_LIST => NameRole::Column,
-        CREATE_TABLE_STMT => return (NameRole::Table, true),
+        CREATE_TABLE_STMT | CREATE_EXTERNAL_TABLE_STMT | CREATE_VIEW_STMT | LOAD_DATA_STMT => {
+            return (NameRole::Table, true)
+        }
+        CREATE_SCHEMA_STMT => return (NameRole::Schema, true),
         CREATE_FUNCTION_STMT => {
             let role = ast::CreateFunctionStmt::cast(holder)
                 .map_or(FunctionRole::Scalar, |stmt| stmt.function_kind().into());

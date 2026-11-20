@@ -53,3 +53,50 @@ fn forms_hold_their_parts() {
     let expr = condition("CURRENT_DATE > d");
     assert_eq!(nodes(&expr, CALL_EXPR).len(), 1);
 }
+
+#[test]
+fn the_statements_of_a_data_script_hold_their_parts() {
+    use ast::CreateStmt;
+    let root = accepts_data(
+        "LOAD DATA INTO TEMP TABLE s.t (a INT64) OPTIONS (description = 'x')
+         FROM FILES (format = 'CSV', uris = ['t.csv']) WITH PARTITION COLUMNS (y INT64)",
+    );
+    let load = root
+        .descendants()
+        .find_map(ast::LoadDataStmt::cast)
+        .unwrap();
+    assert_eq!(load.mode().map(|token| token.kind()), Some(INTO_KW));
+    assert_eq!(load.scope().map(|token| token.kind()), Some(TEMP_KW));
+    assert_eq!(load.path().unwrap().to_string(), "s.t");
+    assert_eq!(load.column_list().unwrap().column_defs().count(), 1);
+    assert_eq!(load.options().unwrap().option_entries().count(), 1);
+    assert_eq!(load.from_files().unwrap().option_entries().count(), 2);
+    let partition = load.partition_columns().and_then(|p| p.column_list());
+    assert_eq!(partition.unwrap().column_defs().count(), 1);
+
+    let root = accepts_data("CREATE EXTERNAL TABLE t WITH PARTITION COLUMNS OPTIONS (a = 1)");
+    let table = (root.descendants())
+        .find_map(ast::CreateExternalTableStmt::cast)
+        .unwrap();
+    assert_eq!(table.name_path().unwrap().to_string(), "t");
+    assert!(table.column_list().is_none());
+    assert!(table.partition_columns().unwrap().column_list().is_none());
+    assert_eq!(table.options().unwrap().option_entries().count(), 1);
+
+    let root = accepts_data("CREATE TEMP VIEW v OPTIONS (description = 'x') AS FROM t");
+    let view = root
+        .descendants()
+        .find_map(ast::CreateViewStmt::cast)
+        .unwrap();
+    assert_eq!(view.scope_kind(), Some(ast::Scope::Temp));
+    assert_eq!(view.query().unwrap().to_string(), "FROM t");
+    assert!(view.options().is_some());
+
+    let root = accepts_data("CREATE OR REPLACE SCHEMA finance");
+    let schema = root
+        .descendants()
+        .find_map(ast::CreateSchemaStmt::cast)
+        .unwrap();
+    assert!(schema.or_replace());
+    assert_eq!(schema.name_path().unwrap().to_string(), "finance");
+}

@@ -35,11 +35,14 @@ pub fn is_reserved(word: &str) -> bool {
     SyntaxKind::keyword(word).is_some_and(SyntaxKind::is_reserved)
 }
 
-/// What the parser reads: a script or a module.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// What the parser reads: a chart script, a module, or a data script. The role of a file sets
+/// the statements that the validation pass accepts in it, and the parser reads every statement
+/// of every role, so that a statement out of its place has that pass's error and help.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Entry {
     Script,
     Module,
+    Data,
 }
 
 /// The tree of `source`, the diagnostics of its tokens and its grammar, and, with a cursor, what
@@ -50,9 +53,9 @@ pub(crate) fn parse(
     cursor: Option<TextSize>,
 ) -> (GreenNode, Vec<Diagnostic>, Vec<Expected>) {
     let (tokens, mut diagnostics) = tokenize(source);
-    let mut parser = Parser::new(source, &tokens, cursor);
+    let mut parser = Parser::new(source, &tokens, entry, cursor);
     match entry {
-        Entry::Script => parser.script(),
+        Entry::Script | Entry::Data => parser.script(),
         Entry::Module => parser.module(),
     }
     let Parser {
@@ -95,7 +98,7 @@ pub(crate) struct Parser<'a> {
     /// The depth of the parentheses that the parser is inside, where `)` ends a skip.
     paren_depth: u32,
     depth: u32,
-    in_module: bool,
+    entry: Entry,
     /// The position of the start of a select or aggregate item, whose expression can end before
     /// `.*`, as GoogleSQL's grammar lets a whole item that is a postfix expression take one.
     dot_star_at: Option<usize>,
@@ -180,7 +183,7 @@ impl CompletedMarker {
 }
 
 impl<'a> Parser<'a> {
-    fn new(source: &'a str, tokens: &'a [Token], cursor: Option<TextSize>) -> Self {
+    fn new(source: &'a str, tokens: &'a [Token], entry: Entry, cursor: Option<TextSize>) -> Self {
         let significant = (tokens.iter().enumerate())
             .filter(|(_, token)| !token.kind.is_trivia())
             .map(|(index, _)| index)
@@ -194,7 +197,7 @@ impl<'a> Parser<'a> {
             diagnostics: Vec::new(),
             paren_depth: 0,
             depth: 0,
-            in_module: false,
+            entry,
             dot_star_at: None,
             cursor,
             expected: RefCell::new(Vec::new()),
@@ -584,6 +587,13 @@ impl<'a> Parser<'a> {
             }
             self.bump();
         }
+    }
+
+    /// Whether the text ends at the current token and an error at its end reports a missing
+    /// part already, so that a statement reports none of the parts after it.
+    pub(crate) fn reported_at_end(&self) -> bool {
+        let end = TextSize::of(self.source.trim_end());
+        self.at_eof() && (self.diagnostics.last()).is_some_and(|d| d.range.start() == end)
     }
 
     /// Reports that the current token is not `expected`, and skips it into an `ERROR` node

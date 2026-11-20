@@ -4,7 +4,9 @@
 //!
 //! The corpus is the inputs of GoogleSQL's parser tests in the subset, which
 //! `tests/conformance/extract.py` writes to `scratch/tools/googlesql/parser-corpus.txt`, and the
-//! inputs of this crate's tests. A difference that `tests/conformance/known.txt` lists is
+//! inputs of this crate's tests. The inputs of the tests of the statements of data scripts, such
+//! as `create_external_table.test`, and of this crate's data scripts parse as data scripts, and
+//! the others as scripts. A difference that `tests/conformance/known.txt` lists is
 //! explained; the test fails on any other, and writes its report to
 //! `tests/output/conformance.md`. Without the binary or the corpus, it skips with a message.
 //!
@@ -70,6 +72,16 @@ fn corpus(text: &str) -> Vec<Input> {
     inputs
 }
 
+/// The prefixes of the labels of the inputs that parse as data scripts: GoogleSQL's tests of
+/// the statements of data scripts, and this crate's data scripts.
+const DATA_INPUTS: &[&str] = &[
+    "create_external_table.test:",
+    "create_view.test:",
+    "create_schema.test:",
+    "crate:DATA",
+    "crate:REJECTED_DATA:",
+];
+
 /// The inputs of this crate's tests.
 fn crate_inputs() -> Vec<Input> {
     let input = |label: String, text: &str| Input {
@@ -80,6 +92,7 @@ fn crate_inputs() -> Vec<Input> {
         input("crate:OPERATORS".into(), common::OPERATORS),
         input("crate:STATEMENTS".into(), common::STATEMENTS),
         input("crate:SOURCES".into(), common::SOURCES),
+        input("crate:DATA".into(), common::DATA),
     ];
     for (i, text) in common::QUERIES.iter().enumerate() {
         inputs.push(input(format!("crate:QUERIES:{i}"), text));
@@ -96,12 +109,18 @@ fn crate_inputs() -> Vec<Input> {
     for (i, (text, _, _)) in common::REJECTED.iter().enumerate() {
         inputs.push(input(format!("crate:REJECTED:{i}"), text));
     }
+    for (i, (text, _, _)) in common::REJECTED_DATA.iter().enumerate() {
+        inputs.push(input(format!("crate:REJECTED_DATA:{i}"), text));
+    }
     inputs
 }
 
-/// Our verdict of `text`.
-fn ours(text: &str) -> Verdict {
-    let parse = avenger_sql_syntax::parse(text);
+/// Our verdict of the input `text` of the label `label`.
+fn ours(label: &str, text: &str) -> Verdict {
+    let parse = match DATA_INPUTS.iter().any(|prefix| label.starts_with(prefix)) {
+        true => avenger_sql_syntax::parse_data(text),
+        false => avenger_sql_syntax::parse(text),
+    };
     match parse.diagnostics().iter().min_by_key(|d| d.range.start()) {
         None => Verdict::Accepts,
         Some(diagnostic) => {
@@ -230,7 +249,7 @@ fn conformance() {
     let mut unexplained: Vec<Difference> = Vec::new();
     let mut used = vec![false; known.len()];
     for (input, theirs) in inputs.iter().zip(verdicts) {
-        let ours = ours(&input.text);
+        let ours = ours(&input.label, &input.text);
         // A construct outside the subset agrees with GoogleSQL's acceptance. Where GoogleSQL
         // rejects the input, it agrees when avenger reports it at or before GoogleSQL's error, so
         // that avenger misses no earlier error.

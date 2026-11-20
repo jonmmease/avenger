@@ -14,7 +14,15 @@ pipe_from_query.test:16	standard set operations aren't in the subset; they are p
 
 # Statements outside the subset.
 create_table_as_select.test:25	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
-create_table_as_select.test:49	the AS takes a GRAPH query, of the SQL graph syntax that the subset leaves out
+create_external_table.test:3:7	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_external_table.test:3:9	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_external_table.test:3:11	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_external_table.test:17:5	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_external_table.test:17:7	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_schema.test:1:3	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_schema.test:3:3	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_view.test:24	avenger checks that OR REPLACE and IF NOT EXISTS don't go together as it parses, and GoogleSQL as it analyzes
+create_view.test:39	the AS takes a GRAPH query, of the SQL graph syntax that the subset leaves out
 create_function.test:29	avenger reports a NOT AGGREGATE outside an aggregate function before the AS after it, where GoogleSQL fails
 modules.test:57	IMPORT MODULE names a module by a path, without INTO, in the subset
 modules.test:58	IMPORT MODULE names a module by a path, without INTO, in the subset
@@ -24,6 +32,7 @@ crate:REJECTED:47	IMPORT MODULE names a module by a path, without INTO, in the s
 set.test:29:*	avenger reports a query parameter without a name at its `@`, and GoogleSQL at the token after it
 
 # Choices of the subset.
+crate:DATA	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
 crate:TRAILING_COMMAS:*	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
 match_recognize.test:13:4:fromclause	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
 match_recognize.test:14:2:fromclause	avenger takes a trailing comma in every comma-separated list, and GoogleSQL only in the lists of the pipe operators and the columns of CREATE TABLE
@@ -44,6 +53,5 @@ create_live_table.test:1	GoogleSQL rejects a modifier before LIVE TABLE at the m
 create_live_table.test:14	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
 create_live_table.test:15	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
 create_live_table.test:20	GoogleSQL rejects a modifier before LIVE TABLE at the modifier, and avenger reports the LIVE TABLE after it as unsupported
-lock_mode_ddl.test:1	GoogleSQL rejects the `(` of a CREATE TABLE AS (query), and avenger reports the standard query in it
 create_function.test:70	GoogleSQL rejects the input without a place, and avenger reports PUBLIC outside a module
 exception_handler.test:4	GoogleSQL rejects the input without a place, and avenger reports the BEGIN block as unsupported

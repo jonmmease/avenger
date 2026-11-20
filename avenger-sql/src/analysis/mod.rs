@@ -320,6 +320,11 @@ impl Pass<'_> {
                 );
                 Vec::new()
             }
+            // The statements of a data script, which a script's parse reports already.
+            ast::Stmt::CreateExternalTableStmt(_)
+            | ast::Stmt::CreateViewStmt(_)
+            | ast::Stmt::CreateSchemaStmt(_)
+            | ast::Stmt::LoadDataStmt(_) => Vec::new(),
         }
     }
 

@@ -1,0 +1,813 @@
+SCRIPT@0..1626
+  WHITESPACE@0..1 "\n"
+  IMPORT_STMT@1..34
+    IMPORT_KW@1..7 "IMPORT"
+    WHITESPACE@7..8 " "
+    MODULE_KW@8..14 "MODULE"
+    WHITESPACE@14..15 " "
+    PATH@15..26
+      NAME_REF@15..21
+        WORD@15..21 "charts"
+      DOT@21..22 "."
+      NAME_REF@22..26
+        WORD@22..26 "text"
+    WHITESPACE@26..27 " "
+    ALIAS@27..34
+      AS_KW@27..29 "AS"
+      WHITESPACE@29..30 " "
+      NAME@30..34
+        WORD@30..34 "text"
+  SEMICOLON@34..35 ";"
+  WHITESPACE@35..36 "\n"
+  CREATE_FUNCTION_STMT@36..87
+    CREATE_KW@36..42 "CREATE"
+    WHITESPACE@42..43 " "
+    TEMP_KW@43..47 "TEMP"
+    WHITESPACE@47..48 " "
+    FUNCTION_KW@48..56 "FUNCTION"
+    WHITESPACE@56..57 " "
+    PATH@57..64
+      NAME_REF@57..64
+        WORD@57..64 "cleaned"
+    PARAM_LIST@64..74
+      L_PAREN@64..65 "("
+      PARAMETER@65..73
+        NAME@65..66
+          WORD@65..66 "s"
+        WHITESPACE@66..67 " "
+        NAMED_TYPE@67..73
+          NAME_REF@67..73
+            WORD@67..73 "STRING"
+      R_PAREN@73..74 ")"
+    WHITESPACE@74..75 " "
+    FUNCTION_BODY@75..87
+      AS_KW@75..77 "AS"
+      WHITESPACE@77..78 " "
+      L_PAREN@78..79 "("
+      CALL_EXPR@79..86
+        PATH@79..83
+          NAME_REF@79..83
+            WORD@79..83 "TRIM"
+        ARG_LIST@83..86
+          L_PAREN@83..84 "("
+          ARG@84..85
+            PATH_EXPR@84..85
+              PATH@84..85
+                NAME_REF@84..85
+                  WORD@84..85 "s"
+          R_PAREN@85..86 ")"
+      R_PAREN@86..87 ")"
+  SEMICOLON@87..88 ";"
+  WHITESPACE@88..89 "\n"
+  CREATE_SCHEMA_STMT@89..160
+    CREATE_KW@89..95 "CREATE"
+    WHITESPACE@95..96 " "
+    SCHEMA_KW@96..102 "SCHEMA"
+    WHITESPACE@102..103 " "
+    IF_KW@103..105 "IF"
+    WHITESPACE@105..106 " "
+    NOT_KW@106..109 "NOT"
+    WHITESPACE@109..110 " "
+    EXISTS_KW@110..116 "EXISTS"
+    WHITESPACE@116..117 " "
+    PATH@117..124
+      NAME_REF@117..124
+        WORD@117..124 "finance"
+    WHITESPACE@124..125 " "
+    OPTIONS@125..160
+      OPTIONS_KW@125..132 "OPTIONS"
+      WHITESPACE@132..133 " "
+      L_PAREN@133..134 "("
+      OPTION_ENTRY@134..159
+        NAME@134..145
+          WORD@134..145 "description"
+        WHITESPACE@145..146 " "
+        EQ@146..147 "="
+        WHITESPACE@147..148 " "
+        LITERAL@148..159
+          STRING@148..159 "'the books'"
+      R_PAREN@159..160 ")"
+  SEMICOLON@160..161 ";"
+  WHITESPACE@161..162 "\n"
+  CREATE_SCHEMA_STMT@162..194
+    CREATE_KW@162..168 "CREATE"
+    WHITESPACE@168..169 " "
+    OR_KW@169..171 "OR"
+    WHITESPACE@171..172 " "
+    REPLACE_KW@172..179 "REPLACE"
+    WHITESPACE@179..180 " "
+    SCHEMA_KW@180..186 "SCHEMA"
+    WHITESPACE@186..187 " "
+    PATH@187..194
+      NAME_REF@187..194
+        WORD@187..194 "staging"
+  SEMICOLON@194..195 ";"
+  WHITESPACE@195..196 "\n"
+  CREATE_EXTERNAL_TABLE_STMT@196..320
+    CREATE_KW@196..202 "CREATE"
+    WHITESPACE@202..203 " "
+    EXTERNAL_KW@203..211 "EXTERNAL"
+    WHITESPACE@211..212 " "
+    TABLE_KW@212..217 "TABLE"
+    WHITESPACE@217..218 " "
+    PATH@218..232
+      NAME_REF@218..225
+        WORD@218..225 "finance"
+      DOT@225..226 "."
+      NAME_REF@226..232
+        WORD@226..232 "orders"
+    WHITESPACE@232..237 "\n    "
+    OPTIONS@237..320
+      OPTIONS_KW@237..244 "OPTIONS"
+      WHITESPACE@244..245 " "
+      L_PAREN@245..246 "("
+      OPTION_ENTRY@246..260
+        NAME@246..252
+          WORD@246..252 "format"
+        WHITESPACE@252..253 " "
+        EQ@253..254 "="
+        WHITESPACE@254..255 " "
+        LITERAL@255..260
+          STRING@255..260 "'CSV'"
+      COMMA@260..261 ","
+      WHITESPACE@261..262 " "
+      OPTION_ENTRY@262..296
+        NAME@262..266
+          WORD@262..266 "uris"
+        WHITESPACE@266..267 " "
+        EQ@267..268 "="
+        WHITESPACE@268..269 " "
+        ARRAY_EXPR@269..296
+          L_BRACK@269..270 "["
+          LITERAL@270..295
+            STRING@270..295 "'data/files/orders/*. ..."
+          R_BRACK@295..296 "]"
+      COMMA@296..297 ","
+      WHITESPACE@297..298 " "
+      OPTION_ENTRY@298..319
+        NAME@298..315
+          WORD@298..315 "skip_leading_rows"
+        WHITESPACE@315..316 " "
+        EQ@316..317 "="
+        WHITESPACE@317..318 " "
+        LITERAL@318..319
+          INTEGER@318..319 "1"
+      R_PAREN@319..320 ")"
+  SEMICOLON@320..321 ";"
+  WHITESPACE@321..322 "\n"
+  CREATE_EXTERNAL_TABLE_STMT@322..524
+    CREATE_KW@322..328 "CREATE"
+    WHITESPACE@328..329 " "
+    TEMP_KW@329..333 "TEMP"
+    WHITESPACE@333..334 " "
+    EXTERNAL_KW@334..342 "EXTERNAL"
+    WHITESPACE@342..343 " "
+    TABLE_KW@343..348 "TABLE"
+    WHITESPACE@348..349 " "
+    IF_KW@349..351 "IF"
+    WHITESPACE@351..352 " "
+    NOT_KW@352..355 "NOT"
+    WHITESPACE@355..356 " "
+    EXISTS_KW@356..362 "EXISTS"
+    WHITESPACE@362..363 " "
+    PATH@363..373
+      NAME_REF@363..373
+        WORD@363..373 "raw_events"
+    WHITESPACE@373..374 " "
+    COLUMN_LIST@374..406
+      L_PAREN@374..375 "("
+      COLUMN_DEF@375..392
+        NAME@375..377
+          WORD@375..377 "id"
+        WHITESPACE@377..378 " "
+        NAMED_TYPE@378..383
+          NAME_REF@378..383
+            WORD@378..383 "INT64"
+        WHITESPACE@383..384 " "
+        NOT_KW@384..387 "NOT"
+        WHITESPACE@387..388 " "
+        NULL_KW@388..392 "NULL"
+      COMMA@392..393 ","
+      WHITESPACE@393..394 " "
+      COLUMN_DEF@394..405
+        NAME@394..398
+          WORD@394..398 "kind"
+        WHITESPACE@398..399 " "
+        NAMED_TYPE@399..405
+          NAME_REF@399..405
+            WORD@399..405 "STRING"
+      R_PAREN@405..406 ")"
+    WHITESPACE@406..411 "\n    "
+    PARTITION_COLUMNS@411..460
+      WITH_KW@411..415 "WITH"
+      WHITESPACE@415..416 " "
+      PARTITION_KW@416..425 "PARTITION"
+      WHITESPACE@425..426 " "
+      COLUMNS_KW@426..433 "COLUMNS"
+      WHITESPACE@433..434 " "
+      COLUMN_LIST@434..460
+        L_PAREN@434..435 "("
+        COLUMN_DEF@435..445
+          NAME@435..439
+            WORD@435..439 "year"
+          WHITESPACE@439..440 " "
+          NAMED_TYPE@440..445
+            NAME_REF@440..445
+              WORD@440..445 "INT64"
+        COMMA@445..446 ","
+        WHITESPACE@446..447 " "
+        COLUMN_DEF@447..459
+          NAME@447..452
+            WORD@447..452 "month"
+          WHITESPACE@452..453 " "
+          NAMED_TYPE@453..459
+            NAME_REF@453..459
+              WORD@453..459 "STRING"
+        R_PAREN@459..460 ")"
+    WHITESPACE@460..465 "\n    "
+    OPTIONS@465..524
+      OPTIONS_KW@465..472 "OPTIONS"
+      WHITESPACE@472..473 " "
+      L_PAREN@473..474 "("
+      OPTION_ENTRY@474..492
+        NAME@474..480
+          WORD@474..480 "format"
+        WHITESPACE@480..481 " "
+        EQ@481..482 "="
+        WHITESPACE@482..483 " "
+        LITERAL@483..492
+          STRING@483..492 "'PARQUET'"
+      COMMA@492..493 ","
+      WHITESPACE@493..494 " "
+      OPTION_ENTRY@494..523
+        NAME@494..498
+          WORD@494..498 "uris"
+        WHITESPACE@498..499 " "
+        EQ@499..500 "="
+        WHITESPACE@500..501 " "
+        ARRAY_EXPR@501..523
+          L_BRACK@501..502 "["
+          LITERAL@502..522
+            STRING@502..522 "'data/files/events/'"
+          R_BRACK@522..523 "]"
+      R_PAREN@523..524 ")"
+  SEMICOLON@524..525 ";"
+  WHITESPACE@525..526 "\n"
+  CREATE_EXTERNAL_TABLE_STMT@526..666
+    CREATE_KW@526..532 "CREATE"
+    WHITESPACE@532..533 " "
+    OR_KW@533..535 "OR"
+    WHITESPACE@535..536 " "
+    REPLACE_KW@536..543 "REPLACE"
+    WHITESPACE@543..544 " "
+    TEMPORARY_KW@544..553 "TEMPORARY"
+    WHITESPACE@553..554 " "
+    EXTERNAL_KW@554..562 "EXTERNAL"
+    WHITESPACE@562..563 " "
+    TABLE_KW@563..568 "TABLE"
+    WHITESPACE@568..569 " "
+    PATH@569..573
+      NAME_REF@569..573
+        WORD@569..573 "logs"
+    WHITESPACE@573..578 "\n    "
+    PARTITION_COLUMNS@578..600
+      WITH_KW@578..582 "WITH"
+      WHITESPACE@582..583 " "
+      PARTITION_KW@583..592 "PARTITION"
+      WHITESPACE@592..593 " "
+      COLUMNS_KW@593..600 "COLUMNS"
+    WHITESPACE@600..605 "\n    "
+    OPTIONS@605..666
+      OPTIONS_KW@605..612 "OPTIONS"
+      WHITESPACE@612..613 " "
+      L_PAREN@613..614 "("
+      OPTION_ENTRY@614..629
+        NAME@614..620
+          WORD@614..620 "format"
+        WHITESPACE@620..621 " "
+        EQ@621..622 "="
+        WHITESPACE@622..623 " "
+        LITERAL@623..629
+          STRING@623..629 "'JSON'"
+      COMMA@629..630 ","
+      WHITESPACE@630..631 " "
+      OPTION_ENTRY@631..664
+        NAME@631..635
+          WORD@631..635 "uris"
+        WHITESPACE@635..636 " "
+        EQ@636..637 "="
+        WHITESPACE@637..638 " "
+        ARRAY_EXPR@638..664
+          L_BRACK@638..639 "["
+          LITERAL@639..663
+            STRING@639..663 "'data/files/logs/*.json'"
+          R_BRACK@663..664 "]"
+      COMMA@664..665 ","
+      R_PAREN@665..666 ")"
+  SEMICOLON@666..667 ";"
+  WHITESPACE@667..668 "\n"
+  LOAD_DATA_STMT@668..754
+    LOAD_KW@668..672 "LOAD"
+    WHITESPACE@672..673 " "
+    DATA_KW@673..677 "DATA"
+    WHITESPACE@677..678 " "
+    OVERWRITE_KW@678..687 "OVERWRITE"
+    WHITESPACE@687..688 " "
+    PATH@688..693
+      NAME_REF@688..693
+        WORD@688..693 "sales"
+    WHITESPACE@693..694 " "
+    FROM_FILES@694..754
+      FROM_KW@694..698 "FROM"
+      WHITESPACE@698..699 " "
+      FILES_KW@699..704 "FILES"
+      WHITESPACE@704..705 " "
+      L_PAREN@705..706 "("
+      OPTION_ENTRY@706..720
+        NAME@706..712
+          WORD@706..712 "format"
+        WHITESPACE@712..713 " "
+        EQ@713..714 "="
+        WHITESPACE@714..715 " "
+        LITERAL@715..720
+          STRING@715..720 "'CSV'"
+      COMMA@720..721 ","
+      WHITESPACE@721..722 " "
+      OPTION_ENTRY@722..753
+        NAME@722..726
+          WORD@722..726 "uris"
+        WHITESPACE@726..727 " "
+        EQ@727..728 "="
+        WHITESPACE@728..729 " "
+        ARRAY_EXPR@729..753
+          L_BRACK@729..730 "["
+          LITERAL@730..752
+            STRING@730..752 "'data/files/sales.csv'"
+          R_BRACK@752..753 "]"
+      R_PAREN@753..754 ")"
+  SEMICOLON@754..755 ";"
+  WHITESPACE@755..756 "\n"
+  LOAD_DATA_STMT@756..994
+    LOAD_KW@756..760 "LOAD"
+    WHITESPACE@760..761 " "
+    DATA_KW@761..765 "DATA"
+    WHITESPACE@765..766 " "
+    INTO_KW@766..770 "INTO"
+    WHITESPACE@770..771 " "
+    TEMP_KW@771..775 "TEMP"
+    WHITESPACE@775..776 " "
+    TABLE_KW@776..781 "TABLE"
+    WHITESPACE@781..782 " "
+    PATH@782..795
+      NAME_REF@782..789
+        WORD@782..789 "staging"
+      DOT@789..790 "."
+      NAME_REF@790..795
+        WORD@790..795 "rates"
+    WHITESPACE@795..796 " "
+    COLUMN_LIST@796..820
+      L_PAREN@796..797 "("
+      COLUMN_DEF@797..805
+        NAME@797..800
+          WORD@797..800 "day"
+        WHITESPACE@800..801 " "
+        NAMED_TYPE@801..805
+          NAME_REF@801..805
+            WORD@801..805 "DATE"
+      COMMA@805..806 ","
+      WHITESPACE@806..807 " "
+      COLUMN_DEF@807..819
+        NAME@807..811
+          WORD@807..811 "rate"
+        WHITESPACE@811..812 " "
+        NAMED_TYPE@812..819
+          NAME_REF@812..819
+            WORD@812..819 "FLOAT64"
+      R_PAREN@819..820 ")"
+    WHITESPACE@820..825 "\n    "
+    OPTIONS@825..862
+      OPTIONS_KW@825..832 "OPTIONS"
+      WHITESPACE@832..833 " "
+      L_PAREN@833..834 "("
+      OPTION_ENTRY@834..861
+        NAME@834..845
+          WORD@834..845 "description"
+        WHITESPACE@845..846 " "
+        EQ@846..847 "="
+        WHITESPACE@847..848 " "
+        LITERAL@848..861
+          STRING@848..861 "'daily rates'"
+      R_PAREN@861..862 ")"
+    WHITESPACE@862..867 "\n    "
+    FROM_FILES@867..951
+      FROM_KW@867..871 "FROM"
+      WHITESPACE@871..872 " "
+      FILES_KW@872..877 "FILES"
+      WHITESPACE@877..878 " "
+      L_PAREN@878..879 "("
+      OPTION_ENTRY@879..893
+        NAME@879..885
+          WORD@879..885 "format"
+        WHITESPACE@885..886 " "
+        EQ@886..887 "="
+        WHITESPACE@887..888 " "
+        LITERAL@888..893
+          STRING@888..893 "'CSV'"
+      COMMA@893..894 ","
+      WHITESPACE@894..895 " "
+      OPTION_ENTRY@895..926
+        NAME@895..899
+          WORD@895..899 "uris"
+        WHITESPACE@899..900 " "
+        EQ@900..901 "="
+        WHITESPACE@901..902 " "
+        ARRAY_EXPR@902..926
+          L_BRACK@902..903 "["
+          LITERAL@903..925
+            STRING@903..925 "'data/files/rates.csv'"
+          R_BRACK@925..926 "]"
+      COMMA@926..927 ","
+      WHITESPACE@927..928 " "
+      OPTION_ENTRY@928..949
+        NAME@928..945
+          WORD@928..945 "skip_leading_rows"
+        WHITESPACE@945..946 " "
+        EQ@946..947 "="
+        WHITESPACE@947..948 " "
+        LITERAL@948..949
+          INTEGER@948..949 "1"
+      COMMA@949..950 ","
+      R_PAREN@950..951 ")"
+    WHITESPACE@951..956 "\n    "
+    PARTITION_COLUMNS@956..994
+      WITH_KW@956..960 "WITH"
+      WHITESPACE@960..961 " "
+      PARTITION_KW@961..970 "PARTITION"
+      WHITESPACE@970..971 " "
+      COLUMNS_KW@971..978 "COLUMNS"
+      WHITESPACE@978..979 " "
+      COLUMN_LIST@979..994
+        L_PAREN@979..980 "("
+        COLUMN_DEF@980..993
+          NAME@980..986
+            WORD@980..986 "region"
+          WHITESPACE@986..987 " "
+          NAMED_TYPE@987..993
+            NAME_REF@987..993
+              WORD@987..993 "STRING"
+        R_PAREN@993..994 ")"
+  SEMICOLON@994..995 ";"
+  WHITESPACE@995..996 "\n"
+  LOAD_DATA_STMT@996..1108
+    LOAD_KW@996..1000 "LOAD"
+    WHITESPACE@1000..1001 " "
+    DATA_KW@1001..1005 "DATA"
+    WHITESPACE@1005..1006 " "
+    INTO_KW@1006..1010 "INTO"
+    WHITESPACE@1010..1011 " "
+    TEMPORARY_KW@1011..1020 "TEMPORARY"
+    WHITESPACE@1020..1021 " "
+    TABLE_KW@1021..1026 "TABLE"
+    WHITESPACE@1026..1027 " "
+    PATH@1027..1031
+      NAME_REF@1027..1031
+        WORD@1027..1031 "more"
+    WHITESPACE@1031..1032 " "
+    FROM_FILES@1032..1081
+      FROM_KW@1032..1036 "FROM"
+      WHITESPACE@1036..1037 " "
+      FILES_KW@1037..1042 "FILES"
+      WHITESPACE@1042..1043 " "
+      L_PAREN@1043..1044 "("
+      OPTION_ENTRY@1044..1060
+        NAME@1044..1050
+          WORD@1044..1050 "format"
+        WHITESPACE@1050..1051 " "
+        EQ@1051..1052 "="
+        WHITESPACE@1052..1053 " "
+        LITERAL@1053..1060
+          STRING@1053..1060 "'ARROW'"
+      COMMA@1060..1061 ","
+      WHITESPACE@1061..1062 " "
+      OPTION_ENTRY@1062..1080
+        NAME@1062..1066
+          WORD@1062..1066 "uris"
+        WHITESPACE@1066..1067 " "
+        EQ@1067..1068 "="
+        WHITESPACE@1068..1069 " "
+        ARRAY_EXPR@1069..1080
+          L_BRACK@1069..1070 "["
+          LITERAL@1070..1079
+            STRING@1070..1079 "'a.arrow'"
+          R_BRACK@1079..1080 "]"
+      R_PAREN@1080..1081 ")"
+    WHITESPACE@1081..1086 "\n    "
+    PARTITION_COLUMNS@1086..1108
+      WITH_KW@1086..1090 "WITH"
+      WHITESPACE@1090..1091 " "
+      PARTITION_KW@1091..1100 "PARTITION"
+      WHITESPACE@1100..1101 " "
+      COLUMNS_KW@1101..1108 "COLUMNS"
+  SEMICOLON@1108..1109 ";"
+  WHITESPACE@1109..1110 "\n"
+  LOAD_DATA_STMT@1110..1178
+    LOAD_KW@1110..1114 "LOAD"
+    WHITESPACE@1114..1115 " "
+    DATA_KW@1115..1119 "DATA"
+    WHITESPACE@1119..1120 " "
+    INTO_KW@1120..1124 "INTO"
+    WHITESPACE@1124..1125 " "
+    PATH@1125..1129
+      NAME_REF@1125..1129
+        WORD@1125..1129 "temp"
+    WHITESPACE@1129..1130 " "
+    FROM_FILES@1130..1178
+      FROM_KW@1130..1134 "FROM"
+      WHITESPACE@1134..1135 " "
+      FILES_KW@1135..1140 "FILES"
+      WHITESPACE@1140..1141 " "
+      L_PAREN@1141..1142 "("
+      OPTION_ENTRY@1142..1156
+        NAME@1142..1148
+          WORD@1142..1148 "format"
+        WHITESPACE@1148..1149 " "
+        EQ@1149..1150 "="
+        WHITESPACE@1150..1151 " "
+        LITERAL@1151..1156
+          STRING@1151..1156 "'CSV'"
+      COMMA@1156..1157 ","
+      WHITESPACE@1157..1158 " "
+      OPTION_ENTRY@1158..1177
+        NAME@1158..1162
+          WORD@1158..1162 "uris"
+        WHITESPACE@1162..1163 " "
+        EQ@1163..1164 "="
+        WHITESPACE@1164..1165 " "
+        ARRAY_EXPR@1165..1177
+          L_BRACK@1165..1166 "["
+          LITERAL@1166..1176
+            STRING@1166..1176 "'temp.csv'"
+          R_BRACK@1176..1177 "]"
+      R_PAREN@1177..1178 ")"
+  SEMICOLON@1178..1179 ";"
+  WHITESPACE@1179..1180 "\n"
+  CREATE_VIEW_STMT@1180..1308
+    CREATE_KW@1180..1186 "CREATE"
+    WHITESPACE@1186..1187 " "
+    VIEW_KW@1187..1191 "VIEW"
+    WHITESPACE@1191..1192 " "
+    PATH@1192..1206
+      NAME_REF@1192..1199
+        WORD@1192..1199 "finance"
+      DOT@1199..1200 "."
+      NAME_REF@1200..1206
+        WORD@1200..1206 "recent"
+    WHITESPACE@1206..1207 " "
+    OPTIONS@1207..1246
+      OPTIONS_KW@1207..1214 "OPTIONS"
+      WHITESPACE@1214..1215 " "
+      L_PAREN@1215..1216 "("
+      OPTION_ENTRY@1216..1245
+        NAME@1216..1227
+          WORD@1216..1227 "description"
+        WHITESPACE@1227..1228 " "
+        EQ@1228..1229 "="
+        WHITESPACE@1229..1230 " "
+        LITERAL@1230..1245
+          STRING@1230..1245 "'the last week'"
+      R_PAREN@1245..1246 ")"
+    WHITESPACE@1246..1251 "\n    "
+    AS_KW@1251..1253 "AS"
+    WHITESPACE@1253..1254 " "
+    QUERY@1254..1308
+      PAREN_QUERY@1254..1308
+        L_PAREN@1254..1255 "("
+        QUERY@1255..1307
+          FROM_CLAUSE@1255..1274
+            FROM_KW@1255..1259 "FROM"
+            WHITESPACE@1259..1260 " "
+            TABLE_SOURCE@1260..1274
+              PATH@1260..1274
+                NAME_REF@1260..1267
+                  WORD@1260..1267 "finance"
+                DOT@1267..1268 "."
+                NAME_REF@1268..1274
+                  WORD@1268..1274 "orders"
+          WHITESPACE@1274..1275 " "
+          PIPE_WHERE@1275..1307
+            PIPE@1275..1277 "|>"
+            WHITESPACE@1277..1278 " "
+            WHERE_KW@1278..1283 "WHERE"
+            WHITESPACE@1283..1284 " "
+            BIN_EXPR@1284..1307
+              PATH_EXPR@1284..1287
+                PATH@1284..1287
+                  NAME_REF@1284..1287
+                    WORD@1284..1287 "day"
+              WHITESPACE@1287..1288 " "
+              GT@1288..1289 ">"
+              WHITESPACE@1289..1290 " "
+              TYPED_LITERAL@1290..1307
+                DATE_KW@1290..1294 "DATE"
+                WHITESPACE@1294..1295 " "
+                STRING@1295..1307 "'2025-01-01'"
+        R_PAREN@1307..1308 ")"
+  SEMICOLON@1308..1309 ";"
+  WHITESPACE@1309..1310 "\n"
+  CREATE_VIEW_STMT@1310..1401
+    CREATE_KW@1310..1316 "CREATE"
+    WHITESPACE@1316..1317 " "
+    TEMP_KW@1317..1321 "TEMP"
+    WHITESPACE@1321..1322 " "
+    VIEW_KW@1322..1326 "VIEW"
+    WHITESPACE@1326..1327 " "
+    IF_KW@1327..1329 "IF"
+    WHITESPACE@1329..1330 " "
+    NOT_KW@1330..1333 "NOT"
+    WHITESPACE@1333..1334 " "
+    EXISTS_KW@1334..1340 "EXISTS"
+    WHITESPACE@1340..1341 " "
+    PATH@1341..1346
+      NAME_REF@1341..1346
+        WORD@1341..1346 "kinds"
+    WHITESPACE@1346..1347 " "
+    AS_KW@1347..1349 "AS"
+    WHITESPACE@1349..1350 " "
+    QUERY@1350..1401
+      FROM_CLAUSE@1350..1365
+        FROM_KW@1350..1354 "FROM"
+        WHITESPACE@1354..1355 " "
+        TABLE_SOURCE@1355..1365
+          PATH@1355..1365
+            NAME_REF@1355..1365
+              WORD@1355..1365 "raw_events"
+      WHITESPACE@1365..1366 " "
+      PIPE_AGGREGATE@1366..1401
+        PIPE@1366..1368 "|>"
+        WHITESPACE@1368..1369 " "
+        AGGREGATE_KW@1369..1378 "AGGREGATE"
+        WHITESPACE@1378..1379 " "
+        AGGREGATE_ITEM@1379..1387
+          CALL_EXPR@1379..1387
+            PATH@1379..1384
+              NAME_REF@1379..1384
+                WORD@1379..1384 "COUNT"
+            ARG_LIST@1384..1387
+              L_PAREN@1384..1385 "("
+              STAR_ARG@1385..1386
+                STAR@1385..1386 "*"
+              R_PAREN@1386..1387 ")"
+        WHITESPACE@1387..1388 " "
+        GROUP_BY@1388..1401
+          GROUP_KW@1388..1393 "GROUP"
+          WHITESPACE@1393..1394 " "
+          BY_KW@1394..1396 "BY"
+          WHITESPACE@1396..1397 " "
+          GROUP_ITEM@1397..1401
+            PATH_EXPR@1397..1401
+              PATH@1397..1401
+                NAME_REF@1397..1401
+                  WORD@1397..1401 "kind"
+  SEMICOLON@1401..1402 ";"
+  WHITESPACE@1402..1403 "\n"
+  CREATE_TABLE_STMT@1403..1498
+    CREATE_KW@1403..1409 "CREATE"
+    WHITESPACE@1409..1410 " "
+    TABLE_KW@1410..1415 "TABLE"
+    WHITESPACE@1415..1416 " "
+    PATH@1416..1422
+      NAME_REF@1416..1422
+        WORD@1416..1422 "events"
+    WHITESPACE@1422..1423 " "
+    AS_KW@1423..1425 "AS"
+    WHITESPACE@1425..1426 " "
+    QUERY@1426..1498
+      PAREN_QUERY@1426..1498
+        L_PAREN@1426..1427 "("
+        QUERY@1427..1497
+          FROM_CLAUSE@1427..1442
+            FROM_KW@1427..1431 "FROM"
+            WHITESPACE@1431..1432 " "
+            TABLE_SOURCE@1432..1442
+              PATH@1432..1442
+                NAME_REF@1432..1442
+                  WORD@1432..1442 "raw_events"
+          WHITESPACE@1442..1443 " "
+          PIPE_WHERE@1443..1468
+            PIPE@1443..1445 "|>"
+            WHITESPACE@1445..1446 " "
+            WHERE_KW@1446..1451 "WHERE"
+            WHITESPACE@1451..1452 " "
+            IS_EXPR@1452..1468
+              PATH_EXPR@1452..1456
+                PATH@1452..1456
+                  NAME_REF@1452..1456
+                    WORD@1452..1456 "kind"
+              WHITESPACE@1456..1457 " "
+              IS_KW@1457..1459 "IS"
+              WHITESPACE@1459..1460 " "
+              NOT_KW@1460..1463 "NOT"
+              WHITESPACE@1463..1464 " "
+              NULL_KW@1464..1468 "NULL"
+          WHITESPACE@1468..1469 " "
+          PIPE_EXTEND@1469..1497
+            PIPE@1469..1471 "|>"
+            WHITESPACE@1471..1472 " "
+            EXTEND_KW@1472..1478 "EXTEND"
+            WHITESPACE@1478..1479 " "
+            SELECT_ITEM@1479..1497
+              CALL_EXPR@1479..1492
+                PATH@1479..1486
+                  NAME_REF@1479..1486
+                    WORD@1479..1486 "cleaned"
+                ARG_LIST@1486..1492
+                  L_PAREN@1486..1487 "("
+                  ARG@1487..1491
+                    PATH_EXPR@1487..1491
+                      PATH@1487..1491
+                        NAME_REF@1487..1491
+                          WORD@1487..1491 "kind"
+                  R_PAREN@1491..1492 ")"
+              WHITESPACE@1492..1493 " "
+              ALIAS@1493..1497
+                AS_KW@1493..1495 "AS"
+                WHITESPACE@1495..1496 " "
+                NAME@1496..1497
+                  WORD@1496..1497 "k"
+        R_PAREN@1497..1498 ")"
+  SEMICOLON@1498..1499 ";"
+  WHITESPACE@1499..1500 "\n"
+  CREATE_TABLE_STMT@1500..1624
+    CREATE_KW@1500..1506 "CREATE"
+    WHITESPACE@1506..1507 " "
+    OR_KW@1507..1509 "OR"
+    WHITESPACE@1509..1510 " "
+    REPLACE_KW@1510..1517 "REPLACE"
+    WHITESPACE@1517..1518 " "
+    TEMP_KW@1518..1522 "TEMP"
+    WHITESPACE@1522..1523 " "
+    TABLE_KW@1523..1528 "TABLE"
+    WHITESPACE@1528..1529 " "
+    PATH@1529..1535
+      NAME_REF@1529..1535
+        WORD@1529..1535 "totals"
+    WHITESPACE@1535..1536 " "
+    COLUMN_LIST@1536..1545
+      L_PAREN@1536..1537 "("
+      COLUMN_DEF@1537..1544
+        NAME@1537..1538
+          WORD@1537..1538 "n"
+        WHITESPACE@1538..1539 " "
+        NAMED_TYPE@1539..1544
+          NAME_REF@1539..1544
+            WORD@1539..1544 "INT64"
+      R_PAREN@1544..1545 ")"
+    WHITESPACE@1545..1546 " "
+    OPTIONS@1546..1578
+      OPTIONS_KW@1546..1553 "OPTIONS"
+      WHITESPACE@1553..1554 " "
+      L_PAREN@1554..1555 "("
+      OPTION_ENTRY@1555..1577
+        NAME@1555..1566
+          WORD@1555..1566 "description"
+        WHITESPACE@1566..1567 " "
+        EQ@1567..1568 "="
+        WHITESPACE@1568..1569 " "
+        LITERAL@1569..1577
+          STRING@1569..1577 "'counts'"
+      R_PAREN@1577..1578 ")"
+    WHITESPACE@1578..1583 "\n    "
+    AS_KW@1583..1585 "AS"
+    WHITESPACE@1585..1586 " "
+    QUERY@1586..1624
+      FROM_CLAUSE@1586..1597
+        FROM_KW@1586..1590 "FROM"
+        WHITESPACE@1590..1591 " "
+        TABLE_SOURCE@1591..1597
+          PATH@1591..1597
+            NAME_REF@1591..1597
+              WORD@1591..1597 "events"
+      WHITESPACE@1597..1598 " "
+      PIPE_AGGREGATE@1598..1624
+        PIPE@1598..1600 "|>"
+        WHITESPACE@1600..1601 " "
+        AGGREGATE_KW@1601..1610 "AGGREGATE"
+        WHITESPACE@1610..1611 " "
+        AGGREGATE_ITEM@1611..1624
+          CALL_EXPR@1611..1619
+            PATH@1611..1616
+              NAME_REF@1611..1616
+                WORD@1611..1616 "COUNT"
+            ARG_LIST@1616..1619
+              L_PAREN@1616..1617 "("
+              STAR_ARG@1617..1618
+                STAR@1617..1618 "*"
+              R_PAREN@1618..1619 ")"
+          WHITESPACE@1619..1620 " "
+          ALIAS@1620..1624
+            AS_KW@1620..1622 "AS"
+            WHITESPACE@1622..1623 " "
+            NAME@1623..1624
+              WORD@1623..1624 "n"
+  SEMICOLON@1624..1625 ";"
+  WHITESPACE@1625..1626 "\n"

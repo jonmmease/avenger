@@ -4,7 +4,9 @@
 
 use std::path::PathBuf;
 
-use avenger_sql_syntax::{parse, parse_module, Diagnostic, Parse, SyntaxKind, SyntaxNode};
+use avenger_sql_syntax::{
+    parse, parse_data, parse_module, Diagnostic, Parse, SyntaxKind, SyntaxNode,
+};
 
 /// `shape`: the kinds of the children and the tokens that `sql.ungram` gives each node kind.
 mod grammar {
@@ -54,6 +56,11 @@ pub fn accepts_module(text: &str) -> SyntaxNode {
     checked(text, parse_module(text))
 }
 
+/// Parses `text` as a data script, and checks it as [`accepts`] does.
+pub fn accepts_data(text: &str) -> SyntaxNode {
+    checked(text, parse_data(text))
+}
+
 fn checked(text: &str, parse: Parse) -> SyntaxNode {
     let root = parse.syntax();
     assert_eq!(root.text().to_string(), text, "the tree loses text");
@@ -96,6 +103,13 @@ pub fn rejects(text: &str, message: &str, at: &str) {
 /// Checks that the first diagnostic of the module `text` holds `message` and covers `at`.
 pub fn rejects_module(text: &str, message: &str, at: &str) {
     let (found, range) = first_error(text, parse_module(text));
+    assert!(found.contains(message), "{text}: {found}");
+    assert_eq!(range, at, "{text}: {found}");
+}
+
+/// Checks that the first diagnostic of the data script `text` holds `message` and covers `at`.
+pub fn rejects_data(text: &str, message: &str, at: &str) {
+    let (found, range) = first_error(text, parse_data(text));
     assert!(found.contains(message), "{text}: {found}");
     assert_eq!(range, at, "{text}: {found}");
 }
@@ -226,6 +240,36 @@ pub const MODULE: &str = "MODULE charts.scales OPTIONS (description = 'scales');
 IMPORT MODULE charts.math AS math;
 CREATE PRIVATE CONSTANT base = 10;
 CREATE PUBLIC FUNCTION scaled(x FLOAT64, k ANY TYPE) AS (math.round(x * k / base));";
+
+/// A data script that holds every statement and clause of a data script.
+pub const DATA: &str = "
+IMPORT MODULE charts.text AS text;
+CREATE TEMP FUNCTION cleaned(s STRING) AS (TRIM(s));
+CREATE SCHEMA IF NOT EXISTS finance OPTIONS (description = 'the books');
+CREATE OR REPLACE SCHEMA staging;
+CREATE EXTERNAL TABLE finance.orders
+    OPTIONS (format = 'CSV', uris = ['data/files/orders/*.csv'], skip_leading_rows = 1);
+CREATE TEMP EXTERNAL TABLE IF NOT EXISTS raw_events (id INT64 NOT NULL, kind STRING)
+    WITH PARTITION COLUMNS (year INT64, month STRING)
+    OPTIONS (format = 'PARQUET', uris = ['data/files/events/']);
+CREATE OR REPLACE TEMPORARY EXTERNAL TABLE logs
+    WITH PARTITION COLUMNS
+    OPTIONS (format = 'JSON', uris = ['data/files/logs/*.json'],);
+LOAD DATA OVERWRITE sales FROM FILES (format = 'CSV', uris = ['data/files/sales.csv']);
+LOAD DATA INTO TEMP TABLE staging.rates (day DATE, rate FLOAT64)
+    OPTIONS (description = 'daily rates')
+    FROM FILES (format = 'CSV', uris = ['data/files/rates.csv'], skip_leading_rows = 1,)
+    WITH PARTITION COLUMNS (region STRING);
+LOAD DATA INTO TEMPORARY TABLE more FROM FILES (format = 'ARROW', uris = ['a.arrow'])
+    WITH PARTITION COLUMNS;
+LOAD DATA INTO temp FROM FILES (format = 'CSV', uris = ['temp.csv']);
+CREATE VIEW finance.recent OPTIONS (description = 'the last week')
+    AS (FROM finance.orders |> WHERE day > DATE '2025-01-01');
+CREATE TEMP VIEW IF NOT EXISTS kinds AS FROM raw_events |> AGGREGATE COUNT(*) GROUP BY kind;
+CREATE TABLE events AS (FROM raw_events |> WHERE kind IS NOT NULL |> EXTEND cleaned(kind) AS k);
+CREATE OR REPLACE TEMP TABLE totals (n INT64) OPTIONS (description = 'counts')
+    AS FROM events |> AGGREGATE COUNT(*) AS n;
+";
 
 /// A query whose sources hold every form of `FROM`.
 pub const SOURCES: &str = "FROM a NATURAL LEFT OUTER JOIN b, c AS c2 WITH OFFSET AS i
@@ -439,7 +483,7 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ),
     (
         "CREATE VIEW v AS FROM t",
-        "avenger-sql's scripts create no VIEW",
+        "a VIEW belongs to a data script",
         "VIEW",
     ),
     (
@@ -729,6 +773,11 @@ pub const REJECTED: &[(&str, &str, &str)] = &[
     ("FROM t |> SELECT 1 AS match_recognize", "expected a name", "match_recognize"),
     // avenger-sql's own error: a value in parentheses takes no trailing comma.
     ("FROM t |> SELECT (x,) AS a", "takes no trailing comma", ","),
+    (
+        "CREATE TEMP TABLE t (a INT64, CONSTRAINT c CHECK (a > 0))",
+        "take no constraints, such as PRIMARY KEY",
+        "CONSTRAINT",
+    ),
 ];
 
 /// Modules that GoogleSQL rejects, as [`REJECTED`].
@@ -752,6 +801,140 @@ pub const REJECTED_MODULES: &[(&str, &str, &str)] = &[
         "MODULE m; MODULE n",
         "one MODULE statement, its first",
         "MODULE",
+    ),
+];
+
+/// Data scripts that GoogleSQL rejects or that hold GoogleSQL's syntax outside the subset, as
+/// [`REJECTED`].
+pub const REJECTED_DATA: &[(&str, &str, &str)] = &[
+    (
+        "CREATE EXTERNAL TABLE t (a INT64)",
+        "expected `OPTIONS`",
+        "",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t AS FROM u",
+        "expected `OPTIONS`, found `AS`",
+        "AS",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t WITH CONNECTION c OPTIONS (format = 'CSV')",
+        "files without connections, so no WITH CONNECTION",
+        "WITH CONNECTION",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t WITH PARTITION COLUMNS WITH CONNECTION c OPTIONS ()",
+        "no WITH CONNECTION",
+        "WITH CONNECTION",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t DEFAULT COLLATE 'und:ci' OPTIONS ()",
+        "external tables take no DEFAULT COLLATE",
+        "DEFAULT COLLATE",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t PARTITION BY d OPTIONS ()",
+        "expected `OPTIONS`",
+        "PARTITION",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t LIKE u OPTIONS ()",
+        "take no LIKE",
+        "LIKE",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t WITH PARTITION COLUMN (y INT64) OPTIONS ()",
+        "expected `COLUMNS`",
+        "COLUMN",
+    ),
+    (
+        "CREATE EXTERNAL TABLE FUNCTION f() AS (1)",
+        "create no EXTERNAL TABLE FUNCTION",
+        "EXTERNAL",
+    ),
+    (
+        "CREATE EXTERNAL SCHEMA s OPTIONS ()",
+        "create no EXTERNAL SCHEMA",
+        "EXTERNAL",
+    ),
+    ("CREATE TEMP SCHEMA s", "a SCHEMA takes no TEMP", "SCHEMA"),
+    (
+        "CREATE SCHEMA s DEFAULT COLLATE 'und:ci'",
+        "schemas take no DEFAULT COLLATE",
+        "DEFAULT COLLATE",
+    ),
+    ("CREATE VIEW v (a, b) AS FROM t", "so no column list", "("),
+    (
+        "CREATE VIEW v SQL SECURITY INVOKER AS FROM t",
+        "take no SQL SECURITY",
+        "SQL SECURITY INVOKER",
+    ),
+    ("CREATE VIEW v", "expected `AS`", ""),
+    (
+        "CREATE MATERIALIZED VIEW v AS FROM t",
+        "create no MATERIALIZED VIEW",
+        "MATERIALIZED",
+    ),
+    (
+        "CREATE RECURSIVE VIEW v AS FROM t",
+        "create no RECURSIVE VIEW",
+        "RECURSIVE",
+    ),
+    (
+        "LOAD DATA t FROM FILES (format = 'CSV')",
+        "expected `OVERWRITE` or `INTO`",
+        "t",
+    ),
+    ("LOAD DATA INTO t", "expected `FROM FILES`", ""),
+    (
+        "LOAD DATA INTO t OPTIONS (description = 'x')",
+        "expected `FROM FILES`",
+        "",
+    ),
+    (
+        "LOAD DATA INTO t FROM (format = 'CSV')",
+        "expected `FILES`",
+        "(",
+    ),
+    (
+        "LOAD DATA INTO t OVERWRITE PARTITIONS (d = '2025-01-01') FROM FILES (format = 'CSV')",
+        "LOAD DATA statements take no OVERWRITE PARTITIONS",
+        "OVERWRITE PARTITIONS",
+    ),
+    (
+        "LOAD DATA INTO t PARTITIONS (d > 1) FROM FILES ()",
+        "LOAD DATA statements take no PARTITIONS",
+        "PARTITIONS",
+    ),
+    (
+        "LOAD DATA INTO t (d DATE) PARTITION BY d FROM FILES ()",
+        "LOAD DATA statements take no PARTITION BY",
+        "PARTITION BY",
+    ),
+    (
+        "LOAD DATA INTO t CLUSTER BY d OPTIONS () FROM FILES ()",
+        "LOAD DATA statements take no CLUSTER BY",
+        "CLUSTER BY",
+    ),
+    (
+        "LOAD DATA INTO t FROM FILES (format = 'CSV') WITH CONNECTION c",
+        "no WITH CONNECTION",
+        "WITH CONNECTION",
+    ),
+    (
+        "INSERT INTO t VALUES (1)",
+        "scripts have no INSERT statement",
+        "INSERT",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t (a INT64, PRIMARY KEY (a)) OPTIONS ()",
+        "take no constraints, such as PRIMARY KEY",
+        "PRIMARY",
+    ),
+    (
+        "CREATE EXTERNAL TABLE t WITH conn OPTIONS ()",
+        "expected `PARTITION COLUMNS` or `CONNECTION`",
+        "conn",
     ),
 ];
 
@@ -858,6 +1041,78 @@ pub const VALIDATED: &[(&str, &str, &str)] = &[
         "takes columns, AS and a query, or both",
         "OPTIONS (a = 1)",
     ),
+    // The statements of data scripts, and a table that the charts read.
+    (
+        "CREATE EXTERNAL TABLE t OPTIONS (format = 'CSV', uris = ['t.csv'])",
+        "an EXTERNAL TABLE without TEMP belongs to a data script",
+        "EXTERNAL TABLE",
+    ),
+    (
+        "CREATE OR REPLACE TEMP VIEW v AS FROM t",
+        "a VIEW belongs to a data script",
+        "VIEW",
+    ),
+    (
+        "CREATE SCHEMA s",
+        "a SCHEMA belongs to a data script",
+        "SCHEMA",
+    ),
+    (
+        "LOAD DATA INTO t FROM FILES (format = 'CSV', uris = ['t.csv'])",
+        "LOAD DATA without TEMP TABLE belongs to a data script",
+        "t",
+    ),
+    (
+        "CREATE TABLE t AS FROM u",
+        "a table without TEMP belongs to a data script",
+        "TABLE",
+    ),
+];
+
+/// Data scripts that the validation pass rejects, as [`VALIDATED`]: the statements of scripts,
+/// and the rules of a data script's statements.
+pub const VALIDATED_DATA: &[(&str, &str, &str)] = &[
+    (
+        "FROM t |> WHERE x > 1",
+        "a data script runs no queries",
+        "FROM t |> WHERE x > 1",
+    ),
+    (
+        "DECLARE x INT64",
+        "a data script declares no variables",
+        "DECLARE",
+    ),
+    ("SET x = 1", "a data script sets no variables", "SET"),
+    (
+        "CREATE TABLE t (a INT64)",
+        "a table of a data script takes AS and a query",
+        "",
+    ),
+    (
+        "CREATE TEMP TABLE t OPTIONS (description = 'x')",
+        "a table of a data script takes AS and a query",
+        "OPTIONS (description = 'x')",
+    ),
+    (
+        "CREATE AGGREGATE FUNCTION f(x INT64) AS (SUM(x))",
+        "a function of a data script is TEMP",
+        "AGGREGATE FUNCTION",
+    ),
+    (
+        "CREATE PUBLIC VIEW v AS FROM t",
+        "belong to the CREATE statements of a module",
+        "PUBLIC",
+    ),
+    (
+        "CREATE OR REPLACE EXTERNAL TABLE IF NOT EXISTS t OPTIONS ()",
+        "don't go together",
+        "IF NOT EXISTS",
+    ),
+    (
+        "CREATE TEMP CONSTANT c = 1",
+        "a CONSTANT belongs to a module",
+        "CONSTANT",
+    ),
 ];
 
 /// Modules that the validation pass rejects, as [`VALIDATED`].
@@ -891,5 +1146,15 @@ pub const VALIDATED_MODULES: &[(&str, &str, &str)] = &[
         "MODULE m; CREATE PUBLIC FUNCTION a.f() AS (1)",
         "one-part name",
         "a.f",
+    ),
+    (
+        "MODULE m; CREATE PUBLIC VIEW v AS FROM t",
+        "a VIEW belongs to a data script",
+        "VIEW",
+    ),
+    (
+        "MODULE m; LOAD DATA OVERWRITE t FROM FILES (format = 'CSV')",
+        "LOAD DATA belongs to a data script",
+        "LOAD DATA",
     ),
 ];
