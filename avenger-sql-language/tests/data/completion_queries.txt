@@ -297,3 +297,26 @@ FROM penguins
 |> AGGREGATE
      mark_bar(x => island, y => stack(COUNT(*)) OVER (position ORDER BY COUNT(*) DESC), color => species) AS chart
 
+editor examples
+FROM penguins
+|> AGGREGATE mark_bar(
+     x => island,
+     y => y(CAST(count(*) AS FLOAT64) / sum(count(*)) OVER (), title => 'Share of penguins'),
+   )
+
+editor examples
+FROM penguins
+|> AGGREGATE mark_bar(
+     x => species,
+     y => stack(count(*)) OVER (position ORDER BY count(*) DESC),
+     color => island,
+   )
+
+editor examples
+FROM penguins
+|> WHERE body_mass_g IS NOT NULL
+|> AGGREGATE layer(mark_bar(
+     x => bin(body_mass_g, maxbins => 20),
+     y => stack(count(*)),
+     color => species), title => 'Body mass of the penguins', tools => [navigate(), tooltip()])
+
