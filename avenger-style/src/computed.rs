@@ -251,6 +251,12 @@ impl ComputedStyles {
             .map(AsRef::as_ref)
     }
 
+    /// The preferences of the reader that these styles were computed at, such as the color
+    /// scheme, for the parts that a host draws outside the styles in their colors.
+    pub fn preferences(&self) -> &crate::Preferences {
+        &self.host.preferences
+    }
+
     /// Whether a render at `host` needs new computed styles: when the preferences or the host
     /// theme change, or when the size changes and a condition changes its outcome. No value
     /// reads the size of the host box, so a resize within a breakpoint keeps the styles.

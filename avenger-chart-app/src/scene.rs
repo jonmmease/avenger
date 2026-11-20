@@ -41,6 +41,7 @@ impl AppBuild<ChartAppState> for ChartBuild {
                 Applied::Styles(cascade) => state.evaluator.set_cascade(cascade),
                 Applied::Mode(mode, on) => state.evaluator.set_mode(mode, on),
                 Applied::Selection(name, selection) => state.set_selection(&name, selection),
+                Applied::Preferences(preferences) => state.preferences = preferences,
             }
         }
         tools::write_moved(state, None);
@@ -49,9 +50,11 @@ impl AppBuild<ChartAppState> for ChartBuild {
             return Ok(());
         }
         let [width, height] = scenes.size();
-        let evaluated = (state.evaluator)
-            .evaluate(&HostInputs::sized(width, height))
-            .map_err(app_error)?;
+        let host = HostInputs {
+            preferences: state.preferences.clone(),
+            ..HostInputs::sized(width, height)
+        };
+        let evaluated = (state.evaluator).evaluate(&host).map_err(app_error)?;
         state.plots = evaluated.plots;
         state.warnings = evaluated.warnings;
         state.controls.set(evaluated.widgets);

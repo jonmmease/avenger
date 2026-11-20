@@ -163,6 +163,12 @@ scale[type=nested_band] { padding-inner: 0.5 0.1; padding-outer: 0; }
   widget > label { font-weight: inherit; }
 }
 
+/* A dark color scheme: a sphere of a geo plot that reads on a dark background. The colors that
+   mix the foreground with the background follow env(background) in either scheme. */
+@media (prefers-color-scheme: dark) {
+  plot[type=geo] > sphere { fill: #1f2b38; }
+}
+
 /* Forced colors: system colors for backgrounds, texts, guides, the store layer, and focus. */
 @media (forced-colors: active) {
   chart, plot { background: Canvas !important; }

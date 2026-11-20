@@ -4,7 +4,7 @@
 use avenger_app_tools::navigation::KeyedGeoPanZoom;
 use avenger_app_tools::{
     navigation::KeyedPanZoom,
-    tooltips::{FieldValues, InstanceTarget, TooltipAnchor, TooltipField, Tooltips},
+    tooltips::{FieldValues, InstanceTarget, TooltipAnchor, TooltipField, TooltipStyle, Tooltips},
 };
 use avenger_chart::{
     proto::{self, tool, Channel, NearestMetric},
@@ -20,6 +20,7 @@ use avenger_geometry::query::Metric;
 use avenger_layout::Rect;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_selection::Condition;
+use avenger_style::ColorScheme;
 
 use crate::{
     state::{ChartAppState, ChartChange},
@@ -353,25 +354,31 @@ fn settled_projection(state: &mut ChartAppState, identity: &Identity) {
 /// tooltip describes its own marks. A tooltip without fields titles each column with the title of
 /// the first encoding of its layer that reads it and sets one, as its axis or legend shows it.
 pub(crate) fn tooltips() -> Tooltips<ChartAppState> {
-    Tooltips::new(TOOLTIP_SCENE, 2).targets(|state: &ChartAppState| {
-        (state.declaring())
-            .flat_map(|declared| {
-                let marks = declared.marks.clone();
-                let titles = declared.titles.clone();
-                (declared.tools.iter())
-                    .filter_map(move |tool| match &tool.kind {
-                        Some(tool::Kind::Tooltip(tooltip))
-                            if state.evaluator.is_active(&tooltip.modes) =>
-                        {
-                            let target = target(tooltip).with_marks(marks.clone());
-                            Some(target.with_titles(titles.clone()))
-                        }
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    })
+    let style = |state: &ChartAppState| match state.preferences.color_scheme {
+        ColorScheme::Light => TooltipStyle::default(),
+        ColorScheme::Dark => TooltipStyle::dark(),
+    };
+    Tooltips::new(TOOLTIP_SCENE, 2)
+        .style_of(style)
+        .targets(|state: &ChartAppState| {
+            (state.declaring())
+                .flat_map(|declared| {
+                    let marks = declared.marks.clone();
+                    let titles = declared.titles.clone();
+                    (declared.tools.iter())
+                        .filter_map(move |tool| match &tool.kind {
+                            Some(tool::Kind::Tooltip(tooltip))
+                                if state.evaluator.is_active(&tooltip.modes) =>
+                            {
+                                let target = target(tooltip).with_marks(marks.clone());
+                                Some(target.with_titles(titles.clone()))
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        })
 }
 
 /// The target of `tooltip`, among the instances of every mark. The tooltip of an instance anchor

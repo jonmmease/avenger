@@ -23,7 +23,8 @@ pub struct Brushes<State> {
     scene: String,
     z: i32,
     brushes: Vec<Arc<dyn ErasedBrush<State>>>,
-    style: Arc<BrushStyle>,
+    /// The style of the brushes from the app's state.
+    style: Arc<dyn Fn(&State) -> BrushStyle + Send + Sync>,
     /// The least time between a gesture's reports through `on_change`, if any.
     change_interval: Option<Duration>,
 }
@@ -91,7 +92,7 @@ impl<State: Send + Sync + 'static> Brushes<State> {
             scene: scene.to_string(),
             z,
             brushes: Vec::new(),
-            style: Arc::new(BrushStyle::default()),
+            style: Arc::new(|_| BrushStyle::default()),
             change_interval: None,
         }
     }
@@ -103,7 +104,16 @@ impl<State: Send + Sync + 'static> Brushes<State> {
     }
 
     /// Set how the brushes look. Defaults to [`BrushStyle::default`].
-    pub fn with_style(mut self, style: BrushStyle) -> Self {
+    pub fn with_style(self, style: BrushStyle) -> Self {
+        self.style_of(move |_| style.clone())
+    }
+
+    /// Set how the brushes look from the app state, which the tool reads on each update, so that
+    /// an app whose surface changes, such as from light to dark, restyles its brushes.
+    pub fn style_of(
+        mut self,
+        style: impl Fn(&State) -> BrushStyle + Send + Sync + 'static,
+    ) -> Self {
         self.style = Arc::new(style);
         self
     }
@@ -398,8 +408,9 @@ impl<State: Send + Sync + 'static> Tool<State> for Brushes<State> {
         let mut marks = Vec::new();
         let mut changed = false;
         let mut error = None;
+        let style = (self.style)(app);
         for (brush, state) in self.brushes.iter().zip(&mut own.owns) {
-            let drawing = brush.draw(app, state, &self.style);
+            let drawing = brush.draw(app, state, &style);
             marks.extend(drawing.marks);
             changed |= drawing.changed;
             error = error.or(drawing.error);
