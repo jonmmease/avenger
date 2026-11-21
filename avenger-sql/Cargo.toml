@@ -27,6 +27,14 @@ chrono = { workspace = true }
 prost = { workspace = true }
 regex = { workspace = true }
 
+[features]
+# The formats and compressions of the files of data scripts beyond CSV, JSON and Arrow IPC, which
+# DataFusion reads with its features of the same names. A data script that reads a format or a
+# compression whose feature a build lacks has an error that names the feature.
+parquet = ["datafusion/parquet"]
+avro = ["datafusion/avro"]
+compression = ["datafusion/compression"]
+
 [dev-dependencies]
 arrow = { workspace = true }
 # The tests of the planner compare its rows with reference queries in DataFusion's SQL.

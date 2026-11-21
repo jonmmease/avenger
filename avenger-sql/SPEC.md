@@ -22,6 +22,13 @@ FROM penguins
 - `IMPORT MODULE path [AS alias]` imports the public functions and constants of a module that the catalog holds. A module starts with `MODULE path;` and holds `CREATE PUBLIC` or `CREATE PRIVATE` functions and constants.
 - Query parameters are `@name`.
 
+## Data scripts
+
+A project's data scripts register the tables that its scripts read, with GoogleSQL's DDL. A data script holds no query, `DECLARE`, or `SET`.
+
+- The options of files, in an external table's `OPTIONS (...)` and in `FROM FILES (...)`: `format` (`CSV`, `NEWLINE_DELIMITED_JSON` or `JSON`, `PARQUET`, `AVRO`, `ARROW`) and `uris` are required. CSV files take `skip_leading_rows` (0 or 1), `field_delimiter`, `quote`, `null_marker`, and `allow_quoted_newlines`, CSV and JSON files take `compression` (`GZIP`, `BZIP2`, `XZ`, `ZSTD`), and `hive_partition_uri_prefix` goes with `WITH PARTITION COLUMNS`. `description` is an option of the table, in the `OPTIONS (...)` of `LOAD DATA`, a view, a table, or a schema. Other options of BigQuery's are errors.
+- A URI is a path relative to the project root, with one `*` at most. A table without a column list takes the schema of its files, and the first row of a CSV file names its columns.
+
 ## Queries
 
 A query starts with `FROM` and continues with pipe operators. `SELECT ... FROM` and a standard `WITH` are errors that suggest the pipe form.
