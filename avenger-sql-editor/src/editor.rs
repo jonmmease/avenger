@@ -11,7 +11,7 @@ use eframe::egui::{
     Modifiers, Pos2, Stroke, TextFormat, Vec2,
 };
 
-use avenger_sql_language::{Document, Fix, HighlightRange};
+use avenger_sql_language::{CompletionItem, Document, Fix, HighlightRange};
 
 use crate::{
     assist::{self, Block, Popup, Span},
@@ -474,42 +474,63 @@ impl CodeEditor {
                 .pos_from_cursor(CCursor::new(cursor))
                 .left_bottom()
                 .to_vec2();
-        let menu = |labels: Vec<(String, Option<String>)>, selected: usize| -> Option<usize> {
+        // A menu of `rows`, each an item's label after the heading of its group, if any, at a
+        // fixed width, which the window moves left near its edge, with one line for each item,
+        // and `details`, if any, to the right of the rows, past a thin divider. Returns the index
+        // of the clicked item.
+        let menu = |rows: Vec<(Option<&str>, String)>,
+                    selected: usize,
+                    width: f32,
+                    details: Option<Vec<Block>>| {
             let mut clicked = None;
             egui::Area::new(self.id.with("menu"))
                 .order(egui::Order::Foreground)
                 .fixed_pos(at + Vec2::new(0.0, 2.0))
                 .show(&ctx, |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        // A fixed width, which the window moves left near its edge, and one line
-                        // for each item, whose detail ends in an ellipsis.
-                        ui.set_width(MENU_WIDTH);
-                        for (index, (label, detail)) in labels.into_iter().enumerate() {
-                            let mut job = LayoutJob {
-                                wrap: egui::text::TextWrapping::truncate_at_width(MENU_WIDTH),
-                                ..Default::default()
-                            };
-                            job.append(
-                                &label,
-                                0.0,
-                                TextFormat::simple(
-                                    FontId::monospace(12.0),
-                                    ui.visuals().strong_text_color(),
-                                ),
-                            );
-                            if let Some(detail) = detail {
-                                job.append(
-                                    &format!("  {detail}"),
-                                    0.0,
-                                    TextFormat::simple(
-                                        FontId::proportional(11.0),
-                                        ui.visuals().weak_text_color(),
-                                    ),
-                                );
-                            }
-                            if ui.selectable_label(index == selected, job).clicked() {
-                                clicked = Some(index);
-                            }
+                        let columns = ui.horizontal_top(|ui| {
+                            let list = ui.vertical(|ui| {
+                                ui.set_width(width);
+                                for (index, (heading, label)) in rows.into_iter().enumerate() {
+                                    if let Some(heading) = heading {
+                                        ui.add_space(if index == 0 { 0.0 } else { 4.0 });
+                                        ui.label(egui::RichText::new(heading).small().weak());
+                                    }
+                                    let mut job = LayoutJob {
+                                        wrap: egui::text::TextWrapping::truncate_at_width(width),
+                                        ..Default::default()
+                                    };
+                                    let font = FontId::monospace(12.0);
+                                    let color = ui.visuals().strong_text_color();
+                                    job.append(&label, 0.0, TextFormat::simple(font, color));
+                                    if ui.selectable_label(index == selected, job).clicked() {
+                                        clicked = Some(index);
+                                    }
+                                }
+                            });
+                            // At most `DETAILS_HEIGHT` tall, scrolled by the wheel past that.
+                            let details = details.map(|details| {
+                                ui.add_space(DIVIDER_GAP * 2.0);
+                                egui::ScrollArea::vertical()
+                                    .id_salt("details")
+                                    .max_width(DETAILS_WIDTH)
+                                    .max_height(DETAILS_HEIGHT)
+                                    .show(ui, |ui| {
+                                        ui.vertical(|ui| {
+                                            ui.set_width(DETAILS_WIDTH);
+                                            show_blocks(ui, details, DETAILS_WIDTH);
+                                        });
+                                    })
+                                    .inner_rect
+                            });
+                            (list.response.rect, details)
+                        });
+                        // The divider between the rows and the details, as tall as the taller.
+                        if let (list, Some(details)) = columns.inner {
+                            let x = list.right() + DIVIDER_GAP;
+                            let y = list.top()..=list.bottom().max(details.bottom());
+                            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+                            ui.painter().vline(x, y, stroke);
                         }
                     });
                 });
@@ -518,12 +539,24 @@ impl CodeEditor {
         if let Some(popup) = &mut self.popup {
             let items = popup.items(text, cursor);
             let selected = popup.selected(text, cursor);
-            // The window of items that holds the selection.
+            // The window of items that holds the selection, with the heading of each group, and
+            // of the first item's group at the top.
             let first = selected.saturating_sub(assist::SHOWN - 1);
-            let labels = (items.iter().skip(first).take(assist::SHOWN))
-                .map(|item| (item.label.clone(), item.detail.clone()))
+            let shown: Vec<&&CompletionItem> =
+                items.iter().skip(first).take(assist::SHOWN).collect();
+            let rows = (shown.iter().enumerate())
+                .map(|(index, item)| {
+                    let previous = index.checked_sub(1).map(|index| shown[index].kind);
+                    let heading = (previous != Some(item.kind)).then(|| assist::heading(item.kind));
+                    (heading, item.label.clone())
+                })
                 .collect();
-            if let Some(index) = menu(labels, selected - first) {
+            // The details column stays while the popup is open, so that its width holds as the
+            // selection moves to an item without details.
+            let details = items.get(selected).map(|item| assist::details(item));
+            let details = Some(details.unwrap_or_default());
+            let clicked = menu(rows, selected - first, COMPLETION_WIDTH, details);
+            if let Some(index) = clicked {
                 popup.select_at(first + index);
                 if let Some((accepted, after)) = popup.accept(text, cursor) {
                     *text = accepted;
@@ -535,10 +568,10 @@ impl CodeEditor {
             }
         }
         if let Some(fixes) = &self.fixes {
-            let labels = (fixes.fixes.iter())
-                .map(|fix| (fix.label.clone(), None))
+            let rows = (fixes.fixes.iter())
+                .map(|fix| (None, fix.label.clone()))
                 .collect();
-            if let Some(index) = menu(labels, fixes.selected) {
+            if let Some(index) = menu(rows, fixes.selected, MENU_WIDTH, None) {
                 *text = assist::apply(text, &fixes.fixes[index]);
                 set_cursor(&ctx, self.id, cursor.min(text.chars().count()));
                 ctx.memory_mut(|memory| memory.request_focus(self.id));
@@ -678,7 +711,7 @@ fn hover(output: &egui::text_edit::TextEditOutput, document: &Document) {
     };
     output.response.clone().on_hover_ui_at_pointer(|ui| {
         ui.set_max_width(TOOLTIP_WIDTH);
-        show_blocks(ui, blocks);
+        show_blocks(ui, blocks, TOOLTIP_WIDTH);
     });
 }
 
@@ -699,15 +732,27 @@ fn char_under(galley: &egui::Galley, local: Vec2) -> Option<usize> {
         })
 }
 
-/// The width of the completion popup and the fixes menu.
+/// The width of the fixes menu.
 const MENU_WIDTH: f32 = 420.0;
+
+/// The width of the completion popup, whose items show their labels alone.
+const COMPLETION_WIDTH: f32 = 260.0;
+
+/// The width of the details of the selected completion item, to the right of the popup's items.
+const DETAILS_WIDTH: f32 = 380.0;
+
+/// The greatest height of the details of the selected completion item.
+const DETAILS_HEIGHT: f32 = 200.0;
+
+/// The space on each side of the divider between the popup's items and the details.
+const DIVIDER_GAP: f32 = 6.0;
 
 /// The widest that a tooltip draws.
 const TOOLTIP_WIDTH: f32 = 560.0;
 
 /// Draws the blocks of a hover's Markdown: headings and strong spans in the strong color, code in
 /// the monospace font, items of lists after a bullet, and blocks of code on a faint background.
-fn show_blocks(ui: &mut egui::Ui, blocks: Vec<Block>) {
+fn show_blocks(ui: &mut egui::Ui, blocks: Vec<Block>, width: f32) {
     let (text, strong) = (ui.visuals().text_color(), ui.visuals().strong_text_color());
     let job = |spans: Vec<Span>, size: f32, bullet: bool| {
         let mut job = LayoutJob::default();
@@ -731,10 +776,11 @@ fn show_blocks(ui: &mut egui::Ui, blocks: Vec<Block>) {
             };
             job.append(&part, 0.0, format);
         }
-        job.wrap.max_width = TOOLTIP_WIDTH;
+        job.wrap.max_width = width;
         job
     };
     ui.spacing_mut().item_spacing.y = 6.0;
+    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
     for block in blocks {
         match block {
             Block::Heading(spans) => {

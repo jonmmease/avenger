@@ -6,12 +6,13 @@
 
 use std::ops::Range;
 
-use avenger_sql_language::{CompletionItem, Document, Fix};
+use avenger_sql_language::{CompletionItem, CompletionKind, Document, Fix};
+use avenger_sql_syntax::FunctionRole;
 
 use crate::highlight::Chars;
 
 /// The most items that the popup lists at once.
-pub const SHOWN: usize = 12;
+pub const SHOWN: usize = 8;
 
 /// An open completion popup: the start of the text that its items replace, the number of the
 /// characters after the cursor that they replace too, its items, and the selected item among
@@ -110,6 +111,50 @@ impl Popup {
         let mut accepted = text.to_string();
         accepted.replace_range(start..end, &item.insert);
         Some((accepted, self.start + item.insert.chars().count()))
+    }
+}
+
+/// The heading of the items of `kind` in the completion popup, which lists the items of each kind
+/// together.
+pub fn heading(kind: CompletionKind) -> &'static str {
+    match kind {
+        CompletionKind::Keyword => "Keywords",
+        CompletionKind::Column => "Columns",
+        CompletionKind::RangeVariable => "Range variables",
+        CompletionKind::Variable => "Variables",
+        CompletionKind::Field => "Fields",
+        CompletionKind::Table => "Tables",
+        CompletionKind::Query => "Queries",
+        CompletionKind::Parameter => "Parameters",
+        CompletionKind::EnumValue => "Values",
+        CompletionKind::Type => "Types",
+        CompletionKind::Window => "Windows",
+        CompletionKind::Option => "Options",
+        CompletionKind::File => "Files",
+        CompletionKind::Folder => "Folders",
+        CompletionKind::Function(role) => match role {
+            FunctionRole::Scalar | FunctionRole::Unresolved => "Functions",
+            FunctionRole::Aggregate => "Aggregate functions",
+            FunctionRole::Window => "Window functions",
+            FunctionRole::Table => "Table functions",
+            FunctionRole::Mark => "Marks",
+            FunctionRole::Constructor => "Constructors",
+            FunctionRole::Transform => "Transforms",
+            FunctionRole::Composition => "Compositions",
+        },
+    }
+}
+
+/// The details of a completion item, beside the popup while it is selected: its documentation,
+/// or else its detail, such as a column's type. Empty for an item without either.
+pub fn details(item: &CompletionItem) -> Vec<Block> {
+    match (&item.documentation, &item.detail) {
+        (Some(documentation), _) => blocks(documentation),
+        (None, Some(detail)) => vec![
+            Block::Code(item.label.clone()),
+            Block::Paragraph(spans(detail)),
+        ],
+        (None, None) => Vec::new(),
     }
 }
 
