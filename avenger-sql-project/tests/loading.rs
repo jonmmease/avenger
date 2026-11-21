@@ -1,6 +1,7 @@
 //! Loading the fixture project `tests/projects/vega` into a session, over its directory and
 //! over embedded copies of its files: the order of its data scripts and the tables that they
-//! register, its chart scripts, the failures and the cycles of data scripts, and reloads.
+//! register, its chart scripts, the failures and the cycles of data scripts, reloads, and the
+//! scripts that read a file that changed.
 
 use std::path::{Path, PathBuf};
 
@@ -639,6 +640,135 @@ async fn a_project_on_disk_reloads_a_script_and_the_whole_project() {
     );
     assert!(project.script("data/extra.sql").unwrap().loaded().is_some());
     assert_eq!(project.session().catalog_names().len(), 1);
+}
+
+/// A data script that reads the CSV files of a pattern and of a directory.
+const PARTS: &str = "data/parts.sql";
+const PARTS_TEXT: &str = "CREATE EXTERNAL TABLE parts
+OPTIONS (format = 'CSV', uris = ['data/files/parts/*.csv']);
+
+CREATE EXTERNAL TABLE folder
+OPTIONS (format = 'CSV', uris = ['data/files/folder/']);
+";
+
+#[tokio::test]
+async fn a_file_maps_to_the_data_scripts_whose_uris_read_it() {
+    let part = "Origin,count\nUSA,1\n";
+    let project = embedded(&[
+        (PARTS, Some(PARTS_TEXT)),
+        ("data/files/parts/a.csv", Some(part)),
+        ("data/files/folder/a.csv", Some(part)),
+    ])
+    .await;
+    let reading = |path: &str| project.scripts_reading(path);
+
+    // A URI of one file.
+    assert_eq!(reading("data/files/regions.csv"), [REGIONS]);
+    assert_eq!(reading("data/files/vega_datasets/cars.json"), [VEGA]);
+    // A file of a pattern or of a directory, which no load listed, and a file that a pattern
+    // or a directory does not hold: another name, another extension, or a subdirectory.
+    assert_eq!(reading("data/files/parts/b.csv"), [PARTS]);
+    assert_eq!(reading("data/files/folder/b.csv"), [PARTS]);
+    assert!(reading("data/files/parts/b.json").is_empty());
+    assert!(reading("data/files/folder/b.txt").is_empty());
+    assert!(reading("data/files/parts/old/b.csv").is_empty());
+    // A name with `=`, and a subdirectory that looks like a partition of a Hive layout, which a
+    // table without partition columns does not read.
+    assert_eq!(reading("data/files/parts/ratio=1.csv"), [PARTS]);
+    assert_eq!(reading("data/files/folder/ratio=1.csv"), [PARTS]);
+    assert!(reading("data/files/parts/year=2025/b.csv").is_empty());
+    assert!(reading("data/files/folder/year=2025/b.csv").is_empty());
+    assert!(reading("data/files/vega_datasets/other.csv").is_empty());
+    // A script, the manifest, and a path that is not relative to the root.
+    assert!(reading(REGIONS).is_empty());
+    assert!(reading("avenger.toml").is_empty());
+    assert!(reading("../regions.csv").is_empty());
+}
+
+#[tokio::test]
+async fn a_project_on_disk_reloads_the_scripts_that_read_changed_files() {
+    let root = tempfile::tempdir().unwrap();
+    let mut files = fixture_files();
+    files.push((PARTS.to_string(), PARTS_TEXT.to_string()));
+    files.push((
+        "data/files/folder/a.csv".to_string(),
+        "Origin,count\nUSA,1\n".to_string(),
+    ));
+    for (path, text) in files {
+        let path = root.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let mut project = load(FileSource::directory(root.path()).unwrap()).await;
+    // No file matches the pattern, so the script fails, and it reads the files of the pattern.
+    assert!(project.script(PARTS).unwrap().loaded().is_none());
+    assert_eq!(project.scripts_reading("data/files/parts/a.csv"), [PARTS]);
+
+    // A new file of the pattern loads the script.
+    let part = root.path().join("data/files/parts/a.csv");
+    std::fs::create_dir_all(part.parent().unwrap()).unwrap();
+    std::fs::write(&part, "Origin,count\nUSA,2\n").unwrap();
+    let changes = project
+        .reload_files(&["data/files/parts/a.csv"])
+        .await
+        .tables;
+    assert_eq!(
+        changes,
+        [
+            change("folder", Change::Registered),
+            change("parts", Change::Registered)
+        ]
+    );
+    assert_eq!(
+        rows(&project, "FROM parts |> SELECT count").await,
+        table(
+            "+-------+
+             | count |
+             +-------+
+             | 2     |
+             +-------+"
+        )
+    );
+
+    // Changes of the files of two scripts reload each once, and a file that no script reads
+    // reloads none.
+    std::fs::write(
+        root.path().join("data/files/regions.csv"),
+        "Origin,region\nUSA,North America\n",
+    )
+    .unwrap();
+    let changes = project
+        .reload_files(&[
+            "data/files/regions.csv",
+            "data/files/parts/a.csv",
+            "data/files/notes.txt",
+        ])
+        .await
+        .tables;
+    assert_eq!(
+        changes,
+        [
+            change("folder", Change::Replaced),
+            change("parts", Change::Replaced),
+            change("vega_datasets.regions", Change::Replaced),
+        ]
+    );
+    let reload = project.reload_files(&["data/files/notes.txt"]).await;
+    assert_eq!(reload, Default::default());
+
+    // A removed file fails the script again, which removes its tables.
+    std::fs::remove_file(&part).unwrap();
+    let changes = project
+        .reload_files(&["data/files/parts/a.csv"])
+        .await
+        .tables;
+    assert_eq!(
+        changes,
+        [
+            change("folder", Change::Removed),
+            change("parts", Change::Removed)
+        ]
+    );
 }
 
 #[test]

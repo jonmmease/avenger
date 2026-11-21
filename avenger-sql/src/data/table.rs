@@ -65,17 +65,11 @@ use crate::{catalog::FilesTable, types};
 /// The paths of the store are the names of the files, as `Path::parse` keeps them, and not
 /// `Path::from`, which encodes characters such as `[`, `?` and `*`.
 pub async fn file_table(session: &dyn Session, files: &Files, base: &str) -> FilesTable {
-    let base = Url::parse(base)
-        .ok()
-        .filter(|url| !url.cannot_be_a_base() && url.path().ends_with('/'))
-        .ok_or_else(|| {
-            format!("The base URL {base} of the project's files is not the URL of a directory")
-        })?;
     let compression = compression_type(files.compression);
-    let paths = (files.uris.iter())
-        .map(|uri| table_url(&base, uri, files))
-        .collect::<Result<Vec<_>, String>>()?;
-    let store_url = paths[0].object_store();
+    let paths = file_urls(files, base)?;
+    let store_url = (paths.first())
+        .ok_or_else(|| "A table of files reads a URI or more".to_string())?
+        .object_store();
     if let Some(other) = (paths.iter()).find(|path| path.object_store() != store_url) {
         return Err(format!(
             "The URIs of a table are in one object store, and {} is not in {}",
@@ -397,6 +391,23 @@ fn key_type<'a>(values: impl Iterator<Item = &'a str> + Clone) -> DataType {
     }
 }
 
+/// The URL of each URI of `files`, relative to `base`, the URL of the project's root directory,
+/// as [`file_table`] resolves them, whose [`FileUrl::reads`] tells whether the URI reads a file
+/// of the store, as the table matches the files that it lists, whether the file exists or not,
+/// so a host that watches the files finds the tables that read a file that changed. The error is
+/// a message for the user, as the error of [`file_table`].
+pub fn file_urls(files: &Files, base: &str) -> Result<Vec<FileUrl>, String> {
+    let base = Url::parse(base)
+        .ok()
+        .filter(|url| !url.cannot_be_a_base() && url.path().ends_with('/'))
+        .ok_or_else(|| {
+            format!("The base URL {base} of the project's files is not the URL of a directory")
+        })?;
+    (files.uris.iter())
+        .map(|uri| table_url(&base, uri, files))
+        .collect()
+}
+
 /// The compression of DataFusion of `compression`.
 fn compression_type(compression: Option<Compression>) -> FileCompressionType {
     match compression {
@@ -410,14 +421,10 @@ fn compression_type(compression: Option<Compression>) -> FileCompressionType {
 
 /// The extension of the files of `files` in a directory: the format's, and the compression's.
 fn extension(files: &Files) -> String {
-    let compression = match files.compression {
-        None => "",
-        Some(Compression::Gzip) => ".gz",
-        Some(Compression::Bzip2) => ".bz2",
-        Some(Compression::Xz) => ".xz",
-        Some(Compression::Zstd) => ".zst",
-    };
-    format!("{}{compression}", files.format.extension())
+    match files.compression {
+        None => files.format.extension().to_string(),
+        Some(compression) => format!("{}.{}", files.format.extension(), compression.extension()),
+    }
 }
 
 /// The separators of the names of a path, as [`uri_kind`] reads them.

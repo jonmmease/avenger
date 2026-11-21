@@ -148,3 +148,44 @@ async fn a_chart_lifts_with_its_statements_of_files() {
     let lifted = project.lift("charts/sales.sql", &text).await.unwrap();
     assert!(lifted.text.starts_with(EXTERNAL), "{}", lifted.text);
 }
+
+#[tokio::test]
+async fn a_changed_file_drops_the_tables_of_the_charts_that_read_it() {
+    let (root, mut project) = project().await;
+    let path = "charts/sales.sql";
+    rows(&project, path, &total(LOAD)).await.unwrap();
+    // A pattern that matches no file yet, whose chart fails.
+    let pattern = "CREATE TEMP EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['data/files/new/*.csv'])";
+    assert!(rows(&project, "charts/new.sql", &total(pattern))
+        .await
+        .is_err());
+    assert_eq!(project.scripts_reading("data/files/sales.csv"), [path]);
+    assert_eq!(
+        project.scripts_reading("data/files/new/a.csv"),
+        ["charts/new.sql"]
+    );
+    assert_eq!(
+        project.scripts_reading("data/files/regions.csv"),
+        ["data/regions.sql"]
+    );
+
+    // The chart's load reads the changed file at its next run, and a data script's tables stay.
+    write(
+        root.path(),
+        "data/files/sales.csv",
+        "region,amount\neast,10\n",
+    );
+    let reload = project.reload_files(&["data/files/sales.csv"]).await;
+    assert!(reload.tables.is_empty(), "{reload:?}");
+    assert_eq!(reload.charts, [path]);
+    let rerun = rows(&project, path, &total(LOAD)).await.unwrap();
+    assert!(rerun.contains("| 10    |"), "{rerun}");
+
+    // A new file of the pattern runs the chart that failed.
+    write(root.path(), "data/files/new/a.csv", SALES);
+    let reload = project.reload_files(&["data/files/new/a.csv"]).await;
+    assert_eq!(reload.charts, ["charts/new.sql"]);
+    assert!(rows(&project, "charts/new.sql", &total(pattern))
+        .await
+        .is_ok());
+}

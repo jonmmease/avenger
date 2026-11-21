@@ -16,8 +16,9 @@
 //! leave it, and its errors.
 //!
 //! [`file_table`] builds the table of a [`Files`] over the object stores of a session, with its
-//! URIs relative to the URL of the project's root, and [`lower`] registers the tables, views and
-//! schemas of an analyzed script in a session.
+//! URIs relative to the URL of the project's root, [`file_urls`] gives the URL of each of its
+//! URIs, whose [`FileUrl::reads`] tells the files that it reads, and [`lower`] registers the
+//! tables, views and schemas of an analyzed script in a session.
 //!
 //! [`Catalog`]: crate::catalog::Catalog
 //! [`Catalog::files`]: crate::catalog::Catalog::files
@@ -44,7 +45,7 @@ pub use options::{
     OptionPlace, OptionType, OptionValue, UnsupportedOption, UriKind, FILE_OPTIONS,
     UNSUPPORTED_OPTIONS,
 };
-pub use table::file_table;
+pub use table::{file_table, file_urls, FileUrl};
 
 use crate::{
     analysis::{Diagnostic, Model},
@@ -144,6 +145,13 @@ pub enum Compression {
 }
 
 impl Compression {
+    pub const ALL: [Compression; 4] = [
+        Compression::Gzip,
+        Compression::Bzip2,
+        Compression::Xz,
+        Compression::Zstd,
+    ];
+
     /// The compression of the value `text` of the option `compression`, without regard to case.
     pub fn parse(text: &str) -> Option<Compression> {
         let compression = match text.to_ascii_uppercase().as_str() {
@@ -162,6 +170,17 @@ impl Compression {
             Compression::Bzip2 => "BZIP2",
             Compression::Xz => "XZ",
             Compression::Zstd => "ZSTD",
+        }
+    }
+
+    /// The extension of a compressed file, after the extension of its format, as `gz` of
+    /// `sales.csv.gz`, which a URI of a directory reads.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Compression::Gzip => "gz",
+            Compression::Bzip2 => "bz2",
+            Compression::Xz => "xz",
+            Compression::Zstd => "zst",
         }
     }
 

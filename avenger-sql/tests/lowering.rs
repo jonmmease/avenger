@@ -1191,13 +1191,24 @@ async fn files_that_no_statement_writes_are_errors() {
         .files;
     let project = Project::new(&[("data/sales.csv", SALES_CSV)]).await;
     let state = project.ctx.state();
-    let without_options = Files { csv: None, ..files };
+    let without_options = Files {
+        csv: None,
+        ..files.clone()
+    };
     assert_eq!(
         file_table(&state, &without_options, BASE)
             .await
             .err()
             .unwrap(),
         "The CSV files have no options of CSV files"
+    );
+    let without_uris = Files {
+        uris: Vec::new(),
+        ..files
+    };
+    assert_eq!(
+        file_table(&state, &without_uris, BASE).await.err().unwrap(),
+        "A table of files reads a URI or more"
     );
 }
 
