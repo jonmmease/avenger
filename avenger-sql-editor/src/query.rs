@@ -126,8 +126,13 @@ pub struct QueryError {
 
 impl QueryError {
     fn new(error: &DataFusionError, text: &str) -> Self {
+        // A script's errors read without DataFusion's prefix of an external error.
+        let message = match error.find_root() {
+            DataFusionError::External(external) => external.to_string(),
+            error => error.to_string(),
+        };
         Self {
-            message: error.to_string(),
+            message,
             range: error_range(error, text),
         }
     }

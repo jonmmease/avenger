@@ -6,15 +6,16 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, text::CCursor, text::LayoutJob, text_selection::CCursorRange, Color32, FontId, Pos2,
-    Stroke, TextFormat, Vec2,
+    self, text::CCursor, text::LayoutJob, text_selection::CCursorRange, Color32, FontId, Key,
+    Modifiers, Pos2, Stroke, TextFormat, Vec2,
 };
 
-use avenger_sql_language::HighlightRange;
+use avenger_sql_language::{Document, Fix, HighlightRange};
 
 use crate::{
+    assist::{self, Block, Popup, Span},
     comment,
-    highlight::{self, Class},
+    highlight::{self, Chars, Class},
 };
 
 /// The width of the line-number gutter, in points.
@@ -22,8 +23,14 @@ const GUTTER: f32 = 40.0;
 
 pub struct CodeEditor {
     id: egui::Id,
+    /// The completion popup, while it is open.
+    popup: Option<Popup>,
+    /// The menu of the fixes of the error at the cursor, while it is open.
+    fixes: Option<Fixes>,
     /// The last layout, so that egui lays out only after an edit, a new analysis, or a new scale.
     cache: Option<Layout>,
+    /// The screen position of the middle of the character after the cursor, in the last frame.
+    caret: Option<Pos2>,
 }
 
 /// A layout of the text and what it was laid out with: the highlights of the analysis, whether
@@ -36,17 +43,40 @@ struct Layout {
     pixels_per_point: f32,
     galley: Arc<egui::Galley>,
 }
+/// The open menu of the fixes of an error: the fixes, the selected one, and the text and the
+/// cursor where it opened. The edits of the fixes are byte ranges of that text, so the menu closes
+/// when the text or the cursor changes.
+struct Fixes {
+    fixes: Vec<Fix>,
+    selected: usize,
+    text: String,
+    cursor: usize,
+}
 
 impl CodeEditor {
     pub fn new(id: impl std::hash::Hash) -> Self {
         Self {
             id: egui::Id::new(id),
+            popup: None,
+            fixes: None,
             cache: None,
+            caret: None,
         }
     }
 
     /// Inserts `insert` at the cursor, or in place of the selection, and puts the cursor after
     /// it. Without a cursor, it goes at the end of the text.
+    /// Focuses the editor with the cursor before the character at `index`.
+    pub fn place(&self, ctx: &egui::Context, index: usize) {
+        set_cursor(ctx, self.id, index);
+        ctx.memory_mut(|memory| memory.request_focus(self.id));
+    }
+
+    /// The screen position of the middle of the character after the cursor, in the last frame.
+    pub fn caret(&self) -> Option<Pos2> {
+        self.caret
+    }
+
     pub fn insert(&mut self, ctx: &egui::Context, text: &mut String, insert: &str) {
         let range = egui::text_edit::TextEditState::load(ctx, self.id)
             .and_then(|state| state.cursor.char_range())
@@ -79,21 +109,23 @@ impl CodeEditor {
         ctx.memory_mut(|memory| memory.request_focus(self.id));
     }
 
-    /// Shows the editor in the rest of `ui`, with its tokens colored by `highlights`, the
-    /// highlights of the text `analyzed`, and a wavy underline under each range of characters of
-    /// `errors`. Returns whether the text changed.
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        text: &mut String,
-        analyzed: &str,
-        highlights: &[HighlightRange],
-        errors: &[Range<usize>],
-    ) -> bool {
+    /// Shows the editor in the rest of `ui`, with the tokens colored by the highlights of
+    /// `document`, the analysis of the text, a wavy underline under each of its errors, and its
+    /// completions, fixes, and hovers. Returns whether the text changed.
+    pub fn show(&mut self, ui: &mut egui::Ui, text: &mut String, document: &Document) -> bool {
+        let analyzed = document.text().to_string();
+        let highlights = document.highlights();
+        let chars = Chars::new(&analyzed);
+        let errors: Vec<Range<usize>> = (document.diagnostics().iter())
+            .map(|diagnostic| chars.range(diagnostic.range))
+            .collect();
+        let (analyzed, highlights) = (analyzed.as_str(), highlights.as_slice());
         let focused = ui.memory(|memory| memory.has_focus(self.id));
         let toggled = focused
             && ui.input_mut(|input| input.consume_shortcut(&comment_shortcut()))
             && self.toggle_comments(ui.ctx(), text);
+        // The keys of the popup and the fixes, before the text edit takes them.
+        let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, document);
         let font = FontId::monospace(13.0);
         let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
             let source = buffer.as_str();
@@ -159,10 +191,213 @@ impl CodeEditor {
             })
             .inner;
         paint_gutter(ui, &output);
-        for error in errors {
+        for error in &errors {
             paint_squiggle(ui, &output, error);
         }
-        toggled || output.response.changed()
+        let cursor = (output.cursor_range).map(|range| range.primary.index);
+        self.caret = cursor.map(|cursor| {
+            let rect = output.galley.pos_from_cursor(CCursor::new(cursor));
+            output.galley_pos + rect.center().to_vec2() + Vec2::new(3.0, 0.0)
+        });
+        let current = text.as_str() == analyzed;
+        edited |= self.menus(ui, &output, text, cursor);
+        if current {
+            hover(&output, document);
+        }
+        toggled || edited || output.response.changed()
+    }
+
+    /// The character index of the cursor, when the editor has one.
+    fn cursor(&self, ctx: &egui::Context) -> Option<usize> {
+        let state = egui::text_edit::TextEditState::load(ctx, self.id)?;
+        state.cursor.char_range().map(|range| range.primary.index)
+    }
+
+    /// Takes the keys of the completion popup and the fixes menu before the text edit does:
+    /// Option+Space or Ctrl+Space opens the popup, ⌘. (Ctrl+. off macOS) the fixes of the error
+    /// at the cursor, the arrows move the selection, Enter or Tab inserts it, and Escape closes
+    /// the menu. Returns whether the text changed.
+    fn keys(&mut self, ui: &egui::Ui, text: &mut String, document: &Document) -> bool {
+        let ctx = ui.ctx().clone();
+        let Some(cursor) = self.cursor(&ctx) else {
+            return false;
+        };
+        let complete = ui.input_mut(|input| {
+            let pressed = input.consume_key(Modifiers::ALT, Key::Space)
+                || input.consume_key(Modifiers::CTRL, Key::Space);
+            // Option+Space types a no-break space on macOS, which the popup takes too.
+            if pressed {
+                input.events.retain(
+                    |event| !matches!(event, egui::Event::Text(typed) if typed.trim().is_empty()),
+                );
+            }
+            pressed
+        });
+        if complete {
+            self.popup = Popup::open(document, cursor);
+            self.fixes = None;
+        }
+        if ui.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::Period)) {
+            let found = assist::fixes(document, cursor);
+            self.fixes = (!found.is_empty()).then(|| Fixes {
+                fixes: found,
+                selected: 0,
+                text: text.clone(),
+                cursor,
+            });
+            self.popup = None;
+        }
+        let keys = |input: &mut egui::InputState| {
+            let down = input.consume_key(Modifiers::NONE, Key::ArrowDown);
+            let up = input.consume_key(Modifiers::NONE, Key::ArrowUp);
+            let accept = input.consume_key(Modifiers::NONE, Key::Enter)
+                || input.consume_key(Modifiers::NONE, Key::Tab);
+            let escape = input.consume_key(Modifiers::NONE, Key::Escape);
+            (down, up, accept, escape)
+        };
+        if let Some(mut popup) = self.popup.take() {
+            let (down, up, accept, escape) = ui.input_mut(keys);
+            popup.select(text, cursor, isize::from(down) - isize::from(up));
+            if accept {
+                if let Some((accepted, after)) = popup.accept(text, cursor) {
+                    *text = accepted;
+                    set_cursor(&ctx, self.id, after);
+                    return true;
+                }
+            }
+            if !escape {
+                self.popup = Some(popup);
+            }
+        }
+        let current = |menu: &Fixes| menu.text == *text && menu.cursor == cursor;
+        if let Some(mut menu) = self.fixes.take().filter(current) {
+            let (down, up, accept, escape) = ui.input_mut(keys);
+            let step = isize::from(down) - isize::from(up);
+            menu.selected =
+                (menu.selected as isize + step).clamp(0, menu.fixes.len() as isize - 1) as usize;
+            if accept {
+                *text = assist::apply(text, &menu.fixes[menu.selected]);
+                set_cursor(&ctx, self.id, cursor.min(text.chars().count()));
+                return true;
+            }
+            if !escape {
+                self.fixes = Some(menu);
+            }
+        }
+        false
+    }
+
+    /// Draws the open completion popup or fixes menu under the cursor, and takes a click on one
+    /// of its items. Both close when the editor loses the focus, the popup when the cursor leaves
+    /// its name, and the fixes when the text or the cursor changes. Returns whether the text
+    /// changed.
+    fn menus(
+        &mut self,
+        ui: &egui::Ui,
+        output: &egui::text_edit::TextEditOutput,
+        text: &mut String,
+        cursor: Option<usize>,
+    ) -> bool {
+        // A press on a menu takes the focus from the text edit before its click, so the menus
+        // stay while the pointer is over them, at the cursor of the text edit's state.
+        let ctx = ui.ctx().clone();
+        let over = (ctx.memory(|memory| memory.area_rect(self.id.with("menu"))))
+            .zip(ctx.pointer_hover_pos())
+            .is_some_and(|(rect, pointer)| rect.contains(pointer));
+        let cursor = match over {
+            true => cursor.or_else(|| self.cursor(&ctx)),
+            false => cursor,
+        };
+        let Some(cursor) = cursor else {
+            self.popup = None;
+            self.fixes = None;
+            return false;
+        };
+        if (self.fixes.as_ref()).is_some_and(|menu| menu.text != *text || menu.cursor != cursor) {
+            self.fixes = None;
+        }
+        if (self.popup.as_ref()).is_some_and(|popup| popup.closes(text, cursor)) {
+            self.popup = None;
+        }
+        let at = output.galley_pos
+            + output
+                .galley
+                .pos_from_cursor(CCursor::new(cursor))
+                .left_bottom()
+                .to_vec2();
+        let menu = |labels: Vec<(String, Option<String>)>, selected: usize| -> Option<usize> {
+            let mut clicked = None;
+            egui::Area::new(self.id.with("menu"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(at + Vec2::new(0.0, 2.0))
+                .show(&ctx, |ui| {
+                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                        // A fixed width, which the window moves left near its edge, and one line
+                        // for each item, whose detail ends in an ellipsis.
+                        ui.set_width(MENU_WIDTH);
+                        for (index, (label, detail)) in labels.into_iter().enumerate() {
+                            let mut job = LayoutJob {
+                                wrap: egui::text::TextWrapping::truncate_at_width(MENU_WIDTH),
+                                ..Default::default()
+                            };
+                            job.append(
+                                &label,
+                                0.0,
+                                TextFormat::simple(
+                                    FontId::monospace(12.0),
+                                    ui.visuals().strong_text_color(),
+                                ),
+                            );
+                            if let Some(detail) = detail {
+                                job.append(
+                                    &format!("  {detail}"),
+                                    0.0,
+                                    TextFormat::simple(
+                                        FontId::proportional(11.0),
+                                        ui.visuals().weak_text_color(),
+                                    ),
+                                );
+                            }
+                            if ui.selectable_label(index == selected, job).clicked() {
+                                clicked = Some(index);
+                            }
+                        }
+                    });
+                });
+            clicked
+        };
+        if let Some(popup) = &mut self.popup {
+            let items = popup.items(text, cursor);
+            let selected = popup.selected(text, cursor);
+            // The window of items that holds the selection.
+            let first = selected.saturating_sub(assist::SHOWN - 1);
+            let labels = (items.iter().skip(first).take(assist::SHOWN))
+                .map(|item| (item.label.clone(), item.detail.clone()))
+                .collect();
+            if let Some(index) = menu(labels, selected - first) {
+                popup.select_at(first + index);
+                if let Some((accepted, after)) = popup.accept(text, cursor) {
+                    *text = accepted;
+                    set_cursor(&ctx, self.id, after);
+                    ctx.memory_mut(|memory| memory.request_focus(self.id));
+                    self.popup = None;
+                    return true;
+                }
+            }
+        }
+        if let Some(fixes) = &self.fixes {
+            let labels = (fixes.fixes.iter())
+                .map(|fix| (fix.label.clone(), None))
+                .collect();
+            if let Some(index) = menu(labels, fixes.selected) {
+                *text = assist::apply(text, &fixes.fixes[index]);
+                set_cursor(&ctx, self.id, cursor.min(text.chars().count()));
+                ctx.memory_mut(|memory| memory.request_focus(self.id));
+                self.fixes = None;
+                return true;
+            }
+        }
+        false
     }
 
     /// Comments the lines of the selection out or back in, and keeps the selection on its
@@ -254,6 +489,131 @@ fn wave(x0: f32, x1: f32, y: f32, color: Color32) -> egui::Shape {
         up = !up;
     }
     egui::Shape::line(points, Stroke::new(1.2, color))
+}
+
+/// The hover of the character under the pointer: the message and the help of an error there, or
+/// else the document's hover of the name there, as a tooltip at the pointer. The pointer reads
+/// only the character whose box holds it, so the space past the end of a line has none.
+fn hover(output: &egui::text_edit::TextEditOutput, document: &Document) {
+    let Some(pointer) = output.response.hover_pos() else {
+        return;
+    };
+    let Some(index) = char_under(&output.galley, pointer - output.galley_pos) else {
+        return;
+    };
+    let chars = Chars::new(document.text());
+    let offset = chars.offset(index);
+    let error = (document.diagnostics().into_iter()).find(|diagnostic| {
+        let range = usize::from(diagnostic.range.start())..usize::from(diagnostic.range.end());
+        range.contains(&offset) || (range.is_empty() && range.start == offset)
+    });
+    let blocks: Vec<Block> = match error {
+        Some(error) => {
+            let mut blocks = vec![Block::Paragraph(vec![Span::Plain(error.message)])];
+            blocks.extend(
+                error
+                    .help
+                    .as_deref()
+                    .map(assist::blocks)
+                    .unwrap_or_default(),
+            );
+            blocks
+        }
+        None => match document.hover((offset as u32).into()) {
+            // The range of a hover holds the character, not only the position at its end.
+            Some(hover) if usize::from(hover.range.end()) > offset => {
+                assist::blocks(&hover.markdown)
+            }
+            _ => return,
+        },
+    };
+    output.response.clone().on_hover_ui_at_pointer(|ui| {
+        ui.set_max_width(TOOLTIP_WIDTH);
+        show_blocks(ui, blocks);
+    });
+}
+
+/// The index of the character of `galley` whose box holds `local`, a position relative to the
+/// galley: the character before or after the cursor nearest `local`.
+fn char_under(galley: &egui::Galley, local: Vec2) -> Option<usize> {
+    let nearest = galley.cursor_from_pos(local).index;
+    [nearest.checked_sub(1), Some(nearest)]
+        .into_iter()
+        .flatten()
+        .find(|&index| {
+            let left = galley.pos_from_cursor(CCursor::new(index));
+            let right = galley.pos_from_cursor(CCursor::new(index + 1));
+            // A character at the end of a row, such as a newline, ends on the next row.
+            left.min.y == right.min.y
+                && (left.min.x..right.min.x).contains(&local.x)
+                && (left.min.y..left.max.y).contains(&local.y)
+        })
+}
+
+/// The width of the completion popup and the fixes menu.
+const MENU_WIDTH: f32 = 420.0;
+
+/// The widest that a tooltip draws.
+const TOOLTIP_WIDTH: f32 = 560.0;
+
+/// Draws the blocks of a hover's Markdown: headings and strong spans in the strong color, code in
+/// the monospace font, items of lists after a bullet, and blocks of code on a faint background.
+fn show_blocks(ui: &mut egui::Ui, blocks: Vec<Block>) {
+    let (text, strong) = (ui.visuals().text_color(), ui.visuals().strong_text_color());
+    let job = |spans: Vec<Span>, size: f32, bullet: bool| {
+        let mut job = LayoutJob::default();
+        if bullet {
+            job.append(
+                "•  ",
+                0.0,
+                TextFormat::simple(FontId::proportional(size), text),
+            );
+        }
+        for span in spans {
+            let (part, format) = match span {
+                Span::Plain(part) => (part, TextFormat::simple(FontId::proportional(size), text)),
+                Span::Strong(part) => {
+                    (part, TextFormat::simple(FontId::proportional(size), strong))
+                }
+                Span::Code(part) => (
+                    part,
+                    TextFormat::simple(FontId::monospace(size - 1.0), text),
+                ),
+            };
+            job.append(&part, 0.0, format);
+        }
+        job.wrap.max_width = TOOLTIP_WIDTH;
+        job
+    };
+    ui.spacing_mut().item_spacing.y = 6.0;
+    for block in blocks {
+        match block {
+            Block::Heading(spans) => {
+                let spans = (spans.into_iter())
+                    .map(|span| match span {
+                        Span::Plain(part) => Span::Strong(part),
+                        span => span,
+                    })
+                    .collect();
+                ui.label(job(spans, 15.0, false));
+            }
+            Block::Paragraph(spans) => {
+                ui.label(job(spans, 13.0, false));
+            }
+            Block::Item(spans) => {
+                ui.label(job(spans, 13.0, true));
+            }
+            Block::Code(code) => {
+                egui::Frame::new()
+                    .fill(ui.visuals().faint_bg_color)
+                    .inner_margin(4.0)
+                    .corner_radius(3.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(code).monospace().size(12.0));
+                    });
+            }
+        }
+    }
 }
 
 fn set_cursor(ctx: &egui::Context, id: egui::Id, index: usize) {
