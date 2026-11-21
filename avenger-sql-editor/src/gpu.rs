@@ -136,15 +136,17 @@ impl Painter {
     }
 
     /// Clears `texture` to transparent, so that egui shows through where the scenes draw
-    /// nothing, and draws `scenes` into it.
+    /// nothing, and draws `scenes` into it. Returns whether an image of the scenes is still
+    /// loading, so that it draws its placeholder.
     pub fn draw<'a>(
         &mut self,
         state: &RenderState,
         texture: &Texture,
         scenes: impl IntoIterator<Item = &'a SceneGraph>,
         engine: &LabelEngine,
-    ) {
+    ) -> bool {
         let (device, queue) = (&state.device, &state.queue);
+        let mut loading = false;
         let dimensions = texture.dimensions;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Avenger scenes"),
@@ -172,8 +174,10 @@ impl Painter {
             if let Err(error) = renderer.encode(device, queue, &mut encoder, target) {
                 eprintln!("avenger-sql-editor: a scene failed to draw: {error:?}");
             }
+            loading |= !renderer.image_status().pending.is_empty();
         }
         queue.submit([encoder.finish()]);
+        loading
     }
 }
 

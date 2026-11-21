@@ -33,6 +33,9 @@ async fn each_sample_is_a_table_of_the_samples_schema() {
         ("iris", 150),
         ("seattle_weather", 1461),
         ("sales", 203),
+        ("earthquakes", 3729),
+        ("countries", 177),
+        ("plate_boundaries", 241),
     ] {
         assert_eq!(
             rows(&ctx, &format!("samples.{table}")).await,

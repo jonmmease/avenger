@@ -12,10 +12,12 @@ use avenger_chart_app::{ChartApp, ChartAppState, ChartUpdate, ChartUpdates};
 use avenger_common::cursor::CursorIcon;
 use avenger_common::time::Instant;
 use avenger_eventstream::window::{Key, MouseButton, WindowEvent, WindowResizeEvent};
+
 use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 use eframe::{egui, egui_wgpu::RenderState};
 
+use crate::charts::Images;
 use crate::gpu::{self, Painter, Texture};
 use crate::input;
 
@@ -27,6 +29,9 @@ pub struct LiveChart {
     painter: Painter,
     /// Whether the app's scenes changed since the texture drew them.
     dirty: bool,
+    /// Whether an image of the scenes was loading when the texture drew them. The app redraws
+    /// when it arrives.
+    loading: bool,
     /// Whether the app's waker asked for a refresh.
     refresh: Arc<AtomicBool>,
     id: egui::Id,
@@ -49,6 +54,7 @@ impl LiveChart {
         cascade: Arc<Cascade>,
         preferences: Preferences,
         engine: LabelEngine,
+        images: &Images,
         size: [f32; 2],
         id: egui::Id,
         runtime: &Exec,
@@ -60,6 +66,7 @@ impl LiveChart {
         // The first build draws at the reader's preferences.
         updates.set_preferences(preferences);
         let app = ChartApp::new(chart, cascade, engine)
+            .images(images.live())
             .size(dimensions.size)
             .updates(&updates)
             .build();
@@ -83,6 +90,7 @@ impl LiveChart {
             app,
             updates,
             dirty: true,
+            loading: false,
             refresh,
             id,
             hovered: false,
@@ -104,9 +112,10 @@ impl LiveChart {
         self.updates.set_preferences(preferences);
     }
 
-    /// Whether the chart waits for work: a refresh, a redraw, or an update of its chart.
+    /// Whether the chart waits for work: a refresh, a redraw, an image that loads, or an update of
+    /// its chart.
     pub fn busy(&self) -> bool {
-        self.dirty || self.refresh.load(Ordering::SeqCst) || self.updates.pending()
+        self.dirty || self.loading || self.refresh.load(Ordering::SeqCst) || self.updates.pending()
     }
 
     /// Releases the chart's texture.
@@ -155,7 +164,8 @@ impl LiveChart {
         if self.dirty {
             let app = &self.app;
             let scenes = app.scenes().iter().map(|scene| scene.as_ref());
-            self.painter
+            self.loading = self
+                .painter
                 .draw(state, &self.texture, scenes, app.text_engine());
             self.dirty = false;
         }

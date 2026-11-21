@@ -10,7 +10,7 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
-    use avenger_sql_editor::{EditorApp, Options};
+    use avenger_sql_editor::{EditorApp, Options, APP_ID};
     use eframe::egui;
 
     let options = match Options::parse(std::env::args().skip(1)) {
@@ -30,7 +30,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "avenger-sql editor",
+        APP_ID,
         native,
         Box::new(|cc| Ok(Box::new(EditorApp::new(cc, options)?))),
     )
