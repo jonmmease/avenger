@@ -1,6 +1,7 @@
 //! The query editor: egui's `TextEdit` with a layouter that colors the tokens of the query, a
-//! line-number gutter, a wavy underline under the range of the query's error, and ⌘/ (Ctrl+/ on
-//! other platforms), which comments the lines of the selection out or back in.
+//! line-number gutter, a wavy underline under the range of the query's error, ⌘/ (Ctrl+/ on
+//! other platforms), which comments the lines of the selection out or back in, and Enter and Tab
+//! that indent by the style.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use crate::{
     assist::{self, Block, Popup, Span},
     comment,
     highlight::{self, Chars, Class},
+    indent,
 };
 
 /// The width of the line-number gutter, in points.
@@ -123,13 +125,29 @@ impl CodeEditor {
         replacement: &str,
         cursor: impl Fn(usize) -> usize,
     ) {
+        let state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
+        let count = text.chars().count();
+        let before = (state.cursor.char_range()).unwrap_or(CCursorRange::one(CCursor::new(count)));
+        let index = cursor(before.primary.index);
+        self.set_text(ctx, text, replacement.to_string(), index..index);
+    }
+
+    /// Replaces the text with `new` as one step of the undo history, with the selection
+    /// `selection`, whose end is the cursor.
+    fn set_text(
+        &mut self,
+        ctx: &egui::Context,
+        text: &mut String,
+        new: String,
+        selection: Range<usize>,
+    ) {
         let mut state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
         let count = text.chars().count();
         let before = (state.cursor.char_range()).unwrap_or(CCursorRange::one(CCursor::new(count)));
-        let after = CCursorRange::one(CCursor::new(cursor(before.primary.index)));
+        let after = CCursorRange::two(CCursor::new(selection.start), CCursor::new(selection.end));
         let mut undoer = state.undoer();
         undoer.add_undo(&(before, text.clone()));
-        *text = replacement.to_string();
+        *text = new;
         undoer.add_undo(&(after, text.clone()));
         state.set_undoer(undoer);
         state.cursor.set_char_range(Some(after));
@@ -154,6 +172,12 @@ impl CodeEditor {
             && self.toggle_comments(ui.ctx(), text);
         // The keys of the popup and the fixes, before the text edit takes them.
         let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, document);
+        // Enter and Tab by the style, when no menu takes them.
+        if focused && self.popup.is_none() && self.fixes.is_none() {
+            edited |= self.indent_keys(ui, text, document);
+        }
+        // The text and the cursor before the text edit, to find a typed character.
+        let typing = focused.then(|| (text.clone(), self.cursor(ui.ctx())));
         if focused && text.as_str() == analyzed {
             let jump = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::F12));
             if let Some(cursor) = self.cursor(ui.ctx()).filter(|_| jump) {
@@ -260,11 +284,61 @@ impl CodeEditor {
                 self.jump(ui.ctx(), document, cursor);
             }
         }
+        if let (true, Some((old, Some(before))), Some(after)) =
+            (output.response.changed(), &typing, cursor)
+        {
+            if let Some(typed) = typed_char(old, text, *before, after) {
+                if let Some((new, cursor)) = indent::typed(text, after, typed) {
+                    self.set_text(ui.ctx(), text, new, cursor..cursor);
+                    ui.ctx().request_repaint();
+                    edited = true;
+                }
+            }
+        }
         edited |= self.menus(ui, &output, text, cursor);
         if current {
             hover(&output, document);
         }
         toggled || edited || output.response.changed()
+    }
+
+    /// Takes Enter, Tab, and Shift+Tab before the text edit does: Enter starts a line at its depth,
+    /// Tab re-indents the line or the lines of the selection, moves a cursor in the indentation
+    /// to the first word, or opens the completion popup, and Shift+Tab does nothing. Returns
+    /// whether the text changed.
+    fn indent_keys(&mut self, ui: &egui::Ui, text: &mut String, document: &Document) -> bool {
+        let ctx = ui.ctx().clone();
+        let (enter, tab) = ui.input_mut(|input| {
+            let enter = input.consume_key(Modifiers::NONE, Key::Enter);
+            // Shift+Tab first, since a match of Tab ignores Shift.
+            input.consume_key(Modifiers::SHIFT, Key::Tab);
+            (enter, input.consume_key(Modifiers::NONE, Key::Tab))
+        });
+        if !enter && !tab {
+            return false;
+        }
+        let state = egui::text_edit::TextEditState::load(&ctx, self.id).unwrap_or_default();
+        let count = text.chars().count();
+        let range = (state.cursor.char_range()).unwrap_or(CCursorRange::one(CCursor::new(count)));
+        let (secondary, primary) = (range.secondary.index, range.primary.index);
+        if enter {
+            let (new, cursor) = indent::enter(text, secondary.min(primary)..secondary.max(primary));
+            self.set_text(&ctx, text, new, cursor..cursor);
+            return true;
+        }
+        match indent::tab(text, secondary..primary) {
+            indent::Tab::Edit(new, selection) => {
+                self.set_text(&ctx, text, new, selection);
+                return true;
+            }
+            indent::Tab::Move(index) => set_cursor(&ctx, self.id, index),
+            indent::Tab::Complete if text.as_str() == document.text() => {
+                self.popup = Popup::open(document, primary);
+                self.fixes = None;
+            }
+            indent::Tab::Complete | indent::Tab::Stay => {}
+        }
+        false
     }
 
     /// Selects the definition of the name at the character `cursor`, and scrolls it into view in
@@ -689,6 +763,17 @@ fn show_blocks(ui: &mut egui::Ui, blocks: Vec<Block>) {
             }
         }
     }
+}
+
+/// The character that a keystroke typed, when `new` is `old` with one character inserted at the
+/// cursor `before`, and the cursor `after` follows it.
+fn typed_char(old: &str, new: &str, before: usize, after: usize) -> Option<char> {
+    if after != before + 1 || new.chars().count() != old.chars().count() + 1 {
+        return None;
+    }
+    let typed = new.chars().nth(before)?;
+    let (at, end) = (byte_index(old, before), byte_index(new, after));
+    (old[..at] == new[..at] && old[at..] == new[end..]).then_some(typed)
 }
 
 fn set_cursor(ctx: &egui::Context, id: egui::Id, index: usize) {

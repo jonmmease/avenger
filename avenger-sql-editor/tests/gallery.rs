@@ -169,3 +169,23 @@ fn every_example_is_in_the_style() {
         );
     }
 }
+
+#[test]
+fn every_line_of_the_examples_has_the_depth_that_enter_and_tab_give_it() {
+    for example in examples() {
+        let mut start = 0;
+        for line in example.sql.split_inclusive('\n') {
+            let content = line.trim_end_matches('\n');
+            if !content.trim().is_empty() {
+                let indentation = content.len() - content.trim_start().len();
+                let depth = avenger_sql_syntax::indent::depth(&example.sql, start);
+                assert!(
+                    depth.is_none_or(|depth| depth == indentation),
+                    "{depth:?} for {content:?} in {}",
+                    example.title
+                );
+            }
+            start += line.len();
+        }
+    }
+}
