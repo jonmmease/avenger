@@ -1,0 +1,25 @@
+[package]
+name = "avenger-sql-project"
+version = "0.1.0"
+edition = "2021"
+description = "Projects of avenger-sql: the manifest, the file source, the roles of files, and the entry stylesheet"
+readme = "README.md"
+
+[dependencies]
+avenger-style = { path = "../avenger-style" }
+bytes = "1.12"
+datafusion = { workspace = true }
+glob = "0.3"
+serde = { workspace = true }
+thiserror = { workspace = true }
+toml = { version = "0.8.23", default-features = false, features = ["parse"] }
+url = "2.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# DataFusion draws random numbers, which need the browser's source on the web.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+avenger-sql = { path = "../avenger-sql" }
+tempfile = "3.14"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

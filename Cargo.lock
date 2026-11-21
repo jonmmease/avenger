@@ -1187,6 +1187,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-sql-project"
+version = "0.1.0"
+dependencies = [
+ "avenger-sql",
+ "avenger-style",
+ "bytes",
+ "datafusion",
+ "getrandom 0.3.4",
+ "glob",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "avenger-sql-syntax"
 version = "0.1.0"
 dependencies = [
