@@ -3,6 +3,7 @@
 //! script shows as a chart, or as a table whose chart columns show the chart of each row. The
 //! editor embeds a sample project, which it opens when it starts.
 
+pub mod add_file;
 pub mod app;
 pub mod assist;
 mod buffer;
@@ -23,6 +24,8 @@ pub mod result;
 pub mod samples;
 mod sidebar;
 mod table;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod watch;
 #[cfg(target_arch = "wasm32")]
 mod web;
 pub mod workspace;
