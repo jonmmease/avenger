@@ -35,6 +35,8 @@ use super::{
     Pass, StatementPlan, WithName,
 };
 use crate::{
+    catalog::same_path,
+    data::column_list,
     library::{form::coercion, Ty},
     types,
 };
@@ -355,31 +357,19 @@ impl Pass<'_> {
         if existing.is_some() && create.if_not_exists() {
             return;
         }
-        if existing.is_some() && !create.or_replace() {
+        // A table of files of the script has its name too.
+        let file_table = (self.data_tables.iter()).any(|table| same_path(&table.names, &names));
+        if (existing.is_some() && !create.or_replace()) || file_table {
             self.error(path_range, format!("Table {name} already exists"));
             return;
         }
-        let mut columns: Option<Vec<(String, DataType, TextRange)>> = None;
-        if let Some(list) = create.column_list() {
-            let mut defs = Vec::new();
-            for column in list.column_defs() {
-                let (Some(name), Some(ty)) = (column.name(), column.ty()) else {
-                    continue;
-                };
-                let ty = match types::arrow_type(&ty, self.type_options) {
-                    Ok(ty) => ty,
-                    // The table keeps its other columns, so its reads add no errors.
-                    Err(error) => {
-                        self.error(error.range, error.message);
-                        continue;
-                    }
-                };
-                if let Some(text) = name.text() {
-                    defs.push((text, ty, name.syntax().text_range()));
-                }
-            }
-            columns = Some(defs);
-        }
+        // A column with an error leaves the list, and the table keeps its other columns, so its
+        // reads add no errors.
+        let columns = create.column_list().map(|list| {
+            (column_list(&list, self.type_options, &mut self.diagnostics).into_iter())
+                .map(|column| column.typed())
+                .collect::<Vec<_>>()
+        });
         let rows = match (create.query(), columns) {
             (Some(query), columns) => {
                 let rows = self.query(&query);
@@ -764,17 +754,23 @@ impl Pass<'_> {
     }
 
     /// The result of `plan`, which plans the code of a module, apart from the script that imports
-    /// it: the code reads the tables of the catalog, and not the script's pipe `WITH` names or
-    /// the tables that the statements of a data script define, before or after the statement
-    /// that plans the code.
+    /// it: the code reads the tables of the catalog, and not the script's pipe `WITH` names, its
+    /// temporary tables, or the tables that the statements of a data script define, before or
+    /// after the statement that plans the code.
     fn in_module<R>(&mut self, plan: impl FnOnce(&mut Self) -> R) -> R {
         let saved = (
             std::mem::take(&mut self.with_names),
+            std::mem::take(&mut self.temp_tables),
             std::mem::take(&mut self.data_tables),
             std::mem::take(&mut self.later_tables),
         );
         let result = plan(self);
-        (self.with_names, self.data_tables, self.later_tables) = saved;
+        (
+            self.with_names,
+            self.temp_tables,
+            self.data_tables,
+            self.later_tables,
+        ) = saved;
         result
     }
 

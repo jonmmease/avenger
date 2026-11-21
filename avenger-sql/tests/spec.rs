@@ -112,6 +112,25 @@ fn analyze_data(example: &str) -> Result<usize, String> {
     }
 }
 
+/// The errors of the analysis of the chart script `example` with its own tables of files, over
+/// the tables of [`files_catalog`]: a project runs such a chart.
+fn analyze_chart(example: &str) -> Result<usize, String> {
+    let parse = avenger_sql_syntax::parse(example);
+    let catalog = files_catalog(&parse);
+    let library = avenger_sql::library::Library::new();
+    let analysis = avenger_sql::analyze(&parse.syntax(), &catalog, &library, &Default::default());
+    match analysis.diagnostics.is_empty() {
+        true => Ok(0),
+        false => Err(format!("{:?}", analysis.diagnostics)),
+    }
+}
+
+/// Whether the chart script `example` has its own tables of files.
+fn reads_files(example: &str) -> bool {
+    let root = avenger_sql_syntax::parse(example).syntax();
+    !avenger_sql::data::file_reads(&root, Default::default()).is_empty()
+}
+
 /// The number of charts that `example` builds in its column `chart`, or the error of its parse,
 /// its plan, its run, or the reading of a chart.
 async fn run(ctx: &SessionContext, example: &str) -> Result<usize, String> {
@@ -121,6 +140,9 @@ async fn run(ctx: &SessionContext, example: &str) -> Result<usize, String> {
     let parse = avenger_sql_syntax::parse(example);
     if !parse.diagnostics().is_empty() {
         return Err(format!("{:?}", parse.diagnostics()));
+    }
+    if reads_files(example) {
+        return analyze_chart(example);
     }
     let frame = avenger_sql::sql(ctx, example)
         .await
@@ -153,7 +175,7 @@ async fn check(text: &str, count: usize) {
         let charts = run(&ctx, example)
             .await
             .unwrap_or_else(|error| panic!("{example}\n{error}"));
-        if example.contains("AS chart") {
+        if example.contains("AS chart") && !reads_files(example) {
             assert!(charts > 0, "{example}builds no chart");
         } else {
             assert_eq!(charts, 0, "{example}");
@@ -163,7 +185,7 @@ async fn check(text: &str, count: usize) {
 
 #[tokio::test]
 async fn the_examples_of_the_guide_run() {
-    check(include_str!("../SPEC.md"), 11).await;
+    check(include_str!("../SPEC.md"), 12).await;
 }
 
 #[tokio::test]
