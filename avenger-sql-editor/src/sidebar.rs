@@ -1,7 +1,6 @@
-//! The data sidebar: the files that the session holds as tables, the sample tables, each with its
-//! columns, and the functions that avenger-sql adds. With a project open, it lists the project's
-//! files by role in place of the files and the samples, with the tables of each data script.
-//! Clicking a name inserts it in the editor, and clicking a file opens it in a tab.
+//! The sidebar: the open project's files by role, with the tables of each data script and of each
+//! chart's own tables of files and their columns, and the functions that avenger-sql adds. Clicking a name inserts it in the editor, and
+//! clicking a file opens it in a tab.
 
 use std::collections::BTreeSet;
 
@@ -11,8 +10,6 @@ use arrow::datatypes::DataType;
 use avenger_sql_language::quote;
 
 use crate::query::{Function, Functions};
-use crate::samples::{Sample, SCHEMA};
-use crate::sources::Source;
 use crate::workspace::{Sidebar, Status};
 
 /// What the user did in the sidebar this frame.
@@ -20,106 +17,8 @@ use crate::workspace::{Sidebar, Status};
 pub struct SidebarOutput {
     /// Text to insert at the editor's cursor.
     pub insert: Option<String>,
-    /// Whether the user asked to add files.
-    pub add_files: bool,
     /// The file of the project to open in a tab.
     pub open: Option<String>,
-}
-
-/// Shows the sidebar: the files of `sources`, and `pending` files that are still reading, the
-/// sample tables, which are `None` while they load, and the functions.
-pub fn show(
-    ui: &mut egui::Ui,
-    sources: &[Source],
-    pending: usize,
-    samples: Option<&[Sample]>,
-    functions: &Functions,
-) -> SidebarOutput {
-    let mut output = SidebarOutput::default();
-    ui.horizontal(|ui| {
-        ui.heading("Data");
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button("Add")
-                .on_hover_text("Add CSV or Parquet files. You can also drop files on the window.")
-                .clicked()
-            {
-                output.add_files = true;
-            }
-        });
-    });
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show(ui, |ui| {
-            section(ui, "Files", |ui| {
-                if sources.is_empty() && pending == 0 {
-                    ui.weak("Add a CSV or Parquet file to query it as a table.");
-                }
-                for source in sources {
-                    let header =
-                        egui::CollapsingHeader::new(egui::RichText::new(&source.name).monospace())
-                            .id_salt(("source", &source.name))
-                            .default_open(false)
-                            .show(ui, |ui| columns(ui, &source.columns, &mut output));
-                    let path = source.path.display().to_string();
-                    header
-                        .header_response
-                        .on_hover_text(format!("{} · {path}", source.kind.label()));
-                    ui.horizontal(|ui| {
-                        ui.add_space(18.0);
-                        ui.weak(source.kind.label());
-                        if ui
-                            .small_button("Insert")
-                            .on_hover_text("Insert the table name")
-                            .clicked()
-                        {
-                            output.insert = Some(quote(&source.name));
-                        }
-                    });
-                }
-                if pending > 0 {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.weak("Reading files…");
-                    });
-                }
-            });
-            section(ui, "Samples", |ui| {
-                let Some(samples) = samples else {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.weak("Loading the samples…");
-                    });
-                    return;
-                };
-                for sample in samples {
-                    let name = format!("{SCHEMA}.{}", sample.name);
-                    egui::CollapsingHeader::new(egui::RichText::new(&name).monospace())
-                        .id_salt(("sample", &sample.name))
-                        .default_open(false)
-                        .show(ui, |ui| columns(ui, &sample.columns, &mut output))
-                        .header_response
-                        .on_hover_text("A sample table, which the examples read");
-                    ui.horizontal(|ui| {
-                        ui.add_space(18.0);
-                        if ui
-                            .small_button("Insert")
-                            .on_hover_text("Insert the table name")
-                            .clicked()
-                        {
-                            output.insert = Some(name);
-                        }
-                    });
-                }
-            });
-            section(ui, "Functions", |ui| {
-                group(ui, "Marks", &functions.marks, &mut output);
-                group(ui, "Compositions", &functions.compositions, &mut output);
-                group(ui, "Constructors", &functions.constructors, &mut output);
-                group(ui, "Transforms", &functions.transforms, &mut output);
-            });
-        });
-    output
 }
 
 /// Shows the sidebar of the project `name`: its data scripts, each with the tables that it

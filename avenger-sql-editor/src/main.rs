@@ -1,8 +1,9 @@
-//! The avenger-sql editor. Arguments are the CSV and Parquet files to open as tables, and the
-//! options `--query <FILE>`, which opens a query and runs it, `--project <PATH>`, which opens the
-//! project of a directory or of a path under it, and a file of it in a tab, `--screenshot <PNG>`,
-//! which saves the window once it settles and exits, and `--cursor <INDEX>`, `--press <KEYS>`,
-//! and `--hover`, which place the cursor, press keys, and hover the pointer before the screenshot.
+//! The avenger-sql editor, which opens the sample project when it starts. Its options are
+//! `--project <PATH>`, which opens the project of a directory or of a path under it in place of
+//! the sample project, and a file of it in a tab, `--open <PATH>`, which opens a file of the
+//! project by its path relative to the project's root in a tab, `--screenshot <PNG>`, which saves
+//! the window once it settles and exits, and `--cursor <INDEX>`, `--press <KEYS>`, and `--hover`,
+//! which place the cursor, press keys, and hover the pointer before the screenshot.
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -18,7 +19,7 @@ fn main() -> eframe::Result {
         Ok(options) => options,
         Err(error) => {
             eprintln!("avenger-sql-editor: {error}");
-            eprintln!("usage: avenger-sql-editor [FILE ... | --project PATH] [--query FILE] [--screenshot PNG] [--cursor INDEX [--press KEYS]... [--hover]] [--theme system|light|dark]");
+            eprintln!("usage: avenger-sql-editor [--project PATH] [--open PATH] [--screenshot PNG] [--cursor INDEX [--press KEYS]... [--hover]] [--theme system|light|dark]");
             std::process::exit(2);
         }
     };
