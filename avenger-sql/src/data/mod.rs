@@ -15,10 +15,16 @@
 //! script into a [`DataAnalysis`]: each table, view and schema that it defines, the reads that
 //! leave it, and its errors.
 //!
+//! [`file_table`] builds the table of a [`Files`] over the object stores of a session, with its
+//! URIs relative to the URL of the project's root, and [`lower`] registers the tables, views and
+//! schemas of an analyzed script in a session.
+//!
 //! [`Catalog`]: crate::catalog::Catalog
 //! [`Catalog::files`]: crate::catalog::Catalog::files
 
+mod lowering;
 mod options;
+mod table;
 
 use std::{fmt, sync::Arc};
 
@@ -31,12 +37,14 @@ use datafusion::{
     physical_plan::ExecutionPlan,
 };
 
+pub use lowering::{lower, schema_name, LoweringError, Registered, Registration, ScriptTables};
 pub(crate) use options::{column_list, file_options, table_options, FileStatement};
 pub use options::{
     file_option, option_format, option_places, unsupported_option, uri_kind, FileOption,
     OptionPlace, OptionType, OptionValue, UnsupportedOption, UriKind, FILE_OPTIONS,
     UNSUPPORTED_OPTIONS,
 };
+pub use table::file_table;
 
 use crate::{
     analysis::{Diagnostic, Model},
@@ -86,6 +94,17 @@ impl Format {
             Format::Parquet => "PARQUET",
             Format::Avro => "AVRO",
             Format::Arrow => "ARROW",
+        }
+    }
+
+    /// The extension of the files of the format, which a URI of a directory reads.
+    pub fn extension(self) -> &'static str {
+        match self {
+            Format::Csv => "csv",
+            Format::Json => "json",
+            Format::Parquet => "parquet",
+            Format::Avro => "avro",
+            Format::Arrow => "arrow",
         }
     }
 
@@ -209,7 +228,9 @@ pub struct FileRead {
 }
 
 /// The files that the external tables and the `LOAD DATA` statements of the data script `root`
-/// read, in the order of the text, with the types of their column lists by `types`. A statement
+/// read, in the order of the text, with the types of their column lists by `types`, the
+/// [`type_options`](crate::catalog::Catalog::type_options) of the catalog of the analysis, so that
+/// its [`files`](crate::catalog::Catalog::files) finds them. A statement
 /// whose options have errors reads none. A loader reads the schemas of these files before the
 /// analysis, as a catalog fetches the tables of [`crate::catalog::references`].
 pub fn file_reads(root: &SyntaxNode, types: TypeOptions) -> Vec<FileRead> {

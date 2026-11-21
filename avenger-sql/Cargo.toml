@@ -24,8 +24,11 @@ datafusion = { workspace = true, features = [
     "unicode_expressions",
 ] }
 chrono = { workspace = true }
+futures = { workspace = true }
+glob = "0.3"
 prost = { workspace = true }
 regex = { workspace = true }
+url = "2.5"
 
 [features]
 # The formats and compressions of the files of data scripts beyond CSV, JSON and Arrow IPC, which

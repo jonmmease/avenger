@@ -261,7 +261,7 @@ impl SessionCatalog {
 }
 
 /// The name in `names` that is `name` without regard to case, preferring the one with its case.
-fn find(names: Vec<String>, name: &str) -> Option<String> {
+pub fn find(names: Vec<String>, name: &str) -> Option<String> {
     if names.iter().any(|candidate| candidate == name) {
         return Some(name.to_string());
     }

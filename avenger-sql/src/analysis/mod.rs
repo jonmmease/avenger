@@ -86,7 +86,7 @@ pub struct Analysis {
     /// The script's own tables of files, in the order of the text: each `CREATE TEMP EXTERNAL
     /// TABLE` and `LOAD DATA ... TEMP TABLE`, analyzed as a data script's statement is. A read of
     /// one plans a scan of the [`ScriptTable`] of its definition, which a loader replaces with
-    /// the table of its files before the plans run.
+    /// the table of its files before the plans run, as [`Analysis::with_tables`] does.
     ///
     /// [`ScriptTable`]: crate::data::ScriptTable
     pub file_tables: Vec<crate::data::Definition>,

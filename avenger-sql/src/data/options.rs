@@ -88,7 +88,7 @@ pub const FILE_OPTIONS: &[FileOption] = &[
         required: true,
         place: OptionPlace::Files,
         formats: &Format::ALL,
-        meaning: "The files, each a path or a `file:` URL with one `*` at most, and a loader reads a relative path from the project root.",
+        meaning: "The files, each a path or a `file:` URL with one `*` at most, which a loader reads from the project root when it is relative. A `*` matches the names of the files of one directory, and a URI that ends with `/` or `\\` reads the files of its directory with the format's extension. A `file:` URL follows the syntax of URLs, so `?` and `#` start its query and its fragment, while in a path they are characters of a name.",
         values: &[],
     },
     FileOption {
@@ -987,8 +987,16 @@ pub(crate) fn file_options(
     };
     let prefix = reader.string("hive_partition_uri_prefix");
     if let Some((prefix, range)) = &prefix {
+        // A prefix that names no directory has its own error, and not one at each URI.
+        let names_directory = !prefix.trim_matches(['/', '\\']).is_empty();
+        if !names_directory {
+            reader.error(
+                *range,
+                "hive_partition_uri_prefix is the path of the directory of a Hive layout, as 'sales/', and not empty or a separator",
+            );
+        }
         for (uri, uri_range) in &uris {
-            if !uri.starts_with(prefix.as_str()) {
+            if names_directory && !uri.starts_with(prefix.as_str()) {
                 reader.error(
                     *uri_range,
                     format!("The URI doesn't start with the hive_partition_uri_prefix '{prefix}'"),
@@ -1075,12 +1083,18 @@ fn fields(columns: &[ColumnDef]) -> Fields {
         .into()
 }
 
-/// Checks a URI of `uris`: it holds one `*` at most, and it is not a URL of a scheme other than
+/// Checks a URI of `uris`: it holds one `*` at most, which no `/` or `\` follows, since it
+/// matches the names of the files of one directory, and it is not a URL of a scheme other than
 /// `file:`. A loader resolves a relative path against the project root, and decides whether it
 /// reads an absolute path, a path above the root, or a `file:` URL.
 fn check_uri(reader: &mut Reader, uri: &str, range: TextRange) {
     if uri.matches('*').count() > 1 {
         reader.error(range, "A URI holds one * at most");
+    } else if (uri.find('*')).is_some_and(|star| uri[star..].contains(['/', '\\'])) {
+        reader.error(
+            range,
+            "A * matches the names of the files of one directory, so no / or \\ follows it",
+        );
     }
     if uri_kind(uri) == UriKind::Url {
         reader.error(
