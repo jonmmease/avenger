@@ -26,8 +26,26 @@ FROM penguins
 
 A project's data scripts register the tables that its scripts read, with GoogleSQL's DDL. A data script holds no query, `DECLARE`, or `SET`.
 
+```sql
+CREATE SCHEMA vega_datasets OPTIONS (description = 'The datasets of the Vega examples');
+
+CREATE EXTERNAL TABLE vega_datasets.cars
+OPTIONS (format = 'JSON', uris = ['data/files/vega_datasets/cars.json']);
+
+LOAD DATA OVERWRITE sales
+FROM FILES (format = 'CSV', uris = ['data/files/sales/*.csv']);
+
+CREATE TEMP VIEW recent AS (FROM sales |> WHERE month > 6);
+
+CREATE TABLE totals AS (FROM recent |> AGGREGATE sum(amount) AS total GROUP BY region);
+```
+
+- Declared tables read their files or run their query at each query: `CREATE EXTERNAL TABLE` and `CREATE VIEW`. Loaded tables read them once, into memory: `LOAD DATA` and `CREATE TABLE ... AS`.
+- `LOAD DATA INTO t` creates `t`, or appends to a `t` that an earlier `LOAD DATA` or `CREATE TABLE ... AS` of the script creates. `LOAD DATA OVERWRITE t` creates `t`, which no earlier statement of the script defines.
 - The options of files, in an external table's `OPTIONS (...)` and in `FROM FILES (...)`: `format` (`CSV`, `NEWLINE_DELIMITED_JSON` or `JSON`, `PARQUET`, `AVRO`, `ARROW`) and `uris` are required. CSV files take `skip_leading_rows` (0 or 1), `field_delimiter`, `quote`, `null_marker`, and `allow_quoted_newlines`, CSV and JSON files take `compression` (`GZIP`, `BZIP2`, `XZ`, `ZSTD`), and `hive_partition_uri_prefix` goes with `WITH PARTITION COLUMNS`. `description` is an option of the table, in the `OPTIONS (...)` of `LOAD DATA`, a view, a table, or a schema. Other options of BigQuery's are errors.
 - A URI is a path relative to the project root, with one `*` at most. A table without a column list takes the schema of its files, and the first row of a CSV file names its columns.
+- `TEMP` keeps a table in its script, as a step that the scripts don't see.
+- `CREATE SCHEMA s` creates a schema, a dataset in BigQuery, and `s.t` names a table in it. A statement reads only the tables and schemas of the statements before it, of other data scripts, and of the host.
 
 ## Queries
 

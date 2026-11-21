@@ -1,12 +1,14 @@
 //! The examples of `SPEC.md`, the short guide to the language, which agents copy, and of the
 //! README: each parses, and each runs in a session of the tests' tables, so a chart example with a
-//! wrong name, such as a constructor that its argument does not take, fails.
+//! wrong name, such as a constructor that its argument does not take, fails. A data script's
+//! example analyzes without errors, over files of the columns that it reads.
 
 mod common;
 
 use std::sync::Arc;
 
 use avenger_chart::{charts_from_arrow, Decode};
+use avenger_sql::catalog::MemoryCatalog;
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema},
     datasource::MemTable,
@@ -82,9 +84,40 @@ fn session() -> SessionContext {
     ctx
 }
 
+/// A catalog of a table for each file read of `parse`, whose files all have the columns
+/// `region`, `month`, and `amount`.
+fn files_catalog(parse: &avenger_sql_syntax::Parse) -> MemoryCatalog {
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("region", DataType::Utf8, true),
+        Field::new("month", DataType::Int64, true),
+        Field::new("amount", DataType::Float64, true),
+    ]));
+    let reads = avenger_sql::data::file_reads(&parse.syntax(), Default::default());
+    (reads.into_iter()).fold(MemoryCatalog::new(), |catalog, read| {
+        catalog.with_files_schema(read.files, schema.clone())
+    })
+}
+
+/// The errors of the analysis of the data script `example`, over the tables of
+/// [`files_catalog`].
+fn analyze_data(example: &str) -> Result<usize, String> {
+    let parse = avenger_sql_syntax::parse_data(example);
+    let catalog = files_catalog(&parse);
+    let library = avenger_sql::library::Library::new();
+    let analysis =
+        avenger_sql::analyze_data(&parse.syntax(), &catalog, &library, &Default::default());
+    match analysis.diagnostics.is_empty() {
+        true => Ok(0),
+        false => Err(format!("{:?}", analysis.diagnostics)),
+    }
+}
+
 /// The number of charts that `example` builds in its column `chart`, or the error of its parse,
 /// its plan, its run, or the reading of a chart.
 async fn run(ctx: &SessionContext, example: &str) -> Result<usize, String> {
+    if avenger_sql_syntax::parse_data(example).ok() && !avenger_sql_syntax::parse(example).ok() {
+        return analyze_data(example);
+    }
     let parse = avenger_sql_syntax::parse(example);
     if !parse.diagnostics().is_empty() {
         return Err(format!("{:?}", parse.diagnostics()));
@@ -130,7 +163,7 @@ async fn check(text: &str, count: usize) {
 
 #[tokio::test]
 async fn the_examples_of_the_guide_run() {
-    check(include_str!("../SPEC.md"), 10).await;
+    check(include_str!("../SPEC.md"), 11).await;
 }
 
 #[tokio::test]

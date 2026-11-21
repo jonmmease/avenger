@@ -7,10 +7,12 @@
 //! reports a [`Diagnostic`] at its text, and the operators after it see the columns that its
 //! syntax gives, without types and without a plan, so the model still holds their names.
 //!
-//! [`analyze`] runs the pass over the queries of a script. The tables of a script come from a
-//! [`Catalog`], which [`crate::catalog::references`] tells what to load.
+//! [`analyze`] runs the pass over the queries of a script, and [`analyze_data`] over the
+//! statements of a data script. The tables of a script come from a [`Catalog`], which
+//! [`crate::catalog::references`] tells what to load.
 
 mod build;
+mod data;
 mod expr;
 mod highlight;
 mod lifting;
@@ -31,6 +33,7 @@ use datafusion::{
     logical_expr::{Expr, LogicalPlan},
 };
 
+pub use data::analyze_data;
 pub use model::{
     match_recognize_part, CallForm, Column, ConstructorUse, Definition, EnumValue, FieldBase,
     MatchRecognizePart, Model, NameUse, OperatorScope, Place, PlaceKind, RangeVariable,
@@ -175,30 +178,7 @@ pub fn analyze(
     library: &Library,
     options: &Options,
 ) -> Analysis {
-    let mut pass = Pass {
-        catalog,
-        library,
-        options,
-        type_options: catalog.type_options(),
-        qualifiers: Qualifiers::default(),
-        diagnostics: Vec::new(),
-        model: Model::default(),
-        positional: 0,
-        windows: Vec::new(),
-        outers: Vec::new(),
-        with_names: Vec::new(),
-        variables: Vec::new(),
-        temp_tables: Vec::new(),
-        functions: Vec::new(),
-        constants: Vec::new(),
-        params: Vec::new(),
-        module_context: Vec::new(),
-        call_depth: 0,
-        categories: None,
-        match_recognize: Vec::new(),
-        liftings: Vec::new(),
-        lifted: Vec::new(),
-    };
+    let mut pass = Pass::new(catalog, library, options);
     let mut plan = None;
     let mut statements = Vec::new();
     match ast::Script::cast(root.clone()) {
@@ -280,6 +260,14 @@ pub(crate) struct Pass<'a> {
     liftings: Vec<lifting::Lifting>,
     /// The pipe `AGGREGATE`s that hold lifted calls, for the printer of the stages.
     lifted: Vec<print::LiftedOperator>,
+    /// The tables that the earlier statements of a data script define, latest last.
+    data_tables: Vec<data::DataTable>,
+    /// The paths of the tables that the later statements of a data script define, which a
+    /// statement can't read yet.
+    later_tables: Vec<Vec<String>>,
+    /// The reads of tables that are not pipe `WITH` names, temporary tables, or tables of a data
+    /// script, in the order of the text: the reads of the catalog.
+    reads: Vec<crate::catalog::Reference>,
 }
 
 /// A name of a pipe `WITH`, and the rows of its query.
@@ -288,6 +276,38 @@ struct WithName {
     name: String,
     definition: TextRange,
     rows: Rows,
+}
+
+impl<'a> Pass<'a> {
+    fn new(catalog: &'a dyn Catalog, library: &'a Library, options: &'a Options) -> Self {
+        Pass {
+            catalog,
+            library,
+            options,
+            type_options: catalog.type_options(),
+            qualifiers: Qualifiers::default(),
+            diagnostics: Vec::new(),
+            model: Model::default(),
+            positional: 0,
+            windows: Vec::new(),
+            outers: Vec::new(),
+            with_names: Vec::new(),
+            variables: Vec::new(),
+            temp_tables: Vec::new(),
+            functions: Vec::new(),
+            constants: Vec::new(),
+            params: Vec::new(),
+            module_context: Vec::new(),
+            call_depth: 0,
+            categories: None,
+            match_recognize: Vec::new(),
+            liftings: Vec::new(),
+            lifted: Vec::new(),
+            data_tables: Vec::new(),
+            later_tables: Vec::new(),
+            reads: Vec::new(),
+        }
+    }
 }
 
 impl Pass<'_> {

@@ -8,7 +8,7 @@ use avenger_sql_syntax::{
     ast::{self, AstNode, LiteralKind, PrefixOp},
     SyntaxKind, SyntaxNode, TextRange,
 };
-use datafusion::arrow::datatypes::{Field, Fields};
+use datafusion::arrow::datatypes::{DataType, Field, Fields};
 
 use super::{Compression, CsvOptions, Files, Format, Partitions};
 use crate::{analysis::Diagnostic, types, types::TypeOptions};
@@ -724,12 +724,42 @@ impl<'a> Reader<'a> {
             _ => None,
         }
     }
+
+    /// The description of the table, which a list of table options gives, and the range of the
+    /// option's name.
+    fn description(&self) -> Option<(String, TextRange)> {
+        let entry = self.entry("description")?;
+        let (text, _) = self.string("description")?;
+        Some((text, entry.name))
+    }
+}
+
+/// The description in the `OPTIONS (...)` of a view, a table, or a schema, `what`, which takes
+/// the options of a table only, with the errors of the options.
+pub(crate) fn table_options(
+    options: Option<ast::Options>,
+    what: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Option<String> {
+    let mut reader = Reader::new(diagnostics);
+    if let Some(options) = options {
+        reader.read(options.syntax(), what);
+    }
+    reader.description().map(|(text, _)| text)
 }
 
 /// A column of a column list, and the range of its name.
 pub(crate) struct ColumnDef {
     pub field: Field,
     pub range: TextRange,
+}
+
+impl ColumnDef {
+    /// The column as its name, its type, and the range of its name.
+    pub fn typed(self) -> (String, DataType, TextRange) {
+        let ColumnDef { field, range } = self;
+        (field.name().clone(), field.data_type().clone(), range)
+    }
 }
 
 /// The columns of `list`, with the errors of their types and of a name that repeats.
@@ -816,6 +846,8 @@ pub(crate) struct FileOptions {
     pub files: Option<Files>,
     /// The range of the value of `uris`, where an error of reading the files goes.
     pub uris: Option<TextRange>,
+    /// The `description` of the table, and the range of the option's name.
+    pub description: Option<(String, TextRange)>,
 }
 
 /// The files that `statement` reads, with the errors of its options, its column list and its
@@ -831,6 +863,7 @@ pub(crate) fn file_options(
     if let Some(table) = &statement.table {
         reader.read(table, "a table");
     }
+    let description = reader.description();
     let format = match option_format(&statement.files) {
         Some((format, range)) if !format.available() => {
             reader.error(
@@ -1031,6 +1064,7 @@ pub(crate) fn file_options(
     FileOptions {
         files,
         uris: uris_range,
+        description,
     }
 }
 

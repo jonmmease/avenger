@@ -32,7 +32,10 @@ use super::{
 };
 use avenger_datafusion_shared::shared;
 
-use crate::library::{form::supertype, Ty};
+use crate::{
+    catalog::{same_path, Reference, Table},
+    library::{form::supertype, Ty},
+};
 
 /// A kind of join.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -460,8 +463,60 @@ impl Pass<'_> {
         if let Some(table) = self.temp_table(&names, path_range) {
             return self.close(table.rows, Some((name, definition)), false, path_range);
         }
-        match self.catalog_table_as(&names, path_range, name, definition) {
-            Some(rows) => rows,
+        self.stored_table(&names, path_range, name, definition)
+    }
+
+    /// The rows of the stored table at `names`, with the range variable `name`: a table that an
+    /// earlier statement of a data script defines, or a table of the catalog. A table that a
+    /// later statement of a data script defines, or that the catalog doesn't hold, is an error.
+    pub(super) fn stored_table(
+        &mut self,
+        names: &[String],
+        path_range: TextRange,
+        name: String,
+        definition: TextRange,
+    ) -> Rows {
+        let defined = (self.data_tables.iter().rev())
+            .find(|table| same_path(&table.names, names))
+            .cloned();
+        if let Some(defined) = defined {
+            let Some(table) = defined.table else {
+                // The statement that defines it has an error already, and its syntax gives its
+                // columns.
+                let qualifier = self.qualifiers.fresh(&name);
+                let columns: Vec<Col> = (defined.columns.iter())
+                    .map(|column| Col {
+                        name: column.clone(),
+                        column: Column::new(Some(qualifier.clone()), column),
+                        definition: Some(path_range),
+                    })
+                    .collect();
+                let vars = vec![RangeVar {
+                    name,
+                    definition: Some(definition),
+                    columns: columns.clone(),
+                    value: None,
+                }];
+                return Rows::failed(columns, vars);
+            };
+            return self.scan_table(table, path_range, name, definition);
+        }
+        if (self.later_tables.iter()).any(|later| same_path(later, names)) {
+            self.error(
+                path_range,
+                format!(
+                    "Table {} is defined by a later statement of this script, and a statement reads only the tables of the statements before it",
+                    names.join(".")
+                ),
+            );
+            return Rows::failed(Vec::new(), Vec::new());
+        }
+        self.reads.push(Reference {
+            names: names.to_vec(),
+            range: path_range,
+        });
+        match self.catalog.table(names) {
+            Some(table) => self.scan_table(table, path_range, name, definition),
             None => {
                 self.error(path_range, format!("Table not found: {}", names.join(".")));
                 Rows::failed(Vec::new(), Vec::new())
@@ -469,25 +524,14 @@ impl Pass<'_> {
         }
     }
 
-    /// The rows of the catalog's table at `names`, with the range variable of its name.
-    pub(super) fn catalog_table(
+    /// The rows of a scan of `table`, read at `path_range`, with the range variable `name`.
+    fn scan_table(
         &mut self,
-        names: &[String],
-        path_range: TextRange,
-    ) -> Option<Rows> {
-        let name = names.last().cloned().unwrap_or_default();
-        self.catalog_table_as(names, path_range, name, path_range)
-    }
-
-    /// The rows of the catalog's table at `names`, with the range variable `name`.
-    fn catalog_table_as(
-        &mut self,
-        names: &[String],
+        table: Table,
         path_range: TextRange,
         name: String,
         definition: TextRange,
-    ) -> Option<Rows> {
-        let table = self.catalog.table(names)?;
+    ) -> Rows {
         self.use_name(
             path_range,
             Definition::Table {
@@ -505,7 +549,7 @@ impl Pass<'_> {
             Ok(plan) => plan,
             Err(error) => {
                 self.datafusion_error(path_range, error);
-                return Some(Rows::failed(Vec::new(), Vec::new()));
+                return Rows::failed(Vec::new(), Vec::new());
             }
         };
         let columns: Vec<Col> = (table.schema().fields().iter())
@@ -521,7 +565,7 @@ impl Pass<'_> {
             columns: columns.clone(),
             value: None,
         }];
-        Some(Rows::new(plan, columns, vars))
+        Rows::new(plan, columns, vars)
     }
 
     /// The rows of a query in parentheses, as a source with the range variable of its alias. The
