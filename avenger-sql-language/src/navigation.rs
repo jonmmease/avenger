@@ -1,8 +1,12 @@
 //! Go to definition, references, and rename, from the definition of each name that the analysis
 //! resolved.
 
-use avenger_sql::analysis::{Definition, Model};
-use avenger_sql_syntax::{SyntaxKind, SyntaxNode, TextEdit, TextRange};
+use avenger_sql::{
+    analysis::{Definition, Model},
+    catalog::same_path,
+    data::DefinitionKind,
+};
+use avenger_sql_syntax::{ast, ast::AstNode, SyntaxKind, SyntaxNode, TextEdit, TextRange};
 
 use crate::{node_at, quote, Document, Offset};
 
@@ -85,7 +89,8 @@ impl Key {
 
 impl Document {
     /// The name at `offset` and the range that defines it. A table of the catalog, a module, a
-    /// field, and a function of the library or of a module have no definition in the text.
+    /// field, and a function of the library or of a module have no definition in the text, and a
+    /// [`crate::Project`] defines a table and a module in the files of its project.
     pub fn definition(&self, offset: Offset) -> Option<DefinitionLink> {
         let name = self.model().name_at(self.clamp(offset))?;
         let key = Key::of(&name.definition)?;
@@ -135,6 +140,9 @@ impl Document {
             return Err("No name at the cursor".to_string());
         };
         Err(match &name.definition {
+            Definition::Table { names } if self.own_table(names, name.range.start()).is_some() => {
+                "A table that a statement of the script defines renames in its project, as a Project renames it"
+            }
             Definition::Table { .. } => "A table of the catalog has no rename",
             Definition::Module { .. } => "A module has no rename",
             Definition::Field { .. } => "A field of a struct has no rename",
@@ -149,9 +157,7 @@ impl Document {
     /// change the definition that a name refers to, is an error.
     pub fn rename(&self, offset: Offset, name: &str) -> Result<Vec<TextEdit>, String> {
         self.prepare_rename(offset)?;
-        if name.is_empty() || name.chars().any(|c| c == '`' || c.is_control()) {
-            return Err(format!("`{name}` is not a name"));
-        }
+        check_name(name)?;
         let root = self.root();
         let (_, key) = (self.key_at(&root, self.clamp(offset))).expect("a name to rename");
         let replacement = quote(name);
@@ -222,6 +228,122 @@ impl Document {
     }
 }
 
+/// A table that a name of a script names: its path, and the definition of the script of the
+/// name that defines or reads it, when the script defines the table itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TableName {
+    pub(crate) names: Vec<String>,
+    /// The range of the path of the name.
+    pub(crate) range: TextRange,
+    /// The index in the definitions of the script, a data script's or a chart script's own tables
+    /// of files, of the definition that creates the table, of a table of this script. `None` for
+    /// a table of the catalog.
+    pub(crate) own: Option<usize>,
+}
+
+/// Which table the names of [`Document::table_names`] name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TableOwner {
+    /// A table that this script defines: a data script's, `TEMP` or not, or a chart script's own
+    /// table of files, which is `TEMP`.
+    Own { temp: bool },
+    /// A table of the catalog.
+    Catalog,
+}
+
+impl Document {
+    /// The table that the name at `offset` names: the name of a statement that defines or loads a
+    /// table, of a data script or of a chart script's own tables of files, or a read of a table,
+    /// which the analysis resolved or not.
+    pub(crate) fn table_at(&self, offset: Offset) -> Option<TableName> {
+        let root = self.root();
+        let offset = self.clamp(offset);
+        let definitions = self.definitions();
+        let defined = (definitions.iter()).rposition(|definition| {
+            definition.name_range.contains_inclusive(offset)
+                && !matches!(definition.kind, DefinitionKind::Schema)
+        });
+        if let Some(index) = defined {
+            let definition = &definitions[index];
+            return Some(TableName {
+                names: definition.names.clone(),
+                range: definition.name_range,
+                own: Some(definition.appends().unwrap_or(index)),
+            });
+        }
+        let (names, range) = (self.table_reads())
+            .find(|(_, range)| range.contains_inclusive(offset))
+            .filter(|(_, range)| node_at(&root, *range, SyntaxKind::PATH).is_some())?;
+        let own = (self.own_table(&names, range.start()))
+            .map(|index| definitions[index].appends().unwrap_or(index));
+        Some(TableName { names, range, own })
+    }
+
+    /// The names of the table `names` in this script, of the owner `owner`, in the order of the
+    /// text: the names of the statements that define or load it, and its reads. A name of a
+    /// definition is a [`Reference::definition`].
+    pub(crate) fn table_names(&self, names: &[String], owner: TableOwner) -> Vec<Reference> {
+        let root = self.root();
+        let definitions = self.definitions();
+        let owner_of = |index: usize| TableOwner::Own {
+            temp: definitions[index].temp,
+        };
+        let mut references: Vec<Reference> = (definitions.iter().enumerate())
+            .filter(|(index, definition)| {
+                !matches!(definition.kind, DefinitionKind::Schema)
+                    && same_path(&definition.names, names)
+                    && owner_of(*index) == owner
+            })
+            .map(|(_, definition)| Reference {
+                range: definition.name_range,
+                definition: true,
+            })
+            .collect();
+        for (read, range) in self.table_reads() {
+            let read_owner =
+                (self.own_table(&read, range.start())).map_or(TableOwner::Catalog, owner_of);
+            if same_path(&read, names)
+                && read_owner == owner
+                && node_at(&root, range, SyntaxKind::PATH).is_some()
+            {
+                references.push(Reference {
+                    range,
+                    definition: false,
+                });
+            }
+        }
+        references.sort_by_key(|reference| reference.range.start());
+        references.dedup_by_key(|reference| reference.range);
+        references
+    }
+
+    /// The paths and the ranges of the reads of tables: those of the model, which the analysis
+    /// resolved, and the reads of the catalog, whether it holds them or not.
+    fn table_reads(&self) -> impl Iterator<Item = (Vec<String>, TextRange)> + '_ {
+        let model = (self.model().names.iter()).filter_map(|name| match &name.definition {
+            Definition::Table { names } => Some((names.clone(), name.range)),
+            _ => None,
+        });
+        let reads = (self.reads().iter()).map(|read| (read.names.clone(), read.range));
+        model.chain(reads)
+    }
+
+    /// The range of the last name of the path at `range`, which a rename of a table edits, so
+    /// that a table keeps its schema.
+    pub(crate) fn last_name(&self, range: TextRange) -> Option<TextRange> {
+        let path = ast::Path::cast(node_at(&self.root(), range, SyntaxKind::PATH)?)?;
+        Some(path.name_refs().last()?.syntax().text_range())
+    }
+}
+
+/// Whether `name` can be a name that a rename writes, or the reason that it can't.
+pub(crate) fn check_name(name: &str) -> Result<(), String> {
+    match name.is_empty() || name.chars().any(|c| c == '`' || c.is_control()) {
+        true => Err(format!("`{name}` is not a name")),
+        false => Ok(()),
+    }
+}
+
 /// The uses of `key` in `model`, and its defining name, in the order of the text.
 fn references(root: &SyntaxNode, model: &Model, key: &Key) -> Vec<Reference> {
     let mut references: Vec<Reference> = (model.names.iter())
@@ -258,7 +380,7 @@ fn defining_name(root: &SyntaxNode, range: TextRange) -> bool {
 }
 
 /// `text` with `edits`, which do not overlap, in the order of their ranges.
-fn apply(text: &str, edits: &[TextEdit]) -> String {
+pub(crate) fn apply(text: &str, edits: &[TextEdit]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut at = 0;
     for edit in edits {

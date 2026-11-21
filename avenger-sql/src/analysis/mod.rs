@@ -80,6 +80,11 @@ pub struct Analysis {
     pub statements: Vec<Statement>,
     pub plan: Option<LogicalPlan>,
     pub model: Model,
+    /// The reads of tables of the catalog, in the order of the text, whether the catalog holds
+    /// them or not: not those of pipe `WITH` names and temporary tables. A read in the body of a
+    /// function is at the call that plans it, and for a function of a module, at the import that
+    /// checks it too.
+    pub reads: Vec<crate::catalog::Reference>,
     pub diagnostics: Vec<Diagnostic>,
     /// The pipe `AGGREGATE`s that hold lifted calls, which [`Analysis::lift`] prints.
     pub lifted: Vec<LiftedOperator>,
@@ -227,6 +232,7 @@ pub fn analyze(
         statements,
         plan,
         model: pass.model,
+        reads: pass.reads,
         diagnostics: pass.diagnostics,
         lifted: pass.lifted,
         file_tables: data.definitions,

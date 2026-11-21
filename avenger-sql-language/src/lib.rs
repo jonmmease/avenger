@@ -4,6 +4,9 @@
 //!
 //! A [`Document`] parses and analyzes the text of a file once, in the mode of its [`Role`]: a
 //! chart script, a data script, or a module. Each of its requests reads that parse and analysis.
+//! A [`Project`] holds a document for each file of a project, the dependency graph of its data
+//! scripts, and the catalog of their tables, and answers the requests that cross files:
+//! diagnostics, go to definition, references, and rename.
 //! The requests mirror those of the Language Server Protocol, without the protocol: positions
 //! and ranges are byte offsets of the text, [`Offset`] and [`TextRange`], and a host converts
 //! them to its own units, such as the UTF-16 positions of the protocol or the character indices
@@ -38,6 +41,7 @@ mod data;
 mod hover;
 mod navigation;
 mod outline;
+mod project;
 mod signature;
 
 use std::sync::Arc;
@@ -59,6 +63,7 @@ pub use completion::{CompletionItem, CompletionKind, Completions};
 pub use hover::Hover;
 pub use navigation::{DefinitionLink, Reference};
 pub use outline::{FoldingRange, Symbol, SymbolKind};
+pub use project::{FileRole, Project, ProjectLink, ProjectReference};
 pub use signature::{ParameterInfo, SignatureHelp, SignatureInfo};
 
 /// The text of a file, its role, its parse, and its analysis, which the requests of an editor
@@ -79,9 +84,9 @@ pub struct Document {
 }
 
 /// The analysis of a text by its role.
-#[allow(clippy::large_enum_variant)]
 enum Analyzed {
-    Script(Analysis),
+    /// A chart script's analysis, which is much larger than the others.
+    Script(Box<Analysis>),
     Data(DataAnalysis),
     /// A module, which avenger-sql analyzes where a script imports it, so that its document reads
     /// its syntax alone.
@@ -95,18 +100,27 @@ const _: fn() = || {
     send_sync::<Document>();
 };
 
-/// An error of a script, of its syntax or of its analysis.
+/// An error or a warning of a script: of its syntax, of its analysis, or of its project.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
     pub range: TextRange,
     pub message: String,
     /// What to do about the error, beyond its message.
     pub help: Option<String>,
+    pub severity: Severity,
     pub source: Source,
     /// The code of an error of the syntax. An error of the analysis has none.
     pub code: Option<DiagnosticCode>,
     /// The edits that fix the error, which an editor offers as code actions.
     pub fixes: Vec<Fix>,
+}
+
+/// Whether a diagnostic is an error, or a warning of a text that works here and can fail
+/// elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Severity {
+    Error,
+    Warning,
 }
 
 /// What found an error.
@@ -116,6 +130,12 @@ pub enum Source {
     Syntax,
     /// The analysis, which resolves names and types and plans the queries.
     Analysis,
+    /// A [`Project`], from its files together: the names that two data scripts define, the
+    /// cycles of data scripts, and the URIs outside the project's root.
+    Project,
+    /// The host's loader of the project, which reads files and runs the data scripts: the errors
+    /// that the host passes to [`Project::set_loader_diagnostics`].
+    Loader,
 }
 
 impl Document {
@@ -152,7 +172,7 @@ impl Document {
                 let parse = avenger_sql_syntax::parse(&text);
                 let analysis =
                     avenger_sql::analyze(&parse.syntax(), catalog.as_ref(), &library, &options);
-                (parse, Analyzed::Script(analysis))
+                (parse, Analyzed::Script(Box::new(analysis)))
             }
             Role::Data => {
                 let parse = avenger_sql_syntax::parse_data(&text);
@@ -203,7 +223,7 @@ impl Document {
     /// model. `None` for a text of another role.
     pub fn analysis(&self) -> Option<&Analysis> {
         match &self.analysis {
-            Analyzed::Script(analysis) => Some(analysis),
+            Analyzed::Script(analysis) => Some(analysis.as_ref()),
             Analyzed::Data(_) | Analyzed::Module(_) => None,
         }
     }
@@ -254,27 +274,63 @@ impl Document {
         }
     }
 
+    /// The reads of tables of the catalog, whether the catalog holds them or not, in the order of
+    /// the text.
+    fn reads(&self) -> &[avenger_sql::catalog::Reference] {
+        match &self.analysis {
+            Analyzed::Script(analysis) => &analysis.reads,
+            Analyzed::Data(analysis) => &analysis.reads,
+            Analyzed::Module(_) => &[],
+        }
+    }
+
     /// The errors of the text, in the order of their ranges. An error of the analysis inside a
     /// statement with an error of the syntax is left out: the analysis reads what the parser
     /// could make of the statement, so its errors there repeat the syntax's. An error of the
     /// syntax belongs to the statement before it, as an error at the `;` that ends it does.
+    ///
+    /// An error of the analysis that comes from a schema that the catalog doesn't know is left
+    /// out too, so that a table without a schema has its error once, where its schema fails. A
+    /// read of files whose table the catalog doesn't give, as [`Catalog::files`], in a data
+    /// script or a chart script, has no error at its URIs, and a statement that reads a table
+    /// whose schema is unknown has no errors of the analysis: a table of this script whose
+    /// statement has an error, or a table that the catalog defines, as
+    /// [`Catalog::definition`], and holds no table of, such as a table of a project's data
+    /// script with an error. A [`Project`] gives a document such a catalog, and reports each
+    /// read of such a table with an error that names the data script that defines it.
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        let root = self.root();
         let syntax = self.parse.diagnostics();
-        let starts: Vec<Offset> = statements(&self.root())
-            .map(|stmt| stmt.syntax().text_range().start())
-            .collect();
+        let statements: Vec<ast::Stmt> = statements(&root).collect();
         let end = Offset::from(self.text.len() as u32);
-        let broken: Vec<TextRange> = (starts.iter().enumerate())
-            .map(|(i, &start)| TextRange::new(start, starts.get(i + 1).copied().unwrap_or(end)))
-            .filter(|range| {
-                (syntax.iter()).any(|diagnostic| range.contains_inclusive(diagnostic.range.start()))
+        let ranges: Vec<TextRange> = (statements.iter().enumerate())
+            .map(|(i, stmt)| {
+                let next = statements.get(i + 1);
+                let next = next.map_or(end, |next| next.syntax().text_range().start());
+                TextRange::new(stmt.syntax().text_range().start(), next)
             })
             .collect();
+        let broken: Vec<TextRange> = (ranges.iter().enumerate())
+            .filter(|(i, range)| {
+                (syntax.iter()).any(|diagnostic| range.contains_inclusive(diagnostic.range.start()))
+                    || self.reads_unknown(&statements[*i])
+            })
+            .map(|(_, range)| *range)
+            .collect();
+        let types = self.catalog.type_options();
+        let unread: Vec<TextRange> = match self.role {
+            Role::Data | Role::Script => (avenger_sql::data::file_reads(&root, types).into_iter())
+                .filter(|read| self.catalog.files(&read.files).is_none())
+                .map(|read| read.uris)
+                .collect(),
+            Role::Module => Vec::new(),
+        };
         let mut diagnostics: Vec<Diagnostic> = (syntax.iter())
             .map(|diagnostic| Diagnostic {
                 range: diagnostic.range,
                 message: diagnostic.message.clone(),
                 help: diagnostic.help.clone(),
+                severity: Severity::Error,
                 source: Source::Syntax,
                 code: Some(diagnostic.code),
                 fixes: diagnostic.fixes.clone(),
@@ -284,11 +340,13 @@ impl Document {
             (self.analysis_diagnostics().iter())
                 .filter(|diagnostic| {
                     !(broken.iter()).any(|range| range.intersect(diagnostic.range).is_some())
+                        && !unread.contains(&diagnostic.range)
                 })
                 .map(|diagnostic| Diagnostic {
                     range: diagnostic.range,
                     message: diagnostic.message.clone(),
                     help: None,
+                    severity: Severity::Error,
                     source: Source::Analysis,
                     code: None,
                     fixes: Vec::new(),
@@ -296,6 +354,23 @@ impl Document {
         );
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         diagnostics
+    }
+
+    /// Whether the statement `statement` reads a table whose schema is unknown: a table of this
+    /// script whose statement has an error, or a table that the catalog defines and holds no
+    /// table of.
+    fn reads_unknown(&self, statement: &ast::Stmt) -> bool {
+        let tables = avenger_sql::catalog::references(statement.syntax()).tables;
+        (tables.iter()).any(
+            |read| match self.own_table(&read.names, read.range.start()) {
+                Some(index) => self.definitions()[index].schema.is_none(),
+                None => {
+                    self.catalog.table(&read.names).is_none()
+                        && self.catalog.definition(&read.names).is_some()
+                        && !self.catalog.has_schema(&read.names)
+                }
+            },
+        )
     }
 
     /// The edits that format the text in the style of `avenger-sql/STYLE.md`: one edit of the

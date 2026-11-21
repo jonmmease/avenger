@@ -119,7 +119,7 @@ On disk, `find_root` finds the root of the project of any path under it, the nea
 
 The scripts that do not depend on a failed script load as usual. `graph` gives the errors of the graph, which are also the diagnostics of the scripts at their places. A load fails as a whole, with a `ProjectError`, only when the session's query planner can't be replaced or a file of the project can't be read.
 
-The `files` of a `ScriptLoad` hold the table of each set of files that the script read, or the error of reading it, and `file_tables` gives those of every script, which an editor's analysis of the scripts takes, so that it reads the schemas of the files that the load read. A script that did not run read no files.
+The `files` of a `ScriptLoad` hold the table of each set of files that the script read, or the error of reading it, and `file_tables` gives those of every script, and then those of the charts' own tables of files in their last runs, which an editor's analysis of the scripts takes, so that it reads the schemas of the files that the load read. A script that did not run read no files.
 
 ## Running a chart
 
