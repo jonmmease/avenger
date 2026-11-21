@@ -47,7 +47,7 @@ use avenger_sql::{
     catalog::Catalog,
     library::{Accept, Arity, Family, Library, Signature, Ty},
 };
-use avenger_sql_language::{CompletionKind, Document, Highlight, Offset, Source};
+use avenger_sql_language::{CompletionKind, Document, Highlight, Offset, Role, Source};
 use avenger_sql_syntax::ast::{self, AstNode};
 use avenger_sql_syntax::NameRole;
 
@@ -69,6 +69,7 @@ impl Env {
     fn document(&self, text: &str) -> Document {
         Document::new(
             text,
+            Role::Script,
             self.catalog.clone(),
             self.library.clone(),
             Options::default(),
@@ -274,7 +275,7 @@ fn judge(env: &Env, prefix: &str, insert: &str, after: &str, whole: bool) -> Opt
         .trim_end_matches(|c: char| c.is_ascii_alphanumeric() || c == '_' || c == '.')
         .len();
     let mut excused = Vec::new();
-    for d in (document.analysis().diagnostics.iter()).filter(|d| {
+    for d in (document.analysis().unwrap().diagnostics.iter()).filter(|d| {
         let s = usize::from(d.range.start());
         s >= start && s < end.max(prefix.len() + 1)
     }) {
@@ -316,7 +317,7 @@ fn judge_clause(env: &Env, prefix: &str, keyword: &str, rest: &str) -> Option<St
     }
     let text = format!("{prefix}{keyword}{rest})");
     let at = prefix.len();
-    (env.document(&text).analysis().diagnostics.iter())
+    (env.document(&text).analysis().unwrap().diagnostics.iter())
         .find(|d| {
             let (start, end) = (usize::from(d.range.start()), usize::from(d.range.end()));
             start <= at && end > at && d.message.contains(keyword)
@@ -561,7 +562,7 @@ fn judged(env: &Env, document: &Document, offset: usize) -> bool {
     // A window that the text does not define stops the plan of the call that names it, and a
     // window function without its `OVER`, which the text after the cursor gives, has no plan of
     // its arguments.
-    let undefined_window = (document.analysis().diagnostics.iter()).any(|d| {
+    let undefined_window = (document.analysis().unwrap().diagnostics.iter()).any(|d| {
         let (start, end) = (usize::from(d.range.start()), usize::from(d.range.end()));
         (d.message.starts_with("Unrecognized window alias") && start < offset)
             || (d

@@ -13,7 +13,9 @@
 //! `keyword`, `Comment` to `comment`, `String` to `string`, `EnumValue` to `enumMember`, `Number`
 //! to `number`, `Operator` to `operator`, and the roles of names to `class` (tables), `function`
 //! (every role of a function), `type`, `parameter`, `variable` (variables and range variables),
-//! `property` (fields) and `namespace` (modules and schemas).
+//! `property` (fields) and `namespace` (modules and schemas). The value of the option `format` of
+//! files, [`Highlight::Format`], maps to `enumMember`, as a constant, and a URI of the option
+//! `uris`, [`Highlight::Uri`], to `string`, which a host can show as a path.
 
 use rowan::TextRange;
 
@@ -34,6 +36,12 @@ pub enum Highlight {
     /// A string literal that a parameter takes as one value of a set, as `'normalize'` in
     /// `stack(n, offset => 'normalize')`. Only a semantic model gives this class.
     EnumValue,
+    /// The string of the option `format` of the files that a statement reads, as `'CSV'` in
+    /// `FROM FILES (format = 'CSV', ...)`, which a theme can show as a constant.
+    Format,
+    /// A string of the option `uris` of the files that a statement reads, as
+    /// `'data/files/sales.csv'`, which a theme can show as a path.
+    Uri,
     /// An integer or a float literal.
     Number,
     /// A query parameter: `@name` or `?`.
@@ -93,7 +101,7 @@ pub fn highlight(root: &SyntaxNode) -> Vec<HighlightRange> {
             );
         let class = match pattern_operator {
             true => Some(Highlight::Operator),
-            false => token_class(&token),
+            false => file_string(&token).or_else(|| token_class(&token)),
         };
         if let Some(highlight) = class {
             ranges.push(HighlightRange {
@@ -122,6 +130,30 @@ fn token_class(token: &SyntaxToken) -> Option<Highlight> {
         _ => return None,
     };
     Some(class)
+}
+
+/// The class of the string literal `token` when it is the value of `format`, or a URI of
+/// `uris`, in the options of files: an external table's `OPTIONS (...)`, or `FROM FILES (...)`.
+fn file_string(token: &SyntaxToken) -> Option<Highlight> {
+    let literal = token.parent().filter(|node| node.kind() == LITERAL)?;
+    let parent = literal.parent()?;
+    let (entry, class, option) = match parent.kind() {
+        OPTION_ENTRY => (parent, Highlight::Format, "format"),
+        ARRAY_EXPR => (
+            parent.parent().filter(|node| node.kind() == OPTION_ENTRY)?,
+            Highlight::Uri,
+            "uris",
+        ),
+        _ => return None,
+    };
+    let list = entry.parent()?;
+    let files = match list.kind() {
+        FROM_FILES => true,
+        OPTIONS => (list.parent()).is_some_and(|node| node.kind() == CREATE_EXTERNAL_TABLE_STMT),
+        _ => false,
+    };
+    let name = ast::OptionEntry::cast(entry)?.name()?.text()?;
+    (files && name.eq_ignore_ascii_case(option)).then_some(class)
 }
 
 /// The role of the `NAME` or `NAME_REF` node `name`, and whether the name is a definition.

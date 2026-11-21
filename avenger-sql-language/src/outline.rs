@@ -5,7 +5,7 @@ use avenger_sql_syntax::{
     SyntaxKind, SyntaxNode, SyntaxToken, TextRange,
 };
 
-use crate::{collapse, first_line, statements, trimmed, Document, Offset};
+use crate::{collapse, first_line, statements, trimmed, Document, Offset, Role};
 
 /// An item of the outline of a script.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,8 +27,13 @@ pub struct Symbol {
 pub enum SymbolKind {
     /// A variable of a `DECLARE`.
     Variable,
-    /// A temporary table.
+    /// A table: a temporary table of a chart script, or a table of a data script, which an
+    /// external table, a `LOAD DATA`, or a `CREATE TABLE ... AS` defines.
     Table,
+    /// A view of a data script.
+    View,
+    /// A schema of a data script.
+    Schema,
     /// A temporary function.
     Function,
     /// A module of an `IMPORT MODULE`.
@@ -52,11 +57,28 @@ const QUERY_NAME: usize = 60;
 
 impl Document {
     /// The outline of the script: its variables, temporary tables and functions, imports, and
-    /// queries, and under a query, its pipe operators, and under a pipe `WITH`, its names.
+    /// queries, and under a query, its pipe operators, and under a pipe `WITH`, its names. In a
+    /// data script, the tables, views, and schemas that its statements define, each with its
+    /// statement, as `TEMP EXTERNAL TABLE` or `LOAD DATA INTO`, and under a view or a table of a
+    /// query, the query's pipe operators. A chart script's own tables of files are tables of the
+    /// outline too, before its query.
     pub fn symbols(&self) -> Vec<Symbol> {
         let mut symbols = Vec::new();
         for stmt in statements(&self.root()) {
             let range = stmt.syntax().text_range();
+            // The statements of data scripts, which another text holds only with an error, apart
+            // from a chart script's own tables of files.
+            let files = matches!(
+                stmt,
+                ast::Stmt::CreateExternalTableStmt(_) | ast::Stmt::LoadDataStmt(_)
+            );
+            let data = matches!(
+                stmt,
+                ast::Stmt::CreateViewStmt(_) | ast::Stmt::CreateSchemaStmt(_)
+            );
+            if (data && self.role != Role::Data) || (files && self.role == Role::Module) {
+                continue;
+            }
             match stmt {
                 ast::Stmt::Query(query) => symbols.extend(self.query_symbol(&query)),
                 ast::Stmt::DeclareStmt(declare) => {
@@ -76,15 +98,78 @@ impl Document {
                     let Some(path) = create.name_path() else {
                         continue;
                     };
+                    // A chart script's tables are temporary, and a data script's tell.
+                    let detail = (self.role == Role::Data).then(|| created("TABLE", &create));
                     symbols.push(Symbol {
                         name: path.syntax().to_string(),
                         kind: SymbolKind::Table,
-                        detail: None,
+                        detail,
                         range,
                         name_range: path.syntax().text_range(),
                         children: (create.query())
-                            .map(|query| self.operator_symbols(&query))
+                            .map(|query| self.operator_symbols(&unwrapped(query)))
                             .unwrap_or_default(),
+                    });
+                }
+                ast::Stmt::CreateExternalTableStmt(create) => {
+                    let Some(path) = create.name_path() else {
+                        continue;
+                    };
+                    symbols.push(Symbol {
+                        name: path.syntax().to_string(),
+                        kind: SymbolKind::Table,
+                        detail: Some(created("EXTERNAL TABLE", &create)),
+                        range,
+                        name_range: path.syntax().text_range(),
+                        children: Vec::new(),
+                    });
+                }
+                ast::Stmt::LoadDataStmt(load) => {
+                    let Some(path) = load.path() else {
+                        continue;
+                    };
+                    let mode = (load.mode()).map_or(String::new(), |mode| {
+                        format!(" {}", mode.text().to_ascii_uppercase())
+                    });
+                    let temp = match load.scope().is_some() {
+                        true => " TEMP TABLE",
+                        false => "",
+                    };
+                    symbols.push(Symbol {
+                        name: path.syntax().to_string(),
+                        kind: SymbolKind::Table,
+                        detail: Some(format!("LOAD DATA{mode}{temp}")),
+                        range,
+                        name_range: path.syntax().text_range(),
+                        children: Vec::new(),
+                    });
+                }
+                ast::Stmt::CreateViewStmt(create) => {
+                    let Some(path) = create.name_path() else {
+                        continue;
+                    };
+                    symbols.push(Symbol {
+                        name: path.syntax().to_string(),
+                        kind: SymbolKind::View,
+                        detail: Some(created("VIEW", &create)),
+                        range,
+                        name_range: path.syntax().text_range(),
+                        children: (create.query())
+                            .map(|query| self.operator_symbols(&unwrapped(query)))
+                            .unwrap_or_default(),
+                    });
+                }
+                ast::Stmt::CreateSchemaStmt(create) => {
+                    let Some(path) = create.name_path() else {
+                        continue;
+                    };
+                    symbols.push(Symbol {
+                        name: path.syntax().to_string(),
+                        kind: SymbolKind::Schema,
+                        detail: Some("SCHEMA".to_string()),
+                        range,
+                        name_range: path.syntax().text_range(),
+                        children: Vec::new(),
                     });
                 }
                 ast::Stmt::CreateFunctionStmt(create) => {
@@ -116,14 +201,8 @@ impl Document {
                         children: Vec::new(),
                     });
                 }
-                // A SET, a constant, which belongs to a module, and the statements of data scripts,
-                // which a script holds only with an error, have no symbols.
-                ast::Stmt::SetStmt(_)
-                | ast::Stmt::CreateConstantStmt(_)
-                | ast::Stmt::CreateExternalTableStmt(_)
-                | ast::Stmt::CreateViewStmt(_)
-                | ast::Stmt::CreateSchemaStmt(_)
-                | ast::Stmt::LoadDataStmt(_) => {}
+                // A SET, and a constant, which belongs to a module, have no symbols.
+                ast::Stmt::SetStmt(_) | ast::Stmt::CreateConstantStmt(_) => {}
             }
         }
         symbols
@@ -168,7 +247,7 @@ impl Document {
             let name: Vec<String> = (keywords.iter())
                 .map(|token| token.text().to_ascii_uppercase())
                 .collect();
-            let detail = (self.analysis.model.operators.iter())
+            let detail = (self.model().operators.iter())
                 .rfind(|scope| scope.range == range)
                 .map(|scope| {
                     (scope.output.iter())
@@ -285,6 +364,24 @@ impl Document {
             }
         }
         ranges
+    }
+}
+
+/// The query inside the parentheses of `query`, when it is a query in parentheses alone, as the
+/// query of `CREATE VIEW v AS (FROM t |> ...)`, or else `query`.
+fn unwrapped(query: ast::Query) -> ast::Query {
+    let alone = query.pipe_operators().next().is_none() && query.from_clause().is_none();
+    match (query.paren_query()).and_then(|paren| paren.query()) {
+        Some(inner) if alone => unwrapped(inner),
+        _ => query,
+    }
+}
+
+/// The detail of the `CREATE` statement `create` of the object `what`, as `TEMP VIEW`.
+fn created(what: &str, create: &impl CreateStmt) -> String {
+    match create.scope_kind() {
+        Some(ast::Scope::Temp) => format!("TEMP {what}"),
+        _ => what.to_string(),
     }
 }
 

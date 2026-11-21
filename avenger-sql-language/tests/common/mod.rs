@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
-use avenger_sql_language::{Document, Offset, TextRange};
+use avenger_sql_language::{Document, Offset, Role, TextRange};
 use datafusion::arrow::datatypes::{DataType, Field, Fields, Schema};
 
 /// The tables `penguins` and `islands`. `islands` has a column named by a reserved word,
@@ -87,6 +87,7 @@ pub fn examples() -> MemoryCatalog {
 pub fn document(text: &str) -> Document {
     Document::new(
         text,
+        Role::Script,
         Arc::new(catalog()),
         Arc::new(Library::new()),
         Options::default(),

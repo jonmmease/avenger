@@ -191,9 +191,34 @@ fn a_data_script_defines_tables_and_schemas() {
     assert_eq!(class("rates"), (name(NameRole::Table), true));
     assert_eq!(class("uris"), (name(NameRole::Option), true));
     assert_eq!(class("recent"), (name(NameRole::Table), true));
+    // The format of files is a constant, and a URI of files a path.
+    assert_eq!(class("'CSV'"), (Highlight::Format, false));
+    assert_eq!(class("'r.csv'"), (Highlight::Uri, false));
     for keyword in [
         "EXTERNAL", "LOAD", "DATA", "INTO", "TEMP", "FILES", "VIEW", "SCHEMA",
     ] {
         assert_eq!(class(keyword), (Highlight::Keyword, false), "{keyword}");
     }
+}
+
+#[test]
+fn only_the_options_of_files_hold_formats_and_uris() {
+    let text = "CREATE VIEW v OPTIONS (description = 'CSV') AS FROM t; \
+                CREATE EXTERNAL TABLE e OPTIONS (format = 'JSON', uris = ['a.json', 'b.json'], \
+                description = 'x');";
+    let classes: Vec<(String, Highlight)> = highlight(&parse_data(text).syntax())
+        .into_iter()
+        .map(|range| (text[range.range].to_string(), range.highlight))
+        .collect();
+    let class = |word: &str| {
+        (classes.iter())
+            .find(|(found, _)| found == word)
+            .map(|(_, highlight)| *highlight)
+            .unwrap_or_else(|| panic!("no range `{word}`: {classes:?}"))
+    };
+    assert_eq!(class("'CSV'"), Highlight::String);
+    assert_eq!(class("'JSON'"), Highlight::Format);
+    assert_eq!(class("'a.json'"), Highlight::Uri);
+    assert_eq!(class("'b.json'"), Highlight::Uri);
+    assert_eq!(class("'x'"), Highlight::String);
 }
