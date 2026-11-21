@@ -87,7 +87,8 @@ fn defines(statement: &ast::Stmt) -> Option<(Vec<String>, bool)> {
     Some((path?.names()?, schema))
 }
 
-/// The state of the analysis of a data script, beside the pass over its queries.
+/// The state of the analysis of a data script, or of the tables of files of a chart script,
+/// beside the pass over its queries.
 #[derive(Default)]
 pub(super) struct DataScript {
     pub definitions: Vec<Definition>,
@@ -127,7 +128,8 @@ impl DataScript {
             .collect();
     }
 
-    /// Analyzes `statement`, a statement of a data script.
+    /// Analyzes `statement`, a statement of a data script, or a statement of files of a chart
+    /// script: `CREATE EXTERNAL TABLE` or `LOAD DATA`.
     pub fn statement(&mut self, pass: &mut Pass, statement: &ast::Stmt) {
         match statement {
             ast::Stmt::CreateExternalTableStmt(create) => self.external_table(pass, create),
@@ -416,6 +418,12 @@ impl DataScript {
     ) -> Option<Target> {
         let names = path.names()?;
         let range = path.syntax().text_range();
+        // A chart script's temporary table of a query, which the pass inlines, has its name.
+        let name = names.join(".");
+        if (pass.temp_tables.iter()).any(|table| table.name.eq_ignore_ascii_case(&name)) {
+            pass.error(range, format!("Table {name} already exists"));
+            return None;
+        }
         match (schema, names.len()) {
             (true, 1) | (false, 1) => {}
             (true, _) => {

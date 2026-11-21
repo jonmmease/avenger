@@ -36,15 +36,17 @@ pub struct Reference {
 /// The tables and modules that a script names.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct References {
-    /// The paths of the tables in `FROM`, joins, and `TABLE` arguments, in the order of the text.
-    /// Some of them name a temporary table, a pipe `WITH` name, or a table that doesn't exist,
-    /// which a catalog doesn't find.
+    /// The paths of the tables in `FROM`, joins, and `TABLE` arguments, in the order of the text,
+    /// without the reads of a table that an earlier statement of the script defines, such as a
+    /// temporary table or a chart script's own table of files. Some of them name a pipe `WITH`
+    /// name, or a table that doesn't exist, which a catalog doesn't find.
     pub tables: Vec<Reference>,
     /// The paths of the modules of `IMPORT MODULE`.
     pub modules: Vec<Reference>,
 }
 
-/// The tables and modules that the tree `root` names.
+/// The tables and modules that the tree `root` names. When `root` is a script, a read of a table
+/// that an earlier statement defines reads that statement's table, and is not a reference.
 pub fn references(root: &SyntaxNode) -> References {
     let mut references = References::default();
     let reference = |path: Option<ast::Path>| {
@@ -54,22 +56,48 @@ pub fn references(root: &SyntaxNode) -> References {
             range: path.range(),
         })
     };
-    for node in root.descendants() {
-        let table = if let Some(source) = ast::TableSource::cast(node.clone()) {
-            reference(source.path())
-        } else if let Some(arg) = ast::TableArg::cast(node.clone()) {
-            reference(arg.path())
-        } else if let Some(arg) = ast::NamedTableArg::cast(node.clone()) {
-            reference(arg.path())
-        } else {
-            if let Some(import) = ast::ImportStmt::cast(node.clone()) {
-                references.modules.extend(reference(import.path()));
+    let mut add = |node: &SyntaxNode, defined: &[Vec<String>]| {
+        for node in node.descendants() {
+            let table = if let Some(source) = ast::TableSource::cast(node.clone()) {
+                reference(source.path())
+            } else if let Some(arg) = ast::TableArg::cast(node.clone()) {
+                reference(arg.path())
+            } else if let Some(arg) = ast::NamedTableArg::cast(node.clone()) {
+                reference(arg.path())
+            } else {
+                if let Some(import) = ast::ImportStmt::cast(node.clone()) {
+                    references.modules.extend(reference(import.path()));
+                }
+                None
+            };
+            let table =
+                table.filter(|table| !defined.iter().any(|names| same_path(names, &table.names)));
+            references.tables.extend(table);
+        }
+    };
+    match ast::Script::cast(root.clone()) {
+        Some(_) => {
+            let mut defined = Vec::new();
+            for child in root.children() {
+                add(&child, &defined);
+                defined.extend(ast::Stmt::cast(child).as_ref().and_then(defined_table));
             }
-            None
-        };
-        references.tables.extend(table);
+        }
+        None => add(root, &[]),
     }
     references
+}
+
+/// The path of the table that `statement` defines, `TEMP` or not.
+fn defined_table(statement: &ast::Stmt) -> Option<Vec<String>> {
+    let path = match statement {
+        ast::Stmt::CreateExternalTableStmt(create) => create.path(),
+        ast::Stmt::CreateViewStmt(create) => create.path(),
+        ast::Stmt::CreateTableStmt(create) => create.path(),
+        ast::Stmt::LoadDataStmt(load) => load.path(),
+        _ => None,
+    };
+    path?.names()
 }
 
 /// A table of a catalog: the names it has in the catalog, and its provider.

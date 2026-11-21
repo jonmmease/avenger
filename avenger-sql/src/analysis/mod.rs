@@ -41,6 +41,7 @@ pub use model::{
 pub use print::{Lifted, LiftedOperator};
 
 use crate::{catalog::Catalog, library::Library, types::TypeOptions};
+use data::DataScript;
 use rows::{Col, Qualifiers, RangeVar, Rows};
 
 /// The options of an analysis.
@@ -81,6 +82,13 @@ pub struct Analysis {
     pub diagnostics: Vec<Diagnostic>,
     /// The pipe `AGGREGATE`s that hold lifted calls, which [`Analysis::lift`] prints.
     pub lifted: Vec<LiftedOperator>,
+    /// The script's own tables of files, in the order of the text: each `CREATE TEMP EXTERNAL
+    /// TABLE` and `LOAD DATA ... TEMP TABLE`, analyzed as a data script's statement is. A read of
+    /// one plans a scan of the [`ScriptTable`] of its definition, which a loader replaces with
+    /// the table of its files before the plans run.
+    ///
+    /// [`ScriptTable`]: crate::data::ScriptTable
+    pub file_tables: Vec<crate::data::Definition>,
 }
 
 /// A statement of a script and its plan.
@@ -104,8 +112,9 @@ pub enum StatementPlan {
         id: String,
         plan: LogicalPlan,
     },
-    /// A statement that defines a name for the statements after it, which the pass inlines: a
-    /// temporary table, a temporary function, or an import.
+    /// A statement that defines a name for the statements after it: a temporary table, a
+    /// temporary function, or an import, which the pass inlines, or a table of files, which
+    /// [`Analysis::file_tables`] holds.
     Definition,
 }
 
@@ -181,12 +190,16 @@ pub fn analyze(
     let mut pass = Pass::new(catalog, library, options);
     let mut plan = None;
     let mut statements = Vec::new();
+    let mut data = DataScript::default();
     match ast::Script::cast(root.clone()) {
         Some(script) => {
-            for stmt in script.stmts() {
+            let stmts: Vec<ast::Stmt> = script.stmts().collect();
+            data = DataScript::new(&stmts);
+            for (index, stmt) in stmts.iter().enumerate() {
                 let range = stmt.syntax().text_range();
                 let errors = pass.diagnostics.len();
-                let planned = pass.script_statement(&stmt);
+                data.later(&mut pass, index);
+                let planned = pass.script_statement(stmt, &mut data);
                 if pass.diagnostics.len() != errors {
                     if matches!(stmt, ast::Stmt::Query(_)) {
                         plan = None;
@@ -215,6 +228,7 @@ pub fn analyze(
         model: pass.model,
         diagnostics: pass.diagnostics,
         lifted: pass.lifted,
+        file_tables: data.definitions,
     }
 }
 
@@ -311,8 +325,8 @@ impl<'a> Pass<'a> {
 }
 
 impl Pass<'_> {
-    /// The plans of the statement `stmt` of a script.
-    fn script_statement(&mut self, stmt: &ast::Stmt) -> Vec<StatementPlan> {
+    /// The plans of the statement `stmt` of a script, whose tables of files `data` analyzes.
+    fn script_statement(&mut self, stmt: &ast::Stmt, data: &mut DataScript) -> Vec<StatementPlan> {
         match stmt {
             ast::Stmt::Query(query) => self
                 .statement(query)
@@ -340,11 +354,13 @@ impl Pass<'_> {
                 );
                 Vec::new()
             }
-            // The statements of a data script, which a script's parse reports already.
-            ast::Stmt::CreateExternalTableStmt(_)
-            | ast::Stmt::CreateViewStmt(_)
-            | ast::Stmt::CreateSchemaStmt(_)
-            | ast::Stmt::LoadDataStmt(_) => Vec::new(),
+            // A script's own tables of files, which a script's parse reports without `TEMP`.
+            ast::Stmt::CreateExternalTableStmt(_) | ast::Stmt::LoadDataStmt(_) => {
+                data.statement(self, stmt);
+                vec![StatementPlan::Definition]
+            }
+            // The other statements of a data script, which a script's parse reports already.
+            ast::Stmt::CreateViewStmt(_) | ast::Stmt::CreateSchemaStmt(_) => Vec::new(),
         }
     }
 

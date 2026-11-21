@@ -18,6 +18,7 @@ FROM penguins
 
 - `DECLARE name [type] [DEFAULT value]` declares variables, before any other statement. `SET name = value` and `SET (a, b) = (...)` assign them. A variable stands in the options of the transforms, as in `bin(x, step => width)`, also when its value is the result of a query, since the plan binds it before the query runs.
 - `CREATE TEMP TABLE t AS (query)`, or `CREATE TEMP TABLE t (columns)`, names a table for the statements after it.
+- `CREATE TEMP EXTERNAL TABLE` and `LOAD DATA {OVERWRITE | INTO} TEMP TABLE` name a table of files for the statements after it, as in a data script below.
 - `CREATE TEMP [AGGREGATE | TABLE] FUNCTION` defines a function. A parameter takes a type, `ANY TYPE`, `ANY TABLE`, or `TABLE<...>`. A table function's body is a query.
 - `IMPORT MODULE path [AS alias]` imports the public functions and constants of a module that the catalog holds. A module starts with `MODULE path;` and holds `CREATE PUBLIC` or `CREATE PRIVATE` functions and constants.
 - Query parameters are `@name`.
@@ -46,6 +47,16 @@ CREATE TABLE totals AS (FROM recent |> AGGREGATE sum(amount) AS total GROUP BY r
 - A URI is a path relative to the project root, with one `*` at most. A table without a column list takes the schema of its files, and the first row of a CSV file names its columns.
 - `TEMP` keeps a table in its script, as a step that the scripts don't see.
 - `CREATE SCHEMA s` creates a schema, a dataset in BigQuery, and `s.t` names a table in it. A statement reads only the tables and schemas of the statements before it, of other data scripts, and of the host.
+
+A chart script holds its own tables of files: `CREATE TEMP EXTERNAL TABLE` and `LOAD DATA {OVERWRITE | INTO} TEMP TABLE`, with the options and the URIs of a data script's. `TEMP` in a chart means what it means in a data script: only the chart's later statements read the table, and no other script sees it. A chart's `CREATE TEMP TABLE ... AS` is a view, whose query runs where a statement reads it, so a chart loads rows once with `LOAD DATA`. These statements without `TEMP`, `CREATE VIEW`, and `CREATE SCHEMA` are errors in a chart, whose help names a data script.
+
+```sql
+CREATE TEMP EXTERNAL TABLE orders
+OPTIONS (format = 'CSV', uris = ['data/files/orders/*.csv']);
+
+FROM orders
+|> AGGREGATE mark_bar(x => region, y => SUM(amount)) AS chart
+```
 
 ## Queries
 

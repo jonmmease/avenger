@@ -3,7 +3,9 @@
 //! A data script, which [`avenger_sql_syntax::parse_data`] reads, holds `CREATE EXTERNAL TABLE`,
 //! which declares a table over files, `LOAD DATA`, which loads files into a table once, `CREATE
 //! VIEW`, `CREATE TABLE ... AS`, and `CREATE SCHEMA`, with `CREATE TEMP FUNCTION` and `IMPORT
-//! MODULE` for its own statements. `TEMP` on a table keeps it inside its script.
+//! MODULE` for its own statements. `TEMP` on a table keeps it inside its script. A chart script
+//! holds `CREATE TEMP EXTERNAL TABLE` and `LOAD DATA ... TEMP TABLE` too, for its own tables of
+//! files, which [`crate::analyze`] analyzes with the same code.
 //!
 //! [`FILE_OPTIONS`] is the table of the options of files, which the checks read, and
 //! [`UNSUPPORTED_OPTIONS`] the options of BigQuery that a data script rejects. The options of a
@@ -274,7 +276,7 @@ impl DataAnalysis {
 }
 
 /// A statement of a data script that defines a table, a view, or a schema, or loads files into
-/// a table.
+/// a table, or a chart script's statement of its own table of files.
 #[derive(Clone, Debug)]
 pub struct Definition {
     /// The path of its name, as the statement writes it.
@@ -341,9 +343,9 @@ pub enum LoadMode {
     Into,
 }
 
-/// The table of a definition of a data script, as the plans of the statements after it read it:
-/// a placeholder of its schema that a loader replaces with the table that it builds. A scan of
-/// it is an error.
+/// The table of a definition of a data script or a chart script, as the plans of the statements
+/// after it read it: a placeholder of its schema that a loader replaces with the table that it
+/// builds. A scan of it is an error.
 #[derive(Clone, Debug)]
 pub struct ScriptTable {
     names: Vec<String>,
@@ -354,7 +356,7 @@ pub struct ScriptTable {
 
 impl ScriptTable {
     /// The table of the definition at the index `definition` of [`DataAnalysis::definitions`],
-    /// named `names`, of the schema `schema`.
+    /// or of [`crate::analysis::Analysis::file_tables`], named `names`, of the schema `schema`.
     pub(crate) fn new(
         names: Vec<String>,
         definition: usize,
