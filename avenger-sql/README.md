@@ -18,6 +18,12 @@ A script is statements separated by `;`. `DECLARE` and `SET` give script variabl
 
 The functions are those of the `library`: GoogleSQL's functions, avenger-chart's marks and compositions, and the transforms of avenger-datafusion-transforms, with avenger-chart's constructors, which only the arguments of a chart function call. Each function declares its forms, with GoogleSQL's types and coercion, and documents itself and its parameters. `library::reference` renders the reference of every function, which notes where a function differs from GoogleSQL. A parameter keeps its name when it is a reserved word of GoogleSQL, as `range` of `scale` does, because the parser reads a word that `=>` follows as an argument's name.
 
+## Data scripts
+
+`data::FILE_OPTIONS` is the table of the options of files, with each option's type, formats, meaning, and values, and `data::UNSUPPORTED_OPTIONS` the options of BigQuery that a data script rejects. The options of a statement give its `data::Files`: the format, the URIs, and how the files read. `data::uri_kind` tells what a URI names from its text alone: a path relative to the project's root, one that goes above the root, an absolute path of Unix or Windows, a `file:` URL, or a URL of another scheme. Reading the schema of files is I/O, so a loader collects the files of a script with `data::file_reads`.
+
+The cargo features `parquet`, `avro`, and `compression`, which none of the defaults turns on, turn on DataFusion's features of the same names. A data script that reads a format or a compression whose feature a build lacks has an error that names the feature.
+
 ## Row pattern recognition
 
 `MATCH_RECOGNIZE` finds the runs of rows that match a pattern, as a pipe operator or after a source in `FROM`, with the syntax of [GoogleSQL's `MATCH_RECOGNIZE`](https://github.com/google/googlesql/blob/2026.11.1/docs/pipe-syntax.md#match_recognize_pipe_operator). A pattern variable's condition reads the row, and `PREV` and `NEXT` read its neighbors in the partition. A measure reads aggregates of the match's rows, such as `COUNT(*)`, or of one variable's rows, such as `MIN(dn.price)`:

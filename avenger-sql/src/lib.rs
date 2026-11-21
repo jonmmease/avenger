@@ -25,9 +25,15 @@
 //! The parts of planning GoogleSQL with [`avenger_sql_syntax`]: [`library`] maps GoogleSQL's
 //! functions and avenger's onto DataFusion, [`types`] maps GoogleSQL's types to Arrow types, and
 //! [`catalog`] looks up the tables that a script names.
+//!
+//! A project's [`data`] scripts register the tables that its scripts read, with GoogleSQL's
+//! `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`, and `CREATE
+//! SCHEMA`. [`data`] holds the options of the files that they read, and the files that the
+//! statements of a script read.
 
 pub mod analysis;
 pub mod catalog;
+pub mod data;
 mod functions;
 pub mod library;
 mod pipeline;
