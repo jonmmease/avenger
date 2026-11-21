@@ -8,23 +8,39 @@
 //! [`FILE_OPTIONS`] is the table of the options of files, which the checks read, and
 //! [`UNSUPPORTED_OPTIONS`] the options of BigQuery that a data script rejects. The options of a
 //! statement that reads files give its [`Files`]. Reading the schema of files is I/O, so a loader
-//! collects the files of a script with [`file_reads`].
+//! collects the files of a script with [`file_reads`] before the analysis, and a [`Catalog`]
+//! gives the table of each, as [`Catalog::files`]. [`crate::analyze_data`] then analyzes the
+//! script into a [`DataAnalysis`]: each table, view and schema that it defines, the reads that
+//! leave it, and its errors.
+//!
+//! [`Catalog`]: crate::catalog::Catalog
+//! [`Catalog::files`]: crate::catalog::Catalog::files
 
 mod options;
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
-use datafusion::arrow::datatypes::Fields;
+use datafusion::{
+    arrow::datatypes::{Fields, SchemaRef},
+    catalog::{Session, TableProvider},
+    common::{plan_err, Result},
+    logical_expr::{Expr, LogicalPlan, TableType},
+    physical_plan::ExecutionPlan,
+};
 
+pub(crate) use options::{column_list, file_options, table_options, FileStatement};
 pub use options::{
     file_option, option_format, option_places, unsupported_option, uri_kind, FileOption,
     OptionPlace, OptionType, OptionValue, UnsupportedOption, UriKind, FILE_OPTIONS,
     UNSUPPORTED_OPTIONS,
 };
-use options::{file_options, FileStatement};
 
-use crate::types::TypeOptions;
+use crate::{
+    analysis::{Diagnostic, Model},
+    catalog::Reference,
+    types::TypeOptions,
+};
 
 /// The format of files, the value of the option `format`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -158,8 +174,9 @@ pub enum Partitions {
     Columns(Fields),
 }
 
-/// A set of files to read, as the options of a statement describe them: what a loader reads.
-/// Two statements with equal options read equal files.
+/// A set of files to read, as the options of a statement describe them: what a catalog turns
+/// into a table, and what a loader reads. Two statements with equal options read equal files,
+/// so a catalog can keep the table of each by its `Files`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Files {
     pub format: Format,
@@ -191,8 +208,8 @@ pub struct FileRead {
 
 /// The files that the external tables and the `LOAD DATA` statements of the data script `root`
 /// read, in the order of the text, with the types of their column lists by `types`. A statement
-/// whose options have errors reads none. A loader reads the schemas of these files, as a catalog
-/// fetches the tables of [`crate::catalog::references`].
+/// whose options have errors reads none. A loader reads the schemas of these files before the
+/// analysis, as a catalog fetches the tables of [`crate::catalog::references`].
 pub fn file_reads(root: &SyntaxNode, types: TypeOptions) -> Vec<FileRead> {
     let mut reads = Vec::new();
     for node in root.descendants() {
@@ -218,4 +235,172 @@ pub fn file_reads(root: &SyntaxNode, types: TypeOptions) -> Vec<FileRead> {
         }
     }
     reads
+}
+
+/// The analysis of a data script, which [`crate::analyze_data`] gives.
+#[derive(Clone, Debug)]
+pub struct DataAnalysis {
+    /// The statements that define a table, a view, or a schema, or load files into a table, in
+    /// the order of the text.
+    pub definitions: Vec<Definition>,
+    /// The reads of tables of the catalog, in the order of the text, whether the catalog holds
+    /// them or not: the reads of tables that the script doesn't define, and every read of the
+    /// code of a module, which reads no table of the script. A read in the body of a function is
+    /// at the call that plans it, and for a function of a module, at the import that checks it
+    /// too.
+    pub reads: Vec<Reference>,
+    /// The semantic model of the queries of the script's views and tables.
+    pub model: Model,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl DataAnalysis {
+    /// The definitions that other scripts see: those without `TEMP` that create their name and
+    /// that no later definition of the script replaces. An append of `LOAD DATA INTO` adds rows
+    /// to its table and defines none.
+    pub fn exported(&self) -> impl Iterator<Item = &Definition> {
+        let definitions = &self.definitions;
+        (definitions.iter().enumerate())
+            .filter(|(_, definition)| !definition.temp && definition.appends().is_none())
+            .filter(move |(index, definition)| {
+                !definitions[index + 1..].iter().any(|later| {
+                    later.appends().is_none()
+                        && later.is_schema() == definition.is_schema()
+                        && crate::catalog::same_path(&later.names, &definition.names)
+                })
+            })
+            .map(|(_, definition)| definition)
+    }
+}
+
+/// A statement of a data script that defines a table, a view, or a schema, or loads files into
+/// a table.
+#[derive(Clone, Debug)]
+pub struct Definition {
+    /// The path of its name, as the statement writes it.
+    pub names: Vec<String>,
+    pub kind: DefinitionKind,
+    /// Whether it is `TEMP`, so only the later statements of its script read it.
+    pub temp: bool,
+    /// The range of the path of its name.
+    pub name_range: TextRange,
+    /// The range of the statement.
+    pub range: TextRange,
+    /// The `description` of its options.
+    pub description: Option<String>,
+    /// The schema of the table: its column list, the output of its query, or the schema of its
+    /// files that the catalog gives. `None` for a schema, and for a table whose statement has an
+    /// error that leaves its columns unknown.
+    pub schema: Option<SchemaRef>,
+}
+
+impl Definition {
+    /// The index of the definition whose table an append of `LOAD DATA INTO` adds rows to.
+    pub fn appends(&self) -> Option<usize> {
+        match &self.kind {
+            DefinitionKind::LoadData { appends, .. } => *appends,
+            _ => None,
+        }
+    }
+
+    fn is_schema(&self) -> bool {
+        matches!(self.kind, DefinitionKind::Schema)
+    }
+}
+
+/// What a definition of a data script is.
+#[derive(Clone, Debug)]
+pub enum DefinitionKind {
+    /// `CREATE EXTERNAL TABLE`, a table over files that each query reads again. `files` is
+    /// `None` when its options have errors.
+    ExternalTable { files: Option<Files> },
+    /// `LOAD DATA`, which loads files into a table once.
+    LoadData {
+        files: Option<Files>,
+        mode: LoadMode,
+        /// For `LOAD DATA INTO` a table that an earlier statement of the script creates, the
+        /// index of that statement's definition, whose table takes the rows of the files.
+        appends: Option<usize>,
+    },
+    /// `CREATE VIEW`, a query that each query that reads it runs again. `plan` is `None` when
+    /// its query has errors.
+    View { plan: Option<LogicalPlan> },
+    /// `CREATE TABLE ... AS`, the rows of a query, computed once.
+    TableAs { plan: Option<LogicalPlan> },
+    /// `CREATE SCHEMA`, a namespace of tables.
+    Schema,
+}
+
+/// The mode of a `LOAD DATA`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LoadMode {
+    /// `LOAD DATA OVERWRITE`, which creates the table.
+    Overwrite,
+    /// `LOAD DATA INTO`, which creates the table, or appends to a table that an earlier
+    /// statement of the script creates.
+    Into,
+}
+
+/// The table of a definition of a data script, as the plans of the statements after it read it:
+/// a placeholder of its schema that a loader replaces with the table that it builds. A scan of
+/// it is an error.
+#[derive(Clone, Debug)]
+pub struct ScriptTable {
+    names: Vec<String>,
+    definition: usize,
+    schema: SchemaRef,
+    table_type: TableType,
+}
+
+impl ScriptTable {
+    /// The table of the definition at the index `definition` of [`DataAnalysis::definitions`],
+    /// named `names`, of the schema `schema`.
+    pub(crate) fn new(
+        names: Vec<String>,
+        definition: usize,
+        schema: SchemaRef,
+        table_type: TableType,
+    ) -> Self {
+        Self {
+            names,
+            definition,
+            schema,
+            table_type,
+        }
+    }
+
+    /// The path of the table, as its definition writes it.
+    pub fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// The index of the definition in [`DataAnalysis::definitions`] whose rows a read sees: the
+    /// table's definition, or the last append of `LOAD DATA INTO` before the read.
+    pub fn definition(&self) -> usize {
+        self.definition
+    }
+}
+
+#[async_trait::async_trait]
+impl TableProvider for ScriptTable {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
+    }
+
+    fn table_type(&self) -> TableType {
+        self.table_type
+    }
+
+    async fn scan(
+        &self,
+        _state: &dyn Session,
+        _projection: Option<&Vec<usize>>,
+        _filters: &[Expr],
+        _limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        plan_err!(
+            "{} is a table of a script's statement, which a loader builds before a query reads it",
+            self.names.join(".")
+        )
+    }
 }

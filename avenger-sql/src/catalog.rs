@@ -6,6 +6,11 @@
 //! DataFusion session. The analysis then looks them up synchronously. [`MemoryCatalog`] holds
 //! tables for tests.
 //!
+//! A data script's external tables and `LOAD DATA` statements read files, whose schemas a
+//! loader reads before the analysis, as [`crate::data::file_reads`] collects them: the catalog
+//! gives the table of each [`Files`] with [`Catalog::files`]. A catalog of a project also gives
+//! the place that defines each table with [`Catalog::definition`].
+//!
 //! Names match without regard to case, as in GoogleSQL. A path of one name is a table of the
 //! default schema, a path of two a schema and a table, and a path of three a catalog, a schema
 //! and a table.
@@ -18,7 +23,7 @@ use datafusion::{
     datasource::empty::EmptyTable, prelude::SessionContext,
 };
 
-use crate::types::TypeOptions;
+use crate::{data::Files, types::TypeOptions};
 
 /// A path that a script names, and the range of its text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,7 +87,24 @@ impl Table {
     }
 }
 
-/// Where the pass looks up the tables of a script.
+/// The table that reads a set of files, or the error of reading them, such as a file that
+/// doesn't exist.
+pub type FilesTable = std::result::Result<Arc<dyn TableProvider>, String>;
+
+/// The place that defines a table, a view, or a schema of a catalog, such as the statement of a
+/// project's data script that creates it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TableDefinition {
+    /// The file that holds the definition, as its host names it, such as a path in a project.
+    pub file: String,
+    /// The range of the statement that defines it, in the text of `file`.
+    pub range: TextRange,
+    pub description: Option<String>,
+}
+
+/// Where the pass looks up the tables of a script. The catalog of a data script's analysis holds
+/// the tables outside the script: those of the host and of the other data scripts of its
+/// project.
 pub trait Catalog {
     /// The table at the path `names`, matched without regard to case.
     fn table(&self, names: &[String]) -> Option<Table>;
@@ -98,6 +120,25 @@ pub trait Catalog {
     /// How GoogleSQL's types map to Arrow types.
     fn type_options(&self) -> TypeOptions {
         TypeOptions::default()
+    }
+
+    /// The table that reads the files `files`, of an external table or a `LOAD DATA`: a table
+    /// of the files' schema, or the error of reading it. `None` when the catalog reads no
+    /// files.
+    fn files(&self, _files: &Files) -> Option<FilesTable> {
+        None
+    }
+
+    /// Whether the catalog holds the schema at the path `names`, which a data script's tables
+    /// can be in. By default, whether a table of the catalog is in it.
+    fn has_schema(&self, names: &[String]) -> bool {
+        in_schema(&self.tables(), names)
+    }
+
+    /// The place that defines the table, the view, or the schema at the path `names`, and its
+    /// description.
+    fn definition(&self, _names: &[String]) -> Option<TableDefinition> {
+        None
     }
 }
 
@@ -236,11 +277,26 @@ fn lookup(tables: &[Table], names: &[String]) -> Option<Table> {
         .cloned()
 }
 
-/// A catalog of tables and modules that a test adds.
+/// Whether a table of `tables` is in the schema at the path `names`.
+fn in_schema(tables: &[Table], names: &[String]) -> bool {
+    (tables.iter()).any(|table| {
+        table.names.len() == names.len() + 1 && same_path(&table.names[..names.len()], names)
+    })
+}
+
+/// A catalog of tables, modules, schemas, tables of files, and definitions that a test or a
+/// host adds.
 #[derive(Clone, Debug, Default)]
 pub struct MemoryCatalog {
     tables: Vec<Table>,
     modules: Vec<(Vec<String>, String)>,
+    schemas: Vec<Vec<String>>,
+    files: Vec<(Files, FilesTable)>,
+    definitions: Vec<(Vec<String>, TableDefinition)>,
+}
+
+fn path(names: &[&str]) -> Vec<String> {
+    names.iter().map(|name| name.to_string()).collect()
 }
 
 impl MemoryCatalog {
@@ -265,8 +321,37 @@ impl MemoryCatalog {
 
     /// Adds the module of the text `text` at the path `names`.
     pub fn with_module(mut self, names: &[&str], text: &str) -> Self {
-        let names = names.iter().map(|name| name.to_string()).collect();
-        self.modules.push((names, text.to_string()));
+        self.modules.push((path(names), text.to_string()));
+        self
+    }
+
+    /// Adds the schema at the path `names`, a namespace of tables, without tables.
+    pub fn with_namespace(mut self, names: &[&str]) -> Self {
+        self.schemas.push(path(names));
+        self
+    }
+
+    /// Adds `provider` as the table that reads the files `files`.
+    pub fn with_files(mut self, files: Files, provider: Arc<dyn TableProvider>) -> Self {
+        self.files.push((files, Ok(provider)));
+        self
+    }
+
+    /// Adds an empty table of `schema` as the table that reads the files `files`.
+    pub fn with_files_schema(self, files: Files, schema: SchemaRef) -> Self {
+        self.with_files(files, Arc::new(EmptyTable::new(schema)))
+    }
+
+    /// Adds `error` as the error of reading the files `files`.
+    pub fn with_files_error(mut self, files: Files, error: &str) -> Self {
+        self.files.push((files, Err(error.to_string())));
+        self
+    }
+
+    /// Adds `definition` as the place that defines the table, the view, or the schema at the
+    /// path `names`.
+    pub fn with_definition(mut self, names: &[&str], definition: TableDefinition) -> Self {
+        self.definitions.push((path(names), definition));
         self
     }
 }
@@ -284,5 +369,24 @@ impl Catalog for MemoryCatalog {
         (self.modules.iter())
             .find(|(path, _)| same_path(path, names))
             .map(|(_, text)| text.clone())
+    }
+
+    /// The table of `files` that the catalog holds. A catalog that holds no tables of files
+    /// reads no files.
+    fn files(&self, files: &Files) -> Option<FilesTable> {
+        (self.files.iter())
+            .find(|(held, _)| held == files)
+            .map(|(_, provider)| provider.clone())
+    }
+
+    fn has_schema(&self, names: &[String]) -> bool {
+        (self.schemas.iter()).any(|schema| same_path(schema, names))
+            || in_schema(&self.tables, names)
+    }
+
+    fn definition(&self, names: &[String]) -> Option<TableDefinition> {
+        (self.definitions.iter())
+            .find(|(path, _)| same_path(path, names))
+            .map(|(_, definition)| definition.clone())
     }
 }

@@ -28,8 +28,8 @@
 //!
 //! A project's [`data`] scripts register the tables that its scripts read, with GoogleSQL's
 //! `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`, and `CREATE
-//! SCHEMA`. [`data`] holds the options of the files that they read, and the files that the
-//! statements of a script read.
+//! SCHEMA`. [`analyze_data`] analyzes a data script: what each statement defines, its schema,
+//! and the reads that leave the script.
 
 pub mod analysis;
 pub mod catalog;
@@ -42,7 +42,7 @@ pub mod types;
 
 use datafusion::{common::Result, prelude::SessionContext};
 
-pub use analysis::analyze;
+pub use analysis::{analyze, analyze_data};
 pub use pipeline::{lift, sql, sql_with_modules, ScriptError};
 
 /// Registers in `ctx` what the plans of avenger-sql need to run: [`QueryPlanner`], which plans the

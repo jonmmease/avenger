@@ -431,7 +431,7 @@ impl Pass<'_> {
     }
 
     /// `rows` with the names and the types of `columns`, by place.
-    fn typed_columns(
+    pub(super) fn typed_columns(
         &mut self,
         rows: Rows,
         columns: &[(String, DataType, TextRange)],
@@ -749,15 +749,32 @@ impl Pass<'_> {
     ) -> R {
         let saved_params = std::mem::replace(&mut self.params, bindings);
         let saved_outers = std::mem::take(&mut self.outers);
-        if let Some(module) = &function.module {
-            self.module_context.push(module.clone());
-        }
-        let result = plan(self);
-        if function.module.is_some() {
-            self.module_context.pop();
-        }
+        let result = match &function.module {
+            Some(module) => {
+                self.module_context.push(module.clone());
+                let result = self.in_module(plan);
+                self.module_context.pop();
+                result
+            }
+            None => plan(self),
+        };
         self.outers = saved_outers;
         self.params = saved_params;
+        result
+    }
+
+    /// The result of `plan`, which plans the code of a module, apart from the script that imports
+    /// it: the code reads the tables of the catalog, and not the script's pipe `WITH` names or
+    /// the tables that the statements of a data script define, before or after the statement
+    /// that plans the code.
+    fn in_module<R>(&mut self, plan: impl FnOnce(&mut Self) -> R) -> R {
+        let saved = (
+            std::mem::take(&mut self.with_names),
+            std::mem::take(&mut self.data_tables),
+            std::mem::take(&mut self.later_tables),
+        );
+        let result = plan(self);
+        (self.with_names, self.data_tables, self.later_tables) = saved;
         result
     }
 
@@ -1169,13 +1186,8 @@ impl Pass<'_> {
             let alias = Some((names.last().cloned().unwrap_or_default(), range));
             return self.close(table.rows, alias, false, range);
         }
-        match self.catalog_table(names, range) {
-            Some(rows) => rows,
-            None => {
-                self.error(range, format!("Table not found: {}", names.join(".")));
-                Rows::failed(Vec::new(), Vec::new())
-            }
-        }
+        let name = names.last().cloned().unwrap_or_default();
+        self.stored_table(names, range, name, range)
     }
 
     /// `IMPORT MODULE`: the module's functions and constants, under the import's alias, within the
@@ -1216,7 +1228,9 @@ impl Pass<'_> {
             import: at,
         };
         let prefix = format!("In module {}: ", names.join("."));
-        self.inlined(&prefix, at, |pass| pass.module_body(&module, &context));
+        self.inlined(&prefix, at, |pass| {
+            pass.in_module(|pass| pass.module_body(&module, &context))
+        });
         self.use_name(path_range, Definition::Module { names });
     }
 
@@ -1259,19 +1273,21 @@ impl Pass<'_> {
 
     /// The result of `plan`, which plans the code of a definition at its call or its import. The
     /// model keeps the names, the operators, the call forms and the places of the code from the
-    /// definition, and each error of the code goes to `range`, after `prefix`, as `In f: `.
+    /// definition, and each error of the code goes to `range`, after `prefix`, as `In f: `, as
+    /// does each read of a table of the catalog.
     fn inlined<R>(
         &mut self,
         prefix: &str,
         range: TextRange,
         plan: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let (names, operators, calls, places, errors) = (
+        let (names, operators, calls, places, errors, reads) = (
             self.model.names.len(),
             self.model.operators.len(),
             self.model.calls.len(),
             self.model.places.len(),
             self.diagnostics.len(),
+            self.reads.len(),
         );
         let result = plan(self);
         self.model.names.truncate(names);
@@ -1281,6 +1297,9 @@ impl Pass<'_> {
         for diagnostic in &mut self.diagnostics[errors..] {
             diagnostic.message = format!("{prefix}{}", diagnostic.message);
             diagnostic.range = range;
+        }
+        for read in &mut self.reads[reads..] {
+            read.range = range;
         }
         result
     }
