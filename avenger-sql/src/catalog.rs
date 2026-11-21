@@ -23,7 +23,7 @@ use datafusion::{
     datasource::empty::EmptyTable, prelude::SessionContext,
 };
 
-use crate::{data::Files, types::TypeOptions};
+use crate::{analysis::StatementTarget, data::Files, types::TypeOptions};
 
 /// A path that a script names, and the range of its text.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,24 +80,16 @@ pub fn references(root: &SyntaxNode) -> References {
             let mut defined = Vec::new();
             for child in root.children() {
                 add(&child, &defined);
-                defined.extend(ast::Stmt::cast(child).as_ref().and_then(defined_table));
+                let statement = ast::Stmt::cast(child);
+                match statement.as_ref().and_then(StatementTarget::of) {
+                    Some(target) if !target.schema => defined.push(target.names),
+                    _ => {}
+                }
             }
         }
         None => add(root, &[]),
     }
     references
-}
-
-/// The path of the table that `statement` defines, `TEMP` or not.
-fn defined_table(statement: &ast::Stmt) -> Option<Vec<String>> {
-    let path = match statement {
-        ast::Stmt::CreateExternalTableStmt(create) => create.path(),
-        ast::Stmt::CreateViewStmt(create) => create.path(),
-        ast::Stmt::CreateTableStmt(create) => create.path(),
-        ast::Stmt::LoadDataStmt(load) => load.path(),
-        _ => None,
-    };
-    path?.names()
 }
 
 /// A table of a catalog: the names it has in the catalog, and its provider.
