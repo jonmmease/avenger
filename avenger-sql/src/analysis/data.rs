@@ -656,6 +656,10 @@ fn syntax_columns(list: Option<ast::ColumnList>) -> Vec<String> {
         .collect()
 }
 
+/// The error of the files of a statement whose catalog reads no files.
+pub(crate) const NO_FILES: &str =
+    "The catalog of this analysis reads no files, so the files have no schema";
+
 /// The schema of the table of `files`, which the catalog gives, or `None` with an error at `at`.
 fn files_schema(pass: &mut Pass, files: &Files, at: TextRange) -> Option<SchemaRef> {
     match pass.catalog.files(files) {
@@ -665,10 +669,7 @@ fn files_schema(pass: &mut Pass, files: &Files, at: TextRange) -> Option<SchemaR
             None
         }
         None => {
-            pass.error(
-                at,
-                "The catalog of this analysis reads no files, so the files have no schema",
-            );
+            pass.error(at, NO_FILES);
             None
         }
     }

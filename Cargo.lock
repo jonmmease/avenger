@@ -1190,7 +1190,9 @@ dependencies = [
 name = "avenger-sql-project"
 version = "0.1.0"
 dependencies = [
+ "avenger-chart",
  "avenger-sql",
+ "avenger-sql-syntax",
  "avenger-style",
  "bytes",
  "datafusion",
