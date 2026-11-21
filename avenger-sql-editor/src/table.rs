@@ -8,7 +8,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use avenger_scenegraph::scene_graph::SceneGraph;
-use avenger_style::Cascade;
+use avenger_style::{Cascade, Preferences};
 use avenger_typst_label::LabelEngine;
 use eframe::{egui, egui_wgpu::RenderState};
 use egui_table::{CellInfo, Column, HeaderCellInfo, HeaderRow, Table, TableDelegate};
@@ -25,8 +25,10 @@ use crate::result::QueryResult;
 pub const CELL_WIDTH: f32 = 360.0;
 pub const ROW_HEIGHT: f32 = 240.0;
 /// The shade of every other row: about 4% darker than the panel, twice the difference of egui's
-/// `faint_bg_color`, which lightens by 5 of 255.
+/// `faint_bg_color`, which lightens by 5 of 255, or on a dark theme about 3% lighter. A chart cell
+/// takes no stripe, since its chart's background is the panel's color.
 const STRIPE: egui::Color32 = egui::Color32::from_black_alpha(10);
+const STRIPE_DARK: egui::Color32 = egui::Color32::from_rgba_premultiplied(8, 8, 8, 8);
 /// The height of the strip along the bottom of a cell that resizes the rows.
 const HANDLE: f32 = 6.0;
 /// The side of the square expand button at the top right corner of a chart cell.
@@ -52,18 +54,22 @@ type Pixels = [u32; 2];
 /// The scene of a chart cell that a background evaluation finished, for the result `result`.
 pub struct CellScene {
     pub result: u64,
+    /// The generation of the cells' styles that the scene drew at.
+    pub generation: u64,
     pub cell: CellKey,
     pub pixels: Pixels,
     pub scene: Result<Arc<SceneGraph>, String>,
 }
 
 /// What the chart cells share with the app: the GPU, the runtime of the evaluations, the channel
-/// that brings their scenes back, and the stylesheet and the label engine.
+/// that brings their scenes back, the stylesheet and the reader's preferences of the theme, and
+/// the label engine.
 pub struct Env<'a> {
     pub state: &'a RenderState,
     pub runtime: &'a Exec,
     pub scenes: &'a Sender<CellScene>,
     pub cascade: &'a Arc<Cascade>,
+    pub preferences: &'a Preferences,
     pub engine: &'a LabelEngine,
 }
 
@@ -78,6 +84,9 @@ struct Cell {
 /// The chart cells of the result table, and the row height that their row handle sets.
 pub struct Cells {
     result: u64,
+    /// The generation of the styles, which a new theme advances, so that a scene that drew at an
+    /// older theme is dropped.
+    generation: u64,
     pub row_height: f32,
     cells: HashMap<CellKey, Cell>,
     evaluators: HashMap<CellKey, Arc<Mutex<Option<StaticChart>>>>,
@@ -105,6 +114,7 @@ impl Cells {
     pub fn new(result: u64) -> Self {
         Self {
             result,
+            generation: 0,
             row_height: ROW_HEIGHT,
             cells: HashMap::new(),
             evaluators: HashMap::new(),
@@ -129,14 +139,23 @@ impl Cells {
         self.result = result;
     }
 
+    /// Drops the cells' scenes and evaluators for a new theme, so that each cell evaluates again
+    /// with the new styles. A scene of an evaluation that runs is dropped when it arrives.
+    pub fn restyle(&mut self, state: &RenderState) {
+        let result = self.result;
+        self.reset(result, state);
+        self.generation += 1;
+    }
+
     /// Whether an evaluation runs in the background.
     pub fn busy(&self) -> bool {
         !self.in_flight.is_empty()
     }
 
-    /// Keeps the scene of a finished evaluation, when it belongs to the current result.
+    /// Keeps the scene of a finished evaluation, when it belongs to the current result and
+    /// styles.
     pub fn receive(&mut self, scene: CellScene) {
-        if scene.result != self.result {
+        if scene.result != self.result || scene.generation != self.generation {
             return;
         }
         self.in_flight.remove(&scene.cell);
@@ -230,7 +249,7 @@ impl Cells {
                     evaluate(
                         evaluator,
                         chart.clone(),
-                        self.result,
+                        (self.result, self.generation),
                         key,
                         pixels,
                         dimensions.size,
@@ -283,7 +302,7 @@ fn scene_of(
         empty => prepare(
             empty,
             chart.clone(),
-            env.cascade.clone(),
+            (env.cascade.clone(), env.preferences.clone()),
             env.engine.clone(),
             size,
         ),
@@ -294,11 +313,11 @@ fn scene_of(
 fn prepare(
     evaluator: &mut Option<StaticChart>,
     chart: avenger_chart::Chart,
-    cascade: Arc<Cascade>,
+    (cascade, preferences): (Arc<Cascade>, Preferences),
     engine: LabelEngine,
     size: [f32; 2],
 ) -> Result<SceneGraph, EvalError> {
-    let mut prepared = StaticChart::new(chart, cascade, engine)?;
+    let mut prepared = StaticChart::new(chart, cascade, preferences, engine)?;
     let scene = prepared.scene(size);
     *evaluator = Some(prepared);
     scene
@@ -320,14 +339,17 @@ fn keep(cell: &mut Cell, pixels: Pixels, scene: Arc<SceneGraph>) {
 fn evaluate(
     evaluator: Arc<Mutex<Option<StaticChart>>>,
     chart: avenger_chart::Chart,
-    result: u64,
+    (result, generation): (u64, u64),
     key: CellKey,
     pixels: Pixels,
     size: [f32; 2],
     ctx: &egui::Context,
     env: &Env<'_>,
 ) {
-    let (cascade, engine) = (env.cascade.clone(), env.engine.clone());
+    let (style, engine) = (
+        (env.cascade.clone(), env.preferences.clone()),
+        env.engine.clone(),
+    );
     let (scenes, ctx) = (env.scenes.clone(), ctx.clone());
     env.runtime.spawn_blocking(move || {
         let mut evaluator = evaluator
@@ -335,11 +357,12 @@ fn evaluate(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let scene = match &mut *evaluator {
             Some(evaluator) => evaluator.scene(size),
-            empty => prepare(empty, chart, cascade, engine, size),
+            empty => prepare(empty, chart, style, engine, size),
         };
         let scene = scene.map(Arc::new).map_err(|error| error.to_string());
         let _ = scenes.send(CellScene {
             result,
+            generation,
             cell: key,
             pixels,
             scene,
@@ -373,6 +396,13 @@ impl LiveCells {
     pub fn clear(&mut self, state: &RenderState) {
         for (_, chart) in self.charts.drain() {
             chart.free(state);
+        }
+    }
+
+    /// Restyles the live charts for a new theme, keeping their views and selections.
+    pub fn restyle(&self, cascade: &Arc<Cascade>, preferences: &Preferences) {
+        for chart in self.charts.values() {
+            chart.restyle(cascade.clone(), preferences.clone());
         }
     }
 
@@ -423,6 +453,7 @@ impl LiveCells {
             let built = LiveChart::new(
                 chart.clone(),
                 env.cascade.clone(),
+                env.preferences.clone(),
                 env.engine.clone(),
                 [size.x, size.y],
                 egui::Id::new(("live cell", self.result, key)),
@@ -592,15 +623,16 @@ impl TableDelegate for Grid<'_> {
         });
     }
 
-    fn row_ui(&mut self, ui: &mut egui::Ui, row: u64) {
-        if row % 2 == 1 {
-            ui.painter().rect_filled(ui.max_rect(), 0.0, STRIPE);
-        }
-    }
-
     fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &CellInfo) {
         let (row, column) = (cell.row_nr as usize, cell.col_nr);
         let rect = ui.max_rect();
+        if row % 2 == 1 && !self.result.is_chart_column(column) {
+            let stripe = match ui.visuals().dark_mode {
+                true => STRIPE_DARK,
+                false => STRIPE,
+            };
+            ui.painter().rect_filled(rect, 0.0, stripe);
+        }
         if self.result.is_chart_column(column) {
             if ui.is_sizing_pass() {
                 // The table sizes its columns to their contents on its first frame and on a
