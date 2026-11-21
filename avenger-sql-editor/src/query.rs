@@ -6,7 +6,7 @@ use std::path::Path;
 
 use datafusion::{
     common::{DataFusionError, Result},
-    prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext},
+    prelude::{CsvReadOptions, DataFrame, ParquetReadOptions, SessionConfig, SessionContext},
 };
 
 use crate::highlight::Chars;
@@ -125,7 +125,8 @@ pub struct QueryError {
 }
 
 impl QueryError {
-    fn new(error: &DataFusionError, text: &str) -> Self {
+    /// The error `error` of the query `text`.
+    pub fn new(error: &DataFusionError, text: &str) -> Self {
         // A script's errors read without DataFusion's prefix of an external error.
         let message = match error.find_root() {
             DataFusionError::External(external) => external.to_string(),
@@ -140,8 +141,15 @@ impl QueryError {
 
 /// Plans and collects the query `text` in `ctx`.
 pub async fn run(ctx: &SessionContext, text: &str) -> Result<Outcome, QueryError> {
+    let frame =
+        (avenger_sql::sql(ctx, text).await).map_err(|error| QueryError::new(&error, text))?;
+    outcome(frame, text).await
+}
+
+/// The outcome of `frame`, the planned query `text`: its optimized plan, and its collected
+/// result.
+pub async fn outcome(frame: DataFrame, text: &str) -> Result<Outcome, QueryError> {
     let error = |error: DataFusionError| QueryError::new(&error, text);
-    let frame = avenger_sql::sql(ctx, text).await.map_err(error)?;
     let plan = frame
         .clone()
         .into_optimized_plan()
@@ -166,11 +174,13 @@ pub struct LiftedText {
 }
 
 /// The query `text` with each mark call that computes its statistics written as the stages of its
-/// lifting, a query that the user could type, or the error of its rewrites.
-pub async fn lift(ctx: &SessionContext, text: &str) -> Result<LiftedText, QueryError> {
-    let lifted = avenger_sql::lift(ctx, text)
-        .await
-        .map_err(|error| QueryError::new(&error, text))?;
+/// lifting, a query that the user could type, from `lifted`, the lifted form of `text` or the
+/// error of its rewrites.
+pub fn lifted(
+    lifted: Result<avenger_sql::analysis::Lifted, DataFusionError>,
+    text: &str,
+) -> Result<LiftedText, QueryError> {
+    let lifted = lifted.map_err(|error| QueryError::new(&error, text))?;
     let chars = |byte: usize| lifted.text[..byte].chars().count();
     let generated = (lifted.generated.iter())
         .map(|range| chars(range.start().into())..chars(range.end().into()))
@@ -179,6 +189,14 @@ pub async fn lift(ctx: &SessionContext, text: &str) -> Result<LiftedText, QueryE
         text: lifted.text,
         generated,
     })
+}
+
+/// The lifted form of the query `text`, over the tables of `ctx`, as [`lifted`] gives it.
+pub async fn lift(
+    ctx: &datafusion::prelude::SessionContext,
+    text: &str,
+) -> Result<LiftedText, QueryError> {
+    lifted(avenger_sql::lift(ctx, text).await, text)
 }
 
 /// The range of characters that `error` points to: the range of the first diagnostic of a

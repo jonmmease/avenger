@@ -8,7 +8,7 @@ A lightweight desktop editor of avenger-sql queries. CSV and Parquet files becom
 cargo run --release -p avenger-sql-editor
 ```
 
-Each path argument is a CSV or Parquet file to open as a table. `--query <FILE>` opens a query and runs it once the files are open. `--screenshot <PNG>` saves the window to a PNG once the query and its charts finish, and then exits. Before the screenshot, `--cursor <INDEX>` puts the cursor before the character at the index, each `--press <KEYS>` presses keys in order, such as `alt+Space` to open the completions or `F12` to go to the definition, and `--hover` holds the pointer over the character after the cursor. `--theme <system|light|dark>` sets the theme in place of the one that the editor remembers, and a run that saves a screenshot leaves the remembered theme as it was.
+Each path argument is a CSV or Parquet file to open as a table. `--query <FILE>` opens a query and runs it once the files are open. `--project <PATH>` opens the project of a directory, or of a path under it, in place of the files, and a file of the project in a tab, such as `--project avenger-sql-project/tests/projects/vega/charts/origins.sql`. `--screenshot <PNG>` saves the window to a PNG once the query and its charts finish, and then exits. Before the screenshot, `--cursor <INDEX>` puts the cursor before the character at the index, each `--press <KEYS>` presses keys in order, such as `alt+Space` to open the completions or `F12` to go to the definition, and `--hover` holds the pointer over the character after the cursor. `--theme <system|light|dark>` sets the theme in place of the one that the editor remembers, and a run that saves a screenshot leaves the remembered theme as it was.
 
 ## Run in a browser
 
@@ -22,7 +22,7 @@ wasm-pack build avenger-sql-editor --target web --release --out-dir web/pkg
 python3 -m http.server 8776 -d avenger-sql-editor/web
 ```
 
-Then open `http://localhost:8776`. DataFusion compresses Arrow IPC with zstd, which compiles C, and Apple's clang has no wasm32 target, so on macOS set `CC_wasm32_unknown_unknown` and `AR_wasm32_unknown_unknown` to the `clang` and `llvm-ar` of Homebrew's LLVM, such as `/opt/homebrew/opt/llvm/bin/clang`. In the browser, the editor reads the sample tables only, and a query or a chart cell runs on the page's one thread, so the page waits while it runs.
+Then open `http://localhost:8776`. DataFusion compresses Arrow IPC with zstd, which compiles C, and Apple's clang has no wasm32 target, so on macOS set `CC_wasm32_unknown_unknown` and `AR_wasm32_unknown_unknown` to the `clang` and `llvm-ar` of Homebrew's LLVM, such as `/opt/homebrew/opt/llvm/bin/clang`. In the browser, the editor reads the sample tables only, opens no projects, and a query or a chart cell runs on the page's one thread, so the page waits while it runs.
 
 ## The window
 
@@ -38,8 +38,20 @@ Then open `http://localhost:8776`. DataFusion compresses Arrow IPC with zstd, wh
 
 While a query has an error, the result pane keeps the last result that ran.
 
+## Projects
+
+A project of [avenger-sql-project](../avenger-sql-project/README.md) is a directory whose root holds `avenger.toml`, with data scripts that load its tables, chart scripts, modules, and stylesheets. **Project** in the toolbar opens one: "Open project…" picks its directory, and "New project…" picks a directory, writes the smallest manifest there, named after the directory, unless the directory has a manifest, and opens it. An error of the manifest, or a directory outside any project, shows in the status bar. The project loads in the background: its data scripts load into a session of their own, which has no sample tables, and every data script, chart script, and module is analyzed together, as avenger-sql-language's `Project` analyzes them, with the tables of the files that the load read.
+
+- **The sidebar** lists the project's files by role in place of the files and the samples: the data scripts, each with the tables and views that it registered and their columns, and a warning sign with its errors when it did not load, the chart scripts by folder, the stylesheets, and the modules with their module paths. Clicking a script or a module opens it in a tab, and clicking a column, or "Insert" under a table, inserts its name at the cursor, as in a query.
+- **Tabs** above the editor hold the open files, each with its own text, cursor, and undo history, and a dot while its text differs from its file. × closes a tab, and its changes that are not saved. The editor's colors, errors, completions, hovers, and references come from the project's analysis of the tab's file, with the project's errors, such as a read of a table whose data script did not load, and the load's errors, such as a URI that matches no file. F12 or ⌘-click on a table of a chart goes to the statement of the data script that creates it, in its tab, and on `IMPORT MODULE` to the module.
+- **Saving**: ⌘S (Ctrl+S), or Save, writes the active tab to its file. A saved data script loads again, with the scripts downstream of it, and the open chart tabs that read a table that changed run again, and so do those that import a module, whose functions can read tables that the chart doesn't name. A saved module loads the whole project again. A chart runs when its tab opens, when it is saved, and on Run, against the project's tables, and its result shows in the result pane, which shows the last result of each tab as the tab shows. A chart that reads a table of a data script that did not load has the error that names the script. A run waits for a load that has not ended, so a chart never reads a project that is partly loaded.
+
+While a project is open, the result pane has no Examples, files dropped on the window are not added, and Run is off in the tab of a data script, which loads when it is saved.
+
 ## Limits
 
-- One query in the editor.
+- One query in the editor without a project.
+- The stylesheets of a project don't open in tabs and don't style its charts yet, and a project's files don't load again when they change on disk.
+- The Lifted SQL of a chart that imports a module has the error that the module is not found.
 - No Delta tables, no remote files, and no saved sessions yet.
 - Charts in table cells have no tooltips while **Interactive charts** is off.
