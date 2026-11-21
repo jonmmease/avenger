@@ -102,10 +102,31 @@ impl CodeEditor {
     /// Replaces the whole text with `replacement` as one step of the editor's undo history, so
     /// that an undo brings back the text before it, and puts the cursor at the start.
     pub fn replace(&mut self, ctx: &egui::Context, text: &mut String, replacement: &str) {
+        self.replace_with_cursor(ctx, text, replacement, |_| 0);
+    }
+
+    /// Replaces the text with `formatted`, the text in the style, as one step of the undo
+    /// history, with the cursor on the same token.
+    pub fn format(&mut self, ctx: &egui::Context, text: &mut String, formatted: &str) {
+        let old = text.clone();
+        self.replace_with_cursor(ctx, text, formatted, |index| {
+            crate::format::cursor(&old, formatted, index)
+        });
+    }
+
+    /// Replaces the whole text with `replacement` as one step of the undo history, and moves the
+    /// cursor to `cursor` of its index before the replacement.
+    fn replace_with_cursor(
+        &mut self,
+        ctx: &egui::Context,
+        text: &mut String,
+        replacement: &str,
+        cursor: impl Fn(usize) -> usize,
+    ) {
         let mut state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
         let count = text.chars().count();
         let before = (state.cursor.char_range()).unwrap_or(CCursorRange::one(CCursor::new(count)));
-        let after = CCursorRange::one(CCursor::new(0));
+        let after = CCursorRange::one(CCursor::new(cursor(before.primary.index)));
         let mut undoer = state.undoer();
         undoer.add_undo(&(before, text.clone()));
         *text = replacement.to_string();

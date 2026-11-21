@@ -10,6 +10,7 @@ pub mod comment;
 pub mod document;
 mod editor;
 mod exec;
+pub mod format;
 pub mod gallery;
 mod gpu;
 pub mod highlight;
