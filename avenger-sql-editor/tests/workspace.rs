@@ -140,10 +140,11 @@ async fn a_chart_tab_runs_against_the_tables_of_the_project() {
     let mut workspace = open(&fixture()).await;
     assert_eq!(workspace.open_tab(ORIGINS), Some(true));
     assert_eq!(workspace.open_tab(WARM_DAYS), Some(true));
-    // A tab that is open shows again, and a file without a tab of its own has none.
+    // A tab that is open shows again, and a file that is not a script, a module, or a stylesheet
+    // has none.
     assert_eq!(workspace.open_tab(ORIGINS), Some(false));
     assert_eq!(workspace.active().unwrap().path, ORIGINS);
-    assert_eq!(workspace.open_tab("styles/main.css"), None);
+    assert_eq!(workspace.open_tab("data/files/regions.csv"), None);
 
     for path in [ORIGINS, WARM_DAYS] {
         let text = workspace.tab(path).unwrap().buffer.text.clone();

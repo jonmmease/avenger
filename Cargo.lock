@@ -1509,6 +1509,7 @@ dependencies = [
  "avenger-style",
  "avenger-typst-label",
  "avenger-wgpu",
+ "cssparser",
  "datafusion",
  "eframe",
  "egui-wgpu",

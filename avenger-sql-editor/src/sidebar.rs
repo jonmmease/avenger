@@ -200,10 +200,7 @@ pub fn project(
             if !sidebar.stylesheets.is_empty() {
                 section(ui, "Stylesheets", |ui| {
                     for path in &sidebar.stylesheets {
-                        ui.label(egui::RichText::new(path).monospace())
-                            .on_hover_text(
-                            "A stylesheet of the project. The editor doesn't open stylesheets yet.",
-                        );
+                        file(ui, path, path, active, &mut output);
                     }
                 });
             }

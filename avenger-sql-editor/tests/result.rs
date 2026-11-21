@@ -150,7 +150,7 @@ async fn a_static_chart_draws_at_its_size() {
     let chart = result.chart(0, 0).unwrap().clone();
     let mut chart = StaticChart::new(
         chart,
-        ChartTheme::default().cascade(),
+        ChartTheme::default().cascade(None),
         ChartTheme::default().preferences(),
         engine(),
     )
@@ -178,7 +178,7 @@ async fn a_charts_background_is_the_panels_color_in_both_themes() {
         let theme = ChartTheme::of(&visuals);
         let mut static_chart = StaticChart::new(
             chart.clone(),
-            theme.cascade(),
+            theme.cascade(None),
             theme.preferences(),
             engine(),
         )
