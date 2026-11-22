@@ -308,16 +308,25 @@ fn ty_of(accepts: &[ChartAccept]) -> Accept {
     }
 }
 
-/// What a parameter of avenger-chart takes besides the type of its form, when it takes a
-/// constructor: the strings of its sets, the types of its other values, and its constructors by
-/// the names that they take in the parameter. Empty when it takes no constructor.
+/// What a parameter of avenger-chart takes besides the type of its form: when it takes a
+/// constructor, the strings of its sets, the types of its other values, and its constructors by
+/// the names that they take in the parameter, and whether its strings are Typst markup.
 ///
 /// A parameter takes its own constructor, named after the parameter or its elements, and one level
 /// down, the constructors of the parameters of its own constructor, named after those parameters,
 /// as `pin` belongs to `scale` and fills its `pin`. A parameter whose elements hold only a choice,
 /// as `tools` does, takes only the choice's members.
 fn takes(param: &ChartParam) -> Takes {
-    let mut takes = Takes::default();
+    let markup = (param.accepts.iter()).any(|accept| {
+        matches!(
+            (accept.class, accept.shape),
+            (Class::Str, Shape::Markup) | (Class::Array, Shape::Array(Shape::Markup))
+        )
+    });
+    let mut takes = Takes {
+        markup,
+        ..Takes::default()
+    };
     let mut own: Option<(&'static str, bool)> = None;
     for accept in param.accepts {
         let (shape, array) = match accept.shape {
@@ -359,14 +368,20 @@ fn takes(param: &ChartParam) -> Takes {
     // A message without fields has no constructor, and a string names it.
     let Some((target, array)) = own.filter(|(target, _)| chart_constructor(target).is_some())
     else {
-        return Takes::default();
+        return Takes {
+            markup,
+            ..Takes::default()
+        };
     };
     if let Some(name) = param.constructor {
         takes.constructors.push(own_builds(name, target, array));
     }
     down(&mut takes, target, array);
     match takes.constructors.is_empty() {
-        true => Takes::default(),
+        true => Takes {
+            markup,
+            ..Takes::default()
+        },
         false => takes,
     }
 }
@@ -441,7 +456,7 @@ fn shape_ty(shape: &Shape) -> Ty {
         Shape::Bool => Ty::Bool,
         Shape::Int => Ty::Int64,
         Shape::Float => Ty::Float64,
-        Shape::Str => Ty::String,
+        Shape::Str | Shape::Markup => Ty::String,
         Shape::Bytes | Shape::Message { .. } => Ty::Bytes,
         Shape::Array(element) => Ty::Array(Box::new(shape_ty(element))),
         Shape::Enum { .. } | Shape::Names(_) => Ty::String,

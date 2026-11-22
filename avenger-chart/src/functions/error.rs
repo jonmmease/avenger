@@ -208,6 +208,7 @@ impl Expected {
                 Shape::Int => "an integer".into(),
                 Shape::Float => "a number".into(),
                 Shape::Str | Shape::Enum { .. } | Shape::Names(_) => "a string".into(),
+                Shape::Markup => "a string of Typst markup".into(),
                 Shape::Bytes => "bytes".into(),
                 Shape::Value => "a constant".into(),
                 Shape::Array(_) => "an array".into(),

@@ -119,8 +119,9 @@ pub struct Param {
     pub name: String,
     /// What the parameter takes, what its values mean, and what omitting it does.
     pub doc: String,
-    /// What a parameter of a chart function that takes constructors takes, which its form types
-    /// as `BYTES` or `ANY`. Empty for the other parameters.
+    /// What a parameter of a chart function takes besides the type of its form: its constructors,
+    /// which its form types as `BYTES` or `ANY`, and whether its strings are Typst markup. Empty
+    /// for the other parameters.
     pub takes: Takes,
 }
 
@@ -145,6 +146,11 @@ pub struct Takes {
     /// The unique name of the parameter's own constructor, or of its elements', which wraps a
     /// constructor one level down.
     pub target: Option<String>,
+    /// Whether a string of the parameter, or each string of its array, is Typst markup: it fills
+    /// a field that the `markup` option of the chart format marks, by itself or as the shorthand
+    /// of the parameter's message, as `subtitle => '...'` and `title => '...'` do. A title's
+    /// markup reads as plain text when the title sets `syntax => 'plain'`.
+    pub markup: bool,
 }
 
 impl Takes {

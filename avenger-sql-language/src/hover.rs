@@ -194,6 +194,9 @@ impl Document {
         );
         if let Some(param) = named {
             markdown.push_str(&format!(": {}", param.doc));
+            if param.takes.markup {
+                markdown.push_str("\n\nIts strings are Typst markup.");
+            }
         }
         if let Some(groups) = forms.and_then(|forms| forms.groups()) {
             markdown.push_str(&format!("\n\n{groups}"));

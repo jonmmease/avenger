@@ -24,7 +24,7 @@ message Title {
   // The text, in the syntax of `syntax`. The title of a node has a text. On the title of another
   // element, an empty text keeps the title that the element gives, such as the titles of an
   // axis's encodings, so the other fields of the title style that title.
-  string text = 1 [(avenger.chart.v1.lift) = true];
+  string text = 1 [(avenger.chart.v1.lift) = true, (avenger.chart.v1.markup) = true];
   // Whether the element shows its title. When unset, the styles decide.
   optional bool display = 2 [(avenger.chart.v1.lift) = true];
   // The side of the node. When unset, the styles give it.
@@ -58,7 +58,11 @@ message Title {
 // its title, at a smaller size and a normal weight.
 message Subtitle {
   // The text, not empty.
-  string text = 1 [(avenger.chart.v1.required) = true, (avenger.chart.v1.lift) = true];
+  string text = 1 [
+    (avenger.chart.v1.required) = true,
+    (avenger.chart.v1.lift) = true,
+    (avenger.chart.v1.markup) = true
+  ];
   // A font family, such as `Lato`.
   string font_family = 2;
   // The font size, in pixels.
@@ -94,7 +98,7 @@ message Labels {
   // number of categories, and `weight`, its weight, such as
   // `#if other [#value (#count)] else [#value]`. `count` and `weight` are `?` when the rows that
   // the label stands for disagree.
-  string markup = 2;
+  string markup = 2 [(avenger.chart.v1.markup) = true];
   // Whether the element shows its labels. When unset, the styles decide. Invalid on the labels of
   // a facet and of a widget, which always show.
   optional bool display = 3 [(avenger.chart.v1.lift) = true];

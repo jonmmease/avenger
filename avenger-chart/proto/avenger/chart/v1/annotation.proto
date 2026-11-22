@@ -34,6 +34,14 @@ extend google.protobuf.FieldOptions {
   // the `levels` of an axis, so `levels => [level(...)]`. An element whose message holds only a
   // choice takes the choice's members, and its field has no element name.
   string element = 50007;
+  // The string field, or each string of the repeated field, holds Typst markup, in the syntax of
+  // Typst 0.15, which the text engine renders: a title's text and subtitle, unless the title's
+  // syntax is plain, the credits of an attribution and their separator, the markup of labels and
+  // of a tooltip's values, the labels of modes, and the label that clears a radio widget. Text
+  // from the rows, such as the text of a text mark or the values of labels, is not markup. Tools
+  // that read avenger-sql, such as its language server, treat the strings that fill these fields
+  // as Typst. Codegen fails the build when it marks a field that does not hold strings.
+  bool markup = 50009;
 }
 
 extend google.protobuf.OneofOptions {

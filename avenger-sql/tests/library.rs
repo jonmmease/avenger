@@ -548,3 +548,39 @@ fn the_reference_writes_the_forms_of_a_parameter_with_its_every_string() {
     assert!(!entry.contains('…'), "{entry}");
     assert!(entry.contains("  - One level down: `type(...)`"), "{entry}");
 }
+
+#[test]
+fn the_parameters_whose_strings_fill_markup_fields_take_markup() {
+    let library = Library::new();
+    let mut markup = std::collections::BTreeSet::new();
+    for function in library.functions().chain(library.constructors()) {
+        for param in function.params.iter().filter(|param| param.takes.markup) {
+            markup.insert(format!("{}({})", function.name, param.name));
+        }
+    }
+    // A field that the option marks, by itself and as the shorthand of its message.
+    for taken in [
+        "title(value)",
+        "title(subtitle)",
+        "subtitle(text)",
+        "mark_bar(title)",
+        "attribution(credits)",
+        "attribution(separator)",
+        "labels(markup)",
+        "tooltip_field(markup)",
+    ] {
+        assert!(markup.contains(taken), "{taken} in {markup:#?}");
+    }
+    // Other strings: a set, a format pattern, a column, and the title of an encoding, which an
+    // axis reads as plain text.
+    for other in [
+        "title(syntax)",
+        "labels(format)",
+        "tooltip_field(column)",
+        "x_channel(title)",
+    ] {
+        let (function, _) = other.split_once('(').unwrap();
+        assert!(library.constructor(function).is_some(), "{function}");
+        assert!(!markup.contains(other), "{other} in {markup:#?}");
+    }
+}

@@ -156,7 +156,7 @@ message RadioWidget {
   Labels labels = 4;
   // The label of an item before the others that clears the widget's clause, such as `All
   // regions`, as Typst markup, or empty for no such item.
-  string clear_label = 5;
+  string clear_label = 5 [(avenger.chart.v1.markup) = true];
 }
 
 // A list of check boxes, one for each item of its domain, which writes a set of the checked items.

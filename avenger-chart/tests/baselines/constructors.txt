@@ -1,6 +1,6 @@
 facet(display, title, orient, labels, tick_length, tick_stroke, tick_stroke_width, rule_stroke, rule_stroke_width, classes, id)
   display (positional): Boolean
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   orient: one of bottom, top, left, right
   labels: Boolean -> display; string -> format; labels(...)
   tick_length: number
@@ -13,7 +13,7 @@ facet(display, title, orient, labels, tick_length, tick_stroke, tick_stroke_widt
 labels(value, format, markup, display, font_family, font_size, font_weight, color, angle, text_orient, text_align, vertical_align, margin, frame, sides)
   value (positional): Boolean -> display; string -> format
   format: string
-  markup: string
+  markup: Typst markup
   display: Boolean
   font_family: string
   font_size: number
@@ -29,8 +29,8 @@ labels(value, format, markup, display, font_family, font_size, font_weight, colo
 label_sides(sides)
   sides: array of one of bottom, top, left, right
 title(value, text, display, orient, syntax, font_family, font_size, font_weight, color, subtitle, text_align)
-  value (positional): Boolean -> display; string -> text
-  text: string
+  value (positional): Boolean -> display; Typst markup -> text
+  text: Typst markup
   display: Boolean
   orient: one of bottom, top, left, right
   syntax: one of plain, plain_lines, typst
@@ -38,10 +38,10 @@ title(value, text, display, orient, syntax, font_family, font_size, font_weight,
   font_size: number
   font_weight: number
   color: string
-  subtitle: string -> text; subtitle(...)
+  subtitle: Typst markup -> text; subtitle(...)
   text_align: one of start, center, end
 subtitle(text, font_family, font_size, font_weight, color)
-  text (positional, required): string
+  text (positional, required): Typst markup
   font_family: string
   font_size: number
   font_weight: number
@@ -113,19 +113,19 @@ tooltip_field(column, title, format, markup)
   column: string
   title: string
   format: string
-  markup: string
+  markup: Typst markup
 tooltip_title(column, format, markup)
   column (positional): string
   format: string
-  markup: string
+  markup: Typst markup
 navigate(channels, modes)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
   modes: array of string
 attribution(credits, orient, text_align, separator, separator_space, font_family, font_size, font_weight, color, line_gap, background, border_color, border_radius, padding)
-  credits: array of string
+  credits: array of Typst markup
   orient: one of bottom, top, left, right
   text_align: one of start, center, end
-  separator: string
+  separator: Typst markup
   separator_space: number
   font_family: string
   font_size: number
@@ -201,7 +201,7 @@ cartesian(aspect_ratio)
 legend(display, type, title, labels, orient, background, border_color, border_radius, padding, wrap, columns, column_gap, row_gap, value_placement, swatches, ramp_thickness, ramp_margin, ramp_max_length, ticks, tick_length, tick_stroke, rule, rule_stroke, classes, id)
   display (positional): Boolean
   type: one of symbol, colorbar
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   labels: Boolean -> display; string -> format; labels(...)
   orient: one of bottom, top, left, right
   background: string
@@ -230,7 +230,7 @@ value_step(step, interval, start)
   start: any constant
 axis(display, title, orient, labels, value_placement, ticks, tick_length, tick_stroke, rule, rule_stroke, grid, grid_stroke, grid_stroke_width, levels, angle, route, classes, id)
   display (positional): Boolean
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   orient: one of bottom, top, left, right
   labels: Boolean -> display; string -> format; labels(...)
   value_placement: Boolean -> values; integer -> value_count; float -> value_count; string -> values; array -> values; struct -> values; other -> values; value_placement(...)
@@ -386,7 +386,7 @@ selection_domain.fallback(value, explicit, summary)
   summary: any constant
 layer(chart, id, title, attribution, tools, resolve, width, height, classes)
   id: string
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   attribution: attribution(...)
   tools: array of a member of tool(...); array of one of navigate, tooltip
   resolve: resolve(...)
@@ -401,7 +401,7 @@ hconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   classes: array of string
 vconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, classes)
   id: string
@@ -411,7 +411,7 @@ vconcat(chart, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   classes: array of string
 facet_row(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
   id: string
@@ -421,7 +421,7 @@ facet_row(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, ve
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   facet: Boolean -> display; facet(...)
   classes: array of string
 facet_column(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute, vertical_distribute, title, facet, classes)
@@ -432,7 +432,7 @@ facet_column(chart, key, id, resolve, gap, tracks, parts, horizontal_distribute,
   parts: parts(...)
   horizontal_distribute: one of start, center, end, space_between, space_around, space_evenly
   vertical_distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   facet: Boolean -> display; facet(...)
   classes: array of string
 facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, gap, parts, distribute, title, facet, classes)
@@ -444,7 +444,7 @@ facet_wrap(chart, key, id, resolve, min_column_width, max_columns, row_height, g
   gap: number
   parts: parts(...)
   distribute: one of start, center, end, space_between, space_around, space_evenly
-  title: Boolean -> display; string -> text; title(...)
+  title: Boolean -> display; Typst markup -> text; title(...)
   facet: Boolean -> display; facet(...)
   classes: array of string
 lifts

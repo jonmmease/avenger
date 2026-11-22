@@ -553,6 +553,7 @@ pub(super) fn shape_code(shape: &Shape, model: &Model, enums: &mut BTreeSet<Stri
         Shape::Int(_) => "Shape::Int".into(),
         Shape::Float(_) => "Shape::Float".into(),
         Shape::Str => "Shape::Str".into(),
+        Shape::Markup => "Shape::Markup".into(),
         Shape::Bytes => "Shape::Bytes".into(),
         Shape::Enum(name) => {
             enums.insert(name.clone());
@@ -696,7 +697,7 @@ pub(super) fn conversion(shape: &Shape, arg: &str, model: &Model) -> String {
         Shape::Int(rust) => format!("{arg}.integer::<{rust}>()?"),
         Shape::Float("f32") => format!("{arg}.float32()?"),
         Shape::Float(_) => format!("{arg}.float64()?"),
-        Shape::Str => format!("{arg}.string()?"),
+        Shape::Str | Shape::Markup => format!("{arg}.string()?"),
         Shape::Bytes => format!("{arg}.bytes()?"),
         Shape::Enum(name) => format!("enum_{}({arg})?", snake(short(name))),
         Shape::Value => format!("{arg}.value()?"),
