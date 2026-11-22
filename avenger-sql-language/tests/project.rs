@@ -385,31 +385,6 @@ fn a_broken_data_script_s_table_hides_the_host_s() {
 }
 
 #[test]
-fn a_duplicate_appears_and_goes_in_both_scripts() {
-    let mut project = project();
-    let duplicates = |project: &Project, path: &str| {
-        (project.diagnostics(path).into_iter())
-            .filter(|d| d.source == Source::Project)
-            .map(|d| d.range)
-            .collect::<Vec<_>>()
-    };
-    let regions = fixture!("data/regions.sql");
-    let edited = format!("{regions}\nCREATE VIEW wet_days AS (FROM vega_datasets.cars);\n");
-    project.set_texts([(REGIONS, edited)]);
-    assert_eq!(
-        duplicates(&project, REGIONS),
-        [range(&project, REGIONS, "wet_days", 0)]
-    );
-    assert_eq!(
-        duplicates(&project, SUMMARIES),
-        [range(&project, SUMMARIES, "wet_days", 0)]
-    );
-    project.set_texts([(REGIONS, regions)]);
-    assert_eq!(project.diagnostics(REGIONS), Vec::new());
-    assert_eq!(project.diagnostics(SUMMARIES), Vec::new());
-}
-
-#[test]
 fn the_loader_diagnostics_join_the_project_s() {
     let mut project = project();
     let uris = range(&project, REGIONS, "['data/files/regions.csv']", 0);
@@ -894,20 +869,6 @@ fn a_rename_that_moves_an_error_is_refused() {
 }
 
 #[test]
-fn a_table_of_a_chart_without_a_schema_has_its_names() {
-    const CHART: &str = "charts/k.sql";
-    let chart =
-        "CREATE TEMP EXTERNAL TABLE zz OPTIONS (format = 'CSV', uris = ['z.csv']);\nFROM zz";
-    let project = small(vec![(CHART, FileRole::Chart, chart)]);
-    let read = find(&project, CHART, "FROM zz", 0, 5);
-    let link = project.definition(CHART, read).unwrap();
-    assert_eq!(link.target, range(&project, CHART, "zz", 0));
-    assert_eq!(project.references(CHART, read).len(), 2);
-    let edits = project.rename(CHART, read, "sales").unwrap();
-    assert_eq!(edits[CHART].len(), 2);
-}
-
-#[test]
 fn a_read_of_a_script_that_would_not_load_names_why() {
     let project = small(vec![
         // A script with a good table and a broken one.
@@ -1066,6 +1027,12 @@ fn edits_leave_the_project_that_a_fresh_one_makes() {
     check(&project, "cycle");
     project.remove("data/back.sql");
     check(&project, "no cycle");
+    // A name that another script defines too, and then no longer.
+    let duplicate = "CREATE VIEW heavy_by_origin AS (FROM vega_datasets.cars);";
+    project.add("data/twice.sql", FileRole::Data, duplicate);
+    check(&project, "duplicate");
+    project.remove("data/twice.sql");
+    check(&project, "no duplicate");
     // A module that reads a table, a script that imports it, and a role that changes.
     project.add(
         "modules/m.sqlm",

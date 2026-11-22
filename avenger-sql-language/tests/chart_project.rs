@@ -93,23 +93,30 @@ fn a_chart_s_own_tables_have_no_errors_and_no_other_file_sees_them() {
 
 #[test]
 fn a_chart_s_own_table_has_its_definition_references_and_hover_in_the_chart() {
-    let project = project();
-    let read = find(&project, SALES, "FROM sales", 0) + Offset::from(6);
-    let link = project.definition(SALES, read).unwrap();
-    assert_eq!(link.path, SALES);
-    let name = TextRange::at(find(&project, SALES, "sales", 0), Offset::from(5));
-    assert_eq!(link.target, name);
-    let references = project.references(SALES, read);
-    let paths: Vec<&str> = (references.iter())
-        .map(|reference| reference.path.as_str())
-        .collect();
-    assert_eq!(paths, [SALES, SALES], "{references:?}");
-    let hover = project.document(SALES).unwrap().hover(read).unwrap();
-    assert!(
-        hover.markdown.contains("TEMP EXTERNAL TABLE sales"),
-        "{}",
-        hover.markdown
-    );
+    // With the table of its files, and without one, before the loader has run the chart.
+    for project in [project(), project_with(&[REGIONS_TEXT], SALES_TEXT)] {
+        let read = find(&project, SALES, "FROM sales", 0) + Offset::from(6);
+        let link = project.definition(SALES, read).unwrap();
+        assert_eq!(link.path, SALES);
+        let name = TextRange::at(find(&project, SALES, "sales", 0), Offset::from(5));
+        assert_eq!(link.target, name);
+        let references = project.references(SALES, read);
+        let paths: Vec<&str> = (references.iter())
+            .map(|reference| reference.path.as_str())
+            .collect();
+        assert_eq!(paths, [SALES, SALES], "{references:?}");
+        let hover = project.document(SALES).unwrap().hover(read).unwrap();
+        let sales = find(&project, SALES, "FROM sales", 0) + Offset::from(5);
+        assert_eq!(hover.range, TextRange::at(sales, Offset::from(5)));
+        assert!(
+            hover.markdown.contains("TEMP EXTERNAL TABLE sales"),
+            "{}",
+            hover.markdown
+        );
+        let edits = project.rename(SALES, read, "sold").unwrap();
+        assert_eq!(edits.keys().collect::<Vec<_>>(), [SALES]);
+        assert_eq!(edits[SALES].len(), 2);
+    }
 }
 
 #[test]

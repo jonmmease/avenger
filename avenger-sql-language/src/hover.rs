@@ -63,7 +63,16 @@ impl Document {
         if let Some((range, markdown)) = self.data_hover(&root, offset) {
             return Some(Hover { range, markdown });
         }
-        let name = model.name_at(offset)?;
+        let Some(name) = model.name_at(offset) else {
+            // A read of a table that this script defines, which the analysis leaves unresolved
+            // while the table has no schema, as a chart's own table before its files are read.
+            let table = self.table_at(offset)?;
+            let markdown = crate::data::table_hover(self.definitions(), table.own?);
+            return Some(Hover {
+                range: table.range,
+                markdown,
+            });
+        };
         // A constructor of a chart's option, by the name that its place gives it.
         if let Some(constructor) = (model.constructors.iter()).rfind(|c| c.range == name.range) {
             let function = self.library.constructor(&constructor.constructor)?;

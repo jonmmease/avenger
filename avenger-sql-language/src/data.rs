@@ -414,7 +414,7 @@ impl Document {
 /// The hover of the table of the definition at `index` of `definitions`, or of the table that it
 /// appends to: what defines it, its description, the format and the URIs of the files of its
 /// statements, and its columns.
-fn table_hover(definitions: &[Definition], index: usize) -> String {
+pub(crate) fn table_hover(definitions: &[Definition], index: usize) -> String {
     let root = definitions[index].appends().unwrap_or(index);
     let definition = &definitions[root];
     let temp = match definition.temp {
