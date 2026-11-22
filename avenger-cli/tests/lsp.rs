@@ -1,0 +1,578 @@
+//! `avenger lsp` in process, over `lsp-server`'s connection in memory, on copies of
+//! avenger-sql-project's fixture project: the capabilities, diagnostics that an edit publishes in
+//! another file, the requests, positions in UTF-16, loose scripts, a saved data script, a data
+//! file that changes on disk, under the server's watch and the client's, and the program over its
+//! standard input and output. The ignored test `lsp_latency` times edits in a generated project.
+
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use lsp_server::{Connection, Message, Notification, Request, RequestId, Response};
+use lsp_types::{
+    notification::{
+        DidChangeTextDocument, DidChangeWatchedFiles, DidOpenTextDocument, DidSaveTextDocument,
+        Exit, Initialized, Notification as _, PublishDiagnostics,
+    },
+    request::{
+        CodeActionRequest, Completion, DocumentSymbolRequest, FoldingRangeRequest, Formatting,
+        GotoDefinition, HoverRequest, Initialize, PrepareRenameRequest, References,
+        RegisterCapability, Rename, Request as _, SelectionRangeRequest, SemanticTokensFullRequest,
+        Shutdown, SignatureHelpRequest,
+    },
+    ClientCapabilities, GeneralClientCapabilities, InitializeParams, InitializeResult, Position,
+    PositionEncodingKind, PublishDiagnosticsParams, Url,
+};
+use serde_json::{json, Value};
+
+const SUMMARIES: &str = "data/summaries.av.sql";
+const ORIGINS: &str = "charts/origins.av.sql";
+
+/// A copy of the fixture project in a temporary directory, by its canonical root.
+fn project() -> (tempfile::TempDir, PathBuf) {
+    fn walk(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let path = entry.unwrap().path();
+            let target = to.join(path.file_name().unwrap());
+            match path.is_dir() {
+                true => walk(&path, &target),
+                false => drop(std::fs::copy(&path, &target).unwrap()),
+            }
+        }
+    }
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-sql-project/tests/projects/vega");
+    let directory = tempfile::tempdir().unwrap();
+    walk(&fixture, directory.path());
+    let root = directory.path().canonicalize().unwrap();
+    (directory, root)
+}
+
+/// A client of a server that runs in a thread.
+struct Client {
+    connection: Connection,
+    thread: Option<std::thread::JoinHandle<Result<(), String>>>,
+    next: i32,
+    /// The latest diagnostics of each file that the server published.
+    diagnostics: std::collections::HashMap<Url, Vec<lsp_types::Diagnostic>>,
+    /// The methods of the requests of the server, which the client answers with no result.
+    requests: Vec<String>,
+    result: InitializeResult,
+}
+
+impl Client {
+    /// A server, initialized with `capabilities`.
+    fn start(capabilities: ClientCapabilities) -> Client {
+        let (server, connection) = Connection::memory();
+        let thread = std::thread::spawn(move || avenger_cli::lsp::serve(server));
+        let mut client = Client {
+            connection,
+            thread: Some(thread),
+            next: 0,
+            diagnostics: Default::default(),
+            requests: Vec::new(),
+            result: InitializeResult::default(),
+        };
+        let params = InitializeParams {
+            capabilities,
+            ..Default::default()
+        };
+        let result = client.request::<Initialize>(serde_json::to_value(params).unwrap());
+        client.result = serde_json::from_value(result).unwrap();
+        client.notify::<Initialized>(json!({}));
+        client
+    }
+
+    fn notify<N: lsp_types::notification::Notification>(&self, params: Value) {
+        let notification = Notification::new(N::METHOD.to_string(), params);
+        let _ = (self.connection.sender).send(Message::Notification(notification));
+    }
+
+    /// The result of the request, after the messages before it, which the client takes.
+    fn request<R: lsp_types::request::Request>(&mut self, params: Value) -> Value {
+        self.next += 1;
+        let id = RequestId::from(self.next);
+        let request = Request::new(id.clone(), R::METHOD.to_string(), params);
+        self.connection
+            .sender
+            .send(Message::Request(request))
+            .unwrap();
+        loop {
+            match self.receive(Duration::from_secs(30)) {
+                Some(Message::Response(response)) if response.id == id => {
+                    return match response.error {
+                        Some(error) => json!({"error": error.message}),
+                        None => response.result.unwrap_or(Value::Null),
+                    }
+                }
+                Some(_) => {}
+                None => panic!("no response to {}", R::METHOD),
+            }
+        }
+    }
+
+    /// The next message, which updates the diagnostics, or none within `timeout`. The client
+    /// answers a request of the server.
+    fn receive(&mut self, timeout: Duration) -> Option<Message> {
+        let message = self.connection.receiver.recv_timeout(timeout).ok()?;
+        match &message {
+            Message::Notification(notification)
+                if notification.method == PublishDiagnostics::METHOD =>
+            {
+                let params: PublishDiagnosticsParams =
+                    serde_json::from_value(notification.params.clone()).unwrap();
+                self.diagnostics.insert(params.uri, params.diagnostics);
+            }
+            Message::Request(request) => {
+                self.requests.push(request.method.clone());
+                let response = Response::new_ok(request.id.clone(), Value::Null);
+                let _ = self.connection.sender.send(Message::Response(response));
+            }
+            _ => {}
+        }
+        Some(message)
+    }
+
+    /// Takes messages until `done` holds of the diagnostics, or fails after a while.
+    fn until(&mut self, what: &str, done: impl Fn(&Client) -> bool) {
+        let start = Instant::now();
+        while !done(self) {
+            assert!(start.elapsed() < Duration::from_secs(30), "no {what}");
+            self.receive(Duration::from_millis(100));
+        }
+    }
+
+    fn messages(&self, uri: &Url) -> Vec<String> {
+        (self.diagnostics.get(uri).into_iter().flatten())
+            .map(|diagnostic| diagnostic.message.clone())
+            .collect()
+    }
+
+    fn open(&self, uri: &Url, text: &str) {
+        self.notify::<DidOpenTextDocument>(json!({
+            "textDocument": {"uri": uri, "languageId": "avenger-sql", "version": 1, "text": text}
+        }));
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // After a failure, the server may not answer, and the test fails as it is.
+        if std::thread::panicking() {
+            return;
+        }
+        self.request::<Shutdown>(Value::Null);
+        self.notify::<Exit>(Value::Null);
+        if let Some(thread) = self.thread.take() {
+            thread.join().unwrap().unwrap();
+        }
+    }
+}
+
+fn uri(root: &Path, path: &str) -> Url {
+    Url::from_file_path(root.join(path)).unwrap()
+}
+
+fn position(line: u32, character: u32) -> Value {
+    serde_json::to_value(Position::new(line, character)).unwrap()
+}
+
+#[test]
+fn the_server_takes_utf_8_positions_when_the_client_offers_them() {
+    let client = Client::start(ClientCapabilities::default());
+    let capabilities = &client.result.capabilities;
+    assert_eq!(
+        capabilities.position_encoding,
+        Some(PositionEncodingKind::UTF16)
+    );
+    assert!(capabilities.semantic_tokens_provider.is_some());
+    assert!(capabilities.rename_provider.is_some());
+    drop(client);
+    let utf8 = ClientCapabilities {
+        general: Some(GeneralClientCapabilities {
+            position_encodings: Some(vec![
+                PositionEncodingKind::UTF8,
+                PositionEncodingKind::UTF16,
+            ]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let client = Client::start(utf8);
+    let encoding = client.result.capabilities.position_encoding.clone();
+    assert_eq!(encoding, Some(PositionEncodingKind::UTF8));
+}
+
+#[test]
+fn an_edit_publishes_the_diagnostics_of_the_files_that_it_reaches() {
+    let (_directory, root) = project();
+    let mut client = Client::start(ClientCapabilities::default());
+    let (summaries, origins) = (uri(&root, SUMMARIES), uri(&root, ORIGINS));
+    let text = std::fs::read_to_string(root.join(SUMMARIES)).unwrap();
+    client.open(&summaries, &text);
+    // The project opens, and after its first load, publishes every file's diagnostics, which
+    // are none: no error of a table that the load has not read yet.
+    client.until("the chart's diagnostics", |c| {
+        c.diagnostics.contains_key(&origins)
+    });
+    assert_eq!(client.messages(&origins), Vec::<String>::new());
+
+    // An edit that renames the column that the chart reads publishes the chart's error.
+    let line = text
+        .lines()
+        .position(|line| line.contains("AS cars"))
+        .unwrap() as u32;
+    let character = text
+        .lines()
+        .nth(line as usize)
+        .unwrap()
+        .find("cars")
+        .unwrap() as u32;
+    client.notify::<DidChangeTextDocument>(json!({
+        "textDocument": {"uri": summaries, "version": 2},
+        "contentChanges": [{
+            "range": {"start": position(line, character), "end": position(line, character + 4)},
+            "text": "n"
+        }]
+    }));
+    client.until("the chart's error", |c| {
+        c.messages(&origins)
+            .iter()
+            .any(|m| m.contains("Unrecognized name: cars"))
+    });
+}
+
+#[test]
+fn the_requests_answer_across_the_files_of_a_project() {
+    let (_directory, root) = project();
+    let mut client = Client::start(ClientCapabilities::default());
+    let origins = uri(&root, ORIGINS);
+    let text = std::fs::read_to_string(root.join(ORIGINS)).unwrap();
+    client.open(&origins, &text);
+    client.until("the load", |c| {
+        c.diagnostics.contains_key(&origins) && c.messages(&origins).is_empty()
+    });
+    let line = text
+        .lines()
+        .position(|line| line.starts_with("FROM heavy_by_origin"))
+        .unwrap() as u32;
+    let at = json!({"textDocument": {"uri": origins}, "position": position(line, 7)});
+
+    // The definition of the table is the statement of the data script that defines it.
+    let definition = client.request::<GotoDefinition>(at.clone());
+    assert_eq!(
+        definition["uri"],
+        json!(uri(&root, SUMMARIES)),
+        "{definition}"
+    );
+    let hover = client.request::<HoverRequest>(at.clone());
+    let shown = hover["contents"]["value"].as_str().unwrap_or_default();
+    assert!(shown.contains("heavy_by_origin"), "{hover}");
+    let mut references = at.clone();
+    references["context"] = json!({"includeDeclaration": true});
+    let references = client.request::<References>(references);
+    let files: Vec<&str> = (references.as_array().unwrap().iter())
+        .filter_map(|location| location["uri"].as_str())
+        .collect();
+    assert!(files.len() >= 2, "{references}");
+
+    // A rename edits the data script and the chart.
+    let mut rename = at.clone();
+    rename["newName"] = json!("heavy_origins");
+    let edit = client.request::<Rename>(rename);
+    let changes = edit["changes"].as_object().unwrap();
+    assert!(
+        changes.contains_key(uri(&root, SUMMARIES).as_str()),
+        "{edit}"
+    );
+    assert!(changes.contains_key(origins.as_str()), "{edit}");
+
+    // Completion after `FROM ` offers the project's tables.
+    let mut completion = at.clone();
+    completion["position"] = position(line, 5);
+    let completions = client.request::<Completion>(completion);
+    let labels: Vec<&str> = (completions["items"].as_array().unwrap().iter())
+        .filter_map(|item| item["label"].as_str())
+        .collect();
+    assert!(labels.contains(&"wet_days"), "{labels:?}");
+
+    let document = json!({"textDocument": {"uri": origins}});
+    let symbols = client.request::<DocumentSymbolRequest>(document.clone());
+    assert!(!symbols.as_array().unwrap().is_empty(), "{symbols}");
+    let tokens = client.request::<SemanticTokensFullRequest>(document.clone());
+    assert!(
+        tokens["data"].as_array().unwrap().len() >= 5 * 5,
+        "{tokens}"
+    );
+    let mut formatting = document;
+    formatting["options"] = json!({"tabSize": 2, "insertSpaces": true});
+    assert!(client.request::<Formatting>(formatting).is_array());
+
+    let prepared = client.request::<PrepareRenameRequest>(at.clone());
+    assert_eq!(prepared["start"], position(line, 5), "{prepared}");
+    let mut selection = json!({"textDocument": {"uri": origins}});
+    selection["positions"] = json!([position(line, 7)]);
+    let ranges = client.request::<SelectionRangeRequest>(selection);
+    assert!(ranges[0]["parent"].is_object(), "{ranges}");
+    let summaries = json!({"textDocument": {"uri": uri(&root, SUMMARIES)}});
+    let folds = client.request::<FoldingRangeRequest>(summaries);
+    assert!(folds.as_array().unwrap().len() >= 3, "{folds}");
+
+    // Signature help in the arguments of a mark.
+    let (line, call) = (text.lines().enumerate())
+        .find_map(|(n, line)| Some((n as u32, line.find("mark_bar(")? as u32)))
+        .unwrap();
+    let mut signature = json!({"textDocument": {"uri": origins}});
+    signature["position"] = position(line, call + "mark_bar(".len() as u32);
+    let help = client.request::<SignatureHelpRequest>(signature);
+    let label = help["signatures"][0]["label"].as_str().unwrap_or_default();
+    assert!(label.starts_with("mark_bar("), "{help}");
+}
+
+/// Positions in UTF-16, after a character of two units, and two edits of one change, the second
+/// at a position in the text after the first.
+#[test]
+fn edits_take_positions_in_utf_16_code_units() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("emoji.av.sql");
+    let text = "/* \u{1F600} */ FROM sales\n";
+    std::fs::write(&path, text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let emoji = Url::from_file_path(&path).unwrap();
+    client.open(&emoji, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&emoji));
+    // `sales` is at unit 14: `/* ` is 3 units, the emoji 2, and ` */ FROM ` 9.
+    let range =
+        |start: u32, end: u32| json!({"start": position(0, start), "end": position(0, end)});
+    client.notify::<DidChangeTextDocument>(json!({
+        "textDocument": {"uri": emoji, "version": 2},
+        "contentChanges": [
+            {"range": range(14, 19), "text": "cars"},
+            {"range": range(14, 18), "text": "nada"}
+        ]
+    }));
+    client.until("the error", |c| {
+        c.messages(&emoji)
+            .iter()
+            .any(|m| m.contains("Table not found: nada"))
+    });
+    let diagnostic = &client.diagnostics[&emoji][0];
+    assert_eq!(
+        diagnostic.range.start,
+        Position::new(0, 14),
+        "{diagnostic:?}"
+    );
+    assert_eq!(diagnostic.range.end, Position::new(0, 18), "{diagnostic:?}");
+}
+
+#[test]
+fn a_loose_script_is_analyzed_alone() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("alone.av.sql");
+    std::fs::write(&path, "FROM sales |> SELECT x\n").unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let alone = Url::from_file_path(&path).unwrap();
+    client.open(&alone, "FROM sales |> SELECT x\n");
+    client.until("the loose script's errors", |c| {
+        !c.messages(&alone).is_empty()
+    });
+    assert!(client.messages(&alone)[0].contains("Table not found: sales"));
+
+    // The quick fix of a diagnostic is a code action.
+    let fix = Url::from_file_path(directory.path().canonicalize().unwrap().join("fix.av.sql"));
+    let fix = fix.unwrap();
+    client.open(&fix, "FROM penguins |> SELECT 5abc\n");
+    client.until("the fix's error", |c| !c.messages(&fix).is_empty());
+    let actions = client.request::<CodeActionRequest>(json!({
+        "textDocument": {"uri": fix},
+        "range": {"start": position(0, 26), "end": position(0, 26)},
+        "context": {"diagnostics": []}
+    }));
+    let edit = &actions[0]["edit"]["changes"][fix.as_str()][0];
+    assert_eq!(edit["newText"], "`5abc`", "{actions}");
+}
+
+#[test]
+fn a_changed_data_file_loads_its_scripts_again() {
+    let (_directory, root) = project();
+    let mut client = Client::start(ClientCapabilities::default());
+    let origins = uri(&root, ORIGINS);
+    let text = std::fs::read_to_string(root.join(ORIGINS)).unwrap();
+    client.open(&origins, &text);
+    // After the first load, the regions have their column `region`.
+    client.until("the load", |c| {
+        c.diagnostics.contains_key(&origins) && c.messages(&origins).is_empty()
+    });
+
+    // Without the column, the chart that reads it has an error after the load.
+    std::fs::write(
+        root.join("data/files/regions.csv"),
+        "Origin,area\nUSA,Americas\n",
+    )
+    .unwrap();
+    client.until("the chart's error after the load", |c| {
+        c.messages(&origins)
+            .iter()
+            .any(|m| m.contains("Unrecognized name: region"))
+    });
+}
+
+#[test]
+fn a_saved_data_script_loads_again() {
+    let (_directory, root) = project();
+    std::fs::write(
+        root.join("data/files/areas.csv"),
+        "Origin,area\nUSA,Americas\n",
+    )
+    .unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let (regions, origins) = (uri(&root, "data/regions.av.sql"), uri(&root, ORIGINS));
+    let text = std::fs::read_to_string(root.join("data/regions.av.sql")).unwrap();
+    client.open(&regions, &text);
+    client.until("the load", |c| c.diagnostics.contains_key(&origins));
+    assert_eq!(client.messages(&origins), Vec::<String>::new());
+
+    // The edit reads other files, which the project has not read until the save.
+    let edited = text.replace("regions.csv", "areas.csv");
+    client.notify::<DidChangeTextDocument>(json!({
+        "textDocument": {"uri": regions, "version": 2},
+        "contentChanges": [{"text": edited}]
+    }));
+    client.until("the unread table", |c| {
+        c.messages(&origins)
+            .iter()
+            .any(|m| m.contains("has not read them"))
+    });
+    std::fs::write(root.join("data/regions.av.sql"), &edited).unwrap();
+    client.notify::<DidSaveTextDocument>(json!({"textDocument": {"uri": regions}}));
+    client.until("the chart's error after the load", |c| {
+        c.messages(&origins)
+            .iter()
+            .any(|m| m.contains("Unrecognized name: region"))
+    });
+}
+
+#[test]
+fn the_client_watches_the_files_when_it_offers_to() {
+    let (_directory, root) = project();
+    let capabilities: ClientCapabilities = serde_json::from_value(json!({
+        "workspace": {"didChangeWatchedFiles": {"dynamicRegistration": true}}
+    }))
+    .unwrap();
+    let mut client = Client::start(capabilities);
+    let origins = uri(&root, ORIGINS);
+    let text = std::fs::read_to_string(root.join(ORIGINS)).unwrap();
+    client.open(&origins, &text);
+    client.until("the load", |c| c.diagnostics.contains_key(&origins));
+    assert_eq!(client.requests, [RegisterCapability::METHOD]);
+
+    let file = root.join("data/files/regions.csv");
+    std::fs::write(&file, "Origin,area\nUSA,Americas\n").unwrap();
+    client.notify::<DidChangeWatchedFiles>(json!({
+        "changes": [{"uri": Url::from_file_path(&file).unwrap(), "type": 2}]
+    }));
+    client.until("the chart's error after the load", |c| {
+        c.messages(&origins)
+            .iter()
+            .any(|m| m.contains("Unrecognized name: region"))
+    });
+}
+
+/// The program `avenger lsp`, over its standard input and standard output.
+#[test]
+fn the_program_serves_standard_input_and_output() {
+    use std::io::{BufReader, Write as _};
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_avenger"))
+        .arg("lsp")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let params = serde_json::to_value(InitializeParams::default()).unwrap();
+    let messages = [
+        Message::Request(Request::new(1.into(), Initialize::METHOD.into(), params)),
+        Message::Notification(Notification::new(Initialized::METHOD.into(), json!({}))),
+        Message::Request(Request::new(2.into(), Shutdown::METHOD.into(), Value::Null)),
+        Message::Notification(Notification::new(Exit::METHOD.into(), Value::Null)),
+    ];
+    for message in messages {
+        message.write(&mut stdin).unwrap();
+    }
+    stdin.flush().unwrap();
+    drop(stdin);
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut ids = Vec::new();
+    while let Some(message) = Message::read(&mut stdout).unwrap() {
+        match message {
+            Message::Response(response) => {
+                assert!(response.error.is_none(), "{response:?}");
+                ids.push(response.id);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(ids, [RequestId::from(1), RequestId::from(2)]);
+    assert!(child.wait().unwrap().success());
+}
+
+/// The time of edits of a data script in a project of many data scripts and charts: from each
+/// edit to the publication of the diagnostics of the edited script.
+#[test]
+#[ignore]
+fn lsp_latency() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    std::fs::write(root.join("avenger.toml"), "[project]\nname = \"bench\"\n").unwrap();
+    std::fs::create_dir_all(root.join("data")).unwrap();
+    std::fs::create_dir_all(root.join("charts")).unwrap();
+    let (scripts, charts) = (100, 200);
+    for script in 0..scripts {
+        let from = match script {
+            0 => "(SELECT 1 AS x, 2 AS y)".to_string(),
+            n => format!("t{}", n - 1),
+        };
+        let text = format!("CREATE VIEW t{script} AS (FROM {from} |> SELECT x, y);\n");
+        std::fs::write(root.join(format!("data/s{script}.av.sql")), text).unwrap();
+    }
+    for chart in 0..charts {
+        let text = format!(
+            "FROM t{} |> AGGREGATE mark_symbol(x => x, y => y) AS chart\n",
+            chart % scripts
+        );
+        std::fs::write(root.join(format!("charts/c{chart}.av.sql")), text).unwrap();
+    }
+    let mut client = Client::start(ClientCapabilities::default());
+    let edited = uri(&root, "data/s50.av.sql");
+    let text = std::fs::read_to_string(root.join("data/s50.av.sql")).unwrap();
+    let start = Instant::now();
+    client.open(&edited, &text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&edited));
+    println!("open: {:?}", start.elapsed());
+    let mut times = Vec::new();
+    for version in 2..12 {
+        client.diagnostics.remove(&edited);
+        let start = Instant::now();
+        let text = format!("{text}-- edit {version}\n");
+        client.notify::<DidChangeTextDocument>(json!({
+            "textDocument": {"uri": edited, "version": version},
+            "contentChanges": [{"text": text}]
+        }));
+        client.until("diagnostics", |c| c.diagnostics.contains_key(&edited));
+        times.push(start.elapsed());
+    }
+    times.sort();
+    println!(
+        "{scripts} data scripts, {charts} charts: edit median {:?}, max {:?}",
+        times[times.len() / 2],
+        times[times.len() - 1]
+    );
+}

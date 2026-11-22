@@ -6,6 +6,7 @@
 //! analysis. Each load sends back a [`LoadState`], which [`Analysis::apply`] takes, so that the
 //! analysis never waits for the loader.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use avenger_sql::{
@@ -254,10 +255,12 @@ impl Analysis {
 
     /// Takes the state of a load: the tables of the files, and the loader's errors of each data
     /// script whose text in the analysis is the text that loaded, since an edit since the load
-    /// moves the ranges of its errors.
-    pub fn apply(&mut self, state: &LoadState) {
-        self.set_file_tables(state.file_tables.clone());
+    /// moves the ranges of its errors. The result is the files whose diagnostics can change: those
+    /// that the tables of the files analyze again, and the data scripts of the load.
+    pub fn apply(&mut self, state: &LoadState) -> BTreeSet<String> {
+        let mut reached = self.set_file_tables(state.file_tables.clone());
         for script in &state.scripts {
+            reached.insert(script.path.clone());
             let current = (self.project.document(&script.path))
                 .is_some_and(|document| document.text() == script.text);
             let diagnostics = match current {
@@ -266,12 +269,14 @@ impl Analysis {
             };
             (self.project).set_loader_diagnostics(&script.path, diagnostics);
         }
+        reached
     }
 
     /// Takes the table of each set of files that the loader read, which a load or a chart's run
     /// can change, and analyzes the language project with them when they changed: another set of
-    /// files, another table, or another error.
-    pub fn set_file_tables(&mut self, tables: Vec<(Files, FilesTable)>) {
+    /// files, another table, or another error. The result is the files that the change analyzes
+    /// again, as `Project::set_file_tables` gives them, or none when the tables did not change.
+    pub fn set_file_tables(&mut self, tables: Vec<(Files, FilesTable)>) -> BTreeSet<String> {
         let same = |(a, ta): &(Files, FilesTable), (b, tb): &(Files, FilesTable)| {
             a == b
                 && match (ta, tb) {
@@ -282,10 +287,11 @@ impl Analysis {
         };
         let changed = tables.len() != self.file_tables.len()
             || !(tables.iter().zip(&self.file_tables)).all(|(a, b)| same(a, b));
-        if changed {
-            self.project.set_file_tables(tables.clone());
-            self.file_tables = tables;
+        if !changed {
+            return BTreeSet::new();
         }
+        self.file_tables = tables.clone();
+        self.project.set_file_tables(tables)
     }
 }
 

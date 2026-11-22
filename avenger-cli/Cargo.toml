@@ -5,6 +5,9 @@ edition = "2021"
 description = "The avenger command-line program: checking and formatting avenger-sql projects, for people, scripts, CI, and agents"
 readme = "README.md"
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "avenger"
 path = "src/main.rs"
@@ -16,10 +19,16 @@ avenger-sql-project = { path = "../avenger-sql-project" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 avenger-style = { path = "../avenger-style" }
 clap = { version = "4.5", features = ["derive"] }
+crossbeam-channel = "0.5"
 datafusion = { workspace = true }
+lsp-server = "0.7"
+lsp-types = "0.95"
+serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 
 [dev-dependencies]
+lsp-server = "0.7"
+lsp-types = "0.95"
 serde_json = { workspace = true }
 tempfile = "3.14"

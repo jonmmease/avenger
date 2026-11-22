@@ -7,6 +7,7 @@ avenger check              # the errors and warnings of the project of the curre
 avenger check --run charts # also run the queries of the charts under charts/
 avenger fmt                # format the project's scripts and modules in place
 avenger fmt --check        # list the files that need formatting, and change none
+avenger lsp                # serve the Language Server Protocol to an editor
 ```
 
 ## Files and projects
@@ -20,6 +21,10 @@ Scripts end with `.av.sql` and modules with `.av.sqlm`. A script or a module out
 `avenger check [PATH ...]` reports the diagnostics of the selected files: the errors of their syntax and of their analysis, the project's errors, such as a name that two data scripts define, a cycle of data scripts, or a read of a table whose data script would not load, the loader's errors, and the errors of the load of the entry stylesheet in each stylesheet. With `--run`, each chart script without errors also runs its query, which finds errors that appear only when the query runs, such as a cast of a value that fails.
 
 `avenger fmt [PATH ...]` formats the selected scripts and modules in the style of `avenger-sql/STYLE.md`, by the role of each file, and prints the files that it changed. A statement with a syntax error stays as written. With `--check`, it changes no file, prints the files that formatting would change, and fails when there is one.
+
+`avenger lsp` serves the Language Server Protocol on standard input and standard output, for an editor that starts it. It is the one command that stays running. When the editor opens a script or a module, the server opens its project and loads the project's data scripts in a thread of their own. When that first load comes back, the server publishes the diagnostics of every file of the project, so no file shows errors of tables that the load has not read yet. After it, an edit publishes the diagnostics of the files that it reaches, at once, without waiting for a load: the edited file, the data scripts and the charts that read its tables, and the scripts that import an edited module. A save of a data script or a module loads it again, and so does a change on disk of a data file that a data script reads. A change of the manifest, or a script that appears or goes away, opens the project again. The server watches the files through the editor when the editor offers it, and through its own watch otherwise. A loose file is analyzed alone.
+
+The server answers hover, completion, signature help, go to definition, references, rename, document symbols, folding ranges, selection ranges, semantic tokens, formatting, and the quick fixes of diagnostics. Its positions count UTF-8 bytes when the editor offers them, and UTF-16 code units otherwise.
 
 ## Output
 
