@@ -2,11 +2,12 @@
 name = "avenger-sql-project"
 version = "0.1.0"
 edition = "2021"
-description = "Projects of avenger-sql: the manifest, the file source, the roles of files, the entry stylesheet, and loading a project into a DataFusion session"
+description = "Projects of avenger-sql: the manifest, the file source, the roles of files, the entry stylesheet, loading a project into a DataFusion session, keeping a project live with its analysis in step, the watch of its files, and adding data files"
 readme = "README.md"
 
 [dependencies]
 avenger-sql = { path = "../avenger-sql" }
+avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 avenger-style = { path = "../avenger-style" }
 bytes = "1.12"
@@ -14,8 +15,12 @@ datafusion = { workspace = true }
 glob = "0.3"
 serde = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 toml = { version = "0.8.23", default-features = false, features = ["parse"] }
 url = "2.5"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+notify = "8.0.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # DataFusion draws random numbers, which need the browser's source on the web.
@@ -23,5 +28,7 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [dev-dependencies]
 avenger-chart = { path = "../avenger-chart" }
+# The tests of compressed data files read them.
+avenger-sql = { path = "../avenger-sql", features = ["compression"] }
 tempfile = "3.14"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
