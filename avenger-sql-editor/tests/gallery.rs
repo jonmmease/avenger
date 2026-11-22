@@ -157,3 +157,15 @@ async fn every_example_lifts() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn every_example_is_in_the_style() {
+    for example in examples() {
+        assert_eq!(
+            avenger_sql_syntax::format::format(&example.sql, avenger_sql_syntax::Role::Script),
+            example.sql,
+            "{} is not formatted",
+            example.title
+        );
+    }
+}
