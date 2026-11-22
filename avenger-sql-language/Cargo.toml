@@ -9,3 +9,5 @@ readme = "README.md"
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true }
+# The parser of the Typst markup in strings, at the version that renders it in avenger-typst-label.
+typst-syntax = "=0.15.1"

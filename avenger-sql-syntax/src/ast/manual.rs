@@ -2,6 +2,8 @@
 //! and the modifiers of `CREATE` statements.
 
 use super::*;
+use rowan::{TextRange, TextSize};
+
 use crate::{escape, SyntaxKind::*};
 
 /// The text of a name, without its backticks and with its escapes decoded. A table's dashed
@@ -100,6 +102,65 @@ impl Literal {
     /// escapes decoded.
     pub fn bytes_value(&self) -> Option<Vec<u8>> {
         concatenated(&self.syntax, BYTES)
+    }
+
+    /// The value of a string literal, as [`Literal::string_value`] gives it, with the range in
+    /// the text of each of its bytes, or `None` when the literal is no string, a string is
+    /// unclosed, an escape is wrong, or the value isn't UTF-8.
+    pub fn decoded_string(&self) -> Option<DecodedString> {
+        let mut parts = tokens(&self.syntax)
+            .filter(|token| token.kind() == STRING)
+            .peekable();
+        parts.peek()?;
+        let mut value = Vec::new();
+        let mut decoded = DecodedString::default();
+        for part in parts {
+            let quoted = escape::split(part.text())?;
+            let start = usize::from(part.text_range().start()) + quoted.body_offset;
+            let (bytes, spans) = escape::unescape_spans(quoted.body, quoted.raw, false).ok()?;
+            value.extend(bytes);
+            let at = |offset: usize| TextSize::from((start + offset) as u32);
+            (decoded.spans).extend(
+                spans
+                    .into_iter()
+                    .map(|span| TextRange::new(at(span.start), at(span.end))),
+            );
+            (decoded.bodies).push(TextRange::new(at(0), at(quoted.body.len())));
+        }
+        decoded.text = String::from_utf8(value).ok()?;
+        Some(decoded)
+    }
+}
+
+/// The value of a string literal with the place of each of its bytes in the text, which
+/// [`Literal::decoded_string`] gives.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DecodedString {
+    /// The value: the literal's adjacent strings concatenated, with their escapes decoded.
+    pub text: String,
+    /// The range in the text of each byte of `text`: the byte itself, or the escape that gives
+    /// it, so the bytes of one escape share its range.
+    pub spans: Vec<TextRange>,
+    /// The ranges in the text of the bodies of the literal's strings, between their quotes, in
+    /// order.
+    pub bodies: Vec<TextRange>,
+}
+
+impl DecodedString {
+    /// The ranges in the text of the bytes `range` of the value, one in each body that they
+    /// meet, so none holds the quotes between two strings, or none for an empty range.
+    pub fn text_ranges(&self, range: std::ops::Range<usize>) -> Vec<TextRange> {
+        let (Some(first), Some(last)) = (self.spans.get(range.start), range.end.checked_sub(1))
+        else {
+            return Vec::new();
+        };
+        let Some(last) = self.spans.get(last).filter(|_| range.end > range.start) else {
+            return Vec::new();
+        };
+        let whole = TextRange::new(first.start(), last.end());
+        (self.bodies.iter())
+            .filter_map(|body| body.intersect(whole).filter(|range| !range.is_empty()))
+            .collect()
     }
 }
 
