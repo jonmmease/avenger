@@ -1,0 +1,25 @@
+[package]
+name = "avenger-cli"
+version = "0.1.0"
+edition = "2021"
+description = "The avenger command-line program: checking and formatting avenger-sql projects, for people, scripts, CI, and agents"
+readme = "README.md"
+
+[[bin]]
+name = "avenger"
+path = "src/main.rs"
+
+[dependencies]
+avenger-sql = { path = "../avenger-sql" }
+avenger-sql-language = { path = "../avenger-sql-language" }
+avenger-sql-project = { path = "../avenger-sql-project" }
+avenger-sql-syntax = { path = "../avenger-sql-syntax" }
+avenger-style = { path = "../avenger-style" }
+clap = { version = "4.5", features = ["derive"] }
+datafusion = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = "3.14"
