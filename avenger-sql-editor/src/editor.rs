@@ -1,7 +1,7 @@
-//! The query editor: egui's `TextEdit` with a layouter that colors the tokens of the query, a
-//! line-number gutter, a wavy underline under the range of the query's error, ⌘/ (Ctrl+/ on
-//! other platforms), which comments the lines of the selection out or back in, and Enter and Tab
-//! that indent by the style.
+//! The code editor: egui's `TextEdit` with a layouter that colors the tokens of a query or a
+//! stylesheet, a line-number gutter, and a wavy underline under the range of each error. In a
+//! query, ⌘/ (Ctrl+/ on other platforms) comments the lines of the selection out or back in, and
+//! Enter and Tab indent by the style.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use eframe::egui::{
     Modifiers, Pos2, Stroke, TextFormat, Vec2,
 };
 
-use avenger_sql_language::{CompletionItem, Diagnostic, Document, Fix, HighlightRange};
+use avenger_sql_language::{CompletionItem, Document, Fix, HighlightRange};
 
 use crate::{
     assist::{self, Analysis, Block, Popup, Span, Target},
@@ -60,6 +60,27 @@ struct Fixes {
     selected: usize,
     text: String,
     cursor: usize,
+}
+
+/// The text of an editor and what colors it and underlines its errors: a query or a script of a
+/// project, which its analysis answers, or a stylesheet, which its tokens color.
+pub enum Text<'a> {
+    Sql(Analysis<'a>),
+    /// A stylesheet, with the errors and warnings of the last load of the stylesheets, at byte
+    /// spans of the text `loaded` that the load read. The editor underlines them while its text is
+    /// that text.
+    Css {
+        loaded: &'a str,
+        diagnostics: Vec<avenger_style::Diagnostic>,
+    },
+}
+
+/// An error or a warning that the editor underlines: its range of characters, and the message
+/// and the help of its hover.
+struct Underline {
+    range: Range<usize>,
+    message: String,
+    help: Option<String>,
 }
 
 /// What the user did in the editor this frame.
@@ -164,52 +185,76 @@ impl CodeEditor {
         ctx.memory_mut(|memory| memory.request_focus(self.id));
     }
 
-    /// Shows the editor in the rest of `ui`, with the tokens colored by the highlights of
-    /// `analysis`, the analysis of the text, a wavy underline under each of its errors, and its
-    /// completions, fixes, and hovers. Returns whether the text changed, and a definition in
-    /// another file of the project that F12 or ⌘-click asked for.
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        text: &mut String,
-        analysis: Analysis<'_>,
-    ) -> EditorOutput {
-        let document = analysis.document;
-        let diagnostics = analysis.diagnostics();
-        let analyzed = document.text().to_string();
-        let highlights = document.highlights();
-        let chars = Chars::new(&analyzed);
-        let errors: Vec<Range<usize>> = (diagnostics.iter())
-            .map(|diagnostic| chars.range(diagnostic.range))
-            .collect();
+    /// Shows the editor in the rest of `ui`, with the tokens of `text` colored and a wavy
+    /// underline under each of its errors. A query or a script also has its analysis's
+    /// completions, fixes, references, definitions, and hovers. Returns whether the text
+    /// changed, and a definition in another file of the project that F12 or ⌘-click asked for.
+    pub fn show(&mut self, ui: &mut egui::Ui, text: &mut String, of: Text<'_>) -> EditorOutput {
+        let (analysis, analyzed, highlights, underlines) = match of {
+            Text::Sql(analysis) => {
+                let document = analysis.document;
+                let chars = Chars::new(document.text());
+                let underlines = (analysis.diagnostics().into_iter())
+                    .map(|diagnostic| Underline {
+                        range: chars.range(diagnostic.range),
+                        message: diagnostic.message,
+                        help: diagnostic.help,
+                    })
+                    .collect();
+                let highlights = document.highlights();
+                (Some(analysis), document.text(), highlights, underlines)
+            }
+            Text::Css {
+                loaded,
+                diagnostics,
+            } => {
+                // The spans are in the text that loaded, which an edit since has moved.
+                let chars = Chars::new(loaded);
+                let underlines = match text.as_str() == loaded {
+                    true => (diagnostics.into_iter())
+                        .map(|diagnostic| Underline {
+                            range: chars.index(diagnostic.span.start)
+                                ..chars.index(diagnostic.span.end),
+                            message: diagnostic.message,
+                            help: diagnostic.help,
+                        })
+                        .collect(),
+                    false => Vec::new(),
+                };
+                (None, loaded, Vec::new(), underlines)
+            }
+        };
         let mut jump = None;
-        let (analyzed, highlights) = (analyzed.as_str(), highlights.as_slice());
+        let highlights = highlights.as_slice();
         let focused = ui.memory(|memory| memory.has_focus(self.id));
-        let toggled = focused
+        let current = text.as_str() == analyzed;
+        let sql = analysis.filter(|_| focused);
+        let toggled = sql.is_some()
             && ui.input_mut(|input| input.consume_shortcut(&comment_shortcut()))
             && self.toggle_comments(ui.ctx(), text);
         // The keys of the popup and the fixes, before the text edit takes them.
-        let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, analysis);
+        let mut edited = current && sql.is_some_and(|analysis| self.keys(ui, text, analysis));
         // Enter and Tab by the style, when no menu takes them.
-        if focused && self.popup.is_none() && self.fixes.is_none() {
-            edited |= self.indent_keys(ui, text, document);
+        if let Some(analysis) = sql.filter(|_| self.popup.is_none() && self.fixes.is_none()) {
+            edited |= self.indent_keys(ui, text, analysis.document);
         }
         // The text and the cursor before the text edit, to find a typed character.
-        let typing = focused.then(|| (text.clone(), self.cursor(ui.ctx())));
-        if focused && text.as_str() == analyzed {
+        let typing = sql.map(|_| (text.clone(), self.cursor(ui.ctx())));
+        if let Some(analysis) = sql.filter(|_| text.as_str() == analyzed) {
             let pressed = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::F12));
             if let Some(cursor) = self.cursor(ui.ctx()).filter(|_| pressed) {
                 jump = self.jump(ui.ctx(), analysis, cursor);
             }
         }
         // The definition and the uses of the name at the cursor, on a faint background.
-        let marked = match text.as_str() == analyzed {
-            true => (self.cursor(ui.ctx()))
+        let marked = match analysis.filter(|_| text.as_str() == analyzed) {
+            Some(analysis) => (self.cursor(ui.ctx()))
                 .map(|cursor| assist::references(analysis, cursor))
                 .unwrap_or_default(),
-            false => Vec::new(),
+            None => Vec::new(),
         };
         let font = FontId::monospace(13.0);
+        let sql_text = analysis.is_some();
         let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
             let source = buffer.as_str();
             let is_analyzed = source == analyzed;
@@ -226,15 +271,12 @@ impl CodeEditor {
                     return cache.galley.clone();
                 }
             }
-            // A text that differs from the analysis, as in the frame of an edit, lays out with
-            // the highlights of its syntax.
-            let own;
-            let ranges = match is_analyzed {
-                true => highlights,
-                false => {
-                    own = highlight::syntax(source);
-                    &own
-                }
+            // A stylesheet colors by its tokens. A query that differs from the analysis, as in
+            // the frame of an edit, lays out with the highlights of its syntax.
+            let spans = match (sql_text, is_analyzed) {
+                (false, _) => highlight::css(source),
+                (true, true) => highlight::spans(source, highlights),
+                (true, false) => highlight::spans(source, &highlight::syntax(source)),
             };
             let marks: &[Range<usize>] = match is_analyzed {
                 true => &marked,
@@ -244,7 +286,7 @@ impl CodeEditor {
                 true => REFERENCE_DARK,
                 false => REFERENCE,
             };
-            let job = layout_job(source, ranges, font.clone(), marks, reference, dark);
+            let job = layout_job(source, &spans, font.clone(), marks, reference, dark);
             let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
             self.cache = Some(Layout {
                 text: source.to_string(),
@@ -293,8 +335,8 @@ impl CodeEditor {
             })
             .inner;
         paint_gutter(ui, &output);
-        for error in &errors {
-            paint_squiggle(ui, &output, error);
+        for underline in &underlines {
+            paint_squiggle(ui, &output, &underline.range);
         }
         let cursor = (output.cursor_range).map(|range| range.primary.index);
         self.caret = cursor.map(|cursor| {
@@ -304,8 +346,8 @@ impl CodeEditor {
         let current = text.as_str() == analyzed;
         // ⌘-click (Ctrl-click) goes to the definition of the name that the click put the cursor on.
         let command = ui.input(|input| input.modifiers.command);
-        if current && command && output.response.clicked() {
-            if let Some(cursor) = cursor {
+        if let Some(analysis) = analysis.filter(|_| current) {
+            if let (true, Some(cursor)) = (command && output.response.clicked(), cursor) {
                 jump = self.jump(ui.ctx(), analysis, cursor);
             }
         }
@@ -322,7 +364,11 @@ impl CodeEditor {
         }
         edited |= self.menus(ui, &output, text, cursor);
         if current {
-            hover(&output, document, &diagnostics);
+            hover(
+                &output,
+                analysis.map(|analysis| analysis.document),
+                &underlines,
+            );
         }
         EditorOutput {
             changed: toggled || edited || output.response.changed(),
@@ -716,12 +762,13 @@ fn wave(x0: f32, x1: f32, y: f32, color: Color32) -> egui::Shape {
 }
 
 /// The hover of the character under the pointer: the message and the help of an error there, or
-/// else the document's hover of the name there, as a tooltip at the pointer. The pointer reads
-/// only the character whose box holds it, so the space past the end of a line has none.
+/// else the document's hover of the name there, if the text has a document, as a tooltip at the
+/// pointer. The pointer reads only the character whose box holds it, so the space past the end of
+/// a line has none.
 fn hover(
     output: &egui::text_edit::TextEditOutput,
-    document: &Document,
-    diagnostics: &[Diagnostic],
+    document: Option<&Document>,
+    underlines: &[Underline],
 ) {
     let Some(pointer) = output.response.hover_pos() else {
         return;
@@ -729,11 +776,9 @@ fn hover(
     let Some(index) = char_under(&output.galley, pointer - output.galley_pos) else {
         return;
     };
-    let chars = Chars::new(document.text());
-    let offset = chars.offset(index);
-    let error = (diagnostics.iter()).find(|diagnostic| {
-        let range = usize::from(diagnostic.range.start())..usize::from(diagnostic.range.end());
-        range.contains(&offset) || (range.is_empty() && range.start == offset)
+    let error = (underlines.iter()).find(|underline| {
+        let range = &underline.range;
+        range.contains(&index) || (range.is_empty() && range.start == index)
     });
     let blocks: Vec<Block> = match error {
         Some(error) => {
@@ -747,13 +792,19 @@ fn hover(
             );
             blocks
         }
-        None => match document.hover((offset as u32).into()) {
-            // The range of a hover holds the character, not only the position at its end.
-            Some(hover) if usize::from(hover.range.end()) > offset => {
-                assist::blocks(&hover.markdown)
+        None => {
+            let Some(document) = document else {
+                return;
+            };
+            let offset = Chars::new(document.text()).offset(index);
+            match document.hover((offset as u32).into()) {
+                // The range of a hover holds the character, not only the position at its end.
+                Some(hover) if usize::from(hover.range.end()) > offset => {
+                    assist::blocks(&hover.markdown)
+                }
+                _ => return,
             }
-            _ => return,
-        },
+        }
     };
     output.response.clone().on_hover_ui_at_pointer(|ui| {
         ui.set_max_width(TOOLTIP_WIDTH);
@@ -932,12 +983,12 @@ fn class_color(class: Class, dark: bool) -> Color32 {
     Color32::from_rgb(r, g, b)
 }
 
-/// The layout job of `text`: each character in the color of its class by `highlights`, in the
-/// light or the `dark` theme's colors, and the characters of the ranges `marked` on the
-/// background `background`.
+/// The layout job of `text`: each character in the color of its class by `spans`, in the light or
+/// the `dark` theme's colors, and the characters of the ranges `marked` on the background
+/// `background`.
 pub(crate) fn layout_job(
     text: &str,
-    highlights: &[HighlightRange],
+    spans: &[highlight::Span],
     font: FontId,
     marked: &[Range<usize>],
     background: Color32,
@@ -947,7 +998,7 @@ pub(crate) fn layout_job(
     job.wrap.max_width = f32::INFINITY;
     let chars: Vec<char> = text.chars().collect();
     let mut classes = vec![Class::Plain; chars.len()];
-    for span in highlight::spans(text, highlights) {
+    for span in spans {
         let end = span.range.end.min(chars.len());
         for class in &mut classes[span.range.start.min(end)..end] {
             *class = span.class;
