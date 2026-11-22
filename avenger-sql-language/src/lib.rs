@@ -2,24 +2,31 @@
 //! folding and selection ranges, go to definition, references, rename, hover, completion,
 //! signature help, and formatting.
 //!
-//! A [`Document`] parses and analyzes the text of a script once, and each of its requests reads
-//! that parse and analysis. The requests mirror those of the Language Server Protocol, without
-//! the protocol: positions and ranges are byte offsets of the text, [`Offset`] and
-//! [`TextRange`], and a host converts them to its own units, such as the UTF-16 positions of the
-//! protocol or the character indices of a text widget. A request takes an offset at a character
-//! boundary of the text, and an offset past the end reads as the end.
+//! A [`Document`] parses and analyzes the text of a file once, in the mode of its [`Role`]: a
+//! chart script, a data script, or a module. Each of its requests reads that parse and analysis.
+//! The requests mirror those of the Language Server Protocol, without the protocol: positions
+//! and ranges are byte offsets of the text, [`Offset`] and [`TextRange`], and a host converts
+//! them to its own units, such as the UTF-16 positions of the protocol or the character indices
+//! of a text widget. A request takes an offset at a character boundary of the text, and an offset
+//! past the end reads as the end.
 //!
 //! ```
 //! use std::sync::Arc;
 //!
 //! use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
-//! use avenger_sql_language::{CompletionKind, Document};
+//! use avenger_sql_language::{CompletionKind, Document, Role};
 //! use datafusion::arrow::datatypes::{DataType, Field, Schema};
 //!
 //! let schema = Schema::new(vec![Field::new("species", DataType::Utf8, true)]);
 //! let catalog = MemoryCatalog::new().with_schema(&["penguins"], Arc::new(schema));
 //! let text = "FROM penguins |> WHERE ";
-//! let document = Document::new(text, Arc::new(catalog), Arc::new(Library::new()), Options::default());
+//! let document = Document::new(
+//!     text,
+//!     Role::Script,
+//!     Arc::new(catalog),
+//!     Arc::new(Library::new()),
+//!     Options::default(),
+//! );
 //! let completions = document.completions((text.len() as u32).into());
 //! let species = completions.items.iter().find(|item| item.label == "species").unwrap();
 //! assert_eq!(species.kind, CompletionKind::Column);
@@ -27,6 +34,7 @@
 //! ```
 
 mod completion;
+mod data;
 mod hover;
 mod navigation;
 mod outline;
@@ -35,16 +43,17 @@ mod signature;
 use std::sync::Arc;
 
 use avenger_sql::{
-    analysis::{Analysis, Options},
+    analysis::{Analysis, Model, Options},
     catalog::Catalog,
+    data::{DataAnalysis, Definition},
     library::Library,
 };
 use avenger_sql_syntax::{
-    ast, ast::AstNode, highlight, Parse, Role, SyntaxKind, SyntaxNode, SyntaxToken,
+    ast, ast::AstNode, highlight, Parse, SyntaxKind, SyntaxNode, SyntaxToken,
 };
 
 pub use avenger_sql_syntax::{
-    DiagnosticCode, Fix, Highlight, HighlightRange, Offset, TextEdit, TextRange,
+    DiagnosticCode, Fix, Highlight, HighlightRange, Offset, Role, TextEdit, TextRange,
 };
 pub use completion::{CompletionItem, CompletionKind, Completions};
 pub use hover::Hover;
@@ -52,17 +61,31 @@ pub use navigation::{DefinitionLink, Reference};
 pub use outline::{FoldingRange, Symbol, SymbolKind};
 pub use signature::{ParameterInfo, SignatureHelp, SignatureInfo};
 
-/// The text of a script, its parse, and its analysis, which the requests of an editor read.
+/// The text of a file, its role, its parse, and its analysis, which the requests of an editor
+/// read.
 ///
 /// A `Document` is `Send` and `Sync`, so a host can analyze a text off its main thread and answer
 /// requests from several threads. Every edit of the text makes a new `Document`.
 pub struct Document {
     text: String,
+    role: Role,
     parse: Parse,
-    analysis: Analysis,
+    analysis: Analyzed,
     catalog: Arc<dyn Catalog + Send + Sync>,
     library: Arc<Library>,
     options: Options,
+    /// The paths of the project's files, relative to its root, which completion offers in a URI.
+    paths: Arc<[String]>,
+}
+
+/// The analysis of a text by its role.
+#[allow(clippy::large_enum_variant)]
+enum Analyzed {
+    Script(Analysis),
+    Data(DataAnalysis),
+    /// A module, which avenger-sql analyzes where a script imports it, so that its document reads
+    /// its syntax alone.
+    Module(Model),
 }
 
 // A `Document` crosses threads. It keeps the green tree of its parse, and each request makes the
@@ -111,41 +134,124 @@ impl Document {
         })
     }
 
-    /// Parses and analyzes `text`, whose tables come from `catalog` and whose functions come
-    /// from `library`.
+    /// Parses and analyzes `text`, a file of the role `role`, whose tables come from `catalog`
+    /// and whose functions come from `library`. A chart script analyzes with
+    /// [`avenger_sql::analyze`], and a data script with [`avenger_sql::analyze_data`], and the
+    /// catalog of both gives the tables of their files, as [`Catalog::files`]. A module has the
+    /// requests of its syntax: avenger-sql analyzes a module where a script imports it.
     pub fn new(
         text: impl Into<String>,
+        role: Role,
         catalog: Arc<dyn Catalog + Send + Sync>,
         library: Arc<Library>,
         options: Options,
     ) -> Self {
         let text = text.into();
-        let parse = avenger_sql_syntax::parse(&text);
-        let analysis = avenger_sql::analyze(&parse.syntax(), catalog.as_ref(), &library, &options);
+        let (parse, analysis) = match role {
+            Role::Script => {
+                let parse = avenger_sql_syntax::parse(&text);
+                let analysis =
+                    avenger_sql::analyze(&parse.syntax(), catalog.as_ref(), &library, &options);
+                (parse, Analyzed::Script(analysis))
+            }
+            Role::Data => {
+                let parse = avenger_sql_syntax::parse_data(&text);
+                let analysis = avenger_sql::analyze_data(
+                    &parse.syntax(),
+                    catalog.as_ref(),
+                    &library,
+                    &options,
+                );
+                (parse, Analyzed::Data(analysis))
+            }
+            Role::Module => {
+                let parse = avenger_sql_syntax::parse_module(&text);
+                (parse, Analyzed::Module(Model::default()))
+            }
+        };
         Self {
             text,
+            role,
             parse,
             analysis,
             catalog,
             library,
             options,
+            paths: Arc::from([]),
         }
+    }
+
+    /// The document with `paths`, the paths of the files of its project relative to the
+    /// project's root, separated by `/`, as `data/files/sales.csv`. Completion in a URI of a data
+    /// script offers them, and the directories that hold them. The host lists the files, since a
+    /// document reads none.
+    pub fn with_paths(mut self, paths: Arc<[String]>) -> Self {
+        self.paths = paths;
+        self
     }
 
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    /// The analysis of the text: the plans of its statements, which a host runs, and its model.
-    pub fn analysis(&self) -> &Analysis {
-        &self.analysis
+    /// The role of the text, which its parse and its analysis follow.
+    pub fn role(&self) -> Role {
+        self.role
     }
 
-    /// The text as the script that its lifted calls plan: each pipe `AGGREGATE` with a mark call
-    /// that computes statistics in its channels becomes its staged pipe query, and the ranges
-    /// that the printer wrote mark it. `None` for a text with an error.
+    /// The analysis of a chart script: the plans of its statements, which a host runs, and its
+    /// model. `None` for a text of another role.
+    pub fn analysis(&self) -> Option<&Analysis> {
+        match &self.analysis {
+            Analyzed::Script(analysis) => Some(analysis),
+            Analyzed::Data(_) | Analyzed::Module(_) => None,
+        }
+    }
+
+    /// The analysis of a data script: the tables, views, and schemas that it defines, the reads
+    /// that leave it, and its model. `None` for a text of another role.
+    pub fn data_analysis(&self) -> Option<&DataAnalysis> {
+        match &self.analysis {
+            Analyzed::Data(analysis) => Some(analysis),
+            Analyzed::Script(_) | Analyzed::Module(_) => None,
+        }
+    }
+
+    /// The statements of the text that define a table, a view, or a schema, or load files into a
+    /// table, in the order of the text: a data script's, and a chart script's own tables of
+    /// files. A module has none.
+    pub(crate) fn definitions(&self) -> &[Definition] {
+        match &self.analysis {
+            Analyzed::Script(analysis) => &analysis.file_tables,
+            Analyzed::Data(analysis) => &analysis.definitions,
+            Analyzed::Module(_) => &[],
+        }
+    }
+
+    /// The text of a chart script as the script that its lifted calls plan: each pipe
+    /// `AGGREGATE` with a mark call that computes statistics in its channels becomes its staged
+    /// pipe query, and the ranges that the printer wrote mark it. `None` for a text with an
+    /// error, and for a text of another role.
     pub fn lifted(&self) -> Option<avenger_sql::analysis::Lifted> {
-        self.analysis.lift(&self.text)
+        self.analysis()?.lift(&self.text)
+    }
+
+    /// The semantic model of the text's queries.
+    fn model(&self) -> &Model {
+        match &self.analysis {
+            Analyzed::Script(analysis) => &analysis.model,
+            Analyzed::Data(analysis) => &analysis.model,
+            Analyzed::Module(model) => model,
+        }
+    }
+
+    /// The errors of the analysis.
+    fn analysis_diagnostics(&self) -> &[avenger_sql::analysis::Diagnostic] {
+        match &self.analysis {
+            Analyzed::Script(analysis) => &analysis.diagnostics,
+            Analyzed::Data(analysis) => &analysis.diagnostics,
+            Analyzed::Module(_) => &[],
+        }
     }
 
     /// The errors of the text, in the order of their ranges. An error of the analysis inside a
@@ -175,7 +281,7 @@ impl Document {
             })
             .collect();
         diagnostics.extend(
-            (self.analysis.diagnostics.iter())
+            (self.analysis_diagnostics().iter())
                 .filter(|diagnostic| {
                     !(broken.iter()).any(|range| range.intersect(diagnostic.range).is_some())
                 })
@@ -196,8 +302,7 @@ impl Document {
     /// range between the text's longest common prefix and suffix with the formatted text, or none
     /// when the text is already formatted. A statement with an error stays as written.
     pub fn formatting(&self) -> Vec<TextEdit> {
-        // A document is a chart script.
-        let formatted = avenger_sql_syntax::format::format(&self.text, Role::Script);
+        let formatted = avenger_sql_syntax::format::format(&self.text, self.role);
         let (old, new) = (self.text.as_bytes(), formatted.as_bytes());
         let mut prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
         while !self.text.is_char_boundary(prefix) {
@@ -225,7 +330,7 @@ impl Document {
     /// analysis refines where it resolved a name, a function, or a value of a set.
     pub fn highlights(&self) -> Vec<HighlightRange> {
         let mut ranges = highlight(&self.root());
-        self.analysis.model.refine_highlights(&mut ranges);
+        self.model().refine_highlights(&mut ranges);
         ranges
     }
 

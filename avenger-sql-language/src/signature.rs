@@ -83,7 +83,7 @@ impl Document {
         }
         let called = called?;
         let function = called.function;
-        let resolved = (self.analysis.model.calls.iter())
+        let resolved = (self.model().calls.iter())
             .rfind(|form| form.range == call.text_range())
             .and_then(|form| form.index);
         let active_signature = resolved
