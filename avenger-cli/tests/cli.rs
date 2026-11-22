@@ -164,3 +164,60 @@ fn fmt_formats_scripts_in_place_and_check_lists_them() {
     );
     assert_eq!(avenger(&root, &["fmt", "--check", "charts"]).0, 0);
 }
+
+/// A document with an error in a cell after a list, in an indented fence.
+const REPORT: &str = "# Report\n\n```{avenger-sql}\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n\n1. Weather\n\n    ```{avenger-sql}\n    FROM wet_days |> SELECT nope\n    ```\n";
+
+#[test]
+fn the_cells_of_a_document_check_at_their_places_in_it() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    std::fs::write(root.join("reports/overview.qmd"), REPORT).unwrap();
+    let (status, stdout, _) = avenger(&root, &["check"]);
+    assert_eq!(status, 1);
+    assert_eq!(
+        stdout,
+        "reports/overview.qmd:11:29: error: Unrecognized name: nope\n 11 |     FROM wet_days |> SELECT nope\n    |                             ^^^^\n"
+    );
+    let (_, stdout, _) = avenger(&root, &["check", "--json", "reports/overview.qmd"]);
+    let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let range = &value["diagnostics"][0]["range"];
+    let start = REPORT.find("nope").unwrap();
+    assert_eq!(range["bytes"], serde_json::json!([start, start + 4]));
+
+    // With `--run`, a cell whose query fails has the error at its first line.
+    let cast = "```{avenger-sql}\nFROM vega_datasets.cars\n|> SELECT CAST(Name AS INT64) AS n\n|> AGGREGATE mark_text(text => n) AS chart\n```\n";
+    std::fs::write(root.join("reports/cast.qmd"), cast).unwrap();
+    let (status, stdout, _) = avenger(&root, &["check", "--run", "reports/cast.qmd"]);
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with("reports/cast.qmd:2:1: error: the chart's query fails:"),
+        "{stdout}"
+    );
+
+    // A document outside every project checks its cells alone.
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("alone.qmd"), REPORT).unwrap();
+    let (status, stdout, _) = avenger(directory.path(), &["check"]);
+    assert_eq!(status, 1);
+    assert!(
+        stdout.starts_with("alone.qmd:4:6: error: Table not found: heavy_by_origin"),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn fmt_formats_the_cells_of_a_document() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let document = root.join("reports/overview.qmd");
+    let text = "Some  prose.\n\n  ```{avenger-sql}\n  FROM wet_days|>SELECT date\n  ```\n";
+    std::fs::write(&document, text).unwrap();
+    let (status, stdout, _) = avenger(&root, &["fmt", "reports"]);
+    assert_eq!((status, stdout.as_str()), (0, "reports/overview.qmd\n"));
+    assert_eq!(
+        std::fs::read_to_string(&document).unwrap(),
+        "Some  prose.\n\n  ```{avenger-sql}\n  FROM wet_days\n  |> SELECT date\n  ```\n"
+    );
+    assert_eq!(avenger(&root, &["fmt", "--check", "reports"]).0, 0);
+}

@@ -1,17 +1,19 @@
 //! The files that a command reads: the files of the projects of the paths that it takes, by
-//! their roles, and the loose scripts and modules, which are in no project or have no role in
-//! theirs.
+//! their roles, and the loose scripts, modules, and Quarto documents, which are in no project or
+//! have no role in theirs.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use avenger_sql_project::{find_root, ProjectFiles, Role, MODULE_SUFFIX, SCRIPT_SUFFIX};
+use avenger_sql_project::{
+    find_root, qmd::is_document, ProjectFiles, Role, DOCUMENT_SUFFIX, MODULE_SUFFIX, SCRIPT_SUFFIX,
+};
 
 /// The files of the paths that a command takes.
 pub struct Selection {
     pub projects: Vec<ProjectSelection>,
-    /// The scripts and modules outside every project, or without a role in theirs, by their
-    /// paths on disk.
+    /// The scripts, modules, and documents outside every project, or without a role in theirs,
+    /// by their paths on disk.
     pub loose: Vec<PathBuf>,
 }
 
@@ -33,9 +35,9 @@ enum Target {
 }
 
 /// The files of `paths`, or of the current directory without one: for a path in a project, the
-/// files of the project under it that have roles, and for another path, the scripts and modules
-/// under it. A path that does not exist, and a file that is not a script, a module, or a
-/// stylesheet, are errors.
+/// files of the project under it that have roles, and for another path, the scripts, modules,
+/// and documents under it. A path that does not exist, and a file that is not
+/// a script, a module, a document, or a stylesheet, are errors.
 pub async fn select(paths: &[PathBuf]) -> Result<Selection, String> {
     let paths = match paths.is_empty() {
         true => vec![std::env::current_dir().map_err(|error| error.to_string())?],
@@ -82,10 +84,13 @@ pub async fn select(paths: &[PathBuf]) -> Result<Selection, String> {
                     Ok(Some(role)) => {
                         selected.insert(path, role);
                     }
-                    _ if is_script_or_module(&path) => loose.push(root.join(&path)),
+                    _ if is_script_or_module(&path) || is_document(&path) => {
+                        loose.push(root.join(&path))
+                    }
                     _ => {
                         return Err(format!(
-                            "{}: not a script, a module, or a stylesheet of the project at {}",
+                            "{}: not a script, a module, a document, or a stylesheet of the \
+                             project at {}",
                             root.join(&path).display(),
                             root.display()
                         ))
@@ -100,9 +105,11 @@ pub async fn select(paths: &[PathBuf]) -> Result<Selection, String> {
         });
     }
     for path in &loose {
-        if !is_script_or_module(&path.to_string_lossy()) {
+        let name = path.to_string_lossy();
+        if !is_script_or_module(&name) && !is_document(&name) {
             return Err(format!(
-                "{}: not an avenger-sql script ({SCRIPT_SUFFIX}) or module ({MODULE_SUFFIX})",
+                "{}: not an avenger-sql script ({SCRIPT_SUFFIX}), module ({MODULE_SUFFIX}), or \
+                 Quarto document ({DOCUMENT_SUFFIX})",
                 path.display()
             ));
         }
@@ -117,7 +124,8 @@ pub fn is_script_or_module(path: &str) -> bool {
     path.ends_with(SCRIPT_SUFFIX) || path.ends_with(MODULE_SUFFIX)
 }
 
-/// The scripts and modules under the directory `directory`, outside hidden directories.
+/// The scripts, modules, and documents under the directory `directory`, outside hidden
+/// directories.
 fn scripts_under(directory: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let Ok(entries) = std::fs::read_dir(directory) else {
@@ -131,7 +139,9 @@ fn scripts_under(directory: &Path) -> Vec<PathBuf> {
         }
         if path.is_dir() {
             found.extend(scripts_under(&path));
-        } else if is_script_or_module(&name.to_string_lossy()) {
+        } else if is_script_or_module(&name.to_string_lossy())
+            || is_document(&name.to_string_lossy())
+        {
             found.push(path);
         }
     }

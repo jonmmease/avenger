@@ -18,6 +18,7 @@ pub struct ProjectFiles {
     chart_scripts: Vec<String>,
     modules: Vec<ModuleFile>,
     stylesheets: Vec<String>,
+    documents: Vec<String>,
     skipped: Vec<Skipped>,
 }
 
@@ -91,6 +92,7 @@ impl ProjectFiles {
             chart_scripts: Vec::new(),
             modules: Vec::new(),
             stylesheets: Vec::new(),
+            documents: Vec::new(),
             skipped,
         };
         let mut conflicts = Vec::new();
@@ -103,6 +105,7 @@ impl ProjectFiles {
                     names,
                 }),
                 Ok(Some(Role::Stylesheet)) => project.stylesheets.push(path.clone()),
+                Ok(Some(Role::Document)) => project.documents.push(path.clone()),
                 Ok(None) => {}
                 Err(conflict) => conflicts.push(conflict),
             }
@@ -182,6 +185,11 @@ impl ProjectFiles {
     /// The `.css` files that are not data, and the entry stylesheet when the project has it.
     pub fn stylesheets(&self) -> &[String] {
         &self.stylesheets
+    }
+
+    /// The Quarto documents, `.qmd` files that are not data, whose cells are chart scripts.
+    pub fn documents(&self) -> &[String] {
+        &self.documents
     }
 
     /// The directories of the project that the listing of its files skipped, because the file

@@ -1,8 +1,9 @@
 //! `avenger`, the command-line program of avenger-sql projects. Each command starts, reads the
 //! files, answers, and exits: `check` reports the diagnostics of a project's files, and `fmt`
-//! formats its scripts and modules. `lsp` is the exception that an editor starts and stops: the
-//! language server of avenger-sql scripts and modules. Results go to standard output, as text or, with `--json`, as
-//! JSON, and errors that keep a command from running go to standard error.
+//! formats its scripts, modules, and the `{avenger-sql}` cells of its Quarto documents. `lsp` is
+//! the exception that an editor starts and stops: the language server of the same files.
+//! Results go to standard output, as text or, with `--json`, as JSON, and errors that keep a
+//! command from running go to standard error.
 //!
 //! The exit status is 0 for success, 1 for diagnostics with errors or files that need
 //! formatting, and 2 when the command cannot run, such as for a usage error or a manifest that
@@ -49,8 +50,8 @@ enum Command {
     },
     /// Serve the Language Server Protocol on standard input and standard output, for an editor.
     Lsp,
-    /// Format scripts and modules in place: of the given files and directories, or of the
-    /// project of the current directory.
+    /// Format scripts, modules, and the cells of Quarto documents in place: of the given files
+    /// and directories, or of the project of the current directory.
     Fmt {
         /// Files or directories, in a project or not. Without one, the current directory.
         paths: Vec<PathBuf>,

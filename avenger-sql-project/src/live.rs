@@ -2,11 +2,14 @@
 //! scripts into a session and runs the chart scripts, and the [`Analysis`], the language project
 //! that analyzes every script and module with the tables that the loader read, kept in step.
 //!
+//! The analysis also holds the project's Quarto documents, whose `{avenger-sql}` cells it
+//! analyzes as chart scripts at the paths that [`qmd::cell_path`](crate::qmd::cell_path) gives.
+//!
 //! The futures of the loader are not `Send`, so a tool runs them on one thread, apart from the
 //! analysis. Each load sends back a [`LoadState`], which [`Analysis::apply`] takes, so that the
 //! analysis never waits for the loader.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use avenger_sql::{
@@ -25,6 +28,7 @@ use tokio::sync::RwLock;
 use crate::{
     load::{ChartError, FilesReload, LoadedProject, ScriptStatus, TableChange},
     project::{ProjectError, ProjectFiles},
+    qmd::{cell_path, set_cells, Qmd},
 };
 
 /// The loaded project, which a tool's background work shares. A chart run reads it and a load
@@ -204,18 +208,22 @@ impl Loader {
     }
 }
 
-/// The language project of a loaded project, which analyzes every data script, chart script, and
-/// module with the tables that the loader read, and the loader's errors of each data script.
+/// The language project of a loaded project, which analyzes every data script, chart script,
+/// module, and cell of a document with the tables that the loader read, and the loader's errors
+/// of each data script.
 pub struct Analysis {
     project: Project,
+    /// The documents, by path, with the texts whose cells the language project holds.
+    documents: BTreeMap<String, Qmd>,
     /// The table of each set of files that the loader read, as the language project has them.
     file_tables: Vec<(Files, FilesTable)>,
 }
 
 impl Analysis {
-    /// Analyzes the files of `files`, the data scripts, the chart scripts, and the modules, with
-    /// their texts from its file source, before any load: a set of files has no table, so it
-    /// has an unknown schema until [`Analysis::apply`] takes a [`LoadState`].
+    /// Analyzes the files of `files`, the data scripts, the chart scripts, the modules, and the
+    /// cells of the documents, with their texts from its file source, before any load: a set of
+    /// files has no table, so it has an unknown schema until [`Analysis::apply`] takes a
+    /// [`LoadState`].
     pub async fn new(files: &ProjectFiles) -> Result<Analysis, ProjectError> {
         let source = files.source();
         let roles = (files.data_scripts().iter())
@@ -231,6 +239,18 @@ impl Analysis {
         for (path, role) in roles {
             texts.push((path.clone(), role, source.read_text(path).await?));
         }
+        let mut documents = BTreeMap::new();
+        for path in files.documents() {
+            let document = Qmd::parse(source.read_text(path).await?);
+            for (index, cell) in document.cells.iter().enumerate() {
+                texts.push((
+                    cell_path(path, index + 1),
+                    FileRole::Chart,
+                    cell.text.clone(),
+                ));
+            }
+            documents.insert(path.clone(), document);
+        }
         let project = Project::new(
             Arc::new(MemoryCatalog::new()),
             Arc::new(Library::new()),
@@ -240,8 +260,35 @@ impl Analysis {
         .with_files(texts);
         Ok(Analysis {
             project,
+            documents,
             file_tables: Vec::new(),
         })
+    }
+
+    /// The document at `path`, with the text that the analysis has of it.
+    pub fn qmd(&self, path: &str) -> Option<&Qmd> {
+        self.documents.get(path)
+    }
+
+    /// The documents, by path, in the order of their paths.
+    pub fn documents(&self) -> impl Iterator<Item = (&str, &Qmd)> {
+        (self.documents.iter()).map(|(path, document)| (path.as_str(), document))
+    }
+
+    /// Sets the text of the document at `path`, as an editor or a change on disk gives it, which
+    /// adds the document when the analysis lacks it, or removes the document without a text.
+    /// The result is the files that the change reaches, as [`Project::set_texts`] gives them,
+    /// with the document's own path, since its cells move when its other lines change.
+    pub fn set_document(&mut self, path: &str, text: Option<String>) -> BTreeSet<String> {
+        let old = self.documents.remove(path).unwrap_or_default();
+        let new = text.map(Qmd::parse);
+        let cells = new.as_ref().map_or(&[][..], |new| &new.cells[..]);
+        let mut reached = set_cells(&mut self.project, path, &old.cells, cells);
+        reached.insert(path.to_string());
+        if let Some(new) = new {
+            self.documents.insert(path.to_string(), new);
+        }
+        reached
     }
 
     pub fn project(&self) -> &Project {

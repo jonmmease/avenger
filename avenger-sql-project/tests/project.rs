@@ -315,6 +315,10 @@ async fn roles() {
         (".git/HEAD", ""),
         (".git/refs/main.css", ""),
         ("data/.cache/stale.av.sql", ""),
+        ("reports/overview.qmd", ""),
+        ("index.qmd", ""),
+        ("data/files/notes.qmd", ""),
+        (".quarto/cached.qmd", ""),
     ])
     .await
     .unwrap();
@@ -343,7 +347,9 @@ async fn roles() {
         project.stylesheets(),
         ["styles/brand.css", "styles/main.css"]
     );
-    assert_eq!(project.files().len(), 14);
+    // A `.qmd` file is a document, unless it is among the data or hidden.
+    assert_eq!(project.documents(), ["index.qmd", "reports/overview.qmd"]);
+    assert_eq!(project.files().len(), 17);
     // Hidden files and directories are not listed, so they have no role.
     assert!(!(project.files().iter()).any(|path| path.contains("/.") || path.starts_with('.')));
     let manifest = project.manifest();
@@ -360,6 +366,8 @@ async fn roles() {
     // A `.css` file among the data is data, not a stylesheet.
     assert_eq!(manifest.role("data/files/report.css"), Ok(None));
     assert_eq!(manifest.role("data/report.css"), Ok(Some(Role::Stylesheet)));
+    assert_eq!(manifest.role("reports/new.qmd"), Ok(Some(Role::Document)));
+    assert_eq!(manifest.role("data/files/notes.qmd"), Ok(None));
     // A hidden file, or a file under a hidden directory, has no role.
     for path in [
         "charts/.hidden.av.sql",
@@ -367,6 +375,7 @@ async fn roles() {
         "data/.cache/stale.av.sql",
         "modules/.cache/stats.av.sqlm",
         ".styles/main.css",
+        ".quarto/cached.qmd",
     ] {
         assert_eq!(manifest.role(path), Ok(None), "{path}");
     }

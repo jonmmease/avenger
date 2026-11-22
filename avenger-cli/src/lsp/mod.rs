@@ -1,5 +1,6 @@
-//! `avenger lsp`: the Language Server Protocol server of avenger-sql scripts (`.av.sql`) and
-//! modules (`.av.sqlm`), over avenger-sql-language.
+//! `avenger lsp`: the Language Server Protocol server of avenger-sql scripts (`.av.sql`),
+//! modules (`.av.sqlm`), and the `{avenger-sql}` cells of Quarto documents (`.qmd`), over
+//! avenger-sql-language.
 //!
 //! The server keeps every project that holds an open file live: the language analysis of every
 //! script and module of the project, with the text of an open file in place of the text on disk,
@@ -8,6 +9,10 @@
 //! publishes the diagnostics of those files alone. A saved data script or module, and a changed
 //! data file, load again. A file outside every project, or without a role in its project, is
 //! analyzed alone.
+//!
+//! Each cell of a document of a project is a chart script of the project's analysis, and the
+//! server answers for positions inside cells and nothing else, so other servers of a document
+//! answer for the rest of it.
 
 mod convert;
 mod loader;
@@ -45,8 +50,9 @@ use lsp_types::{
     WorkDoneProgressOptions,
 };
 
-use self::convert::{Encoding, LineIndex};
+use self::convert::{Encoding, LineIndex, Place};
 use self::loader::{Load, Loaded, LoaderThread};
+use avenger_sql_project::qmd::{cell_path, is_document, split_cell_path, Qmd};
 
 /// Serves the protocol on standard input and standard output until the client exits.
 pub fn serve_stdio() -> Result<(), String> {
@@ -170,6 +176,8 @@ struct ProjectState {
     /// schemas, so the server publishes none of its diagnostics.
     loaded: bool,
     files: ProjectFiles,
+    /// The analysis, with the client's texts of the open files and the texts on disk of the
+    /// others.
     analysis: Analysis,
     /// The watch of the project's root, when the client watches no files for the server.
     watch: Option<Watch>,
@@ -179,8 +187,18 @@ struct ProjectState {
 enum Located {
     /// A script or a module of the project at `root`, at `path` relative to the root.
     Project { root: PathBuf, path: String },
+    /// A document of the project at `root`, at `path` relative to the root.
+    Document { root: PathBuf, path: String },
     /// A script or a module that is analyzed alone.
     Loose,
+    /// A document outside every project, whose cells are analyzed alone.
+    LooseDocument,
+}
+
+/// A document outside every project: its cells, and the document of each, analyzed alone.
+struct LooseDocument {
+    qmd: Qmd,
+    cells: Vec<Document>,
 }
 
 struct Server {
@@ -196,6 +214,8 @@ struct Server {
     projects: BTreeMap<PathBuf, ProjectState>,
     /// The documents of the open files that are analyzed alone, by path.
     loose: BTreeMap<PathBuf, Document>,
+    /// The open Quarto documents outside every project, by path.
+    loose_documents: BTreeMap<PathBuf, LooseDocument>,
     loader: LoaderThread,
     loaded: Receiver<Loaded>,
     wake: Sender<()>,
@@ -220,6 +240,7 @@ impl Server {
             open: HashMap::new(),
             projects: BTreeMap::new(),
             loose: BTreeMap::new(),
+            loose_documents: BTreeMap::new(),
             loader: LoaderThread::start(results),
             loaded,
             wake,
@@ -332,17 +353,21 @@ impl Server {
         }
     }
 
-    /// Where the file at `path` is: a script or a module of its project, whose project the
-    /// server opens, or a file that is analyzed alone.
+    /// Where the file at `path` is: a script, a module, or a document of its project, whose
+    /// project the server opens, or a file that is analyzed alone.
     fn locate(&mut self, path: &Path) -> Located {
+        let loose = match is_document(&path.to_string_lossy()) {
+            true => Located::LooseDocument,
+            false => Located::Loose,
+        };
         let Some(root) = find_root(path) else {
-            return Located::Loose;
+            return loose;
         };
         let Some(relative) = relative(&root, path) else {
-            return Located::Loose;
+            return loose;
         };
         if !self.open_project(&root) {
-            return Located::Loose;
+            return loose;
         }
         let state = &self.projects[&root];
         match state.files.manifest().role(&relative) {
@@ -351,7 +376,11 @@ impl Server {
                 root,
                 path: relative,
             },
-            _ => Located::Loose,
+            Ok(Some(ManifestRole::Document)) => Located::Document {
+                root,
+                path: relative,
+            },
+            _ => loose,
         }
     }
 
@@ -375,9 +404,16 @@ impl Server {
             }
         };
         // The open files of the project analyze with the client's texts.
-        let texts: Vec<(String, String)> = (self.open.iter())
-            .filter_map(|(path, file)| Some((relative(root, path)?, file.text.clone())))
-            .collect();
+        let mut texts = Vec::new();
+        for (path, file) in &self.open {
+            let Some(path) = relative(root, path) else {
+                continue;
+            };
+            match analysis.qmd(&path) {
+                Some(_) => drop(analysis.set_document(&path, Some(file.text.clone()))),
+                None => texts.push((path, file.text.clone())),
+            }
+        }
         analysis.project_mut().set_texts(texts);
         let watch = match self.client_watches {
             true => None,
@@ -451,7 +487,36 @@ impl Server {
                 self.loose.insert(path.to_path_buf(), document);
                 self.publish_loose(path);
             }
+            Located::Document { root, path } => {
+                let reached = self.set_document(&root, &path, Some(text));
+                self.publish(&root, &reached);
+            }
+            Located::LooseDocument => {
+                let qmd = Qmd::parse(text);
+                let cells = (qmd.cells.iter())
+                    .map(|cell| {
+                        Document::new(
+                            &cell.text,
+                            Role::Script,
+                            Arc::new(MemoryCatalog::new()),
+                            Arc::new(Library::new()),
+                            Options::default(),
+                        )
+                    })
+                    .collect();
+                let document = LooseDocument { qmd, cells };
+                self.loose_documents.insert(path.to_path_buf(), document);
+                self.publish_loose(path);
+            }
         }
+    }
+
+    /// Sets the text of the document at `path` of the project at `root` to `text`, or removes
+    /// the document without one, and returns the files that the change reaches, the document
+    /// with them.
+    fn set_document(&mut self, root: &Path, path: &str, text: Option<String>) -> BTreeSet<String> {
+        let state = self.projects.get_mut(root).expect("an open project");
+        state.analysis.set_document(path, text)
     }
 
     fn change_file(&mut self, params: DidChangeTextDocumentParams) {
@@ -505,7 +570,8 @@ impl Server {
             return;
         };
         self.open.remove(&path);
-        if self.loose.remove(&path).is_some() {
+        let loose = self.loose.remove(&path).is_some();
+        if loose || self.loose_documents.remove(&path).is_some() {
             self.publish_diagnostics(uri.clone(), Vec::new(), None);
             return;
         }
@@ -539,6 +605,14 @@ impl Server {
                     Some(Watched::Data(relative)) => data.push(relative),
                     Some(Watched::Project(relative)) => {
                         let role = state.files.manifest().role(&relative);
+                        // A document, new, changed, or removed, registers nothing, so the
+                        // project need not open again.
+                        if let Ok(Some(ManifestRole::Document)) = role {
+                            let text = std::fs::read_to_string(path).ok();
+                            let reached = self.set_document(&root, &relative, text);
+                            self.publish(&root, &reached);
+                            continue;
+                        }
                         let script = matches!(
                             role,
                             Ok(Some(
@@ -596,15 +670,16 @@ impl Server {
         self.open_project(root);
         // The diagnostics of files that the project no longer holds. The others stay until the
         // first load of the project replaces them.
-        let project = self
-            .projects
-            .get(root)
-            .map(|state| state.analysis.project());
-        for path in old.analysis.project().files() {
-            if project.is_some_and(|project| project.document(path).is_some()) {
+        let state = self.projects.get(root);
+        for path in client_files(&old) {
+            let held = state.is_some_and(|state| {
+                state.analysis.qmd(&path).is_some()
+                    || state.analysis.project().document(&path).is_some()
+            });
+            if held {
                 continue;
             }
-            if let Ok(uri) = Url::from_file_path(root.join(path)) {
+            if let Ok(uri) = Url::from_file_path(root.join(&path)) {
                 self.publish_diagnostics(uri, Vec::new(), None);
             }
         }
@@ -653,8 +728,7 @@ impl Server {
             }
         };
         if first {
-            let project = self.projects[&root].analysis.project();
-            reached = project.files().map(str::to_string).collect();
+            reached = client_files(&self.projects[&root]);
         }
         self.publish(&root, &reached);
     }
@@ -668,40 +742,67 @@ impl Server {
         );
     }
 
-    /// Publishes the diagnostics of the files at `paths` of the project at `root`, and none for
-    /// a path that the project no longer holds.
+    /// Publishes the diagnostics of the files of the client that hold the files at `paths` of
+    /// the analysis of the project at `root`, each once: a document with the diagnostics of all
+    /// its cells. A file that the project no longer holds has none.
     fn publish(&self, root: &Path, paths: &BTreeSet<String>) {
         let Some(state) = self.projects.get(root).filter(|state| state.loaded) else {
             return;
         };
         let project = state.analysis.project();
-        for path in paths {
+        let files: BTreeSet<&str> = (paths.iter())
+            .map(|path| split_cell_path(path).map_or(path.as_str(), |(document, _)| document))
+            .collect();
+        for path in files {
             let file = root.join(path);
             let Ok(uri) = Url::from_file_path(&file) else {
                 continue;
             };
             let version = self.open.get(&file).map(|file| file.version);
-            let diagnostics = match project.document(path) {
-                Some(document) => {
-                    let index = LineIndex::new(document.text(), self.encoding);
-                    (project.diagnostics(path).iter())
-                        .map(|diagnostic| lsp_diagnostic(&index, diagnostic))
-                        .collect()
+            let mut diagnostics = Vec::new();
+            if let Some(document) = state.analysis.qmd(path) {
+                for (index, cell) in document.cells.iter().enumerate() {
+                    let place = Place::new(&document.text, Some(cell), self.encoding);
+                    let cell = cell_path(path, index + 1);
+                    diagnostics.extend(
+                        (project.diagnostics(&cell).iter()).map(|d| lsp_diagnostic(&place, d)),
+                    );
                 }
-                None => Vec::new(),
-            };
+            } else if let Some(document) = project.document(path) {
+                let place = Place::new(document.text(), None, self.encoding);
+                diagnostics
+                    .extend((project.diagnostics(path).iter()).map(|d| lsp_diagnostic(&place, d)));
+            }
             self.publish_diagnostics(uri, diagnostics, version);
         }
     }
 
+    /// Publishes the diagnostics of the file at `path` that is analyzed alone.
     fn publish_loose(&self, path: &Path) {
-        let (Some(document), Ok(uri)) = (self.loose.get(path), Url::from_file_path(path)) else {
+        let Ok(uri) = Url::from_file_path(path) else {
             return;
         };
-        let index = LineIndex::new(document.text(), self.encoding);
-        let diagnostics = (document.diagnostics().iter())
-            .map(|diagnostic| lsp_diagnostic(&index, diagnostic))
-            .collect();
+        let mut diagnostics = Vec::new();
+        if let Some(document) = self.loose.get(path) {
+            let place = Place::new(document.text(), None, self.encoding);
+            diagnostics.extend(
+                document
+                    .diagnostics()
+                    .iter()
+                    .map(|d| lsp_diagnostic(&place, d)),
+            );
+        }
+        if let Some(document) = self.loose_documents.get(path) {
+            for (cell, analysis) in document.qmd.cells.iter().zip(&document.cells) {
+                let place = Place::new(&document.qmd.text, Some(cell), self.encoding);
+                diagnostics.extend(
+                    analysis
+                        .diagnostics()
+                        .iter()
+                        .map(|d| lsp_diagnostic(&place, d)),
+                );
+            }
+        }
         let version = self.open.get(path).map(|file| file.version);
         self.publish_diagnostics(uri, diagnostics, version);
     }
@@ -720,15 +821,24 @@ impl Server {
     }
 }
 
-/// The diagnostic of the protocol of `diagnostic`, whose text `index` indexes, with its help
-/// after its message.
-fn lsp_diagnostic(index: &LineIndex, diagnostic: &Diagnostic) -> lsp_types::Diagnostic {
+/// The paths of the files of the client that the project of `state` holds: its scripts and
+/// modules, and its documents.
+fn client_files(state: &ProjectState) -> BTreeSet<String> {
+    let scripts = (state.analysis.project().files()).filter(|path| split_cell_path(path).is_none());
+    (scripts.map(str::to_string))
+        .chain(state.analysis.documents().map(|(path, _)| path.to_string()))
+        .collect()
+}
+
+/// The diagnostic of the protocol of `diagnostic`, at its place `place`, with its help after its
+/// message.
+fn lsp_diagnostic(place: &Place, diagnostic: &Diagnostic) -> lsp_types::Diagnostic {
     let message = match &diagnostic.help {
         Some(help) => format!("{}\n\nhelp: {help}", diagnostic.message),
         None => diagnostic.message.clone(),
     };
     lsp_types::Diagnostic {
-        range: index.range(diagnostic.range),
+        range: place.range(diagnostic.range),
         severity: Some(convert::severity(diagnostic.severity)),
         source: Some(convert::source(diagnostic.source).to_string()),
         message,
