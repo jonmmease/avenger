@@ -162,3 +162,17 @@ async fn a_script_imports_the_modules_that_its_host_gives() {
     let found = errors("IMPORT MODULE util; FROM penguins").await;
     assert_eq!(found[0].0, "Module not found: util");
 }
+
+#[tokio::test]
+async fn a_chart_with_tables_of_files_keeps_its_other_errors() {
+    let text = "CREATE TEMP EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['sales.csv']);
+FROM no_such_table";
+    let errors = errors(text).await;
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors[0].0.contains("a project runs the chart"),
+        "{errors:?}"
+    );
+    assert!(errors[0].1.starts_with("CREATE TEMP EXTERNAL TABLE"));
+    assert_eq!(errors[1].1, "no_such_table");
+}

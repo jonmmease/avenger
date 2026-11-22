@@ -11,8 +11,15 @@
 //! A read that no data script defines adds no dependency: it reads a table of the host, or a
 //! table that doesn't exist, which the analysis of the script reports. A read of a name of a
 //! pipe `WITH`, after the `WITH` in its query, reads the `WITH` query, not a table, so it adds no
-//! dependency either. The reads in the functions of an imported module are not in the text of
-//! the script, so they add no dependency.
+//! dependency either, as [`table_reads`] leaves it out. The reads in the functions of an
+//! imported module are not in the text of the script, so they add no dependency. A path of a
+//! table of one name is in the session's default schema, so a read of `public.orders` depends on
+//! the script that defines `orders` when the default schema is `public`.
+//!
+//! The graph also holds the modules that each script imports, through its `IMPORT MODULE`s and
+//! the imports of those modules in turn, so that a change of a module reloads the scripts that
+//! import it, which [`Graph::importers`] gives. A module is not a script of the graph: it has
+//! no place in the order, and its imports add no dependency between scripts.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -20,7 +27,7 @@ use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 
 use crate::{
     analysis::script_targets,
-    catalog::{references, same_path},
+    catalog::{imported_modules, references, same_path, same_table, Reference},
 };
 
 /// What a name of a data script names: a table or a view, or a schema. A table and a schema of
@@ -29,6 +36,18 @@ use crate::{
 pub enum NameKind {
     Table,
     Schema,
+}
+
+impl NameKind {
+    /// Whether the paths `a` and `b` of names of this kind name the same table or schema, without
+    /// regard to case, with a path of a table of one name in the schema `default_schema`, as
+    /// [`same_table`] compares tables.
+    pub fn same(self, a: &[String], b: &[String], default_schema: &str) -> bool {
+        match self {
+            NameKind::Table => same_table(a, b, default_schema),
+            NameKind::Schema => same_path(a, b),
+        }
+    }
 }
 
 /// A name that a data script defines or reads.
@@ -100,30 +119,14 @@ pub fn script_names(root: &SyntaxNode) -> ScriptNames {
             });
         }
     }
-    let scopes = with_scopes(root);
-    // The paths of the tables in `FROM` and `JOIN`, which the names of a pipe `WITH` can name.
-    let sources: Vec<TextRange> = (root.descendants())
-        .filter_map(ast::TableSource::cast)
-        .filter_map(|source| Some(source.path()?.range()))
-        .collect();
-    for reference in references(root).tables {
+    for reference in table_reads(root) {
         let later = (statements.iter().zip(&targets)).any(|(statement, defined)| {
             statement.syntax().text_range().start() > reference.range.start()
                 && defined.as_ref().is_some_and(|defined| {
                     !defined.target.schema && same_path(&defined.target.names, &reference.names)
                 })
         });
-        // Names match without regard to case, as in GoogleSQL.
-        let with = match reference.names.as_slice() {
-            [name] => {
-                sources.contains(&reference.range)
-                    && (scopes.iter()).any(|(with, scope)| {
-                        scope.contains_range(reference.range) && with.eq_ignore_ascii_case(name)
-                    })
-            }
-            _ => false,
-        };
-        if later || with {
+        if later {
             continue;
         }
         reads.push(Name {
@@ -134,6 +137,29 @@ pub fn script_names(root: &SyntaxNode) -> ScriptNames {
     }
     reads.sort_by_key(|read| read.range.start());
     ScriptNames { definitions, reads }
+}
+
+/// The reads of tables of `root`, a script, as [`references`] gives them, without the reads of a
+/// name of a pipe `WITH`, after the `WITH` in the query that holds it, which read the `WITH`
+/// query and not a table. Names match without regard to case, as in GoogleSQL.
+pub fn table_reads(root: &SyntaxNode) -> Vec<Reference> {
+    let scopes = with_scopes(root);
+    // The paths of the tables in `FROM` and `JOIN`, which the names of a pipe `WITH` can name.
+    let sources: Vec<TextRange> = (root.descendants())
+        .filter_map(ast::TableSource::cast)
+        .filter_map(|source| Some(source.path()?.range()))
+        .collect();
+    let mut reads = references(root).tables;
+    reads.retain(|reference| match reference.names.as_slice() {
+        [name] => {
+            !sources.contains(&reference.range)
+                || !(scopes.iter()).any(|(with, scope)| {
+                    scope.contains_range(reference.range) && with.eq_ignore_ascii_case(name)
+                })
+        }
+        _ => true,
+    });
+    reads
 }
 
 /// The name of each query of a pipe `WITH` in `root`, with the range of its scope: from the end
@@ -276,10 +302,16 @@ pub fn unavailable_read(kind: NameKind, names: &[String], script: &str, why: &st
 /// error names depends on a cycle. A name that two scripts define is an error, and blocks
 /// neither: a script that reads the name depends on both, and a loader decides what each
 /// registers.
+///
+/// [`Graph::imports`] gives the modules that a script imports, and [`Graph::importers`] the
+/// scripts that import a module.
 #[derive(Clone, Debug)]
 pub struct Graph {
     /// The paths of the scripts, sorted, and the names of each.
     scripts: Vec<(String, ScriptNames)>,
+    /// For each script, the paths of the modules that it imports, directly or through other
+    /// modules.
+    imports: Vec<Vec<Vec<String>>>,
     edges: Vec<Edge>,
     /// For each script, the indices of the scripts that it depends on.
     dependencies: Vec<BTreeSet<usize>>,
@@ -292,12 +324,30 @@ pub struct Graph {
 
 impl Graph {
     /// The graph of the data scripts `scripts`: the path of each, as its host names it, and its
-    /// parse by [`avenger_sql_syntax::parse_data`]. The paths are distinct.
-    pub fn new<P: Into<String>>(scripts: impl IntoIterator<Item = (P, SyntaxNode)>) -> Graph {
-        let mut scripts: Vec<(String, ScriptNames)> = (scripts.into_iter())
-            .map(|(path, root)| (path.into(), script_names(&root)))
+    /// parse by [`avenger_sql_syntax::parse_data`]. The paths are distinct. `modules` gives the
+    /// text of the module at a path, or `None` when the project has none, as
+    /// [`imported_modules`] reads the modules that the scripts import. A path of a table of one
+    /// name is in the schema `default_schema`: the default schema of the session that the
+    /// scripts load into, or DataFusion's, `public`, without one.
+    pub fn new<P: Into<String>>(
+        scripts: impl IntoIterator<Item = (P, SyntaxNode)>,
+        modules: &dyn Fn(&[String]) -> Option<String>,
+        default_schema: &str,
+    ) -> Graph {
+        let mut roots: Vec<(String, SyntaxNode)> = (scripts.into_iter())
+            .map(|(path, root)| (path.into(), root))
             .collect();
-        scripts.sort_by(|(a, _), (b, _)| a.cmp(b));
+        roots.sort_by(|(a, _), (b, _)| a.cmp(b));
+        let imports: Vec<Vec<Vec<String>>> = (roots.iter())
+            .map(|(_, root)| {
+                (imported_modules(&references(root), modules).into_iter())
+                    .map(|(names, _)| names)
+                    .collect()
+            })
+            .collect();
+        let scripts: Vec<(String, ScriptNames)> = (roots.into_iter())
+            .map(|(path, root)| (path, script_names(&root)))
+            .collect();
         let count = scripts.len();
         let mut edges = Vec::new();
         let mut pairs = Vec::new();
@@ -310,7 +360,8 @@ impl Graph {
                         continue;
                     }
                     for definition in &other_names.definitions {
-                        if definition.kind == read.kind && same_path(&definition.names, &read.names)
+                        if definition.kind == read.kind
+                            && (read.kind).same(&definition.names, &read.names, default_schema)
                         {
                             edges.push(Edge {
                                 script: path.clone(),
@@ -326,7 +377,7 @@ impl Graph {
                 }
             }
         }
-        let mut errors = duplicates(&scripts);
+        let mut errors = duplicates(&scripts, default_schema);
         let (order, blocked) = order(&dependencies, &dependents);
         for cycle in cycles(&dependencies, &blocked) {
             let reads = (cycle.iter().enumerate())
@@ -342,6 +393,7 @@ impl Graph {
         }
         Graph {
             scripts,
+            imports,
             edges,
             dependencies,
             dependents,
@@ -416,6 +468,25 @@ impl Graph {
             .collect()
     }
 
+    /// The paths of the modules that the script at `path` imports, through its `IMPORT MODULE`s
+    /// and the imports of those modules in turn, each once, of the modules that the project has.
+    pub fn imports(&self, path: &str) -> &[Vec<String>] {
+        match self.index(path) {
+            Some(index) => &self.imports[index],
+            None => &[],
+        }
+    }
+
+    /// The scripts that import the module at the path `module`, directly or through other
+    /// modules, which a change of the module reloads, by path. Module paths match without regard
+    /// to case.
+    pub fn importers(&self, module: &[String]) -> Vec<&str> {
+        (self.imports.iter().enumerate())
+            .filter(|(_, imports)| (imports.iter()).any(|names| same_path(names, module)))
+            .map(|(index, _)| self.path(index))
+            .collect()
+    }
+
     fn index(&self, path: &str) -> Option<usize> {
         (self.scripts)
             .binary_search_by(|(script, _)| script.as_str().cmp(path))
@@ -428,14 +499,16 @@ impl Graph {
 }
 
 /// The errors of the names that two scripts define, by pair of scripts in the order of their
-/// paths.
-fn duplicates(scripts: &[(String, ScriptNames)]) -> Vec<GraphError> {
+/// paths, with a path of a table of one name in the schema `default_schema`.
+fn duplicates(scripts: &[(String, ScriptNames)], default_schema: &str) -> Vec<GraphError> {
     let mut errors = Vec::new();
     for (index, (first_path, first)) in scripts.iter().enumerate() {
         for (second_path, second) in &scripts[index + 1..] {
             for name in &first.definitions {
-                let other = (second.definitions.iter())
-                    .find(|other| other.kind == name.kind && same_path(&other.names, &name.names));
+                let other = (second.definitions.iter()).find(|other| {
+                    other.kind == name.kind
+                        && (name.kind).same(&other.names, &name.names, default_schema)
+                });
                 if let Some(other) = other {
                     errors.push(GraphError::Duplicate {
                         kind: name.kind,

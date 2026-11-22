@@ -27,6 +27,10 @@ pub struct Registered {
     /// and whose names name it.
     pub definition: usize,
     pub registration: Registration,
+    /// The tables of the table's schema that the registration replaced, those of its name
+    /// without regard to case, such as a table of the host, by their names in the schema, which
+    /// a host registers again when it removes the table.
+    pub replaced: Vec<(String, Arc<dyn TableProvider>)>,
 }
 
 /// What [`lower`] registers for a definition.
@@ -63,10 +67,10 @@ pub struct LoweringError {
 /// The definitions that the script exports, as [`DataAnalysis::exported`] gives them, then
 /// register in `ctx`: a schema in the default catalog when it lacks it, and then each table in its
 /// schema, in place of the tables of the schema of the same name without regard to case, such as
-/// a table of the host. A `TEMP` definition, and one that a later definition replaces, registers
-/// nothing. When a definition fails, the script registers nothing, and when a registration fails,
-/// the session keeps the schemas and the tables that it had before. The plans run in `ctx`, so it
-/// has avenger-sql's [`crate::register`].
+/// a table of the host, which [`Registered::replaced`] holds. A `TEMP` definition, and one that a
+/// later definition replaces, registers nothing. When a definition fails, the script registers
+/// nothing, and when a registration fails, the session keeps the schemas and the tables that it
+/// had before. The plans run in `ctx`, so it has avenger-sql's [`crate::register`].
 pub async fn lower(
     ctx: &SessionContext,
     analysis: &DataAnalysis,
@@ -465,9 +469,14 @@ fn register(
                         .expect("a definition of a table has a table after lowering"),
                 ),
             };
+            let replaced = (changes.tables.iter())
+                .filter(|change| change.definition == index)
+                .flat_map(|change| change.replaced.iter().cloned())
+                .collect();
             Registered {
                 definition: index,
                 registration,
+                replaced,
             }
         })
         .collect();
@@ -485,6 +494,8 @@ struct Changes {
 
 /// A table that [`register`] registered or tried to.
 struct TableChange {
+    /// The index of the table's definition.
+    definition: usize,
     schema: Arc<dyn SchemaProvider>,
     name: String,
     registered: bool,
@@ -520,6 +531,7 @@ impl Changes {
             let table = (lowering.registered(*index))
                 .expect("a definition of a table has a table after lowering");
             self.tables.push(TableChange {
+                definition: *index,
                 schema: schema.clone(),
                 name: name.clone(),
                 registered: false,

@@ -70,6 +70,16 @@ impl Default for Options {
 pub struct Diagnostic {
     pub range: TextRange,
     pub message: String,
+    /// The kind of the error, for a host that handles errors of a kind itself, or `None` for an
+    /// error of no such kind.
+    pub code: Option<DiagnosticCode>,
+}
+
+/// A kind of error of an analysis that a host can tell apart from the others.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticCode {
+    /// The files of a statement whose catalog reads no files, so that the files have no schema.
+    NoFiles,
 }
 
 /// The result of an analysis: the plans of the script's statements, the plan of its last query,
@@ -383,6 +393,7 @@ impl Pass<'_> {
         self.diagnostics.push(Diagnostic {
             range,
             message: message.into(),
+            code: None,
         });
     }
 

@@ -586,6 +586,7 @@ impl<'a> Reader<'a> {
         self.diagnostics.push(Diagnostic {
             range,
             message: message.into(),
+            code: None,
         });
     }
 
@@ -782,6 +783,7 @@ pub(crate) fn column_list(
                 diagnostics.push(Diagnostic {
                     range: error.range,
                     message: error.message,
+                    code: None,
                 });
                 continue;
             }
@@ -790,6 +792,7 @@ pub(crate) fn column_list(
             diagnostics.push(Diagnostic {
                 range: name.range(),
                 message: format!("Column {text} is named twice"),
+                code: None,
             });
             continue;
         }
@@ -926,6 +929,7 @@ pub(crate) fn file_options(
                 reader.diagnostics.push(Diagnostic {
                     range: entry.name,
                     message,
+                    code: None,
                 });
             }
         }

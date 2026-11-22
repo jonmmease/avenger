@@ -442,6 +442,27 @@ async fn role_conflict() {
 }
 
 #[tokio::test]
+async fn modules_of_one_module_path() {
+    let error = project(&[
+        ("modules/geo/States.sqlm", ""),
+        ("modules/Geo/states.sqlm", ""),
+        ("modules/geo/states.sqlm", ""),
+    ])
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "the modules 'modules/geo/States.sqlm' and 'modules/Geo/states.sqlm' have the same module \
+         path, which ignores case\nthe modules 'modules/geo/states.sqlm' and \
+         'modules/Geo/states.sqlm' have the same module path, which ignores case"
+    );
+    // A module path finds its module without regard to case.
+    let files = project(&[("modules/geo/States.sqlm", "")]).await.unwrap();
+    let names = ["GEO".to_string(), "states".to_string()];
+    assert_eq!(files.module(&names).unwrap().path, "modules/geo/States.sqlm");
+}
+
+#[tokio::test]
 async fn no_manifest() {
     let source = FileSource::embedded("sales", [("charts/a.sql", "")])
         .await

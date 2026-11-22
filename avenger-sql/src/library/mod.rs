@@ -44,7 +44,11 @@ pub(crate) mod random;
 mod reference;
 mod string;
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 use datafusion::{
     arrow::datatypes::{DataType, FieldRef},
@@ -1389,6 +1393,12 @@ impl Default for Library {
 }
 
 impl Library {
+    /// The library of every script, built once, which holds no state of a session.
+    pub fn shared() -> &'static Library {
+        static LIBRARY: OnceLock<Library> = OnceLock::new();
+        LIBRARY.get_or_init(Library::new)
+    }
+
     /// The library of GoogleSQL's functions and avenger's: the marks, compositions, `datum`, and
     /// `value` of avenger-chart, and the transforms `bin`, `stack`, and `timeunit`, with the
     /// constructors and the channel functions of avenger-chart apart from them.

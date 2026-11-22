@@ -1,5 +1,7 @@
 //! The files of a project by their roles.
 
+use avenger_sql::catalog::same_path;
+
 use crate::{
     manifest::{Manifest, ManifestError, Role, RoleConflict, MANIFEST},
     source::{FileSource, Listing, Skipped, SourceError},
@@ -27,7 +29,17 @@ pub struct ModuleFile {
     pub names: Vec<String>,
 }
 
-/// Why a project does not open.
+/// Two modules of one module path: a module path ignores case, as `IMPORT MODULE` does, so
+/// `Geo.sqlm` and `geo.sqlm` are the same module.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("the modules '{path}' and '{other}' have the same module path, which ignores case")]
+pub struct ModuleConflict {
+    pub path: String,
+    /// The module whose path comes first.
+    pub other: String,
+}
+
+/// Why a project does not open or load.
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectError {
     #[error("the project has no {MANIFEST} at its root")]
@@ -43,16 +55,28 @@ pub enum ProjectError {
     /// The files that the patterns of two roles match, in the order of their paths.
     #[error("{}", (.0.iter()).map(ToString::to_string).collect::<Vec<_>>().join("\n"))]
     Roles(Vec<RoleConflict>),
+    /// The modules whose module paths are those of earlier modules, in the order of their paths.
+    #[error("{}", (.0.iter()).map(ToString::to_string).collect::<Vec<_>>().join("\n"))]
+    Modules(Vec<ModuleConflict>),
+    /// A session that the project can't load into, such as one whose query planner avenger-sql
+    /// can't replace.
+    #[error(transparent)]
+    Session(datafusion::common::DataFusionError),
+    /// A path to reload that is neither a data script nor a module of the project.
+    #[error("'{0}' is neither a data script nor a module of the project")]
+    NotScript(String),
 }
 
 impl ProjectFiles {
     /// The files of `listing` of the project of `manifest` and `source`, paths relative to its
-    /// root, by the roles that the manifest gives them, or the files that two roles match.
+    /// root, by the roles that the manifest gives them. The error is [`ProjectError::Roles`],
+    /// the files that two roles match, or [`ProjectError::Modules`], the modules of one module
+    /// path.
     pub fn new(
         manifest: Manifest,
         source: FileSource,
         listing: Listing,
-    ) -> Result<ProjectFiles, Vec<RoleConflict>> {
+    ) -> Result<ProjectFiles, ProjectError> {
         let Listing {
             paths: mut files,
             skipped,
@@ -84,9 +108,22 @@ impl ProjectFiles {
             }
         }
         project.files = files;
+        if !conflicts.is_empty() {
+            return Err(ProjectError::Roles(conflicts));
+        }
+        let mut conflicts = Vec::new();
+        for (index, module) in project.modules.iter().enumerate() {
+            let earlier = &project.modules[..index];
+            if let Some(other) = earlier.iter().find(|m| same_path(&m.names, &module.names)) {
+                conflicts.push(ModuleConflict {
+                    path: module.path.clone(),
+                    other: other.path.clone(),
+                });
+            }
+        }
         match conflicts.is_empty() {
             true => Ok(project),
-            false => Err(conflicts),
+            false => Err(ProjectError::Modules(conflicts)),
         }
     }
 
@@ -99,7 +136,7 @@ impl ProjectFiles {
         };
         let manifest = Manifest::parse(&text)?;
         let files = source.list("").await?;
-        ProjectFiles::new(manifest, source, files).map_err(ProjectError::Roles)
+        ProjectFiles::new(manifest, source, files)
     }
 
     /// Opens the project on disk that holds `path`, a file or a directory: the project of the
@@ -135,6 +172,11 @@ impl ProjectFiles {
 
     pub fn modules(&self) -> &[ModuleFile] {
         &self.modules
+    }
+
+    /// The module at the module path `names`, which ignores case, as `IMPORT MODULE` does.
+    pub fn module(&self, names: &[String]) -> Option<&ModuleFile> {
+        (self.modules.iter()).find(|module| same_path(&module.names, names))
     }
 
     /// The `.css` files that are not data, and the entry stylesheet when the project has it.
