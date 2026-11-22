@@ -2,7 +2,7 @@
 //! of a hover's Markdown.
 
 use arrow::datatypes::DataType;
-use avenger_sql_editor::assist::{apply, blocks, fixes, Block, Popup, Span};
+use avenger_sql_editor::assist::{apply, blocks, fixes, Analysis, Block, Popup, Span};
 use avenger_sql_editor::document::{catalog, Analyzed};
 use avenger_sql_editor::samples::Sample;
 
@@ -79,7 +79,7 @@ fn the_selection_moves_among_the_kept_items_and_stops_at_their_ends() {
 fn a_fix_of_the_error_at_the_cursor_rewrites_the_text() {
     let mut analyzed = analyzed();
     let text = "SELECT species FROM samples.penguins";
-    let found = fixes(analyzed.document(text), 2);
+    let found = fixes(Analysis::query(analyzed.document(text)), 2);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].label, "Rewrite as a pipe query");
     assert_eq!(
@@ -87,7 +87,8 @@ fn a_fix_of_the_error_at_the_cursor_rewrites_the_text() {
         "FROM samples.penguins |> SELECT species"
     );
     // No error holds a cursor in a query without one.
-    assert!(fixes(analyzed.document("FROM samples.penguins"), 3).is_empty());
+    let document = analyzed.document("FROM samples.penguins");
+    assert!(fixes(Analysis::query(document), 3).is_empty());
 }
 
 #[test]
