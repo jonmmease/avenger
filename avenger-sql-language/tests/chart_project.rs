@@ -105,18 +105,18 @@ fn a_chart_s_own_table_has_its_definition_references_and_hover_in_the_chart() {
             .map(|reference| reference.path.as_str())
             .collect();
         assert_eq!(paths, [SALES, SALES], "{references:?}");
+        let hover = project.document(SALES).unwrap().hover(read).unwrap();
+        let sales = find(&project, SALES, "FROM sales", 0) + Offset::from(5);
+        assert_eq!(hover.range, TextRange::at(sales, Offset::from(5)));
+        assert!(
+            hover.markdown.contains("TEMP EXTERNAL TABLE sales"),
+            "{}",
+            hover.markdown
+        );
         let edits = project.rename(SALES, read, "sold").unwrap();
         assert_eq!(edits.keys().collect::<Vec<_>>(), [SALES]);
         assert_eq!(edits[SALES].len(), 2);
     }
-    let project = project();
-    let read = find(&project, SALES, "FROM sales", 0) + Offset::from(6);
-    let hover = project.document(SALES).unwrap().hover(read).unwrap();
-    assert!(
-        hover.markdown.contains("TEMP EXTERNAL TABLE sales"),
-        "{}",
-        hover.markdown
-    );
 }
 
 #[test]
