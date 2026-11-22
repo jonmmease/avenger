@@ -5,11 +5,13 @@ use std::sync::Arc;
 
 use arrow::array::{Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
-use avenger_sql_editor::charts::{cascade, engine, StaticChart};
+use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_sql_editor::charts::{engine, ChartTheme, StaticChart};
 use avenger_sql_editor::query::{self, Outcome};
 use avenger_sql_editor::result::{QueryResult, Shape};
 use avenger_sql_editor::sources::FileKind;
 use datafusion::prelude::SessionContext;
+use eframe::egui;
 
 /// A session with the penguins of `samples` as the table `penguins`.
 async fn session() -> SessionContext {
@@ -146,11 +148,54 @@ async fn a_static_chart_draws_at_its_size() {
     )
     .await;
     let chart = result.chart(0, 0).unwrap().clone();
-    let mut chart = StaticChart::new(chart, cascade(), engine()).unwrap();
+    let mut chart = StaticChart::new(
+        chart,
+        ChartTheme::default().cascade(),
+        ChartTheme::default().preferences(),
+        engine(),
+    )
+    .unwrap();
     for size in [[360.0, 240.0], [520.0, 300.0]] {
         let started = std::time::Instant::now();
         let scene = chart.scene(size).unwrap();
         eprintln!("a {size:?} cell evaluated in {:?}", started.elapsed());
         assert_eq!([scene.width, scene.height], size);
+    }
+}
+
+/// A chart's background is the color of the editor's panels, in the light theme and the dark one,
+/// so that a chart and the panel around it are one surface.
+#[tokio::test]
+async fn a_charts_background_is_the_panels_color_in_both_themes() {
+    let ctx = session().await;
+    let result = run(
+        &ctx,
+        "FROM penguins |> AGGREGATE mark_bar(x => species, y => count(*)) AS chart",
+    )
+    .await;
+    let chart = result.chart(0, 0).unwrap().clone();
+    for visuals in [egui::Visuals::light(), egui::Visuals::dark()] {
+        let theme = ChartTheme::of(&visuals);
+        let mut static_chart = StaticChart::new(
+            chart.clone(),
+            theme.cascade(),
+            theme.preferences(),
+            engine(),
+        )
+        .unwrap();
+        let scene = static_chart.scene([320.0, 240.0]).unwrap();
+        let Some(SceneMark::Rect(rect)) = scene.marks.first() else {
+            panic!("a background: {:?}", scene.marks.first());
+        };
+        assert_eq!(rect.name, "background");
+        let fill = rect.fill.first().expect("a fill").color_or_transparent();
+        let [r, g, b, _] = visuals.panel_fill.to_normalized_gamma_f32();
+        for (actual, expected) in fill.iter().zip([r, g, b]) {
+            assert!(
+                (actual - expected).abs() < 0.01,
+                "{fill:?} for {:?}",
+                visuals.panel_fill
+            );
+        }
     }
 }
