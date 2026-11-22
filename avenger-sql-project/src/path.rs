@@ -13,3 +13,13 @@ pub(crate) fn relative(path: &str) -> Option<String> {
         .collect();
     (!names.contains(&"..")).then(|| names.join("/"))
 }
+
+/// The path `path` relative to `root`, with its names separated by `/`, when it is under the
+/// root and its names are UTF-8.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn under_root(root: &std::path::Path, path: &std::path::Path) -> Option<String> {
+    let names: Option<Vec<&str>> = (path.strip_prefix(root).ok()?.components())
+        .map(|component| component.as_os_str().to_str())
+        .collect();
+    Some(names?.join("/"))
+}

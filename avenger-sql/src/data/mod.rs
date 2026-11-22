@@ -146,6 +146,14 @@ pub enum Compression {
 }
 
 impl Compression {
+    /// Every compression.
+    pub const ALL: [Compression; 4] = [
+        Compression::Gzip,
+        Compression::Bzip2,
+        Compression::Xz,
+        Compression::Zstd,
+    ];
+
     /// The compression of the value `text` of the option `compression`, without regard to case.
     pub fn parse(text: &str) -> Option<Compression> {
         let compression = match text.to_ascii_uppercase().as_str() {

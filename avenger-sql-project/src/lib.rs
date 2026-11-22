@@ -1,12 +1,17 @@
 #![doc = include_str!("../README.md")]
 
+pub mod add;
+mod live;
 mod load;
 mod manifest;
 mod path;
 mod project;
 mod source;
 mod style;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod watch;
 
+pub use live::{charts_to_run, Analysis, LoadState, Loader, ScriptState, Status, Table};
 pub use load::{
     Change, ChartError, FileReaders, FilesReload, LoadedProject, LoadedScript, ProjectDiagnostic,
     ScriptLoad, ScriptStatus, TableChange, UnloadedRead,
