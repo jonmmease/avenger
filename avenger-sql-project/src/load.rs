@@ -11,7 +11,9 @@ use avenger_sql::{
     analysis::Options,
     analyze_data,
     catalog::{references, Catalog, FilesTable, SessionCatalog},
-    data::{file_reads, file_table, lower, DataAnalysis, Files, Registered, Registration},
+    data::{
+        file_reads, file_table, file_urls, lower, DataAnalysis, Files, Registered, Registration,
+    },
     library::Library,
     project::{table_reads, unavailable_read, Edge, Graph, GraphError, NameKind, ProjectCatalog},
 };
@@ -127,6 +129,33 @@ pub struct TableChange {
     /// The path of the table, as its data script writes it.
     pub names: Vec<String>,
     pub change: Change,
+}
+
+/// The scripts that read a file or a directory, as [`LoadedProject::scripts_reading`] finds them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileReaders {
+    /// The data scripts whose last loads read it, by path, in the order of the load.
+    pub data_scripts: Vec<String>,
+    /// The chart scripts whose own tables of files read it in their last runs, by path.
+    pub charts: Vec<String>,
+}
+
+impl FileReaders {
+    /// Whether no script reads it.
+    pub fn is_empty(&self) -> bool {
+        self.data_scripts.is_empty() && self.charts.is_empty()
+    }
+}
+
+/// What [`LoadedProject::reload_files`] changed after files changed on disk.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FilesReload {
+    /// The tables of the session that changed, by path, which the charts that read them show
+    /// again.
+    pub tables: Vec<TableChange>,
+    /// The chart scripts whose own tables of files read the files, by path, which show again
+    /// with the tables that their next runs build.
+    pub charts: Vec<String>,
 }
 
 /// How a table of the session changed.
@@ -248,6 +277,75 @@ impl LoadedProject {
         self.scripts().flat_map(|script| &script.files)
     }
 
+    /// The data scripts whose last loads read the file or the directory at `path`, relative to
+    /// the project's root, in the order of the load, and the chart scripts whose own tables of
+    /// files read it in their last runs, by path, as [`changed_by`](avenger_sql::data::FileUrl::changed_by) matches it with the
+    /// URIs that [`file_urls`] resolves: those with a URI that names the file, or a directory or
+    /// a pattern that holds it, as the tables match the files that they list, and those with a
+    /// URI under the directory, which a move or a removal of the directory changes. The match
+    /// reads the URIs and not the store, so a file that a change removed matches as it did, and
+    /// a new file matches a pattern or a directory before any load lists it. A script that
+    /// failed since no file matched its URIs reads those files too, so a new file that matches
+    /// loads it. The match compares the spellings of the paths: a URI that names a file with
+    /// other cases of its letters, or through a symbolic link, does not match the file's path.
+    pub fn scripts_reading(&self, path: &str) -> FileReaders {
+        let Ok(changed) = self.files.source().url(path) else {
+            return FileReaders::default();
+        };
+        let base = self.files.source().base().as_str();
+        let state = self.ctx.state();
+        let ignore_subdirectory =
+            (state.config_options().execution).listing_table_ignore_subdirectory;
+        let reads = |files: &[(Files, FilesTable)]| {
+            (files.iter()).any(|(files, _)| {
+                (file_urls(files, base).into_iter().flatten())
+                    .any(|uri| uri.changed_by(&changed, ignore_subdirectory))
+            })
+        };
+        let data_scripts = (self.scripts())
+            .filter(|script| reads(&script.files))
+            .map(|script| script.path.clone())
+            .collect();
+        let charts = self.charts.lock().expect("the tables of the charts");
+        let charts = (charts.iter())
+            .filter(|(_, chart)| reads(&chart.files))
+            .map(|(path, _)| path.clone())
+            .collect();
+        FileReaders {
+            data_scripts,
+            charts,
+        }
+    }
+
+    /// Loads the data scripts that read the files or the directories at `paths`, relative to
+    /// the project's root, again, as [`LoadedProject::scripts_reading`] finds them, and every
+    /// script downstream of them, each once, after they change on disk, and returns the tables
+    /// of the session that changed, by path, and the charts whose own tables of files read
+    /// them. The texts of the scripts are those of the last load. Each such chart drops the
+    /// tables of files that its last run read and built, which its next run reads and builds
+    /// again.
+    pub async fn reload_files(&mut self, paths: &[&str]) -> FilesReload {
+        let mut scripts = BTreeSet::new();
+        let mut charts = BTreeSet::new();
+        for path in paths {
+            let readers = self.scripts_reading(path);
+            scripts.extend(readers.data_scripts);
+            charts.extend(readers.charts);
+        }
+        let tables = self.charts.get_mut().expect("the tables of the charts");
+        for path in &charts {
+            tables.remove(path);
+        }
+        let mut set = BTreeSet::new();
+        for script in &scripts {
+            set.extend(affected(&self.graph, &self.graph, script));
+        }
+        FilesReload {
+            tables: self.load_scripts(set).await,
+            charts: charts.into_iter().collect(),
+        }
+    }
+
     /// The text of the data script at `path`, as the last load read it.
     pub fn text(&self, path: &str) -> Option<&str> {
         self.texts.get(path).map(String::as_str)
@@ -261,9 +359,9 @@ impl LoadedProject {
     /// `LOAD DATA` whose rows don't load, is an error at the statement.
     ///
     /// The chart's tables of files are its own: they register in no session. The project keeps
-    /// them by `path`, and builds them again when the chart's statements of files change, so a
-    /// run that changes only the chart's query reuses them, and a `LOAD DATA` reads its files
-    /// once.
+    /// them by `path`, and builds them again when the chart's statements of files change, or
+    /// when [`LoadedProject::reload_files`] finds that a file that they read changed, so a run
+    /// that changes only the chart's query reuses them, and a `LOAD DATA` reads its files once.
     ///
     /// When the run fails and the chart reads a table that a data script defines, or a table in
     /// a schema that a data script creates, and that script did not load, the error is
@@ -443,7 +541,12 @@ impl LoadedProject {
         } else {
             return Err(ProjectError::NotScript(path.into()));
         }
-        let new = graph(&self.files, &self.texts, &self.modules, &default_schema(&self.ctx));
+        let new = graph(
+            &self.files,
+            &self.texts,
+            &self.modules,
+            &default_schema(&self.ctx),
+        );
         let old = std::mem::replace(&mut self.graph, new);
         if let Some(names) = &module {
             changed.extend(self.graph.importers(names).into_iter().map(str::to_string));

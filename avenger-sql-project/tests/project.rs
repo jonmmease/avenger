@@ -459,7 +459,10 @@ async fn modules_of_one_module_path() {
     // A module path finds its module without regard to case.
     let files = project(&[("modules/geo/States.sqlm", "")]).await.unwrap();
     let names = ["GEO".to_string(), "states".to_string()];
-    assert_eq!(files.module(&names).unwrap().path, "modules/geo/States.sqlm");
+    assert_eq!(
+        files.module(&names).unwrap().path,
+        "modules/geo/States.sqlm"
+    );
 }
 
 #[tokio::test]

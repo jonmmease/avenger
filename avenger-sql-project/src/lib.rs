@@ -8,8 +8,8 @@ mod source;
 mod style;
 
 pub use load::{
-    Change, ChartError, LoadedProject, LoadedScript, ProjectDiagnostic, ScriptLoad, ScriptStatus,
-    TableChange, UnloadedRead,
+    Change, ChartError, FileReaders, FilesReload, LoadedProject, LoadedScript, ProjectDiagnostic,
+    ScriptLoad, ScriptStatus, TableChange, UnloadedRead,
 };
 pub use manifest::{
     ChartsSection, DataSection, Manifest, ManifestError, ModulesSection, Pattern, ProjectSection,
