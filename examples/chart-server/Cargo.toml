@@ -1,0 +1,15 @@
+[package]
+name = "chart-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+avenger-chart = { path = "../../avenger-chart" }
+chart-web = { path = "../chart-web" }
+arrow = { workspace = true }
+datafusion = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tiny_http = "0.12"
+tokio = { workspace = true, features = ["rt-multi-thread"] }

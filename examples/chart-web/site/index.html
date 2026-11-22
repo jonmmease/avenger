@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>avenger-chart-web gallery</title>
+<style>
+  :root {
+    --page: #f6f6f4;
+    --card: #ffffff;
+    --ink: #1d1d1f;
+    --muted: #5f6066;
+    --line: #dedede;
+    --accent: #2f6db5;
+  }
+  :root[data-theme="dark"] {
+    --page: #141416;
+    --card: #1e1e21;
+    --ink: #ececee;
+    --muted: #a3a3aa;
+    --line: #333338;
+    --accent: #7fb0ea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 64px;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header, main { max-width: 1120px; margin: 0 auto; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  button {
+    font: inherit; color: var(--ink); background: var(--card);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  }
+  main { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 16px; }
+  article { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+  article.wide { grid-column: 1 / -1; }
+  h2 { margin: 0; font-size: 16px; }
+  article p { margin: 4px 0 10px; color: var(--muted); font-size: 14px; }
+  .chart { height: 340px; color: var(--ink); }
+  .chart canvas { border-radius: 4px; }
+  .chart canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>avenger-chart-web gallery</h1>
+    <p>Charts that a build step wrote as chart messages, drawn with WebGPU. Each chart loads as it nears the screen. Click a chart before you scroll to zoom it.</p>
+  </div>
+  <button id="theme" type="button">Dark</button>
+</header>
+<main id="gallery"></main>
+<script type="importmap">
+{
+  "imports": {
+    "@bufbuild/protobuf": "./avenger-chart-web/node_modules/@bufbuild/protobuf/dist/esm/index.js",
+    "@bufbuild/protobuf/codegenv2": "./avenger-chart-web/node_modules/@bufbuild/protobuf/dist/esm/codegenv2/index.js",
+    "@bufbuild/protobuf/wkt": "./avenger-chart-web/node_modules/@bufbuild/protobuf/dist/esm/wkt/index.js"
+  }
+}
+</script>
+<script type="module">
+  import { configure, mount } from "./avenger-chart-web/dist/index.js";
+
+  // `?font=lobster`, `?font=inter`, or `?font=roboto-slab` draws the charts in a Google font: its
+  // full file from the google/fonts repository, at a pinned commit, through jsDelivr. Google's
+  // stylesheets serve fonts split into subsets, which the label engine cannot join.
+  const GOOGLE_FONTS = "https://cdn.jsdelivr.net/gh/google/fonts@c30b221beb0c1da59d563feb91ec8656a1fa972a";
+  const FONTS = {
+    lobster: ["Lobster", "ofl/lobster/Lobster-Regular.ttf"],
+    inter: ["Inter", "ofl/inter/Inter%5Bopsz,wght%5D.ttf"],
+    "roboto-slab": ["Roboto Slab", "apache/robotoslab/RobotoSlab%5Bwght%5D.ttf"],
+  };
+  const [family, file] = FONTS[new URLSearchParams(location.search).get("font")] ?? [];
+  if (file) configure({ extraFonts: [`${GOOGLE_FONTS}/${file}`] });
+  const fontRule = family ? `chart { font-family: "${family}", sans-serif; }` : "";
+
+  // The page's dark theme, as a stylesheet after the base stylesheet. The base stylesheet mixes the
+  // colors of guide lines with the background that the page gives it, so the dark theme gives the
+  // lines its own colors.
+  const DARK = `
+    chart { background: #1e1e21; color: #ececee; }
+    grid { stroke: #303036; }
+    plot[type=cartesian] { border: 1 solid #303036; }
+    axis > rule, axis > tick, legend > rule, legend > tick, facet > rule, facet > tick {
+      stroke: #707078;
+    }
+  `;
+  let dark = false;
+  const gallery = document.getElementById("gallery");
+
+  // The build step rewrites the charts, so the page asks the server whether they changed.
+  const manifest = await (await fetch("./manifest.json", { cache: "no-cache" })).json();
+  const charts = [];
+  for (const chart of manifest) {
+    const article = document.createElement("article");
+    if (chart.name === "penguin-islands") article.className = "wide";
+    const title = document.createElement("h2");
+    title.textContent = chart.title;
+    const description = document.createElement("p");
+    description.textContent = chart.description;
+    const container = document.createElement("div");
+    container.className = "chart";
+    article.append(title, description, container);
+    gallery.append(article);
+    // The wrapper loads the library and the chart's bytes as the container nears the screen.
+    charts.push(mount(container, `./charts/${chart.name}.bin`, { label: chart.title, stylesheet: fontRule || null }));
+  }
+  // For a look in the console.
+  window.charts = charts;
+
+  const toggle = document.getElementById("theme");
+  toggle.addEventListener("click", () => {
+    dark = !dark;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    toggle.textContent = dark ? "Light" : "Dark";
+    for (const chart of charts) chart.setStylesheet((dark ? DARK : "") + fontRule || null);
+  });
+</script>
+</body>
+</html>
