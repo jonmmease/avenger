@@ -39,6 +39,7 @@
 mod completion;
 mod data;
 mod hover;
+mod markup;
 mod navigation;
 mod outline;
 mod project;
@@ -57,7 +58,7 @@ use avenger_sql_syntax::{
 };
 
 pub use avenger_sql_syntax::{
-    DiagnosticCode, Fix, Highlight, HighlightRange, Offset, Role, TextEdit, TextRange,
+    DiagnosticCode, Fix, Highlight, HighlightRange, Offset, Role, TextEdit, TextRange, TypstTag,
 };
 pub use completion::{CompletionItem, CompletionKind, Completions};
 pub use hover::Hover;
@@ -137,6 +138,9 @@ pub enum Source {
     /// The host's loader of the project, which reads files and runs the data scripts: the errors
     /// that the host passes to [`Project::set_loader_diagnostics`].
     Loader,
+    /// Typst's parser of the strings of Typst markup, such as a title, whose errors fail the
+    /// chart's render.
+    Typst,
 }
 
 impl Document {
@@ -343,6 +347,7 @@ impl Document {
                     fixes: Vec::new(),
                 }),
         );
+        diagnostics.extend(self.markup_diagnostics());
         diagnostics.sort_by_key(|diagnostic| diagnostic.range.start());
         diagnostics
     }
@@ -393,11 +398,13 @@ impl Document {
     }
 
     /// The classes of the tokens, for semantic highlighting: the classes of the syntax, which the
-    /// analysis refines where it resolved a name, a function, or a value of a set.
+    /// analysis refines where it resolved a name, a function, or a value of a set, and in a string
+    /// of Typst markup, the classes that Typst gives its ranges, between ranges of the string. The
+    /// ranges are in the order of the text, without overlaps.
     pub fn highlights(&self) -> Vec<HighlightRange> {
         let mut ranges = highlight(&self.root());
         self.model().refine_highlights(&mut ranges);
-        ranges
+        self.split_markup(ranges)
     }
 
     /// The root of the syntax tree, made for each request.

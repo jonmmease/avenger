@@ -166,3 +166,38 @@ fn each_name_of_a_tables_path_is_a_table() {
     assert_eq!(class(&ranges, "samples", 2), name(NameRole::RangeVariable));
     assert_eq!(class(&ranges, "x", 0), name(NameRole::Column));
 }
+
+#[test]
+fn the_strings_of_parameters_that_take_markup_hold_typst() {
+    let text = "FROM penguins\n\
+                |> AGGREGATE mark_bar(x => x(species, axis => axis(labels => labels(markup => '#value g'))), y => body_mass_g, title => title('*Mass*', subtitle => 'by $x$')) AS bars,\n\
+                   mark_text(x => species, y => body_mass_g, text => species, syntax => 'plain', title => '_Names_') AS names,\n\
+                   mark_symbol(x => species, y => body_mass_g, title => title('Plain *text*', syntax => 'plain', subtitle => subtitle('Also plain'))) AS dots,\n\
+                   mark_rule(y => body_mass_g, title => 'Mean', attribution => attribution(credits => ['© *OSM*', 'Me'])) AS rule\n\
+                |> SELECT hconcat(bars, names, title => 'Both') AS both";
+    let analysis = pass::analysis(text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let mut markup: Vec<&str> = (analysis.model.markup.iter())
+        .map(|range| &text[*range])
+        .collect();
+    markup.sort();
+    // A mark's own `syntax` is that of its text, not its title's, and a title's `syntax` holds
+    // for its subtitle.
+    assert_eq!(
+        markup,
+        [
+            "'#value g'",
+            "'*Mass*'",
+            "'Both'",
+            "'Me'",
+            "'Mean'",
+            "'_Names_'",
+            "'by $x$'",
+            "'© *OSM*'",
+        ]
+    );
+}

@@ -15,7 +15,10 @@
 //! (every role of a function), `type`, `parameter`, `variable` (variables and range variables),
 //! `property` (fields) and `namespace` (modules and schemas). The value of the option `format` of
 //! files, [`Highlight::Format`], maps to `enumMember`, as a constant, and a URI of the option
-//! `uris`, [`Highlight::Uri`], to `string`, which a host can show as a path.
+//! `uris`, [`Highlight::Uri`], to `string`, which a host can show as a path. The classes of
+//! Typst markup, [`Highlight::Typst`], map to the tokens of their kinds where the protocol has
+//! one, such as `function`, `variable`, `keyword`, `number`, and `operator`, and the others, such
+//! as strong text, to `string`, as the rest of their string.
 
 use rowan::TextRange;
 
@@ -52,6 +55,40 @@ pub enum Highlight {
     Punctuation,
     /// A name in a role.
     Name(NameRole),
+    /// A range of Typst markup in a string whose parameter takes markup, such as the `#emph`
+    /// of `title => '#emph[Mass]'`, by the class that Typst's highlighter gives it. Only
+    /// avenger-sql-language gives this class, from the analysis and Typst's parser.
+    Typst(TypstTag),
+}
+
+/// The class of a range of Typst markup, as Typst's highlighter (`typst_syntax::Tag`) names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TypstTag {
+    Comment,
+    Punctuation,
+    /// An escape sequence, a shorthand such as `--`, or a line break.
+    Escape,
+    Strong,
+    Emph,
+    Link,
+    Raw,
+    Label,
+    Ref,
+    Heading,
+    ListMarker,
+    ListTerm,
+    MathDelimiter,
+    MathOperator,
+    MathGroupingParens,
+    Keyword,
+    Operator,
+    Number,
+    String,
+    /// The name of a function or a method, such as `emph` in `#emph[...]`.
+    Function,
+    /// A variable in markup or math, such as `value` in `#value m/s`.
+    Interpolated,
+    Error,
 }
 
 /// A range of text and its class.

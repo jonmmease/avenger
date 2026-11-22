@@ -709,3 +709,78 @@ fn lsp_latency() {
         times[times.len() - 1]
     );
 }
+
+/// The semantic tokens of the client file `uri`, as absolute lines, columns, lengths, and types,
+/// after a check that each starts after the one before ends.
+fn tokens(client: &mut Client, uri: &Url) -> Vec<(u32, u32, u32, u32)> {
+    let tokens = client.request::<SemanticTokensFullRequest>(json!({"textDocument": {"uri": uri}}));
+    let data: Vec<u32> = (tokens["data"].as_array().unwrap().iter())
+        .map(|value| value.as_u64().unwrap() as u32)
+        .collect();
+    let (mut line, mut start, mut end) = (0, 0, 0);
+    let mut absolute = Vec::new();
+    for token in data.chunks(5) {
+        line += token[0];
+        start = match token[0] {
+            0 => {
+                assert!(
+                    start + token[1] >= end,
+                    "an overlap at {line}:{}",
+                    start + token[1]
+                );
+                start + token[1]
+            }
+            _ => token[1],
+        };
+        end = start + token[2];
+        absolute.push((line, start, token[2], token[3]));
+    }
+    absolute
+}
+
+#[test]
+fn the_typst_markup_of_a_title_in_a_cell_takes_tokens_and_errors() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let text = "1. Weights\n\n    ```{avenger-sql}\n    FROM heavy_by_origin\n    |> AGGREGATE mark_bar(x => Origin, y => cars, title => '\u{e9} #emph[Cars] $x')\n    ```\n";
+    std::fs::write(root.join("reports/overview.qmd"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let report = uri(&root, "reports/overview.qmd");
+    client.open(&report, text);
+    client.until("the document's diagnostics", |c| {
+        c.diagnostics.contains_key(&report)
+    });
+    // The unclosed `$` is an error of Typst, on its line of the document.
+    let diagnostics = &client.diagnostics[&report];
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert_eq!(diagnostics[0].source.as_deref(), Some("typst"));
+    assert_eq!(diagnostics[0].range.start.line, 4);
+
+    // `#emph` is a function, at its UTF-16 column: the indent, then the line up to it, where
+    // `é` is one unit.
+    let line = text.lines().nth(4).unwrap();
+    let column = line[..line.find("#emph").unwrap()].encode_utf16().count() as u32;
+    let capabilities = serde_json::to_value(&client.result.capabilities).unwrap();
+    let legend = &capabilities["semanticTokensProvider"]["legend"]["tokenTypes"];
+    let function = (legend.as_array().unwrap().iter())
+        .position(|kind| kind == "function")
+        .unwrap();
+    let tokens = tokens(&mut client, &report);
+    assert!(
+        tokens.contains(&(4, column, 5, function as u32)),
+        "{tokens:?}"
+    );
+    // Every character of the string takes a token, so markup without a type of its own, such as
+    // the brackets of `#emph[Cars]`, reads as the string around it.
+    let units = |text: &str| text.encode_utf16().count() as u32;
+    let quote = line.find('\'').unwrap();
+    let (start, end) = (units(&line[..quote]), units(line.trim_end_matches(')')));
+    let mut at = start;
+    for (_, column, length, _) in (tokens.iter()).filter(|token| token.0 == 4) {
+        if *column >= start && *column < end {
+            assert_eq!(*column, at, "a gap before {column} in {tokens:?}");
+            at = column + length;
+        }
+    }
+    assert_eq!(at, end, "{tokens:?}");
+}

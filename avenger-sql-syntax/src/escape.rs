@@ -1,5 +1,7 @@
 //! The text of quoted tokens: string and bytes literals, and names in backticks.
 
+use std::ops::Range;
+
 /// The parts of a closed quoted token.
 pub(crate) struct Quoted<'a> {
     /// The text between the quotes.
@@ -65,10 +67,47 @@ pub(crate) struct EscapeError {
 /// The value of the body of a quoted token, the text between its quotes, after its escapes. A
 /// raw body keeps its backslashes, and a bytes body takes no `\u` or `\U`.
 pub(crate) fn unescape(body: &str, raw: bool, bytes: bool) -> Result<Vec<u8>, EscapeError> {
+    unescape_with(body, raw, bytes, None)
+}
+
+/// The value of the body of a quoted token, as [`unescape`] gives it, and the range in the body
+/// of each byte of the value: the escape that gives the byte, or the byte itself.
+pub(crate) fn unescape_spans(
+    body: &str,
+    raw: bool,
+    bytes: bool,
+) -> Result<(Vec<u8>, Vec<Range<usize>>), EscapeError> {
+    let mut spans = Vec::with_capacity(body.len());
+    let value = unescape_with(body, raw, bytes, Some(&mut spans))?;
+    Ok((value, spans))
+}
+
+/// The value of `body`, with the range of each byte of the value in `spans`, when given.
+fn unescape_with(
+    body: &str,
+    raw: bool,
+    bytes: bool,
+    mut spans: Option<&mut Vec<Range<usize>>>,
+) -> Result<Vec<u8>, EscapeError> {
     let source = body.as_bytes();
     let mut value = Vec::with_capacity(source.len());
     let mut index = 0;
+    // The start of the last escape or byte in the body, and the length of the value before it,
+    // whose new bytes take the range from that start to the next.
+    let mut last: Option<(usize, usize)> = None;
+    fn spanned(
+        spans: &mut Option<&mut Vec<Range<usize>>>,
+        last: Option<(usize, usize)>,
+        value: &[u8],
+        end: usize,
+    ) {
+        if let (Some(spans), Some((start, before))) = (spans.as_mut(), last) {
+            spans.extend((before..value.len()).map(|_| start..end));
+        }
+    }
     while index < source.len() {
+        spanned(&mut spans, last, &value, index);
+        last = Some((index, value.len()));
         let byte = source[index];
         if byte != b'\\' || index + 1 >= source.len() {
             value.push(byte);
@@ -139,5 +178,6 @@ pub(crate) fn unescape(body: &str, raw: bool, bytes: bool) -> Result<Vec<u8>, Es
             }
         }
     }
+    spanned(&mut spans, last, &value, index);
     Ok(value)
 }

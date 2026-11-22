@@ -1254,6 +1254,7 @@ dependencies = [
  "avenger-sql",
  "avenger-sql-syntax",
  "datafusion",
+ "typst-syntax",
 ]
 
 [[package]]

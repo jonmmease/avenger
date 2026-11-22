@@ -192,6 +192,7 @@ fn language_report(file: &File, diagnostic: &Diagnostic) -> Report {
         avenger_sql_language::Source::Analysis => "analysis",
         avenger_sql_language::Source::Project => "project",
         avenger_sql_language::Source::Loader => "loader",
+        avenger_sql_language::Source::Typst => "typst",
     };
     let range = diagnostic.range;
     let bytes = (

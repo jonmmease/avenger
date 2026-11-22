@@ -16,6 +16,11 @@ pub struct Model {
     pub calls: Vec<CallForm>,
     /// Each string literal that a parameter takes as one value of a set.
     pub enum_values: Vec<EnumValue>,
+    /// The range of each string literal that holds Typst markup: an argument, or an item of an
+    /// array argument, of a parameter that takes markup, as `Takes::markup` marks it, unless the
+    /// call of the constructor around it, such as `title(...)`, sets a `syntax` other than
+    /// `'typst'`.
+    pub markup: Vec<TextRange>,
     /// The places where the pass plans expressions, and what each takes.
     pub places: Vec<Place>,
     /// The type of the expression before each `.` of a field access.

@@ -20,7 +20,7 @@ use std::marker::PhantomData;
 
 use crate::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-pub use manual::{BinaryOp, CreateStmt, FunctionKind, LiteralKind, PrefixOp, Scope};
+pub use manual::{BinaryOp, CreateStmt, DecodedString, FunctionKind, LiteralKind, PrefixOp, Scope};
 
 /// A typed view of a node of the syntax tree.
 pub trait AstNode: Sized {

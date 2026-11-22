@@ -1769,6 +1769,10 @@ impl Pass<'_> {
         let mut positional = 0;
         // The count of the positional arguments before each, which names their parameters.
         let mut before = 0;
+        // The string literals of the arguments that take Typst markup, and whether a `syntax`
+        // argument of a constructor, such as that of `title(...)`, reads them as plain text.
+        let mut markup = Vec::new();
+        let mut plain = false;
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1796,6 +1800,18 @@ impl Pass<'_> {
                 ok = false;
                 continue;
             };
+            let takes = param
+                .as_deref()
+                .and_then(|param| function.param_named(param));
+            if takes.is_some_and(|param| param.takes.markup) {
+                markup.extend(string_literals(&value));
+            }
+            let syntax = named
+                .as_deref()
+                .is_some_and(|name| name.eq_ignore_ascii_case("syntax"));
+            if syntax && function.family == library::Family::Constructor {
+                plain = !is_typst_syntax(&value);
+            }
             // A name that no parameter of a chart function has, before its value, which would
             // resolve against no parameter.
             let chart = matches!(
@@ -1883,6 +1899,12 @@ impl Pass<'_> {
                 }
                 None => ok = false,
             }
+        }
+        // A plain syntax holds for the strings of the constructors in the call too, such as a
+        // title's subtitle, whatever errors the call has.
+        match plain {
+            true => (self.model.markup).retain(|literal| !range.contains_range(*literal)),
+            false => self.model.markup.extend(markup),
         }
         let order_by = match list.as_ref().and_then(|list| list.order_by()) {
             Some(order) => self.sort_keys(&order, arg_scope),
@@ -2758,6 +2780,29 @@ fn castable(from: &Ty, to: &Ty) -> bool {
         (Array(a), Array(b)) => castable(a, b),
         (Struct(a), Struct(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|((_, a), (_, b))| castable(a, b))
+        }
+        _ => false,
+    }
+}
+
+/// The ranges of the string literals of `expr`: itself, or the items of an array.
+fn string_literals(expr: &ast::Expr) -> Vec<TextRange> {
+    match expr {
+        ast::Expr::ArrayExpr(array) => array
+            .exprs()
+            .filter_map(|item| string_literal(&item))
+            .collect(),
+        expr => string_literal(expr).into_iter().collect(),
+    }
+}
+
+/// Whether `expr` is the string literal `'typst'`, the syntax of `TEXT_SYNTAX_TYPST`, which
+/// reads a text as Typst markup. A syntax that is not a literal reads it as no syntax that the
+/// analysis knows, so no string of its call is markup.
+fn is_typst_syntax(expr: &ast::Expr) -> bool {
+    match expr {
+        ast::Expr::Literal(literal) => {
+            (literal.string_value()).is_some_and(|value| value.eq_ignore_ascii_case("typst"))
         }
         _ => false,
     }
