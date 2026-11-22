@@ -2,7 +2,7 @@
 name = "avenger-sql-editor"
 version = "0.1.0"
 edition = "2021"
-description = "A lightweight editor of avenger-sql queries, with a data browser and the charts of each result"
+description = "A lightweight editor of avenger-sql projects, with the gallery of a project's charts and an embedded sample project"
 readme = "README.md"
 
 [lib]
@@ -23,7 +23,9 @@ avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googles
 avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
-avenger-sql = { path = "../avenger-sql" }
+# The formats of the files of data scripts that build for the web: Parquet, and compressed CSV and
+# JSON. Avro builds natively only.
+avenger-sql = { path = "../avenger-sql", features = ["parquet", "compression"] }
 avenger-sql-language = { path = "../avenger-sql-language" }
 avenger-sql-project = { path = "../avenger-sql-project" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
@@ -36,7 +38,6 @@ cssparser = { workspace = true }
 datafusion = { workspace = true, features = [
     "sql",
     "nested_expressions",
-    "parquet",
     "datetime_expressions",
     "string_expressions",
     "unicode_expressions",
@@ -59,13 +60,12 @@ egui_table = "0.7.0"
 image = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+avenger-sql = { path = "../avenger-sql", features = ["avro"] }
 # The fetches of the tiles of maps, which the browser makes with its own `fetch`.
 avenger-image = { path = "../avenger-image", default-features = false, features = ["reqwest"] }
 avenger-wgpu = { path = "../avenger-wgpu" }
 rfd = "0.15"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
-# The `file:` URL of a file that the editor opens, whose path DataFusion reads without globs.
-url = "2.5"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # DataFusion draws random numbers, which need the browser's source on the web.

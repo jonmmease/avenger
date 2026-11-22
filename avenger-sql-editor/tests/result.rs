@@ -7,25 +7,33 @@ use arrow::array::{Int64Array, RecordBatch};
 use arrow::datatypes::{DataType, Field, Schema};
 use avenger_scenegraph::marks::mark::SceneMark;
 use avenger_sql_editor::charts::{engine, ChartTheme, StaticChart};
-use avenger_sql_editor::query::{self, Outcome};
+use avenger_sql_editor::query::{self, Outcome, QueryError};
 use avenger_sql_editor::result::{QueryResult, Shape};
-use avenger_sql_editor::sources::FileKind;
-use datafusion::prelude::SessionContext;
+use datafusion::prelude::{CsvReadOptions, SessionContext};
 use eframe::egui;
 
-/// A session with the penguins of `samples` as the table `penguins`.
+/// A session with avenger-sql's functions and the penguins of the sample project as the table
+/// `penguins`.
 async fn session() -> SessionContext {
-    let ctx = query::session().unwrap();
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/penguins.csv");
-    let source = query::register(&ctx, "penguins", &path, FileKind::Csv)
-        .await
+    let ctx = SessionContext::new();
+    avenger_sql::register(&ctx).unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("samples/data/files/penguins.csv");
+    (ctx.register_csv("penguins", path.to_str().unwrap(), CsvReadOptions::new())
+        .await)
         .unwrap();
-    assert_eq!(source.columns.len(), 7, "{:?}", source.columns);
     ctx
 }
 
+/// The outcome of the query `text` in `ctx`, as a run of a chart's tab gives it.
+async fn outcome(ctx: &SessionContext, text: &str) -> Result<Outcome, QueryError> {
+    match avenger_sql::sql(ctx, text).await {
+        Ok(frame) => query::outcome(frame, text).await,
+        Err(error) => Err(QueryError::new(&error, text)),
+    }
+}
+
 async fn run(ctx: &SessionContext, text: &str) -> QueryResult {
-    match query::run(ctx, text).await {
+    match outcome(ctx, text).await {
         Ok(Outcome { result, .. }) => result,
         Err(error) => panic!("{}", error.message),
     }
@@ -83,7 +91,7 @@ async fn each_result_has_its_shape() {
 async fn an_error_points_to_its_text() {
     let ctx = session().await;
     let text = "FROM penguins\n|> WHERE body_mass > 4000";
-    let Err(error) = query::run(&ctx, text).await else {
+    let Err(error) = outcome(&ctx, text).await else {
         panic!("the query has an unknown column");
     };
     let range = error

@@ -61,7 +61,7 @@ async fn fills(workspace: &Workspace, cascade: Arc<Cascade>) -> (Vec<[f32; 4]>, 
             }
         }
     }
-    let text = std::fs::read_to_string(workspace.root().join(ORIGINS)).unwrap();
+    let text = std::fs::read_to_string(workspace.root().unwrap().join(ORIGINS)).unwrap();
     let outcome = workspace.loader().run_chart(ORIGINS, &text).await.unwrap();
     let chart = outcome.result.chart(0, 0).unwrap().clone();
     let preferences = ChartTheme::default().preferences();

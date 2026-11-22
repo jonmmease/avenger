@@ -1,24 +1,30 @@
 //! The editor's assistance outside egui: the completion popup, the fixes of errors, and the blocks
 //! of a hover's Markdown.
 
-use arrow::datatypes::DataType;
-use avenger_sql_editor::assist::{apply, blocks, fixes, Analysis, Block, Popup, Span};
-use avenger_sql_editor::document::{catalog, Analyzed};
-use avenger_sql_editor::samples::Sample;
+use std::sync::Arc;
 
-/// The analysis of texts over a sample table of penguins.
-fn analyzed() -> Analyzed {
-    let penguins = Sample {
-        name: "penguins".to_string(),
-        columns: vec![
-            ("species".to_string(), DataType::Utf8),
-            ("island".to_string(), DataType::Utf8),
-            ("body_mass_g".to_string(), DataType::Int64),
-        ],
-    };
-    let mut analyzed = Analyzed::new();
-    analyzed.set_catalog(catalog(&[], &[penguins]));
-    analyzed
+use arrow::datatypes::{DataType, Field, Schema};
+use avenger_sql::{analysis::Options, catalog::MemoryCatalog, library::Library};
+use avenger_sql_editor::assist::{apply, blocks, fixes, Analysis, Block, Popup, Span};
+use avenger_sql_language::{FileRole, Project};
+
+/// The path of the chart script of the tests.
+const CHART: &str = "charts/chart.sql";
+
+/// A project of the chart script `text`, over a table of penguins of the host, `samples.penguins`.
+fn project(text: &str) -> Project {
+    let penguins = Schema::new(vec![
+        Field::new("species", DataType::Utf8, true),
+        Field::new("island", DataType::Utf8, true),
+        Field::new("body_mass_g", DataType::Int64, true),
+    ]);
+    let catalog = MemoryCatalog::new().with_schema(&["samples", "penguins"], Arc::new(penguins));
+    Project::new(
+        Arc::new(catalog),
+        Arc::new(Library::new()),
+        Options::default(),
+    )
+    .with_files([(CHART, FileRole::Chart, text)])
 }
 
 /// The text of `text` with `$0` for the cursor, and the cursor's character index.
@@ -29,9 +35,8 @@ fn at_cursor(text: &str) -> (String, usize) {
 
 #[test]
 fn the_popup_completes_the_name_at_the_cursor_and_filters_as_one_types() {
-    let mut analyzed = analyzed();
     let (text, cursor) = at_cursor("FROM samples.penguins |> WHERE sp$0");
-    let popup = Popup::open(analyzed.document(&text), cursor).unwrap();
+    let popup = Popup::open(project(&text).document(CHART).unwrap(), cursor).unwrap();
     let labels: Vec<&str> = (popup.items(&text, cursor).iter())
         .map(|item| item.label.as_str())
         .collect();
@@ -51,9 +56,8 @@ fn the_popup_completes_the_name_at_the_cursor_and_filters_as_one_types() {
 
 #[test]
 fn the_popup_closes_when_the_cursor_leaves_its_name() {
-    let mut analyzed = analyzed();
     let (text, cursor) = at_cursor("FROM samples.penguins |> WHERE sp$0");
-    let popup = Popup::open(analyzed.document(&text), cursor).unwrap();
+    let popup = Popup::open(project(&text).document(CHART).unwrap(), cursor).unwrap();
     assert!(!popup.closes(&text, cursor));
     let spaced = format!("{text} ");
     assert!(popup.closes(&spaced, cursor + 1));
@@ -62,9 +66,8 @@ fn the_popup_closes_when_the_cursor_leaves_its_name() {
 
 #[test]
 fn the_selection_moves_among_the_kept_items_and_stops_at_their_ends() {
-    let mut analyzed = analyzed();
     let (text, cursor) = at_cursor("FROM samples.penguins |> WHERE $0");
-    let mut popup = Popup::open(analyzed.document(&text), cursor).unwrap();
+    let mut popup = Popup::open(project(&text).document(CHART).unwrap(), cursor).unwrap();
     let count = popup.items(&text, cursor).len();
     assert!(count > 2);
     popup.select(&text, cursor, -1);
@@ -77,9 +80,8 @@ fn the_selection_moves_among_the_kept_items_and_stops_at_their_ends() {
 
 #[test]
 fn a_fix_of_the_error_at_the_cursor_rewrites_the_text() {
-    let mut analyzed = analyzed();
     let text = "SELECT species FROM samples.penguins";
-    let found = fixes(Analysis::query(analyzed.document(text)), 2);
+    let found = fixes(Analysis::file(&project(text), CHART).unwrap(), 2);
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].label, "Rewrite as a pipe query");
     assert_eq!(
@@ -87,8 +89,8 @@ fn a_fix_of_the_error_at_the_cursor_rewrites_the_text() {
         "FROM samples.penguins |> SELECT species"
     );
     // No error holds a cursor in a query without one.
-    let document = analyzed.document("FROM samples.penguins");
-    assert!(fixes(Analysis::query(document), 3).is_empty());
+    let piped = project("FROM samples.penguins");
+    assert!(fixes(Analysis::file(&piped, CHART).unwrap(), 3).is_empty());
 }
 
 #[test]
@@ -114,7 +116,6 @@ fn a_hover_reads_as_blocks_of_text_with_code_and_strong_spans() {
 
 #[test]
 fn an_item_replaces_the_whole_name_or_string_at_the_cursor() {
-    let mut analyzed = analyzed();
     for (case, selected, expected) in [
         (
             "FROM samples.penguins |> WHERE isl$0and",
@@ -138,7 +139,7 @@ fn an_item_replaces_the_whole_name_or_string_at_the_cursor() {
         ),
     ] {
         let (text, cursor) = at_cursor(case);
-        let mut popup = Popup::open(analyzed.document(&text), cursor).expect(case);
+        let mut popup = Popup::open(project(&text).document(CHART).unwrap(), cursor).expect(case);
         let labels: Vec<&str> = (popup.items(&text, cursor).iter())
             .map(|item| item.label.as_str())
             .collect();
