@@ -8,6 +8,14 @@ use toml::Spanned;
 /// The name of the manifest, at the root of a project.
 pub const MANIFEST: &str = "avenger.toml";
 
+/// The suffix of the name of a script, a data script or a chart script, which the manifest's
+/// patterns tell apart: `.av.sql`, which keeps `.sql` for tools that read SQL and tells an editor
+/// an avenger-sql script from other SQL by its name alone.
+pub const SCRIPT_SUFFIX: &str = ".av.sql";
+
+/// The suffix of the name of a module: `.av.sqlm`.
+pub const MODULE_SUFFIX: &str = ".av.sqlm";
+
 /// The version of the project format that this crate reads.
 pub const FORMAT: i64 = 1;
 
@@ -34,7 +42,7 @@ pub struct ProjectSection {
 /// `[data]`: the data scripts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataSection {
-    /// The patterns of the data scripts, `data/**/*.sql` by default. Their order is not the
+    /// The patterns of the data scripts, `data/**/*.av.sql` by default. Their order is not the
     /// order of execution, which comes from the dependencies of the scripts.
     pub scripts: Vec<Pattern>,
     /// The patterns that no data script matches, `data/files/**` by default, the data's own
@@ -45,7 +53,7 @@ pub struct DataSection {
 /// `[charts]`: the chart scripts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChartsSection {
-    /// The patterns of the chart scripts, `charts/**/*.sql` by default.
+    /// The patterns of the chart scripts, `charts/**/*.av.sql` by default.
     pub scripts: Vec<Pattern>,
 }
 
@@ -73,7 +81,7 @@ impl Eq for StyleSection {}
 /// `[modules]`: the modules that `IMPORT MODULE` reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModulesSection {
-    /// The directory where `IMPORT MODULE a.b` finds `a/b.sqlm`, `modules` by default, and the
+    /// The directory where `IMPORT MODULE a.b` finds `a/b.av.sqlm`, `modules` by default, and the
     /// empty path for the root.
     pub root: String,
 }
@@ -140,8 +148,8 @@ impl Pattern {
     }
 
     /// The directory of the pattern: its names before the first that holds a character of a
-    /// glob, `*`, `?`, or `[`, or that is the last, as `charts` for `charts/**/*.sql`, and the
-    /// empty path for a pattern of the root's files, as `*.sql`.
+    /// glob, `*`, `?`, or `[`, or that is the last, as `charts` for `charts/**/*.av.sql`, and the
+    /// empty path for a pattern of the root's files, as `*.av.sql`.
     pub fn directory(&self) -> &str {
         let pattern = self.as_str();
         let (mut start, mut end) = (0, 0);
@@ -204,11 +212,11 @@ impl fmt::Display for ManifestError {
 /// with `.`, has none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Role {
-    /// A `.sql` file that a pattern of `[data]` matches, and no pattern of its `exclude`.
+    /// A `.av.sql` file that a pattern of `[data]` matches, and no pattern of its `exclude`.
     DataScript,
-    /// A `.sql` file that a pattern of `[charts]` matches.
+    /// A `.av.sql` file that a pattern of `[charts]` matches.
     ChartScript,
-    /// A `.sqlm` file under the modules root, with its module path: `a/b.sqlm` is `a.b`.
+    /// A `.av.sqlm` file under the modules root, with its module path: `a/b.av.sqlm` is `a.b`.
     Module(Vec<String>),
     /// A `.css` file that no pattern of `[data]`'s `exclude` matches, or the entry stylesheet.
     Stylesheet,
@@ -247,11 +255,11 @@ impl Manifest {
                 format: FORMAT,
             },
             data: DataSection {
-                scripts: vec![pattern("data/**/*.sql")],
+                scripts: vec![pattern("data/**/*.av.sql")],
                 exclude: vec![pattern("data/files/**")],
             },
             charts: ChartsSection {
-                scripts: vec![pattern("charts/**/*.sql")],
+                scripts: vec![pattern("charts/**/*.av.sql")],
             },
             style: StyleSection {
                 stylesheet: "styles/main.css".into(),
@@ -285,7 +293,7 @@ impl Manifest {
     /// empty `name`, a `format` other than [`FORMAT`], an invalid pattern, and a path or a
     /// pattern that is not relative to the root are errors. A path or a pattern is relative to
     /// the root when it does not start with `/` and has no `..` name and no `\`, and it reads
-    /// without its `.` names and its empty names, so `./charts//*.sql` is `charts/*.sql`.
+    /// without its `.` names and its empty names, so `./charts//*.av.sql` is `charts/*.av.sql`.
     pub fn parse(text: &str) -> Result<Manifest, ManifestError> {
         let line = |error: ManifestError| ManifestError {
             line: (error.range.as_ref()).map(|range| line_of(text, range.start)),
@@ -308,7 +316,7 @@ impl Manifest {
             return Ok(None);
         }
         let excluded = self.data.exclude.iter().any(|p| p.matches(path));
-        if path.ends_with(".sql") {
+        if path.ends_with(SCRIPT_SUFFIX) {
             let first = |patterns: &[Pattern]| patterns.iter().find(|p| p.matches(path)).cloned();
             let data = first(&self.data.scripts).filter(|_| !excluded);
             let chart = first(&self.charts.scripts);
@@ -330,7 +338,7 @@ impl Manifest {
             "" => Some(path),
             root => (path.strip_prefix(root)).and_then(|rest| rest.strip_prefix('/')),
         };
-        let names = (module.and_then(|module| module.strip_suffix(".sqlm")))
+        let names = (module.and_then(|module| module.strip_suffix(MODULE_SUFFIX)))
             .map(|module| module.split('/').map(str::to_string).collect());
         Ok(names.map(Role::Module))
     }

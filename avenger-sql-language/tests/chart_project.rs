@@ -19,9 +19,9 @@ use datafusion::{
     datasource::empty::EmptyTable,
 };
 
-const REGIONS: &str = "data/regions.sql";
-const SALES: &str = "charts/sales.sql";
-const OTHER: &str = "charts/other.sql";
+const REGIONS: &str = "data/regions.av.sql";
+const SALES: &str = "charts/sales.av.sql";
+const OTHER: &str = "charts/other.av.sql";
 
 const REGIONS_TEXT: &str =
     "CREATE EXTERNAL TABLE regions OPTIONS (format = 'CSV', uris = ['data/files/regions.csv']);";

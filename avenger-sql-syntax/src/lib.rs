@@ -4,7 +4,7 @@
 //! A script is statements separated by `;`: pipe queries, `IMPORT MODULE`, `DECLARE` and `SET`
 //! of variables, `CREATE TEMP TABLE`, and `CREATE FUNCTION` of scalar, aggregate and table
 //! functions. A query is a `FROM` clause, or a query in parentheses, and pipe operators, and
-//! every nested query has the same form. [`parse_module`] reads a module, a `.sqlm` file of
+//! every nested query has the same form. [`parse_module`] reads a module, a `.av.sqlm` file of
 //! GoogleSQL, whose public functions, table functions and constants a script imports with
 //! `IMPORT MODULE`. [`parse_data`] reads a data script, which registers the tables of a project
 //! with GoogleSQL's `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS`
@@ -114,7 +114,7 @@ pub enum Role {
     /// `CREATE TEMP TABLE`, `CREATE TEMP FUNCTION`, and its own tables of files, `CREATE TEMP
     /// EXTERNAL TABLE` and `LOAD DATA ... TEMP TABLE`.
     Script,
-    /// A module, a `.sqlm` file, which [`parse_module`] reads.
+    /// A module, a `.av.sqlm` file, which [`parse_module`] reads.
     Module,
     /// A data script, which [`parse_data`] reads.
     Data,
@@ -160,7 +160,7 @@ pub fn parse(source: &str) -> Parse {
     parse_role(source, Role::Script)
 }
 
-/// The tree of a module, the text of a `.sqlm` file.
+/// The tree of a module, the text of a `.av.sqlm` file.
 pub fn parse_module(source: &str) -> Parse {
     parse_role(source, Role::Module)
 }

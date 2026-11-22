@@ -21,16 +21,16 @@ pub struct ProjectFiles {
     skipped: Vec<Skipped>,
 }
 
-/// A module of a project: a `.sqlm` file under the modules root.
+/// A module of a project: a `.av.sqlm` file under the modules root.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModuleFile {
     pub path: String,
-    /// The module path that `IMPORT MODULE` names: `a/b.sqlm` under the root is `["a", "b"]`.
+    /// The module path that `IMPORT MODULE` names: `a/b.av.sqlm` under the root is `["a", "b"]`.
     pub names: Vec<String>,
 }
 
 /// Two modules of one module path: a module path ignores case, as `IMPORT MODULE` does, so
-/// `Geo.sqlm` and `geo.sqlm` are the same module.
+/// `Geo.av.sqlm` and `geo.av.sqlm` are the same module.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("the modules '{path}' and '{other}' have the same module path, which ignores case")]
 pub struct ModuleConflict {

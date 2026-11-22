@@ -90,8 +90,8 @@ async fn a_changed_path_is_a_file_of_the_project_or_a_data_file() {
         data("data/files/regions.csv")
     );
     assert_eq!(
-        watched(&root.join("data/regions.sql")),
-        project("data/regions.sql")
+        watched(&root.join("data/regions.av.sql")),
+        project("data/regions.av.sql")
     );
     assert_eq!(
         watched(&root.join("styles/main.css")),

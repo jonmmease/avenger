@@ -16,7 +16,7 @@ for operator in query.pipe_operators() {
 
 ## Data scripts
 
-`parse_data` reads a data script, a `.sql` file of a project whose statements register the tables that the project's scripts read, with a subset of GoogleSQL's DDL:
+`parse_data` reads a data script, a `.av.sql` file of a project whose statements register the tables that the project's scripts read, with a subset of GoogleSQL's DDL:
 
 ```sql
 CREATE SCHEMA finance OPTIONS (description = 'the books');

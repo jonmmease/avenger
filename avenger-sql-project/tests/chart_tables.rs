@@ -17,10 +17,10 @@ async fn project() -> (tempfile::TempDir, LoadedProject) {
         ("data/files/sales.csv", SALES),
         ("data/files/regions.csv", "region,name\neast,East\nwest,West\n"),
         (
-            "data/regions.sql",
+            "data/regions.av.sql",
             "CREATE EXTERNAL TABLE regions OPTIONS (format = 'CSV', uris = ['data/files/regions.csv']);\n",
         ),
-        ("charts/sales.sql", "FROM regions"),
+        ("charts/sales.av.sql", "FROM regions"),
     ];
     for (path, text) in files {
         write(root.path(), path, text);
@@ -71,12 +71,12 @@ async fn a_chart_reads_its_own_tables_and_no_other_script_does() {
 | West | 2      |
 +------+--------+";
     assert_eq!(
-        rows(&project, "charts/sales.sql", &text).await.unwrap(),
+        rows(&project, "charts/sales.av.sql", &text).await.unwrap(),
         expected
     );
     // The session holds no table of the chart's, and another chart doesn't read it.
     assert!(!project.session().table_exist("sales").unwrap());
-    let error = rows(&project, "charts/other.sql", "FROM sales")
+    let error = rows(&project, "charts/other.av.sql", "FROM sales")
         .await
         .unwrap_err();
     assert!(matches!(error, ChartError::Run(_)), "{error}");
@@ -85,7 +85,7 @@ async fn a_chart_reads_its_own_tables_and_no_other_script_does() {
 #[tokio::test]
 async fn a_chart_keeps_its_tables_until_its_statements_of_files_change() {
     let (root, project) = project().await;
-    let path = "charts/sales.sql";
+    let path = "charts/sales.av.sql";
     let three = "\
 +-------+
 | total |
@@ -103,7 +103,7 @@ async fn a_chart_keeps_its_tables_until_its_statements_of_files_change() {
     let kept = rows(&project, path, &query).await.unwrap();
     assert!(kept.contains("| 3     | 2 |"), "{kept}");
     // Another chart builds its own tables, from the file as it is now.
-    let other = rows(&project, "charts/other.sql", &total(LOAD))
+    let other = rows(&project, "charts/other.av.sql", &total(LOAD))
         .await
         .unwrap();
     assert!(other.contains("| 10    |"), "{other}");
@@ -120,7 +120,7 @@ async fn a_failing_statement_of_files_is_an_error_at_the_statement() {
     let text = "LOAD DATA OVERWRITE TEMP TABLE sales (region STRING)
 FROM FILES (format = 'CSV', uris = ['data/files/sales.csv'], skip_leading_rows = 1);
 FROM sales |> AGGREGATE COUNT(*) AS n";
-    let Err(ChartError::Run(error)) = project.run_chart("charts/sales.sql", text).await else {
+    let Err(ChartError::Run(error)) = project.run_chart("charts/sales.av.sql", text).await else {
         panic!("an error of the run");
     };
     let datafusion::common::DataFusionError::External(error) = error else {
@@ -133,13 +133,13 @@ FROM sales |> AGGREGATE COUNT(*) AS n";
     let text = total(
         "CREATE TEMP EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['data/files/none.csv'])",
     );
-    let Err(ChartError::Run(error)) = project.run_chart("charts/sales.sql", &text).await else {
+    let Err(ChartError::Run(error)) = project.run_chart("charts/sales.av.sql", &text).await else {
         panic!("an error of the run");
     };
     assert!(error.to_string().contains("none.csv"), "{error}");
     // The chart keeps no failed read of its files: once the file exists, the run reads it.
     write(root.path(), "data/files/none.csv", SALES);
-    let total = rows(&project, "charts/sales.sql", &text).await.unwrap();
+    let total = rows(&project, "charts/sales.av.sql", &text).await.unwrap();
     assert!(total.contains("| 3     |"), "{total}");
 }
 
@@ -147,7 +147,7 @@ FROM sales |> AGGREGATE COUNT(*) AS n";
 async fn a_reload_of_the_project_drops_the_tables_of_every_chart() {
     let (root, mut project) = project().await;
     // A chart at a path that is not a chart script of the project, such as a file removed.
-    let path = "charts/removed.sql";
+    let path = "charts/removed.av.sql";
     let three = rows(&project, path, &total(LOAD)).await.unwrap();
     assert!(three.contains("| 3     |"), "{three}");
     write(
@@ -168,18 +168,18 @@ async fn a_chart_lifts_with_its_statements_of_files() {
     let text = format!(
         "{EXTERNAL};\nFROM sales |> AGGREGATE mark_bar(x => region, y => SUM(amount)) AS chart"
     );
-    let lifted = project.lift("charts/sales.sql", &text).await.unwrap();
+    let lifted = project.lift("charts/sales.av.sql", &text).await.unwrap();
     assert!(lifted.text.starts_with(EXTERNAL), "{}", lifted.text);
 }
 
 #[tokio::test]
 async fn a_changed_file_drops_the_tables_of_the_charts_that_read_it() {
     let (root, mut project) = project().await;
-    let path = "charts/sales.sql";
+    let path = "charts/sales.av.sql";
     rows(&project, path, &total(LOAD)).await.unwrap();
     // A pattern that matches no file yet, whose chart fails.
     let pattern = "CREATE TEMP EXTERNAL TABLE sales OPTIONS (format = 'CSV', uris = ['data/files/new/*.csv'])";
-    assert!(rows(&project, "charts/new.sql", &total(pattern))
+    assert!(rows(&project, "charts/new.av.sql", &total(pattern))
         .await
         .is_err());
     let readers = |data_scripts: &[&str], charts: &[&str]| FileReaders {
@@ -192,11 +192,11 @@ async fn a_changed_file_drops_the_tables_of_the_charts_that_read_it() {
     );
     assert_eq!(
         project.scripts_reading("data/files/new/a.csv"),
-        readers(&[], &["charts/new.sql"])
+        readers(&[], &["charts/new.av.sql"])
     );
     assert_eq!(
         project.scripts_reading("data/files/regions.csv"),
-        readers(&["data/regions.sql"], &[])
+        readers(&["data/regions.av.sql"], &[])
     );
 
     // The chart's load reads the changed file at its next run, and a data script's tables stay.
@@ -216,8 +216,8 @@ async fn a_changed_file_drops_the_tables_of_the_charts_that_read_it() {
     // A new file of the pattern runs the chart that failed.
     write(root.path(), "data/files/new/a.csv", SALES);
     let reload = project.reload_files(&["data/files/new/a.csv"]).await;
-    assert_eq!(reload.charts, ["charts/new.sql"]);
-    assert!(rows(&project, "charts/new.sql", &total(pattern))
+    assert_eq!(reload.charts, ["charts/new.av.sql"]);
+    assert!(rows(&project, "charts/new.av.sql", &total(pattern))
         .await
         .is_ok());
 }
@@ -231,7 +231,7 @@ async fn the_file_tables_hold_the_files_of_the_charts_last_runs() {
             .collect()
     };
     assert_eq!(uris(&project), [["data/files/regions.csv"]]);
-    rows(&project, "charts/sales.sql", &total(EXTERNAL))
+    rows(&project, "charts/sales.av.sql", &total(EXTERNAL))
         .await
         .unwrap();
     assert_eq!(
@@ -239,7 +239,7 @@ async fn the_file_tables_hold_the_files_of_the_charts_last_runs() {
         [["data/files/regions.csv"], ["data/files/sales.csv"]]
     );
     // A chart that no longer reads files keeps none.
-    rows(&project, "charts/sales.sql", "FROM regions")
+    rows(&project, "charts/sales.av.sql", "FROM regions")
         .await
         .unwrap();
     assert_eq!(uris(&project), [["data/files/regions.csv"]]);

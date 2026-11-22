@@ -10,11 +10,11 @@ use avenger_sql_project::{
 };
 use datafusion::prelude::SessionContext;
 
-const VEGA: &str = "data/vega_datasets.sql";
-const REGIONS: &str = "data/regions.sql";
-const SUMMARIES: &str = "data/summaries.sql";
-const ORIGINS: &str = "charts/origins.sql";
-const WARM_DAYS: &str = "charts/weather/warm-days.sql";
+const VEGA: &str = "data/vega_datasets.av.sql";
+const REGIONS: &str = "data/regions.av.sql";
+const SUMMARIES: &str = "data/summaries.av.sql";
+const ORIGINS: &str = "charts/origins.av.sql";
+const WARM_DAYS: &str = "charts/weather/warm-days.av.sql";
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/vega")
@@ -123,7 +123,7 @@ async fn the_loader_s_errors_apply_to_the_text_that_loaded() {
     let directory = copy();
     let root = directory.path();
     // A script whose query fails as it runs, which only the loader finds.
-    const BOOM: &str = "data/boom.sql";
+    const BOOM: &str = "data/boom.av.sql";
     let boom =
         "CREATE TABLE boom AS (FROM vega_datasets.regions |> SELECT CAST(region AS INT64) AS n);";
     std::fs::write(root.join(BOOM), boom).unwrap();
