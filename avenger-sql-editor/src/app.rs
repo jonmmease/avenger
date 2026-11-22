@@ -26,7 +26,7 @@ use crate::query::{self, Functions, Outcome, QueryError};
 use crate::result::{QueryResult, Shape};
 use crate::sidebar;
 use crate::table::{CellKey, CellScene, Cells, Env, Grid, LiveCells};
-use crate::workspace::{self, LoadState, Saved, Styles, TabKind, Workspace};
+use crate::workspace::{self, Load, LoadState, Saved, Styles, TabKind, Workspace};
 use avenger_sql_language::FileRole;
 use avenger_sql_project::TableChange;
 
@@ -168,16 +168,26 @@ enum Message {
         request: u64,
         opened: Result<(Box<Workspace>, Option<String>), String>,
     },
-    /// A load of the data script at `path`, or of every data script for `None`, that ended.
+    /// A load of data scripts that ended, by its key in the workspace's `loading`, or `None` for
+    /// changed files that no data script reads, which load nothing.
     Reloaded {
         generation: u64,
-        path: Option<String>,
-        result: Result<(Vec<TableChange>, LoadState), String>,
+        key: String,
+        result: Result<Option<(Vec<TableChange>, LoadState)>, String>,
+        /// The charts whose own tables of files read files that changed, which run again.
+        charts: Vec<String>,
     },
     /// A load of the project's stylesheets that ended.
     Styled {
         generation: u64,
         styles: Result<Styles, String>,
+    },
+    /// The copies of the data files of Add file that ended, in the project that the editor
+    /// opened as its `generation`th.
+    #[cfg(not(target_arch = "wasm32"))]
+    Copied {
+        generation: u64,
+        copied: workspace::Copied,
     },
 }
 
@@ -305,6 +315,10 @@ pub struct EditorApp {
     /// the charts are images, and the wheel scrolls the table.
     interactive: bool,
     screenshot: Option<Screenshot>,
+    /// The watch of the open project's directory, which loads the data scripts that read a file
+    /// that changes. The sample project has none.
+    #[cfg(not(target_arch = "wasm32"))]
+    watch: Option<crate::watch::Watch>,
     /// The largest size of the window that this session set, in points: the device's largest
     /// texture at the display's scale, since the window draws into a texture of its size.
     #[cfg(not(target_arch = "wasm32"))]
@@ -358,6 +372,8 @@ impl EditorApp {
                 }),
             }),
             #[cfg(not(target_arch = "wasm32"))]
+            watch: None,
+            #[cfg(not(target_arch = "wasm32"))]
             window_limit: None,
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -397,6 +413,148 @@ impl EditorApp {
     #[cfg(target_arch = "wasm32")]
     fn pick_project(&mut self, _ctx: &egui::Context, _new: bool) {
         self.notice = Some("The browser build opens no projects so far.".to_string());
+    }
+
+    /// Asks for data files, and adds them to the open project.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn pick_files(&mut self, ctx: &egui::Context) {
+        let dialog = rfd::FileDialog::new().set_title("Add file");
+        let dialog = match self.workspace.as_ref().and_then(Workspace::root) {
+            Some(root) => dialog.set_directory(root),
+            None => dialog,
+        };
+        if let Some(paths) = dialog.pick_files() {
+            self.add_files(ctx, &paths);
+        }
+    }
+
+    /// The web build adds no files, since it opens no projects of the user's.
+    #[cfg(target_arch = "wasm32")]
+    fn pick_files(&mut self, _ctx: &egui::Context) {
+        self.notice = Some("The browser build adds no files so far.".to_string());
+    }
+
+    /// Adds the data files at `paths` to the open project, as Add file and a drop do: copies the
+    /// files from outside the project's root into it in the background, and then
+    /// [`EditorApp::added`] writes their statements.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn add_files(&mut self, ctx: &egui::Context, paths: &[PathBuf]) {
+        let Some(workspace) = &self.workspace else {
+            return;
+        };
+        let adding = match workspace.adding(paths) {
+            Ok(adding) => adding,
+            Err(error) => {
+                self.notice = Some(format!("Cannot add the files: {error}"));
+                return;
+            }
+        };
+        self.notice = Some("Adding the files…".to_string());
+        let generation = self.generation;
+        let (sender, ctx) = (self.messages.0.clone(), ctx.clone());
+        self.runtime.spawn_blocking(move || {
+            let copied = adding.copy();
+            let _ = sender.send(Message::Copied { generation, copied });
+            ctx.request_repaint();
+        });
+    }
+
+    /// Writes the `CREATE EXTERNAL TABLE` statement of each file of `copied`, the data files of
+    /// Add file after their copies, into a data script, which opens in a tab and loads, and says
+    /// in the status bar what it added.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn added(&mut self, ctx: &egui::Context, state: &RenderState, copied: workspace::Copied) {
+        let Some(workspace) = &mut self.workspace else {
+            return;
+        };
+        let before = workspace.shown().map(|tab| tab.path.clone());
+        let added = workspace.add(copied);
+        let shown = workspace.shown().map(|tab| tab.path.clone());
+        let root = workspace.root().map(PathBuf::from);
+        let added = match added {
+            Ok(added) => added,
+            Err(error) => {
+                self.notice = Some(format!("Cannot add the files: {error}"));
+                return;
+            }
+        };
+        if shown != before {
+            self.present(state);
+        }
+        if let (Some(watch), Some(root)) = (&mut self.watch, root) {
+            for path in added.copied.iter().chain([&added.script]) {
+                watch.own(root.join(path));
+            }
+        }
+        let (noun, pronoun) = match added.tables.len() {
+            1 => ("table", "it"),
+            _ => ("tables", "them"),
+        };
+        let mut notice = format!(
+            "Added the {noun} {} to {}.",
+            added.tables.join(", "),
+            added.script
+        );
+        if added.load.is_none() && added.run.is_none() {
+            notice.push_str(&format!(" Save {} to load {pronoun}.", added.script));
+        }
+        for error in &added.errors {
+            notice.push_str(&format!(" Not added: {error}."));
+        }
+        self.notice = Some(notice);
+        if let Some(path) = added.run {
+            self.follow_save(ctx, Saved::Chart { path });
+        }
+        if let Some(load) = added.load {
+            self.reload(ctx, load);
+        }
+    }
+
+    /// Adds the files dropped on the window to the open project, as Add file does, unless it is
+    /// the sample project, which is read-only.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn drop_files(&mut self, ctx: &egui::Context, dropped: Vec<egui::DroppedFile>) {
+        if (self.workspace.as_ref()).is_some_and(Workspace::read_only) {
+            self.notice = Some(
+                "A sample can't take files: open or make a project, and drop its files on the \
+                 window to add them."
+                    .to_string(),
+            );
+            return;
+        }
+        let paths: Vec<PathBuf> = (dropped.into_iter()).filter_map(|file| file.path).collect();
+        self.add_files(ctx, &paths);
+    }
+
+    /// The web build adds no files dropped on the window, since it opens no projects of the
+    /// user's.
+    #[cfg(target_arch = "wasm32")]
+    fn drop_files(&mut self, _ctx: &egui::Context, _dropped: Vec<egui::DroppedFile>) {
+        self.notice = Some("The browser build adds no files so far.".to_string());
+    }
+
+    /// Follows the files that changed under the open project's root, once a burst of changes
+    /// ends: loads the data scripts that read a changed data file, and reads a changed file of the
+    /// project's own again, which then loads, runs, or restyles as after a save.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn follow_files(&mut self, ctx: &egui::Context) {
+        let (Some(watch), Some(workspace)) = (&mut self.watch, &mut self.workspace) else {
+            return;
+        };
+        let (mut files, mut saved) = (Vec::new(), Vec::new());
+        for path in watch.changed(ctx) {
+            match workspace.watched(&path) {
+                Some(workspace::Watched::Data(path)) => files.push(path),
+                Some(workspace::Watched::Project(path)) => saved.extend(workspace.reread(&path)),
+                None => {}
+            }
+        }
+        if !files.is_empty() {
+            self.reload(ctx, Load::Files(files));
+        }
+        for saved in saved {
+            self.follow_save(ctx, saved);
+        }
     }
 
     /// Opens the project that holds `path`, a directory or a file under the project's root, in
@@ -586,17 +744,34 @@ impl EditorApp {
         let Some(path) = workspace.active().map(|tab| tab.path.clone()) else {
             return;
         };
-        match workspace.save(&path) {
-            Ok(Saved::Data { path, text }) => self.reload(ctx, Some((path, text))),
-            Ok(Saved::Chart { path }) => {
-                if let Some(entry) = workspace.entry(&path) {
+        let saved = workspace.save(&path);
+        // The watch of the project's files leaves out the editor's own write.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let (Ok(_), Some(watch), Some(root)) = (&saved, &mut self.watch, workspace.root()) {
+            watch.own(root.join(&path));
+        }
+        match saved {
+            Ok(saved) => self.follow_save(ctx, saved),
+            Err(error) => self.notice = Some(format!("Cannot save: {error}")),
+        }
+    }
+
+    /// Does what a save of a file asks for next, as `saved` tells it: loads a data script or a
+    /// module again, with the data scripts downstream of it, runs a chart script and its card,
+    /// and loads the stylesheets again and restyles the charts after a stylesheet changes.
+    fn follow_save(&mut self, ctx: &egui::Context, saved: Saved) {
+        match saved {
+            Saved::Data { path, text } | Saved::Module { path, text } => {
+                self.reload(ctx, Load::Script { path, text })
+            }
+            Saved::Chart { path } => {
+                let entry = (self.workspace.as_ref()).and_then(|workspace| workspace.entry(&path));
+                if let Some(entry) = entry {
                     self.gallery.update(entry);
                 }
                 self.run_tab(ctx, &path);
             }
-            Ok(Saved::Module) => self.reload(ctx, None),
-            Ok(Saved::Stylesheet) => self.reload_styles(ctx),
-            Err(error) => self.notice = Some(format!("Cannot save: {error}")),
+            Saved::Stylesheet => self.reload_styles(ctx),
         }
     }
 
@@ -616,27 +791,37 @@ impl EditorApp {
         }));
     }
 
-    /// Loads the data script `script`, a path and its text, again in the background, or every
-    /// data script for `None`.
-    fn reload(&mut self, ctx: &egui::Context, script: Option<(String, String)>) {
+    /// Loads the data scripts of `load` again in the background. The workspace's `loading` holds
+    /// the load by its key while it runs: the path of a script, the paths of changed files, or
+    /// the empty key for every data script.
+    fn reload(&mut self, ctx: &egui::Context, load: Load) {
         let generation = self.generation;
         let Some(workspace) = &mut self.workspace else {
             return;
         };
-        let path = script.as_ref().map(|(path, _)| path.clone());
-        workspace.loading.insert(path.clone().unwrap_or_default());
+        let key = match &load {
+            Load::Script { path, .. } => path.clone(),
+            Load::Files(paths) => paths.join(", "),
+            Load::All => String::new(),
+        };
+        workspace.loading.insert(key.clone());
         let loader = workspace.loader().clone();
         let (sender, ctx) = (self.messages.0.clone(), ctx.clone());
         // A load is never stopped: it changes the session as it goes.
         drop(self.runtime.spawn(move || async move {
-            let result = match script {
-                Some((path, text)) => loader.reload(&path, text).await,
-                None => loader.reload_all().await,
+            let (result, charts) = match load {
+                Load::Script { path, text } => (loader.reload(&path, text).await.map(Some), vec![]),
+                Load::Files(paths) => match loader.reload_files(&paths).await {
+                    Some((reload, state)) => (Ok(Some((reload.tables, state))), reload.charts),
+                    None => (Ok(None), Vec::new()),
+                },
+                Load::All => (loader.reload_all().await.map(Some), Vec::new()),
             };
             let _ = sender.send(Message::Reloaded {
                 generation,
-                path,
+                key,
                 result,
+                charts,
             });
             ctx.request_repaint();
         }));
@@ -845,7 +1030,25 @@ impl EditorApp {
                                     running.task.abort();
                                 }
                             }
-                            self.notice = None;
+                            // A project opens without the files of the directories that
+                            // don't list, which the status bar names.
+                            self.notice = (self.workspace.as_ref())
+                                .map(|workspace| workspace.files().skipped())
+                                .filter(|skipped| !skipped.is_empty())
+                                .map(|skipped| {
+                                    let skipped: Vec<String> = (skipped.iter())
+                                        .map(|skipped| {
+                                            format!("{} ({})", skipped.path, skipped.error)
+                                        })
+                                        .collect();
+                                    format!(
+                                        "The project leaves out the files of the folders that \
+                                         cannot be listed: {}",
+                                        skipped.join(", ")
+                                    )
+                                });
+                            #[cfg(not(target_arch = "wasm32"))]
+                            self.watch_project(ctx);
                             self.tab = Tab::Gallery;
                             let entries = (self.workspace.as_ref())
                                 .map(Workspace::gallery)
@@ -864,8 +1067,9 @@ impl EditorApp {
                 }
                 Message::Reloaded {
                     generation,
-                    path,
+                    key,
                     result,
+                    charts,
                 } => {
                     if generation != self.generation {
                         continue;
@@ -873,21 +1077,33 @@ impl EditorApp {
                     let Some(workspace) = &mut self.workspace else {
                         continue;
                     };
-                    workspace.loading.remove(&path.clone().unwrap_or_default());
+                    workspace.loading.remove(&key);
                     match result {
-                        Ok((changes, load)) => {
+                        Ok(None) => {}
+                        Ok(Some((changes, load))) => {
                             workspace.apply(load);
-                            let reruns = workspace.reruns(&changes);
-                            self.gallery
-                                .rerun(|entry| workspace::reads(&entry.text, &changes));
+                            let reruns = workspace.reruns(&changes, &charts);
+                            self.gallery.rerun(|entry| {
+                                workspace::reads(&entry.text, &changes)
+                                    || charts.contains(&entry.path)
+                            });
                             for path in reruns {
                                 self.run_tab(ctx, &path);
                             }
                         }
                         Err(error) => {
-                            let what = path.unwrap_or_else(|| "the project".to_string());
+                            let what = match key.is_empty() {
+                                true => "the project".to_string(),
+                                false => key,
+                            };
                             self.notice = Some(format!("Cannot load {what}: {error}"));
                         }
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                Message::Copied { generation, copied } => {
+                    if generation == self.generation {
+                        self.added(ctx, state, copied);
                     }
                 }
                 Message::Styled { generation, styles } => {
@@ -914,6 +1130,26 @@ impl EditorApp {
             match scene.result == THUMBNAILS {
                 true => self.gallery.receive(scene),
                 false => self.cells.receive(scene),
+            }
+        }
+    }
+
+    /// Watches the root of the open project, in place of the watch of the project before it. The
+    /// sample project, which has no root, has none.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn watch_project(&mut self, ctx: &egui::Context) {
+        self.watch = None;
+        let Some(root) = self.workspace.as_ref().and_then(Workspace::root) else {
+            return;
+        };
+        match crate::watch::Watch::new(root, ctx.clone()) {
+            Ok(watch) => self.watch = Some(watch),
+            Err(error) => {
+                self.notice = Some(format!(
+                    "The project's files load again only when its data scripts are saved: \
+                     cannot watch {}: {error}",
+                    root.display()
+                ));
             }
         }
     }
@@ -1042,6 +1278,22 @@ impl EditorApp {
                 if ui.button("Sample project").clicked() {
                     ui.close();
                     self.open_sample(ctx, None);
+                }
+                ui.separator();
+                let writable =
+                    (self.workspace.as_ref()).is_some_and(|workspace| !workspace.read_only());
+                let add = ui.add_enabled(writable, egui::Button::new("Add file…"));
+                let add = add
+                    .on_hover_text(
+                        "Add data files to the project: a CREATE EXTERNAL TABLE statement for \
+                         each, in a data script",
+                    )
+                    .on_disabled_hover_text(
+                        "A sample can't take files: open or make a project to add files to.",
+                    );
+                if add.clicked() {
+                    ui.close();
+                    self.pick_files(ctx);
                 }
             });
             ui.separator();
@@ -1503,21 +1755,12 @@ impl eframe::App for EditorApp {
         self.follow_theme(ctx, &state);
         #[cfg(not(target_arch = "wasm32"))]
         self.limit_window(ctx, &state);
-        let dropped: Vec<PathBuf> = ctx.input(|input| {
-            input
-                .raw
-                .dropped_files
-                .iter()
-                .filter_map(|file| file.path.clone())
-                .collect()
-        });
+        let dropped: Vec<egui::DroppedFile> = ctx.input(|input| input.raw.dropped_files.clone());
         if !dropped.is_empty() {
-            self.notice = Some(
-                "A project reads its files through its data scripts: write a CREATE EXTERNAL \
-                 TABLE statement in one to read a file."
-                    .to_string(),
-            );
+            self.drop_files(ctx, dropped);
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.follow_files(ctx);
         if ctx.input_mut(|input| input.consume_shortcut(&run_shortcut())) {
             self.run(ctx);
         }
