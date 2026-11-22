@@ -2,7 +2,8 @@
 //! avenger-sql-project's fixture project: the capabilities, diagnostics that an edit publishes in
 //! another file, the requests, positions in UTF-16, loose scripts, a saved data script, a data
 //! file that changes on disk, under the server's watch and the client's, and the program over its
-//! standard input and output. The ignored test `lsp_latency` times edits in a generated project.
+//! standard input and output, and the cells of Quarto documents. The ignored test `lsp_latency`
+//! times edits in a generated project.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -522,6 +523,138 @@ fn the_program_serves_standard_input_and_output() {
     }
     assert_eq!(ids, [RequestId::from(1), RequestId::from(2)]);
     assert!(child.wait().unwrap().success());
+}
+
+/// A document of the fixture project: a cell, prose, and a cell in an indented fence with an
+/// error.
+const REPORT: &str = "# Report\n\n```{avenger-sql}\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars) AS chart\n```\n\n1. Weather\n\n    ```{avenger-sql}\n    FROM wet_days |>   SELECT nope\n    ```\n";
+
+#[test]
+fn the_cells_of_a_document_answer_at_their_places_in_it() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    std::fs::write(root.join("reports/overview.qmd"), REPORT).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let report = uri(&root, "reports/overview.qmd");
+    client.open(&report, REPORT);
+    client.until("the document's diagnostics", |c| {
+        c.diagnostics.contains_key(&report)
+    });
+    let diagnostics = &client.diagnostics[&report];
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(diagnostics[0].message.contains("Unrecognized name: nope"));
+    assert_eq!(diagnostics[0].range.start, Position::new(10, 30));
+
+    // Requests inside a cell answer, and in the prose, nothing.
+    let at = |line, character| json!({"textDocument": {"uri": report}, "position": position(line, character)});
+    let definition = client.request::<GotoDefinition>(at(3, 7));
+    assert_eq!(
+        definition["uri"],
+        json!(uri(&root, SUMMARIES)),
+        "{definition}"
+    );
+    let hover = client.request::<HoverRequest>(at(3, 7));
+    assert_eq!(hover["range"]["start"], position(3, 5), "{hover}");
+    assert_eq!(client.request::<HoverRequest>(at(0, 3)), Value::Null);
+    assert_eq!(client.request::<HoverRequest>(at(5, 1)), Value::Null);
+    let hover = client.request::<HoverRequest>(at(10, 10));
+    assert_eq!(hover["range"]["start"], position(10, 9), "{hover}");
+
+    // The tokens are in the cells' lines.
+    let document = json!({"textDocument": {"uri": report}});
+    let tokens = client.request::<SemanticTokensFullRequest>(document.clone());
+    assert_eq!(tokens["data"][0], 3, "{tokens}");
+    // Formatting replaces the lines of the indented cell, with its indent.
+    let mut formatting = document;
+    formatting["options"] = json!({"tabSize": 2, "insertSpaces": true});
+    let edits = client.request::<Formatting>(formatting);
+    assert_eq!(edits.as_array().unwrap().len(), 1, "{edits}");
+    assert_eq!(edits[0]["range"]["start"], position(10, 0), "{edits}");
+    assert_eq!(edits[0]["range"]["end"], position(11, 0), "{edits}");
+    assert_eq!(
+        edits[0]["newText"],
+        "    FROM wet_days\n    |> SELECT nope\n"
+    );
+}
+
+#[test]
+fn a_rename_reaches_the_cells_of_a_closed_document() {
+    let (_directory, root) = project();
+    std::fs::create_dir_all(root.join("reports")).unwrap();
+    let text = "```{avenger-sql}\nFROM heavy_by_origin |> SELECT cars\n```\n\n  ```{avenger-sql}\n  FROM heavy_by_origin |> SELECT Origin\n  ```\n";
+    std::fs::write(root.join("reports/overview.qmd"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let (summaries, report) = (uri(&root, SUMMARIES), uri(&root, "reports/overview.qmd"));
+    let source = std::fs::read_to_string(root.join(SUMMARIES)).unwrap();
+    client.open(&summaries, &source);
+    client.until("the document's diagnostics", |c| {
+        c.diagnostics.contains_key(&report)
+    });
+    assert_eq!(client.messages(&report), Vec::<String>::new());
+
+    let line = source
+        .lines()
+        .position(|line| line.contains("TABLE heavy_by_origin"))
+        .unwrap();
+    let character = source
+        .lines()
+        .nth(line)
+        .unwrap()
+        .find("heavy_by_origin")
+        .unwrap();
+    let edit = client.request::<Rename>(json!({
+        "textDocument": {"uri": summaries},
+        "position": position(line as u32, character as u32),
+        "newName": "heavy_origins"
+    }));
+    let edits = edit["changes"][report.as_str()].as_array().unwrap();
+    let starts: Vec<&Value> = edits.iter().map(|edit| &edit["range"]["start"]).collect();
+    assert_eq!(starts, [&position(1, 5), &position(5, 7)], "{edit}");
+    assert!(
+        edit["changes"][uri(&root, ORIGINS).as_str()].is_array(),
+        "{edit}"
+    );
+
+    // A change of the document on disk publishes its diagnostics.
+    let broken = text.replace("SELECT cars", "SELECT carz");
+    std::fs::write(root.join("reports/overview.qmd"), broken).unwrap();
+    client.until("the document's error", |c| {
+        c.messages(&report)
+            .iter()
+            .any(|m| m.contains("Unrecognized name: carz"))
+    });
+}
+
+#[test]
+fn an_edit_in_an_indented_cell_takes_utf_16_positions() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().canonicalize().unwrap().join("alone.qmd");
+    let text =
+        "Prose \u{1F600}.\n\n    ```{avenger-sql}\n    /* \u{1F600} */ FROM sales\n    ```\n";
+    std::fs::write(&path, text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let alone = Url::from_file_path(&path).unwrap();
+    client.open(&alone, text);
+    client.until("diagnostics", |c| c.diagnostics.contains_key(&alone));
+    // `sales` is at unit 18 of its line: the indent is 4 units, and the cell's 14 before it.
+    let range =
+        |start: u32, end: u32| json!({"start": position(3, start), "end": position(3, end)});
+    client.notify::<DidChangeTextDocument>(json!({
+        "textDocument": {"uri": alone, "version": 2},
+        "contentChanges": [{"range": range(18, 23), "text": "nada"}]
+    }));
+    client.until("the error", |c| {
+        c.messages(&alone)
+            .iter()
+            .any(|m| m.contains("Table not found: nada"))
+    });
+    let diagnostic = &client.diagnostics[&alone][0];
+    assert_eq!(
+        diagnostic.range.start,
+        Position::new(3, 18),
+        "{diagnostic:?}"
+    );
+    assert_eq!(diagnostic.range.end, Position::new(3, 22), "{diagnostic:?}");
 }
 
 /// The time of edits of a data script in a project of many data scripts and charts: from each

@@ -16,6 +16,10 @@ pub const SCRIPT_SUFFIX: &str = ".av.sql";
 /// The suffix of the name of a module: `.av.sqlm`.
 pub const MODULE_SUFFIX: &str = ".av.sqlm";
 
+/// The suffix of the name of a Quarto document, whose `{avenger-sql}` cells are chart scripts
+/// of its project.
+pub const DOCUMENT_SUFFIX: &str = ".qmd";
+
 /// The version of the project format that this crate reads.
 pub const FORMAT: i64 = 1;
 
@@ -220,6 +224,9 @@ pub enum Role {
     Module(Vec<String>),
     /// A `.css` file that no pattern of `[data]`'s `exclude` matches, or the entry stylesheet.
     Stylesheet,
+    /// A `.qmd` file that no pattern of `[data]`'s `exclude` matches: a Quarto document, whose
+    /// `{avenger-sql}` cells are chart scripts of the project.
+    Document,
 }
 
 /// A file that the patterns of two roles match.
@@ -333,6 +340,9 @@ impl Manifest {
         }
         if (path.ends_with(".css") && !excluded) || path == self.style.stylesheet {
             return Ok(Some(Role::Stylesheet));
+        }
+        if path.ends_with(DOCUMENT_SUFFIX) {
+            return Ok((!excluded).then_some(Role::Document));
         }
         let module = match self.modules.root.as_str() {
             "" => Some(path),

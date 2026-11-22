@@ -6,6 +6,7 @@ mod load;
 mod manifest;
 mod path;
 mod project;
+pub mod qmd;
 mod source;
 mod style;
 #[cfg(not(target_arch = "wasm32"))]
@@ -18,7 +19,8 @@ pub use load::{
 };
 pub use manifest::{
     ChartsSection, DataSection, Manifest, ManifestError, ModulesSection, Pattern, ProjectSection,
-    Role, RoleConflict, StyleSection, FORMAT, MANIFEST, MODULE_SUFFIX, SCRIPT_SUFFIX,
+    Role, RoleConflict, StyleSection, DOCUMENT_SUFFIX, FORMAT, MANIFEST, MODULE_SUFFIX,
+    SCRIPT_SUFFIX,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use project::find_root;

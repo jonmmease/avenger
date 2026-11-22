@@ -1,11 +1,14 @@
 //! Conversions between avenger-sql-language's byte offsets and kinds and the protocol's
 //! positions and kinds. A position counts its column in UTF-8 bytes or in UTF-16 code units, as
-//! the client and the server agree at initialization.
+//! the client and the server agree at initialization. A [`Place`] converts the offsets of a file
+//! of the analysis, a script, a module, or a cell, to the positions of the client's file.
 
 use avenger_sql_language::{
     CompletionKind, Highlight, Offset, Severity, Source, SymbolKind, TextRange,
 };
 use avenger_sql_syntax::NameRole;
+
+use avenger_sql_project::qmd::Cell;
 use lsp_types::{
     CompletionItemKind, DiagnosticSeverity, Position, Range, SemanticTokenModifier,
     SemanticTokenType, SymbolKind as LspSymbolKind,
@@ -82,6 +85,40 @@ impl<'a> LineIndex<'a> {
         Offset::from(end as u32)
     }
 
+    pub fn text_range(&self, range: Range) -> TextRange {
+        let start = self.offset(range.start);
+        TextRange::new(start, self.offset(range.end).max(start))
+    }
+}
+
+/// Where a file of the analysis is in a file of the client: all of it, for a script or a module,
+/// or a cell of a document.
+pub struct Place<'a> {
+    index: LineIndex<'a>,
+    cell: Option<&'a Cell>,
+}
+
+impl<'a> Place<'a> {
+    /// The place of the file `cell` of the client's text `text`, or of all of it without one.
+    pub fn new(text: &'a str, cell: Option<&'a Cell>, encoding: Encoding) -> Place<'a> {
+        Place {
+            index: LineIndex::new(text, encoding),
+            cell,
+        }
+    }
+
+    pub fn cell(&self) -> Option<&'a Cell> {
+        self.cell
+    }
+
+    /// The position of the offset `offset` of the file of the analysis.
+    pub fn position(&self, offset: usize) -> Position {
+        match self.cell {
+            Some(cell) => self.index.position(cell.to_document(offset)),
+            None => self.index.position(offset),
+        }
+    }
+
     pub fn range(&self, range: TextRange) -> Range {
         Range::new(
             self.position(usize::from(range.start())),
@@ -89,9 +126,61 @@ impl<'a> LineIndex<'a> {
         )
     }
 
-    pub fn text_range(&self, range: Range) -> TextRange {
-        let start = self.offset(range.start);
-        TextRange::new(start, self.offset(range.end).max(start))
+    /// The position of the offset `offset` of the client's file.
+    pub fn document_position(&self, offset: usize) -> Position {
+        self.index.position(offset)
+    }
+
+    /// The offset in the file of the analysis of `position`, or `None` outside the cell.
+    pub fn offset(&self, position: Position) -> Option<Offset> {
+        let offset = self.index.offset(position);
+        match self.cell {
+            Some(cell) => Some(Offset::from(cell.to_cell(usize::from(offset))? as u32)),
+            None => Some(offset),
+        }
+    }
+
+    /// The range in the file of the analysis of `range`, cut to the cell, or `None` when the
+    /// range misses it.
+    pub fn text_range(&self, range: Range) -> Option<TextRange> {
+        let Some(cell) = self.cell else {
+            return Some(self.index.text_range(range));
+        };
+        let range = self.index.text_range(range);
+        let (start, end) = (usize::from(range.start()), usize::from(range.end()));
+        if end < cell.range.start || cell.range.end < start {
+            return None;
+        }
+        let start = cell.to_cell(start.max(cell.range.start)).unwrap_or(0);
+        let end = cell
+            .to_cell(end.min(cell.range.end))
+            .unwrap_or(cell.text.len());
+        Some(TextRange::new(
+            Offset::from(start as u32),
+            Offset::from(end.max(start) as u32),
+        ))
+    }
+
+    /// The text `replacement` of an edit of the file of the analysis, with the indent of the
+    /// cell before each line with text after the first, and at its end after a line break,
+    /// before the line of the document that follows.
+    pub fn replacement(&self, replacement: &str) -> String {
+        let indent = self.cell.map_or("", |cell| cell.indent.as_str());
+        if indent.is_empty() || !replacement.contains('\n') {
+            return replacement.to_string();
+        }
+        let mut indented = String::with_capacity(replacement.len());
+        for (index, line) in replacement.split_inclusive('\n').enumerate() {
+            let empty = line.trim_end_matches(['\n', '\r']).is_empty();
+            if index > 0 && !empty {
+                indented.push_str(indent);
+            }
+            indented.push_str(line);
+        }
+        if replacement.ends_with('\n') {
+            indented.push_str(indent);
+        }
+        indented
     }
 }
 

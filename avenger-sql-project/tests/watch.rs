@@ -97,6 +97,11 @@ async fn a_changed_path_is_a_file_of_the_project_or_a_data_file() {
         watched(&root.join("styles/main.css")),
         project("styles/main.css")
     );
+    // A document, which need not exist yet, is a file of the project.
+    assert_eq!(
+        watched(&root.join("reports/overview.qmd")),
+        project("reports/overview.qmd")
+    );
     // A removed file, whose directory is still there.
     assert_eq!(
         watched(&root.join("data/files/gone.csv")),

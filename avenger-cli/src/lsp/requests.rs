@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use avenger_sql_language::{Document, Offset, Project, TextEdit};
+use avenger_sql_language::{Document, Offset, TextEdit};
+use avenger_sql_syntax::{format::format, Role as TextRole};
 use lsp_server::{ErrorCode, Request, Response};
 use lsp_types::{
     request::{
@@ -25,27 +26,36 @@ use lsp_types::{
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::convert::{self, Encoding, LineIndex};
-use super::{lsp_diagnostic, relative, Server};
+use super::convert::{self, Encoding, Place};
+use super::{lsp_diagnostic, relative, ProjectState, Server};
+use avenger_sql_project::qmd::{cell_path, split_cell_path};
 
-/// The file of a request: a script or a module of a project, or a document that is analyzed
-/// alone.
+/// A file of the analysis that a request reads: a script or a module of a project, or a cell of
+/// a document of a project, by its path in the analysis, or a document that is analyzed alone.
 enum Target<'a> {
     Project {
         root: &'a Path,
         path: String,
-        project: &'a Project,
+        state: &'a ProjectState,
     },
     Loose(&'a Document),
 }
 
 impl Target<'_> {
-    fn document(&self) -> Option<&Document> {
+    fn document(&self) -> &Document {
         match self {
-            Target::Project { path, project, .. } => project.document(path),
-            Target::Loose(document) => Some(document),
+            Target::Project { path, state, .. } => {
+                (state.analysis.project().document(path)).expect("a file of the project")
+            }
+            Target::Loose(document) => document,
         }
     }
+}
+
+/// A file of the analysis in a file of the client, and its place there.
+struct Part<'a> {
+    target: Target<'a>,
+    place: Place<'a>,
 }
 
 type Answer = Result<Value, (ErrorCode, String)>;
@@ -94,75 +104,130 @@ impl Server {
         let _ = self.sender.send(response.into());
     }
 
-    /// The file of `uri`, when the server analyzes it.
-    fn target(&self, uri: &Url) -> Option<Target<'_>> {
-        let path = super::file_path(uri)?;
+    /// The files of the analysis in the file of `uri`, when the server analyzes it: the file
+    /// itself for a script or a module, and each cell, in order, for a document.
+    fn parts(&self, uri: &Url) -> Vec<Part<'_>> {
+        let Some(path) = super::file_path(uri) else {
+            return Vec::new();
+        };
+        let encoding = self.encoding;
         if let Some(document) = self.loose.get(&path) {
-            return Some(Target::Loose(document));
+            let place = Place::new(document.text(), None, encoding);
+            let target = Target::Loose(document);
+            return vec![Part { target, place }];
         }
-        let (root, state) = self
-            .projects
-            .iter()
-            .find(|(root, _)| path.starts_with(root))?;
-        let path = relative(root, &path)?;
-        let project = state.analysis.project();
-        project.document(&path)?;
-        Some(Target::Project {
-            root,
-            path,
-            project,
-        })
+        if let Some(document) = self.loose_documents.get(&path) {
+            return (document.qmd.cells.iter().zip(&document.cells))
+                .map(|(cell, analysis)| Part {
+                    target: Target::Loose(analysis),
+                    place: Place::new(&document.qmd.text, Some(cell), encoding),
+                })
+                .collect();
+        }
+        let Some((root, state)) = (self.projects.iter()).find(|(root, _)| path.starts_with(root))
+        else {
+            return Vec::new();
+        };
+        let Some(path) = relative(root, &path) else {
+            return Vec::new();
+        };
+        if let Some(document) = state.analysis.qmd(&path) {
+            return (document.cells.iter().enumerate())
+                .map(|(index, cell)| Part {
+                    target: Target::Project {
+                        root,
+                        path: cell_path(&path, index + 1),
+                        state,
+                    },
+                    place: Place::new(&document.text, Some(cell), encoding),
+                })
+                .collect();
+        }
+        let Some(document) = state.analysis.project().document(&path) else {
+            return Vec::new();
+        };
+        let place = Place::new(document.text(), None, encoding);
+        let target = Target::Project { root, path, state };
+        vec![Part { target, place }]
     }
 
-    /// The file and the byte offset of a request at a position.
-    fn at(&self, position: &TextDocumentPositionParams) -> Option<(Target<'_>, Offset)> {
-        let target = self.target(&position.text_document.uri)?;
-        let index = LineIndex::new(target.document()?.text(), self.encoding);
-        let offset = index.offset(position.position);
-        Some((target, offset))
+    /// The file of the analysis at a position, its place, and the offset of the position in it,
+    /// or `None` outside every file of the analysis, such as between the cells of a document.
+    fn at(&self, position: &TextDocumentPositionParams) -> Option<(Part<'_>, Offset)> {
+        (self.parts(&position.text_document.uri).into_iter())
+            .find_map(|part| Some((part.place.offset(position.position)?, part)))
+            .map(|(offset, part)| (part, offset))
     }
 
-    fn index<'a>(&self, document: &'a Document) -> LineIndex<'a> {
-        LineIndex::new(document.text(), self.encoding)
+    /// The location of the range `range` of the file at `path` of the analysis of the project
+    /// of `state`, whose root is `root`: in its document for a cell.
+    fn location(
+        &self,
+        root: &Path,
+        state: &ProjectState,
+        path: &str,
+        range: avenger_sql_language::TextRange,
+    ) -> Option<Location> {
+        let (file, place) = self.place_of(root, state, path)?;
+        Some(Location::new(file, place.range(range)))
+    }
+
+    /// The file of the client of the file at `path` of the analysis of the project of `state`,
+    /// and its place there.
+    fn place_of<'a>(
+        &self,
+        root: &Path,
+        state: &'a ProjectState,
+        path: &str,
+    ) -> Option<(Url, Place<'a>)> {
+        match split_cell_path(path) {
+            Some((document, index)) => {
+                let qmd = state.analysis.qmd(document)?;
+                let cell = qmd.cells.get(index)?;
+                let uri = Url::from_file_path(root.join(document)).ok()?;
+                Some((uri, Place::new(&qmd.text, Some(cell), self.encoding)))
+            }
+            None => {
+                let document = state.analysis.project().document(path)?;
+                let uri = Url::from_file_path(root.join(path)).ok()?;
+                Some((uri, Place::new(document.text(), None, self.encoding)))
+            }
+        }
     }
 
     fn hover(&self, value: Value) -> Answer {
         let params: HoverParams = params(value)?;
-        let Some((target, offset)) = self.at(&params.text_document_position_params) else {
+        let Some((part, offset)) = self.at(&params.text_document_position_params) else {
             return answer(Value::Null);
         };
-        let document = target.document().expect("a document");
-        let hover = document.hover(offset).map(|hover| Hover {
+        let hover = part.target.document().hover(offset).map(|hover| Hover {
             contents: HoverContents::Markup(markdown(hover.markdown)),
-            range: Some(self.index(document).range(hover.range)),
+            range: Some(part.place.range(hover.range)),
         });
         answer(hover)
     }
 
     fn completion(&self, value: Value) -> Answer {
         let params: CompletionParams = params(value)?;
-        let Some((target, offset)) = self.at(&params.text_document_position) else {
+        let Some((part, offset)) = self.at(&params.text_document_position) else {
             return answer(Value::Null);
         };
-        let document = target.document().expect("a document");
-        let completions = document.completions(offset);
-        let index = self.index(document);
+        let completions = part.target.document().completions(offset);
+        let place = &part.place;
         let (insert, replace) = (
-            index.range(completions.range),
-            index.range(completions.replace),
+            place.range(completions.range),
+            place.range(completions.replace),
         );
         let items = (completions.items.into_iter())
             .map(|item| {
+                let text = place.replacement(&item.insert);
                 let edit = match self.insert_replace {
                     true => CompletionTextEdit::InsertAndReplace(InsertReplaceEdit {
-                        new_text: item.insert.clone(),
+                        new_text: text,
                         insert,
                         replace,
                     }),
-                    false => CompletionTextEdit::Edit(lsp_types::TextEdit::new(
-                        replace,
-                        item.insert.clone(),
-                    )),
+                    false => CompletionTextEdit::Edit(lsp_types::TextEdit::new(replace, text)),
                 };
                 CompletionItem {
                     label: item.label,
@@ -185,11 +250,10 @@ impl Server {
 
     fn signature_help(&self, value: Value) -> Answer {
         let params: SignatureHelpParams = params(value)?;
-        let Some((target, offset)) = self.at(&params.text_document_position_params) else {
+        let Some((part, offset)) = self.at(&params.text_document_position_params) else {
             return answer(Value::Null);
         };
-        let document = target.document().expect("a document");
-        let Some(help) = document.signature_help(offset) else {
+        let Some(help) = part.target.document().signature_help(offset) else {
             return answer(Value::Null);
         };
         let units = |text: &str| match self.encoding {
@@ -223,35 +287,20 @@ impl Server {
         })
     }
 
-    /// The location of the range `range` of the file at `path` of the project at `root`.
-    fn location(
-        &self,
-        root: &Path,
-        project: &Project,
-        path: &str,
-        range: avenger_sql_language::TextRange,
-    ) -> Option<Location> {
-        let document = project.document(path)?;
-        let uri = Url::from_file_path(root.join(path)).ok()?;
-        Some(Location::new(uri, self.index(document).range(range)))
-    }
-
     fn definition(&self, value: Value) -> Answer {
         let params: GotoDefinitionParams = params(value)?;
         let position = &params.text_document_position_params;
-        let Some((target, offset)) = self.at(position) else {
+        let Some((part, offset)) = self.at(position) else {
             return answer(Value::Null);
         };
-        let location = match &target {
-            Target::Project {
-                root,
-                path,
-                project,
-            } => (project.definition(path, offset))
-                .and_then(|link| self.location(root, project, &link.path, link.target)),
+        let location = match &part.target {
+            Target::Project { root, path, state } => {
+                (state.analysis.project().definition(path, offset))
+                    .and_then(|link| self.location(root, state, &link.path, link.target))
+            }
             Target::Loose(document) => (document.definition(offset)).map(|link| {
                 let uri = position.text_document.uri.clone();
-                Location::new(uri, self.index(document).range(link.target))
+                Location::new(uri, part.place.range(link.target))
             }),
         };
         answer(location.map(GotoDefinitionResponse::Scalar))
@@ -260,26 +309,24 @@ impl Server {
     fn references(&self, value: Value) -> Answer {
         let params: ReferenceParams = params(value)?;
         let position = &params.text_document_position;
-        let Some((target, offset)) = self.at(position) else {
+        let Some((part, offset)) = self.at(position) else {
             return answer(Value::Null);
         };
         let declarations = params.context.include_declaration;
-        let locations: Vec<Location> = match &target {
-            Target::Project {
-                root,
-                path,
-                project,
-            } => (project.references(path, offset).into_iter())
-                .filter(|reference| declarations || !reference.definition)
-                .filter_map(|reference| {
-                    self.location(root, project, &reference.path, reference.range)
-                })
-                .collect(),
+        let locations: Vec<Location> = match &part.target {
+            Target::Project { root, path, state } => (state
+                .analysis
+                .project()
+                .references(path, offset)
+                .into_iter())
+            .filter(|reference| declarations || !reference.definition)
+            .filter_map(|reference| self.location(root, state, &reference.path, reference.range))
+            .collect(),
             Target::Loose(document) => (document.references(offset).into_iter())
                 .filter(|reference| declarations || !reference.definition)
                 .map(|reference| {
                     let uri = position.text_document.uri.clone();
-                    Location::new(uri, self.index(document).range(reference.range))
+                    Location::new(uri, part.place.range(reference.range))
                 })
                 .collect(),
         };
@@ -288,18 +335,17 @@ impl Server {
 
     fn prepare_rename(&self, value: Value) -> Answer {
         let params: TextDocumentPositionParams = params(value)?;
-        let Some((target, offset)) = self.at(&params) else {
+        let Some((part, offset)) = self.at(&params) else {
             return answer(Value::Null);
         };
-        let range = match &target {
-            Target::Project { path, project, .. } => project.prepare_rename(path, offset),
+        let range = match &part.target {
+            Target::Project { path, state, .. } => {
+                state.analysis.project().prepare_rename(path, offset)
+            }
             Target::Loose(document) => document.prepare_rename(offset),
         };
-        let document = target.document().expect("a document");
         match range {
-            Ok(range) => answer(PrepareRenameResponse::Range(
-                self.index(document).range(range),
-            )),
+            Ok(range) => answer(PrepareRenameResponse::Range(part.place.range(range))),
             Err(message) => Err((ErrorCode::RequestFailed, message)),
         }
     }
@@ -307,34 +353,28 @@ impl Server {
     fn rename(&self, value: Value) -> Answer {
         let params: RenameParams = params(value)?;
         let position = &params.text_document_position;
-        let Some((target, offset)) = self.at(position) else {
+        let Some((part, offset)) = self.at(position) else {
             return answer(Value::Null);
         };
         let name = &params.new_name;
         let mut changes: HashMap<Url, Vec<lsp_types::TextEdit>> = HashMap::new();
-        match &target {
-            Target::Project {
-                root,
-                path,
-                project,
-            } => {
-                let edits = (project.rename(path, offset, name))
+        match &part.target {
+            Target::Project { root, path, state } => {
+                let edits = (state.analysis.project().rename(path, offset, name))
                     .map_err(|message| (ErrorCode::RequestFailed, message))?;
                 for (path, edits) in edits {
-                    let (Some(document), Ok(uri)) = (
-                        project.document(&path),
-                        Url::from_file_path(root.join(&path)),
-                    ) else {
+                    let Some((uri, place)) = self.place_of(root, state, &path) else {
                         continue;
                     };
-                    changes.insert(uri, self.edits(document, &edits));
+                    // The cells of a document add their edits to the document's.
+                    (changes.entry(uri).or_default()).extend(edits_at(&place, &edits));
                 }
             }
             Target::Loose(document) => {
                 let edits = (document.rename(offset, name))
                     .map_err(|message| (ErrorCode::RequestFailed, message))?;
                 let uri = position.text_document.uri.clone();
-                changes.insert(uri, self.edits(document, &edits));
+                changes.insert(uri, edits_at(&part.place, &edits));
             }
         }
         answer(WorkspaceEdit {
@@ -343,55 +383,51 @@ impl Server {
         })
     }
 
-    fn edits(&self, document: &Document, edits: &[TextEdit]) -> Vec<lsp_types::TextEdit> {
-        let index = self.index(document);
-        (edits.iter())
-            .map(|edit| lsp_types::TextEdit::new(index.range(edit.range), edit.replacement.clone()))
-            .collect()
-    }
-
-    fn document_of(&self, uri: &Url) -> Option<&Document> {
-        match self.target(uri)? {
-            Target::Project { path, project, .. } => project.document(&path),
-            Target::Loose(document) => Some(document),
-        }
-    }
-
     fn symbols(&self, value: Value) -> Answer {
         let params: DocumentSymbolParams = params(value)?;
-        let Some(document) = self.document_of(&params.text_document.uri) else {
+        let parts = self.parts(&params.text_document.uri);
+        if parts.is_empty() {
             return answer(Value::Null);
-        };
-        let index = self.index(document);
+        }
         #[allow(deprecated)]
-        fn symbol(index: &LineIndex, outline: &avenger_sql_language::Symbol) -> DocumentSymbol {
+        fn symbol(place: &Place, outline: &avenger_sql_language::Symbol) -> DocumentSymbol {
             DocumentSymbol {
                 name: outline.name.clone(),
                 detail: outline.detail.clone(),
                 kind: convert::symbol_kind(outline.kind),
                 tags: None,
                 deprecated: None,
-                range: index.range(outline.range),
-                selection_range: index.range(outline.name_range),
-                children: Some(outline.children.iter().map(|c| symbol(index, c)).collect()),
+                range: place.range(outline.range),
+                selection_range: place.range(outline.name_range),
+                children: Some(outline.children.iter().map(|c| symbol(place, c)).collect()),
             }
         }
-        let symbols = (document.symbols().iter())
-            .map(|s| symbol(&index, s))
+        let symbols = (parts.iter())
+            .flat_map(|part| {
+                let symbols = part.target.document().symbols();
+                symbols
+                    .iter()
+                    .map(|s| symbol(&part.place, s))
+                    .collect::<Vec<_>>()
+            })
             .collect();
         answer(DocumentSymbolResponse::Nested(symbols))
     }
 
     fn folding(&self, value: Value) -> Answer {
         let params: FoldingRangeParams = params(value)?;
-        let Some(document) = self.document_of(&params.text_document.uri) else {
+        let parts = self.parts(&params.text_document.uri);
+        if parts.is_empty() {
             return answer(Value::Null);
-        };
-        let index = self.index(document);
-        let ranges: Vec<FoldingRange> = (document.folding_ranges().iter())
-            .map(|folding| {
-                let range = index.range(folding.range);
-                FoldingRange {
+        }
+        let mut ranges: Vec<FoldingRange> = Vec::new();
+        for part in &parts {
+            for folding in part.target.document().folding_ranges().iter() {
+                let range = part.place.range(folding.range);
+                if range.end.line <= range.start.line {
+                    continue;
+                }
+                ranges.push(FoldingRange {
                     start_line: range.start.line,
                     start_character: None,
                     end_line: range.end.line,
@@ -401,29 +437,31 @@ impl Server {
                         false => FoldingRangeKind::Region,
                     }),
                     collapsed_text: None,
-                }
-            })
-            .filter(|range| range.end_line > range.start_line)
-            .collect();
+                });
+            }
+        }
         answer(ranges)
     }
 
     fn selection(&self, value: Value) -> Answer {
         let params: SelectionRangeParams = params(value)?;
-        let Some(document) = self.document_of(&params.text_document.uri) else {
+        let parts = self.parts(&params.text_document.uri);
+        if parts.is_empty() {
             return answer(Value::Null);
-        };
-        let index = self.index(document);
+        }
         let ranges: Vec<SelectionRange> = (params.positions.iter())
             .map(|position| {
-                let offset = index.offset(*position);
+                let found =
+                    (parts.iter()).find_map(|part| Some((part, part.place.offset(*position)?)));
                 // Innermost first, so the outermost is the last parent.
                 let mut selection: Option<SelectionRange> = None;
-                for range in document.selection_ranges(offset).iter().rev() {
-                    selection = Some(SelectionRange {
-                        range: index.range(*range),
-                        parent: selection.map(Box::new),
-                    });
+                if let Some((part, offset)) = found {
+                    for range in part.target.document().selection_ranges(offset).iter().rev() {
+                        selection = Some(SelectionRange {
+                            range: part.place.range(*range),
+                            parent: selection.map(Box::new),
+                        });
+                    }
                 }
                 selection.unwrap_or(SelectionRange {
                     range: lsp_types::Range::new(*position, *position),
@@ -436,28 +474,34 @@ impl Server {
 
     fn tokens(&self, value: Value) -> Answer {
         let params: SemanticTokensParams = params(value)?;
-        let Some(document) = self.document_of(&params.text_document.uri) else {
+        let parts = self.parts(&params.text_document.uri);
+        if parts.is_empty() {
             return answer(Value::Null);
-        };
-        let text = document.text();
-        let index = self.index(document);
+        }
         let mut data = Vec::new();
         let (mut line, mut start) = (0, 0);
-        for highlight in document.highlights() {
-            let Some(kind) = convert::token_type(highlight.highlight) else {
-                continue;
-            };
-            let modifiers = u32::from(highlight.definition);
-            // A token of one line each, since a client need not take tokens over lines.
-            let (from, to) = (
-                usize::from(highlight.range.start()),
-                usize::from(highlight.range.end()),
-            );
-            let mut piece = from;
-            for part in text[from..to].split_inclusive('\n') {
-                let content = part.trim_end_matches(['\n', '\r']);
-                if !content.is_empty() {
-                    let position = index.position(piece);
+        for part in &parts {
+            let document = part.target.document();
+            let text = document.text();
+            for highlight in document.highlights() {
+                let Some(kind) = convert::token_type(highlight.highlight) else {
+                    continue;
+                };
+                let modifiers = u32::from(highlight.definition);
+                // A token of one line each, since a client need not take tokens over lines.
+                let (from, to) = (
+                    usize::from(highlight.range.start()),
+                    usize::from(highlight.range.end()),
+                );
+                let mut piece = from;
+                for content in text[from..to].split_inclusive('\n') {
+                    let at = piece;
+                    piece += content.len();
+                    let content = content.trim_end_matches(['\n', '\r']);
+                    if content.is_empty() {
+                        continue;
+                    }
+                    let position = part.place.position(at);
                     let length = match self.encoding {
                         Encoding::Utf8 => content.len(),
                         Encoding::Utf16 => content.encode_utf16().count(),
@@ -476,7 +520,6 @@ impl Server {
                     });
                     (line, start) = (position.line, position.character);
                 }
-                piece += part.len();
             }
         }
         answer(SemanticTokensResult::Tokens(SemanticTokens {
@@ -485,52 +528,84 @@ impl Server {
         }))
     }
 
+    /// The edits that format the file: of a script or a module, by its document, and of a
+    /// document, of each cell that changes, with the cell's indent, as `avenger fmt` formats it.
     fn formatting(&self, value: Value) -> Answer {
         let params: DocumentFormattingParams = params(value)?;
-        let Some(document) = self.document_of(&params.text_document.uri) else {
+        let parts = self.parts(&params.text_document.uri);
+        if parts.is_empty() {
             return answer(Value::Null);
-        };
-        answer(self.edits(document, &document.formatting()))
+        }
+        let mut edits = Vec::new();
+        for part in &parts {
+            let document = part.target.document();
+            match part.place.cell() {
+                None => edits.extend(edits_at(&part.place, &document.formatting())),
+                Some(cell) => {
+                    let formatted = format(&cell.text, TextRole::Script);
+                    if formatted == cell.text {
+                        continue;
+                    }
+                    let range = lsp_types::Range::new(
+                        part.place.document_position(cell.range.start),
+                        part.place.document_position(cell.range.end),
+                    );
+                    edits.push(lsp_types::TextEdit::new(range, cell.indented(&formatted)));
+                }
+            }
+        }
+        answer(edits)
     }
 
     /// The quick fixes of the diagnostics of the file whose ranges meet the request's range.
     fn code_actions(&self, value: Value) -> Answer {
         let params: CodeActionParams = params(value)?;
         let uri = &params.text_document.uri;
-        let Some(target) = self.target(uri) else {
-            return answer(Value::Null);
-        };
-        let document = target.document().expect("a document");
-        let diagnostics = match &target {
-            Target::Project { path, project, .. } => project.diagnostics(path),
-            Target::Loose(document) => document.diagnostics(),
-        };
-        let index = self.index(document);
-        let range = index.text_range(params.range);
         let mut actions = Vec::new();
-        for diagnostic in &diagnostics {
-            let meets =
-                diagnostic.range.start() <= range.end() && range.start() <= diagnostic.range.end();
-            if !meets {
+        for part in self.parts(uri) {
+            let Some(range) = part.place.text_range(params.range) else {
                 continue;
-            }
-            for fix in &diagnostic.fixes {
-                let edit = WorkspaceEdit {
-                    changes: Some(HashMap::from([(
-                        uri.clone(),
-                        self.edits(document, &fix.edits),
-                    )])),
-                    ..Default::default()
-                };
-                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
-                    title: fix.label.clone(),
-                    kind: Some(CodeActionKind::QUICKFIX),
-                    diagnostics: Some(vec![lsp_diagnostic(&index, diagnostic)]),
-                    edit: Some(edit),
-                    ..Default::default()
-                }));
+            };
+            let diagnostics = match &part.target {
+                Target::Project { path, state, .. } => state.analysis.project().diagnostics(path),
+                Target::Loose(document) => document.diagnostics(),
+            };
+            for diagnostic in &diagnostics {
+                let meets = diagnostic.range.start() <= range.end()
+                    && range.start() <= diagnostic.range.end();
+                if !meets {
+                    continue;
+                }
+                for fix in &diagnostic.fixes {
+                    let edit = WorkspaceEdit {
+                        changes: Some(HashMap::from([(
+                            uri.clone(),
+                            edits_at(&part.place, &fix.edits),
+                        )])),
+                        ..Default::default()
+                    };
+                    actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                        title: fix.label.clone(),
+                        kind: Some(CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![lsp_diagnostic(&part.place, diagnostic)]),
+                        edit: Some(edit),
+                        ..Default::default()
+                    }));
+                }
             }
         }
         answer(actions)
     }
+}
+
+/// The edits of the protocol of `edits` of a file of the analysis at `place`.
+fn edits_at(place: &Place, edits: &[TextEdit]) -> Vec<lsp_types::TextEdit> {
+    (edits.iter())
+        .map(|edit| {
+            lsp_types::TextEdit::new(
+                place.range(edit.range),
+                place.replacement(&edit.replacement),
+            )
+        })
+        .collect()
 }
