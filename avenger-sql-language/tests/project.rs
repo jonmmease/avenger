@@ -699,7 +699,7 @@ fn an_edit_analyzes_its_dependents_again() {
     project.set_texts([(SUMMARIES, summaries)]);
     assert_eq!(project.diagnostics(ORIGINS), Vec::new());
     // A removed data script removes its tables from the charts that read them.
-    assert!(project.remove(REGIONS));
+    assert!(project.remove(REGIONS).contains(REGIONS));
     let errors: Vec<String> = (project.diagnostics(ORIGINS).into_iter())
         .map(|d| d.message)
         .collect();
@@ -1065,4 +1065,27 @@ fn edits_leave_the_project_that_a_fresh_one_makes() {
     check(&project, "removed");
     project.add("data/loop.av.sql", FileRole::Chart, "FROM used");
     check(&project, "role");
+}
+
+#[test]
+fn a_change_returns_the_files_that_it_reaches() {
+    let mut project = project();
+    // An edit of a data script reaches it, the scripts downstream of it, the charts that read
+    // its tables or import a module, and the modules, whose functions can read them.
+    let summaries = fixture!("data/summaries.av.sql").replace("> 3000", "> 4000");
+    let reached = project.set_texts([(SUMMARIES, summaries)]);
+    assert_eq!(
+        reached.iter().map(String::as_str).collect::<Vec<_>>(),
+        [ORIGINS, WARM_DAYS, SUMMARIES, WEATHER]
+    );
+    // An edit of a chart reaches the chart alone.
+    let origins = format!("{}\n", fixture!("charts/origins.av.sql"));
+    let reached = project.set_texts([(ORIGINS, origins)]);
+    assert_eq!(
+        reached.iter().map(String::as_str).collect::<Vec<_>>(),
+        [ORIGINS]
+    );
+    // A path that the project lacks reaches nothing.
+    assert!(project.set_texts([("charts/none.av.sql", "")]).is_empty());
+    assert!(project.remove("charts/none.av.sql").is_empty());
 }

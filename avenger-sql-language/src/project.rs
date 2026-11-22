@@ -205,32 +205,42 @@ impl Project {
         &self.graph
     }
 
-    /// Adds the file at `path` with `role` and `text`, or replaces the file at `path`.
-    pub fn add(&mut self, path: impl Into<String>, role: FileRole, text: impl Into<String>) {
+    /// Adds the file at `path` with `role` and `text`, or replaces the file at `path`, and
+    /// returns the files that the change reaches, as [`Project::set_texts`] gives them.
+    pub fn add(
+        &mut self,
+        path: impl Into<String>,
+        role: FileRole,
+        text: impl Into<String>,
+    ) -> BTreeSet<String> {
         let mut change = Change::default();
         change.texts.insert(path.into(), (role, text.into()));
-        self.update(change);
+        self.update(change)
     }
 
-    /// Removes the file at `path`, and whether the project had it.
-    pub fn remove(&mut self, path: &str) -> bool {
+    /// Removes the file at `path`, and returns the files that the change reaches, the removed
+    /// file with them, or none when the project lacks it.
+    pub fn remove(&mut self, path: &str) -> BTreeSet<String> {
         if !self.files.contains_key(path) {
-            return false;
+            return BTreeSet::new();
         }
         let mut change = Change::default();
         change.removed.insert(path.to_string());
-        self.update(change);
-        true
+        self.update(change)
     }
 
     /// Sets the texts of files of the project, each a path and its text, together, as the edits
     /// of [`Project::rename`] change them, each with its role. A path that the project lacks
     /// changes nothing. The loader's errors of each file are left out, since their ranges are in
     /// the text before the edit, until the host sets them again.
+    ///
+    /// The result is the files that the change reaches: those that it analyzes again, whose
+    /// diagnostics, symbols, and other requests can change, and those that it removes. Another
+    /// file keeps its analysis, so its diagnostics stay as they were.
     pub fn set_texts<P: Into<String>, T: Into<String>>(
         &mut self,
         texts: impl IntoIterator<Item = (P, T)>,
-    ) {
+    ) -> BTreeSet<String> {
         let mut change = Change::default();
         for (path, text) in texts {
             let path = path.into();
@@ -238,19 +248,24 @@ impl Project {
                 (change.texts).insert(path, (file.role.clone(), text.into()));
             }
         }
-        if !change.texts.is_empty() {
-            self.update(change);
+        match change.texts.is_empty() {
+            true => BTreeSet::new(),
+            false => self.update(change),
         }
     }
 
     /// Sets the tables of the files that the data scripts and the chart scripts' own tables of
-    /// files read, as [`Project::with_file_tables`] takes them.
-    pub fn set_file_tables(&mut self, tables: impl IntoIterator<Item = (Files, FilesTable)>) {
+    /// files read, as [`Project::with_file_tables`] takes them, and returns the files that the
+    /// change reaches, as [`Project::set_texts`] gives them.
+    pub fn set_file_tables(
+        &mut self,
+        tables: impl IntoIterator<Item = (Files, FilesTable)>,
+    ) -> BTreeSet<String> {
         self.tables = tables.into_iter().collect();
         self.update(Change {
             all_data: true,
             ..Change::default()
-        });
+        })
     }
 
     /// Sets the paths of the project's files, relative to its root and separated by `/`, which
@@ -767,8 +782,9 @@ impl Project {
         .with_files(files)
     }
 
-    /// Applies `change`, and analyzes the files that it changes and their dependents again.
-    fn update(&mut self, change: Change) {
+    /// Applies `change`, analyzes the files that it changes and their dependents again, and
+    /// returns the paths of the files that it analyzed again or removed.
+    fn update(&mut self, change: Change) -> BTreeSet<String> {
         let Change {
             texts,
             removed,
@@ -800,6 +816,8 @@ impl Project {
                 Some((path.clone(), exported(file.document.data_analysis()?)))
             })
             .collect();
+        // The files that the change analyzes again or removes, which it returns.
+        let mut reached: BTreeSet<String> = removed.clone();
         for path in &removed {
             self.files.remove(path);
             self.loader.remove(path);
@@ -896,6 +914,7 @@ impl Project {
                 tables.extend(exported(document.data_analysis().expect("a data script")));
                 let role = FileRole::Data;
                 self.files.insert(path.clone(), File { role, document });
+                reached.insert(path.clone());
             } else {
                 // A script that doesn't analyze again keeps its analysis, which no change reaches,
                 // and completes the names of the catalog before it as the change leaves it.
@@ -952,6 +971,7 @@ impl Project {
         }
         for (path, (role, text)) in pending {
             let document = self.document_of(&text, role.role(), self.catalog.clone());
+            reached.insert(path.clone());
             self.files.insert(path, File { role, document });
         }
         // The other chart scripts and modules complete the names of the catalog after the change.
@@ -961,6 +981,7 @@ impl Project {
             }
         }
         self.unloaded = self.unloaded();
+        reached
     }
 
     /// Why the tables of each data script that would not load are unavailable, as a loader finds

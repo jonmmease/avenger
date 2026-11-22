@@ -95,7 +95,7 @@ The repository is organized as a Rust workspace with these key crates:
 - `avenger-sql`: DataFusion SQL that builds avenger charts: the mark functions and constructors of avenger-chart's `functions` feature as DataFusion functions, the transforms of avenger-datafusion-transforms, and the rewrites that DataFusion needs to plan their queries
 - `avenger-sql-language`: Editor features of avenger-sql scripts from one analysis: diagnostics, semantic highlighting, completion, hover, go to definition, references, rename, signature help, and the outline, in the shape of the Language Server Protocol's requests
 - `avenger-sql-project`: Projects of avenger-sql: the manifest `avenger.toml`, the file source of a directory or of embedded files in an object store, the roles of files, the entry stylesheet, a live project whose loader and analysis stay in step, the watch of its files, and adding data files
-- `avenger-cli`: `avenger`, the command-line program of avenger-sql projects: `check` and `fmt`, with text or JSON output and exit statuses for scripts, CI, and agents
+- `avenger-cli`: `avenger`, the command-line program of avenger-sql projects: `check` and `fmt`, with text or JSON output and exit statuses for scripts, CI, and agents, and `lsp`, the Language Server Protocol for editors
 - `avenger-style`: The CSS style language of charts: stylesheets, their checks against the vocabulary of the style tree, and property values
 
 ## Important Patterns
