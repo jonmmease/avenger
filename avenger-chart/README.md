@@ -145,6 +145,8 @@ The reader infers the unset scale of each encoding of a scaled value, and the un
 
 A producer in another language reads the same rules from the descriptors: the `required` and `required_oneof` options of the fields and the oneofs, the `lift` option of their fields, and the `channel_scale` and `position` options of the values of `Channel`.
 
+The `markup` option marks the string fields that hold Typst markup, which the text engine renders: a title's text and subtitle, unless the title's `syntax` is plain, the credits of an attribution and their separator, the markup of labels and of a tooltip's values, the labels of modes, and the label that clears a radio widget. Text from the rows, such as the text of a text mark, the values of labels, and the titles of encodings, is not markup. The parameter model gives such a field the shape `Shape::Markup`, so avenger-sql's library records which arguments take Typst, and its editor tools say so.
+
 The builders also compose charts:
 
 | Method | What it does |

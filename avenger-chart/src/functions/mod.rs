@@ -175,6 +175,9 @@ pub enum Shape {
     Int,
     Float,
     Str,
+    /// A string of Typst markup, in the syntax of Typst 0.15, which the text engine renders, as
+    /// the `markup` option of the format marks the field.
+    Markup,
     Bytes,
     /// An enum, by its full name, which a string names with one of its values.
     Enum {
@@ -389,6 +392,7 @@ fn describe_accepts(param: &Param) -> String {
                 (Class::Fragment, Shape::Message { .. }) => own.clone(),
                 (Class::Array, Shape::Array(Shape::Message { .. })) => format!("array of {own}"),
                 (Class::Array, shape @ Shape::Array(_)) => describe_shape(shape, &own),
+                (Class::Str, Shape::Markup) => describe_shape(&Shape::Markup, &own),
                 (class, _) => class_word(*class).to_string(),
             });
             if matches!(accept.shape, Shape::Names(_)) {
@@ -414,6 +418,7 @@ fn describe_shape(shape: &Shape, own: &str) -> String {
         Shape::Int => "integer".into(),
         Shape::Float => "number".into(),
         Shape::Str => "string".into(),
+        Shape::Markup => "Typst markup".into(),
         Shape::Bytes => "bytes".into(),
         Shape::Enum { values, .. } => format!("one of {}", error::names(values, ", ")),
         Shape::Value => "any constant".into(),

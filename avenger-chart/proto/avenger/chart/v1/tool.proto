@@ -47,7 +47,7 @@ message Mode {
   // the ids of nodes and the names of selections.
   string name = 1 [(avenger.chart.v1.required) = true];
   // The label of the mode in a mode widget, as Typst markup. Empty labels the mode with its name.
-  string label = 2;
+  string label = 2 [(avenger.chart.v1.markup) = true];
   // The name of the group of the mode, whose modes exclude each other, or empty for a toggle. The
   // groups have their own namespace, apart from the names of the modes.
   string group = 3;
@@ -125,7 +125,7 @@ message TooltipTitle {
   // The pattern of the value, as for `Labels.format`.
   string format = 2;
   // Typst markup of the value, as for `Labels.markup`.
-  string markup = 3;
+  string markup = 3 [(avenger.chart.v1.markup) = true];
 }
 
 // A column of an instance's row that a tooltip shows: its title, and how its value reads.
@@ -137,7 +137,7 @@ message TooltipField {
   // The pattern of the value, as for `Labels.format`.
   string format = 3;
   // Typst markup of the value, as for `Labels.markup`.
-  string markup = 4;
+  string markup = 4 [(avenger.chart.v1.markup) = true];
 }
 
 // Where a tooltip stands.

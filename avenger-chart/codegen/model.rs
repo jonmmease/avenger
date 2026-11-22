@@ -78,6 +78,8 @@ pub(super) enum Shape {
     /// A floating-point number of the Rust type.
     Float(&'static str),
     Str,
+    /// A string of Typst markup, which the `markup` option marks.
+    Markup,
     Bytes,
     /// An enum, by its full name.
     Enum(String),
@@ -134,7 +136,7 @@ impl Shape {
             Shape::Bool => vec![(Class::Bool, 0)],
             Shape::Int(_) => vec![(Class::Int, 0)],
             Shape::Float(_) => vec![(Class::Float, 0), (Class::Int, 1)],
-            Shape::Str | Shape::Enum(_) => vec![(Class::Str, 0)],
+            Shape::Str | Shape::Markup | Shape::Enum(_) => vec![(Class::Str, 0)],
             Shape::Bytes => vec![(Class::Bytes, 0)],
             Shape::Repeated(_) => vec![(Class::Array, 0)],
             Shape::Options => vec![(Class::Struct, 0)],
@@ -156,7 +158,30 @@ impl Shape {
 
     /// Whether an argument of this shape is a string, so a member's name would be ambiguous.
     fn takes_strings(&self) -> bool {
-        matches!(self, Shape::Str | Shape::Enum(_) | Shape::Value)
+        matches!(
+            self,
+            Shape::Str | Shape::Markup | Shape::Enum(_) | Shape::Value
+        )
+    }
+
+    /// The shape of the field `field` of the message `message`: a field of strings that the
+    /// `markup` option marks holds markup.
+    pub(super) fn of_field(
+        message: &str,
+        field: &FieldDescriptorProto,
+        annotations: &Annotations,
+    ) -> Option<Shape> {
+        let shape = Shape::of(field)?;
+        if !annotations.is_markup(message, field.name()) {
+            return Some(shape);
+        }
+        Some(match shape {
+            Shape::Str => Shape::Markup,
+            Shape::Repeated(item) if matches!(*item, Shape::Str) => {
+                Shape::Repeated(Box::new(Shape::Markup))
+            }
+            shape => shape,
+        })
     }
 
     /// Whether the shape holds a message, which a lift never marks.
@@ -298,6 +323,18 @@ impl<'a> Model<'a> {
         names: &[String],
         excluded: &BTreeSet<(String, String)>,
     ) -> Result<Self, String> {
+        for (message, field) in &annotations.markup {
+            let strings = (messages.get(message))
+                .and_then(|(_, _, descriptor)| {
+                    (descriptor.field.iter()).find(|f| f.name() == field)
+                })
+                .is_some_and(|field| field.r#type() == Type::String);
+            if !strings {
+                return Err(format!(
+                    "`markup` marks `{message}.{field}`, which is not a field of strings"
+                ));
+            }
+        }
         let mut models = Vec::new();
         for name in names {
             let (_, _, message) = messages.get(name).ok_or(format!("`{name}` is a message"))?;
@@ -762,7 +799,9 @@ fn params<'a>(
                             && !member.proto3_optional()
                             && !excluded(member)
                     })
-                    .filter_map(|member| Some((member, Shape::of(member)?)))
+                    .filter_map(|member| {
+                        Some((member, Shape::of_field(name, member, annotations)?))
+                    })
                     .collect();
                 if members.is_empty() {
                     continue;
@@ -797,7 +836,7 @@ fn params<'a>(
                 ));
             }
             None => {
-                let Some(shape) = Shape::of(field) else {
+                let Some(shape) = Shape::of_field(name, field, annotations) else {
                     continue;
                 };
                 let required = annotations.is_required(name, field.name());

@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package avenger.chart.v1;
 
+import "avenger/chart/v1/annotation.proto";
 import "avenger/chart/v1/side.proto";
 import "avenger/chart/v1/style.proto";
 
@@ -13,7 +14,7 @@ import "avenger/chart/v1/style.proto";
 message Attribution {
   // Each credit as Typst markup, such as `© OpenStreetMap contributors`. No credits draws no
   // attribution.
-  repeated string credits = 1;
+  repeated string credits = 1 [(avenger.chart.v1.markup) = true];
   // The top or the bottom of the plot. When unset, the styles give it. A left or a right side is
   // invalid.
   Side orient = 2;
@@ -22,7 +23,7 @@ message Attribution {
   // give it.
   TextAlign text_align = 3;
   // Typst markup between two credits on a line.
-  string separator = 4;
+  string separator = 4 [(avenger.chart.v1.markup) = true];
   // The space on each side of the separator, in pixels.
   optional float separator_space = 5;
   // The font family of the credits, such as `Lato`.

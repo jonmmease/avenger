@@ -63,6 +63,8 @@ mod wire {
         pub lift: Option<bool>,
         #[prost(string, optional, tag = "50007")]
         pub element: Option<String>,
+        #[prost(bool, optional, tag = "50009")]
+        pub markup: Option<bool>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -118,6 +120,8 @@ pub struct Annotations {
     pub lift: BTreeSet<(String, String)>,
     /// The oneofs that the `lift_oneof` option marks.
     pub lift_oneof: BTreeSet<(String, String)>,
+    /// The string fields that the `markup` option marks, which hold Typst markup.
+    pub markup: BTreeSet<(String, String)>,
     /// The `element` name of each repeated message field that sets it.
     pub element: BTreeMap<(String, String), String>,
     /// The `channel_scale` of each value of `Channel` that sets it, by the value's name.
@@ -165,6 +169,9 @@ impl Annotations {
             if let Some(element) = options.and_then(|o| o.element.clone()) {
                 self.element.insert(key.clone(), element);
             }
+            if options.and_then(|o| o.markup) == Some(true) {
+                self.markup.insert(key.clone());
+            }
             if options.and_then(|o| o.lift) == Some(true) {
                 self.lift.insert(key);
             }
@@ -186,6 +193,11 @@ impl Annotations {
 
     pub fn is_required(&self, message: &str, field: &str) -> bool {
         self.required
+            .contains(&(message.to_string(), field.to_string()))
+    }
+
+    pub fn is_markup(&self, message: &str, field: &str) -> bool {
+        self.markup
             .contains(&(message.to_string(), field.to_string()))
     }
 

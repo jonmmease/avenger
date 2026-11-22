@@ -242,3 +242,18 @@ fn hover_shows_a_column_inside_an_aggregate_of_a_mark() {
         "{markdown}"
     );
 }
+
+#[test]
+fn hover_says_that_the_strings_of_a_parameter_are_typst_markup() {
+    let document = common::document(
+        "FROM penguins |> AGGREGATE mark_bar(x => species, title => title('Mass', subtitle => 'kg')) AS chart",
+    );
+    for (needle, markup) in [("title =>", true), ("subtitle =>", true), ("x =>", false)] {
+        let (_, markdown) = hover(&document, needle, 0).unwrap();
+        assert_eq!(
+            markdown.contains("Its strings are Typst markup."),
+            markup,
+            "{needle}: {markdown}"
+        );
+    }
+}
