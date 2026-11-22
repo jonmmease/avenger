@@ -18,7 +18,7 @@ pub use load::{
 };
 pub use manifest::{
     ChartsSection, DataSection, Manifest, ManifestError, ModulesSection, Pattern, ProjectSection,
-    Role, RoleConflict, StyleSection, FORMAT, MANIFEST,
+    Role, RoleConflict, StyleSection, FORMAT, MANIFEST, MODULE_SUFFIX, SCRIPT_SUFFIX,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use project::find_root;

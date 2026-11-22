@@ -21,11 +21,11 @@ use datafusion::{
     prelude::SessionContext,
 };
 
-const VEGA: &str = "data/vega_datasets.sql";
-const REGIONS: &str = "data/regions.sql";
-const SUMMARIES: &str = "data/summaries.sql";
-const ORIGINS: &str = "charts/origins.sql";
-const WARM_DAYS: &str = "charts/weather/warm-days.sql";
+const VEGA: &str = "data/vega_datasets.av.sql";
+const REGIONS: &str = "data/regions.av.sql";
+const SUMMARIES: &str = "data/summaries.av.sql";
+const ORIGINS: &str = "charts/origins.av.sql";
+const WARM_DAYS: &str = "charts/weather/warm-days.av.sql";
 
 fn fixture() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/projects/vega")
@@ -126,7 +126,7 @@ fn chart(path: &str) -> String {
 
 /// The tables of the chart of the chart script `text`, as rows in the order of their text.
 async fn chart_tables(project: &LoadedProject, text: &str) -> String {
-    let frame = project.run_chart("charts/run.sql", text).await.unwrap();
+    let frame = project.run_chart("charts/run.av.sql", text).await.unwrap();
     let batches = frame.collect().await.unwrap();
     let mut tables = Vec::new();
     for batch in batches {
@@ -297,14 +297,14 @@ async fn a_failed_data_script_names_itself_downstream_and_in_charts() {
         diagnostics(&project, SUMMARIES),
         [(
             "vega_datasets.cars".to_string(),
-            "Table vega_datasets.cars is defined by the data script data/vega_datasets.sql, which failed to load".to_string()
+            "Table vega_datasets.cars is defined by the data script data/vega_datasets.av.sql, which failed to load".to_string()
         )]
     );
     assert_eq!(
         diagnostics(&project, REGIONS),
         [(
             "vega_datasets".to_string(),
-            "Schema vega_datasets is created by the data script data/vega_datasets.sql, which failed to load".to_string()
+            "Schema vega_datasets is created by the data script data/vega_datasets.av.sql, which failed to load".to_string()
         )]
     );
     let ScriptStatus::NotLoaded { dependencies } = &project.script(SUMMARIES).unwrap().status
@@ -334,7 +334,7 @@ async fn a_failed_data_script_names_itself_downstream_and_in_charts() {
         [(
             "vega_datasets.seattle_weather".to_string(),
             VEGA,
-            "Table vega_datasets.seattle_weather is defined by the data script data/vega_datasets.sql, which failed to load"
+            "Table vega_datasets.seattle_weather is defined by the data script data/vega_datasets.av.sql, which failed to load"
         )]
     );
     let error = project
@@ -345,8 +345,8 @@ async fn a_failed_data_script_names_itself_downstream_and_in_charts() {
     let message = error.to_string();
     assert!(
         message.starts_with(
-            "Table heavy_by_origin is defined by the data script data/summaries.sql, which did not load, since data/vega_datasets.sql failed to load\n\
-             Table vega_datasets.regions is defined by the data script data/regions.sql, which did not load, since data/vega_datasets.sql failed to load\n"
+            "Table heavy_by_origin is defined by the data script data/summaries.av.sql, which did not load, since data/vega_datasets.av.sql failed to load\n\
+             Table vega_datasets.regions is defined by the data script data/regions.av.sql, which did not load, since data/vega_datasets.av.sql failed to load\n"
         ),
         "{message}"
     );
@@ -392,7 +392,7 @@ async fn the_file_tables_of_the_scripts_are_those_of_their_last_loads() {
 #[tokio::test]
 async fn a_chart_that_fails_for_another_reason_has_the_error_of_its_run() {
     let project = directory().await;
-    let run = project.run_chart("charts/run.sql", "FROM no_such_table");
+    let run = project.run_chart("charts/run.av.sql", "FROM no_such_table");
     let error = run.await.unwrap_err();
     assert!(matches!(error, ChartError::Run(_)), "{error}");
 }
@@ -413,7 +413,7 @@ async fn an_unloaded_read_keeps_the_other_errors_of_the_chart() {
     let lines: Vec<&str> = message.lines().collect();
     assert_eq!(
         lines[0],
-        "Table public.heavy_by_origin is defined by the data script data/summaries.sql, which did not load, since data/vega_datasets.sql failed to load"
+        "Table public.heavy_by_origin is defined by the data script data/summaries.av.sql, which did not load, since data/vega_datasets.av.sql failed to load"
     );
     assert!(
         lines[1..]
@@ -454,10 +454,10 @@ async fn data_scripts_in_a_cycle_are_blocked() {
     // A reader that comes before the cycle by path, and loads before it.
     let reader = "CREATE VIEW reader AS (FROM first);";
     let project = embedded(&[
-        ("data/cycle/first.sql", Some(first)),
-        ("data/cycle/second.sql", Some(second)),
-        ("data/cycle/third.sql", Some(third)),
-        ("data/a_reader.sql", Some(reader)),
+        ("data/cycle/first.av.sql", Some(first)),
+        ("data/cycle/second.av.sql", Some(second)),
+        ("data/cycle/third.av.sql", Some(third)),
+        ("data/a_reader.av.sql", Some(reader)),
     ])
     .await;
     let blocked: Vec<_> = (statuses(&project).into_iter())
@@ -466,10 +466,10 @@ async fn data_scripts_in_a_cycle_are_blocked() {
     assert_eq!(
         blocked,
         [
-            "data/a_reader.sql",
-            "data/cycle/first.sql",
-            "data/cycle/second.sql",
-            "data/cycle/third.sql"
+            "data/a_reader.av.sql",
+            "data/cycle/first.av.sql",
+            "data/cycle/second.av.sql",
+            "data/cycle/third.av.sql"
         ]
         .map(|path| (path.to_string(), "blocked"))
     );
@@ -478,25 +478,25 @@ async fn data_scripts_in_a_cycle_are_blocked() {
     assert_eq!(project.graph().errors().len(), 1);
     let cycle = project.graph().errors()[0].message();
     assert_eq!(
-        diagnostics(&project, "data/cycle/first.sql"),
+        diagnostics(&project, "data/cycle/first.av.sql"),
         [("second".to_string(), cycle.clone())]
     );
     assert_eq!(
-        diagnostics(&project, "data/cycle/second.sql"),
+        diagnostics(&project, "data/cycle/second.av.sql"),
         [("first".to_string(), cycle)]
     );
     assert_eq!(
-        diagnostics(&project, "data/cycle/third.sql"),
+        diagnostics(&project, "data/cycle/third.av.sql"),
         [(
             "second".to_string(),
-            "Table second is defined by the data script data/cycle/second.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
+            "Table second is defined by the data script data/cycle/second.av.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
         )]
     );
     assert_eq!(
-        diagnostics(&project, "data/a_reader.sql"),
+        diagnostics(&project, "data/a_reader.av.sql"),
         [(
             "first".to_string(),
-            "Table first is defined by the data script data/cycle/first.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
+            "Table first is defined by the data script data/cycle/first.av.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
         )]
     );
 }
@@ -507,15 +507,15 @@ async fn a_lowering_error_is_at_its_statement() {
                 FROM FILES (format = 'CSV', uris = ['data/files/regions.csv'], skip_leading_rows = 1);";
     let reader = "CREATE VIEW code_view AS (FROM codes);";
     let project = embedded(&[
-        ("data/codes.sql", Some(load)),
-        ("data/code_view.sql", Some(reader)),
+        ("data/codes.av.sql", Some(load)),
+        ("data/code_view.av.sql", Some(reader)),
     ])
     .await;
     assert!(matches!(
-        project.script("data/codes.sql").unwrap().status,
+        project.script("data/codes.av.sql").unwrap().status,
         ScriptStatus::Failed
     ));
-    let errors = diagnostics(&project, "data/codes.sql");
+    let errors = diagnostics(&project, "data/codes.av.sql");
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].0, load.trim_end_matches(';'));
     assert!(
@@ -528,7 +528,7 @@ async fn a_lowering_error_is_at_its_statement() {
         .table_exist("codes")
         .is_ok_and(|exists| !exists));
     assert!(matches!(
-        project.script("data/code_view.sql").unwrap().status,
+        project.script("data/code_view.av.sql").unwrap().status,
         ScriptStatus::NotLoaded { .. }
     ));
 }
@@ -536,10 +536,10 @@ async fn a_lowering_error_is_at_its_statement() {
 #[tokio::test]
 async fn a_name_that_two_data_scripts_define_loads_neither() {
     let other = "CREATE VIEW heavy_by_origin AS (FROM vega_datasets.regions);";
-    let project = embedded(&[("data/other.sql", Some(other))]).await;
+    let project = embedded(&[("data/other.av.sql", Some(other))]).await;
     assert_eq!(project.graph().errors().len(), 1);
     let message = project.graph().errors()[0].message();
-    for path in ["data/other.sql", SUMMARIES] {
+    for path in ["data/other.av.sql", SUMMARIES] {
         assert!(matches!(
             project.script(path).unwrap().status,
             ScriptStatus::Failed
@@ -561,13 +561,13 @@ async fn a_blocked_script_with_a_duplicate_name_says_why_it_is_blocked() {
     let second = "CREATE TABLE second AS (FROM first);";
     let reader = "CREATE VIEW heavy_by_origin AS (FROM first);";
     let project = embedded(&[
-        ("data/cycle/first.sql", Some(first)),
-        ("data/cycle/second.sql", Some(second)),
-        ("data/a_reader.sql", Some(reader)),
+        ("data/cycle/first.av.sql", Some(first)),
+        ("data/cycle/second.av.sql", Some(second)),
+        ("data/a_reader.av.sql", Some(reader)),
     ])
     .await;
     assert!(matches!(
-        project.script("data/a_reader.sql").unwrap().status,
+        project.script("data/a_reader.av.sql").unwrap().status,
         ScriptStatus::Blocked
     ));
     let duplicate = (project.graph().errors().iter())
@@ -576,12 +576,12 @@ async fn a_blocked_script_with_a_duplicate_name_says_why_it_is_blocked() {
         .message();
     // The error of the name that another script defines, and the error at the read of the cycle.
     assert_eq!(
-        diagnostics(&project, "data/a_reader.sql"),
+        diagnostics(&project, "data/a_reader.av.sql"),
         [
             ("heavy_by_origin".to_string(), duplicate),
             (
                 "first".to_string(),
-                "Table first is defined by the data script data/cycle/first.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
+                "Table first is defined by the data script data/cycle/first.av.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
             )
         ]
     );
@@ -589,7 +589,7 @@ async fn a_blocked_script_with_a_duplicate_name_says_why_it_is_blocked() {
 
 #[tokio::test]
 async fn a_table_of_the_host_that_a_script_replaces_stays_through_reloads() {
-    const SHADOW: &str = "data/shadow.sql";
+    const SHADOW: &str = "data/shadow.av.sql";
     let shadow = "CREATE VIEW Host AS (FROM host |> WHERE n > 1);";
     let mut files = fixture_files();
     files.push((SHADOW.to_string(), shadow.to_string()));
@@ -628,8 +628,8 @@ async fn a_table_of_the_host_that_a_script_replaces_stays_through_reloads() {
 
 #[tokio::test]
 async fn a_reload_of_a_module_reloads_the_scripts_that_import_it() {
-    const WARM: &str = "data/warm.sql";
-    const WEATHER: &str = "modules/weather.sqlm";
+    const WARM: &str = "data/warm.av.sql";
+    const WEATHER: &str = "modules/weather.av.sqlm";
     let warm = "IMPORT MODULE weather;
 CREATE VIEW warm_days AS (FROM vega_datasets.seattle_weather |> WHERE weather.warm(temp_max));";
     let mut project = embedded(&[(WARM, Some(warm))]).await;
@@ -650,7 +650,7 @@ FROM vega_datasets.seattle_weather |> WHERE weather.warm(temp_max) |> AGGREGATE 
     let batches = frame.collect().await.unwrap();
     assert_eq!(pretty_format_batches(&batches).unwrap().to_string(), after);
     // A path that is neither a data script nor a module of the project reloads nothing.
-    let error = project.reload("modules/none.sqlm", String::new()).await;
+    let error = project.reload("modules/none.av.sqlm", String::new()).await;
     assert!(error.is_err());
 }
 
@@ -759,7 +759,7 @@ async fn a_reload_removes_the_tables_that_a_script_no_longer_defines() {
         project.script(REGIONS).unwrap().status,
         ScriptStatus::Failed
     ));
-    let error = project.reload("data/missing.sql", String::new()).await;
+    let error = project.reload("data/missing.av.sql", String::new()).await;
     assert!(error.is_err());
 }
 
@@ -788,7 +788,7 @@ async fn a_project_on_disk_reloads_a_script_and_the_whole_project() {
         .contains("North America"));
 
     // A new data script, which the whole project's reload finds.
-    let extra = root.path().join("data/extra.sql");
+    let extra = root.path().join("data/extra.av.sql");
     std::fs::write(&extra, "CREATE VIEW extra AS (FROM vega_datasets.regions);").unwrap();
     let changes = project.reload_all().await.unwrap();
     assert!(
@@ -799,12 +799,16 @@ async fn a_project_on_disk_reloads_a_script_and_the_whole_project() {
         changes.contains(&change("wet_days", Change::Replaced)),
         "{changes:?}"
     );
-    assert!(project.script("data/extra.sql").unwrap().loaded().is_some());
+    assert!(project
+        .script("data/extra.av.sql")
+        .unwrap()
+        .loaded()
+        .is_some());
     assert_eq!(project.session().catalog_names().len(), 1);
 }
 
 /// A data script that reads the CSV files of a pattern and of a directory.
-const PARTS: &str = "data/parts.sql";
+const PARTS: &str = "data/parts.av.sql";
 const PARTS_TEXT: &str = "CREATE EXTERNAL TABLE parts
 OPTIONS (format = 'CSV', uris = ['data/files/parts/*.csv']);
 
@@ -946,7 +950,7 @@ async fn a_project_on_disk_reloads_the_scripts_that_read_changed_files() {
 
 #[tokio::test]
 async fn a_removed_partition_reloads_the_script_of_its_hive_layout() {
-    const HIVE: &str = "data/hive.sql";
+    const HIVE: &str = "data/hive.av.sql";
     let root = tempfile::tempdir().unwrap();
     let mut files = fixture_files();
     files.push((

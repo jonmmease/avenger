@@ -1,6 +1,6 @@
 //! Scripts and modules: statements separated by `;`. A script's statement is a pipe query,
 //! `IMPORT MODULE`, `DECLARE`, `SET`, `CREATE TEMP TABLE`, or `CREATE FUNCTION` of a scalar,
-//! aggregate or table function. A module, a `.sqlm` file, starts with `MODULE name` and holds
+//! aggregate or table function. A module, a `.av.sqlm` file, starts with `MODULE name` and holds
 //! `IMPORT MODULE` and `CREATE PUBLIC` or `CREATE PRIVATE` statements of functions, table
 //! functions and constants, following GoogleSQL's modules. A data script registers the tables of
 //! a project with `CREATE EXTERNAL TABLE`, `LOAD DATA`, `CREATE VIEW`, `CREATE TABLE ... AS` and

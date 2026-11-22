@@ -26,7 +26,7 @@ const PATHS: &[&str] = &[
     "data/files/cars.json",
     "data/files/sales.csv",
     "data/files/sales.csv.gz",
-    "data/sales.sql",
+    "data/sales.av.sql",
 ];
 
 /// The catalog of a data script `text`: the table `penguins` of the host, with the place that
@@ -39,7 +39,7 @@ fn catalog(text: &str) -> MemoryCatalog {
         .with_definition(
             &["penguins"],
             TableDefinition {
-                file: "data/penguins.sql".to_string(),
+                file: "data/penguins.av.sql".to_string(),
                 range: TextRange::default(),
                 description: Some("The penguins of the Palmer archipelago".to_string()),
             },
@@ -48,7 +48,7 @@ fn catalog(text: &str) -> MemoryCatalog {
         .with_definition(
             &["finance"],
             TableDefinition {
-                file: "data/finance.sql".to_string(),
+                file: "data/finance.av.sql".to_string(),
                 range: TextRange::default(),
                 description: Some("The books".to_string()),
             },
@@ -267,7 +267,7 @@ fn hover_shows_a_table_its_files_description_and_columns() {
     let (_, markdown) = hover(&document, "penguins", 0);
     assert_eq!(
         markdown,
-        "```googlesql\nTABLE penguins\n```\n\nThe penguins of the Palmer archipelago\n\nDefined in `data/penguins.sql`\n\n- `species`: STRING"
+        "```googlesql\nTABLE penguins\n```\n\nThe penguins of the Palmer archipelago\n\nDefined in `data/penguins.av.sql`\n\n- `species`: STRING"
     );
 }
 
@@ -288,7 +288,7 @@ fn hover_shows_a_schema_as_a_dataset() {
     assert_eq!(range, "finance");
     assert_eq!(
         markdown,
-        "```googlesql\nSCHEMA finance\n```\n\nA schema of tables, which BigQuery calls a dataset.\n\nThe books\n\nDefined in `data/finance.sql`"
+        "```googlesql\nSCHEMA finance\n```\n\nA schema of tables, which BigQuery calls a dataset.\n\nThe books\n\nDefined in `data/finance.av.sql`"
     );
 }
 
@@ -456,7 +456,7 @@ fn a_uri_completes_the_paths_of_the_project() {
     );
     assert_eq!(
         labels(&completions, CompletionKind::File),
-        ["data/sales.sql"]
+        ["data/sales.av.sql"]
     );
     let (completions, _, _) = complete(
         "CREATE EXTERNAL TABLE t OPTIONS (format = 'JSON', uris = ['a.csv', 'data/files/c$0'])",

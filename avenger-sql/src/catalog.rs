@@ -132,7 +132,7 @@ pub trait Catalog {
     /// The tables of the catalog, which an editor offers where a script names a table.
     fn tables(&self) -> Vec<Table>;
 
-    /// The text of the module at the path `names` of an `IMPORT MODULE`, a `.sqlm` file.
+    /// The text of the module at the path `names` of an `IMPORT MODULE`, a `.av.sqlm` file.
     fn module(&self, _names: &[String]) -> Option<String> {
         None
     }

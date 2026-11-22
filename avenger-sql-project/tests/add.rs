@@ -151,16 +151,16 @@ fn a_copy_takes_a_name_that_no_file_has() {
 
 #[test]
 fn the_statements_go_into_the_active_script_or_the_first_data_script() {
-    let scripts = ["data/b.sql", "data/a.sql"].map(String::from);
+    let scripts = ["data/b.av.sql", "data/a.av.sql"].map(String::from);
     fn script<'a>(active: Option<&'a str>, scripts: &'a [String]) -> &'a str {
-        add::script(active, scripts, &["charts/x.sql".to_string()])
+        add::script(active, scripts, &["charts/x.av.sql".to_string()])
     }
-    assert_eq!(script(Some("data/b.sql"), &scripts), "data/b.sql");
+    assert_eq!(script(Some("data/b.av.sql"), &scripts), "data/b.av.sql");
     // The active chart takes its own tables, and a file of no script the first data script.
-    assert_eq!(script(Some("charts/x.sql"), &scripts), "charts/x.sql");
-    assert_eq!(script(Some("styles/main.css"), &scripts), "data/a.sql");
-    assert_eq!(script(None, &scripts), "data/a.sql");
-    assert_eq!(script(Some("charts/x.sql"), &[]), "charts/x.sql");
+    assert_eq!(script(Some("charts/x.av.sql"), &scripts), "charts/x.av.sql");
+    assert_eq!(script(Some("styles/main.css"), &scripts), "data/a.av.sql");
+    assert_eq!(script(None, &scripts), "data/a.av.sql");
+    assert_eq!(script(Some("charts/x.av.sql"), &[]), "charts/x.av.sql");
     assert_eq!(script(None, &[]), NEW_SCRIPT);
 
     let statements = ["CREATE A;".to_string(), "CREATE B;".to_string()];
@@ -199,7 +199,7 @@ fn a_chart_takes_its_tables_before_its_query_after_its_other_tables_of_files() {
 }
 
 const SALES: &str = "region,amount\nNorth,3\nSouth,5\n";
-const REGIONS: &str = "data/regions.sql";
+const REGIONS: &str = "data/regions.av.sql";
 
 /// A copy of the fixture project in a temporary directory, by its canonical root.
 fn copy() -> (tempfile::TempDir, PathBuf) {
@@ -274,10 +274,10 @@ async fn an_add_copies_files_and_writes_their_statements() {
 
     // The same file again is a copy of its own, and a given chart takes a TEMP table before its
     // query, with a name that no table of the chart has.
-    let added = add_files(&root, Some("charts/origins.sql"), &[sales])
+    let added = add_files(&root, Some("charts/origins.av.sql"), &[sales])
         .await
         .unwrap();
-    assert_eq!(added.script, "charts/origins.sql");
+    assert_eq!(added.script, "charts/origins.av.sql");
     assert_eq!(added.copied, ["data/files/Sales-2.csv"]);
     assert_eq!(added.tables, ["sales"]);
     assert!(

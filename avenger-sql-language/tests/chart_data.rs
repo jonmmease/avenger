@@ -19,7 +19,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 const PATHS: &[&str] = &[
     "data/files/sales.csv",
     "data/files/cars.json",
-    "charts/a.sql",
+    "charts/a.av.sql",
 ];
 
 /// The document of the chart script `text`, in the project of [`PATHS`], whose catalog gives the

@@ -26,7 +26,7 @@ use crate::project::ProjectFiles;
 pub const FILES: &str = "data/files";
 
 /// The data script that takes the statements of a project without one.
-pub const NEW_SCRIPT: &str = "data/tables.sql";
+pub const NEW_SCRIPT: &str = "data/tables.av.sql";
 
 /// A data file by its name: the name before its extensions, its extensions, and the format and
 /// the compression that they give.

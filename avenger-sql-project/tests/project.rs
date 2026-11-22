@@ -71,9 +71,9 @@ fn manifest_defaults() {
     let patterns = |patterns: &[avenger_sql_project::Pattern]| -> Vec<String> {
         patterns.iter().map(ToString::to_string).collect()
     };
-    assert_eq!(patterns(&manifest.data.scripts), ["data/**/*.sql"]);
+    assert_eq!(patterns(&manifest.data.scripts), ["data/**/*.av.sql"]);
     assert_eq!(patterns(&manifest.data.exclude), ["data/files/**"]);
-    assert_eq!(patterns(&manifest.charts.scripts), ["charts/**/*.sql"]);
+    assert_eq!(patterns(&manifest.charts.scripts), ["charts/**/*.av.sql"]);
     assert_eq!(manifest.style.stylesheet, "styles/main.css");
     assert_eq!(manifest.modules.root, "modules");
     assert_eq!(manifest.data.scripts[0].range(), None);
@@ -102,11 +102,11 @@ name = "finance"
 format = 1
 
 [data]
-scripts = ["./sql//**/*.sql", "extra.sql"]
+scripts = ["./sql//**/*.av.sql", "extra.av.sql"]
 exclude = []
 
 [charts]
-scripts = ["views/*.sql"]
+scripts = ["views/*.av.sql"]
 
 [style]
 stylesheet = "./css/app.css"
@@ -118,14 +118,14 @@ root = "lib/"
     assert_eq!(manifest.project.name, "finance");
     // A pattern reads without its `.` names and its empty names, as a path does.
     let texts: Vec<&str> = manifest.data.scripts.iter().map(|p| p.as_str()).collect();
-    assert_eq!(texts, ["sql/**/*.sql", "extra.sql"]);
+    assert_eq!(texts, ["sql/**/*.av.sql", "extra.av.sql"]);
     assert!(manifest.data.exclude.is_empty());
-    assert_eq!(manifest.charts.scripts[0].as_str(), "views/*.sql");
+    assert_eq!(manifest.charts.scripts[0].as_str(), "views/*.av.sql");
     assert_eq!(manifest.style.stylesheet, "css/app.css");
     assert_eq!(manifest.modules.root, "lib");
     // A pattern keeps the range of its string and its line, and so does the entry stylesheet.
     let range = manifest.data.scripts[1].range().unwrap();
-    assert_eq!(&text[range], "\"extra.sql\"");
+    assert_eq!(&text[range], "\"extra.av.sql\"");
     assert_eq!(manifest.data.scripts[1].line(), Some(7));
     let range = manifest.style.range.clone().unwrap();
     assert_eq!(&text[range], "\"./css/app.css\"");
@@ -138,7 +138,7 @@ root = "lib/"
         .collect();
     assert_eq!(directories, ["sql", "", "views"]);
     let manifest = Manifest::parse(
-        "[project]\nname = \"a\"\n[charts]\nscripts = [\"*.sql\", \"a/b/c[0-9]/*.sql\", \"a/b.sql\"]\n",
+        "[project]\nname = \"a\"\n[charts]\nscripts = [\"*.av.sql\", \"a/b/c[0-9]/*.av.sql\", \"a/b.av.sql\"]\n",
     )
     .unwrap();
     let directories: Vec<&str> = (manifest.charts.scripts.iter())
@@ -186,20 +186,20 @@ fn manifest_errors() {
     );
     // An invalid pattern.
     let error = manifest_error(
-        "[project]\nname = \"sales\"\n[charts]\nscripts = [\n  \"charts/[*.sql\",\n]\n",
+        "[project]\nname = \"sales\"\n[charts]\nscripts = [\n  \"charts/[*.av.sql\",\n]\n",
     );
     assert_eq!(error.line, Some(5), "{error}");
     // A pattern that is not relative to the root, or that names no file, at its value.
     for pattern in [
-        "/abs/*.sql",
-        "../x/*.sql",
-        "charts/../../x/*.sql",
-        "charts\\\\*.sql",
+        "/abs/*.av.sql",
+        "../x/*.av.sql",
+        "charts/../../x/*.av.sql",
+        "charts\\\\*.av.sql",
         "",
         "./",
     ] {
         let text = format!(
-            "[project]\nname = \"sales\"\n[data]\nscripts = [\n  \"data/*.sql\",\n  \"{pattern}\",\n]\n"
+            "[project]\nname = \"sales\"\n[data]\nscripts = [\n  \"data/*.av.sql\",\n  \"{pattern}\",\n]\n"
         );
         let error = manifest_error(&text);
         assert_eq!(error.line, Some(6), "{pattern}: {error}");
@@ -227,12 +227,12 @@ async fn embedded_source() {
     let source = source(&[
         ("data/files/sales.csv", "region,revenue\neast,10\nwest,20\n"),
         ("data/files/[raw]/x?.csv", "a\n1\n"),
-        ("charts/a.sql", "FROM sales"),
+        ("charts/a.av.sql", "FROM sales"),
     ])
     .await;
     assert_eq!(source.base().as_str(), "memory://sales/");
     assert_eq!(
-        source.read_text("charts/a.sql").await.unwrap(),
+        source.read_text("charts/a.av.sql").await.unwrap(),
         "FROM sales"
     );
     assert_eq!(
@@ -244,7 +244,7 @@ async fn embedded_source() {
         listing.paths,
         [
             "avenger.toml",
-            "charts/a.sql",
+            "charts/a.av.sql",
             "data/files/[raw]/x?.csv",
             "data/files/sales.csv"
         ]
@@ -256,18 +256,24 @@ async fn embedded_source() {
         Err(SourceError::Path(_))
     ));
     assert!(matches!(
-        source.read("charts/b.sql").await,
-        Err(SourceError::NotFound(path)) if path == "charts/b.sql"
+        source.read("charts/b.av.sql").await,
+        Err(SourceError::NotFound(path)) if path == "charts/b.av.sql"
     ));
     // A path reads without its `.` names and its empty names, by the manifest's rules.
-    for path in ["./charts/a.sql", "charts//a.sql", "charts/./a.sql"] {
+    for path in ["./charts/a.av.sql", "charts//a.av.sql", "charts/./a.av.sql"] {
         assert_eq!(
             source.read_text(path).await.unwrap(),
             "FROM sales",
             "{path}"
         );
     }
-    for path in ["", ".", "/charts/a.sql", "charts/../a.sql", "charts\\a.sql"] {
+    for path in [
+        "",
+        ".",
+        "/charts/a.av.sql",
+        "charts/../a.av.sql",
+        "charts\\a.av.sql",
+    ] {
         assert!(
             matches!(source.read(path).await, Err(SourceError::Path(_))),
             "{path}"
@@ -292,43 +298,43 @@ async fn embedded_source() {
 #[tokio::test]
 async fn roles() {
     let project = project(&[
-        ("data/sources.sql", ""),
-        ("data/finance/derived.sql", ""),
-        ("data/files/dump.sql", ""),
+        ("data/sources.av.sql", ""),
+        ("data/finance/derived.av.sql", ""),
+        ("data/files/dump.av.sql", ""),
         ("data/files/sales.csv", ""),
         ("data/notes.txt", ""),
-        ("charts/revenue.sql", ""),
-        ("charts/regions/by-month.sql", ""),
-        ("scratch.sql", ""),
+        ("charts/revenue.av.sql", ""),
+        ("charts/regions/by-month.av.sql", ""),
+        ("scratch.av.sql", ""),
         ("styles/main.css", ""),
         ("styles/brand.css", ""),
-        ("modules/stats.sqlm", ""),
-        ("modules/geo/projections.sqlm", ""),
-        ("charts/local.sqlm", ""),
-        ("charts/.hidden.sql", ""),
+        ("modules/stats.av.sqlm", ""),
+        ("modules/geo/projections.av.sqlm", ""),
+        ("charts/local.av.sqlm", ""),
+        ("charts/.hidden.av.sql", ""),
         (".git/HEAD", ""),
         (".git/refs/main.css", ""),
-        ("data/.cache/stale.sql", ""),
+        ("data/.cache/stale.av.sql", ""),
     ])
     .await
     .unwrap();
     assert_eq!(
         project.data_scripts(),
-        ["data/finance/derived.sql", "data/sources.sql"]
+        ["data/finance/derived.av.sql", "data/sources.av.sql"]
     );
     assert_eq!(
         project.chart_scripts(),
-        ["charts/regions/by-month.sql", "charts/revenue.sql"]
+        ["charts/regions/by-month.av.sql", "charts/revenue.av.sql"]
     );
     assert_eq!(
         project.modules(),
         [
             ModuleFile {
-                path: "modules/geo/projections.sqlm".into(),
+                path: "modules/geo/projections.av.sqlm".into(),
                 names: strings(&["geo", "projections"]),
             },
             ModuleFile {
-                path: "modules/stats.sqlm".into(),
+                path: "modules/stats.av.sqlm".into(),
                 names: strings(&["stats"]),
             },
         ]
@@ -341,28 +347,32 @@ async fn roles() {
     // Hidden files and directories are not listed, so they have no role.
     assert!(!(project.files().iter()).any(|path| path.contains("/.") || path.starts_with('.')));
     let manifest = project.manifest();
-    assert_eq!(manifest.role("data/files/dump.sql"), Ok(None));
-    assert_eq!(manifest.role("data/files/events/old.sql"), Ok(None));
+    assert_eq!(manifest.role("data/files/dump.av.sql"), Ok(None));
+    assert_eq!(manifest.role("data/files/events/old.av.sql"), Ok(None));
     assert_eq!(manifest.role("data/files/sales.csv"), Ok(None));
-    assert_eq!(manifest.role("scratch.sql"), Ok(None));
-    assert_eq!(manifest.role("charts/local.sqlm"), Ok(None));
-    assert_eq!(manifest.role("data/new.sql"), Ok(Some(Role::DataScript)));
+    assert_eq!(manifest.role("scratch.av.sql"), Ok(None));
+    assert_eq!(manifest.role("charts/local.av.sqlm"), Ok(None));
+    assert_eq!(manifest.role("data/new.av.sql"), Ok(Some(Role::DataScript)));
+    // A plain `.sql` or `.sqlm` file has no role, wherever it is.
+    assert_eq!(manifest.role("data/new.sql"), Ok(None));
+    assert_eq!(manifest.role("charts/new.sql"), Ok(None));
+    assert_eq!(manifest.role("modules/stats.sqlm"), Ok(None));
     // A `.css` file among the data is data, not a stylesheet.
     assert_eq!(manifest.role("data/files/report.css"), Ok(None));
     assert_eq!(manifest.role("data/report.css"), Ok(Some(Role::Stylesheet)));
     // A hidden file, or a file under a hidden directory, has no role.
     for path in [
-        "charts/.hidden.sql",
+        "charts/.hidden.av.sql",
         ".git/refs/main.css",
-        "data/.cache/stale.sql",
-        "modules/.cache/stats.sqlm",
+        "data/.cache/stale.av.sql",
+        "modules/.cache/stats.av.sqlm",
         ".styles/main.css",
     ] {
         assert_eq!(manifest.role(path), Ok(None), "{path}");
     }
     // The patterns match with case.
-    assert_eq!(manifest.role("Charts/revenue.sql"), Ok(None));
-    assert_eq!(manifest.role("DATA/sources.sql"), Ok(None));
+    assert_eq!(manifest.role("Charts/revenue.av.sql"), Ok(None));
+    assert_eq!(manifest.role("DATA/sources.av.sql"), Ok(None));
 }
 
 #[tokio::test]
@@ -371,37 +381,40 @@ async fn role_patterns() {
 [project]
 name = "sales"
 [data]
-scripts = ["sql/*.sql"]
-exclude = ["sql/old*.sql"]
+scripts = ["sql/*.av.sql"]
+exclude = ["sql/old*.av.sql"]
 [charts]
-scripts = ["**/*.sql"]
+scripts = ["**/*.av.sql"]
 [modules]
 root = ""
 "#;
     let manifest = Manifest::parse(manifest).unwrap();
     // `*` matches within a name, and `**` any number of directories.
     assert_eq!(
-        manifest.role("sql/a.sql"),
-        Err(conflict(&manifest, "sql/a.sql"))
+        manifest.role("sql/a.av.sql"),
+        Err(conflict(&manifest, "sql/a.av.sql"))
     );
     assert_eq!(
-        manifest.role("sql/a.sql").unwrap_err().to_string(),
-        "'sql/a.sql' is a data script by the pattern 'sql/*.sql' at avenger.toml:5 and a chart \
-         script by the pattern '**/*.sql' at avenger.toml:8"
+        manifest.role("sql/a.av.sql").unwrap_err().to_string(),
+        "'sql/a.av.sql' is a data script by the pattern 'sql/*.av.sql' at avenger.toml:5 and a chart \
+         script by the pattern '**/*.av.sql' at avenger.toml:8"
     );
-    assert_eq!(manifest.role("sql/old1.sql"), Ok(Some(Role::ChartScript)));
     assert_eq!(
-        manifest.role("sql/nested/a.sql"),
+        manifest.role("sql/old1.av.sql"),
         Ok(Some(Role::ChartScript))
     );
-    assert_eq!(manifest.role("top.sql"), Ok(Some(Role::ChartScript)));
+    assert_eq!(
+        manifest.role("sql/nested/a.av.sql"),
+        Ok(Some(Role::ChartScript))
+    );
+    assert_eq!(manifest.role("top.av.sql"), Ok(Some(Role::ChartScript)));
     // The modules of the root.
     assert_eq!(
-        manifest.role("a/b.sqlm"),
+        manifest.role("a/b.av.sqlm"),
         Ok(Some(Role::Module(strings(&["a", "b"]))))
     );
     assert_eq!(
-        manifest.role("stats.sqlm"),
+        manifest.role("stats.av.sqlm"),
         Ok(Some(Role::Module(strings(&["stats"]))))
     );
 
@@ -416,12 +429,12 @@ root = ""
 
 #[tokio::test]
 async fn role_conflict() {
-    let manifest = "[project]\nname = \"sales\"\n[charts]\nscripts = [\"**/*.sql\"]\n";
+    let manifest = "[project]\nname = \"sales\"\n[charts]\nscripts = [\"**/*.av.sql\"]\n";
     let error = project(&[
         ("avenger.toml", manifest),
-        ("data/sources.sql", ""),
-        ("data/files/dump.sql", ""),
-        ("charts/revenue.sql", ""),
+        ("data/sources.av.sql", ""),
+        ("data/files/dump.av.sql", ""),
+        ("charts/revenue.av.sql", ""),
     ])
     .await
     .unwrap_err();
@@ -432,42 +445,44 @@ async fn role_conflict() {
     // The message says where each pattern is: its line, or that it is a default.
     assert_eq!(
         error.to_string(),
-        "'data/sources.sql' is a data script by the default pattern 'data/**/*.sql' and a chart \
-         script by the pattern '**/*.sql' at avenger.toml:4"
+        "'data/sources.av.sql' is a data script by the default pattern 'data/**/*.av.sql' and a chart \
+         script by the pattern '**/*.av.sql' at avenger.toml:4"
     );
     // The chart pattern is at its place in the manifest, and the data pattern is the default.
     let range = conflicts[0].chart.range().unwrap();
-    assert_eq!(&manifest[range], "\"**/*.sql\"");
+    assert_eq!(&manifest[range], "\"**/*.av.sql\"");
     assert_eq!(conflicts[0].data.range(), None);
 }
 
 #[tokio::test]
 async fn modules_of_one_module_path() {
     let error = project(&[
-        ("modules/geo/States.sqlm", ""),
-        ("modules/Geo/states.sqlm", ""),
-        ("modules/geo/states.sqlm", ""),
+        ("modules/geo/States.av.sqlm", ""),
+        ("modules/Geo/states.av.sqlm", ""),
+        ("modules/geo/states.av.sqlm", ""),
     ])
     .await
     .unwrap_err();
     assert_eq!(
         error.to_string(),
-        "the modules 'modules/geo/States.sqlm' and 'modules/Geo/states.sqlm' have the same module \
-         path, which ignores case\nthe modules 'modules/geo/states.sqlm' and \
-         'modules/Geo/states.sqlm' have the same module path, which ignores case"
+        "the modules 'modules/geo/States.av.sqlm' and 'modules/Geo/states.av.sqlm' have the same module \
+         path, which ignores case\nthe modules 'modules/geo/states.av.sqlm' and \
+         'modules/Geo/states.av.sqlm' have the same module path, which ignores case"
     );
     // A module path finds its module without regard to case.
-    let files = project(&[("modules/geo/States.sqlm", "")]).await.unwrap();
+    let files = project(&[("modules/geo/States.av.sqlm", "")])
+        .await
+        .unwrap();
     let names = ["GEO".to_string(), "states".to_string()];
     assert_eq!(
         files.module(&names).unwrap().path,
-        "modules/geo/States.sqlm"
+        "modules/geo/States.av.sqlm"
     );
 }
 
 #[tokio::test]
 async fn no_manifest() {
-    let source = FileSource::embedded("sales", [("charts/a.sql", "")])
+    let source = FileSource::embedded("sales", [("charts/a.av.sql", "")])
         .await
         .unwrap();
     let error = ProjectFiles::open(source).await.unwrap_err();
@@ -629,17 +644,17 @@ async fn directory() {
     let root = dir.path().join("sales");
     let files = [
         ("avenger.toml", MANIFEST),
-        ("data/sources.sql", ""),
+        ("data/sources.av.sql", ""),
         (
             "data/files/sales.csv",
             "region,revenue\neast,10\nwest,20\nnorth,5\n",
         ),
-        ("charts/regions/by-month.sql", "FROM sales"),
+        ("charts/regions/by-month.av.sql", "FROM sales"),
         ("styles/main.css", "@import 'brand.css';\n"),
         ("styles/brand.css", "mark { fill: teal; }\n"),
         (".git/HEAD", "ref: refs/heads/main\n"),
         (".git/objects/style.css", ""),
-        ("charts/.hidden.sql", ""),
+        ("charts/.hidden.av.sql", ""),
         (".DS_Store", ""),
     ];
     for (path, text) in files {
@@ -649,7 +664,7 @@ async fn directory() {
     }
     // The root of a nested file, and of the root itself.
     let canonical = std::fs::canonicalize(&root).unwrap();
-    let nested = root.join("charts/regions/by-month.sql");
+    let nested = root.join("charts/regions/by-month.av.sql");
     assert_eq!(
         avenger_sql_project::find_root(&nested),
         Some(canonical.clone())
@@ -665,11 +680,11 @@ async fn directory() {
     ));
     // The root of a path that does not exist yet is that of its nearest directory that does.
     assert_eq!(
-        avenger_sql_project::find_root(&root.join("charts/new/chart.sql")),
+        avenger_sql_project::find_root(&root.join("charts/new/chart.av.sql")),
         Some(canonical.clone())
     );
     assert_eq!(
-        avenger_sql_project::find_root(&dir.path().join("elsewhere/a.sql")),
+        avenger_sql_project::find_root(&dir.path().join("elsewhere/a.av.sql")),
         None
     );
     // A file is not the directory of a source.
@@ -689,23 +704,23 @@ async fn directory() {
         source.base()
     );
     assert!(source.base().as_str().ends_with('/'));
-    assert_eq!(project.data_scripts(), ["data/sources.sql"]);
-    assert_eq!(project.chart_scripts(), ["charts/regions/by-month.sql"]);
+    assert_eq!(project.data_scripts(), ["data/sources.av.sql"]);
+    assert_eq!(project.chart_scripts(), ["charts/regions/by-month.av.sql"]);
     // Hidden files and directories are not listed.
     assert_eq!(
         project.files(),
         [
             "avenger.toml",
-            "charts/regions/by-month.sql",
+            "charts/regions/by-month.av.sql",
             "data/files/sales.csv",
-            "data/sources.sql",
+            "data/sources.av.sql",
             "styles/brand.css",
             "styles/main.css",
         ]
     );
     assert_eq!(
         source
-            .read_text("charts/regions/by-month.sql")
+            .read_text("charts/regions/by-month.av.sql")
             .await
             .unwrap(),
         "FROM sales"
@@ -731,9 +746,9 @@ async fn skipped_directories() {
     write_project(
         &root,
         &[
-            ("charts/a.sql", "FROM sales"),
+            ("charts/a.av.sql", "FROM sales"),
             ("notes/readme.txt", ""),
-            ("data/sources.sql", ""),
+            ("data/sources.av.sql", ""),
         ],
     );
     // A name that the store's paths can't hold, as macOS's `Icon\r`, fails the listing of its
@@ -741,8 +756,8 @@ async fn skipped_directories() {
     std::fs::write(root.join("notes/Icon\r"), "").unwrap();
     let project = ProjectFiles::find(&root).await.unwrap();
     // The project opens without the files of the directories that don't list.
-    assert_eq!(project.chart_scripts(), ["charts/a.sql"]);
-    assert_eq!(project.data_scripts(), ["data/sources.sql"]);
+    assert_eq!(project.chart_scripts(), ["charts/a.av.sql"]);
+    assert_eq!(project.data_scripts(), ["data/sources.av.sql"]);
     let skipped: Vec<&str> = (project.skipped().iter())
         .map(|skipped| skipped.path.as_str())
         .collect();
@@ -769,12 +784,12 @@ async fn links_to_directories() {
     write_project(
         &root,
         &[
-            ("charts/a.sql", "FROM sales"),
-            ("shared/b.sql", "FROM sales"),
+            ("charts/a.av.sql", "FROM sales"),
+            ("shared/b.av.sql", "FROM sales"),
         ],
     );
     std::fs::create_dir_all(dir.path().join("outside")).unwrap();
-    std::fs::write(dir.path().join("outside/c.sql"), "FROM sales").unwrap();
+    std::fs::write(dir.path().join("outside/c.av.sql"), "FROM sales").unwrap();
     // A link to a directory above it, a link to a directory that the listing reads at another
     // path, and a link to a directory outside the project.
     std::os::unix::fs::symlink("..", root.join("charts/up")).unwrap();
@@ -791,16 +806,16 @@ async fn links_to_directories() {
         project.files(),
         [
             "avenger.toml",
-            "charts/a.sql",
-            "charts/outside/c.sql",
-            "shared/b.sql",
+            "charts/a.av.sql",
+            "charts/outside/c.av.sql",
+            "shared/b.av.sql",
         ]
     );
     assert_eq!(
         project.chart_scripts(),
-        ["charts/a.sql", "charts/outside/c.sql"]
+        ["charts/a.av.sql", "charts/outside/c.av.sql"]
     );
     // An embedded source has no links.
-    let source = source(&[("charts/a.sql", "")]).await;
+    let source = source(&[("charts/a.av.sql", "")]).await;
     assert!(source.list("").await.unwrap().skipped.is_empty());
 }

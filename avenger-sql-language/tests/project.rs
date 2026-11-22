@@ -31,12 +31,12 @@ macro_rules! fixture {
     };
 }
 
-const DATASETS: &str = "data/vega_datasets.sql";
-const REGIONS: &str = "data/regions.sql";
-const SUMMARIES: &str = "data/summaries.sql";
-const ORIGINS: &str = "charts/origins.sql";
-const WARM_DAYS: &str = "charts/weather/warm-days.sql";
-const WEATHER: &str = "modules/weather.sqlm";
+const DATASETS: &str = "data/vega_datasets.av.sql";
+const REGIONS: &str = "data/regions.av.sql";
+const SUMMARIES: &str = "data/summaries.av.sql";
+const ORIGINS: &str = "charts/origins.av.sql";
+const WARM_DAYS: &str = "charts/weather/warm-days.av.sql";
+const WEATHER: &str = "modules/weather.av.sqlm";
 
 /// The files of the fixture project, with their roles and texts.
 fn files() -> Vec<(&'static str, FileRole, &'static str)> {
@@ -44,16 +44,20 @@ fn files() -> Vec<(&'static str, FileRole, &'static str)> {
         names: vec!["weather".to_string()],
     };
     vec![
-        (DATASETS, FileRole::Data, fixture!("data/vega_datasets.sql")),
-        (REGIONS, FileRole::Data, fixture!("data/regions.sql")),
-        (SUMMARIES, FileRole::Data, fixture!("data/summaries.sql")),
-        (ORIGINS, FileRole::Chart, fixture!("charts/origins.sql")),
+        (
+            DATASETS,
+            FileRole::Data,
+            fixture!("data/vega_datasets.av.sql"),
+        ),
+        (REGIONS, FileRole::Data, fixture!("data/regions.av.sql")),
+        (SUMMARIES, FileRole::Data, fixture!("data/summaries.av.sql")),
+        (ORIGINS, FileRole::Chart, fixture!("charts/origins.av.sql")),
         (
             WARM_DAYS,
             FileRole::Chart,
-            fixture!("charts/weather/warm-days.sql"),
+            fixture!("charts/weather/warm-days.av.sql"),
         ),
-        (WEATHER, weather, fixture!("modules/weather.sqlm")),
+        (WEATHER, weather, fixture!("modules/weather.av.sqlm")),
     ]
 }
 
@@ -191,16 +195,16 @@ fn the_fixture_has_no_diagnostics() {
 fn a_name_of_three_data_scripts_has_one_error_at_each_definition() {
     let mut project = project();
     let text = "CREATE VIEW heavy_by_origin AS (FROM vega_datasets.cars);";
-    project.add("data/more.sql", FileRole::Data, text);
-    project.add("data/most.sql", FileRole::Data, text);
-    for path in ["data/more.sql", "data/most.sql", SUMMARIES] {
+    project.add("data/more.av.sql", FileRole::Data, text);
+    project.add("data/most.av.sql", FileRole::Data, text);
+    for path in ["data/more.av.sql", "data/most.av.sql", SUMMARIES] {
         let errors: Vec<String> = (project.diagnostics(path).into_iter())
             .filter(|d| d.source == Source::Project)
             .map(|d| d.message)
             .collect();
         assert_eq!(
             errors,
-            ["Table heavy_by_origin is defined by data/more.sql, data/most.sql, and data/summaries.sql: a table of a project is defined by one data script, or is TEMP in each"],
+            ["Table heavy_by_origin is defined by data/more.av.sql, data/most.av.sql, and data/summaries.av.sql: a table of a project is defined by one data script, or is TEMP in each"],
             "{path}"
         );
     }
@@ -209,10 +213,21 @@ fn a_name_of_three_data_scripts_has_one_error_at_each_definition() {
 #[test]
 fn a_cycle_is_an_error_at_each_read() {
     let mut project = project();
-    project.add("data/a.sql", FileRole::Data, "CREATE VIEW a AS (FROM b);");
-    project.add("data/b.sql", FileRole::Data, "CREATE VIEW b AS (FROM a);");
-    assert_eq!(project.graph().blocked(), ["data/a.sql", "data/b.sql"]);
-    for (path, read) in [("data/a.sql", "b"), ("data/b.sql", "a")] {
+    project.add(
+        "data/a.av.sql",
+        FileRole::Data,
+        "CREATE VIEW a AS (FROM b);",
+    );
+    project.add(
+        "data/b.av.sql",
+        FileRole::Data,
+        "CREATE VIEW b AS (FROM a);",
+    );
+    assert_eq!(
+        project.graph().blocked(),
+        ["data/a.av.sql", "data/b.av.sql"]
+    );
+    for (path, read) in [("data/a.av.sql", "b"), ("data/b.av.sql", "a")] {
         let cycle: Vec<Diagnostic> = (project.diagnostics(path).into_iter())
             .filter(|d| d.source == Source::Project)
             .collect();
@@ -223,7 +238,7 @@ fn a_cycle_is_an_error_at_each_read() {
     }
     // A read of the cycle has the cycle's error alone: the first script of the cycle analyzes
     // before the table that it reads, and the second reads a table without a schema.
-    for path in ["data/a.sql", "data/b.sql"] {
+    for path in ["data/a.av.sql", "data/b.av.sql"] {
         assert_eq!(project.diagnostics(path).len(), 1, "{path}");
     }
 }
@@ -256,7 +271,7 @@ FROM FILES (
     let errors = messages(&project, ORIGINS);
     assert_eq!(
         errors,
-        ["Table vega_datasets.regions is defined by the data script data/regions.sql, whose files have no table, since the project has not read them"]
+        ["Table vega_datasets.regions is defined by the data script data/regions.av.sql, whose files have no table, since the project has not read them"]
     );
 }
 
@@ -328,7 +343,7 @@ fn the_tables_of_files_come_from_the_host() {
     );
     assert_eq!(
         messages(&project, ORIGINS),
-        ["Table vega_datasets.regions is defined by the data script data/regions.sql, whose files could not be read"]
+        ["Table vega_datasets.regions is defined by the data script data/regions.av.sql, whose files could not be read"]
     );
     // The table of the files, whose columns lack the chart's `region`.
     let schema = Schema::new(vec![Field::new("Origin", DataType::Utf8, true)]);
@@ -349,14 +364,14 @@ fn the_tables_of_files_come_from_the_host() {
 fn a_read_of_a_broken_data_script_s_table_names_the_script() {
     let mut project = project();
     // An error in the query of `heavy_by_origin`, which a chart and another data script read.
-    let summaries = fixture!("data/summaries.sql").replace("GROUP BY Origin", "GROUP BY nope");
+    let summaries = fixture!("data/summaries.av.sql").replace("GROUP BY Origin", "GROUP BY nope");
     project.set_texts([(SUMMARIES, summaries)]);
     let more = "CREATE VIEW many AS (\n  FROM heavy_by_origin\n  |> WHERE cars > 100\n);";
-    project.add("data/more.sql", FileRole::Data, more);
+    project.add("data/more.av.sql", FileRole::Data, more);
     assert_eq!(messages(&project, SUMMARIES), ["Unrecognized name: nope"]);
     let message =
-        "Table heavy_by_origin is defined by the data script data/summaries.sql, which has errors";
-    for path in [ORIGINS, "data/more.sql"] {
+        "Table heavy_by_origin is defined by the data script data/summaries.av.sql, which has errors";
+    for path in [ORIGINS, "data/more.av.sql"] {
         let read = range(&project, path, "heavy_by_origin", 0);
         let errors: Vec<(TextRange, String)> = (project.diagnostics(path).into_iter())
             .map(|d| (d.range, d.message))
@@ -370,17 +385,17 @@ fn a_broken_data_script_s_table_hides_the_host_s() {
     let mut project = project();
     // A view of the host's table, of the same name, whose statement has an error.
     let view = "CREATE VIEW host_sales AS (FROM host_sales |> WHERE nope > 0);";
-    project.add("data/host.sql", FileRole::Data, view);
-    project.add("charts/host.sql", FileRole::Chart, "FROM host_sales");
+    project.add("data/host.av.sql", FileRole::Data, view);
+    project.add("charts/host.av.sql", FileRole::Chart, "FROM host_sales");
     // The view's statement reads the host's table, and has its own error alone.
     assert_eq!(
-        messages(&project, "data/host.sql"),
+        messages(&project, "data/host.av.sql"),
         ["Unrecognized name: nope"]
     );
     // A chart reads the view, which has no table, and not the host's table.
     assert_eq!(
-        messages(&project, "charts/host.sql"),
-        ["Table host_sales is defined by the data script data/host.sql, which has errors"]
+        messages(&project, "charts/host.av.sql"),
+        ["Table host_sales is defined by the data script data/host.av.sql, which has errors"]
     );
 }
 
@@ -417,7 +432,7 @@ fn the_loader_diagnostics_join_the_project_s() {
 fn a_read_of_a_table_that_did_not_load_has_one_error() {
     let mut project = project();
     // The files of `vega_datasets.cars` could not be read, and the loader's error at the read of
-    // `summaries.sql` says why the script that defines it did not load.
+    // `summaries.av.sql` says why the script that defines it did not load.
     let texts: Vec<&str> = files().iter().map(|(_, _, text)| *text).collect();
     let mut tables = tables(&texts);
     let cars = (tables.iter_mut())
@@ -428,7 +443,7 @@ fn a_read_of_a_table_that_did_not_load_has_one_error() {
     let read = range(&project, SUMMARIES, "vega_datasets.cars", 0);
     let loader = Diagnostic {
         range: read,
-        message: "Table vega_datasets.cars is defined by the data script data/vega_datasets.sql, which failed to load".to_string(),
+        message: "Table vega_datasets.cars is defined by the data script data/vega_datasets.av.sql, which failed to load".to_string(),
         help: None,
         severity: Severity::Error,
         source: Source::Loader,
@@ -444,14 +459,14 @@ fn a_read_of_a_table_that_did_not_load_has_one_error() {
         errors,
         [(
             Source::Project,
-            "Table vega_datasets.cars is defined by the data script data/vega_datasets.sql, whose files could not be read".to_string()
+            "Table vega_datasets.cars is defined by the data script data/vega_datasets.av.sql, whose files could not be read".to_string()
         )]
     );
 }
 
 #[test]
 fn a_module_completes_the_tables_of_the_data_scripts() {
-    const STATS: &str = "modules/stats.sqlm";
+    const STATS: &str = "modules/stats.av.sqlm";
     let stats = FileRole::Module {
         names: vec!["stats".to_string()],
     };
@@ -483,7 +498,7 @@ fn a_module_completes_the_tables_of_the_data_scripts() {
     );
     // And those after a change of a data script.
     let datasets =
-        fixture!("data/vega_datasets.sql").replace("vega_datasets.cars", "vega_datasets.autos");
+        fixture!("data/vega_datasets.av.sql").replace("vega_datasets.cars", "vega_datasets.autos");
     project.set_texts([(DATASETS, datasets)]);
     let tables = tables_at(&project);
     assert!(
@@ -536,14 +551,14 @@ fn definition_across_files() {
     // A table of the host has no definition in the project, and a column's is in its file.
     let mut project = project;
     let host = "FROM host_sales |> SELECT amount AS total |> WHERE total > 0";
-    project.add("charts/host.sql", FileRole::Chart, host);
-    assert_eq!(project.definition("charts/host.sql", 7.into()), None);
-    let total = find(&project, "charts/host.sql", "total", 1, 1);
-    let alias = range(&project, "charts/host.sql", "total", 0);
-    let link = project.definition("charts/host.sql", total).unwrap();
+    project.add("charts/host.av.sql", FileRole::Chart, host);
+    assert_eq!(project.definition("charts/host.av.sql", 7.into()), None);
+    let total = find(&project, "charts/host.av.sql", "total", 1, 1);
+    let alias = range(&project, "charts/host.av.sql", "total", 0);
+    let link = project.definition("charts/host.av.sql", total).unwrap();
     assert_eq!(
         (link.path.as_str(), link.target),
-        ("charts/host.sql", alias)
+        ("charts/host.av.sql", alias)
     );
 }
 
@@ -595,7 +610,7 @@ fn rename_across_files() {
     let mut project = project;
     let regions = format!(
         "{}\nLOAD DATA INTO vega_datasets.regions\nFROM FILES (format = 'CSV', uris = ['data/files/regions.csv']);\n",
-        fixture!("data/regions.sql")
+        fixture!("data/regions.av.sql")
     );
     project.set_texts([(REGIONS, regions)]);
     assert_eq!(project.diagnostics(REGIONS), Vec::new());
@@ -624,7 +639,7 @@ fn rename_across_files() {
 #[test]
 fn refused_renames() {
     let mut project = project();
-    project.add("charts/host.sql", FileRole::Chart, "FROM host_sales");
+    project.add("charts/host.av.sql", FileRole::Chart, "FROM host_sales");
     // The name of another table of the project, of the host, or of the script of a TEMP table.
     let at = find(&project, ORIGINS, "heavy_by_origin", 0, 1);
     for name in ["wet_days", "host_sales"] {
@@ -637,7 +652,7 @@ fn refused_renames() {
         .unwrap_err();
     assert!(error.contains("the name of another table"), "{error}");
     // A table of the host, and a schema.
-    let host = project.prepare_rename("charts/host.sql", 7.into());
+    let host = project.prepare_rename("charts/host.av.sql", 7.into());
     assert_eq!(host, Err("A table of the host has no rename".to_string()));
     let at = find(&project, ORIGINS, "vega_datasets", 0, 2);
     let schema = project.prepare_rename(ORIGINS, at);
@@ -661,17 +676,17 @@ fn refused_renames() {
     );
     // A rename whose reads would read another table: a temporary table of a chart.
     let temp = "CREATE TEMP TABLE dry AS (FROM host_sales);\nFROM wet_days";
-    project.add("charts/temp.sql", FileRole::Chart, temp);
-    assert_eq!(project.diagnostics("charts/temp.sql"), Vec::new());
-    let at = find(&project, "charts/temp.sql", "wet_days", 0, 1);
-    let error = project.rename("charts/temp.sql", at, "dry").unwrap_err();
+    project.add("charts/temp.av.sql", FileRole::Chart, temp);
+    assert_eq!(project.diagnostics("charts/temp.av.sql"), Vec::new());
+    let at = find(&project, "charts/temp.av.sql", "wet_days", 0, 1);
+    let error = project.rename("charts/temp.av.sql", at, "dry").unwrap_err();
     assert!(error.contains("changes the table"), "{error}");
 }
 
 #[test]
 fn an_edit_analyzes_its_dependents_again() {
     let mut project = project();
-    let summaries = fixture!("data/summaries.sql");
+    let summaries = fixture!("data/summaries.av.sql");
     // The chart reads the column `cars` of `heavy_by_origin`, which the edit renames.
     let edited = summaries.replace("COUNT(*) AS cars", "COUNT(*) AS n");
     project.set_texts([(SUMMARIES, edited)]);
@@ -716,10 +731,10 @@ fn completion_offers_the_project_s_paths() {
 
 #[test]
 fn a_change_of_a_module_analyzes_the_scripts_that_import_it_through_other_modules() {
-    const A: &str = "modules/a.sqlm";
-    const B: &str = "modules/b.sqlm";
-    const USES: &str = "data/uses.sql";
-    const CHART: &str = "charts/uses.sql";
+    const A: &str = "modules/a.av.sqlm";
+    const B: &str = "modules/b.av.sqlm";
+    const USES: &str = "data/uses.av.sql";
+    const CHART: &str = "charts/uses.av.sql";
     let module = |name: &str| FileRole::Module {
         names: vec![name.to_string()],
     };
@@ -801,11 +816,11 @@ const READS_T: &str = "MODULE m;\nCREATE PUBLIC TABLE FUNCTION f() AS (FROM t);"
 
 #[test]
 fn a_table_that_a_module_reads_orders_the_scripts_that_import_it() {
-    const READER: &str = "data/a_reader.sql";
-    const DEFINER: &str = "data/z_definer.sql";
+    const READER: &str = "data/a_reader.av.sql";
+    const DEFINER: &str = "data/z_definer.av.sql";
     let reader = "IMPORT MODULE m;\nCREATE TABLE z AS (FROM m.f());";
     let mut project = small(vec![
-        ("modules/m.sqlm", module("m"), READS_T),
+        ("modules/m.av.sqlm", module("m"), READS_T),
         (READER, FileRole::Data, reader),
     ]);
     assert!(!project.diagnostics(READER).is_empty());
@@ -824,10 +839,10 @@ fn a_table_that_a_module_reads_orders_the_scripts_that_import_it() {
 
 #[test]
 fn an_import_of_a_module_is_not_a_read_of_its_tables() {
-    const DEFINER: &str = "data/t.sql";
-    const CHART: &str = "charts/k.sql";
+    const DEFINER: &str = "data/t.av.sql";
+    const CHART: &str = "charts/k.av.sql";
     let project = small(vec![
-        ("modules/m.sqlm", module("m"), READS_T),
+        ("modules/m.av.sqlm", module("m"), READS_T),
         (
             DEFINER,
             FileRole::Data,
@@ -841,26 +856,26 @@ fn an_import_of_a_module_is_not_a_read_of_its_tables() {
     let paths: Vec<&str> = (references.iter())
         .map(|found| found.path.as_str())
         .collect();
-    assert_eq!(paths, [DEFINER, "modules/m.sqlm"]);
+    assert_eq!(paths, [DEFINER, "modules/m.av.sqlm"]);
     // A module reads `t`, and a rename changes no module.
     let error = project.rename(DEFINER, at, "t2").unwrap_err();
     assert_eq!(
         error,
-        "The module modules/m.sqlm reads t, and a rename changes no module"
+        "The module modules/m.av.sqlm reads t, and a rename changes no module"
     );
 }
 
 #[test]
 fn a_rename_that_moves_an_error_is_refused() {
-    const DEFINER: &str = "data/a.sql";
+    const DEFINER: &str = "data/a.av.sql";
     let project = small(vec![
         (
             DEFINER,
             FileRole::Data,
             "CREATE TABLE t AS (FROM host_sales |> SELECT amount AS a);",
         ),
-        ("charts/k1.sql", FileRole::Chart, "FROM t |> SELECT b"),
-        ("charts/k2.sql", FileRole::Chart, "FROM t |> SELECT a"),
+        ("charts/k1.av.sql", FileRole::Chart, "FROM t |> SELECT b"),
+        ("charts/k2.av.sql", FileRole::Chart, "FROM t |> SELECT a"),
     ]);
     // The rename of the column fixes `k1` and breaks `k2`: as many errors, and other ones.
     let at = find(&project, DEFINER, "AS a", 0, 3);
@@ -873,63 +888,63 @@ fn a_read_of_a_script_that_would_not_load_names_why() {
     let project = small(vec![
         // A script with a good table and a broken one.
         (
-            "data/a.sql",
+            "data/a.av.sql",
             FileRole::Data,
             "CREATE TABLE x AS (FROM host_sales);\nCREATE TABLE y AS (FROM nothing);",
         ),
         // A script that reads a table of the broken script.
         (
-            "data/b.sql",
+            "data/b.av.sql",
             FileRole::Data,
             "CREATE VIEW v AS (FROM host_sales);\nCREATE VIEW w AS (FROM x);",
         ),
         // Two scripts of one name.
         (
-            "data/d1.sql",
+            "data/d1.av.sql",
             FileRole::Data,
             "CREATE VIEW d AS (FROM host_sales);",
         ),
         (
-            "data/d2.sql",
+            "data/d2.av.sql",
             FileRole::Data,
             "CREATE VIEW d AS (FROM host_sales);",
         ),
         // Scripts in a cycle, one with a table of its own.
         (
-            "data/c1.sql",
+            "data/c1.av.sql",
             FileRole::Data,
             "CREATE VIEW c AS (FROM host_sales);\nCREATE VIEW c1 AS (FROM c2);",
         ),
         (
-            "data/c2.sql",
+            "data/c2.av.sql",
             FileRole::Data,
             "CREATE VIEW c2 AS (FROM c1);",
         ),
         (
-            "charts/k.sql",
+            "charts/k.av.sql",
             FileRole::Chart,
             "FROM x\n|> JOIN v USING (amount)\n|> JOIN d USING (amount)\n|> JOIN c USING (amount)",
         ),
     ]);
-    let errors: Vec<String> = (project.diagnostics("charts/k.sql").into_iter())
+    let errors: Vec<String> = (project.diagnostics("charts/k.av.sql").into_iter())
         .filter(|d| d.source == Source::Project)
         .map(|d| d.message)
         .collect();
     assert_eq!(
         errors,
         [
-            "Table x is defined by the data script data/a.sql, which failed to load",
-            "Table v is defined by the data script data/b.sql, which did not load, since data/a.sql failed to load",
-            "Table d is defined by the data script data/d1.sql, which failed to load",
-            "Table c is defined by the data script data/c1.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one",
+            "Table x is defined by the data script data/a.av.sql, which failed to load",
+            "Table v is defined by the data script data/b.av.sql, which did not load, since data/a.av.sql failed to load",
+            "Table d is defined by the data script data/d1.av.sql, which failed to load",
+            "Table c is defined by the data script data/c1.av.sql, which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one",
         ]
     );
 }
 
 #[test]
 fn a_table_of_one_name_is_in_the_default_schema() {
-    const DEFINER: &str = "data/a.sql";
-    const CHART: &str = "charts/k.sql";
+    const DEFINER: &str = "data/a.av.sql";
+    const CHART: &str = "charts/k.av.sql";
     let project = small(vec![
         (
             DEFINER,
@@ -951,10 +966,10 @@ fn a_table_of_one_name_is_in_the_default_schema() {
 
 #[test]
 fn every_file_completes_the_tables_after_a_change() {
-    const CHART: &str = "charts/k.sql";
+    const CHART: &str = "charts/k.av.sql";
     let mut project = small(vec![(CHART, FileRole::Chart, "FROM host_sales")]);
     project.add(
-        "data/a.sql",
+        "data/a.av.sql",
         FileRole::Data,
         "CREATE TABLE added AS (FROM host_sales);",
     );
@@ -969,12 +984,12 @@ fn every_file_completes_the_tables_after_a_change() {
 
 #[test]
 fn a_rename_takes_a_temp_name_of_a_chart_that_does_not_read_the_table() {
-    const DEFINER: &str = "data/a.sql";
+    const DEFINER: &str = "data/a.av.sql";
     let project =
         small(vec![
         (DEFINER, FileRole::Data, "CREATE TABLE t AS (FROM host_sales);"),
         (
-            "charts/other.sql",
+            "charts/other.av.sql",
             FileRole::Chart,
             "CREATE TEMP EXTERNAL TABLE zz OPTIONS (format = 'CSV', uris = ['z.csv']);\nFROM zz",
         ),
@@ -982,10 +997,10 @@ fn a_rename_takes_a_temp_name_of_a_chart_that_does_not_read_the_table() {
     let at = find(&project, DEFINER, "t AS", 0, 0);
     assert!(project.rename(DEFINER, at, "zz").is_ok());
     // A read of no table has no rename.
-    let project = small(vec![("charts/k.sql", FileRole::Chart, "FROM nothing")]);
-    let at = find(&project, "charts/k.sql", "nothing", 0, 0);
+    let project = small(vec![("charts/k.av.sql", FileRole::Chart, "FROM nothing")]);
+    let at = find(&project, "charts/k.av.sql", "nothing", 0, 0);
     assert_eq!(
-        project.prepare_rename("charts/k.sql", at),
+        project.prepare_rename("charts/k.av.sql", at),
         Err("No table nothing to rename".to_string())
     );
 }
@@ -1005,48 +1020,49 @@ fn edits_leave_the_project_that_a_fresh_one_makes() {
         assert_eq!(project.graph().order(), fresh.graph().order(), "{step}");
     };
     // A table moves to another script, and a cycle comes and goes.
-    let moved = fixture!("data/summaries.sql").replace("CREATE VIEW wet_days", "CREATE VIEW dry");
+    let moved =
+        fixture!("data/summaries.av.sql").replace("CREATE VIEW wet_days", "CREATE VIEW dry");
     project.set_texts([(SUMMARIES, moved)]);
     check(&project, "rename");
     project.add(
-        "data/wet.sql",
+        "data/wet.av.sql",
         FileRole::Data,
         "CREATE VIEW wet_days AS (FROM heavy_by_origin);",
     );
     check(&project, "move");
     project.add(
-        "data/loop.sql",
+        "data/loop.av.sql",
         FileRole::Data,
         "CREATE VIEW looped AS (FROM looped_back);",
     );
     project.add(
-        "data/back.sql",
+        "data/back.av.sql",
         FileRole::Data,
         "CREATE VIEW looped_back AS (FROM looped);",
     );
     check(&project, "cycle");
-    project.remove("data/back.sql");
+    project.remove("data/back.av.sql");
     check(&project, "no cycle");
     // A name that another script defines too, and then no longer.
     let duplicate = "CREATE VIEW heavy_by_origin AS (FROM vega_datasets.cars);";
-    project.add("data/twice.sql", FileRole::Data, duplicate);
+    project.add("data/twice.av.sql", FileRole::Data, duplicate);
     check(&project, "duplicate");
-    project.remove("data/twice.sql");
+    project.remove("data/twice.av.sql");
     check(&project, "no duplicate");
     // A module that reads a table, a script that imports it, and a role that changes.
     project.add(
-        "modules/m.sqlm",
+        "modules/m.av.sqlm",
         module("m"),
         "MODULE m;\nCREATE PUBLIC TABLE FUNCTION f() AS (FROM wet_days);",
     );
     project.add(
-        "data/uses.sql",
+        "data/uses.av.sql",
         FileRole::Data,
         "IMPORT MODULE m;\nCREATE TABLE used AS (FROM m.f());",
     );
     check(&project, "module");
-    project.remove("data/wet.sql");
+    project.remove("data/wet.av.sql");
     check(&project, "removed");
-    project.add("data/loop.sql", FileRole::Chart, "FROM used");
+    project.add("data/loop.av.sql", FileRole::Chart, "FROM used");
     check(&project, "role");
 }

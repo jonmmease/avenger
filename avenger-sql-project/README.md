@@ -12,24 +12,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "sales",
         [
             ("avenger.toml", "[project]\nname = \"sales\"\n"),
-            ("data/sources.sql", "LOAD DATA INTO sales FROM FILES (format = 'CSV', uris = ['data/files/sales.csv']);"),
+            ("data/sources.av.sql", "LOAD DATA INTO sales FROM FILES (format = 'CSV', uris = ['data/files/sales.csv']);"),
             ("data/files/sales.csv", "region,revenue\neast,10\n"),
-            ("charts/revenue.sql", "FROM sales |> AGGREGATE mark_bar(x => region, y => revenue) AS chart"),
+            ("charts/revenue.av.sql", "FROM sales |> AGGREGATE mark_bar(x => region, y => revenue) AS chart"),
             ("styles/main.css", "@import 'std:base.css';"),
         ],
     )
     .await?;
     let project = ProjectFiles::open(source).await?;
-    assert_eq!(project.data_scripts(), ["data/sources.sql"]);
-    assert_eq!(project.chart_scripts(), ["charts/revenue.sql"]);
+    assert_eq!(project.data_scripts(), ["data/sources.av.sql"]);
+    assert_eq!(project.chart_scripts(), ["charts/revenue.av.sql"]);
 
     let style = project.load_stylesheet().await?;
     assert!(style.sheet.is_some() && style.diagnostics.is_empty());
 
     let loaded = LoadedProject::load(project, SessionContext::new()).await?;
     assert!(loaded.scripts().all(|script| script.loaded().is_some()));
-    let chart = loaded.files().source().read_text("charts/revenue.sql").await?;
-    let rows = loaded.run_chart("charts/revenue.sql", &chart).await?;
+    let chart = loaded.files().source().read_text("charts/revenue.av.sql").await?;
+    let rows = loaded.run_chart("charts/revenue.av.sql", &chart).await?;
     let rows = rows.collect().await?;
     assert_eq!(rows[0].num_rows(), 1);
     Ok(())
@@ -44,21 +44,21 @@ The layout of a project, which is also the default of a manifest without paths:
 sales/
   avenger.toml
   data/                 data scripts
-    sources.sql
+    sources.av.sql
     files/              the data that the data scripts read, by convention only
       sales.csv
   charts/               chart scripts, in folders of any depth
-    revenue.sql
+    revenue.av.sql
     regions/
-      by-month.sql
+      by-month.av.sql
   styles/
     main.css            the entry stylesheet, which imports the others
     brand.css
   modules/              modules that IMPORT MODULE reads
-    stats.sqlm
+    stats.av.sqlm
 ```
 
-`data/files/` is a convention, not a role: a data script can read any file of the project. The default patterns of the data scripts leave it out, so a `.sql` file among the data, such as a dump, is not a data script.
+`data/files/` is a convention, not a role: a data script can read any file of the project. The default `exclude` of the data scripts leaves it out, so a `.av.sql` file among the data is not a data script, and a plain `.sql` file, such as a dump, is never a script.
 
 ## The manifest
 
@@ -72,25 +72,25 @@ format = 1
 
 [data]
 # The data scripts, as patterns relative to the root.
-scripts = ["data/**/*.sql"]
+scripts = ["data/**/*.av.sql"]
 # The patterns that no data script matches.
 exclude = ["data/files/**"]
 
 [charts]
-scripts = ["charts/**/*.sql"]
+scripts = ["charts/**/*.av.sql"]
 
 [style]
 # The entry stylesheet, whose @import rules load the project's other stylesheets in cascade order.
 stylesheet = "styles/main.css"
 
 [modules]
-# The directory where IMPORT MODULE a.b finds a/b.sqlm.
+# The directory where IMPORT MODULE a.b finds a/b.av.sqlm.
 root = "modules"
 ```
 
 `Manifest::smallest` writes the text of the smallest manifest of a name, the `[project]` section with the name alone, as an editor writes it for a new project.
 
-An unknown section or key, a value of the wrong type, an empty `name`, a `format` other than 1, an invalid pattern, and a path or a pattern that is not relative to the root are a `ManifestError`, with the range of the key or the value in the text and its line. A path or a pattern is relative to the root when it does not start with `/` and has no `..` name and no `\`, and it reads without its `.` names and its empty names, so `./charts//*.sql` is `charts/*.sql`, and a pattern that names no file, such as `""`, is an error. A pattern is a glob of paths relative to the root, in which `*` and `?` match within a name and `**` as a whole name matches any number of directories, none included, so `data/**/*.sql` matches `data/sources.sql`. A pattern matches with case, so `charts/*.sql` does not match `Charts/a.sql`, and `*`, `?`, and `**` match no name that starts with `.`. A `Pattern` keeps the range of its string and its line, so an editor places an error of a pattern at the pattern, and so does `StyleSection` for the entry stylesheet that the manifest names.
+An unknown section or key, a value of the wrong type, an empty `name`, a `format` other than 1, an invalid pattern, and a path or a pattern that is not relative to the root are a `ManifestError`, with the range of the key or the value in the text and its line. A path or a pattern is relative to the root when it does not start with `/` and has no `..` name and no `\`, and it reads without its `.` names and its empty names, so `./charts//*.av.sql` is `charts/*.av.sql`, and a pattern that names no file, such as `""`, is an error. A pattern is a glob of paths relative to the root, in which `*` and `?` match within a name and `**` as a whole name matches any number of directories, none included, so `data/**/*.av.sql` matches `data/sources.av.sql`. A pattern matches with case, so `charts/*.av.sql` does not match `Charts/a.av.sql`, and `*`, `?`, and `**` match no name that starts with `.`. A `Pattern` keeps the range of its string and its line, so an editor places an error of a pattern at the pattern, and so does `StyleSection` for the entry stylesheet that the manifest names.
 
 ## The file source
 
@@ -98,7 +98,7 @@ A `FileSource` is an object store and the URL of the project's root in it. `File
 
 ## Roles
 
-`ProjectFiles::open` reads the manifest at the root of a source, lists the project's files, and gives each its role by `Manifest::role`, and `skipped` gives the directories that the listing skipped, for a host to show. A hidden file, one with a name on its path that starts with `.`, has no role. A `.sql` file that a pattern of `[data]` matches, and no pattern of its `exclude`, is a data script, and a `.sql` file that a pattern of `[charts]` matches is a chart script. A file that both match is a `RoleConflict`, which names a pattern of each, with its line in `avenger.toml` or as a default, and a project with one does not open. A `.sqlm` file under the modules root is a module, whose module path comes from its path: `modules/a/b.sqlm` is `a.b`. A module path ignores case, as `IMPORT MODULE` does, so two modules whose paths differ only in case, such as `modules/Geo.sqlm` and `modules/geo.sqlm`, are a `ModuleConflict`, and a project with one does not open. A `.css` file is a stylesheet, unless a pattern of `exclude` of `[data]` matches it, as `data/files/report.css`, which is data. A file of no role, such as a data file, is in `files` alone. Each list is in the order of the paths.
+`ProjectFiles::open` reads the manifest at the root of a source, lists the project's files, and gives each its role by `Manifest::role`, and `skipped` gives the directories that the listing skipped, for a host to show. A hidden file, one with a name on its path that starts with `.`, has no role. Scripts and modules have names that end with `SCRIPT_SUFFIX`, `.av.sql`, and `MODULE_SUFFIX`, `.av.sqlm`, which keep `.sql` for tools that read SQL and tell an editor avenger-sql from other SQL by the name alone, so a plain `.sql` or `.sqlm` file has no role. A `.av.sql` file that a pattern of `[data]` matches, and no pattern of its `exclude`, is a data script, and a `.av.sql` file that a pattern of `[charts]` matches is a chart script. A file that both match is a `RoleConflict`, which names a pattern of each, with its line in `avenger.toml` or as a default, and a project with one does not open. A `.av.sqlm` file under the modules root is a module, whose module path comes from its path: `modules/a/b.av.sqlm` is `a.b`. A module path ignores case, as `IMPORT MODULE` does, so two modules whose paths differ only in case, such as `modules/Geo.av.sqlm` and `modules/geo.av.sqlm`, are a `ModuleConflict`, and a project with one does not open. A `.css` file is a stylesheet, unless a pattern of `exclude` of `[data]` matches it, as `data/files/report.css`, which is data. A file of no role, such as a data file, is in `files` alone. Each list is in the order of the paths.
 
 On disk, `find_root` finds the root of the project of any path under it, the nearest directory from the path up that holds `avenger.toml`, and `ProjectFiles::find` opens that project. A path that does not exist yet, such as that of a file to make, starts from its nearest directory that exists.
 
@@ -147,4 +147,4 @@ On a desktop, `watch::Watch` watches a project's root with `notify`. It calls a 
 
 The `add` module writes the statement that registers a data file as a table: `CREATE EXTERNAL TABLE` in a data script, at its end, or `CREATE TEMP EXTERNAL TABLE` in a chart script, before its query and after its other statements of files, in the style of the formatter. `DataFile::of` takes the format and the compression of a file from its extensions, without regard to case, as `.csv` or `.json.gz`, and `table_name` makes the table's name from the rest of the file's name: in lowercase, with `_` for each character that is not an ASCII letter, a digit, or `_`, without the backticks that a reserved word or a leading digit would need, and with a number when the project has a table of the name, as `table_names` gives them from the graph of the data scripts.
 
-An add is three steps, so that a tool can copy large files in the background. `add::adding` chooses the script, a given data script or chart script, else the first data script by path, else a new `data/tables.sql`, and finds each file: a file under the root keeps its path, and `Adding::copy` copies a file outside the root into `data/files/`, under a name that no file there has. `Copied::add` then writes the statements into the script's text and returns it with the names of the tables, the copies, and the errors of the files that it did not add, such as a file of no format that a data script reads. The tool saves the text, or keeps it in an editor's buffer.
+An add is three steps, so that a tool can copy large files in the background. `add::adding` chooses the script, a given data script or chart script, else the first data script by path, else a new `data/tables.av.sql`, and finds each file: a file under the root keeps its path, and `Adding::copy` copies a file outside the root into `data/files/`, under a name that no file there has. `Copied::add` then writes the statements into the script's text and returns it with the names of the tables, the copies, and the errors of the files that it did not add, such as a file of no format that a data script reads. The tool saves the text, or keeps it in an editor's buffer.

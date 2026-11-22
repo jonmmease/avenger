@@ -27,7 +27,7 @@ use crate::{
 
 /// The role of a file of a project, as its host finds it: a data script, a chart script, or a
 /// module with the path that `IMPORT MODULE` names it by, which the host takes from the file's
-/// path under the project's modules root, as `["a", "b"]` for `a/b.sqlm`.
+/// path under the project's modules root, as `["a", "b"]` for `a/b.av.sqlm`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileRole {
     Data,
