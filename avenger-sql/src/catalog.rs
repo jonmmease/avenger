@@ -142,6 +142,12 @@ pub trait Catalog {
         TypeOptions::default()
     }
 
+    /// The schema that holds a table of a path of one name, as [`same_table`] compares tables:
+    /// the default schema of the session, or DataFusion's, `public`, without one.
+    fn default_schema(&self) -> String {
+        datafusion::common::config::CatalogOptions::default().default_schema
+    }
+
     /// The table that reads the files `files`, of an external table or a `LOAD DATA`: a table
     /// of the files' schema, or the error of reading it. `None` when the catalog reads no
     /// files.
@@ -213,11 +219,12 @@ pub fn imported_modules(
 }
 
 /// A catalog of the tables that a script names, loaded from a DataFusion session.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct SessionCatalog {
     tables: Vec<Table>,
     modules: Vec<(Vec<String>, String)>,
     type_options: TypeOptions,
+    default_schema: String,
 }
 
 impl SessionCatalog {
@@ -235,6 +242,7 @@ impl SessionCatalog {
             tables: Vec::new(),
             modules: Vec::new(),
             type_options,
+            default_schema: default_schema.clone(),
         };
         for reference in &references.tables {
             let (catalog_name, schema_name, table_name) = match reference.names.as_slice() {
@@ -314,6 +322,10 @@ impl Catalog for SessionCatalog {
 
     fn type_options(&self) -> TypeOptions {
         self.type_options
+    }
+
+    fn default_schema(&self) -> String {
+        self.default_schema.clone()
     }
 }
 

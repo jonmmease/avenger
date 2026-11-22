@@ -15,7 +15,9 @@ use avenger_sql::{
         file_reads, file_table, file_urls, lower, DataAnalysis, Files, Registered, Registration,
     },
     library::Library,
-    project::{table_reads, unavailable_read, Edge, Graph, GraphError, NameKind, ProjectCatalog},
+    project::{
+        table_reads, unavailable_read, Edge, Graph, GraphError, NameKind, ProjectCatalog, Unloaded,
+    },
 };
 use avenger_sql_syntax::{Offset, TextRange};
 use datafusion::{
@@ -271,10 +273,16 @@ impl LoadedProject {
     }
 
     /// The table of each set of files that the data scripts read in their last loads, or the
-    /// error of reading it, by the scripts in the order of the load, as an editor's analysis
-    /// of the scripts takes them.
-    pub fn file_tables(&self) -> impl Iterator<Item = &(Files, FilesTable)> {
-        self.scripts().flat_map(|script| &script.files)
+    /// error of reading it, by the scripts in the order of the load, and then those that the
+    /// chart scripts' own tables of files read in their last runs, by path, as an editor's
+    /// analysis of the scripts takes them.
+    pub fn file_tables(&self) -> Vec<(Files, FilesTable)> {
+        let mut tables: Vec<(Files, FilesTable)> = (self.scripts())
+            .flat_map(|script| script.files.iter().cloned())
+            .collect();
+        let charts = self.charts.lock().expect("the tables of the charts");
+        tables.extend((charts.values()).flat_map(|chart| chart.files.iter().cloned()));
+        tables
     }
 
     /// The data scripts whose last loads read the file or the directory at `path`, relative to
@@ -847,23 +855,20 @@ impl LoadedProject {
     /// `script` defines and which did not load.
     fn unloaded_message(&self, kind: NameKind, names: &[String], script: &str) -> String {
         // A blocked script can load after its readers, which come first by path.
-        let blocked = self.graph.blocked().contains(&script);
-        let why = match self.scripts.get(script).map(|load| &load.status) {
-            _ if blocked => {
-                "which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
-            }
-            Some(ScriptStatus::NotLoaded { .. }) => {
-                let causes: Vec<String> = (self.causes(script).into_iter())
-                    .map(|cause| match self.graph.blocked().contains(&cause.as_str()) {
-                        true => format!("{cause} is in a cycle"),
-                        false => format!("{cause} failed to load"),
+        let blocked = |path: &str| self.graph.blocked().contains(&path);
+        let unloaded = match self.scripts.get(script).map(|load| &load.status) {
+            _ if blocked(script) => Unloaded::Blocked,
+            Some(ScriptStatus::NotLoaded { .. }) => Unloaded::NotLoaded {
+                causes: (self.causes(script).into_iter())
+                    .map(|cause| {
+                        let blocked = blocked(&cause);
+                        (cause, blocked)
                     })
-                    .collect();
-                format!("which did not load, since {}", causes.join(" and "))
-            }
-            _ => "which failed to load".to_string(),
+                    .collect(),
+            },
+            _ => Unloaded::Failed,
         };
-        unavailable_read(kind, names, script, &why)
+        unavailable_read(kind, names, script, &unloaded.why())
     }
 
     /// The scripts that failed or are blocked, upstream of the script at `path` that did not

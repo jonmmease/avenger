@@ -1008,3 +1008,35 @@ fn the_scripts_that_import_a_module_directly_or_through_modules() {
     assert!(graph.edges().is_empty());
     assert_eq!(graph.order().len(), 4);
 }
+
+#[test]
+fn a_table_that_an_imported_module_reads_is_a_read_at_the_import() {
+    let scripts = [
+        (
+            "a_reader.sql",
+            "IMPORT MODULE m;\nCREATE TABLE z AS (FROM m.f());",
+        ),
+        ("z_definer.sql", "CREATE TABLE t AS (FROM sales);"),
+    ];
+    let modules = [
+        (
+            "m",
+            "MODULE m;\nIMPORT MODULE n;\nCREATE PUBLIC FUNCTION g() AS (1);",
+        ),
+        (
+            "n",
+            "MODULE n;\nCREATE PUBLIC TABLE FUNCTION f() AS (FROM t);",
+        ),
+    ];
+    let graph = graph_with_modules(&scripts, &modules);
+    assert_eq!(graph.order(), ["z_definer.sql", "a_reader.sql"]);
+    let edges = graph.edges();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].read.names, ["t"]);
+    // The read is at the import, which reads `n` through `m`.
+    let reader = text(&scripts, "a_reader.sql");
+    assert_eq!(
+        &reader[std::ops::Range::<usize>::from(edges[0].read.range)],
+        "m"
+    );
+}

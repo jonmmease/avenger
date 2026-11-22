@@ -102,9 +102,12 @@ impl ProjectCatalog {
         self
     }
 
-    /// The first definition of the kind `kind` at the path `names`.
+    /// The first definition of the kind `kind` at the path `names`, with a path of a table of
+    /// one name in the base's default schema.
     fn script_name(&self, kind: NameKind, names: &[String]) -> Option<&ScriptName> {
-        (self.definitions.iter()).find(|name| name.kind == kind && same_path(&name.names, names))
+        let default_schema = self.base.default_schema();
+        (self.definitions.iter())
+            .find(|name| name.kind == kind && kind.same(&name.names, names, &default_schema))
     }
 
     /// The tables of the data scripts.
@@ -166,6 +169,10 @@ impl Catalog for ProjectCatalog {
 
     fn type_options(&self) -> TypeOptions {
         self.base.type_options()
+    }
+
+    fn default_schema(&self) -> String {
+        self.base.default_schema()
     }
 
     fn files(&self, files: &Files) -> Option<FilesTable> {

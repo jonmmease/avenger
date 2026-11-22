@@ -378,7 +378,7 @@ impl Document {
         (self.definitions().iter()).rposition(|definition| {
             definition.range.end() <= offset
                 && !matches!(definition.kind, DefinitionKind::Schema)
-                && same_path(&definition.names, names)
+                && self.same_table(&definition.names, names)
         })
     }
 

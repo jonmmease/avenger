@@ -14,6 +14,6 @@ mod graph;
 
 pub use catalog::ProjectCatalog;
 pub use graph::{
-    script_names, table_reads, unavailable_read, Edge, Graph, GraphError, Name, NameKind, Place,
-    ScriptNames,
+    duplicate_message, script_names, table_paths, table_reads, unavailable_read, Edge, Graph,
+    GraphError, Name, NameKind, Place, ScriptNames, Unloaded,
 };

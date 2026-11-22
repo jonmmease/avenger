@@ -11,10 +11,11 @@
 //! A read that no data script defines adds no dependency: it reads a table of the host, or a
 //! table that doesn't exist, which the analysis of the script reports. A read of a name of a
 //! pipe `WITH`, after the `WITH` in its query, reads the `WITH` query, not a table, so it adds no
-//! dependency either, as [`table_reads`] leaves it out. The reads in the functions of an
-//! imported module are not in the text of the script, so they add no dependency. A path of a
-//! table of one name is in the session's default schema, so a read of `public.orders` depends on
-//! the script that defines `orders` when the default schema is `public`.
+//! dependency either, as [`table_reads`] leaves it out. A table that a function of an imported
+//! module reads, directly or through the modules that it imports, is a read of the script at the
+//! path of its `IMPORT MODULE`, since the script reads the table where it calls the function. A
+//! path of a table of one name is in the session's default schema, so a read of `public.orders`
+//! depends on the script that defines `orders` when the default schema is `public`.
 //!
 //! The graph also holds the modules that each script imports, through its `IMPORT MODULE`s and
 //! the imports of those modules in turn, so that a change of a module reloads the scripts that
@@ -27,7 +28,7 @@ use avenger_sql_syntax::{ast, ast::AstNode, SyntaxNode, TextRange};
 
 use crate::{
     analysis::script_targets,
-    catalog::{imported_modules, references, same_path, same_table, Reference},
+    catalog::{imported_modules, references, same_path, same_table, Reference, References},
 };
 
 /// What a name of a data script names: a table or a view, or a schema. A table and a schema of
@@ -71,7 +72,8 @@ pub struct ScriptNames {
     pub definitions: Vec<Name>,
     /// The tables and the schemas that the script reads from other scripts or from the host, in
     /// the order of the text: the tables of its queries, and the schema of each table in a schema
-    /// that it defines.
+    /// that it defines. In a [`Graph`], also the tables that the functions of its imported
+    /// modules read, at the path of the `IMPORT MODULE`.
     pub reads: Vec<Name>,
 }
 
@@ -162,6 +164,43 @@ pub fn table_reads(root: &SyntaxNode) -> Vec<Reference> {
     reads
 }
 
+/// The paths of the tables that `root` reads in `FROM`, joins, and `TABLE` arguments, in the
+/// order of the text, as a reader of the text finds them: with the reads of a table that an
+/// earlier statement of a script defines, which [`references`] leaves out, and without the reads
+/// of a name of a pipe `WITH`, after the `WITH` in the query that holds it. An `IMPORT MODULE`
+/// and a call of a function are not reads of tables.
+pub fn table_paths(root: &SyntaxNode) -> Vec<Reference> {
+    let scopes = with_scopes(root);
+    let mut paths = Vec::new();
+    for node in root.descendants() {
+        let (path, source) = if let Some(source) = ast::TableSource::cast(node.clone()) {
+            (source.path(), true)
+        } else if let Some(arg) = ast::TableArg::cast(node.clone()) {
+            (arg.path(), false)
+        } else if let Some(arg) = ast::NamedTableArg::cast(node.clone()) {
+            (arg.path(), false)
+        } else {
+            continue;
+        };
+        let Some((path, names)) = path.and_then(|path| Some((path.range(), path.names()?))) else {
+            continue;
+        };
+        let with = match names.as_slice() {
+            [name] => {
+                source
+                    && (scopes.iter()).any(|(with, scope)| {
+                        scope.contains_range(path) && with.eq_ignore_ascii_case(name)
+                    })
+            }
+            _ => false,
+        };
+        if !with {
+            paths.push(Reference { names, range: path });
+        }
+    }
+    paths
+}
+
 /// The name of each query of a pipe `WITH` in `root`, with the range of its scope: from the end
 /// of its query to the end of the query that holds the `WITH`, which holds the later queries of
 /// the `WITH` and the pipe operators after it.
@@ -232,18 +271,7 @@ impl GraphError {
                 names,
                 first,
                 second,
-            } => {
-                let name = names.join(".");
-                let (first, second) = (&first.path, &second.path);
-                match kind {
-                    NameKind::Table => format!(
-                        "Table {name} is defined by both {first} and {second}: a table of a project is defined by one data script, or is TEMP in each"
-                    ),
-                    NameKind::Schema => format!(
-                        "Schema {name}, which BigQuery calls a dataset, is created by both {first} and {second}: a schema of a project is created by one data script"
-                    ),
-                }
-            }
+            } => duplicate_message(*kind, names, &[&first.path, &second.path]),
             GraphError::Cycle { reads } => {
                 let steps: Vec<String> = (reads.iter())
                     .map(|edge| {
@@ -278,6 +306,60 @@ impl GraphError {
                     range: edge.read.range,
                 })
                 .collect(),
+        }
+    }
+}
+
+/// The error of the name `names` of the kind `kind` that each of the data scripts `scripts`, two
+/// or more, defines, by path.
+pub fn duplicate_message(kind: NameKind, names: &[String], scripts: &[&str]) -> String {
+    let name = names.join(".");
+    let scripts = match scripts {
+        [first, second] => format!("both {first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+        [] => String::new(),
+    };
+    match kind {
+        NameKind::Table => format!(
+            "Table {name} is defined by {scripts}: a table of a project is defined by one data script, or is TEMP in each"
+        ),
+        NameKind::Schema => format!(
+            "Schema {name}, which BigQuery calls a dataset, is created by {scripts}: a schema of a project is created by one data script"
+        ),
+    }
+}
+
+/// Why the tables of a data script are unavailable to the scripts that read them, as a loader
+/// and an editor's analysis of a project tell it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unloaded {
+    /// The script has errors, or defines a name that another data script defines too.
+    Failed,
+    /// The script is in a cycle of data scripts that read each other's tables, or reads one.
+    Blocked,
+    /// The script reads, directly or through others, scripts that failed or are blocked: those
+    /// scripts, by path, each with whether it is blocked.
+    NotLoaded { causes: Vec<(String, bool)> },
+}
+
+impl Unloaded {
+    /// The clause that ends the error of a read, as `which failed to load`, which
+    /// [`unavailable_read`] takes.
+    pub fn why(&self) -> String {
+        match self {
+            Unloaded::Failed => "which failed to load".to_string(),
+            Unloaded::Blocked => {
+                "which can't run, since it is in a cycle of data scripts that read each other's tables, or reads one".to_string()
+            }
+            Unloaded::NotLoaded { causes } => {
+                let causes: Vec<String> = (causes.iter())
+                    .map(|(cause, blocked)| match blocked {
+                        true => format!("{cause} is in a cycle"),
+                        false => format!("{cause} failed to load"),
+                    })
+                    .collect();
+                format!("which did not load, since {}", causes.join(" and "))
+            }
         }
     }
 }
@@ -346,7 +428,12 @@ impl Graph {
             })
             .collect();
         let scripts: Vec<(String, ScriptNames)> = (roots.into_iter())
-            .map(|(path, root)| (path, script_names(&root)))
+            .map(|(path, root)| {
+                let mut names = script_names(&root);
+                names.reads.extend(module_reads(&root, modules));
+                names.reads.sort_by_key(|read| read.range.start());
+                (path, names)
+            })
             .collect();
         let count = scripts.len();
         let mut edges = Vec::new();
@@ -496,6 +583,32 @@ impl Graph {
     fn path(&self, index: usize) -> &str {
         &self.scripts[index].0
     }
+}
+
+/// The tables that the functions of the modules that the script `root` imports read, directly or
+/// through the modules that those import, each once, at the path of the script's first `IMPORT
+/// MODULE` that imports it.
+fn module_reads(root: &SyntaxNode, modules: &dyn Fn(&[String]) -> Option<String>) -> Vec<Name> {
+    let mut reads: Vec<Name> = Vec::new();
+    for import in references(root).modules {
+        let imported = References {
+            tables: Vec::new(),
+            modules: vec![import.clone()],
+        };
+        for (_, text) in imported_modules(&imported, modules) {
+            let module = avenger_sql_syntax::parse_module(&text).syntax();
+            for read in table_reads(&module) {
+                if !(reads.iter()).any(|found| same_path(&found.names, &read.names)) {
+                    reads.push(Name {
+                        names: read.names,
+                        kind: NameKind::Table,
+                        range: import.range,
+                    });
+                }
+            }
+        }
+    }
+    reads
 }
 
 /// The errors of the names that two scripts define, by pair of scripts in the order of their
