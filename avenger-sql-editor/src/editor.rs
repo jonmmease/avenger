@@ -27,22 +27,28 @@ pub struct CodeEditor {
     popup: Option<Popup>,
     /// The menu of the fixes of the error at the cursor, while it is open.
     fixes: Option<Fixes>,
-    /// The last layout, so that egui lays out only after an edit, a new analysis, or a new scale.
+    /// The last layout, so that egui lays out only after an edit, a new analysis, a move of the
+    /// cursor to another name, or a new scale.
     cache: Option<Layout>,
+    /// The character index that the next frame scrolls into view, after a jump to a definition.
+    reveal: Option<usize>,
     /// The screen position of the middle of the character after the cursor, in the last frame.
     caret: Option<Pos2>,
 }
 
-/// A layout of the text and what it was laid out with: the highlights of the analysis, whether
-/// the text was the analyzed text, so that it took those highlights and not those of its syntax
-/// alone, and the pixels per point of the screen.
+/// A layout of the editor's text and what it was laid out with: the highlights of the analysis,
+/// whether the text was the analyzed text, so that it took those highlights and not those of its
+/// syntax alone, the ranges on the faint background of references, and the pixels per point of
+/// the screen.
 struct Layout {
     text: String,
     highlights: Vec<HighlightRange>,
     analyzed: bool,
+    marked: Vec<Range<usize>>,
     pixels_per_point: f32,
     galley: Arc<egui::Galley>,
 }
+
 /// The open menu of the fixes of an error: the fixes, the selected one, and the text and the
 /// cursor where it opened. The edits of the fixes are byte ranges of that text, so the menu closes
 /// when the text or the cursor changes.
@@ -60,6 +66,7 @@ impl CodeEditor {
             popup: None,
             fixes: None,
             cache: None,
+            reveal: None,
             caret: None,
         }
     }
@@ -126,6 +133,19 @@ impl CodeEditor {
             && self.toggle_comments(ui.ctx(), text);
         // The keys of the popup and the fixes, before the text edit takes them.
         let mut edited = focused && text.as_str() == analyzed && self.keys(ui, text, document);
+        if focused && text.as_str() == analyzed {
+            let jump = ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::F12));
+            if let Some(cursor) = self.cursor(ui.ctx()).filter(|_| jump) {
+                self.jump(ui.ctx(), document, cursor);
+            }
+        }
+        // The definition and the uses of the name at the cursor, on a faint background.
+        let marked = match text.as_str() == analyzed {
+            true => (self.cursor(ui.ctx()))
+                .map(|cursor| assist::references(document, cursor))
+                .unwrap_or_default(),
+            false => Vec::new(),
+        };
         let font = FontId::monospace(13.0);
         let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap: f32| {
             let source = buffer.as_str();
@@ -135,6 +155,7 @@ impl CodeEditor {
                 if cache.text == source
                     && cache.highlights == highlights
                     && cache.analyzed == is_analyzed
+                    && cache.marked == marked
                     && cache.pixels_per_point == pixels_per_point
                 {
                     return cache.galley.clone();
@@ -150,12 +171,17 @@ impl CodeEditor {
                     &own
                 }
             };
-            let job = layout_job(source, ranges, font.clone(), &[], Color32::TRANSPARENT);
+            let marks: &[Range<usize>] = match is_analyzed {
+                true => &marked,
+                false => &[],
+            };
+            let job = layout_job(source, ranges, font.clone(), marks, REFERENCE);
             let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
             self.cache = Some(Layout {
                 text: source.to_string(),
                 highlights: highlights.to_vec(),
                 analyzed: is_analyzed,
+                marked: marked.clone(),
                 pixels_per_point,
                 galley: galley.clone(),
             });
@@ -171,7 +197,7 @@ impl CodeEditor {
                     .id_salt(self.id.with("scroll"))
                     .auto_shrink(false)
                     .show(ui, |ui| {
-                        egui::TextEdit::multiline(text)
+                        let output = egui::TextEdit::multiline(text)
                             .id(self.id)
                             .code_editor()
                             .lock_focus(true)
@@ -185,7 +211,13 @@ impl CodeEditor {
                             .desired_width(f32::INFINITY)
                             .desired_rows(8)
                             .layouter(&mut layouter)
-                            .show(ui)
+                            .show(ui);
+                        if let Some(index) = self.reveal.take() {
+                            let rect = output.galley.pos_from_cursor(CCursor::new(index));
+                            let rect = rect.translate(output.galley_pos.to_vec2()).expand(24.0);
+                            ui.scroll_to_rect(rect, None);
+                        }
+                        output
                     })
                     .inner
             })
@@ -200,11 +232,33 @@ impl CodeEditor {
             output.galley_pos + rect.center().to_vec2() + Vec2::new(3.0, 0.0)
         });
         let current = text.as_str() == analyzed;
+        // ⌘-click (Ctrl-click) goes to the definition of the name that the click put the cursor on.
+        let command = ui.input(|input| input.modifiers.command);
+        if current && command && output.response.clicked() {
+            if let Some(cursor) = cursor {
+                self.jump(ui.ctx(), document, cursor);
+            }
+        }
         edited |= self.menus(ui, &output, text, cursor);
         if current {
             hover(&output, document);
         }
         toggled || edited || output.response.changed()
+    }
+
+    /// Selects the definition of the name at the character `cursor`, and scrolls it into view in
+    /// the next frame.
+    fn jump(&mut self, ctx: &egui::Context, document: &Document, cursor: usize) {
+        let Some(target) = assist::definition(document, cursor) else {
+            return;
+        };
+        let mut state = egui::text_edit::TextEditState::load(ctx, self.id).unwrap_or_default();
+        let (start, end) = (CCursor::new(target.start), CCursor::new(target.end));
+        state
+            .cursor
+            .set_char_range(Some(CCursorRange::two(start, end)));
+        state.store(ctx, self.id);
+        self.reveal = Some(target.start);
     }
 
     /// The character index of the cursor, when the editor has one.
@@ -629,6 +683,9 @@ fn byte_index(text: &str, char_index: usize) -> usize {
         .nth(char_index)
         .map_or(text.len(), |(index, _)| index)
 }
+
+/// The background of the definition and the uses of the name at the cursor.
+const REFERENCE: Color32 = Color32::from_rgba_premultiplied(0, 10, 22, 28);
 
 /// The color of each class, on egui's light theme.
 fn class_color(class: Class) -> Color32 {
