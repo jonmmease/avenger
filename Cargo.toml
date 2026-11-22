@@ -162,6 +162,8 @@ arrow-array = { version = "59.3" }
 arrow-cast = { version = "59.3" }
 arrow-schema = { version = "59.3" }
 rowan = "0.16"
+tree-sitter = "=0.27.2"
+tree-sitter-avenger-sql = { git = "https://github.com/avenger-vis/tree-sitter-avenger-sql", rev = "0042cce4f7a4bead8f6ff7ce123cc062e710f7e0" }
 ungrammar = "1.16"
 regex = "1.13"
 datafusion = { version = "55.2", default-features = false }
