@@ -112,7 +112,7 @@ fn embedded(document: &Document) -> Vec<(String, Embedded)> {
 }
 
 #[test]
-fn the_strings_of_markup_and_of_typed_literals_are_in_languages_of_their_own() {
+fn the_strings_of_markup_formats_regexes_and_typed_literals_are_in_languages_of_their_own() {
     let document = common::document(&chart("'*Mass* of ' 'penguins'"));
     assert_eq!(
         embedded(&document),
@@ -128,6 +128,16 @@ fn the_strings_of_markup_and_of_typed_literals_are_in_languages_of_their_own() {
         [
             ("'%Y'".to_string(), Embedded::Format),
             ("'%.1f'".to_string(), Embedded::Format),
+        ]
+    );
+    // The pattern of a regex function, whether its argument is a raw string or not, and not its
+    // replacement or a pattern from a column.
+    let regexes = "FROM penguins |> EXTEND REGEXP_REPLACE(species, r'(\\w+)', '<\\\\1>') AS r, REGEXP_CONTAINS(island, '^B') AS b, REGEXP_CONTAINS(island, species) AS c";
+    assert_eq!(
+        embedded(&common::document(regexes)),
+        [
+            ("r'(\\w+)'".to_string(), Embedded::Regex),
+            ("'^B'".to_string(), Embedded::Regex),
         ]
     );
     // The values of typed literals, and not a plain string or the keywords.

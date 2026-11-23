@@ -1844,6 +1844,9 @@ impl Pass<'_> {
             if takes.is_some_and(|param| param.takes.markup) {
                 markup.extend(string_literals(&value));
             }
+            if takes.is_some_and(|param| param.takes.regex) {
+                self.model.regexes.extend(string_literals(&value));
+            }
             if takes.is_some_and(|param| param.takes.format_pattern) {
                 self.model.formats.extend(string_literals(&value));
                 if function.family != library::Family::GoogleSql {
