@@ -661,6 +661,18 @@ impl Pass<'_> {
             .cloned()
     }
 
+    /// The paths that calls write for the temporary functions and the modules' functions that
+    /// a script sees, such as `f` and `m.f`.
+    pub(super) fn function_paths(&self) -> Vec<String> {
+        (self.functions.iter())
+            .filter(|f| f.public || f.module.is_none())
+            .map(|f| match f.module {
+                None => f.name.clone(),
+                Some(_) => f.path.clone(),
+            })
+            .collect()
+    }
+
     /// The constant of a module at `names`, in the module whose body the pass plans first.
     pub(super) fn module_constant(&self, names: &[String]) -> Option<Expr> {
         self.in_scope(&self.constants, names, |c| &c.path, |c| c.public)

@@ -9,6 +9,7 @@
 //! Each planning function returns `None` after an error, which it reports once at its text, and
 //! visits its children first, so the model resolves every name of an expression with an error.
 
+use crate::library::search::{closest_name, did_you_mean};
 use std::sync::Arc;
 
 use avenger_sql_syntax::{
@@ -779,10 +780,13 @@ impl Pass<'_> {
             }
         }
         let Some((mut expr, rest)) = found else {
-            self.error(
-                refs[0].syntax().text_range(),
+            let names = self.scope_names(scope, names.len() > 1);
+            let names = names.iter().map(String::as_str);
+            let message = did_you_mean(
                 format!("Unrecognized name: {first}"),
+                closest_name(&first, names),
             );
+            self.error(refs[0].syntax().text_range(), message);
             return None;
         };
         for (name, name_ref) in names.iter().zip(&refs).skip(rest) {
@@ -790,6 +794,36 @@ impl Pass<'_> {
         }
         scope.schema?;
         Some(expr)
+    }
+
+    /// The names that a name in `scope` can read, for the suggestion of a name that it lacks: the
+    /// columns of the scope and of the enclosing queries, and with `with_vars`, for the first name
+    /// of a longer path, their range variables.
+    fn scope_names(&self, scope: Scope, with_vars: bool) -> Vec<String> {
+        let outers = self.outers.iter().rev();
+        let levels = std::iter::once((scope.columns, scope.vars))
+            .chain(outers.map(|outer| (outer.columns.as_slice(), outer.vars.as_slice())));
+        let mut names = Vec::new();
+        for (columns, vars) in levels {
+            names.extend(columns.iter().map(|col| col.name.clone()));
+            for var in vars {
+                if with_vars {
+                    names.push(var.name.clone());
+                }
+                names.extend(var.columns.iter().map(|col| col.name.clone()));
+            }
+        }
+        names.retain(|name| !name.is_empty());
+        names
+    }
+
+    /// The error of a call of `name`, which no function has, with the closest name of the
+    /// library or of the script's temporary functions and its modules' functions.
+    fn function_not_found(&self, name: &str) -> String {
+        let others = self.function_paths();
+        let others: Vec<&str> = others.iter().map(String::as_str).collect();
+        let message = format!("Function not found: {name}");
+        did_you_mean(message, self.library.closest(name, &others))
     }
 
     /// The lookup of the first names of a path in one scope: a range variable and its column, a
@@ -1554,10 +1588,8 @@ impl Pass<'_> {
                 (true, name.clone(), refs[1].syntax().text_range())
             }
             _ => {
-                self.error(
-                    path.syntax().text_range(),
-                    format!("Function not found: {}", names.join(".")),
-                );
+                let message = self.function_not_found(&names.join("."));
+                self.error(path.syntax().text_range(), message);
                 return None;
             }
         };
@@ -1603,7 +1635,7 @@ impl Pass<'_> {
                         let places = library.constructor_places(&name);
                         let channel = avenger_chart::functions::channel_function(&name);
                         let message = match places.is_empty() {
-                            true => format!("Function not found: {name}"),
+                            true => self.function_not_found(&name),
                             false if channel.is_some() => format!(
                                 "`{name}(...)` sets the channel `{name}` of a mark, so only the \
                                  value of that channel holds it, as {}",

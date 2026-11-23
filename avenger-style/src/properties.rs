@@ -352,6 +352,15 @@ pub enum Shorthand {
 }
 
 impl Shorthand {
+    pub const ALL: &'static [Shorthand] = &[
+        Shorthand::Padding,
+        Shorthand::Border,
+        Shorthand::Outline,
+        Shorthand::Gap,
+        Shorthand::ContainIntrinsicSize,
+        Shorthand::All,
+    ];
+
     pub fn from_name(name: &str) -> Option<Shorthand> {
         Some(match name {
             "padding" => Shorthand::Padding,

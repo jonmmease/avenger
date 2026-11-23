@@ -14,7 +14,7 @@
 //! server answers for positions inside cells and nothing else, so other servers of a document
 //! answer for the rest of it.
 
-mod convert;
+pub(crate) mod convert;
 mod loader;
 mod requests;
 
@@ -110,6 +110,7 @@ fn server_capabilities(encoding: Encoding) -> ServerCapabilities {
         position_encoding: Some(match encoding {
             Encoding::Utf8 => PositionEncodingKind::UTF8,
             Encoding::Utf16 => PositionEncodingKind::UTF16,
+            Encoding::Utf32 => PositionEncodingKind::UTF32,
         }),
         text_document_sync: Some(TextDocumentSyncCapability::Options(
             TextDocumentSyncOptions {

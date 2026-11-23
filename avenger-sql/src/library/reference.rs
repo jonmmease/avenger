@@ -16,9 +16,19 @@ pub fn reference(library: &Library) -> String {
 
 /// The reference of `function`, as Markdown.
 pub fn entry(function: &Function) -> String {
-    let mut out = format!("## `{}`\n\n", function.name);
-    out.push_str("```googlesql\n");
-    for signature in function.signatures() {
+    page(function, &function.name, None)
+}
+
+/// The reference of the constructor `function` under the name `written` that a call writes, such
+/// as `log` for `log_scale`, with the places that take it, as Markdown.
+pub fn constructor_entry(function: &Function, written: &str, places: &[String]) -> String {
+    page(function, written, Some(places))
+}
+
+/// The forms of `function` under the name `name`, with its `OVER`, as a block of GoogleSQL.
+pub fn forms(function: &Function, name: &str) -> String {
+    let mut out = String::from("```googlesql\n");
+    for signature in function.signatures_named(name) {
         out.push_str(&signature.text);
         out.push('\n');
     }
@@ -26,7 +36,35 @@ pub fn entry(function: &Function) -> String {
         out.push_str(&over);
         out.push('\n');
     }
-    out.push_str("```\n\n");
+    out.push_str("```\n");
+    out
+}
+
+/// The examples of `function`, each a block of GoogleSQL and its result, as Markdown.
+pub fn examples(function: &Function) -> String {
+    let mut out = String::new();
+    for example in &function.examples {
+        out.push_str(&format!("```googlesql\n{}\n```\n\n", example.query));
+        match function.kind {
+            FunctionKind::Scalar if !example.result.contains('\n') => {
+                out.push_str(&format!("Result: `{}`\n\n", example.result));
+            }
+            _ => out.push_str(&table(&example.result)),
+        }
+    }
+    out
+}
+
+/// The page of `function` under the name `name`, and for a constructor, the places that take it.
+fn page(function: &Function, name: &str, places: Option<&[String]>) -> String {
+    let mut out = format!("## `{name}`\n\n");
+    out.push_str(&forms(function, name));
+    out.push('\n');
+    if let Some(places) = places {
+        if !places.is_empty() {
+            out.push_str(&format!("Builds {}.\n\n", places.join(", ")));
+        }
+    }
     out.push_str(&function.summary);
     out.push('\n');
     if !function.description.is_empty() && function.description != function.summary {
@@ -62,15 +100,10 @@ pub fn entry(function: &Function) -> String {
     }
     if !function.examples.is_empty() {
         out.push_str("\n**Examples**\n\n");
-        for example in &function.examples {
-            out.push_str(&format!("```googlesql\n{}\n```\n\n", example.query));
-            match function.kind {
-                FunctionKind::Scalar if !example.result.contains('\n') => {
-                    out.push_str(&format!("Result: `{}`\n\n", example.result));
-                }
-                _ => out.push_str(&table(&example.result)),
-            }
-        }
+        out.push_str(&examples(function));
+    }
+    if places.is_some() && name != function.name {
+        out.push_str(&format!("\nIts unique name is `{}`.\n", function.name));
     }
     out
 }

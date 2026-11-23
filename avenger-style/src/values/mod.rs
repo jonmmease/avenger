@@ -107,6 +107,49 @@ pub enum Syntax {
     Any(&'static [Syntax]),
 }
 
+impl Syntax {
+    /// The grammar of the syntax as CSS's value definitions write it, such as
+    /// `<length [0,∞]> | auto`.
+    pub fn grammar(&self) -> String {
+        fn bound(min: Option<f32>, max: Option<f32>) -> String {
+            match (min, max) {
+                (None, None) => String::new(),
+                (min, max) => format!(
+                    " [{},{}]",
+                    min.map_or("-∞".to_string(), |min| min.to_string()),
+                    max.map_or("∞".to_string(), |max| max.to_string()),
+                ),
+            }
+        }
+        match self {
+            Syntax::Length { min } => format!("<length{}>", bound(*min, None)),
+            Syntax::Number { min, max } => format!("<number{}>", bound(*min, *max)),
+            Syntax::Integer { min } => format!("<integer [{min},∞]>"),
+            Syntax::Angle => "<angle>".to_string(),
+            Syntax::Percentage => "<percentage>".to_string(),
+            Syntax::Color => "<color>".to_string(),
+            Syntax::Boolean => "true | false".to_string(),
+            Syntax::Keywords(keywords) => keywords.join(" | "),
+            Syntax::String => "<string>".to_string(),
+            Syntax::FontFamilies => "<family-name>#".to_string(),
+            Syntax::FontWeight => "normal | bold | <number [1,1000]>".to_string(),
+            Syntax::Ratio => "<ratio>".to_string(),
+            Syntax::Scheme => "auto | <palette-name> <integer>? reverse?".to_string(),
+            Syntax::Shape => "<shape>".to_string(),
+            Syntax::Pattern => "none | <pattern>".to_string(),
+            Syntax::OutputList => "<output>#".to_string(),
+            Syntax::OutputItem => "<output>".to_string(),
+            Syntax::Dash => "<length>+".to_string(),
+            Syntax::Line => "<line-width> || <line-style> || <color>".to_string(),
+            Syntax::Repeat(inner, min, max) => format!("{}{{{min},{max}}}", inner.grammar()),
+            Syntax::Any(alternatives) => (alternatives.iter())
+                .map(Syntax::grammar)
+                .collect::<Vec<_>>()
+                .join(" | "),
+        }
+    }
+}
+
 impl Value {
     /// Whether the computed value depends on the node: a color that reads `currentColor`, or a
     /// length in `em`.

@@ -19,6 +19,8 @@ use lsp_types::{
 pub enum Encoding {
     Utf8,
     Utf16,
+    /// Characters, as the command-line program counts its columns.
+    Utf32,
 }
 
 /// The starts of the lines of a text, which convert between byte offsets and positions.
@@ -51,6 +53,7 @@ impl<'a> LineIndex<'a> {
         let character = match self.encoding {
             Encoding::Utf8 => before.len(),
             Encoding::Utf16 => before.encode_utf16().count(),
+            Encoding::Utf32 => before.chars().count(),
         };
         Position::new(line as u32, character as u32)
     }
@@ -80,6 +83,7 @@ impl<'a> LineIndex<'a> {
             units += match self.encoding {
                 Encoding::Utf8 => c.len_utf8(),
                 Encoding::Utf16 => c.len_utf16(),
+                Encoding::Utf32 => 1,
             };
         }
         Offset::from(end as u32)

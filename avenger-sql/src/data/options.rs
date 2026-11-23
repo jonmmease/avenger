@@ -2,6 +2,7 @@
 //! and `LOAD DATA ... FROM FILES (...)` take, the options of BigQuery that a data script rejects,
 //! and the reading of a statement's options into [`Files`].
 
+use crate::library::search::{closest_name, did_you_mean};
 use std::fmt;
 
 use avenger_sql_syntax::{
@@ -534,33 +535,12 @@ fn type_name(value: &Value) -> &'static str {
     }
 }
 
-/// The number of edits between `a` and `b`, which suggests the closest name.
-fn distance(a: &str, b: &str) -> usize {
-    let b: Vec<char> = b.chars().collect();
-    let mut row: Vec<usize> = (0..=b.len()).collect();
-    for (i, ca) in a.chars().enumerate() {
-        let mut previous = row[0];
-        row[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let current = row[j + 1];
-            row[j + 1] = (previous + usize::from(ca != *cb))
-                .min(row[j] + 1)
-                .min(current + 1);
-            previous = current;
-        }
-    }
-    row[b.len()]
-}
-
 /// The name of the option of `places` that is closest to `name`, when one is close.
 fn closest(name: &str, places: &[OptionPlace]) -> Option<&'static str> {
-    let name = name.to_ascii_lowercase();
-    (FILE_OPTIONS.iter())
-        .filter(|option| places.contains(&option.place))
-        .map(|option| (distance(&name, option.name), option.name))
-        .filter(|(distance, option)| *distance <= (option.len() / 3).max(2))
-        .min_by_key(|(distance, _)| *distance)
-        .map(|(_, option)| option)
+    let options = FILE_OPTIONS
+        .iter()
+        .filter(|option| places.contains(&option.place));
+    closest_name(name, options.map(|option| option.name))
 }
 
 /// The options of one list, by their names, with the errors of the list.
@@ -621,12 +601,8 @@ impl<'a> Reader<'a> {
                         }
                     }
                     None => {
-                        let message = match closest(&text, places) {
-                            Some(closest) => {
-                                format!("Unknown option {text}. Did you mean {closest}?")
-                            }
-                            None => format!("Unknown option {text}"),
-                        };
+                        let message =
+                            did_you_mean(format!("Unknown option {text}"), closest(&text, places));
                         self.error(name_range, message);
                     }
                 }

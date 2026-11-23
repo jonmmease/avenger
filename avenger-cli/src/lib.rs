@@ -2,7 +2,8 @@
 //! files, answers, and exits: `check` reports the diagnostics of a project's files, and `fmt`
 //! formats its scripts, modules, and the `{avenger-sql}` cells of its Quarto documents. `tables`,
 //! `schema`, and `query` read the project's data, `charts` lists its charts, `render` draws them,
-//! and `view` opens a window on one. `lsp` is
+//! and `view` opens a window on one. `docs` prints the reference of the language, and `complete`
+//! and `signature` the completions and the signature help at a position. `lsp` is
 //! the exception that an editor starts and stops: the language server of the same files.
 //! Results go to standard output, as text or, with `--json`, as JSON, and errors that keep a
 //! command from running go to standard error.
@@ -11,9 +12,12 @@
 //! formatting, and 2 when the command cannot run, such as for a usage error or a manifest that
 //! cannot be read.
 
+mod assist;
+mod at;
 mod charts;
 mod check;
 mod data;
+mod docs;
 mod files;
 mod fmt;
 pub mod lsp;
@@ -34,7 +38,7 @@ use crate::report::Output;
 #[command(
     name = "avenger",
     version,
-    about = "Check, format, query, and render avenger-sql projects"
+    about = "Check, format, query, render, and look up avenger-sql projects"
 )]
 struct Cli {
     /// Print the results as JSON, whose shape changes only with its `version` field.
@@ -66,6 +70,52 @@ enum Command {
         /// Change no file, and list the files that formatting would change.
         #[arg(long)]
         check: bool,
+    },
+    /// Print the reference of a function, a constructor, a parameter path such as
+    /// `mark_bar.x.scale`, a style property or element as `style:NAME`, or a syntax form, or search
+    /// the reference with `docs search WORDS`.
+    Docs {
+        /// A name, a dotted path, `style:NAME`, a syntax form such as `LOAD DATA`, or `search` and
+        /// its words.
+        words: Vec<String>,
+        /// The hover at a position, `PATH:LINE:COLUMN`.
+        #[arg(long, conflicts_with_all = ["words", "all"])]
+        at: Option<String>,
+        /// The whole reference, as one Markdown file.
+        #[arg(long, conflicts_with = "words")]
+        all: bool,
+        /// The forms only.
+        #[arg(long, conflicts_with = "examples")]
+        brief: bool,
+        /// The examples only.
+        #[arg(long)]
+        examples: bool,
+        /// Keep the functions of a kind.
+        #[arg(long, value_enum)]
+        kind: Option<docs::Kind>,
+        /// Keep the entries of a family.
+        #[arg(long, value_enum)]
+        family: Option<docs::FamilyName>,
+        /// Keep the functions that return a type, such as `INT64`.
+        #[arg(long)]
+        returns: Option<String>,
+        /// Keep the functions that take a type, such as `TIMESTAMP`.
+        #[arg(long)]
+        takes: Option<String>,
+    },
+    /// Print the completions at a position, `PATH:LINE:COLUMN`, as an editor shows them.
+    Complete {
+        /// The position: lines and columns from 1, columns in characters.
+        at: String,
+        /// The most completions.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+    /// Print the signature help at a position, `PATH:LINE:COLUMN`: the forms of the call there,
+    /// the form that it takes, and its argument at the position.
+    Signature {
+        /// The position: lines and columns from 1, columns in characters.
+        at: String,
     },
     /// List the names of the tables and the views that the project's data scripts register, with
     /// their data scripts.
@@ -303,6 +353,32 @@ pub fn main() -> ExitCode {
             apps.shutdown_background();
             result
         })(),
+        Command::Docs {
+            words,
+            at,
+            all,
+            brief,
+            examples,
+            kind,
+            family,
+            returns,
+            takes,
+        } => {
+            let options = docs::Options {
+                words,
+                at,
+                all,
+                brief,
+                examples,
+                kind,
+                family,
+                returns,
+                takes,
+            };
+            runtime.block_on(docs::run(&options, &output))
+        }
+        Command::Complete { at, limit } => runtime.block_on(assist::complete(&at, limit, &output)),
+        Command::Signature { at } => runtime.block_on(assist::signature(&at, &output)),
         Command::Tables { project } => runtime.block_on(data::tables(project.as_deref(), &output)),
         Command::Schema { tables, project } => {
             runtime.block_on(data::schema(&tables, project.as_deref(), &output))

@@ -4,50 +4,10 @@
 
 use std::{fs, path::Path};
 
-use avenger_style::{values::Syntax, vocab::Element, Property};
+use avenger_style::{vocab::Element, Property};
 
 const START: &str = "<!-- properties -->\n";
 const END: &str = "<!-- /properties -->";
-
-fn bound(min: Option<f32>, max: Option<f32>) -> String {
-    match (min, max) {
-        (None, None) => String::new(),
-        (min, max) => format!(
-            " [{},{}]",
-            min.map_or("-∞".to_string(), |min| min.to_string()),
-            max.map_or("∞".to_string(), |max| max.to_string()),
-        ),
-    }
-}
-
-fn syntax(syntax: &Syntax) -> String {
-    match syntax {
-        Syntax::Length { min } => format!("<length{}>", bound(*min, None)),
-        Syntax::Number { min, max } => format!("<number{}>", bound(*min, *max)),
-        Syntax::Integer { min } => format!("<integer [{min},∞]>"),
-        Syntax::Angle => "<angle>".to_string(),
-        Syntax::Percentage => "<percentage>".to_string(),
-        Syntax::Color => "<color>".to_string(),
-        Syntax::Boolean => "true | false".to_string(),
-        Syntax::Keywords(keywords) => keywords.join(" | "),
-        Syntax::String => "<string>".to_string(),
-        Syntax::FontFamilies => "<family-name>#".to_string(),
-        Syntax::FontWeight => "normal | bold | <number [1,1000]>".to_string(),
-        Syntax::Ratio => "<ratio>".to_string(),
-        Syntax::Scheme => "auto | <palette-name> <integer>? reverse?".to_string(),
-        Syntax::Shape => "<shape>".to_string(),
-        Syntax::Pattern => "none | <pattern>".to_string(),
-        Syntax::OutputList => "<output>#".to_string(),
-        Syntax::OutputItem => "<output>".to_string(),
-        Syntax::Dash => "<length>+".to_string(),
-        Syntax::Line => "<line-width> || <line-style> || <color>".to_string(),
-        Syntax::Repeat(inner, min, max) => format!("{}{{{min},{max}}}", self::syntax(inner)),
-        Syntax::Any(alternatives) => (alternatives.iter())
-            .map(self::syntax)
-            .collect::<Vec<_>>()
-            .join(" | "),
-    }
-}
 
 fn elements(property: Property) -> String {
     let nodes: Vec<Element> = (Element::ALL.iter())
@@ -78,7 +38,7 @@ fn table() -> String {
         table.push_str(&format!(
             "| `{}` | {} | {} | {} | {} |\n",
             property.name(),
-            code(&syntax(property.syntax())),
+            code(&property.syntax().grammar()),
             code(property.initial()),
             match property.is_inherited() {
                 true => "yes",

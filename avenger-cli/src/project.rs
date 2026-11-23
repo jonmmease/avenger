@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use avenger_sql::library::search::closest_name;
 use avenger_sql_project::{
     find_root, qmd::cell_path, Analysis, LoadState, Loader, ProjectFiles, Status, Table,
 };
@@ -90,11 +91,15 @@ impl Opened {
             if names.is_empty() {
                 return format!("no table `{name}`: the project's data scripts register none");
             }
-            // A table of another schema by its name alone.
+            // A table of another schema by its name alone, or a name a few edits away.
             let last = path.last().copied().unwrap_or_default();
             let suggestion = (self.tables())
                 .find(|(_, table)| table.names.last().is_some_and(|n| same(n, last)))
-                .map(|(_, table)| table.names.join("."));
+                .map(|(_, table)| table.names.join("."))
+                .or_else(|| {
+                    let names = names.iter().map(String::as_str);
+                    closest_name(name, names).map(str::to_string)
+                });
             match suggestion {
                 Some(suggestion) => format!("no table `{name}`. Did you mean {suggestion}?"),
                 None => format!("no table `{name}`: `avenger tables` lists the tables"),

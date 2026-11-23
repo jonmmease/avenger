@@ -176,6 +176,11 @@ fn schema_prints_the_columns_and_the_rows_of_the_tables_that_it_names() {
         stderr,
         "error: no table `regions`. Did you mean vega_datasets.regions?\n"
     );
+    let (_, _, stderr) = text(&root, &["schema", "wet_day"]);
+    assert_eq!(
+        stderr,
+        "error: no table `wet_day`. Did you mean wet_days?\n"
+    );
     let (status, _, stderr) = text(&root, &["schema", "heavy"]);
     assert_eq!(status, 2);
     assert_eq!(
