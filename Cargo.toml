@@ -36,6 +36,7 @@ members = [
     "avenger-sql-language",
     "avenger-sql-project",
     "avenger-cli",
+    "avenger-results-egui",
     "avenger-style",
     "avenger-svg",
     "avenger-pdf",

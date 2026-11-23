@@ -1,0 +1,44 @@
+[package]
+name = "avenger-results-egui"
+version = "0.1.0"
+edition = "2021"
+description = "The result of an avenger-sql chart script in egui: one live chart, or a table of the result whose chart cells open their charts"
+readme = "README.md"
+
+[dependencies]
+avenger-app = { path = "../avenger-app" }
+avenger-chart = { path = "../avenger-chart" }
+# Maps, which draw their tiles through the image cache.
+avenger-chart-app = { path = "../avenger-chart-app", features = ["geo"] }
+avenger-chart-eval = { path = "../avenger-chart-eval", features = ["geo"] }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-image = { path = "../avenger-image", default-features = false }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-sql-project = { path = "../avenger-sql-project" }
+avenger-style = { path = "../avenger-style" }
+avenger-typst-label = { path = "../avenger-typst-label", features = ["bundled-fonts"] }
+# The parallel tessellation of rayon needs threads, so the web build leaves it out.
+avenger-wgpu = { path = "../avenger-wgpu", default-features = false }
+eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "wgpu"] }
+egui_table = "0.7.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+avenger-wgpu = { path = "../avenger-wgpu" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["rt", "sync"] }
+
+[dev-dependencies]
+avenger-sql = { path = "../avenger-sql" }
+avenger-image = { path = "../avenger-image" }
+datafusion = { workspace = true }
+# The example opens a window, which needs a windowing backend on Linux.
+eframe = { version = "0.33.3", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

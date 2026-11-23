@@ -13,7 +13,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use avenger_chart::{charts_from_arrow, Chart, Decode, EXTENSION_NAME};
+use avenger_chart::{
+    results::{QueryResult, Shape},
+    Chart,
+};
 use avenger_chart_app::{ChartApp, ChartUpdates};
 use avenger_chart_eval::{ChartEvaluator, Registry};
 use avenger_common::canvas::CanvasDimensions;
@@ -31,11 +34,7 @@ use avenger_sql_project::{
 use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
 use avenger_typst_label::{LabelEngine, LabelOptions, LabelWidth, TextStyle};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::{
-    arrow::{array::RecordBatch, datatypes::Schema, util::display::array_value_to_string},
-    common::DataFusionError,
-    prelude::SessionContext,
-};
+use datafusion::{common::DataFusionError, prelude::SessionContext};
 
 use crate::{
     check::{check_text, failure_reports, first_line, same, File},
@@ -328,22 +327,24 @@ async fn render_target(
     // The columns come from the query's schema, so a result without rows still has its header.
     let schema = frame.schema().inner().clone();
     let batches = frame.collect().await.map_err(failed)?;
-    let table = ResultTable::of(&schema, &batches)
-        .map_err(|error| Failure::Reports(vec![report(&file, error)]))?;
+    let result = QueryResult::new(schema, batches)
+        .map_err(|error| Failure::Reports(vec![report(&file, error.to_string())]))?;
     let cascade = target
         .stylesheet
         .cascade(background(options.color_scheme), renderer.extra.as_ref());
-    let scene = match (&options.chart, table.single()) {
-        (Some(pick), _) => {
-            let chart = table
-                .pick(pick)
+    let single = (result.shape() == Shape::Chart)
+        .then(|| result.chart(0, 0))
+        .flatten();
+    let scene = match (&options.chart, single) {
+        (Some(picked), _) => {
+            let chart = pick(&result, picked)
                 .map_err(|error| Failure::Reports(vec![report(&file, error)]))?;
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
         (None, Some(chart)) => {
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
-        (None, None) => table_scene(&table, &cascade, options, renderer).await?,
+        (None, None) => table_scene(&result, &cascade, options, renderer).await?,
     };
     write(&scene, out, format, options, renderer)
         .await
@@ -464,114 +465,56 @@ async fn loose(file: &Path) -> Result<(ProjectFiles, String), Failure> {
     Ok((files, relative))
 }
 
-/// A cell of a result: a chart, a value as text, or a null.
-enum Value {
-    Chart(Box<Chart>),
+/// A cell of a result, as a table shows it: a chart, a value as text, or a null.
+enum Value<'a> {
+    Chart(&'a Chart),
     Text(String),
     Null,
 }
 
-/// The result of a chart script: its columns, whether each holds charts, and its rows.
-struct ResultTable {
-    columns: Vec<(String, bool)>,
-    rows: Vec<Vec<Value>>,
+/// The cell of `result` at `row` and `column`.
+fn value(result: &QueryResult, row: usize, column: usize) -> Value<'_> {
+    match result.is_chart_column(column) {
+        true => result.chart(row, column).map_or(Value::Null, Value::Chart),
+        false => result
+            .value_text(row, column)
+            .map_or(Value::Null, Value::Text),
+    }
 }
 
-impl ResultTable {
-    /// The table of `batches`, of the columns of `schema`.
-    fn of(schema: &Schema, batches: &[RecordBatch]) -> Result<ResultTable, String> {
-        let columns: Vec<(String, bool)> = (schema.fields().iter())
-            .map(|field| {
-                let chart = field
-                    .metadata()
-                    .get("ARROW:extension:name")
-                    .map(String::as_str)
-                    == Some(EXTENSION_NAME);
-                (field.name().clone(), chart)
-            })
-            .collect();
-        let mut rows = Vec::new();
-        for batch in batches {
-            let mut cells: Vec<Vec<Value>> = (0..batch.num_rows()).map(|_| Vec::new()).collect();
-            for (index, (_, chart)) in columns.iter().enumerate() {
-                let array = batch.column(index);
-                match chart {
-                    true => {
-                        let charts = charts_from_arrow(array.as_ref(), Decode::Auto)
-                            .map_err(|error| error.to_string())?;
-                        for (row, chart) in charts.into_iter().enumerate() {
-                            cells[row].push(
-                                chart.map_or(Value::Null, |chart| Value::Chart(Box::new(chart))),
-                            );
-                        }
-                    }
-                    false => {
-                        for (row, cells) in cells.iter_mut().enumerate() {
-                            cells.push(match array.is_null(row) {
-                                true => Value::Null,
-                                false => Value::Text(
-                                    array_value_to_string(array, row).unwrap_or_default(),
-                                ),
-                            });
-                        }
-                    }
-                }
-            }
-            rows.extend(cells);
+/// The chart of `result` that `pick`, `ROW[.COLUMN]`, names: its row from 1, and its column by
+/// name, or the only column of charts.
+fn pick<'a>(result: &'a QueryResult, pick: &str) -> Result<&'a Chart, String> {
+    let (row, column) = match pick.split_once('.') {
+        Some((row, column)) => (row, Some(column)),
+        None => (pick, None),
+    };
+    let rows = result.num_rows();
+    let row: usize = (row.parse().ok())
+        .filter(|row| (1..=rows).contains(row))
+        .ok_or_else(|| format!("`--chart {pick}`: the rows are 1 to {rows}"))?;
+    let fields = result.schema().fields();
+    let charts = result.chart_columns();
+    let index = match column {
+        Some(name) => (charts.iter().copied())
+            .find(|index| fields[*index].name() == name)
+            .ok_or_else(|| format!("`--chart {pick}`: no column of charts `{name}`"))?,
+        None if charts.len() == 1 => charts[0],
+        None if charts.is_empty() => {
+            return Err(format!(
+                "`--chart {pick}`: the result has no column of charts"
+            ))
         }
-        Ok(ResultTable { columns, rows })
-    }
-
-    /// The chart of a result of one row and one column, which holds it.
-    fn single(&self) -> Option<&Chart> {
-        match (self.rows.as_slice(), self.columns.len()) {
-            ([row], 1) => match &row[0] {
-                Value::Chart(chart) => Some(chart),
-                _ => None,
-            },
-            _ => None,
+        None => {
+            let names: Vec<&str> = charts.iter().map(|i| fields[*i].name().as_str()).collect();
+            return Err(format!(
+                "`--chart {pick}`: name a column of charts, one of {}",
+                names.join(", ")
+            ));
         }
-    }
-
-    /// The chart that `pick`, `ROW[.COLUMN]`, names: its row from 1, and its column by name, or
-    /// the only column of charts.
-    fn pick(&self, pick: &str) -> Result<&Chart, String> {
-        let (row, column) = match pick.split_once('.') {
-            Some((row, column)) => (row, Some(column)),
-            None => (pick, None),
-        };
-        let row: usize = row
-            .parse()
-            .ok()
-            .filter(|row| (1..=self.rows.len()).contains(row))
-            .ok_or_else(|| format!("`--chart {pick}`: the rows are 1 to {}", self.rows.len()))?;
-        let charts: Vec<usize> = (self.columns.iter().enumerate())
-            .filter(|(_, (_, chart))| *chart)
-            .map(|(index, _)| index)
-            .collect();
-        let index = match column {
-            Some(name) => (charts.iter().copied())
-                .find(|index| self.columns[*index].0 == name)
-                .ok_or_else(|| format!("`--chart {pick}`: no column of charts `{name}`"))?,
-            None if charts.len() == 1 => charts[0],
-            None if charts.is_empty() => {
-                return Err(format!(
-                    "`--chart {pick}`: the result has no column of charts"
-                ))
-            }
-            None => {
-                let names: Vec<&str> = charts.iter().map(|i| self.columns[*i].0.as_str()).collect();
-                return Err(format!(
-                    "`--chart {pick}`: name a column of charts, one of {}",
-                    names.join(", ")
-                ));
-            }
-        };
-        match &self.rows[row - 1][index] {
-            Value::Chart(chart) => Ok(chart),
-            _ => Err(format!("`--chart {pick}`: the cell holds no chart")),
-        }
-    }
+    };
+    (result.chart(row - 1, index))
+        .ok_or_else(|| format!("`--chart {pick}`: the cell holds no chart"))
 }
 
 /// The natural size of `chart`, at the sides of `size` that are set.
@@ -718,13 +661,23 @@ const FONT_SIZE: f32 = 12.0;
 /// The scene of a table of charts: a header of the column names, then each row, its charts at
 /// their cells' sizes and its other values as text.
 async fn table_scene(
-    table: &ResultTable,
+    result: &QueryResult,
     cascade: &Arc<Cascade>,
     options: &Options,
     renderer: &Renderer,
 ) -> Result<SceneGraph, Failure> {
-    let shown = table.rows.len().min(options.rows.max(1));
-    let rows = &table.rows[..shown];
+    let shown = result.num_rows().min(options.rows.max(1));
+    let names: Vec<&str> = (result.schema().fields().iter())
+        .map(|f| f.name().as_str())
+        .collect();
+    // The cells of the shown rows, by row and column.
+    let rows: Vec<Vec<Value>> = (0..shown)
+        .map(|row| {
+            (0..names.len())
+                .map(|column| value(result, row, column))
+                .collect()
+        })
+        .collect();
     let engine = &renderer.engine;
     let measure = |text: &str, bold: bool| -> [f32; 2] {
         let style = TextStyle {
@@ -749,9 +702,7 @@ async fn table_scene(
     let line_height = measure("Mg", false)[1];
     // The size of each column and row: the natural sizes of the charts, or `--size`, and the
     // widths of the texts.
-    let mut widths: Vec<f32> = (table.columns.iter())
-        .map(|(name, _)| measure(name, true)[0])
-        .collect();
+    let mut widths: Vec<f32> = names.iter().map(|name| measure(name, true)[0]).collect();
     let mut heights = vec![line_height; rows.len()];
     let mut pads = vec![TEXT_PADDING; rows.len()];
     for (r, row) in rows.iter().enumerate() {
@@ -777,7 +728,7 @@ async fn table_scene(
         .map(|(h, pad)| h + 2.0 * pad)
         .sum();
     let mut height = header_height + rows_height;
-    let more = table.rows.len() - shown;
+    let more = result.num_rows() - shown;
     if more > 0 || rows.is_empty() {
         height += header_height;
     }
@@ -788,8 +739,8 @@ async fn table_scene(
     let mut marks = Vec::new();
     let mut texts: Vec<(f32, f32, String, bool)> = Vec::new();
     let mut x = 0.0;
-    for (c, (name, _)) in table.columns.iter().enumerate() {
-        texts.push((x + PADDING, TEXT_PADDING, name.clone(), true));
+    for (c, name) in names.iter().enumerate() {
+        texts.push((x + PADDING, TEXT_PADDING, name.to_string(), true));
         x += widths[c] + 2.0 * PADDING;
     }
     let mut y = header_height;
@@ -803,8 +754,7 @@ async fn table_scene(
                 Value::Chart(chart) => {
                     let size = [Some(cell[0]), Some(cell[1])];
                     let (chart_marks, _) =
-                        chart_marks(chart.as_ref().clone(), cascade, options, renderer, size)
-                            .await?;
+                        chart_marks((*chart).clone(), cascade, options, renderer, size).await?;
                     marks.push(SceneMark::Group(SceneGroup {
                         name: format!("cell-{}-{}", r + 1, c + 1),
                         origin: [x + PADDING, y + pad],
@@ -828,7 +778,7 @@ async fn table_scene(
         texts.push((PADDING, y + TEXT_PADDING, note, false));
         eprintln!(
             "warning: the image shows {shown} of {} rows",
-            table.rows.len()
+            result.num_rows()
         );
     }
     marks.push(SceneMark::Rule(SceneRuleMark {
