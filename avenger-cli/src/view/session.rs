@@ -19,6 +19,7 @@ use avenger_sql_project::{
 
 use crate::render::{load, run_target, Failure, Target};
 use crate::report::{Report, Severity};
+use crate::statement::cell_at_line;
 
 /// What a change did to the chart.
 pub enum Outcome {
@@ -38,8 +39,9 @@ pub struct Session {
 }
 
 impl Session {
-    /// Opens the project of `chart`, a chart script or `doc.qmd#NAME`, and runs the chart. A
-    /// chart whose project does not open fails, and a chart with errors opens with them.
+    /// Opens the project of `chart`, a chart script, `doc.qmd#NAME`, or the statement at a line
+    /// of either as `FILE:LINE`, and runs the chart. A chart whose project does not open fails,
+    /// and a chart with errors opens with them.
     pub async fn open(chart: &str) -> Result<(Session, Outcome), String> {
         let target = load(chart).await.map_err(|failure| match failure {
             Failure::Usage(error) => error,
@@ -179,30 +181,38 @@ impl Session {
     }
 
     /// Reads the chart's own file again: a script, or the document of a cell, whose cell keeps
-    /// its name.
+    /// its name, or its line. A target at a line points at the statement at the line again.
     fn own_text_changed(&mut self, path: &Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let target = &mut self.target;
         match &target.document {
             None => {
                 let project = target.analysis.project_mut();
-                project.set_texts([(target.path.clone(), text.clone())]);
+                project.set_texts([(target.script.clone(), text.clone())]);
+                target.path = target.script.clone();
                 target.text = text;
             }
             Some(_) => {
                 let document = Qmd::parse(text.as_str());
-                let name = (self.chart.rsplit_once('#')).map_or("1", |(_, name)| name);
-                let (index, cell) = (document.cell(name)).ok_or_else(|| {
-                    format!("{}: no `{{avenger-sql}}` cell `{name}`", path.display())
-                })?;
-                let (relative, _) = target.path.rsplit_once('#').unwrap_or((&target.path, ""));
-                let relative = relative.to_string();
+                let (index, cell) = match target.line {
+                    Some(line) => (cell_at_line(&document, line))
+                        .map_err(|error| format!("{}: {error}", self.chart))?,
+                    None => {
+                        let name = (self.chart.rsplit_once('#')).map_or("1", |(_, name)| name);
+                        (document.cell(name)).ok_or_else(|| {
+                            format!("{}: no `{{avenger-sql}}` cell `{name}`", path.display())
+                        })?
+                    }
+                };
                 target.text = cell.text.clone();
-                target.path = avenger_sql_project::qmd::cell_path(&relative, index + 1);
+                target.path = avenger_sql_project::qmd::cell_path(&target.script, index + 1);
                 target.cell = Some(index);
-                target.analysis.set_document(&relative, Some(text));
+                target.analysis.set_document(&target.script, Some(text));
                 target.document = Some(document);
             }
+        }
+        if let Some(line) = target.line {
+            (target.point_at(line)).map_err(|error| format!("{}: {error}", self.chart))?;
         }
         Ok(())
     }

@@ -459,3 +459,134 @@ fn charts_lists_the_names_that_render_takes() {
     assert_eq!(status, 1);
     assert!(stdout.starts_with("charts/bad.av.sql: error: "), "{stdout}");
 }
+
+/// A chart script of several statements: a `DECLARE`, a query, a temporary table, two queries on
+/// one line, and its last query.
+const STEPS: &str = "-- Steps toward a chart.
+DECLARE limit_rows INT64 DEFAULT 3;
+
+FROM vega_datasets.cars
+|> SELECT Name, Origin
+|> LIMIT 2;
+
+CREATE TEMP TABLE heavy AS (
+  FROM vega_datasets.cars
+  |> WHERE Weight_in_lbs > 4500
+  |> SELECT Name, Weight_in_lbs
+);
+FROM heavy |> AGGREGATE COUNT(*) AS n; FROM heavy |> LIMIT 1;
+
+FROM heavy
+|> AGGREGATE COUNT(*) AS cars
+";
+
+/// The CSV of `query -f TARGET`, after its status and standard error.
+fn rows_of(root: &Path, target: &str) -> (i32, String, String) {
+    text(
+        root,
+        &["query", "--output", "csv", "--limit", "all", "-f", target],
+    )
+}
+
+#[test]
+fn a_line_names_the_statement_that_holds_it() {
+    let (_directory, root) = project();
+    std::fs::write(root.join("charts/steps.av.sql"), STEPS).unwrap();
+    let first = "Name,Origin\nchevrolet chevelle malibu,USA\nbuick skylark 320,USA\n";
+    // Any line of a query, from its first to its last, names it, and it runs after the
+    // statements before it.
+    for line in [4, 5, 6] {
+        let (status, csv, stderr) = rows_of(&root, &format!("charts/steps.av.sql:{line}"));
+        assert_eq!(
+            (status, csv.as_str(), stderr.as_str()),
+            (0, first, ""),
+            "{line}"
+        );
+    }
+    // A statement that makes a table shows the table.
+    let (status, csv, _) = rows_of(&root, "charts/steps.av.sql:10");
+    assert_eq!(status, 0);
+    assert!(csv.starts_with("Name,Weight_in_lbs\n"), "{csv}");
+    assert_eq!(csv.lines().count(), 18);
+    // Of two statements on one line, the first.
+    let (_, csv, _) = rows_of(&root, "charts/steps.av.sql:13");
+    assert_eq!(csv, "n\n17\n");
+    // The last query is the script's value, as the script without a line.
+    let (_, last, _) = rows_of(&root, "charts/steps.av.sql:16");
+    let (_, whole, _) = rows_of(&root, "charts/steps.av.sql");
+    assert_eq!(
+        (last.as_str(), whole.as_str()),
+        ("cars\n17\n", "cars\n17\n")
+    );
+}
+
+#[test]
+fn a_line_without_a_statement_of_rows_is_an_error_that_says_where_they_are() {
+    let (_directory, root) = project();
+    std::fs::write(root.join("charts/steps.av.sql"), STEPS).unwrap();
+    for (line, message) in [
+        (
+            1,
+            "no statement holds the line; the first statement starts at line 2",
+        ),
+        (
+            3,
+            "no statement holds the line; the statements around it start at lines 2 and 4",
+        ),
+        (
+            40,
+            "no statement holds the line; the last statement starts at line 15",
+        ),
+        (2, "the statement at line 2 has no rows"),
+    ] {
+        let target = format!("charts/steps.av.sql:{line}");
+        let (status, csv, stderr) = rows_of(&root, &target);
+        assert_eq!((status, csv.as_str()), (2, ""), "{line}");
+        assert_eq!(
+            stderr.trim(),
+            format!("error: {target}: {message}"),
+            "{line}"
+        );
+    }
+    // A data script's statement waits for its own change.
+    let (status, _, stderr) = rows_of(&root, "data/summaries.av.sql:2");
+    assert_eq!(status, 2);
+    assert!(
+        stderr.contains("a statement of a data script or a module is no target"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn a_line_of_a_document_names_its_cell_and_the_statement_in_it() {
+    let (_directory, root) = project();
+    let (_, second, _) = rows_of(&root, "reports/overview.qmd#2");
+    let (status, line, stderr) = rows_of(&root, "reports/overview.qmd:9");
+    assert_eq!(
+        (status, line.as_str(), stderr.as_str()),
+        (0, second.as_str(), "")
+    );
+    let (status, _, stderr) = rows_of(&root, "reports/overview.qmd:7");
+    assert_eq!(status, 2);
+    assert_eq!(
+        stderr.trim(),
+        "error: reports/overview.qmd:7: the line is in no `{avenger-sql}` cell; its cells are #1 \
+         at lines 4-5, #2 at lines 9-9"
+    );
+}
+
+#[test]
+fn a_target_splits_at_its_last_colon_only_before_digits() {
+    use avenger_cli::statement::split_line;
+    assert_eq!(
+        split_line("charts/a.av.sql:12"),
+        Ok(("charts/a.av.sql", Some(12)))
+    );
+    assert_eq!(split_line("charts/a.av.sql"), Ok(("charts/a.av.sql", None)));
+    assert_eq!(split_line(r"C:\p\a.av.sql"), Ok((r"C:\p\a.av.sql", None)));
+    assert_eq!(
+        split_line(r"C:\p\a.av.sql:3"),
+        Ok((r"C:\p\a.av.sql", Some(3)))
+    );
+    assert!(split_line("charts/a.av.sql:0").is_err());
+}
