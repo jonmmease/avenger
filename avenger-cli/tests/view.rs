@@ -38,6 +38,7 @@ fn kinds(outcomes: &[Outcome]) -> Vec<&'static str> {
     (outcomes.iter())
         .map(|outcome| match outcome {
             Outcome::Ran(_) => "ran",
+            Outcome::Rows(_) => "rows",
             Outcome::Failed(_) => "failed",
             Outcome::Restyled(_) => "restyled",
         })
@@ -171,16 +172,10 @@ async fn a_statement_at_a_line_runs_again_when_its_script_changes() {
     std::fs::write(root.join("charts/steps.av.sql"), script).unwrap();
     let target = format!("{}:1", root.join("charts/steps.av.sql").display());
     let (mut session, first) = Session::open(&target).await.unwrap();
-    let Outcome::Ran(result) = &first else {
-        panic!("the statement runs when the window opens");
-    };
-    assert_eq!(result.num_rows(), 2);
+    assert_eq!(count(&first).await, 2);
     let edited = script.replace("LIMIT 2", "LIMIT 3");
     let outcomes = edit(&mut session, &root, "charts/steps.av.sql", &edited).await;
-    let [Outcome::Ran(result)] = outcomes.as_slice() else {
-        panic!("{:?}", kinds(&outcomes));
-    };
-    assert_eq!(result.num_rows(), 3);
+    assert_eq!(ran(&outcomes).await, 3);
 }
 
 #[tokio::test]
@@ -188,17 +183,11 @@ async fn a_data_script_s_statement_shows_its_table_again_when_the_script_changes
     let (_directory, root) = project();
     let target = format!("{}:7", root.join("data/summaries.av.sql").display());
     let (mut session, first) = Session::open(&target).await.unwrap();
-    let Outcome::Ran(result) = &first else {
-        panic!("the table shows when the window opens");
-    };
-    assert_eq!(result.num_rows(), 2);
+    assert_eq!(count(&first).await, 2);
     let summaries = std::fs::read_to_string(root.join("data/summaries.av.sql")).unwrap();
     let lighter = summaries.replace("Weight_in_lbs > 3000", "Weight_in_lbs > 0");
     let outcomes = edit(&mut session, &root, "data/summaries.av.sql", &lighter).await;
-    let [Outcome::Ran(result)] = outcomes.as_slice() else {
-        panic!("{:?}", kinds(&outcomes));
-    };
-    assert_eq!(result.num_rows(), 3);
+    assert_eq!(ran(&outcomes).await, 3);
 }
 
 /// A chart script of an earlier query, a temporary table, and its last query.
@@ -210,16 +199,23 @@ async fn steps(root: &Path, line: usize) -> (Session, usize) {
     std::fs::write(root.join("charts/steps.av.sql"), STEPS).unwrap();
     let target = format!("{}:{line}", root.join("charts/steps.av.sql").display());
     let (session, first) = Session::open(&target).await.unwrap();
-    let Outcome::Ran(result) = &first else {
-        panic!("the statement runs when the window opens");
-    };
-    (session, result.num_rows())
+    let rows = count(&first).await;
+    (session, rows)
+}
+
+/// The rows of `outcome`, a run: of its result, or the count of its source of rows.
+async fn count(outcome: &Outcome) -> usize {
+    match outcome {
+        Outcome::Ran(result) => result.num_rows(),
+        Outcome::Rows(source) => source.count().await.unwrap(),
+        _ => panic!("a run: {:?}", kinds(std::slice::from_ref(outcome))),
+    }
 }
 
 /// The rows of the one run of `outcomes`.
-fn ran(outcomes: &[Outcome]) -> usize {
+async fn ran(outcomes: &[Outcome]) -> usize {
     match outcomes {
-        [Outcome::Ran(result)] => result.num_rows(),
+        [outcome] => count(outcome).await,
         _ => panic!("a run: {:?}", kinds(outcomes)),
     }
 }
@@ -232,7 +228,7 @@ async fn a_statement_keeps_its_key_as_lines_come_before_it_and_its_title_follows
     assert_eq!(session.title(), "charts/steps.av.sql:1 · query 1");
     let moved = format!("-- Steps.\n-- Toward a chart.\n{STEPS}");
     let outcomes = edit(&mut session, &root, "charts/steps.av.sql", &moved).await;
-    assert_eq!(ran(&outcomes), 2);
+    assert_eq!(ran(&outcomes).await, 2);
     assert_eq!(session.title(), "charts/steps.av.sql:3 · query 1");
     // A table keeps its name, and the script's value stays its last query when a query comes
     // before it.
@@ -245,11 +241,11 @@ async fn a_statement_keeps_its_key_as_lines_come_before_it_and_its_title_follows
     );
     let more = STEPS.replace("\n\nFROM heavy", "\n\nFROM heavy |> LIMIT 1;\n\nFROM heavy");
     let outcomes = edit(&mut value, &root, "charts/steps.av.sql", &more).await;
-    assert_eq!(ran(&outcomes), 1);
+    assert_eq!(ran(&outcomes).await, 1);
     assert_eq!(value.title(), "charts/steps.av.sql:7 · result");
     let outcomes = table.changed(&[root.join("charts/steps.av.sql")]).await;
     assert_eq!(table.title(), "charts/steps.av.sql:3 · table heavy");
-    assert!(ran(&outcomes) > 1);
+    assert!(ran(&outcomes).await > 1);
 }
 
 #[tokio::test]
@@ -267,7 +263,7 @@ async fn a_key_that_finds_no_statement_keeps_the_result_and_says_so() {
     );
     // The table comes back, and shows again.
     let outcomes = edit(&mut session, &root, "charts/steps.av.sql", STEPS).await;
-    assert!(ran(&outcomes) > 1);
+    assert!(ran(&outcomes).await > 1);
 }
 
 #[tokio::test]

@@ -8,7 +8,8 @@ use std::future::Future;
 
 /// The runtime of a host's work, such as queries, and of the evaluations and the apps of its charts.
 pub struct Exec {
-    runtime: tokio::runtime::Runtime,
+    /// The runtime, which the exec shuts down without waiting for its work when it drops.
+    runtime: Option<tokio::runtime::Runtime>,
 }
 
 /// A piece of work that runs in the background, which newer work can stop. On the web, the work
@@ -38,7 +39,15 @@ impl Exec {
         // The work needs neither timers nor I/O, whose drivers the web does not have.
         #[cfg(target_arch = "wasm32")]
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
-        Ok(Self { runtime })
+        Ok(Self {
+            runtime: Some(runtime),
+        })
+    }
+
+    fn runtime(&self) -> &tokio::runtime::Runtime {
+        self.runtime
+            .as_ref()
+            .expect("a runtime until the exec drops")
     }
 
     /// Runs the future that `work` makes in the background: natively on a blocking thread, which
@@ -52,8 +61,8 @@ impl Exec {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let (cancel, cancelled) = tokio::sync::oneshot::channel::<()>();
-            let handle = self.runtime.handle().clone();
-            drop(self.runtime.spawn_blocking(move || {
+            let handle = self.runtime().handle().clone();
+            drop(self.runtime().spawn_blocking(move || {
                 handle.block_on(async move {
                     // A dropped task's sender closes the channel, which stops nothing: only a
                     // sent signal stops the work.
@@ -69,7 +78,7 @@ impl Exec {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            self.runtime.block_on(work());
+            self.runtime().block_on(work());
             Task {}
         }
     }
@@ -77,7 +86,7 @@ impl Exec {
     /// Runs the blocking `work`: on a blocking thread natively, and now on the web.
     pub fn spawn_blocking(&self, work: impl FnOnce() + Send + 'static) {
         #[cfg(not(target_arch = "wasm32"))]
-        drop(self.runtime.spawn_blocking(work));
+        drop(self.runtime().spawn_blocking(work));
         #[cfg(target_arch = "wasm32")]
         work();
     }
@@ -86,11 +95,21 @@ impl Exec {
     /// the web, a chart app runs its tasks on the page's thread by itself.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn handle(&self) -> tokio::runtime::Handle {
-        self.runtime.handle().clone()
+        self.runtime().handle().clone()
     }
 
     /// Runs `future` to its end on this thread.
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
-        self.runtime.block_on(future)
+        self.runtime().block_on(future)
+    }
+}
+
+impl Drop for Exec {
+    /// Shuts the runtime down without waiting for its work, such as a paged table's reader that
+    /// waits for the table to want more rows, so a window closes at once.
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
     }
 }

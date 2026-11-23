@@ -35,7 +35,7 @@ const HANDLE: f32 = 6.0;
 /// The side of the square expand button at the top right corner of a chart cell.
 const EXPAND_SIZE: f32 = 22.0;
 /// The height of a row without charts.
-const TEXT_ROW_HEIGHT: f32 = 24.0;
+pub(crate) const TEXT_ROW_HEIGHT: f32 = 24.0;
 /// The limits of the row height that the row handle sets.
 const ROW_HEIGHTS: (f32, f32) = (60.0, 1200.0);
 /// The scenes that a cell keeps, at its most recent sizes, so that a size it had draws at once.
@@ -635,24 +635,14 @@ impl TableDelegate for Grid<'_> {
         } else {
             field.data_type().to_string()
         };
-        underline(ui);
-        padded(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.add(egui::Label::new(egui::RichText::new(field.name()).strong()).extend());
-                ui.add(egui::Label::new(egui::RichText::new(kind).small().weak()).extend());
-            });
-        });
+        header_ui(ui, field.name(), &kind);
     }
 
     fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &CellInfo) {
         let (row, column) = (cell.row_nr as usize, cell.col_nr);
         let rect = ui.max_rect();
-        if row % 2 == 1 && !self.result.is_chart_column(column) {
-            let stripe = match ui.visuals().dark_mode {
-                true => STRIPE_DARK,
-                false => STRIPE,
-            };
-            ui.painter().rect_filled(rect, 0.0, stripe);
+        if !self.result.is_chart_column(column) {
+            stripe(ui, row);
         }
         if self.result.is_chart_column(column) {
             if ui.is_sizing_pass() {
@@ -684,12 +674,7 @@ impl TableDelegate for Grid<'_> {
             self.row_edge(ui, rect, row, column);
             return;
         }
-        padded(ui, |ui| match self.result.value_text(row, column) {
-            Some(text) => ui.add(egui::Label::new(egui::RichText::new(text).monospace()).extend()),
-            None => {
-                ui.add(egui::Label::new(egui::RichText::new("null").weak().monospace()).extend())
-            }
-        });
+        text_ui(ui, self.result.value_text(row, column).as_deref());
         if !self.result.chart_columns().is_empty() {
             self.row_edge(ui, rect, row, column);
         }
@@ -702,6 +687,36 @@ impl TableDelegate for Grid<'_> {
             self.cells.row_height
         }
     }
+}
+
+/// The header of a column: its name, and its type under it.
+pub(crate) fn header_ui(ui: &mut egui::Ui, name: &str, kind: &str) {
+    underline(ui);
+    padded(ui, |ui| {
+        ui.vertical(|ui| {
+            ui.add(egui::Label::new(egui::RichText::new(name).strong()).extend());
+            ui.add(egui::Label::new(egui::RichText::new(kind).small().weak()).extend());
+        });
+    });
+}
+
+/// The stripe of every other row of text, behind the cell of `row`.
+pub(crate) fn stripe(ui: &egui::Ui, row: usize) {
+    if row % 2 == 1 {
+        let stripe = match ui.visuals().dark_mode {
+            true => STRIPE_DARK,
+            false => STRIPE,
+        };
+        ui.painter().rect_filled(ui.max_rect(), 0.0, stripe);
+    }
+}
+
+/// A cell of text: the value's text, or `null`, which reads weaker.
+pub(crate) fn text_ui(ui: &mut egui::Ui, text: Option<&str>) {
+    padded(ui, |ui| match text {
+        Some(text) => ui.add(egui::Label::new(egui::RichText::new(text).monospace()).extend()),
+        None => ui.add(egui::Label::new(egui::RichText::new("null").weak().monospace()).extend()),
+    });
 }
 
 /// A hairline along the bottom of the ui's rect, in the stroke of the table's column lines.
@@ -737,7 +752,7 @@ fn expand_icon(painter: &egui::Painter, rect: egui::Rect, color: egui::Color32) 
 }
 
 /// Cell contents with room on either side, so that columns sized to their contents don't touch.
-fn padded<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+pub(crate) fn padded<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::NONE
         .inner_margin(egui::Margin::symmetric(6, 3))
         .show(ui, add)

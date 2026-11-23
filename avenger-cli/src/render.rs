@@ -445,7 +445,15 @@ impl Target {
 /// Checks the target as `check` does, runs its chart script, and gives its result, or the reports
 /// of its errors.
 pub(crate) async fn run_target(target: &Target) -> Result<QueryResult, Failure> {
-    let frame = plan_target(target).await?;
+    collect_target(target, plan_target(target).await?).await
+}
+
+/// Runs the frame `frame` of the target's chart script, and gives its result, or the reports of
+/// its errors.
+pub(crate) async fn collect_target(
+    target: &Target,
+    frame: DataFrame,
+) -> Result<QueryResult, Failure> {
     // The columns come from the query's schema, so a result without rows still has its header.
     let schema = frame.schema().inner().clone();
     let batches = (frame.collect().await).map_err(|error| target.failure(error))?;

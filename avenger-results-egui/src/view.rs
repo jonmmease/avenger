@@ -13,6 +13,7 @@ use eframe::{egui, egui_wgpu::RenderState};
 use crate::charts::Images;
 use crate::exec::Exec;
 use crate::live::LiveChart;
+use crate::paged::{PagedTable, RowSource};
 use crate::table::{CellKey, CellScene, Cells, Env, Grid, LiveCells};
 
 /// What the charts of a view share with their host: the GPU, the runtime of their evaluations and
@@ -35,6 +36,8 @@ pub struct Shared<'a> {
 pub struct ResultView {
     /// The result, with the id that its cells' scenes carry.
     result: Option<(u64, Arc<QueryResult>)>,
+    /// A table of rows that a source reads as it scrolls, in place of a result, with its id.
+    paged: Option<(u64, PagedTable)>,
     next: u64,
     /// The live chart of a result of one chart.
     pane: Pane,
@@ -53,6 +56,7 @@ impl Default for ResultView {
     fn default() -> Self {
         Self {
             result: None,
+            paged: None,
             next: 1,
             pane: Pane::default(),
             opened: None,
@@ -95,11 +99,23 @@ impl ResultView {
             _ => self.pane.clear(state),
         }
         self.result = Some((id, result));
+        self.paged = None;
+    }
+
+    /// Shows the rows of `source` in place of the result before them, as a table that reads its
+    /// rows a page at a time as it scrolls, so a large table never collects. A table without
+    /// charts shows this way.
+    pub fn set_rows(&mut self, source: Arc<dyn RowSource>, state: &RenderState) {
+        self.clear(state);
+        let id = self.next;
+        self.next += 1;
+        self.paged = Some((id, PagedTable::new(source)));
     }
 
     /// Drops the result and the textures of its charts.
     pub fn clear(&mut self, state: &RenderState) {
         self.result = None;
+        self.paged = None;
         self.cells.reset(0, state);
         self.live_cells.reset(0, state);
         if let Some((_, mut opened)) = self.opened.take() {
@@ -143,6 +159,9 @@ impl ResultView {
     pub fn show(&mut self, ui: &mut egui::Ui, shared: &Shared<'_>) -> Option<String> {
         while let Ok(scene) = self.scenes.1.try_recv() {
             self.cells.receive(scene);
+        }
+        if let Some((id, table)) = &mut self.paged {
+            return table.show(ui, shared.runtime, *id);
         }
         let (id, result) = self.result.clone()?;
         let env = Env {

@@ -163,6 +163,10 @@ impl Window {
                     self.errors.clear();
                     self.view.set_result(result, state);
                 }
+                Message::Outcome(Outcome::Rows(source)) => {
+                    self.errors.clear();
+                    self.view.set_rows(source, state);
+                }
                 Message::Outcome(Outcome::Failed(errors)) => self.report(errors),
                 Message::Outcome(Outcome::Restyled(stylesheet)) => {
                     let errors: Vec<String> = (stylesheet.diagnostics.iter())

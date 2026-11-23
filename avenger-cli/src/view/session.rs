@@ -18,14 +18,21 @@ use avenger_sql_project::{
     ProjectStylesheet, Role, MANIFEST,
 };
 
-use crate::render::{load, run_target, Failure, Target};
+use avenger_chart::results::is_chart_field;
+use avenger_results_egui::{RowSource, RowStream};
+use datafusion::{arrow::datatypes::SchemaRef, dataframe::DataFrame};
+use futures::{future::LocalBoxFuture, StreamExt};
+
+use crate::render::{collect_target, load, plan_target, Failure, Target};
 use crate::report::{Report, Severity};
 use crate::statement::split_line;
 
 /// What a change did to the chart.
 pub enum Outcome {
-    /// The chart ran, with its result.
+    /// The chart ran, with its result, which has charts.
     Ran(Arc<QueryResult>),
+    /// The chart planned a table without charts, whose rows read as the window shows them.
+    Rows(Arc<dyn RowSource>),
     /// The chart did not run, with its errors, each a line as `check` prints it, so the window
     /// keeps the result before.
     Failed(Vec<String>),
@@ -83,12 +90,24 @@ impl Session {
         &self.target.file
     }
 
-    /// Runs the chart.
+    /// Runs the chart: a result with charts collects, and a table without charts reads its rows
+    /// as the window scrolls, so a large table never collects.
     pub async fn run(&mut self) -> Outcome {
-        match run_target(&self.target).await {
+        let failed = |failure| match failure {
+            Failure::Reports(reports) => Outcome::Failed(lines(&reports)),
+            Failure::Usage(error) => Outcome::Failed(vec![error]),
+        };
+        let frame = match plan_target(&self.target).await {
+            Ok(frame) => frame,
+            Err(failure) => return failed(failure),
+        };
+        let charts = (frame.schema().fields().iter()).any(|field| is_chart_field(field));
+        if !charts {
+            return Outcome::Rows(Arc::new(FrameRows { frame }));
+        }
+        match collect_target(&self.target, frame).await {
             Ok(result) => Outcome::Ran(Arc::new(result)),
-            Err(Failure::Reports(reports)) => Outcome::Failed(lines(&reports)),
-            Err(Failure::Usage(error)) => Outcome::Failed(vec![error]),
+            Err(failure) => failed(failure),
         }
     }
 
@@ -268,4 +287,31 @@ fn lines(reports: &[Report]) -> Vec<String> {
             format!("{}{place}: {severity}: {}", path.display(), report.message)
         })
         .collect()
+}
+
+/// The rows of a chart script's frame, which a window reads a page at a time: one run of the
+/// frame's query read forward, and its count beside it.
+struct FrameRows {
+    frame: DataFrame,
+}
+
+impl RowSource for FrameRows {
+    fn schema(&self) -> SchemaRef {
+        self.frame.schema().inner().clone()
+    }
+
+    fn count(&self) -> LocalBoxFuture<'static, Result<usize, String>> {
+        let frame = self.frame.clone();
+        Box::pin(async move { frame.count().await.map_err(|error| error.to_string()) })
+    }
+
+    fn stream(&self) -> RowStream {
+        let frame = self.frame.clone();
+        Box::pin(async move {
+            let stream = (frame.execute_stream().await).map_err(|error| error.to_string())?;
+            Ok(stream
+                .map(|batch| batch.map_err(|error| error.to_string()))
+                .boxed_local())
+        })
+    }
 }
