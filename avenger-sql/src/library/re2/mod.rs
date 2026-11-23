@@ -28,11 +28,8 @@ use datafusion::{
     },
 };
 use regex::Regex;
-use regex_syntax::ast::{
-    self, parse::Parser, print::Printer, Assertion, AssertionKind, Ast, ClassAscii, ClassAsciiKind,
-    ClassBracketed, ClassPerl, ClassPerlKind, ClassSet, ClassSetItem, ClassSetUnion, Flag, Flags,
-    FlagsItem, FlagsItemKind, Group, GroupKind, Literal, LiteralKind, Span, SpecialLiteralKind,
-};
+
+mod syntax;
 
 /// A pattern of RE2, compiled: the `regex` of its meaning and its number of capturing groups.
 #[derive(Clone, Debug)]
@@ -43,142 +40,12 @@ pub(crate) struct Re2 {
 
 /// The pattern `pattern` of RE2, compiled, or the error that keeps it from compiling.
 pub(crate) fn compile(pattern: &str) -> std::result::Result<Re2, String> {
-    let translated = translate(pattern)?;
+    let translated = syntax::translate(pattern)?;
     let regex = Regex::new(&translated).map_err(|error| error.to_string())?;
     Ok(Re2 {
         groups: regex.captures_len() - 1,
         regex,
     })
-}
-
-/// The `regex` pattern of the meaning of the RE2 pattern `pattern`.
-fn translate(pattern: &str) -> std::result::Result<String, String> {
-    let mut ast = Parser::new()
-        .parse(pattern)
-        .map_err(|error| error.to_string())?;
-    ascii(&mut ast);
-    let mut out = String::new();
-    Printer::new()
-        .print(&ast, &mut out)
-        .map_err(|error| error.to_string())?;
-    Ok(out)
-}
-
-/// A span of no place, for the nodes that the translation makes, which the printer ignores.
-fn span() -> Span {
-    let position = ast::Position::new(0, 1, 1);
-    Span::new(position, position)
-}
-
-/// `ast` with RE2's ASCII Perl classes and word boundaries.
-fn ascii(ast: &mut Ast) {
-    match ast {
-        Ast::ClassPerl(perl) => {
-            *ast = Ast::class_bracketed(ClassBracketed {
-                span: span(),
-                negated: perl.kind == ClassPerlKind::Space && perl.negated,
-                kind: ClassSet::Item(perl_item(perl, false)),
-            });
-        }
-        Ast::ClassBracketed(class) => ascii_set(&mut class.kind),
-        Ast::Assertion(assertion)
-            if matches!(
-                assertion.kind,
-                AssertionKind::WordBoundary | AssertionKind::NotWordBoundary
-            ) =>
-        {
-            let assertion = Assertion {
-                span: span(),
-                kind: assertion.kind.clone(),
-            };
-            *ast = Ast::group(Group {
-                span: span(),
-                kind: GroupKind::NonCapturing(Flags {
-                    span: span(),
-                    items: vec![
-                        FlagsItem {
-                            span: span(),
-                            kind: FlagsItemKind::Negation,
-                        },
-                        FlagsItem {
-                            span: span(),
-                            kind: FlagsItemKind::Flag(Flag::Unicode),
-                        },
-                    ],
-                }),
-                ast: Box::new(Ast::assertion(assertion)),
-            });
-        }
-        Ast::Repetition(repetition) => ascii(&mut repetition.ast),
-        Ast::Group(group) => ascii(&mut group.ast),
-        Ast::Alternation(alternation) => alternation.asts.iter_mut().for_each(ascii),
-        Ast::Concat(concat) => concat.asts.iter_mut().for_each(ascii),
-        _ => {}
-    }
-}
-
-/// The set `set` of a bracketed class with RE2's ASCII Perl classes.
-fn ascii_set(set: &mut ClassSet) {
-    match set {
-        ClassSet::Item(item) => ascii_item(item),
-        ClassSet::BinaryOp(op) => {
-            ascii_set(&mut op.lhs);
-            ascii_set(&mut op.rhs);
-        }
-    }
-}
-
-fn ascii_item(item: &mut ClassSetItem) {
-    match item {
-        ClassSetItem::Perl(perl) => *item = perl_item(perl, true),
-        ClassSetItem::Bracketed(class) => ascii_set(&mut class.kind),
-        ClassSetItem::Union(union) => union.items.iter_mut().for_each(ascii_item),
-        _ => {}
-    }
-}
-
-/// The ASCII item of RE2's Perl class `perl`: `[:digit:]`, `[:word:]`, or RE2's white space,
-/// whose negation is a class of its own inside a bracketed class, `in_class`, and outside one is
-/// the negation of the class around it.
-fn perl_item(perl: &ClassPerl, in_class: bool) -> ClassSetItem {
-    let ascii = |kind| {
-        ClassSetItem::Ascii(ClassAscii {
-            span: span(),
-            kind,
-            negated: perl.negated,
-        })
-    };
-    match perl.kind {
-        ClassPerlKind::Digit => ascii(ClassAsciiKind::Digit),
-        ClassPerlKind::Word => ascii(ClassAsciiKind::Word),
-        ClassPerlKind::Space => {
-            let literal = |kind: Option<SpecialLiteralKind>, c| {
-                ClassSetItem::Literal(Literal {
-                    span: span(),
-                    kind: kind.map_or(LiteralKind::Verbatim, LiteralKind::Special),
-                    c,
-                })
-            };
-            let space = ClassSetItem::Union(ClassSetUnion {
-                span: span(),
-                items: vec![
-                    literal(Some(SpecialLiteralKind::Tab), '\t'),
-                    literal(Some(SpecialLiteralKind::LineFeed), '\n'),
-                    literal(Some(SpecialLiteralKind::FormFeed), '\x0C'),
-                    literal(Some(SpecialLiteralKind::CarriageReturn), '\r'),
-                    literal(None, ' '),
-                ],
-            });
-            match perl.negated && in_class {
-                true => ClassSetItem::Bracketed(Box::new(ClassBracketed {
-                    span: span(),
-                    negated: true,
-                    kind: ClassSet::Item(space),
-                })),
-                false => space,
-            }
-        }
-    }
 }
 
 /// A piece of a rewrite string: text, or the match of a group.
