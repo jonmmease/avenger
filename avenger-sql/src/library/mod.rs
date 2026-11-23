@@ -157,6 +157,9 @@ pub struct Takes {
     /// `format_pattern` option of the chart format marks, as `labels(format => ...)` does, or it is
     /// the format of a function such as `FORMAT_DATE`.
     pub format_pattern: bool,
+    /// Whether a string of the parameter is a regular expression, as the pattern of
+    /// `REGEXP_CONTAINS` is.
+    pub regex: bool,
 }
 
 impl Takes {
@@ -735,6 +738,13 @@ impl Function {
             .expect("the parameter")
             .takes
             .format_pattern = true;
+        self
+    }
+
+    /// A parameter whose string is a regular expression, as the pattern of `REGEXP_CONTAINS` is.
+    pub(crate) fn regex_param(mut self, name: &str, doc: &str) -> Self {
+        self = self.param(name, doc);
+        self.params.last_mut().expect("the parameter").takes.regex = true;
         self
     }
 

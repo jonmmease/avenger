@@ -1,7 +1,6 @@
-//! The strings in a language of their own: the string literals of Typst markup and of format
-//! patterns, as the analysis marks them, and the values of typed literals, such as `'2024-01-01'`
-//! in `DATE '2024-01-01'`. An
-//! editor's Tree-sitter grammar highlights them with grammars of their languages, by injection,
+//! The strings in a language of their own: the string literals of Typst markup, of format
+//! patterns, and of regular expressions, as the analysis marks them, and the values of typed
+//! literals, such as `'2024-01-01'` in `DATE '2024-01-01'`. An editor's Tree-sitter grammar highlights them with grammars of their languages, by injection,
 //! so a language server leaves them to it, while [`Document::highlights`] keeps their classes for
 //! the tools that highlight without injections.
 
@@ -17,6 +16,9 @@ pub enum Embedded {
     /// A format pattern, of a chart's labels, text, or tooltip, or of a function such as
     /// `FORMAT_DATE`.
     Format,
+    /// A regular expression, in RE2's syntax: the pattern of a function such as
+    /// `REGEXP_CONTAINS`.
+    Regex,
     /// The value of a typed literal: a date, a time, a datetime, a timestamp, a range, a number of
     /// a decimal type, or JSON.
     TypedValue,
@@ -43,6 +45,10 @@ impl Document {
             range,
             language: Embedded::Format,
         });
+        let regexes = (model.regexes.iter()).map(|&range| EmbeddedString {
+            range,
+            language: Embedded::Regex,
+        });
         let typed = (self.root().descendants())
             .filter(|node| node.kind() == SyntaxKind::TYPED_LITERAL)
             .flat_map(|node| node.children_with_tokens())
@@ -52,7 +58,10 @@ impl Document {
                 range: token.text_range(),
                 language: Embedded::TypedValue,
             });
-        let mut strings: Vec<EmbeddedString> = markup.chain(formats).chain(typed).collect();
+        let mut strings: Vec<EmbeddedString> = (markup.chain(formats))
+            .chain(regexes)
+            .chain(typed)
+            .collect();
         strings.sort_by_key(|string| string.range.start());
         strings
     }

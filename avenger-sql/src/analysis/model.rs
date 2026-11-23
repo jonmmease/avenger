@@ -24,6 +24,9 @@ pub struct Model {
     /// The string literals of format patterns: each string literal of an argument of a parameter
     /// that takes a format pattern, as `Takes::format_pattern` marks it.
     pub formats: Vec<TextRange>,
+    /// The string literals of regular expressions: each string literal of an argument of a
+    /// parameter that takes one, as `Takes::regex` marks it.
+    pub regexes: Vec<TextRange>,
     /// The places where the pass plans expressions, and what each takes.
     pub places: Vec<Place>,
     /// The type of the expression before each `.` of a field access.

@@ -858,3 +858,32 @@ fn format_patterns_take_no_tokens() {
         "{tokens:?}"
     );
 }
+
+#[test]
+fn regex_patterns_take_no_tokens() {
+    let (_directory, root) = project();
+    let text = "FROM wet_days\n|> EXTEND REGEXP_REPLACE(weather, r'(\\w)+', 'x') AS r, REGEXP_CONTAINS(weather, '^s') AS s\n";
+    std::fs::write(root.join("charts/regexes.av.sql"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let chart = uri(&root, "charts/regexes.av.sql");
+    client.open(&chart, text);
+    client.until("the chart's diagnostics", |c| {
+        c.diagnostics.contains_key(&chart)
+    });
+    let tokens = tokens(&mut client, &chart);
+    let line = text.lines().nth(1).unwrap();
+    let span = |literal: &str| {
+        let at = line.find(literal).unwrap() as u32;
+        (at, at + literal.len() as u32)
+    };
+    for pattern in ["r'(\\w)+'", "'^s'"] {
+        assert!(!touches(&tokens, 1, span(pattern)), "{pattern}: {tokens:?}");
+    }
+    // The replacement is a string of its own, with its token.
+    let (replacement, end) = span("'x'");
+    let string = token_kind(&client, "string");
+    assert!(
+        tokens.contains(&(1, replacement, end - replacement, string)),
+        "{tokens:?}"
+    );
+}
