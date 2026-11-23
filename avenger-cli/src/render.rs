@@ -102,7 +102,7 @@ impl Format {
 
 /// Why a chart did not render: the reports of its errors, which fail the command, or an error
 /// that keeps it from running.
-enum Failure {
+pub(crate) enum Failure {
     Reports(Vec<Report>),
     Usage(String),
 }
@@ -223,7 +223,7 @@ fn load_sheet(path: &Path) -> Result<Sheet, String> {
 
 /// How the charts' images load: with the User-Agent of the program, as the usage policies of tile
 /// servers ask, and with a disk cache in the platform's cache directory, when it has one.
-fn image_options() -> Result<ImageCacheOptions, String> {
+pub(crate) fn image_options() -> Result<ImageCacheOptions, String> {
     const USER_AGENT: &str = concat!(
         "avenger-cli/",
         env!("CARGO_PKG_VERSION"),
@@ -261,36 +261,51 @@ fn cache_dir() -> Option<PathBuf> {
 
 /// A chart script or a cell, ready to run: the analysis path of its text, the text, and its
 /// file on disk, with the place of the text in the file.
-struct Target {
-    loader: Loader,
-    analysis: Analysis,
-    stylesheet: ProjectStylesheet,
-    path: String,
-    text: String,
+pub(crate) struct Target {
+    pub(crate) loader: Loader,
+    pub(crate) analysis: Analysis,
+    pub(crate) stylesheet: ProjectStylesheet,
+    pub(crate) path: String,
+    pub(crate) text: String,
     /// The file on disk, and for a cell, the text of its document.
-    file: PathBuf,
-    document: Option<Qmd>,
-    cell: Option<usize>,
+    pub(crate) file: PathBuf,
+    pub(crate) document: Option<Qmd>,
+    pub(crate) cell: Option<usize>,
+    /// The files of the project, and its root on disk, or `None` for a loose file, which runs as
+    /// a project of one file.
+    pub(crate) files: ProjectFiles,
+    pub(crate) root: Option<PathBuf>,
 }
 
-/// Renders the chart `chart`, a path with a cell's `#NAME` or not, to `out`.
-async fn render_target(
-    chart: &str,
-    out: &Path,
-    format: Format,
-    options: &Options,
-    renderer: &Renderer,
-) -> Result<(), Failure> {
-    let target = load(chart).await?;
+impl Target {
+    /// The report of the error `message` of the target: of its whole file, or of a cell's first
+    /// line.
+    pub(crate) fn report(&self, message: String) -> Report {
+        match (&self.document, self.cell) {
+            (Some(document), Some(index)) => {
+                let line = first_line(&document.text, &document.cells[index]);
+                Report::at(
+                    &self.file,
+                    &document.text,
+                    line,
+                    Severity::Error,
+                    message,
+                    "render",
+                )
+            }
+            _ => Report::file(&self.file, Severity::Error, message, "render"),
+        }
+    }
+}
+
+/// Checks the target as `check` does, runs its chart script, and gives its result, or the reports
+/// of its errors.
+pub(crate) async fn run_target(target: &Target) -> Result<QueryResult, Failure> {
     let file_text = match &target.document {
         Some(document) => document.text.as_str(),
         None => target.text.as_str(),
     };
-    let cell = target
-        .document
-        .as_ref()
-        .zip(target.cell)
-        .map(|(d, i)| &d.cells[i]);
+    let cell = (target.document.as_ref().zip(target.cell)).map(|(d, i)| &d.cells[i]);
     let to_document = |offset| cell.map_or(offset, |cell| cell.to_document(offset));
     let file = File {
         path: &target.file,
@@ -302,19 +317,9 @@ async fn render_target(
         first_line: cell.map(|cell| first_line(file_text, cell)),
     };
     // The script's errors, as `check` reports them, keep it from running.
-    let reports = check_text(
-        &target.analysis,
-        &target.loader,
-        &target.path,
-        &target.text,
-        false,
-        &file,
-    )
-    .await;
-    if reports
-        .iter()
-        .any(|report| report.severity == Severity::Error)
-    {
+    let (analysis, loader) = (&target.analysis, &target.loader);
+    let reports = check_text(analysis, loader, &target.path, &target.text, false, &file).await;
+    if (reports.iter()).any(|report| report.severity == Severity::Error) {
         return Err(Failure::Reports(reports));
     }
     let failed = |error: DataFusionError| Failure::Reports(failure_reports(&error, &file));
@@ -327,8 +332,20 @@ async fn render_target(
     // The columns come from the query's schema, so a result without rows still has its header.
     let schema = frame.schema().inner().clone();
     let batches = frame.collect().await.map_err(failed)?;
-    let result = QueryResult::new(schema, batches)
-        .map_err(|error| Failure::Reports(vec![report(&file, error.to_string())]))?;
+    QueryResult::new(schema, batches)
+        .map_err(|error| Failure::Reports(vec![target.report(error.to_string())]))
+}
+
+/// Renders the chart `chart`, a path with a cell's `#NAME` or not, to `out`.
+async fn render_target(
+    chart: &str,
+    out: &Path,
+    format: Format,
+    options: &Options,
+    renderer: &Renderer,
+) -> Result<(), Failure> {
+    let target = load(chart).await?;
+    let result = run_target(&target).await?;
     let cascade = target
         .stylesheet
         .cascade(background(options.color_scheme), renderer.extra.as_ref());
@@ -338,7 +355,7 @@ async fn render_target(
     let scene = match (&options.chart, single) {
         (Some(picked), _) => {
             let chart = pick(&result, picked)
-                .map_err(|error| Failure::Reports(vec![report(&file, error)]))?;
+                .map_err(|error| Failure::Reports(vec![target.report(error)]))?;
             chart_scene(chart.clone(), &cascade, options, renderer, options.size).await?
         }
         (None, Some(chart)) => {
@@ -351,30 +368,15 @@ async fn render_target(
         .map_err(Failure::Usage)
 }
 
-/// The report of the error `message` of the whole file of `file`, or of its cell's first line.
-fn report(file: &File, message: String) -> Report {
-    match file.first_line {
-        Some(line) => Report::at(
-            file.path,
-            file.text,
-            line,
-            Severity::Error,
-            message,
-            "render",
-        ),
-        None => Report::file(file.path, Severity::Error, message, "render"),
-    }
-}
-
 /// Loads the project of the chart `chart`, a path of a chart script or `doc.qmd#NAME`, or a
 /// loose script or document as a project of one file, and finds its text.
-async fn load(chart: &str) -> Result<Target, Failure> {
+pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
     let (path, name) = match chart.rsplit_once('#') {
         Some((document, name)) if is_document(document) => (document, Some(name)),
         _ => (chart, None),
     };
     let file = std::fs::canonicalize(path).map_err(|error| format!("{path}: {error}"))?;
-    let (files, relative) = match find_root(&file) {
+    let (files, relative, root) = match find_root(&file) {
         Some(root) => {
             let files = (ProjectFiles::find(&root).await)
                 .map_err(|e| format!("{}: {e}", root.display()))?;
@@ -384,16 +386,22 @@ async fn load(chart: &str) -> Result<Target, Failure> {
                 .unwrap_or_default();
             let role = files.manifest().role(&relative);
             match role {
-                Ok(Some(Role::ChartScript | Role::Document)) => (files, relative),
-                _ => loose(&file).await?,
+                Ok(Some(Role::ChartScript | Role::Document)) => (files, relative, Some(root)),
+                _ => {
+                    let (files, relative) = loose(&file).await?;
+                    (files, relative, None)
+                }
             }
         }
-        None => loose(&file).await?,
+        None => {
+            let (files, relative) = loose(&file).await?;
+            (files, relative, None)
+        }
     };
     let mut analysis = Analysis::new(&files).await.map_err(|e| e.to_string())?;
     let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
     let (loader, state) =
-        (Loader::load(files, SessionContext::new()).await).map_err(|e| e.to_string())?;
+        (Loader::load(files.clone(), SessionContext::new()).await).map_err(|e| e.to_string())?;
     analysis.apply(&state);
     let (path, text, document, cell) = match analysis.qmd(&relative) {
         Some(document) => {
@@ -434,6 +442,8 @@ async fn load(chart: &str) -> Result<Target, Failure> {
         file,
         document,
         cell,
+        files,
+        root,
     })
 }
 

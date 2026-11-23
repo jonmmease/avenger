@@ -20,6 +20,7 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-image = { path = "../avenger-image" }
 avenger-pdf = { path = "../avenger-pdf" }
+avenger-results-egui = { path = "../avenger-results-egui" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-sql = { path = "../avenger-sql" }
 avenger-sql-language = { path = "../avenger-sql-language" }
@@ -32,6 +33,17 @@ avenger-wgpu = { path = "../avenger-wgpu" }
 clap = { version = "4.5", features = ["derive"] }
 crossbeam-channel = "0.5"
 datafusion = { workspace = true }
+eframe = { version = "0.33.3", default-features = false, features = [
+    "default_fonts",
+    "wgpu",
+    "wayland",
+    "x11",
+] }
+# eframe enables egui-wgpu's fix for window contents stretching during a macOS resize only
+# through its default features.
+egui-wgpu = { version = "0.33.3", default-features = false, features = [
+    "macos-window-resize-jitter-fix",
+] }
 lsp-server = "0.7"
 lsp-types = "0.95"
 serde = { workspace = true }
@@ -45,3 +57,4 @@ lsp-server = "0.7"
 lsp-types = "0.95"
 serde_json = { workspace = true }
 tempfile = "3.14"
+tokio = { workspace = true, features = ["macros", "rt"] }
