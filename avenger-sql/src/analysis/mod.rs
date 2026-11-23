@@ -14,6 +14,7 @@
 mod build;
 mod data;
 mod expr;
+mod formats;
 mod highlight;
 mod lifting;
 mod match_recognize;

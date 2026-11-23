@@ -830,3 +830,31 @@ fn the_values_of_typed_literals_take_no_tokens() {
         "{tokens:?}"
     );
 }
+
+#[test]
+fn format_patterns_take_no_tokens() {
+    let (_directory, root) = project();
+    let text = "FROM wet_days\n|> AGGREGATE mark_bar(x => x(date, axis => axis(labels => labels(format => \"%'.2f\"))), y => precipitation) AS chart, ANY_VALUE(FORMAT_DATE('%Y-%m', date)) AS month, ANY_VALUE(CONCAT('plain', weather)) AS w\n";
+    std::fs::write(root.join("charts/formats.av.sql"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let chart = uri(&root, "charts/formats.av.sql");
+    client.open(&chart, text);
+    client.until("the chart's diagnostics", |c| {
+        c.diagnostics.contains_key(&chart)
+    });
+    let tokens = tokens(&mut client, &chart);
+    let line = text.lines().nth(1).unwrap();
+    let span = |literal: &str| {
+        let at = line.find(literal).unwrap() as u32;
+        (at, at + literal.len() as u32)
+    };
+    for format in ["\"%'.2f\"", "'%Y-%m'"] {
+        assert!(!touches(&tokens, 1, span(format)), "{format}: {tokens:?}");
+    }
+    let (plain, end) = span("'plain'");
+    let string = token_kind(&client, "string");
+    assert!(
+        tokens.contains(&(1, plain, end - plain, string)),
+        "{tokens:?}"
+    );
+}

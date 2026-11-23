@@ -21,6 +21,9 @@ pub struct Model {
     /// call of the constructor around it, such as `title(...)`, sets a `syntax` other than
     /// `'typst'`.
     pub markup: Vec<TextRange>,
+    /// The string literals of format patterns: each string literal of an argument of a parameter
+    /// that takes a format pattern, as `Takes::format_pattern` marks it.
+    pub formats: Vec<TextRange>,
     /// The places where the pass plans expressions, and what each takes.
     pub places: Vec<Place>,
     /// The type of the expression before each `.` of a field access.

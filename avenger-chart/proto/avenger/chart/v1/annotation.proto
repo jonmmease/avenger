@@ -42,6 +42,12 @@ extend google.protobuf.FieldOptions {
   // that read avenger-sql, such as its language server, treat the strings that fill these fields
   // as Typst. Codegen fails the build when it marks a field that does not hold strings.
   bool markup = 50009;
+  // The string field holds a format pattern, in the syntax of `Chart.number_format_syntax` for a
+  // number and of `Chart.datetime_format_syntax` for a date or a datetime: the format of labels, of
+  // the text of a text mark, and of a tooltip's values. Tools that read avenger-sql, such as its
+  // language server, treat the strings that fill these fields as format patterns. Codegen fails
+  // the build when it marks a field that does not hold strings.
+  bool format_pattern = 50010;
 }
 
 extend google.protobuf.OneofOptions {

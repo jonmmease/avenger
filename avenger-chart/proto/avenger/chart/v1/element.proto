@@ -89,7 +89,7 @@ message Labels {
   // `Chart.datetime_format_syntax`. An empty pattern takes the default of the text engine's
   // formatter, which needs no syntax. Other values, such as strings, show as text. The labels of a
   // graticule format their degrees in the syntax of `Chart.number_format_syntax`.
-  string format = 1 [(avenger.chart.v1.lift) = true];
+  string format = 1 [(avenger.chart.v1.lift) = true, (avenger.chart.v1.format_pattern) = true];
   // Typst markup for each label, as `TEXT_SYNTAX_TYPST` reads it, where `#value` is the formatted
   // value, such as `#value m/s`. An empty markup shows the formatted value as plain text. The
   // label of a category of a band, a point, or an ordinal scale also binds `null`, whether it is

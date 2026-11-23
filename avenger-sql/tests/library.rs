@@ -584,3 +584,39 @@ fn the_parameters_whose_strings_fill_markup_fields_take_markup() {
         assert!(!markup.contains(other), "{other} in {markup:#?}");
     }
 }
+
+#[test]
+fn the_parameters_whose_strings_fill_format_fields_take_format_patterns() {
+    let library = Library::new();
+    let mut formats = std::collections::BTreeSet::new();
+    for function in library.functions().chain(library.constructors()) {
+        for param in function
+            .params
+            .iter()
+            .filter(|param| param.takes.format_pattern)
+        {
+            formats.insert(format!("{}({})", function.name, param.name));
+        }
+    }
+    // The fields that the option marks, and the formats of GoogleSQL's functions.
+    for taken in [
+        "labels(format)",
+        "mark_text(format)",
+        "mark_polar_text(format)",
+        "mark_geo_text(format)",
+        "tooltip_title(format)",
+        "tooltip_field(format)",
+        "FORMAT_DATE(format)",
+        "PARSE_TIMESTAMP(format)",
+    ] {
+        assert!(formats.contains(taken), "{taken} in {formats:#?}");
+    }
+    // Other strings: a set, markup, and a column.
+    for other in [
+        "scale.type(value)",
+        "labels(markup)",
+        "tooltip_field(column)",
+    ] {
+        assert!(!formats.contains(other), "{other} in {formats:#?}");
+    }
+}

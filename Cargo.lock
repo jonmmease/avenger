@@ -1276,6 +1276,7 @@ dependencies = [
  "avenger-chart-eval",
  "avenger-datafusion-shared",
  "avenger-datafusion-transforms",
+ "avenger-format",
  "avenger-format-datetime-googlesql",
  "avenger-format-locales-d3",
  "avenger-format-number-googlesql",

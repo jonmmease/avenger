@@ -166,7 +166,7 @@ message RuleMark {
 // A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message TextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
-  string format = 1;
+  string format = 1 [(avenger.chart.v1.format_pattern) = true];
   // How each text aligns to its position across its lines. When unset, centered.
   Align align = 2;
   // How each text aligns to its position along its lines. When unset, at its middle.
@@ -425,7 +425,7 @@ message PolarRuleMark {
 // it.
 message PolarTextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
-  string format = 1;
+  string format = 1 [(avenger.chart.v1.format_pattern) = true];
   // The font family of the texts. When it is empty, the styles give it.
   string font_family = 2;
   // How the text engine reads each text. When unset, it reads each as plain text, because the
@@ -552,7 +552,7 @@ message GeoRuleMark {
 // A text aligns to its position as its `align` and its `baseline` say, centered by default.
 message GeoTextMark {
   // The pattern of a numeric or temporal `text` value, as for `Labels.format`.
-  string format = 1;
+  string format = 1 [(avenger.chart.v1.format_pattern) = true];
   // How each text aligns to its position across its lines. When unset, centered.
   Align align = 2;
   // How each text aligns to its position along its lines. When unset, at its middle.

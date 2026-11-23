@@ -87,6 +87,8 @@ let engine = avenger_typst_label::bundled_label_engine()
     .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()));
 ```
 
+The analysis checks a chart's literal pattern with these providers, by the type of the value that it formats where it knows it, so an invalid pattern is an error at its argument rather than when the chart renders. The formats of GoogleSQL's functions, such as `FORMAT_DATE`, take no check, since they print an element that GoogleSQL doesn't document as written.
+
 ## Statistics in channels
 
 A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, and the analysis plans it as the staged query that a user could type for it:
