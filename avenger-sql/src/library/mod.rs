@@ -41,6 +41,7 @@ pub(crate) mod match_recognize;
 mod math;
 pub(crate) mod operator;
 pub(crate) mod random;
+mod re2;
 mod reference;
 pub mod search;
 mod string;

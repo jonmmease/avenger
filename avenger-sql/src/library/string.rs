@@ -1,6 +1,7 @@
 //! The string functions, and the regular expressions, which follow RE2's syntax as GoogleSQL's
 //! do.
 
+use super::re2;
 use std::sync::{Arc, LazyLock};
 
 use datafusion::{
@@ -124,7 +125,7 @@ pub(super) fn functions() -> Vec<Function> {
             .param("regexp", "The regular expression, in RE2's syntax. A match anywhere in the string counts.")
             .form("(value: STRING, regexp: STRING) -> BOOL", |call| {
                 check_pattern(call, 1)?;
-                Ok(f::regexp_like(call.arg(0), call.arg(1), None))
+                Ok(re2::contains(call.arg(0), call.arg(1)))
             })
             .example("REGEXP_CONTAINS('abc123', r'[0-9]')", "TRUE"),
         Function::scalar("REGEXP_EXTRACT", "Returns the first match of a regular expression in a string.")
@@ -140,27 +141,27 @@ pub(super) fn functions() -> Vec<Function> {
                         ));
                     }
                 }
-                let matched = f::regexp_match(call.arg(0), call.arg(1), None);
-                Ok(nested::array_element(matched, lit_i64(1)))
+                Ok(re2::extract(call.arg(0), call.arg(1)))
             })
             .example("REGEXP_EXTRACT('abc123', r'[0-9]+')", "'123'")
             .example("REGEXP_EXTRACT('user@example.com', r'@(.+)')", "'example.com'"),
         Function::scalar("REGEXP_REPLACE", "Replaces every match of a regular expression in a string.")
             .param("value", "The string.")
             .param("regexp", "The regular expression, in RE2's syntax.")
-            .param("replacement", "The string that takes the place of each match, where `\\1` to `\\9` stand for the matches of the capturing groups.")
+            .param("replacement", "The string that takes the place of each match, where `\\1` to `\\9` stand for the matches of the capturing groups, `\\0` for the whole match, and `\\\\` for a backslash. Every other character, `$` included, is itself, and any other escape is an error.")
             .form("(value: STRING, regexp: STRING, replacement: STRING) -> STRING", |call| {
-                check_pattern(call, 1)?;
-                // GoogleSQL replaces every match.
-                Ok(f::regexp_replace(
-                    call.arg(0),
-                    call.arg(1),
-                    call.arg(2),
-                    Some(lit_str("g")),
-                ))
+                let groups = check_pattern(call, 1)?;
+                if let (Some(groups), Some(Expr::Literal(value, _))) = (groups, call.value(2)) {
+                    if let Some(Some(replacement)) = value.try_as_str() {
+                        re2::check_rewrite(replacement, groups)
+                            .map_err(|error| call.error_at(2, error))?;
+                    }
+                }
+                Ok(re2::replace(call.arg(0), call.arg(1), call.arg(2)))
             })
             .example("REGEXP_REPLACE('a1b2', r'[0-9]', '#')", "'a#b#'")
-            .example("REGEXP_REPLACE('abc', r'(b)', r'<\\1>')", "'a<b>c'"),
+            .example("REGEXP_REPLACE('abc', r'(b)', r'<\\1>')", "'a<b>c'")
+            .example("REGEXP_REPLACE('a.b', r'\\.', r'$\\\\')", "'a$\\\\b'"),
         Function::scalar("REPEAT", "Returns a string repeated a number of times.")
             .param("original_value", "The string.")
             .param("repetitions", "The number of times, which is not negative.")
@@ -402,8 +403,8 @@ fn check_pattern(call: &Call, index: usize) -> Result<Option<usize>, CallError> 
     let Some(Some(pattern)) = value.try_as_str() else {
         return Ok(None);
     };
-    match regex::Regex::new(pattern) {
-        Ok(regex) => Ok(Some(regex.captures_len() - 1)),
+    match re2::compile(pattern) {
+        Ok(compiled) => Ok(Some(compiled.groups)),
         Err(error) => Err(call.error_at(index, format!("the pattern doesn't compile: {error}"))),
     }
 }

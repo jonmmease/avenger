@@ -1,0 +1,68 @@
+{"function": "contains", "pattern": "\\d", "text": "7", "result": true}
+{"function": "contains", "pattern": "\\d", "text": "٣", "result": false}
+{"function": "contains", "pattern": "\\D", "text": "٣", "result": true}
+{"function": "contains", "pattern": "[\\d]", "text": "٣", "result": false}
+{"function": "contains", "pattern": "[^\\d]", "text": "٣", "result": true}
+{"function": "contains", "pattern": "[\\D]", "text": "٣", "result": true}
+{"function": "contains", "pattern": "[a\\d]", "text": "٣", "result": false}
+{"function": "contains", "pattern": "\\w", "text": "é", "result": false}
+{"function": "contains", "pattern": "\\W", "text": "é", "result": true}
+{"function": "contains", "pattern": "[\\w]", "text": "é", "result": false}
+{"function": "contains", "pattern": "[^\\w]", "text": "é", "result": true}
+{"function": "contains", "pattern": "^\\w+$", "text": "abc_123", "result": true}
+{"function": "contains", "pattern": "\\s", "text": "\t", "result": true}
+{"function": "contains", "pattern": "\\s", "text": "\u000b", "result": false}
+{"function": "contains", "pattern": "\\s", "text": " ", "result": false}
+{"function": "contains", "pattern": "\\s", "text": " ", "result": false}
+{"function": "contains", "pattern": "\\S", "text": "\u000b", "result": true}
+{"function": "contains", "pattern": "[\\s]", "text": "\u000b", "result": false}
+{"function": "contains", "pattern": "[^\\s]", "text": "\u000b", "result": true}
+{"function": "contains", "pattern": "[\\S]", "text": "\u000b", "result": true}
+{"function": "contains", "pattern": "[x\\s]", "text": "\f", "result": true}
+{"function": "contains", "pattern": "[x\\S]", "text": " ", "result": false}
+{"function": "contains", "pattern": "\\bé", "text": "é", "result": false}
+{"function": "contains", "pattern": "é\\b", "text": "é", "result": false}
+{"function": "contains", "pattern": "\\Bé", "text": "é", "result": true}
+{"function": "contains", "pattern": "\\bfoo\\b", "text": "éfoo", "result": true}
+{"function": "contains", "pattern": "\\bfoo\\b", "text": "a foo", "result": true}
+{"function": "contains", "pattern": "a\\Bb", "text": "ab", "result": true}
+{"function": "contains", "pattern": "(?i)\\w", "text": "K", "result": true}
+{"function": "contains", "pattern": "(?i)\\w", "text": "ſ", "result": true}
+{"function": "contains", "pattern": "(?i)\\d", "text": "٣", "result": false}
+{"function": "contains", "pattern": "(?i)[[:word:]]", "text": "K", "result": true}
+{"function": "contains", "pattern": "(?i)k", "text": "K", "result": true}
+{"function": "contains", "pattern": "[[:alpha:]]", "text": "é", "result": false}
+{"function": "contains", "pattern": "[[:space:]]", "text": "\u000b", "result": true}
+{"function": "contains", "pattern": "\\pL", "text": "é", "result": true}
+{"function": "contains", "pattern": "\\p{Greek}", "text": "α", "result": true}
+{"function": "contains", "pattern": "\\PN", "text": "٣", "result": false}
+{"function": "contains", "pattern": ".", "text": "é", "result": true}
+{"function": "extract", "pattern": "\\d+", "text": "a٣1234", "result": "1234"}
+{"function": "extract", "pattern": "(\\d+)", "text": "a٣ 12", "result": "12"}
+{"function": "extract", "pattern": "\\w+", "text": "éabc d", "result": "abc"}
+{"function": "extract", "pattern": "\\s+(\\S+)", "text": "a b c", "result": "c"}
+{"function": "extract", "pattern": "\\b\\w+\\b", "text": "éab cd", "result": "ab"}
+{"function": "extract", "pattern": "x", "text": "abc", "result": null}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "$1x", "result": "a$1xc"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "$1", "result": "a$1c"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "${1}", "result": "a${1}c"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "\\1\\1", "result": "abbc"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "\\\\1", "result": "a\\1c"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "\\12", "result": "ab2c"}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\0\\0", "result": "abbc"}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\\\", "result": "a\\c"}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\\\\\\\", "result": "a\\\\c"}
+{"function": "replace", "pattern": "(a)(b)", "text": "abc", "replacement": "\\2\\1", "result": "bac"}
+{"function": "replace", "pattern": "(a)|(x)", "text": "abc", "replacement": "[\\2]", "result": "[]bc"}
+{"function": "replace", "pattern": "(b)", "text": "abc", "replacement": "\\2", "error": true}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\x", "error": true}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\", "error": true}
+{"function": "replace", "pattern": "b", "text": "abc", "replacement": "\\n", "error": true}
+{"function": "replace", "pattern": "x*", "text": "abc", "replacement": "-", "result": "-a-b-c-"}
+{"function": "replace", "pattern": "b*", "text": "abc", "replacement": "-", "result": "-a-c-"}
+{"function": "replace", "pattern": "", "text": "aé", "replacement": "-", "result": "-a-é-"}
+{"function": "replace", "pattern": "\\b", "text": "ab cd", "replacement": "|", "result": "|ab| |cd|"}
+{"function": "replace", "pattern": "a|", "text": "baaa", "replacement": "-", "result": "-b---"}
+{"function": "replace", "pattern": "\\d", "text": "a٣1", "replacement": "#", "result": "a٣#"}
+{"function": "replace", "pattern": "\\s", "text": "a b c\u000bd", "replacement": "_", "result": "a b_c\u000bd"}
+{"function": "replace", "pattern": "\\w+", "text": "été ok", "replacement": "W", "result": "éWé W"}
