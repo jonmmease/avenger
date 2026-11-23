@@ -731,6 +731,7 @@ dependencies = [
  "datafusion",
  "eframe",
  "egui-wgpu",
+ "futures",
  "image",
  "lsp-server",
  "lsp-types",
@@ -1172,6 +1173,7 @@ dependencies = [
 name = "avenger-results-egui"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "avenger-app",
  "avenger-chart",
  "avenger-chart-app",
@@ -1188,6 +1190,7 @@ dependencies = [
  "datafusion",
  "eframe",
  "egui_table",
+ "futures",
  "tokio",
 ]
 
