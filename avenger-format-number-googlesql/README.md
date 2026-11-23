@@ -17,16 +17,16 @@ fn main() -> Result<(), avenger_format::NumberFormatError> {
 
 A pattern is a whole `FORMAT` string: literal text, `%%` for a percent sign, and exactly one conversion of a number, such as `x = %.1f mm`. The conversion is `%`, then flags, a width, a precision, and one of the specifiers `d i o x X f F e E g G`:
 
-- `d` and `i` print a decimal integer, `o` an octal integer, and `x` and `X` a hexadecimal integer in lowercase or uppercase. The precision is the least number of digits, and `%.0d` prints 0 as nothing.
+- `d` and `i` print a decimal integer, `o` an octal integer, and `x` and `X` a hexadecimal integer in lowercase or uppercase. The precision is the least number of digits, and `%.0d` and `%.0i` print 0 as nothing, where `%.0x`, `%.0o`, and `%'.0d` print `0`.
 - `f` and `F` print the precision's decimals, 6 by default. `%f` of 1e300 prints every digit of the value.
 - `e` and `E` print one digit, the precision's decimals, and an exponent with a sign and at least two digits, such as `1.234500e+03`.
 - `g` and `G` take the exponent X of the value in `%e` at the precision P less one, where P is 6 by default and 0 counts as 1. They print scientific notation when X is below -4 or at least P, and decimals otherwise, with P - 1 - X decimals. Trailing zeros go, as does a trailing point.
 
 The flags come in any order:
 
-- `-` pads on the right, and `0` pads with zeros between the sign and the digits. The zeros of `0` are not grouped. As in C, a precision of an integer turns `0` off.
+- `-` pads on the right, and `0` pads with zeros between the sign and the digits. The zeros of `0` are not grouped. As in C, a precision of `%d` and `%i` turns `0` off, but `0` pads `%o`, `%x`, `%X`, and grouped decimals after their precision, as in `%08.3x` of 255, `000000ff`.
 - `+` writes `+` before a value that is not negative, and a space writes a space.
-- `#` writes the prefixes `0`, `0x`, and `0X` before octal and hexadecimal integers, zero too, keeps the point of `f`, `e`, and `g` where they have no decimals, and keeps the trailing zeros of `g`.
+- `#` writes the prefixes `0`, `0x`, and `0X` before octal and hexadecimal integers, zero too, keeps the point of `f`, `e`, and `g` where they have no decimals, and keeps the trailing zeros of `g`. An octal integer takes no prefix where its precision already writes leading zeros, so `%#.6o` prints 8 as `000010`.
 - `'` groups the digits before the point of `d`, `i`, `f`, `F`, and `g` in decimals by `,` in threes, as in `1,234.5`. It groups octal digits by `,` and hexadecimal digits by `:` in fours, as in `bc:614e`. The zeros of an integer's precision group too, as in `00,000,042`. Scientific notation is not grouped.
 
 The text of a value rounds the exact binary value, half to even on exact ties, so `%.0f` prints 2.5 as `2` and 3.5 as `4`, and `%.2f` prints 1.005 as `1.00`, since the double nearest 1.005 is below it. Negative zero prints without a sign, and a negative value that rounds to zero keeps its sign, as `-0.0` for -0.04 in `%.1f`. NaN and the infinities print as `nan`, `inf`, and `-inf` in `f`, `e`, and `g`, and in uppercase in `F`, `E`, and `G`, and pad with spaces even with `0`.
@@ -46,6 +46,22 @@ The empty pattern stands for no pattern, as for an axis or a label without a for
 A written pattern formats as written in `format` and in `format_all`, since GoogleSQL's precision defaults to 6 and never leaves the precision open.
 
 `FormattedNumber` holds the text of a written pattern as plain text. Without a pattern, a value in scientific notation also holds its mantissa and exponent, for a label to set as a power of ten.
+
+## GoogleSQL's `FORMAT`
+
+The same engine prints the elements of GoogleSQL's `FORMAT` function, which avenger-sql implements. `pieces` parses a whole pattern into literal text and `Element`s, leniently: an element is `%`, its flags, a width and a precision of digits or `*`, and any character as its specifier, so a caller decides which specifiers it takes and with which messages. A pattern that ends inside an element is the only error.
+
+`Element::format_number` prints a `Value`: an `INT64`, exactly at any size, a `FLOAT64`, or a `Decimal`, the digits and scale of a `NUMERIC` or `BIGNUMERIC`, which prints exactly and rounds half away from zero, as GoogleSQL's `NUMERIC` does. `Element::format_text` prints the text of `%s`, `%t`, and `%T`: its first characters up to the precision, padded with spaces to the width. Both take the values of `*` arguments, where a negative width pads on the right and a negative precision is none.
+
+```rust
+use avenger_format_number_googlesql::{pieces, Decimal, Locale, Piece, Value};
+
+let Piece::Element(element) = &pieces("%'.2f").unwrap()[0] else { unreachable!() };
+let decimal = Decimal { negative: false, digits: "123456789", scale: 3 };
+assert_eq!(element.format_number(&Locale::default(), None, None, Value::Decimal(decimal)), "123,456.79");
+let Piece::Element(element) = &pieces("%-*s|").unwrap()[0] else { unreachable!() };
+assert_eq!(element.format_text(Some(5), None, "ab"), "ab   ");
+```
 
 ## Locales
 

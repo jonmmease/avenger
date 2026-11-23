@@ -1,0 +1,190 @@
+{"args": ["'abc'"], "result": "abc"}
+{"args": ["'100%%'"], "result": "100%"}
+{"args": ["''"], "result": ""}
+{"args": ["'%%d'"], "result": "%d"}
+{"args": ["CAST(NULL AS STRING)", "1"], "result": null}
+{"args": ["'%d'", "42"], "result": "42"}
+{"args": ["'%i'", "-42"], "result": "-42"}
+{"args": ["'%d'", "9007199254740993"], "result": "9007199254740993"}
+{"args": ["'%d'", "-9223372036854775808"], "result": "-9223372036854775808"}
+{"args": ["'%5d|%-5d|%05d'", "1", "2", "3"], "result": "    1|2    |00003"}
+{"args": ["'%+d % d'", "5", "5"], "result": "+5  5"}
+{"args": ["'%.3d'", "5"], "result": "005"}
+{"args": ["'%.0d'", "0"], "result": ""}
+{"args": ["'%08.3d'", "5"], "result": "     005"}
+{"args": ["'%-8.3d|'", "-5"], "result": "-005    |"}
+{"args": ["\"%'d\"", "1234567"], "result": "1,234,567"}
+{"args": ["\"%'d\"", "-1234567"], "result": "-1,234,567"}
+{"args": ["\"%'.8d\"", "42"], "result": "00,000,042"}
+{"args": ["\"%'010d\"", "1234567"], "result": "01,234,567"}
+{"args": ["'%o'", "8"], "result": "10"}
+{"args": ["'%#o'", "8"], "result": "010"}
+{"args": ["'%#o'", "0"], "result": "00"}
+{"args": ["'%x %X'", "255", "255"], "result": "ff FF"}
+{"args": ["'%#x %#X'", "255", "255"], "result": "0xff 0XFF"}
+{"args": ["'%#x'", "0"], "result": "0x0"}
+{"args": ["'%x'", "-255"], "result": "-ff"}
+{"args": ["'%o'", "-8"], "result": "-10"}
+{"args": ["\"%'x\"", "3735928559"], "result": "dead:beef"}
+{"args": ["\"%'o\"", "1234567"], "result": "455,3207"}
+{"args": ["'%#010x'", "255"], "result": "0x000000ff"}
+{"args": ["'%#.6x'", "255"], "result": "0x0000ff"}
+{"args": ["'%#.6o'", "8"], "result": "000010"}
+{"args": ["'%08.3x|%08.3o|%-08.3x|%#08.3x'", "255", "8", "255", "255"], "result": "000000ff|00000010|0ff     |0x0000ff"}
+{"args": ["\"%'08.3d|%'+08.3d|%+08.3d\"", "5", "5", "5"], "result": "00000005|+0000005|    +005"}
+{"args": ["'%.0x|%.0o|%#.0o|%#.0x'", "0", "0", "0", "0"], "result": "0|0|00|0x0"}
+{"args": ["\"%'.0d\"", "0"], "result": "0"}
+{"args": ["'%d'", "CAST(NULL AS INT64)"], "result": null}
+{"args": ["'%f'", "3.14159"], "result": "3.141590"}
+{"args": ["'%.2f'", "2.675"], "result": "2.67"}
+{"args": ["'%.0f %.0f'", "2.5", "3.5"], "result": "2 4"}
+{"args": ["'%.20f'", "1.1"], "result": "1.10000000000000008882"}
+{"args": ["'%#.0f'", "3.0"], "result": "3."}
+{"args": ["'%10.3f|%-10.3f|%010.3f'", "3.14159", "3.14159", "-3.14159"], "result": "     3.142|3.142     |-00003.142"}
+{"args": ["'%+.1f % .1f'", "1.0", "1.0"], "result": "+1.0  1.0"}
+{"args": ["\"%'.2f\"", "1234567.891"], "result": "1,234,567.89"}
+{"args": ["\"%'f\"", "-1234567.0"], "result": "-1,234,567.000000"}
+{"args": ["\"%'015.2f\"", "1234567.891"], "result": "0001,234,567.89"}
+{"args": ["'%f'", "1e300"], "result": "1000000000000000052504760255204420248704468581108159154915854115511802457988908195786371375080447864043704443832883878176942523235360430575644792184786706982848387200926575803737830233794788090059368953234970799945081119038967640880074652742780142494579258788820056842838115669472196386865459400540160.000000"}
+{"args": ["'%e %E'", "12345.678", "12345.678"], "result": "1.234568e+04 1.234568E+04"}
+{"args": ["'%.0e %#.0e'", "12345.678", "12345.678"], "result": "1e+04 1.e+04"}
+{"args": ["'%e'", "0.0"], "result": "0.000000e+00"}
+{"args": ["'%g %g %g %g'", "100000.0", "1000000.0", "0.0001", "0.00001"], "result": "100000 1e+06 0.0001 1e-05"}
+{"args": ["'%g %G'", "1e-10", "1e-10"], "result": "1e-10 1E-10"}
+{"args": ["'%.3g %#.3g'", "1.0", "1.0"], "result": "1 1.00"}
+{"args": ["'%.0g'", "123.0"], "result": "1e+02"}
+{"args": ["\"%'g\"", "1234567.0"], "result": "1.23457e+06"}
+{"args": ["\"%'.10g\"", "1234567.0"], "result": "1,234,567"}
+{"args": ["'%f %f %f'", "CAST('nan' AS FLOAT64)", "CAST('inf' AS FLOAT64)", "CAST('-inf' AS FLOAT64)"], "result": "nan inf -inf"}
+{"args": ["'%F %E %G'", "CAST('nan' AS FLOAT64)", "CAST('inf' AS FLOAT64)", "CAST('-inf' AS FLOAT64)"], "result": "NAN INF -INF"}
+{"args": ["'%08f|%-8f|'", "CAST('inf' AS FLOAT64)", "CAST('nan' AS FLOAT64)"], "result": "     inf|nan     |"}
+{"args": ["'%+f'", "CAST('inf' AS FLOAT64)"], "result": "+inf"}
+{"args": ["'%f %.1f'", "-0.0", "-0.04"], "result": "0.000000 -0.0"}
+{"args": ["'%e %g'", "-0.0", "-0.0"], "result": "0.000000e+00 0"}
+{"args": ["'%.1074f'", "5e-324"], "result": "0.000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004940656458412465441765687928682213723650598026143247644255856825006755072702087518652998363616359923797965646954457177309266567103559397963987747960107818781263007131903114045278458171678489821036887186360569987307230500063874091535649843873124733972731696151400317153853980741262385655911710266585566867681870395603106249319452715914924553293054565444011274801297099995419319894090804165633245247571478690147267801593552386115501348035264934720193790268107107491703332226844753335720832431936092382893458368060106011506169809753078342277318329247904982524730776375927247874656084778203734469699533647017972677717585125660551199131504891101451037862738167250955837389733598993664809941164205702637090279242767544565229087538682506419718265533447265625"}
+{"args": ["'%f'", "CAST(NULL AS FLOAT64)"], "result": null}
+{"args": ["'%f'", "NUMERIC '1.23456789'"], "result": "1.234568"}
+{"args": ["'%.20f'", "NUMERIC '1.1'"], "result": "1.10000000000000000000"}
+{"args": ["'%.1f %.1f %.1f'", "NUMERIC '1.25'", "NUMERIC '1.35'", "NUMERIC '-1.25'"], "result": "1.3 1.4 -1.3"}
+{"args": ["'%.0f %.0f'", "NUMERIC '2.5'", "NUMERIC '3.5'"], "result": "3 4"}
+{"args": ["\"%'f\"", "NUMERIC '1234567.5'"], "result": "1,234,567.500000"}
+{"args": ["\"%'015.2f\"", "NUMERIC '-1234567.5'"], "result": "-001,234,567.50"}
+{"args": ["'%e %E'", "NUMERIC '12345.678'", "NUMERIC '12345.678'"], "result": "1.234568e+04 1.234568E+04"}
+{"args": ["'%.2e'", "NUMERIC '0.000123'"], "result": "1.23e-04"}
+{"args": ["'%g %g %g'", "NUMERIC '100000'", "NUMERIC '1000000'", "NUMERIC '0.00001'"], "result": "100000 1e+06 1e-05"}
+{"args": ["'%#g %#.0f'", "NUMERIC '1'", "NUMERIC '3'"], "result": "1.00000 3."}
+{"args": ["'%10.2f|%-10.2f|%010.2f|%+.1f|% .1f'", "NUMERIC '3.14159'", "NUMERIC '3.14159'", "NUMERIC '-3.14159'", "NUMERIC '1'", "NUMERIC '1'"], "result": "      3.14|3.14      |-000003.14|+1.0| 1.0"}
+{"args": ["'%f'", "NUMERIC '99999999999999999999999999999.999999999'"], "result": "100000000000000000000000000000.000000"}
+{"args": ["'%f %e'", "NUMERIC '0'", "NUMERIC '0'"], "result": "0.000000 0.000000e+00"}
+{"args": ["'%f'", "BIGNUMERIC '1.12345678901234567890123456789012345678'"], "result": "1.123457"}
+{"args": ["'%.40f'", "BIGNUMERIC '1.12345678901234567890123456789012345678'"], "result": "1.1234567890123456789012345678901234567800"}
+{"args": ["'%.37f'", "BIGNUMERIC '0.00000000000000000000000000000000000005'"], "result": "0.0000000000000000000000000000000000001"}
+{"args": ["'%e'", "BIGNUMERIC '-123456789012345678901234567890'"], "result": "-1.234568e+29"}
+{"args": ["\"%'g\"", "BIGNUMERIC '1234567'"], "result": "1.23457e+06"}
+{"args": ["'%f'", "CAST(NULL AS NUMERIC)"], "result": null}
+{"args": ["'%s'", "'abc'"], "result": "abc"}
+{"args": ["'%10s|%-10s|'", "'ab'", "'ab'"], "result": "        ab|ab        |"}
+{"args": ["'%.2s|%10.3s|'", "'abc'", "'abcdef'"], "result": "ab|       abc|"}
+{"args": ["'%5s|%.1s|'", "'été'", "'été'"], "result": "  été|é|"}
+{"args": ["'%05s|'", "'ab'"], "result": "   ab|"}
+{"args": ["'%s'", "''"], "result": ""}
+{"args": ["'%s'", "CAST(NULL AS STRING)"], "result": null}
+{"args": ["'%s %d'", "CAST(NULL AS STRING)", "1"], "result": null}
+{"args": ["'%*d'", "5", "42"], "result": "   42"}
+{"args": ["'%-*d|'", "5", "42"], "result": "42   |"}
+{"args": ["'%.*f'", "2", "3.14159"], "result": "3.14"}
+{"args": ["'%*.*f|'", "10", "2", "3.14159"], "result": "      3.14|"}
+{"args": ["'%*s|'", "-5", "'ab'"], "result": "ab   |"}
+{"args": ["'%.*s'", "-1", "'abc'"], "result": "abc"}
+{"args": ["'%*d'", "CAST(NULL AS INT64)", "42"], "result": null}
+{"args": ["'%.*f'", "CAST(NULL AS INT64)", "1.5"], "result": null}
+{"args": ["'%d %t'", "1", "NULL"], "result": "1 NULL"}
+{"args": ["'%t %d'", "NULL", "CAST(NULL AS INT64)"], "result": null}
+{"args": ["'%T'", "CAST(NULL AS INT64)"], "result": "NULL"}
+{"args": ["'%T'", "CAST(NULL AS ARRAY<INT64>)"], "result": "NULL"}
+{"args": ["'%t|%t|%t'", "1", "-1", "TRUE"], "result": "1|-1|true"}
+{"args": ["'%t|%t|%t|%t|%t'", "1.0", "1.5", "0.1", "1e300", "1e-300"], "result": "1.0|1.5|0.1|1e+300|1e-300"}
+{"args": ["'%t|%t|%t'", "CAST('nan' AS FLOAT64)", "CAST('inf' AS FLOAT64)", "CAST('-inf' AS FLOAT64)"], "result": "nan|inf|-inf"}
+{"args": ["'%t|%t'", "-0.0", "123456789012345680000.0"], "result": "-0.0|1.2345678901234568e+20"}
+{"args": ["'%t|%t|%t'", "NUMERIC '1.50'", "NUMERIC '-0.001'", "BIGNUMERIC '2'"], "result": "1.5|-0.001|2"}
+{"args": ["'%t|%t'", "'abc'", "'say \"hi\"'"], "result": "abc|say \"hi\""}
+{"args": ["'%t'", "b'ab'"], "result": "ab"}
+{"args": ["'%t'", "b'\\x00\\xff\\n'"], "result": "\\x00\\xff\\x0a"}
+{"args": ["'%t'", "b'a\\\\b\\'c\"d\\x7f\\x80 ~'"], "result": "a\\\\b\\'c\\\"d\\x7f\\x80 ~"}
+{"args": ["'%t'", "[b'a', b'\\x01']"], "result": "[a, \\x01]"}
+{"args": ["'%t|%t'", "DATE '2024-01-02'", "TIME '03:04:05'"], "result": "2024-01-02|03:04:05"}
+{"args": ["'%t|%t'", "TIME '03:04:05.5'", "TIME '03:04:05.123456'"], "result": "03:04:05.500|03:04:05.123456"}
+{"args": ["'%t|%t'", "DATETIME '2024-01-02 03:04:05'", "DATETIME '2024-01-02 03:04:05.25'"], "result": "2024-01-02 03:04:05|2024-01-02 03:04:05.250"}
+{"args": ["'%t'", "TIMESTAMP '2024-01-02 03:04:05+00'"], "result": "2024-01-02 03:04:05+00"}
+{"args": ["'%t'", "TIMESTAMP '2024-07-02 03:04:05.5+00'"], "result": "2024-07-02 03:04:05.500+00"}
+{"args": ["'%t|%T'", "TIMESTAMP '2024-01-02 03:04:05-08'", "TIMESTAMP '2024-01-02 03:04:05.123456+05:30'"], "result": "2024-01-02 11:04:05+00|TIMESTAMP \"2024-01-01 21:34:05.123456+00\""}
+{"args": ["'%t|%t'", "INTERVAL 1 DAY", "INTERVAL -3 MONTH"], "result": "0-0 1 0:0:0|-0-3 0 0:0:0"}
+{"args": ["'%t'", "INTERVAL '1-2 3 4:5:6.789' YEAR TO SECOND"], "result": "1-2 3 4:5:6.789"}
+{"args": ["'%t|%t'", "[1, 2]", "['a', 'b']"], "result": "[1, 2]|[a, b]"}
+{"args": ["'%t|%t'", "[CAST(NULL AS INT64)]", "CAST([] AS ARRAY<INT64>)"], "result": "[NULL]|[]"}
+{"args": ["'%t'", "STRUCT(1 AS a, 'x' AS b, [1.5] AS c)"], "result": "(1, x, [1.5])"}
+{"args": ["'%t'", "[STRUCT(1 AS a)]"], "result": "[(1)]"}
+{"args": ["'%10t|%-10t|%.2t|'", "1", "1", "'abc'"], "result": "         1|1         |ab|"}
+{"args": ["'%T|%T|%T'", "1", "-1", "FALSE"], "result": "1|-1|false"}
+{"args": ["'%T|%T|%T|%T|%T'", "1.0", "1.5", "0.1", "1e300", "1e-300"], "result": "1.0|1.5|0.1|1e+300|1e-300"}
+{"args": ["'%T|%T|%T'", "CAST('nan' AS FLOAT64)", "CAST('inf' AS FLOAT64)", "CAST('-inf' AS FLOAT64)"], "result": "CAST(\"nan\" AS FLOAT64)|CAST(\"inf\" AS FLOAT64)|CAST(\"-inf\" AS FLOAT64)"}
+{"args": ["'%T'", "-0.0"], "result": "-0.0"}
+{"args": ["'%T|%T|%T'", "NUMERIC '1.50'", "NUMERIC '-0.001'", "BIGNUMERIC '2'"], "result": "NUMERIC \"1.5\"|NUMERIC \"-0.001\"|BIGNUMERIC \"2\""}
+{"args": ["'%T'", "'abc'"], "result": "\"abc\""}
+{"args": ["'%T'", "'say \"hi\"'"], "result": "'say \"hi\"'"}
+{"args": ["'%T'", "\"it's\""], "result": "\"it's\""}
+{"args": ["'%T'", "\"it's \\\"q\\\"\""], "result": "\"it's \\\"q\\\"\""}
+{"args": ["'%T'", "'a\\nb\\tc\\\\d'"], "result": "\"a\\nb\\tc\\\\d\""}
+{"args": ["'%T'", "'é\\x01\\x7f'"], "result": "\"é\\x01\\x7f\""}
+{"args": ["'%T'", "'\\u00a0\\u2028'"], "result": "\"  \""}
+{"args": ["'%T'", "'\\r\\a\\b\\f\\v\\x1b?'"], "result": "\"\\r\\x07\\x08\\x0c\\x0b\\x1b?\""}
+{"args": ["'%T'", "'a\\'b\"c'"], "result": "\"a'b\\\"c\""}
+{"args": ["'%T'", "'it\\'s'"], "result": "\"it's\""}
+{"args": ["'%T'", "'\\x00'"], "result": "\"\\x00\""}
+{"args": ["'%s|%t'", "'a\\x00b'", "'a\\x00b'"], "result": "a|a\u0000b"}
+{"args": ["'%T'", "'💡'"], "result": "\"💡\""}
+{"args": ["'%T'", "b'ab'"], "result": "b\"ab\""}
+{"args": ["'%T'", "b'\\x00\\xff\\n\"\\''"], "result": "b\"\\x00\\xff\\x0a\\\"'\""}
+{"args": ["'%T'", "b'a\\\\b\\x7f\\x80 ~\\r\\t'"], "result": "b\"a\\\\b\\x7f\\x80 ~\\x0d\\x09\""}
+{"args": ["'%T'", "b\"it's\""], "result": "b\"it's\""}
+{"args": ["'%T'", "b'say \"hi\"'"], "result": "b'say \"hi\"'"}
+{"args": ["'%T|%T'", "DATE '2024-01-02'", "TIME '03:04:05.5'"], "result": "DATE \"2024-01-02\"|TIME \"03:04:05.500\""}
+{"args": ["'%T'", "DATETIME '2024-01-02 03:04:05.25'"], "result": "DATETIME \"2024-01-02 03:04:05.250\""}
+{"args": ["'%T'", "TIMESTAMP '2024-01-02 03:04:05+00'"], "result": "TIMESTAMP \"2024-01-02 03:04:05+00\""}
+{"args": ["'%T'", "INTERVAL 1 DAY"], "result": "INTERVAL \"0-0 1 0:0:0\" YEAR TO SECOND"}
+{"args": ["'%T'", "INTERVAL '1-2 3 4:5:6.789' YEAR TO SECOND"], "result": "INTERVAL \"1-2 3 4:5:6.789\" YEAR TO SECOND"}
+{"args": ["'%T|%T'", "TIME '03:04:05'", "DATETIME '2024-01-02 03:04:05'"], "result": "TIME \"03:04:05\"|DATETIME \"2024-01-02 03:04:05\""}
+{"args": ["'%T|%T'", "[1, 2]", "['a']"], "result": "[1, 2]|[\"a\"]"}
+{"args": ["'%T'", "[DATE '2024-01-01']"], "result": "[DATE \"2024-01-01\"]"}
+{"args": ["'%T'", "CAST([] AS ARRAY<INT64>)"], "result": "[]"}
+{"args": ["'%T'", "[CAST(NULL AS STRING)]"], "result": "[NULL]"}
+{"args": ["'%T'", "STRUCT(1 AS a, 'x' AS b)"], "result": "(1, \"x\")"}
+{"args": ["'%T'", "STRUCT(1 AS a)"], "result": "STRUCT(1)"}
+{"args": ["'%T'", "[STRUCT(1 AS a)]"], "result": "[STRUCT(1)]"}
+{"args": ["'%T'", "STRUCT(STRUCT(1 AS x) AS a, [STRUCT(2 AS y, 3 AS z)] AS b)"], "result": "(STRUCT(1), [(2, 3)])"}
+{"args": ["'%10T|%-10T|%.3T|'", "'ab'", "1", "'abc'"], "result": "      \"ab\"|1         |\"ab|"}
+{"args": ["'%d'", "2.5"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got FLOAT64"}
+{"args": ["'%d'", "TRUE"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got BOOL"}
+{"args": ["'%d'", "'1'"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got STRING"}
+{"args": ["'%f'", "1"], "error": "Invalid type for argument 2 to FORMAT; Expected FLOAT64; Got INT64"}
+{"args": ["'%e'", "1"], "error": "Invalid type for argument 2 to FORMAT; Expected FLOAT64; Got INT64"}
+{"args": ["'%s'", "1"], "error": "Invalid type for argument 2 to FORMAT; Expected STRING; Got INT64"}
+{"args": ["'%s'", "DATE '2024-01-02'"], "error": "Invalid type for argument 2 to FORMAT; Expected STRING; Got DATE"}
+{"args": ["'%s'", "b'ab'"], "error": "Invalid type for argument 2 to FORMAT; Expected STRING; Got BYTES"}
+{"args": ["'%u'", "1"], "error": "Invalid type for argument 2 to FORMAT; Expected UINT; Got INT64"}
+{"args": ["'%d'", "CAST(NULL AS FLOAT64)"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got FLOAT64"}
+{"args": ["'%t %d'", "1", "1.5"], "error": "Invalid type for argument 3 to FORMAT; Expected integer; Got FLOAT64"}
+{"args": ["'%p'", "1"], "error": "Invalid type for argument 2 to FORMAT; Expected PROTO or JSON; Got INT64"}
+{"args": ["'%a'", "1.0"], "error": "Invalid format specifier character \"a\" in FORMAT string: \"%a\""}
+{"args": ["'%d %s'", "1"], "error": "Too few arguments to FORMAT for pattern \"%d %s\"; Expected 3; Got 2"}
+{"args": ["'%d'", "1", "2"], "error": "Too many arguments to FORMAT for pattern \"%d\"; Expected 2; Got 3"}
+{"args": ["'abc'", "1"], "error": "Too many arguments to FORMAT for pattern \"abc\"; Expected 1; Got 2"}
+{"args": ["'%'"], "error": "Invalid FORMAT string: \"%\""}
+{"args": ["'abc%'"], "error": "Invalid FORMAT string: \"abc%\""}
+{"args": ["'%5%'"], "error": "Invalid FORMAT string: \"%5%\""}
+{"args": ["'%*d'", "1.5", "42"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got FLOAT64"}
+{"args": ["'%.*d'", "'a'", "42"], "error": "Invalid type for argument 2 to FORMAT; Expected integer; Got STRING"}
+{"args": ["'%.1075f'", "1.0"], "error": "Precision value is too big1074"}
+{"args": ["'%2000000d'", "1"], "error": "Width 2000000 exceeds the maximum supported output width of FORMAT. Limit: 1048576"}
+{"args": ["'%.*f'", "-1", "1.5"], "result": "1.500000"}
+{"args": ["'%.*f'", "2000", "1.5"], "error": "Precision value is too big1074"}

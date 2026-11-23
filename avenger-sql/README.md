@@ -87,7 +87,9 @@ let engine = avenger_typst_label::bundled_label_engine()
     .with_datetime_formatting(Arc::new(GoogleSqlDateTimeFormatProvider::new()));
 ```
 
-The analysis checks a chart's literal pattern with these providers, by the type of the value that it formats where it knows it, so an invalid pattern is an error at its argument rather than when the chart renders. The formats of GoogleSQL's functions, such as `FORMAT_DATE`, take no check, since they print an element that GoogleSQL doesn't document as written.
+The analysis checks a chart's literal pattern with these providers, by the type of the value that it formats where it knows it, so an invalid pattern is an error at its argument rather than when the chart renders. The formats of GoogleSQL's date and time functions, such as `FORMAT_DATE`, take no check, since they print an element that GoogleSQL doesn't document as written.
+
+`FORMAT` parses and prints its elements with the number provider's engine, which also gives it `*` widths and precisions, `INT64` and `NUMERIC` values that print exactly, and the text of `%s`, `%t`, and `%T`. A literal pattern is checked against the types of its values when the call lowers, with GoogleSQL's messages at the argument that fails, and a pattern from a column is checked when it runs. `tests/format.rs` runs the cases that `tests/data/format_oracle.py` records with GoogleSQL's `execute_query`, with literal arguments and with columns.
 
 ## Strings in languages of their own
 

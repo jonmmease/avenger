@@ -120,6 +120,15 @@ pub(super) fn functions() -> Vec<Function> {
             .safe()
             .example("SPLIT('a,b,c')", "['a', 'b', 'c']")
             .example("SPLIT('a b', ' ')", "['a', 'b']"),
+        Function::scalar("FORMAT", "Formats values as a string, by a pattern of `printf`'s elements.")
+            .description("Returns `NULL` when the pattern is `NULL`, or when a value of a number or of `%s`, or of a `*` width or precision, is `NULL`. `%t` and `%T` print `NULL` as `NULL`.")
+            .format_param("format_string", "The pattern: literal text, `%%` for a percent sign, and elements of `%`, flags, a width, a precision, and a specifier, which take the values in order. `%d` and `%i` print an `INT64` in decimal, `%o` in octal, and `%x` and `%X` in hexadecimal. `%f` and `%F` print a `FLOAT64`, a `NUMERIC`, or a `BIGNUMERIC` with decimals, `%e` and `%E` in scientific notation, and `%g` and `%G` in either. `%s` prints a `STRING`, `%t` the text of any value, and `%T` a literal of any value, such as `\"abc\"` or `DATE \"2024-05-07\"`. The flags are `-` to pad on the right, `0` to pad with zeros, `+` and a space for the sign of a positive number, `#` for the prefixes `0` and `0x` and a decimal point, and `'` to group digits. A `*` width or precision takes the value before the element's.")
+            .param("values", "The values of the pattern's elements, in order.")
+            .form("(format_string: STRING, values: ANY...) -> STRING", super::string_format::format)
+            .example("FORMAT(\"%'d\", 1234567)", "'1,234,567'")
+            .example("FORMAT('%08.3f', -3.14159)", "'-003.142'")
+            .example("FORMAT('%-6s|%6s|', 'ab', 'cd')", "'ab    |    cd|'")
+            .example("FORMAT('%t is %T', DATE '2024-05-07', 'Tuesday')", "'2024-05-07 is \"Tuesday\"'"),
         Function::scalar("REGEXP_CONTAINS", "Returns whether a string has a match of a regular expression.")
             .param("value", "The string.")
             .regex_param("regexp", "The regular expression, in RE2's syntax. A match anywhere in the string counts.")

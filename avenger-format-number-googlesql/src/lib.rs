@@ -7,6 +7,7 @@ mod provider;
 
 pub use avenger_format::{FormattedNumber, NumberFormatError, NumberTypesetting};
 pub use avenger_format_locales_d3::NumberLocaleSpec;
-pub use format::Format;
+pub use format::{Decimal, Format, Value};
 pub use locale::Locale;
+pub use parse::{pieces, Count, Element, LoneElement, Piece};
 pub use provider::GoogleSqlNumberFormatProvider;

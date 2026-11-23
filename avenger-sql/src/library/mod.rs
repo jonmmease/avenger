@@ -45,6 +45,7 @@ mod re2;
 mod reference;
 pub mod search;
 mod string;
+mod string_format;
 
 use std::{
     collections::HashMap,
@@ -528,6 +529,14 @@ impl<'a> Call<'a> {
                 Arg::DatePart(_) => None,
             })
             .collect()
+    }
+
+    /// An error at the value at `index` of the repeated argument.
+    pub(crate) fn rest_error_at(&self, index: usize, message: impl Into<String>) -> CallError {
+        match self.rest.get(index) {
+            Some((at, _)) => CallError::arg(*at, message),
+            None => CallError::call(message),
+        }
     }
 
     /// The values of all the arguments of the form, in their order, with `None` for an omitted

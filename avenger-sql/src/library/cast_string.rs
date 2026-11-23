@@ -68,7 +68,7 @@ fn printf_g(value: f64, precision: usize) -> String {
 
 /// A `FLOAT64` as GoogleSQL writes it: with 15 significant digits, or 17 where 15 don't give
 /// the value back, as `printf`'s `%g` does, and `nan`, `inf` and `-inf`. Negative zero is `0`.
-fn float_text(value: f64) -> String {
+pub(crate) fn float_text(value: f64) -> String {
     match value {
         _ if value.is_nan() => "nan".to_string(),
         f64::INFINITY => "inf".to_string(),
@@ -86,7 +86,7 @@ fn float_text(value: f64) -> String {
 
 /// The fraction of a second of `micros`, microseconds, as GoogleSQL writes it: in 3 digits, or 6
 /// where 3 don't hold it, or none.
-fn fraction_text(micros: i64) -> String {
+pub(crate) fn fraction_text(micros: i64) -> String {
     match micros {
         0 => String::new(),
         _ if micros % 1000 == 0 => format!(".{:03}", micros / 1000),
@@ -123,7 +123,7 @@ fn interval_text(months: i32, days: i32, nanoseconds: i64) -> String {
 
 /// The text of the value at `row` of `array` as GoogleSQL's `CAST(x AS STRING)` writes it, with
 /// a timestamp's civil time and offset in the time zone `zone`, as `-08` or `+05:30`.
-fn text(array: &ArrayRef, row: usize, zone: Zone) -> Result<String> {
+pub(crate) fn text(array: &ArrayRef, row: usize, zone: Zone) -> Result<String> {
     let trimmed = |text: String| match text.contains('.') {
         true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
         false => text,
