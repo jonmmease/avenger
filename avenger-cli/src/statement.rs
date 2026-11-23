@@ -1,7 +1,7 @@
 //! A target at a line, `FILE:LINE`, and the statement that it names: the top-level statement of
 //! a script, or of a cell, that holds the line, and the text that runs it, so a chart script's
 //! earlier query shows its rows, a statement that makes a table shows the table, and a data
-//! script's statement shows its table as the project's session holds it.
+//! script's statement shows its table as the statement leaves it.
 
 use avenger_sql_project::qmd::{Cell, Qmd};
 use avenger_sql_syntax::{
@@ -36,6 +36,11 @@ pub(crate) enum Shows {
     /// The table that a data script's statement makes, as the project's session holds it after
     /// the script loads, by its path as the statement writes it.
     Loaded(String),
+    /// The table that a data script's statement makes, as the statement leaves it, which the
+    /// project's session doesn't hold: a temporary table, or a table that a later statement of
+    /// the script makes again. Its statements through it build their tables again, apart from
+    /// the session.
+    Step(String),
 }
 
 /// The statement at a line: what it shows, its key, the line of its first token, from 1, and the
@@ -67,7 +72,9 @@ impl Shows {
         match self {
             Shows::Value => "result".to_string(),
             Shows::Query(ordinal) => format!("query {ordinal}"),
-            Shows::Table(path) | Shows::Loaded(path) => format!("table {path}"),
+            Shows::Table(path) | Shows::Loaded(path) | Shows::Step(path) => {
+                format!("table {path}")
+            }
         }
     }
 }
@@ -76,10 +83,11 @@ impl Statement {
     /// The text of a chart script that runs the statement of the script `text`: the whole text
     /// for its value, the text through the statement for another query, which becomes the
     /// script's last, the text through the statement and a query of its table for a chart's
-    /// table, and a query of a data script's table in the project's session.
+    /// table, and a query of a data script's table in the project's session. A step of a data
+    /// script runs through its loader, so its text is the script's.
     pub(crate) fn text(&self, text: &str) -> String {
         match &self.shows {
-            Shows::Value => text.to_string(),
+            Shows::Value | Shows::Step(_) => text.to_string(),
             Shows::Query(_) => text[..self.end].to_string(),
             Shows::Table(path) => format!("{};\nFROM {path}\n", &text[..self.end]),
             Shows::Loaded(path) => format!("FROM {path}\n"),
@@ -170,21 +178,11 @@ fn table(stmt: &ast::Stmt) -> Option<(String, String, bool)> {
     Some((written, name, temporary))
 }
 
-/// The tables of the data script `text` that a target can show, each by its path as its last
-/// statement writes it and that statement's line, in order: a table that another script reads,
-/// not a temporary one.
+/// The tables of the data script `text` that a target can show, each statement that makes one by
+/// the table's path as the statement writes it and the statement's line, in order.
 pub(crate) fn data_tables(text: &str) -> Vec<(String, usize)> {
-    let statements = statements(text, Script::Data);
-    let mut tables: Vec<(String, String, usize)> = Vec::new();
-    for located in &statements {
-        if let Some((written, name, false)) = table(&located.stmt) {
-            tables.retain(|(_, other, _)| *other != name);
-            tables.push((written, name, located.first));
-        }
-    }
-    tables.sort_by_key(|(_, _, line)| *line);
-    (tables.into_iter())
-        .map(|(written, _, line)| (written, line))
+    (statements(text, Script::Data).iter())
+        .filter_map(|located| Some((table(&located.stmt)?.0, located.first)))
         .collect()
 }
 
@@ -193,9 +191,9 @@ pub(crate) fn data_tables(text: &str) -> Vec<(String, usize)> {
 /// of two that start on it. The errors name lines of the file, which has `before` lines before
 /// the text, as a cell's document does.
 ///
-/// A data script's statement shows its table as the project's session holds it, so a statement
-/// of a temporary table, which no other script reads, and a statement of a table that a later
-/// statement loads into again, show nothing, and are errors.
+/// A data script's statement shows its table as the statement leaves it: as the project's session
+/// holds it, or for a temporary table or a table that a later statement makes again, as a step
+/// that builds it again.
 pub(crate) fn at_line(
     text: &str,
     line: usize,
@@ -291,27 +289,15 @@ fn describe(
                 + 1;
             let shows = match script {
                 Script::Chart => Shows::Table(written),
+                // The project's session holds a data script's final tables, and a step of the
+                // script builds its table again.
                 Script::Data => {
-                    if temporary {
-                        return Err(format!(
-                            "the statement at line {} makes the temporary table `{written}`, \
-                             which only its script reads",
-                            place(at.first)
-                        ));
+                    let later = (statements[index + 1..].iter())
+                        .any(|later| table(&later.stmt).is_some_and(|(_, other, _)| other == name));
+                    match temporary || later {
+                        true => Shows::Step(written),
+                        false => Shows::Loaded(written),
                     }
-                    let later = (statements[index + 1..].iter()).find(|later| {
-                        table(&later.stmt).is_some_and(|(_, other, _)| other == name)
-                    });
-                    if let Some(later) = later {
-                        return Err(format!(
-                            "the statement at line {} makes `{written}`, which the statement at \
-                             line {} loads again; the table shows at line {}",
-                            place(at.first),
-                            place(later.first),
-                            place(later.first)
-                        ));
-                    }
-                    Shows::Loaded(written)
                 }
             };
             (shows, Key::Table { name, occurrence })

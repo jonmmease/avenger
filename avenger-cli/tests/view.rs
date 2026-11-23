@@ -294,3 +294,16 @@ async fn a_cell_at_a_line_keeps_its_label_and_its_title_names_it() {
     let (plain, _) = Session::open(chart.to_str().unwrap()).await.unwrap();
     assert_eq!(plain.title(), "charts/origins.av.sql");
 }
+
+#[tokio::test]
+async fn a_step_of_a_data_script_builds_its_table_again_when_the_script_changes() {
+    let (_directory, root) = project();
+    let target = format!("{}:2", root.join("data/summaries.av.sql").display());
+    let (mut session, first) = Session::open(&target).await.unwrap();
+    assert_eq!(session.title(), "data/summaries.av.sql:2 · table heavy");
+    let heavy = count(&first).await;
+    let summaries = std::fs::read_to_string(root.join("data/summaries.av.sql")).unwrap();
+    let lighter = summaries.replace("Weight_in_lbs > 3000", "Weight_in_lbs > 0");
+    let outcomes = edit(&mut session, &root, "data/summaries.av.sql", &lighter).await;
+    assert!(ran(&outcomes).await > heavy);
+}

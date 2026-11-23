@@ -104,6 +104,13 @@ impl ScriptTables {
         Ok(Lowering::run(ctx, definitions, catalog).await?.tables)
     }
 
+    /// The table of the definition at `definition`, as the reads after it see it: a temporary
+    /// table, and the table of a `LOAD DATA INTO` with the loads before it, included. `None` for
+    /// a definition without a table, such as a schema, or past those that built.
+    pub fn table(&self, definition: usize) -> Option<Arc<dyn TableProvider>> {
+        self.tables.get(definition).cloned().flatten()
+    }
+
     /// `plan` with each scan of a [`ScriptTable`] reading the table of its definition, including
     /// the scans of its subqueries, or the error of a scan whose definition has no table or a
     /// table of other columns.
