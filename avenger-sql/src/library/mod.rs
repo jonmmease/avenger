@@ -166,6 +166,23 @@ impl Takes {
     }
 }
 
+/// The parameter of a constructor that decides how the text engine reads the constructor's
+/// strings of markup, and the string of its set that reads them as Typst: a constructor whose
+/// `syntax` is anything but `'typst'`, such as `title('*A*', syntax => 'plain')` or
+/// `syntax => 'plain_lines'`, holds plain text, and so do the strings of the constructors in its
+/// call, such as the title's `subtitle(...)`. The analysis and the tools that find the strings of
+/// markup by their syntax read this rule.
+pub struct TextSyntax {
+    pub param: &'static str,
+    pub typst: &'static str,
+}
+
+/// The rule of [`TextSyntax`].
+pub const TEXT_SYNTAX: TextSyntax = TextSyntax {
+    param: "syntax",
+    typst: "typst",
+};
+
 /// A constructor that a parameter takes: its name in the parameter, such as `log`, and its unique
 /// name, such as `log_scale`, with the parameter of the parameter's own constructor that it fills
 /// one level down, such as `pin` for `scale => pin(...)`, or `None` for the parameter's own

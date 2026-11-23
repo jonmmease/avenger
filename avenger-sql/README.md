@@ -89,6 +89,10 @@ let engine = avenger_typst_label::bundled_label_engine()
 
 The analysis checks a chart's literal pattern with these providers, by the type of the value that it formats where it knows it, so an invalid pattern is an error at its argument rather than when the chart renders. The formats of GoogleSQL's functions, such as `FORMAT_DATE`, take no check, since they print an element that GoogleSQL doesn't document as written.
 
+## Strings in languages of their own
+
+Some strings of a chart function are in a language of their own: Typst markup, such as a title, and format patterns. `string-arguments.json` lists these arguments in the terms of a call's syntax, for `tree-sitter-avenger-sql`, whose sync script generates its injection patterns from it: each call by the name that a script writes, a function's or a constructor's, each argument by its name or as the first by position, its language, `avenger-typst` or `avenger-format`, whether it holds an array of strings, `within`, the enclosing calls and arguments of a name whose constructors disagree on their arguments, such as the plot's `title` and the tooltip's, and `unless`, the argument whose values make markup plain, every value of a title's `syntax` but `'typst'`, such as `'plain'` and `'plain_lines'`, by the rule of `TEXT_SYNTAX`, which the analysis and the file share. The values are listed, since the predicates of Tree-sitter's queries have no lookahead to test for a value that isn't `'typst'`. The test `tests/string_arguments.rs` builds the file from the library and compares it with the committed one, which a change accepts by copying `tests/output/string-arguments.json`.
+
 ## Statistics in channels
 
 A mark call in an item of a pipe `AGGREGATE` takes aggregates in its channels, and the analysis plans it as the staged query that a user could type for it:

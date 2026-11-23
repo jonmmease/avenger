@@ -1,0 +1,894 @@
+{
+  "calls": [
+    {
+      "arguments": [
+        {
+          "array": true,
+          "language": "avenger-typst",
+          "name": "credits"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "separator"
+        }
+      ],
+      "function": "attribution"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        },
+        {
+          "language": "avenger-format",
+          "name": "labels"
+        }
+      ],
+      "function": "axis"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        },
+        {
+          "language": "avenger-format",
+          "name": "labels"
+        }
+      ],
+      "function": "facet"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "facet_column"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "facet_row"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "facet_wrap"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "markup"
+        }
+      ],
+      "function": "field"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "labels"
+        }
+      ],
+      "function": "graticule"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "hconcat"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "hconcat_agg"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "position": 0
+        },
+        {
+          "language": "avenger-format",
+          "name": "value"
+        },
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "markup"
+        }
+      ],
+      "function": "labels"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "layer"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "layer_agg"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        },
+        {
+          "language": "avenger-format",
+          "name": "labels"
+        }
+      ],
+      "function": "legend"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "labels"
+        }
+      ],
+      "function": "level"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_area"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_bar"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_image"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_line"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_path"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_rule"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_shape"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_symbol"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_text"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_geo_trail"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_image"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_line"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_path"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_area"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_bar"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_line"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_rect"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_rule"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_symbol"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_text"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_polar_trail"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_rect"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_rule"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_symbol"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_text"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "mark_trail"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "position": 0
+        },
+        {
+          "language": "avenger-typst",
+          "name": "text"
+        }
+      ],
+      "function": "subtitle",
+      "within": [
+        {
+          "argument": "title",
+          "function": "axis"
+        },
+        {
+          "argument": "title",
+          "function": "facet"
+        },
+        {
+          "argument": "title",
+          "function": "facet_column"
+        },
+        {
+          "argument": "title",
+          "function": "facet_row"
+        },
+        {
+          "argument": "title",
+          "function": "facet_wrap"
+        },
+        {
+          "argument": "title",
+          "function": "hconcat"
+        },
+        {
+          "argument": "title",
+          "function": "hconcat_agg"
+        },
+        {
+          "argument": "title",
+          "function": "layer"
+        },
+        {
+          "argument": "title",
+          "function": "layer_agg"
+        },
+        {
+          "argument": "title",
+          "function": "legend"
+        },
+        {
+          "argument": "title",
+          "function": "mark_area"
+        },
+        {
+          "argument": "title",
+          "function": "mark_bar"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_image"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_path"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_shape"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_trail"
+        },
+        {
+          "argument": "title",
+          "function": "mark_image"
+        },
+        {
+          "argument": "title",
+          "function": "mark_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_path"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_area"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_bar"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_rect"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_trail"
+        },
+        {
+          "argument": "title",
+          "function": "mark_rect"
+        },
+        {
+          "argument": "title",
+          "function": "mark_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_trail"
+        },
+        {
+          "argument": "subtitle",
+          "function": "title",
+          "unless": {
+            "language": "avenger-typst",
+            "name": "syntax",
+            "values": [
+              "plain",
+              "plain_lines"
+            ]
+          }
+        },
+        {
+          "argument": "title",
+          "function": "vconcat"
+        },
+        {
+          "argument": "title",
+          "function": "vconcat_agg"
+        }
+      ]
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-format",
+          "name": "format"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "markup"
+        }
+      ],
+      "function": "title",
+      "within": [
+        {
+          "argument": "title",
+          "function": "tooltip"
+        }
+      ]
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "position": 0
+        },
+        {
+          "language": "avenger-typst",
+          "name": "value"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "text"
+        },
+        {
+          "language": "avenger-typst",
+          "name": "subtitle"
+        }
+      ],
+      "function": "title",
+      "unless": {
+        "language": "avenger-typst",
+        "name": "syntax",
+        "values": [
+          "plain",
+          "plain_lines"
+        ]
+      },
+      "within": [
+        {
+          "argument": "legend",
+          "function": "angle"
+        },
+        {
+          "argument": "title",
+          "function": "axis"
+        },
+        {
+          "argument": "legend",
+          "function": "color"
+        },
+        {
+          "argument": "title",
+          "function": "facet"
+        },
+        {
+          "argument": "facet",
+          "function": "facet_column"
+        },
+        {
+          "argument": "title",
+          "function": "facet_column"
+        },
+        {
+          "argument": "facet",
+          "function": "facet_row"
+        },
+        {
+          "argument": "title",
+          "function": "facet_row"
+        },
+        {
+          "argument": "facet",
+          "function": "facet_wrap"
+        },
+        {
+          "argument": "title",
+          "function": "facet_wrap"
+        },
+        {
+          "argument": "legend",
+          "function": "fill"
+        },
+        {
+          "argument": "legend",
+          "function": "fill_opacity"
+        },
+        {
+          "argument": "title",
+          "function": "hconcat"
+        },
+        {
+          "argument": "title",
+          "function": "hconcat_agg"
+        },
+        {
+          "argument": "title",
+          "function": "layer"
+        },
+        {
+          "argument": "title",
+          "function": "layer_agg"
+        },
+        {
+          "argument": "title",
+          "function": "legend"
+        },
+        {
+          "argument": "title",
+          "function": "mark_area"
+        },
+        {
+          "argument": "title",
+          "function": "mark_bar"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_image"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_path"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_shape"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_geo_trail"
+        },
+        {
+          "argument": "title",
+          "function": "mark_image"
+        },
+        {
+          "argument": "title",
+          "function": "mark_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_path"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_area"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_bar"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_line"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_rect"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_polar_trail"
+        },
+        {
+          "argument": "title",
+          "function": "mark_rect"
+        },
+        {
+          "argument": "title",
+          "function": "mark_rule"
+        },
+        {
+          "argument": "title",
+          "function": "mark_symbol"
+        },
+        {
+          "argument": "title",
+          "function": "mark_text"
+        },
+        {
+          "argument": "title",
+          "function": "mark_trail"
+        },
+        {
+          "argument": "legend",
+          "function": "opacity"
+        },
+        {
+          "argument": "legend",
+          "function": "pattern"
+        },
+        {
+          "argument": "axis",
+          "function": "radius"
+        },
+        {
+          "argument": "legend",
+          "function": "shape"
+        },
+        {
+          "argument": "legend",
+          "function": "size"
+        },
+        {
+          "argument": "legend",
+          "function": "stroke"
+        },
+        {
+          "argument": "legend",
+          "function": "stroke_dasharray"
+        },
+        {
+          "argument": "legend",
+          "function": "stroke_opacity"
+        },
+        {
+          "argument": "legend",
+          "function": "stroke_width"
+        },
+        {
+          "argument": "axis",
+          "function": "theta"
+        },
+        {
+          "argument": "title",
+          "function": "vconcat"
+        },
+        {
+          "argument": "title",
+          "function": "vconcat_agg"
+        },
+        {
+          "argument": "axis",
+          "function": "x"
+        },
+        {
+          "argument": "axis",
+          "function": "y"
+        }
+      ]
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "vconcat"
+    },
+    {
+      "arguments": [
+        {
+          "language": "avenger-typst",
+          "name": "title"
+        }
+      ],
+      "function": "vconcat_agg"
+    }
+  ],
+  "version": 1
+}

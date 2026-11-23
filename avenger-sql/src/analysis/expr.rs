@@ -1863,7 +1863,7 @@ impl Pass<'_> {
             let formatted = param_is("text");
             let syntax = named
                 .as_deref()
-                .is_some_and(|name| name.eq_ignore_ascii_case("syntax"));
+                .is_some_and(|name| name.eq_ignore_ascii_case(library::TEXT_SYNTAX.param));
             if syntax && function.family == library::Family::Constructor {
                 plain = !is_typst_syntax(&value);
             }
@@ -2882,9 +2882,8 @@ fn literal_string(expr: &ast::Expr) -> Option<String> {
 
 fn is_typst_syntax(expr: &ast::Expr) -> bool {
     match expr {
-        ast::Expr::Literal(literal) => {
-            (literal.string_value()).is_some_and(|value| value.eq_ignore_ascii_case("typst"))
-        }
+        ast::Expr::Literal(literal) => (literal.string_value())
+            .is_some_and(|value| value.eq_ignore_ascii_case(library::TEXT_SYNTAX.typst)),
         _ => false,
     }
 }

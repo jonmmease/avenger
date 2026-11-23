@@ -333,8 +333,9 @@ impl<'a> Model<'a> {
         names: &[String],
         excluded: &BTreeSet<(String, String)>,
     ) -> Result<Self, String> {
-        let marked = (annotations.markup.iter().map(|key| ("markup", key)))
-            .chain(annotations.format_pattern.iter().map(|key| ("format_pattern", key)));
+        let markup = annotations.markup.iter().map(|key| ("markup", key));
+        let formats = (annotations.format_pattern.iter()).map(|key| ("format_pattern", key));
+        let marked = markup.chain(formats);
         for (option, (message, field)) in marked {
             let strings = (messages.get(message))
                 .and_then(|(_, _, descriptor)| {
