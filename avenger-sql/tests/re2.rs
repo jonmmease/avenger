@@ -53,6 +53,9 @@ async fn run(text: &str) -> Option<Value> {
     })
 }
 
+/// The patterns whose results differ from RE2's by design.
+const DIFFERENCES: &[&str] = &[r"\C"];
+
 #[tokio::test]
 async fn the_regex_functions_give_re2_s_answers() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/re2.jsonl");
@@ -88,6 +91,9 @@ async fn the_regex_functions_give_re2_s_answers() {
         );
         let expected = match case.get("error") {
             Some(Value::Bool(true)) => None,
+            // `\C`, any byte, which RE2 accepts, can't match alone in a pattern over strings, so
+            // avenger-sql rejects it.
+            _ if DIFFERENCES.contains(&pattern) => None,
             _ => Some(case["result"].clone()),
         };
         for (path, script) in [("literals", &literals), ("columns", &rows)] {
@@ -128,4 +134,39 @@ fn a_literal_replacement_s_errors_are_at_its_argument() {
         error(r"'a\\'").1,
         "the replacement ends in a lone backslash"
     );
+}
+
+#[test]
+fn a_pattern_that_re2_rejects_has_re2_s_error_at_its_argument() {
+    let error = |pattern: &str| {
+        let text = format!("FROM one |> SELECT REGEXP_CONTAINS('a', r'{pattern}') AS r");
+        let analysis = pass::analysis(&text);
+        let diagnostic = analysis.diagnostics.first().expect("an error");
+        assert_eq!(&text[diagnostic.range], format!("r'{pattern}'"));
+        diagnostic.message.clone()
+    };
+    for (pattern, message) in [
+        (r"(a)\1", r"invalid escape sequence: \1"),
+        (r"\8", r"invalid escape sequence: \8"),
+        (r"\p{Letter}", r"invalid character class range: \p{Letter}"),
+        (r"[[:foo:]]", r"invalid character class range: [:foo:]"),
+        (r"[z-a]", r"invalid character class range: z-a"),
+        (r"[ab", r"missing ]: [ab"),
+        (r"(?x)a", r"invalid perl operator: (?x"),
+        (r"(?i-)a", r"invalid perl operator: (?i-)"),
+        (r"a**", r"bad repetition operator: **"),
+        (r"x{2}{3}", r"bad repetition operator: {2}{3}"),
+        (r"a{1001}", r"invalid repetition size: {1001}"),
+        (r"(?:a{500}){3}", r"invalid repetition size: {3}"),
+        (
+            r"\C",
+            r"`\C` matches one byte, which a pattern over strings can't match alone",
+        ),
+    ] {
+        assert_eq!(
+            error(pattern),
+            format!("the pattern doesn't compile: {message}"),
+            "{pattern}"
+        );
+    }
 }
