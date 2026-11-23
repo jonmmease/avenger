@@ -38,6 +38,7 @@
 
 mod completion;
 mod data;
+mod embedded;
 mod hover;
 mod markup;
 mod navigation;
@@ -61,6 +62,7 @@ pub use avenger_sql_syntax::{
     DiagnosticCode, Fix, Highlight, HighlightRange, Offset, Role, TextEdit, TextRange, TypstTag,
 };
 pub use completion::{CompletionItem, CompletionKind, Completions};
+pub use embedded::{Embedded, EmbeddedString};
 pub use hover::Hover;
 pub use navigation::{DefinitionLink, Reference};
 pub use outline::{FoldingRange, Symbol, SymbolKind};

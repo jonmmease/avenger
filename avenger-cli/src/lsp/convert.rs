@@ -6,7 +6,7 @@
 use avenger_sql_language::{
     CompletionKind, Highlight, Offset, Severity, Source, SymbolKind, TextRange,
 };
-use avenger_sql_syntax::{NameRole, TypstTag};
+use avenger_sql_syntax::NameRole;
 
 use avenger_sql_project::qmd::Cell;
 use lsp_types::{
@@ -256,7 +256,7 @@ pub const NAMESPACE: SemanticTokenType = SemanticTokenType::NAMESPACE;
 pub const TOKEN_MODIFIERS: [SemanticTokenModifier; 1] = [SemanticTokenModifier::DECLARATION];
 
 /// The index of the token type of `highlight` in the legend, which is [`TOKEN_TYPES`] and then
-/// [`NAMESPACE`], or `None` for punctuation, which has no token.
+/// [`NAMESPACE`], or `None` for punctuation and Typst markup, which have no tokens.
 pub fn token_type(highlight: Highlight) -> Option<u32> {
     let index = |kind: SemanticTokenType| {
         (TOKEN_TYPES.iter().position(|t| *t == kind)).unwrap_or(TOKEN_TYPES.len()) as u32
@@ -270,32 +270,9 @@ pub fn token_type(highlight: Highlight) -> Option<u32> {
         Highlight::QueryParameter => index(SemanticTokenType::PARAMETER),
         Highlight::Operator => index(SemanticTokenType::OPERATOR),
         Highlight::Punctuation => return None,
-        // Semantic tokens are the only Typst highlighting, since the grammar leaves a string's
-        // markup to them. The protocol has types for Typst's code and math, and none for its
-        // markup, such as strong text, which stays a string, as the text around it does.
-        Highlight::Typst(tag) => match tag {
-            TypstTag::Comment => index(SemanticTokenType::COMMENT),
-            TypstTag::Keyword => index(SemanticTokenType::KEYWORD),
-            TypstTag::Operator | TypstTag::MathOperator => index(SemanticTokenType::OPERATOR),
-            TypstTag::Number => index(SemanticTokenType::NUMBER),
-            TypstTag::Function => index(SemanticTokenType::FUNCTION),
-            TypstTag::Interpolated => index(SemanticTokenType::VARIABLE),
-            TypstTag::String
-            | TypstTag::Raw
-            | TypstTag::Punctuation
-            | TypstTag::Escape
-            | TypstTag::Strong
-            | TypstTag::Emph
-            | TypstTag::Link
-            | TypstTag::Label
-            | TypstTag::Ref
-            | TypstTag::Heading
-            | TypstTag::ListMarker
-            | TypstTag::ListTerm
-            | TypstTag::MathDelimiter
-            | TypstTag::MathGroupingParens
-            | TypstTag::Error => index(SemanticTokenType::STRING),
-        },
+        // A string of Typst markup takes no tokens: the injection of `tree-sitter-avenger-typst`
+        // into avenger-sql's grammar highlights it, and the server leaves it to the injection.
+        Highlight::Typst(_) => return None,
         Highlight::Name(role) => match role {
             NameRole::Table | NameRole::Query => index(SemanticTokenType::CLASS),
             NameRole::Function(_) => index(SemanticTokenType::FUNCTION),

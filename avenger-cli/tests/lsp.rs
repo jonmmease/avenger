@@ -738,11 +738,28 @@ fn tokens(client: &mut Client, uri: &Url) -> Vec<(u32, u32, u32, u32)> {
     absolute
 }
 
+/// The index of the token type `kind` in the legend of `client`'s server.
+fn token_kind(client: &Client, kind: &str) -> u32 {
+    let capabilities = serde_json::to_value(&client.result.capabilities).unwrap();
+    let legend = &capabilities["semanticTokensProvider"]["legend"]["tokenTypes"];
+    (legend.as_array().unwrap().iter())
+        .position(|name| name == kind)
+        .unwrap() as u32
+}
+
+/// Whether a token of `tokens` on `line` starts or ends inside the columns `start..end`, or
+/// covers them.
+fn touches(tokens: &[(u32, u32, u32, u32)], line: u32, (start, end): (u32, u32)) -> bool {
+    (tokens.iter())
+        .filter(|token| token.0 == line)
+        .any(|&(_, column, length, _)| column < end && column + length > start)
+}
+
 #[test]
-fn the_typst_markup_of_a_title_in_a_cell_takes_tokens_and_errors() {
+fn the_typst_markup_of_a_title_takes_no_tokens_and_keeps_its_errors() {
     let (_directory, root) = project();
     std::fs::create_dir_all(root.join("reports")).unwrap();
-    let text = "1. Weights\n\n    ```{avenger-sql}\n    FROM heavy_by_origin\n    |> AGGREGATE mark_bar(x => Origin, y => cars, title => '\u{e9} #emph[Cars] $x')\n    ```\n";
+    let text = "1. Weights\n\n    ```{avenger-sql}\n    FROM heavy_by_origin\n    |> AGGREGATE mark_bar(x => Origin, y => cars, orient => 'vertical', title => '\u{e9} #emph[Cars] $x')\n    ```\n\n```{avenger-sql}\nFROM heavy_by_origin\n|> AGGREGATE mark_bar(x => Origin, y => cars, title => title('*Plain*', syntax => 'plain'))\n```\n";
     std::fs::write(root.join("reports/overview.qmd"), text).unwrap();
     let mut client = Client::start(ClientCapabilities::default());
     let report = uri(&root, "reports/overview.qmd");
@@ -756,31 +773,60 @@ fn the_typst_markup_of_a_title_in_a_cell_takes_tokens_and_errors() {
     assert_eq!(diagnostics[0].source.as_deref(), Some("typst"));
     assert_eq!(diagnostics[0].range.start.line, 4);
 
-    // `#emph` is a function, at its UTF-16 column: the indent, then the line up to it, where
-    // `é` is one unit.
-    let line = text.lines().nth(4).unwrap();
-    let column = line[..line.find("#emph").unwrap()].encode_utf16().count() as u32;
-    let capabilities = serde_json::to_value(&client.result.capabilities).unwrap();
-    let legend = &capabilities["semanticTokensProvider"]["legend"]["tokenTypes"];
-    let function = (legend.as_array().unwrap().iter())
-        .position(|kind| kind == "function")
-        .unwrap();
+    // No token starts, ends, or lies inside the title's string, its quotes included, at UTF-16
+    // columns, where `é` is one unit.
     let tokens = tokens(&mut client, &report);
+    let units = |text: &str| text.encode_utf16().count() as u32;
+    let line = text.lines().nth(4).unwrap();
+    let title = line.find("'\u{e9}").unwrap();
+    let string = (units(&line[..title]), units(line.trim_end_matches(')')));
+    assert!(!touches(&tokens, 4, string), "{tokens:?}");
+    // A string of the same call that isn't markup keeps its token.
+    let vertical = line.find("'vertical'").unwrap();
+    let (column, length) = (units(&line[..vertical]), units("'vertical'"));
+    let member = token_kind(&client, "enumMember");
+    assert!(tokens.contains(&(4, column, length, member)), "{tokens:?}");
+    // A title of plain syntax is no markup, and its string takes one `string` token.
+    let line = text.lines().nth(9).unwrap();
+    let plain = line.find("'*Plain*'").unwrap();
+    let (column, length) = (units(&line[..plain]), units("'*Plain*'"));
+    let string = token_kind(&client, "string");
+    assert!(tokens.contains(&(9, column, length, string)), "{tokens:?}");
+}
+
+#[test]
+fn the_values_of_typed_literals_take_no_tokens() {
+    let (_directory, root) = project();
+    let text = "FROM heavy_by_origin\n|> EXTEND DATE '2024-01-03' AS d, TIMESTAMP '2024-01-03 12:30:00+05:30' AS t, NUMERIC '1.25' AS n, JSON '{}' AS j, 'plain' AS p\n";
+    std::fs::write(root.join("charts/typed.av.sql"), text).unwrap();
+    let mut client = Client::start(ClientCapabilities::default());
+    let chart = uri(&root, "charts/typed.av.sql");
+    client.open(&chart, text);
+    client.until("the chart's diagnostics", |c| {
+        c.diagnostics.contains_key(&chart)
+    });
+    let tokens = tokens(&mut client, &chart);
+    let line = text.lines().nth(1).unwrap();
+    let span = |literal: &str| {
+        let at = line.find(literal).unwrap() as u32;
+        (at, at + literal.len() as u32)
+    };
+    for value in [
+        "'2024-01-03'",
+        "'2024-01-03 12:30:00+05:30'",
+        "'1.25'",
+        "'{}'",
+    ] {
+        assert!(!touches(&tokens, 1, span(value)), "{value}: {tokens:?}");
+    }
+    // The keywords of the literals keep theirs, and a plain string keeps its `string` token.
+    let keyword = token_kind(&client, "keyword");
+    let (date, _) = span("DATE");
+    assert!(tokens.contains(&(1, date, 4, keyword)), "{tokens:?}");
+    let (plain, end) = span("'plain'");
+    let string = token_kind(&client, "string");
     assert!(
-        tokens.contains(&(4, column, 5, function as u32)),
+        tokens.contains(&(1, plain, end - plain, string)),
         "{tokens:?}"
     );
-    // Every character of the string takes a token, so markup without a type of its own, such as
-    // the brackets of `#emph[Cars]`, reads as the string around it.
-    let units = |text: &str| text.encode_utf16().count() as u32;
-    let quote = line.find('\'').unwrap();
-    let (start, end) = (units(&line[..quote]), units(line.trim_end_matches(')')));
-    let mut at = start;
-    for (_, column, length, _) in (tokens.iter()).filter(|token| token.0 == 4) {
-        if *column >= start && *column < end {
-            assert_eq!(*column, at, "a gap before {column} in {tokens:?}");
-            at = column + length;
-        }
-    }
-    assert_eq!(at, end, "{tokens:?}");
 }
