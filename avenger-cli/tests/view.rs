@@ -182,3 +182,21 @@ async fn a_statement_at_a_line_runs_again_when_its_script_changes() {
     };
     assert_eq!(result.num_rows(), 3);
 }
+
+#[tokio::test]
+async fn a_data_script_s_statement_shows_its_table_again_when_the_script_changes() {
+    let (_directory, root) = project();
+    let target = format!("{}:7", root.join("data/summaries.av.sql").display());
+    let (mut session, first) = Session::open(&target).await.unwrap();
+    let Outcome::Ran(result) = &first else {
+        panic!("the table shows when the window opens");
+    };
+    assert_eq!(result.num_rows(), 2);
+    let summaries = std::fs::read_to_string(root.join("data/summaries.av.sql")).unwrap();
+    let lighter = summaries.replace("Weight_in_lbs > 3000", "Weight_in_lbs > 0");
+    let outcomes = edit(&mut session, &root, "data/summaries.av.sql", &lighter).await;
+    let [Outcome::Ran(result)] = outcomes.as_slice() else {
+        panic!("{:?}", kinds(&outcomes));
+    };
+    assert_eq!(result.num_rows(), 3);
+}

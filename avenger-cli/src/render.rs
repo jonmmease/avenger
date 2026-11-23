@@ -41,7 +41,7 @@ use crate::{
     check::{check_text, failure_reports, first_line, File, Place},
     project::{load_files, targets},
     report::{Output, Report, Severity},
-    statement::{at_line, cell_at_line, split_line, Shows, Statement},
+    statement::{at_line, cell_at_line, data_tables, split_line, Script, Shows, Statement},
     Status,
 };
 
@@ -286,6 +286,9 @@ pub(crate) struct Target {
     /// names one as `FILE:LINE`.
     pub(crate) line: Option<usize>,
     pub(crate) statement: Option<Statement>,
+    /// Whether the target's file is a data script, whose statements show their tables from the
+    /// project's session.
+    pub(crate) data: bool,
 }
 
 impl Target {
@@ -316,7 +319,11 @@ impl Target {
             (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
             _ => 0,
         };
-        let statement = at_line(&self.text, line - before, before)?;
+        let script = match self.data {
+            true => Script::Data,
+            false => Script::Chart,
+        };
+        let statement = at_line(&self.text, line - before, before, script)?;
         if statement.shows != Shows::Value {
             let text = statement.text(&self.text);
             let project = self.analysis.project_mut();
@@ -336,11 +343,13 @@ impl Target {
     }
 
     /// The offset in the file on disk of the offset `offset` of the target's text: the same for
-    /// a script, and in its document for a cell.
+    /// a script, in its document for a cell, and the start of the statement for a data script's
+    /// statement, whose query the file doesn't hold.
     fn to_file(&self, offset: usize) -> usize {
-        match self.cell() {
-            Some(cell) => cell.to_document(offset),
-            None => offset,
+        match (self.cell(), &self.statement) {
+            (_, Some(statement)) if self.data => statement.start,
+            (Some(cell), _) => cell.to_document(offset),
+            (None, _) => offset,
         }
     }
 
@@ -349,11 +358,17 @@ impl Target {
         (self.document.as_ref().zip(self.cell)).map(|(document, index)| &document.cells[index])
     }
 
+    /// The text of the target's script in the analysis, which a statement's run keeps.
+    fn source(&self) -> &str {
+        (self.analysis.project().document(&self.script))
+            .map_or(self.text.as_str(), |document| document.text())
+    }
+
     /// The file on disk of the target, whose reports `check` places with `place`.
     fn on_disk<'a>(&'a self, place: Place<'a>) -> File<'a> {
         let text = match &self.document {
             Some(document) => document.text.as_str(),
-            None => self.text.as_str(),
+            None => self.source(),
         };
         File {
             path: &self.file,
@@ -378,10 +393,19 @@ pub(crate) async fn run_target(target: &Target) -> Result<QueryResult, Failure> 
 /// Checks the target as `check` does, and gives the frame of its chart script, unrun, or the
 /// reports of its errors. [`Target::failure`] gives the reports of an error of the frame's run.
 pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
+    let (analysis, loader) = (&target.analysis, &target.loader);
+    // A data script's errors, such as of its load, keep its tables from showing.
+    if target.data {
+        let same = |offset| offset;
+        let file = target.on_disk(&same);
+        let reports = check_text(analysis, loader, &target.script, file.text, false, &file).await;
+        if (reports.iter()).any(|report| report.severity == Severity::Error) {
+            return Err(Failure::Reports(reports));
+        }
+    }
     // The script's errors, as `check` reports them, keep it from running.
     let place = |offset| target.to_file(offset);
     let file = target.on_disk(&place);
-    let (analysis, loader) = (&target.analysis, &target.loader);
     let reports = check_text(analysis, loader, &target.path, &target.text, false, &file).await;
     if (reports.iter()).any(|report| report.severity == Severity::Error) {
         return Err(Failure::Reports(reports));
@@ -451,10 +475,12 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
                 .unwrap_or_default();
             let role = files.manifest().role(&relative);
             match role {
-                Ok(Some(Role::ChartScript | Role::Document)) => (files, relative, Some(root)),
-                Ok(Some(Role::DataScript | Role::Module(_))) if line.is_some() => {
+                Ok(Some(Role::ChartScript | Role::Document | Role::DataScript)) => {
+                    (files, relative, Some(root))
+                }
+                Ok(Some(Role::Module(_))) if line.is_some() => {
                     return Err(Failure::Usage(format!(
-                        "{}: a statement of a data script or a module is no target",
+                        "{}: a statement of a module is no target",
                         file.display()
                     )))
                 }
@@ -469,6 +495,7 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
             (files, relative, None)
         }
     };
+    let data = matches!(files.manifest().role(&relative), Ok(Some(Role::DataScript)));
     let (analysis, loader, _) = load_files(&files).await?;
     let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
     let (path, text, document, cell) = match analysis.qmd(&relative) {
@@ -518,7 +545,21 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
         root,
         line: None,
         statement: None,
+        data,
     };
+    if let (true, None) = (data, line) {
+        // A data script has no value: its tables show by their lines.
+        let tables: Vec<String> = (data_tables(&target.text).into_iter())
+            .map(|(table, line)| format!("{chart}:{line} for `{table}`"))
+            .collect();
+        let tables = match tables.is_empty() {
+            true => "it makes no table that a target shows".to_string(),
+            false => format!("name a table by its line: {}", tables.join(", ")),
+        };
+        return Err(Failure::Usage(format!(
+            "{chart}: a data script has no value; {tables}"
+        )));
+    }
     if let Some(line) = line {
         (target.point_at(line)).map_err(|error| format!("{chart}:{line}: {error}"))?;
     }
