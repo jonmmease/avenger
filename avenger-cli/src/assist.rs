@@ -22,8 +22,10 @@ pub async fn complete(at: &str, limit: usize, output: &Output) -> Result<Status,
         .to_ascii_lowercase();
     let matching: Vec<_> = (completions.items.iter())
         .filter(|item| {
-            let label = item.label.trim_start_matches(quotes).to_ascii_lowercase();
-            label.starts_with(&typed)
+            // An item's filter text, as `WHERE` of `|> WHERE`, is what an editor matches.
+            let matched = item.filter.as_deref().unwrap_or(&item.label);
+            let matched = matched.trim_start_matches(quotes).to_ascii_lowercase();
+            matched.starts_with(&typed)
         })
         .collect();
     let total = matching.len();

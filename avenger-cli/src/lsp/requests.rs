@@ -10,18 +10,18 @@ use lsp_server::{ErrorCode, Request, Response};
 use lsp_types::{
     request::{
         CodeActionRequest, Completion, DocumentSymbolRequest, FoldingRangeRequest, Formatting,
-        GotoDefinition, HoverRequest, PrepareRenameRequest, References, Rename, Request as _,
-        SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
+        GotoDefinition, HoverRequest, OnTypeFormatting, PrepareRenameRequest, References, Rename,
+        Request as _, SelectionRangeRequest, SemanticTokensFullRequest, SignatureHelpRequest,
     },
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams, CompletionItem,
     CompletionList, CompletionParams, CompletionResponse, CompletionTextEdit,
-    DocumentFormattingParams, DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse,
-    Documentation, FoldingRange, FoldingRangeKind, FoldingRangeParams, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, InsertReplaceEdit, Location,
-    MarkupContent, MarkupKind, ParameterInformation, ParameterLabel, PrepareRenameResponse,
-    ReferenceParams, RenameParams, SelectionRange, SelectionRangeParams, SemanticToken,
-    SemanticTokens, SemanticTokensParams, SemanticTokensResult, SignatureHelp, SignatureHelpParams,
-    SignatureInformation, TextDocumentPositionParams, Url, WorkspaceEdit,
+    DocumentFormattingParams, DocumentOnTypeFormattingParams, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, Documentation, FoldingRange, FoldingRangeKind, FoldingRangeParams,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    InsertReplaceEdit, Location, MarkupContent, MarkupKind, ParameterInformation, ParameterLabel,
+    PrepareRenameResponse, ReferenceParams, RenameParams, SelectionRange, SelectionRangeParams,
+    SemanticToken, SemanticTokens, SemanticTokensParams, SemanticTokensResult, SignatureHelp,
+    SignatureHelpParams, SignatureInformation, TextDocumentPositionParams, Url, WorkspaceEdit,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -119,6 +119,7 @@ impl Server {
             SelectionRangeRequest::METHOD => self.selection(params),
             SemanticTokensFullRequest::METHOD => self.tokens(params),
             Formatting::METHOD => self.formatting(params),
+            OnTypeFormatting::METHOD => self.on_type_formatting(params),
             CodeActionRequest::METHOD => self.code_actions(params),
             _ => Err((
                 ErrorCode::MethodNotFound,
@@ -265,6 +266,7 @@ impl Server {
                         .documentation
                         .map(|text| Documentation::MarkupContent(markdown(text))),
                     sort_text: Some(item.sort),
+                    filter_text: item.filter,
                     text_edit: Some(edit),
                     ..Default::default()
                 }
@@ -274,6 +276,43 @@ impl Server {
             is_incomplete: false,
             items,
         }))
+    }
+
+    /// The edits after a typed character that triggers them: the indentation of a new line, or of
+    /// a line whose first token the user typed. A line of a cell takes the fence's indent before
+    /// its depth, since a new line of an indented cell can start with less than the indent.
+    fn on_type_formatting(&self, value: Value) -> Answer {
+        let params: DocumentOnTypeFormattingParams = params(value)?;
+        let Some(ch) = params.ch.chars().next() else {
+            return answer(Value::Null);
+        };
+        let Some((part, offset)) = self.at(&params.text_document_position) else {
+            return answer(Value::Null);
+        };
+        let edits = part.target.document().on_type(offset, ch);
+        if edits.is_empty() {
+            return answer(Value::Null);
+        }
+        let place = &part.place;
+        let edits: Vec<lsp_types::TextEdit> = (edits.into_iter())
+            .map(|edit| match place.cell() {
+                None => lsp_types::TextEdit::new(place.range(edit.range), edit.replacement),
+                Some(cell) => {
+                    let line = place.position(usize::from(edit.range.start())).line;
+                    let indent = place.line_indent(line) as u32;
+                    let range = lsp_types::Range::new(
+                        lsp_types::Position::new(line, 0),
+                        lsp_types::Position::new(line, indent),
+                    );
+                    let text = match edit.replacement.is_empty() {
+                        true => String::new(),
+                        false => format!("{}{}", cell.indent, edit.replacement),
+                    };
+                    lsp_types::TextEdit::new(range, text)
+                }
+            })
+            .collect();
+        answer(edits)
     }
 
     fn signature_help(&self, value: Value) -> Answer {

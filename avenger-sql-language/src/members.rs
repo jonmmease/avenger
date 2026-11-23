@@ -439,6 +439,7 @@ impl Project {
                     ),
                 };
                 CompletionItem {
+                    filter: None,
                     label: member.name.clone(),
                     kind,
                     detail: Some(detail),

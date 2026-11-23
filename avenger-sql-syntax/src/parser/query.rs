@@ -12,7 +12,7 @@ const FROM_FIRST: &str = "a query starts with FROM, as in `FROM t |> SELECT a`";
 
 /// The words that start each pipe operator that avenger-sql reads, with the words that the first
 /// takes after it, such as `ORDER BY`.
-const PIPE_OPERATORS: &[&str] = &[
+pub const PIPE_OPERATORS: &[&str] = &[
     "SELECT",
     "EXTEND",
     "SET",
@@ -138,7 +138,8 @@ impl Parser<'_> {
             }
             self.skip_until(|p| p.at_sync());
         }
-        while self.current() == PIPE {
+        // `at` records that a pipe operator can come here, which completion offers.
+        while self.at(PIPE) {
             self.pipe_operator();
         }
         self.leave();

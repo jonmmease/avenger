@@ -153,6 +153,15 @@ fn server_capabilities(encoding: Encoding) -> ServerCapabilities {
             },
         )),
         document_formatting_provider: Some(OneOf::Left(true)),
+        // Indentation as the user types: Return, and a line's first `)`, `]`, or `|>`.
+        document_on_type_formatting_provider: Some(lsp_types::DocumentOnTypeFormattingOptions {
+            first_trigger_character: avenger_sql_language::ON_TYPE_TRIGGERS[0].to_string(),
+            more_trigger_character: Some(
+                (avenger_sql_language::ON_TYPE_TRIGGERS[1..].iter())
+                    .map(char::to_string)
+                    .collect(),
+            ),
+        }),
         code_action_provider: Some(CodeActionProviderCapability::Options(
             lsp_types::CodeActionOptions {
                 code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
