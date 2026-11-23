@@ -1,6 +1,6 @@
 //! The result of a query that holds charts: its batches, the columns that hold charts, decoded,
-//! and its shape, a single chart or a table, which every host that shows results, an image, a
-//! window, or an editor, shows alike.
+//! and its shape, a single chart or a table, which every host that shows results, such as
+//! `avenger render` and `avenger view`, shows alike.
 
 use std::collections::BTreeMap;
 

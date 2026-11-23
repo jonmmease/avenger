@@ -1,5 +1,5 @@
 //! `avenger render`: the chart of a chart script, or of a cell of a Quarto document, drawn to
-//! PNG, SVG, or PDF by the same chart app as the editor, offscreen, with its widgets.
+//! PNG, SVG, or PDF by the chart app of `avenger view`, offscreen, with its widgets.
 //!
 //! The script runs through its project, or a loose script as a project of one file, and its
 //! result decides the image: one row of one column of charts is that chart, and any other result
@@ -28,16 +28,17 @@ use avenger_scenegraph::{
 use avenger_sql_project::{
     charts::{background, label_engine, preferences},
     find_root,
-    qmd::{cell_path, is_document, Qmd},
+    qmd::{cell_path, is_document, Cell, Qmd},
     Analysis, ChartError, FileSource, Loader, ProjectFiles, ProjectStylesheet, Role,
 };
 use avenger_style::{Cascade, ColorScheme, HostInputs, ParseOptions, Sheet, SourceId};
 use avenger_typst_label::{LabelEngine, LabelOptions, LabelWidth, TextStyle};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::{common::DataFusionError, prelude::SessionContext};
+use datafusion::{common::DataFusionError, dataframe::DataFrame};
 
 use crate::{
-    check::{check_text, failure_reports, first_line, same, File},
+    check::{check_text, failure_reports, first_line, File, Place},
+    project::{load_files, targets},
     report::{Output, Report, Severity},
     Status,
 };
@@ -151,10 +152,7 @@ pub async fn run_all(
     let files =
         (ProjectFiles::find(&root).await).map_err(|e| format!("{}: {e}", root.display()))?;
     let analysis = Analysis::new(&files).await.map_err(|e| e.to_string())?;
-    let mut targets: Vec<String> = files.chart_scripts().to_vec();
-    for (document, qmd) in analysis.documents() {
-        targets.extend((1..=qmd.cells.len()).map(|number| cell_path(document, number)));
-    }
+    let targets = targets(&files, &analysis);
     std::fs::create_dir_all(out).map_err(|error| format!("{}: {error}", out.display()))?;
     let renderer = Renderer::new(options)?;
     let (mut written, mut reports) = (Vec::new(), Vec::new());
@@ -296,44 +294,70 @@ impl Target {
             _ => Report::file(&self.file, Severity::Error, message, "render"),
         }
     }
+
+    /// The reports of the error `error` of a run of the target, at their places in its file.
+    pub(crate) fn failure(&self, error: DataFusionError) -> Failure {
+        let place = |offset| self.to_file(offset);
+        Failure::Reports(failure_reports(&error, &self.on_disk(&place)))
+    }
+
+    /// The offset in the file on disk of the offset `offset` of the target's text: the same for
+    /// a script, and in its document for a cell.
+    fn to_file(&self, offset: usize) -> usize {
+        match self.cell() {
+            Some(cell) => cell.to_document(offset),
+            None => offset,
+        }
+    }
+
+    /// The cell of the target, for a cell of a document.
+    fn cell(&self) -> Option<&Cell> {
+        (self.document.as_ref().zip(self.cell)).map(|(document, index)| &document.cells[index])
+    }
+
+    /// The file on disk of the target, whose reports `check` places with `place`.
+    fn on_disk<'a>(&'a self, place: Place<'a>) -> File<'a> {
+        let text = match &self.document {
+            Some(document) => document.text.as_str(),
+            None => self.text.as_str(),
+        };
+        File {
+            path: &self.file,
+            text,
+            place,
+            first_line: self.cell().map(|cell| first_line(text, cell)),
+        }
+    }
 }
 
 /// Checks the target as `check` does, runs its chart script, and gives its result, or the reports
 /// of its errors.
 pub(crate) async fn run_target(target: &Target) -> Result<QueryResult, Failure> {
-    let file_text = match &target.document {
-        Some(document) => document.text.as_str(),
-        None => target.text.as_str(),
-    };
-    let cell = (target.document.as_ref().zip(target.cell)).map(|(d, i)| &d.cells[i]);
-    let to_document = |offset| cell.map_or(offset, |cell| cell.to_document(offset));
-    let file = File {
-        path: &target.file,
-        text: file_text,
-        place: match cell {
-            Some(_) => &to_document,
-            None => &same,
-        },
-        first_line: cell.map(|cell| first_line(file_text, cell)),
-    };
+    let frame = plan_target(target).await?;
+    // The columns come from the query's schema, so a result without rows still has its header.
+    let schema = frame.schema().inner().clone();
+    let batches = (frame.collect().await).map_err(|error| target.failure(error))?;
+    QueryResult::new(schema, batches)
+        .map_err(|error| Failure::Reports(vec![target.report(error.to_string())]))
+}
+
+/// Checks the target as `check` does, and gives the frame of its chart script, unrun, or the
+/// reports of its errors. [`Target::failure`] gives the reports of an error of the frame's run.
+pub(crate) async fn plan_target(target: &Target) -> Result<DataFrame, Failure> {
     // The script's errors, as `check` reports them, keep it from running.
+    let place = |offset| target.to_file(offset);
+    let file = target.on_disk(&place);
     let (analysis, loader) = (&target.analysis, &target.loader);
     let reports = check_text(analysis, loader, &target.path, &target.text, false, &file).await;
     if (reports.iter()).any(|report| report.severity == Severity::Error) {
         return Err(Failure::Reports(reports));
     }
-    let failed = |error: DataFusionError| Failure::Reports(failure_reports(&error, &file));
-    let frame = match target.loader.run_chart(&target.path, &target.text).await {
-        Ok(frame) => frame,
+    match target.loader.run_chart(&target.path, &target.text).await {
+        Ok(frame) => Ok(frame),
         Err(ChartError::Run(error)) | Err(ChartError::Unloaded { error, .. }) => {
-            return Err(failed(error))
+            Err(target.failure(error))
         }
-    };
-    // The columns come from the query's schema, so a result without rows still has its header.
-    let schema = frame.schema().inner().clone();
-    let batches = frame.collect().await.map_err(failed)?;
-    QueryResult::new(schema, batches)
-        .map_err(|error| Failure::Reports(vec![target.report(error.to_string())]))
+    }
 }
 
 /// Renders the chart `chart`, a path with a cell's `#NAME` or not, to `out`.
@@ -398,11 +422,8 @@ pub(crate) async fn load(chart: &str) -> Result<Target, Failure> {
             (files, relative, None)
         }
     };
-    let mut analysis = Analysis::new(&files).await.map_err(|e| e.to_string())?;
+    let (analysis, loader, _) = load_files(&files).await?;
     let stylesheet = files.load_stylesheet().await.map_err(|e| e.to_string())?;
-    let (loader, state) =
-        (Loader::load(files.clone(), SessionContext::new()).await).map_err(|e| e.to_string())?;
-    analysis.apply(&state);
     let (path, text, document, cell) = match analysis.qmd(&relative) {
         Some(document) => {
             let (index, cell) = match name {

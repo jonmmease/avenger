@@ -200,6 +200,12 @@ impl Loader {
         self.project.read().await.file_tables()
     }
 
+    /// The number of rows of the table or the view at the path `names`, as
+    /// [`LoadedProject::row_count`] counts them.
+    pub async fn row_count(&self, names: &[String]) -> Result<usize, DataFusionError> {
+        self.project.read().await.row_count(names).await
+    }
+
     /// The schema of the session that holds a table of a path of one name.
     pub async fn default_schema(&self) -> String {
         let project = self.project.read().await;

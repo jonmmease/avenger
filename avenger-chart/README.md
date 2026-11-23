@@ -215,7 +215,7 @@ A widget is not one of these parts. Layers declare widgets under keys, which rep
 
 A column of charts is a `Binary`, `LargeBinary`, or `BinaryView` column whose field has the extension name `avenger.chart`, which `chart_field` gives. `charts_to_arrow` writes charts to a `BinaryView` column, with each chart at a multiple of 64 bytes, and `charts_from_arrow` reads them, in place or from a copy as `Decode` says.
 
-`results::QueryResult` holds the result of a query that returns charts: its batches, and the decoded charts of each column of charts, by row, with the text of its other values. Its `Shape` is the one rule of every host that shows results, an image, a window, or an editor: a result of one row whose one column holds a chart is that chart, and any other result is a table.
+`results::QueryResult` holds the result of a query that returns charts: its batches, and the decoded charts of each column of charts, by row, with the text of its other values. Its `Shape` is the one rule of every host that shows results, such as an image of `avenger render` or the window of `avenger view`: a result of one row whose one column holds a chart is that chart, and any other result is a table.
 
 ## Functions for bindings
 

@@ -1,6 +1,6 @@
 # avenger-results-egui
 
-The result of an avenger-sql chart script in egui, as the avenger-sql editor shows it. A result of one row whose one column holds a chart shows that chart alone, live, so it pans, zooms, selects, and shows its tooltips. Any other result shows its table: a column for each column of the result, and in each column of charts, the chart of each visible row at the cell's size. `avenger_chart::results::QueryResult` holds the result and decides its shape, so this crate, `avenger render`, and the editor show a result alike.
+The result of an avenger-sql chart script in egui, as the window of `avenger view` shows it. A result of one row whose one column holds a chart shows that chart alone, live, so it pans, zooms, selects, and shows its tooltips. Any other result shows its table: a column for each column of the result, and in each column of charts, the chart of each visible row at the cell's size. `avenger_chart::results::QueryResult` holds the result and decides its shape, so this crate and `avenger render` show a result alike.
 
 ```bash
 cargo run --release -p avenger-results-egui --example results

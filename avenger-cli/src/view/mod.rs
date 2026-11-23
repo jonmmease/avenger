@@ -1,7 +1,7 @@
 //! `avenger view`: a native window on the result of a chart script, or of a cell of a Quarto
-//! document, which stays current as the project's files change. The window shows the result as
-//! the editor does, with avenger-results-egui: the chart alone, live, or the table of the result,
-//! whose chart cells open their charts. Two buttons switch the color scheme, which starts from the
+//! document, which stays current as the project's files change. The window shows the result with
+//! avenger-results-egui: the chart alone, live, or the table of the result, whose chart cells open
+//! their charts. Two buttons switch the color scheme, which starts from the
 //! system's, or from `--color-scheme`.
 //!
 //! A thread of its own keeps the [`Session`]: it opens the project, runs the chart, watches the

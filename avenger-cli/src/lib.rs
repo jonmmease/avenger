@@ -1,6 +1,8 @@
 //! `avenger`, the command-line program of avenger-sql projects. Each command starts, reads the
 //! files, answers, and exits: `check` reports the diagnostics of a project's files, and `fmt`
-//! formats its scripts, modules, and the `{avenger-sql}` cells of its Quarto documents. `lsp` is
+//! formats its scripts, modules, and the `{avenger-sql}` cells of its Quarto documents. `tables`,
+//! `schema`, and `query` read the project's data, `charts` lists its charts, `render` draws them,
+//! and `view` opens a window on one. `lsp` is
 //! the exception that an editor starts and stops: the language server of the same files.
 //! Results go to standard output, as text or, with `--json`, as JSON, and errors that keep a
 //! command from running go to standard error.
@@ -9,10 +11,14 @@
 //! formatting, and 2 when the command cannot run, such as for a usage error or a manifest that
 //! cannot be read.
 
+mod charts;
 mod check;
+mod data;
 mod files;
 mod fmt;
 pub mod lsp;
+mod project;
+mod query;
 mod render;
 mod report;
 pub mod view;
@@ -28,7 +34,7 @@ use crate::report::Output;
 #[command(
     name = "avenger",
     version,
-    about = "Check and format avenger-sql projects"
+    about = "Check, format, query, and render avenger-sql projects"
 )]
 struct Cli {
     /// Print the results as JSON, whose shape changes only with its `version` field.
@@ -61,6 +67,57 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// List the names of the tables and the views that the project's data scripts register, with
+    /// their data scripts.
+    Tables {
+        /// A directory of the project. Without it, the current directory.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Print the columns, the types, and the row counts of tables of the project: of the tables
+    /// named, or of every table.
+    Schema {
+        /// The tables, as a data script names them, such as `cars` or `datasets.cars`. Without
+        /// one, every table.
+        tables: Vec<String>,
+        /// A directory of the project. Without it, the current directory.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Run a query in the project's session, as a chart script runs, and print its rows.
+    Query {
+        /// The query, avenger-sql. Without it, `-f`.
+        #[arg(required_unless_present = "file", conflicts_with = "file")]
+        sql: Option<String>,
+        /// A file of the query: a chart script, a cell as `report.qmd#NUMBER` or
+        /// `report.qmd#LABEL`, or another file of a project.
+        #[arg(short, long)]
+        file: Option<String>,
+        /// A directory of the project of the query. Without it, the current directory.
+        #[arg(long, conflicts_with = "file")]
+        project: Option<PathBuf>,
+        /// The most rows, or `all`. Without it, 10 rows that print, and every row that `-o`
+        /// writes to a file.
+        #[arg(long, value_parser = query::Limit::parse)]
+        limit: Option<query::Limit>,
+        /// The format of the rows: table, csv, json, parquet, or arrow. Without it, the extension
+        /// of `-o`, or a table.
+        #[arg(long = "output")]
+        format: Option<String>,
+        /// Print the logical and the physical plans in place of the rows.
+        #[arg(long)]
+        explain: bool,
+        /// A file to write the rows to, in place of standard output.
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    /// List the chart scripts and the `{avenger-sql}` cells of the project, as `render` and
+    /// `view` name them, each with the columns of charts of its result.
+    Charts {
+        /// A directory of the project. Without it, the current directory.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
     /// Open a window on the result of a chart script, or of a cell of a Quarto document, which
     /// stays current as the project's files change.
     View {
@@ -71,8 +128,8 @@ enum Command {
         color_scheme: Option<String>,
     },
     /// Render the chart of a chart script, or of a cell of a Quarto document, to PNG, SVG, or PDF
-    /// by the extension of `-o`, as the editor draws it. A result of several charts renders as a
-    /// table.
+    /// by the extension of `-o`, as `avenger view` draws it. A result of several charts renders as
+    /// a table.
     Render {
         /// A chart script, or a cell as `report.qmd#NUMBER` or `report.qmd#LABEL`. With `--all`,
         /// a directory of the project, or none for the current directory.
@@ -246,6 +303,34 @@ pub fn main() -> ExitCode {
             apps.shutdown_background();
             result
         })(),
+        Command::Tables { project } => runtime.block_on(data::tables(project.as_deref(), &output)),
+        Command::Schema { tables, project } => {
+            runtime.block_on(data::schema(&tables, project.as_deref(), &output))
+        }
+        Command::Query {
+            sql,
+            file,
+            project,
+            limit,
+            format,
+            explain,
+            out,
+        } => {
+            let source = match (sql, file) {
+                (Some(sql), _) => query::Source::Text(sql),
+                (None, Some(file)) => query::Source::File(file),
+                (None, None) => unreachable!("clap requires one"),
+            };
+            let options = query::Options {
+                project,
+                limit,
+                format,
+                explain,
+                out,
+            };
+            runtime.block_on(query::run(source, &options, &output))
+        }
+        Command::Charts { project } => runtime.block_on(charts::run(project.as_deref(), &output)),
         Command::Lsp | Command::View { .. } => unreachable!("these run above"),
     };
     match result {
