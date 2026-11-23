@@ -20,7 +20,7 @@ use avenger_sql_project::{
 
 use crate::render::{load, run_target, Failure, Target};
 use crate::report::{Report, Severity};
-use crate::statement::cell_at_line;
+use crate::statement::split_line;
 
 /// What a change did to the chart.
 pub enum Outcome {
@@ -72,6 +72,12 @@ impl Session {
         &self.target.stylesheet
     }
 
+    /// The window's title of the chart: its file, with the line of its statement, its cell, and
+    /// what its statement shows.
+    pub fn title(&self) -> String {
+        self.target.title()
+    }
+
     /// The chart's file on disk.
     pub fn file(&self) -> &Path {
         &self.target.file
@@ -88,6 +94,10 @@ impl Session {
 
     /// Opens the project again and runs the chart, as after its manifest changes.
     async fn reopen(&mut self) -> Vec<Outcome> {
+        // A target at a line opens at its statement's line now.
+        if let (Ok((file, Some(_))), Some(line)) = (split_line(&self.chart), self.target.line) {
+            self.chart = format!("{file}:{line}");
+        }
         match Session::open(&self.chart).await {
             Ok((session, outcome)) => {
                 let restyled = Outcome::Restyled(session.target.stylesheet.clone());
@@ -203,10 +213,13 @@ impl Session {
     }
 
     /// Reads the chart's own file again: a script, or the document of a cell, whose cell keeps
-    /// its name, or its line. A target at a line points at the statement at the line again.
+    /// its label or its number. A target's statement is found again by its key, so it follows
+    /// edits around it.
     fn own_text_changed(&mut self, path: &Path) -> Result<(), String> {
         let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let target = &mut self.target;
+        // A key that finds no statement keeps the statement before, so a later run runs it.
+        let before = (target.path.clone(), target.text.clone());
         match &target.document {
             None => {
                 let project = target.analysis.project_mut();
@@ -216,16 +229,10 @@ impl Session {
             }
             Some(_) => {
                 let document = Qmd::parse(text.as_str());
-                let (index, cell) = match target.line {
-                    Some(line) => (cell_at_line(&document, line))
-                        .map_err(|error| format!("{}: {error}", self.chart))?,
-                    None => {
-                        let name = (self.chart.rsplit_once('#')).map_or("1", |(_, name)| name);
-                        (document.cell(name)).ok_or_else(|| {
-                            format!("{}: no `{{avenger-sql}}` cell `{name}`", path.display())
-                        })?
-                    }
-                };
+                let name = target.cell_name().unwrap_or_else(|| "1".to_string());
+                let (index, cell) = document.cell(&name).ok_or_else(|| {
+                    format!("`{}` has no cell `{name}` any more", target.display_name())
+                })?;
                 target.text = cell.text.clone();
                 target.path = avenger_sql_project::qmd::cell_path(&target.script, index + 1);
                 target.cell = Some(index);
@@ -233,8 +240,9 @@ impl Session {
                 target.document = Some(document);
             }
         }
-        if let Some(line) = target.line {
-            (target.point_at(line)).map_err(|error| format!("{}: {error}", self.chart))?;
+        if let Err(error) = target.point_again() {
+            (target.path, target.text) = before;
+            return Err(error);
         }
         Ok(())
     }

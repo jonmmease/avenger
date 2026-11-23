@@ -5,9 +5,10 @@
 //! system's, or from `--color-scheme`.
 //!
 //! A thread of its own keeps the [`Session`]: it opens the project, runs the chart, watches the
-//! project's files, and sends what each burst of changes does to the window. A run that fails
-//! keeps the result before, and its errors show in a bar at the bottom of the window and on
-//! standard error.
+//! project's files, and sends what each burst of changes does to the window, with the window's
+//! title, which follows a statement's line. A run that fails keeps the result before, and its
+//! errors show in a bar at the bottom of the window and on standard error. The window opens at
+//! once, in front, and says that the project loads until it opens.
 
 mod session;
 
@@ -31,6 +32,9 @@ enum Message {
     /// The project opened, with its stylesheet, or not.
     Opened(Result<Option<Sheet>, String>),
     Outcome(Outcome),
+    /// The window's title: the chart's file, with its statement's line now, its cell, and what
+    /// its statement shows.
+    Title(String),
 }
 
 /// Opens a window on `chart`, a chart script, `doc.qmd#NAME`, or a statement as `FILE:LINE`, in
@@ -38,9 +42,11 @@ enum Message {
 pub fn run(chart: String, scheme: Option<ColorScheme>) -> Result<(), String> {
     let title = format!("avenger view {chart}");
     let options = eframe::NativeOptions {
+        // The window opens in front, with focus, though a terminal starts it.
         viewport: egui::ViewportBuilder::default()
             .with_title(title.clone())
-            .with_inner_size([960.0, 720.0]),
+            .with_inner_size([960.0, 720.0])
+            .with_active(true),
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
@@ -73,6 +79,8 @@ struct Window {
     messages: Receiver<Message>,
     /// Whether the window closed, which ends the session's thread.
     closed: Arc<AtomicBool>,
+    /// Whether the window asked for focus, which it does on its first frame.
+    focused: bool,
 }
 
 impl Window {
@@ -110,6 +118,7 @@ impl Window {
             opening: true,
             messages,
             closed,
+            focused: false,
         })
     }
 
@@ -135,9 +144,12 @@ impl Window {
     }
 
     /// Takes the messages of the session's thread.
-    fn receive(&mut self, state: &eframe::egui_wgpu::RenderState) {
+    fn receive(&mut self, ctx: &egui::Context, state: &eframe::egui_wgpu::RenderState) {
         while let Ok(message) = self.messages.try_recv() {
             match message {
+                Message::Title(title) => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+                }
                 Message::Opened(Ok(sheet)) => {
                     self.opening = false;
                     self.sheet = sheet;
@@ -183,7 +195,11 @@ impl eframe::App for Window {
         let Some(state) = frame.wgpu_render_state() else {
             return;
         };
-        self.receive(state);
+        if !self.focused {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.focused = true;
+        }
+        self.receive(ctx, state);
         // The charts follow the window's visuals: their background and their color scheme.
         let surface = Surface::of(&ctx.style().visuals);
         if surface != self.surface {
@@ -229,7 +245,13 @@ impl eframe::App for Window {
         }
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.opening {
-                ui.centered_and_justified(|ui| ui.spinner());
+                // A project's data scripts can take a while to load.
+                ui.centered_and_justified(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Loading the project…");
+                    });
+                });
                 return;
             }
             let mut view = std::mem::take(&mut self.view);
@@ -275,7 +297,11 @@ fn follow(chart: String, sender: Sender<Message>, ctx: egui::Context, closed: Ar
         }
     };
     let sheet = session.stylesheet().sheet.clone();
-    if !send(Message::Opened(Ok(sheet))) || !send(Message::Outcome(outcome)) {
+    let mut title = session.title();
+    if !send(Message::Opened(Ok(sheet)))
+        || !send(Message::Title(title.clone()))
+        || !send(Message::Outcome(outcome))
+    {
         return;
     }
     let (wake, wakes) = crossbeam_channel::unbounded();
@@ -294,6 +320,13 @@ fn follow(chart: String, sender: Sender<Message>, ctx: egui::Context, closed: Ar
                 let paths: Vec<PathBuf> = (paths.iter()).map(|path| canonical(path)).collect();
                 for outcome in runtime.block_on(session.changed(&paths)) {
                     if !send(Message::Outcome(outcome)) {
+                        return;
+                    }
+                }
+                // The statement's line follows edits around it.
+                if session.title() != title {
+                    title = session.title();
+                    if !send(Message::Title(title.clone())) {
                         return;
                     }
                 }

@@ -38,14 +38,38 @@ pub(crate) enum Shows {
     Loaded(String),
 }
 
-/// The statement at a line: what it shows, the line of its first token, from 1, and the range
-/// of its tokens in the text.
+/// The statement at a line: what it shows, its key, the line of its first token, from 1, and the
+/// range of its tokens in the text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Statement {
     pub(crate) shows: Shows,
+    pub(crate) key: Key,
     pub(crate) line: usize,
     pub(crate) start: usize,
     pub(crate) end: usize,
+}
+
+/// What finds a statement again after edits around it: the script's value, its last query, so it
+/// stays the value when queries come before it, another query by its ordinal among the queries,
+/// and a statement that makes a table by the table's name, as a name that compares, and its
+/// occurrence among the statements that make it, from 1.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Key {
+    Value,
+    Query(usize),
+    Table { name: String, occurrence: usize },
+}
+
+impl Shows {
+    /// What the statement shows, as a window's title names it: the result, a query by its
+    /// ordinal, or a table by its path.
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            Shows::Value => "result".to_string(),
+            Shows::Query(ordinal) => format!("query {ordinal}"),
+            Shows::Table(path) | Shows::Loaded(path) => format!("table {path}"),
+        }
+    }
 }
 
 impl Statement {
@@ -199,44 +223,103 @@ pub(crate) fn at_line(
         };
         return Err(format!("no statement holds the line; {around}"));
     };
+    describe(&statements, index, before, script)
+}
+
+/// The statement of the script `text`, of the kind `script`, that `key` finds after edits around
+/// it, with the key. The errors name the file `file`, as "`sales.av.sql` has no table `sales` any
+/// more" for a key that finds none.
+pub(crate) fn by_key(
+    text: &str,
+    key: &Key,
+    before: usize,
+    script: Script,
+    file: &str,
+) -> Result<Statement, String> {
+    let statements = statements(text, script);
+    let queries: Vec<usize> = (statements.iter().enumerate())
+        .filter(|(_, at)| matches!(at.stmt, ast::Stmt::Query(_)))
+        .map(|(index, _)| index)
+        .collect();
+    let index = match key {
+        Key::Value => {
+            (queries.last().copied()).ok_or_else(|| format!("`{file}` has no query any more"))?
+        }
+        Key::Query(ordinal) => (queries.get(ordinal - 1).copied())
+            .ok_or_else(|| format!("`{file}` has no query {ordinal} any more"))?,
+        Key::Table { name, occurrence } => (statements.iter().enumerate())
+            .filter(|(_, at)| table(&at.stmt).is_some_and(|(_, other, _)| other == *name))
+            .nth(occurrence - 1)
+            .map(|(index, _)| index)
+            .ok_or_else(|| format!("`{file}` has no table `{name}` any more"))?,
+    };
+    let statement =
+        describe(&statements, index, before, script).map_err(|error| format!("{file}: {error}"))?;
+    Ok(Statement {
+        key: key.clone(),
+        ..statement
+    })
+}
+
+/// The statement at `index` of `statements`, of a script of the kind `script` whose file has
+/// `before` lines before it: what it shows and its key.
+fn describe(
+    statements: &[Located],
+    index: usize,
+    before: usize,
+    script: Script,
+) -> Result<Statement, String> {
+    let place = |line: usize| line + before;
     let at = &statements[index];
     let queries: Vec<usize> = (statements.iter().enumerate())
         .filter(|(_, at)| matches!(at.stmt, ast::Stmt::Query(_)))
         .map(|(index, _)| index)
         .collect();
     let no_rows = || format!("the statement at line {} has no rows", place(at.first));
-    let shows = match (&at.stmt, script) {
-        (ast::Stmt::Query(_), _) if queries.last() == Some(&index) => Shows::Value,
+    let (shows, key) = match (&at.stmt, script) {
+        (ast::Stmt::Query(_), _) if queries.last() == Some(&index) => (Shows::Value, Key::Value),
         (ast::Stmt::Query(_), _) => {
             let ordinal = queries.iter().position(|&query| query == index);
-            Shows::Query(ordinal.expect("a query of the script") + 1)
+            let ordinal = ordinal.expect("a query of the script") + 1;
+            (Shows::Query(ordinal), Key::Query(ordinal))
         }
-        (stmt, Script::Chart) => Shows::Table(table(stmt).ok_or_else(no_rows)?.0),
-        (stmt, Script::Data) => {
+        (stmt, script) => {
             let (written, name, temporary) = table(stmt).ok_or_else(no_rows)?;
-            if temporary {
-                return Err(format!(
-                    "the statement at line {} makes the temporary table `{written}`, which only \
-                     its script reads",
-                    place(at.first)
-                ));
-            }
-            let later = (statements[index + 1..].iter())
-                .find(|later| table(&later.stmt).is_some_and(|(_, other, _)| other == name));
-            if let Some(later) = later {
-                return Err(format!(
-                    "the statement at line {} makes `{written}`, which the statement at line {} \
-                     loads again; the table shows at line {}",
-                    place(at.first),
-                    place(later.first),
-                    place(later.first)
-                ));
-            }
-            Shows::Loaded(written)
+            let occurrence = (statements[..index].iter())
+                .filter(|earlier| table(&earlier.stmt).is_some_and(|(_, other, _)| other == name))
+                .count()
+                + 1;
+            let shows = match script {
+                Script::Chart => Shows::Table(written),
+                Script::Data => {
+                    if temporary {
+                        return Err(format!(
+                            "the statement at line {} makes the temporary table `{written}`, \
+                             which only its script reads",
+                            place(at.first)
+                        ));
+                    }
+                    let later = (statements[index + 1..].iter()).find(|later| {
+                        table(&later.stmt).is_some_and(|(_, other, _)| other == name)
+                    });
+                    if let Some(later) = later {
+                        return Err(format!(
+                            "the statement at line {} makes `{written}`, which the statement at \
+                             line {} loads again; the table shows at line {}",
+                            place(at.first),
+                            place(later.first),
+                            place(later.first)
+                        ));
+                    }
+                    Shows::Loaded(written)
+                }
+            };
+            (shows, Key::Table { name, occurrence })
         }
     };
     Ok(Statement {
         shows,
+        key,
         line: at.first,
         start: at.start,
         end: at.end,

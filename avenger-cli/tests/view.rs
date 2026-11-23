@@ -200,3 +200,101 @@ async fn a_data_script_s_statement_shows_its_table_again_when_the_script_changes
     };
     assert_eq!(result.num_rows(), 3);
 }
+
+/// A chart script of an earlier query, a temporary table, and its last query.
+const STEPS: &str = "FROM vega_datasets.cars |> LIMIT 2;\n\nCREATE TEMP TABLE heavy AS (FROM vega_datasets.cars |> WHERE Weight_in_lbs > 4500);\n\nFROM heavy |> AGGREGATE COUNT(*) AS cars\n";
+
+/// The session of the statement at `line` of `charts/steps.av.sql`, with `STEPS`, and the rows
+/// of its first run.
+async fn steps(root: &Path, line: usize) -> (Session, usize) {
+    std::fs::write(root.join("charts/steps.av.sql"), STEPS).unwrap();
+    let target = format!("{}:{line}", root.join("charts/steps.av.sql").display());
+    let (session, first) = Session::open(&target).await.unwrap();
+    let Outcome::Ran(result) = &first else {
+        panic!("the statement runs when the window opens");
+    };
+    (session, result.num_rows())
+}
+
+/// The rows of the one run of `outcomes`.
+fn ran(outcomes: &[Outcome]) -> usize {
+    match outcomes {
+        [Outcome::Ran(result)] => result.num_rows(),
+        _ => panic!("a run: {:?}", kinds(outcomes)),
+    }
+}
+
+#[tokio::test]
+async fn a_statement_keeps_its_key_as_lines_come_before_it_and_its_title_follows() {
+    let (_directory, root) = project();
+    let (mut session, rows) = steps(&root, 1).await;
+    assert_eq!(rows, 2);
+    assert_eq!(session.title(), "charts/steps.av.sql:1 · query 1");
+    let moved = format!("-- Steps.\n-- Toward a chart.\n{STEPS}");
+    let outcomes = edit(&mut session, &root, "charts/steps.av.sql", &moved).await;
+    assert_eq!(ran(&outcomes), 2);
+    assert_eq!(session.title(), "charts/steps.av.sql:3 · query 1");
+    // A table keeps its name, and the script's value stays its last query when a query comes
+    // before it.
+    let (mut table, _) = steps(&root, 3).await;
+    assert_eq!(table.title(), "charts/steps.av.sql:3 · table heavy");
+    let (mut value, rows) = steps(&root, 5).await;
+    assert_eq!(
+        (rows, value.title().as_str()),
+        (1, "charts/steps.av.sql:5 · result")
+    );
+    let more = STEPS.replace("\n\nFROM heavy", "\n\nFROM heavy |> LIMIT 1;\n\nFROM heavy");
+    let outcomes = edit(&mut value, &root, "charts/steps.av.sql", &more).await;
+    assert_eq!(ran(&outcomes), 1);
+    assert_eq!(value.title(), "charts/steps.av.sql:7 · result");
+    let outcomes = table.changed(&[root.join("charts/steps.av.sql")]).await;
+    assert_eq!(table.title(), "charts/steps.av.sql:3 · table heavy");
+    assert!(ran(&outcomes) > 1);
+}
+
+#[tokio::test]
+async fn a_key_that_finds_no_statement_keeps_the_result_and_says_so() {
+    let (_directory, root) = project();
+    let (mut session, _) = steps(&root, 3).await;
+    let renamed = STEPS.replace("heavy", "weighty");
+    let outcomes = edit(&mut session, &root, "charts/steps.av.sql", &renamed).await;
+    let [Outcome::Failed(errors)] = outcomes.as_slice() else {
+        panic!("a failure: {:?}", kinds(&outcomes));
+    };
+    assert_eq!(
+        errors,
+        &["`charts/steps.av.sql` has no table `heavy` any more".to_string()]
+    );
+    // The table comes back, and shows again.
+    let outcomes = edit(&mut session, &root, "charts/steps.av.sql", STEPS).await;
+    assert!(ran(&outcomes) > 1);
+}
+
+#[tokio::test]
+async fn a_cell_at_a_line_keeps_its_label_and_its_title_names_it() {
+    let (_directory, root) = project();
+    let target = format!("{}:5", root.join("reports/overview.qmd").display());
+    let (mut session, first) = Session::open(&target).await.unwrap();
+    assert_eq!(kinds(&[first]), ["ran"]);
+    assert_eq!(
+        session.title(),
+        "reports/overview.qmd:5 · cell fig-weather · result"
+    );
+    let moved = REPORT.replace(
+        "# Report\n\n",
+        "# Report\n\n```{avenger-sql}\nFROM wet_days |> SELECT date\n```\n\n",
+    );
+    let outcomes = edit(&mut session, &root, "reports/overview.qmd", &moved).await;
+    let [Outcome::Ran(result)] = outcomes.as_slice() else {
+        panic!("a run: {:?}", kinds(&outcomes));
+    };
+    assert_eq!(result.shape(), Shape::Chart);
+    assert_eq!(
+        session.title(),
+        "reports/overview.qmd:9 · cell fig-weather · result"
+    );
+    // A target without a line names its file, and its cell.
+    let chart = root.join("charts/origins.av.sql");
+    let (plain, _) = Session::open(chart.to_str().unwrap()).await.unwrap();
+    assert_eq!(plain.title(), "charts/origins.av.sql");
+}

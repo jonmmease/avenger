@@ -41,7 +41,7 @@ use crate::{
     check::{check_text, failure_reports, first_line, File, Place},
     project::{load_files, targets},
     report::{Output, Report, Severity},
-    statement::{at_line, cell_at_line, data_tables, split_line, Script, Shows, Statement},
+    statement::{at_line, by_key, cell_at_line, data_tables, split_line, Script, Shows, Statement},
     Status,
 };
 
@@ -315,15 +315,28 @@ impl Target {
     /// line of its script, or of its cell's document. A statement other than the script's value
     /// runs as a chart script of its own, at [`STATEMENT_PATH`], whose text runs the statement.
     pub(crate) fn point_at(&mut self, line: usize) -> Result<(), String> {
-        let before = match (&self.document, self.cell()) {
-            (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
-            _ => 0,
+        let before = self.lines_before();
+        let statement = at_line(&self.text, line - before, before, self.script_kind())?;
+        self.show(statement);
+        Ok(())
+    }
+
+    /// Points the target at its statement again, by the statement's key, after its text changed:
+    /// its script's text, or its cell's. The target's line follows the statement.
+    pub(crate) fn point_again(&mut self) -> Result<(), String> {
+        let Some(statement) = &self.statement else {
+            return Ok(());
         };
-        let script = match self.data {
-            true => Script::Data,
-            false => Script::Chart,
-        };
-        let statement = at_line(&self.text, line - before, before, script)?;
+        let (before, script) = (self.lines_before(), self.script_kind());
+        let file = self.display_name();
+        let statement = by_key(&self.text, &statement.key, before, script, &file)?;
+        self.show(statement);
+        Ok(())
+    }
+
+    /// Shows the statement `statement` of the target's text: the script's value as the target's
+    /// text, and another statement as a chart script of its own at [`STATEMENT_PATH`].
+    fn show(&mut self, statement: Statement) {
         if statement.shows != Shows::Value {
             let text = statement.text(&self.text);
             let project = self.analysis.project_mut();
@@ -331,9 +344,59 @@ impl Target {
             self.path = STATEMENT_PATH.to_string();
             self.text = text;
         }
-        self.line = Some(line);
+        self.line = Some(statement.line + self.lines_before());
         self.statement = Some(statement);
-        Ok(())
+    }
+
+    /// The lines of the file before the target's text: none for a script, and those of the
+    /// document before its cell.
+    fn lines_before(&self) -> usize {
+        match (&self.document, self.cell()) {
+            (Some(document), Some(cell)) => document.text[..cell.range.start].matches('\n').count(),
+            _ => 0,
+        }
+    }
+
+    /// The kind of the target's script.
+    fn script_kind(&self) -> Script {
+        match self.data {
+            true => Script::Data,
+            false => Script::Chart,
+        }
+    }
+
+    /// The name of the target's file, as a window names it: its path in its project, or the name
+    /// of a loose file.
+    pub(crate) fn display_name(&self) -> String {
+        let name = (self.file.file_name()).map(|name| name.to_string_lossy().to_string());
+        match (&self.root, name) {
+            (Some(_), _) | (None, None) => self.script.clone(),
+            (None, Some(name)) => name,
+        }
+    }
+
+    /// The name of the target's cell, its label, or its number from 1, which finds it again after
+    /// its document changes.
+    pub(crate) fn cell_name(&self) -> Option<String> {
+        let index = self.cell?;
+        let cell = self.cell()?;
+        Some(
+            cell.label
+                .clone()
+                .unwrap_or_else(|| (index + 1).to_string()),
+        )
+    }
+
+    /// The window's title of the target: its file, with the line of its statement, its cell, and
+    /// what its statement shows, as `overview.qmd:40 · cell 2 · query 1`.
+    pub(crate) fn title(&self) -> String {
+        let line = self.line.map(|line| format!(":{line}")).unwrap_or_default();
+        let mut parts = vec![format!("{}{line}", self.display_name())];
+        parts.extend(self.cell_name().map(|name| format!("cell {name}")));
+        if let (Some(_), Some(statement)) = (self.line, &self.statement) {
+            parts.push(statement.shows.describe());
+        }
+        parts.join(" · ")
     }
 
     /// The reports of the error `error` of a run of the target, at their places in its file.
