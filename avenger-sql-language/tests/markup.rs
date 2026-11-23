@@ -1,9 +1,10 @@
 //! The Typst markup in strings: the highlights of a title's markup through escapes, raw and
-//! adjacent strings, a plain title, and the Typst syntax errors at their places in the file.
+//! adjacent strings, a plain title, the Typst syntax errors at their places in the file, and the
+//! strings in a language of their own.
 
 mod common;
 
-use avenger_sql_language::{Document, Highlight, Source, TypstTag};
+use avenger_sql_language::{Document, Embedded, Highlight, Source, TypstTag};
 
 /// A chart whose title is `title`, an expression.
 fn chart(title: &str) -> String {
@@ -100,4 +101,33 @@ fn a_typst_syntax_error_is_at_its_place_in_the_string() {
     let start = usize::from(diagnostic.range.start());
     assert!((subtitle..subtitle + 7).contains(&start), "{diagnostic:?}");
     assert!(!diagnostic.range.is_empty());
+}
+
+/// The text and the language of each string in a language of its own.
+fn embedded(document: &Document) -> Vec<(String, Embedded)> {
+    let text = document.text();
+    (document.embedded_strings().into_iter())
+        .map(|string| (text[string.range].to_string(), string.language))
+        .collect()
+}
+
+#[test]
+fn the_strings_of_markup_and_of_typed_literals_are_in_languages_of_their_own() {
+    let document = common::document(&chart("'*Mass* of ' 'penguins'"));
+    assert_eq!(
+        embedded(&document),
+        [("'*Mass* of ' 'penguins'".to_string(), Embedded::Typst)]
+    );
+    // A plain title is no markup, and its subtitle neither.
+    let plain = chart("title('*Mass*', subtitle => '_g_', syntax => 'plain')");
+    assert_eq!(embedded(&common::document(&plain)), Vec::new());
+    // The values of typed literals, and not a plain string or the keywords.
+    let typed = "FROM penguins |> EXTEND DATE '2024-01-03' AS d, NUMERIC '1.25' AS n, 'plain' AS p";
+    assert_eq!(
+        embedded(&common::document(typed)),
+        [
+            ("'2024-01-03'".to_string(), Embedded::TypedValue),
+            ("'1.25'".to_string(), Embedded::TypedValue),
+        ]
+    );
 }

@@ -484,7 +484,16 @@ impl Server {
         for part in &parts {
             let document = part.target.document();
             let text = document.text();
+            // The strings in a language of their own take no tokens: an editor's Tree-sitter
+            // grammar highlights them by injection, and a token would cover its colors.
+            let embedded = document.embedded_strings();
             for highlight in document.highlights() {
+                let inside = |string: &avenger_sql_language::EmbeddedString| {
+                    string.range.contains_range(highlight.range)
+                };
+                if embedded.iter().any(inside) {
+                    continue;
+                }
                 let Some(kind) = convert::token_type(highlight.highlight) else {
                     continue;
                 };
