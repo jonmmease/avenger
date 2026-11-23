@@ -44,6 +44,9 @@ pub mod project;
 pub mod streaming;
 pub mod types;
 
+/// The short guide to the language, `SPEC.md`, which the crate ships for the tools that print it.
+pub const SPEC: &str = include_str!("../SPEC.md");
+
 use datafusion::{common::Result, prelude::SessionContext};
 
 pub use analysis::{analyze, analyze_data};

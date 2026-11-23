@@ -109,6 +109,48 @@ fn the_model_keeps_a_body_from_its_create() {
     );
 }
 
+#[test]
+fn an_unknown_name_suggests_the_closest_function_or_column() {
+    assert_eq!(
+        error("FROM t |> SELECT date_trunk(CURRENT_DATE(), MONTH)"),
+        "Function not found: date_trunk. Did you mean date_trunc?"
+    );
+    assert_eq!(
+        error("FROM t |> SELECT strftime('%Y', CURRENT_TIMESTAMP())"),
+        "Function not found: strftime. Did you mean format_timestamp?"
+    );
+    // A temporary function, and a module's function by its path.
+    assert_eq!(
+        error("CREATE TEMP FUNCTION double(x INT64) AS (x * 2); FROM t |> SELECT doubel(x)"),
+        "Function not found: doubel. Did you mean double?"
+    );
+    assert_eq!(
+        error("IMPORT MODULE util; FROM t |> SELECT util.doubel(x)"),
+        "Function not found: util.doubel. Did you mean util.double?"
+    );
+    assert_eq!(error("FROM t |> SELECT foo(x)"), "Function not found: foo");
+    // A column of the scope.
+    assert_eq!(
+        error("FROM t |> EXTEND x AS species |> SELECT specie"),
+        "Unrecognized name: specie. Did you mean species?"
+    );
+    assert_eq!(error("FROM t |> SELECT zzz"), "Unrecognized name: zzz");
+    // A range variable, for the first name of a longer path only, and a column of a pipe
+    // operator that reshapes the rows.
+    assert_eq!(
+        error("FROM t AS orders |> SELECT ordrs.x"),
+        "Unrecognized name: ordrs. Did you mean orders?"
+    );
+    assert_eq!(
+        error("FROM t AS orders |> SELECT ordrs"),
+        "Unrecognized name: ordrs"
+    );
+    assert_eq!(
+        error("FROM t |> EXTEND x AS species |> UNPIVOT (v FOR k IN (specie))"),
+        "Unrecognized name: specie. Did you mean species?"
+    );
+}
+
 #[tokio::test]
 async fn modules_give_their_public_functions_and_constants() {
     let text = table("IMPORT MODULE util; FROM t |> SELECT util.double(x) + util.double_inc(x) + util.ten AS v |> ORDER BY v").await;

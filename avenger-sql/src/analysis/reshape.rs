@@ -8,6 +8,7 @@
 //! `RESERVOIR` keeps the rows of the least numbers. `REPEATABLE (seed)` numbers the rows with a
 //! hash of the seed and each row's place, so a sample repeats for the same rows in the same order.
 
+use crate::library::search::{closest_name, did_you_mean};
 use std::collections::HashSet;
 
 use avenger_sql_syntax::{
@@ -508,10 +509,13 @@ impl Pass<'_> {
                 Some(Expr::Column(col.column.clone()))
             }
             [] => {
-                self.error(
-                    path.syntax().text_range(),
+                let names = (rows.columns.iter()).map(|col| col.name.as_str());
+                let names = names.filter(|name| !name.is_empty());
+                let message = did_you_mean(
                     format!("Unrecognized name: {name}"),
+                    closest_name(name, names),
                 );
+                self.error(path.syntax().text_range(), message);
                 None
             }
             _ => {

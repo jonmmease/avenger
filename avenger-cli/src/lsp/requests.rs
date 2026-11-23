@@ -259,6 +259,7 @@ impl Server {
         let units = |text: &str| match self.encoding {
             Encoding::Utf8 => text.len() as u32,
             Encoding::Utf16 => text.encode_utf16().count() as u32,
+            Encoding::Utf32 => text.chars().count() as u32,
         };
         let signatures = (help.signatures.iter())
             .map(|signature| SignatureInformation {
@@ -505,6 +506,7 @@ impl Server {
                     let length = match self.encoding {
                         Encoding::Utf8 => content.len(),
                         Encoding::Utf16 => content.encode_utf16().count(),
+                        Encoding::Utf32 => content.chars().count(),
                     } as u32;
                     let delta_line = position.line - line;
                     let delta_start = match delta_line {

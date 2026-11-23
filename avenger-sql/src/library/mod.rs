@@ -42,6 +42,7 @@ mod math;
 pub(crate) mod operator;
 pub(crate) mod random;
 mod reference;
+pub mod search;
 mod string;
 
 use std::{
@@ -63,7 +64,7 @@ pub(crate) use cast_string::cast_to_string;
 pub(crate) use datetime::extract;
 pub use datetime::{DatePart, Weekday};
 pub use form::{Accept, Arity, FormArg, Label, PartSet, Signature, Ty};
-pub use reference::{entry, reference};
+pub use reference::{constructor_entry, entry, examples, forms, reference};
 
 use avenger_sql_syntax::FunctionRole;
 
@@ -1382,6 +1383,8 @@ pub struct Library {
     /// The places of each name of a constructor, such as ``pin => pin(...)` in `scale(...)``,
     /// the first places that a walk from the chart functions finds.
     places: HashMap<String, Vec<String>>,
+    /// The constructors by the names that calls write, from [`Library::find_written`].
+    written: std::collections::BTreeMap<String, Vec<(String, String)>>,
 }
 
 impl fmt::Debug for Library {
@@ -1419,6 +1422,7 @@ impl Library {
                 .map(|function| (function.name.clone(), function))
                 .collect(),
             places: HashMap::new(),
+            written: Default::default(),
         };
         for function in (aggregate::functions().into_iter())
             .chain(aggregate::window_functions())
@@ -1434,6 +1438,7 @@ impl Library {
         }
         avenger::fill_forms(&mut library.functions, &mut library.constructors);
         library.places = library.find_places();
+        library.written = library.find_written();
         library
     }
 
