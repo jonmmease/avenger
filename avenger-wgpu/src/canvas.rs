@@ -36,7 +36,7 @@ use crate::{
     offscreen::{OffscreenTarget, OffscreenTargetDescriptor},
     readback::TextureReadback,
     renderer::{AvengerRendererCore, FrameStats, ImageStatus},
-    target::{AvengerRenderTarget, WHITE_CLEAR},
+    target::AvengerRenderTarget,
 };
 
 pub use crate::renderer::MarkRenderer;
@@ -589,6 +589,8 @@ pub struct PngCanvas {
     layers: Layers,
     output_target: OffscreenTarget,
     readback: TextureReadback,
+    /// The color that each frame clears to, under the bottom layer.
+    background: wgpu::Color,
 
     // The order of properties in a struct is the order in which items are dropped.
     // wgpu seems to require that the device be dropped last, otherwise there is a resouce
@@ -634,7 +636,15 @@ impl PngCanvas {
             layers,
             output_target,
             readback,
+            background: wgpu::Color::WHITE,
         })
+    }
+
+    /// Sets the color that each frame clears to, under the bottom layer, as sRGB RGBA from 0 to
+    /// 1, as the colors of marks are. It is white until set.
+    pub fn set_background(&mut self, color: [f32; 4]) {
+        let [r, g, b, a] = color.map(f64::from);
+        self.background = wgpu::Color { r, g, b, a };
     }
 
     /// Install `scene` at `index` without reinstalling other layers. Index 0 is the bottom layer.
@@ -666,7 +676,7 @@ impl PngCanvas {
     #[tracing::instrument(skip_all)]
     pub async fn render(&mut self) -> Result<image::RgbaImage, AvengerWgpuError> {
         let dimensions = self.layers.bottom().dimensions();
-        let target = self.output_target.render_target(WHITE_CLEAR);
+        let target = (self.output_target).render_target(wgpu::LoadOp::Clear(self.background));
         let commands = (self.layers).frame_commands(&self.device, &self.queue, target, None)?;
         self.queue.submit(commands);
 

@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 pub mod add;
+pub mod charts;
 mod live;
 mod load;
 mod manifest;

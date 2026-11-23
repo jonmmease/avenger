@@ -177,3 +177,21 @@ fn a_tab_indents_a_fence_to_the_next_multiple_of_four_columns() {
         "1. Item\n\n\t```{avenger-sql}\n\tFROM t\n\t|>  SELECT a\n\t```\n"
     );
 }
+
+#[test]
+fn a_cell_has_a_number_and_the_label_of_its_options() {
+    let document = Qmd::parse(
+        "```{avenger-sql}\n--| label: fig-heavy\n--| echo: false\nFROM heavy\n```\n\n```{avenger-sql}\n--| echo: false\nFROM t\n--| label: not-an-option\n```\n\n```{avenger-sql}\n--| label: \"fig-quoted\"\nFROM q\n```\n",
+    );
+    let labels: Vec<Option<&str>> = (document.cells.iter())
+        .map(|cell| cell.label.as_deref())
+        .collect();
+    // An option line after the cell's first statement line is no option.
+    assert_eq!(labels, [Some("fig-heavy"), None, Some("fig-quoted")]);
+    assert_eq!(document.cell("fig-heavy").map(|(index, _)| index), Some(0));
+    assert_eq!(document.cell("2").map(|(index, _)| index), Some(1));
+    assert_eq!(document.cell("fig-quoted").map(|(index, _)| index), Some(2));
+    assert!(document.cell("0").is_none());
+    assert!(document.cell("4").is_none());
+    assert!(document.cell("fig-none").is_none());
+}

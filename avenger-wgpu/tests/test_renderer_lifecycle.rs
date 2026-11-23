@@ -1246,3 +1246,30 @@ fn an_arriving_tile_draws_in_place() {
     assert_eq!(stats.texture_upload_bytes, 64);
     assert_eq!(canvas.image_status().pending.len(), 0);
 }
+
+/// A PNG canvas clears to its background, white until set.
+#[test]
+fn png_canvas_clears_to_its_background() {
+    use avenger_common::canvas::CanvasDimensions;
+    use avenger_scenegraph::scene_graph::SceneGraph;
+    use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
+    let dimensions = CanvasDimensions {
+        size: [20.0, 10.0],
+        scale: 1.0,
+    };
+    let scene = SceneGraph {
+        width: 20.0,
+        height: 10.0,
+        origin: [0.0, 0.0],
+        marks: Vec::new(),
+    };
+    let engine = avenger_typst_label::bundled_label_engine();
+    let mut canvas =
+        pollster::block_on(PngCanvas::new(dimensions, CanvasConfig::default())).unwrap();
+    canvas.set_scene(&scene, &engine).unwrap();
+    let white = pollster::block_on(canvas.render()).unwrap();
+    assert_eq!(white.get_pixel(5, 5).0, [255, 255, 255, 255]);
+    canvas.set_background([30.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0, 1.0]);
+    let dark = pollster::block_on(canvas.render()).unwrap();
+    assert_eq!(dark.get_pixel(5, 5).0, [30, 30, 30, 255]);
+}
