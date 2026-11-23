@@ -80,6 +80,8 @@ pub(super) enum Shape {
     Str,
     /// A string of Typst markup, which the `markup` option marks.
     Markup,
+    /// A format pattern, which the `format_pattern` option marks.
+    FormatPattern,
     Bytes,
     /// An enum, by its full name.
     Enum(String),
@@ -136,7 +138,9 @@ impl Shape {
             Shape::Bool => vec![(Class::Bool, 0)],
             Shape::Int(_) => vec![(Class::Int, 0)],
             Shape::Float(_) => vec![(Class::Float, 0), (Class::Int, 1)],
-            Shape::Str | Shape::Markup | Shape::Enum(_) => vec![(Class::Str, 0)],
+            Shape::Str | Shape::Markup | Shape::FormatPattern | Shape::Enum(_) => {
+                vec![(Class::Str, 0)]
+            }
             Shape::Bytes => vec![(Class::Bytes, 0)],
             Shape::Repeated(_) => vec![(Class::Array, 0)],
             Shape::Options => vec![(Class::Struct, 0)],
@@ -160,25 +164,31 @@ impl Shape {
     fn takes_strings(&self) -> bool {
         matches!(
             self,
-            Shape::Str | Shape::Markup | Shape::Enum(_) | Shape::Value
+            Shape::Str | Shape::Markup | Shape::FormatPattern | Shape::Enum(_) | Shape::Value
         )
     }
 
     /// The shape of the field `field` of the message `message`: a field of strings that the
-    /// `markup` option marks holds markup.
+    /// `markup` option marks holds markup, and one that the `format_pattern` option marks holds
+    /// format patterns.
     pub(super) fn of_field(
         message: &str,
         field: &FieldDescriptorProto,
         annotations: &Annotations,
     ) -> Option<Shape> {
         let shape = Shape::of(field)?;
-        if !annotations.is_markup(message, field.name()) {
-            return Some(shape);
-        }
+        let marked = match (
+            annotations.is_markup(message, field.name()),
+            annotations.is_format_pattern(message, field.name()),
+        ) {
+            (true, _) => Shape::Markup,
+            (false, true) => Shape::FormatPattern,
+            (false, false) => return Some(shape),
+        };
         Some(match shape {
-            Shape::Str => Shape::Markup,
+            Shape::Str => marked,
             Shape::Repeated(item) if matches!(*item, Shape::Str) => {
-                Shape::Repeated(Box::new(Shape::Markup))
+                Shape::Repeated(Box::new(marked))
             }
             shape => shape,
         })
@@ -323,7 +333,9 @@ impl<'a> Model<'a> {
         names: &[String],
         excluded: &BTreeSet<(String, String)>,
     ) -> Result<Self, String> {
-        for (message, field) in &annotations.markup {
+        let marked = (annotations.markup.iter().map(|key| ("markup", key)))
+            .chain(annotations.format_pattern.iter().map(|key| ("format_pattern", key)));
+        for (option, (message, field)) in marked {
             let strings = (messages.get(message))
                 .and_then(|(_, _, descriptor)| {
                     (descriptor.field.iter()).find(|f| f.name() == field)
@@ -331,7 +343,7 @@ impl<'a> Model<'a> {
                 .is_some_and(|field| field.r#type() == Type::String);
             if !strings {
                 return Err(format!(
-                    "`markup` marks `{message}.{field}`, which is not a field of strings"
+                    "`{option}` marks `{message}.{field}`, which is not a field of strings"
                 ));
             }
         }

@@ -123,7 +123,7 @@ message TooltipTitle {
   // A column of the instance's row.
   string column = 1 [(avenger.chart.v1.lift) = true];
   // The pattern of the value, as for `Labels.format`.
-  string format = 2;
+  string format = 2 [(avenger.chart.v1.format_pattern) = true];
   // Typst markup of the value, as for `Labels.markup`.
   string markup = 3 [(avenger.chart.v1.markup) = true];
 }
@@ -135,7 +135,7 @@ message TooltipField {
   // The title of the field. Without it, the field's title is the column's name.
   optional string title = 2;
   // The pattern of the value, as for `Labels.format`.
-  string format = 3;
+  string format = 3 [(avenger.chart.v1.format_pattern) = true];
   // Typst markup of the value, as for `Labels.markup`.
   string markup = 4 [(avenger.chart.v1.markup) = true];
 }

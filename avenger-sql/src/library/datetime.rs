@@ -586,7 +586,7 @@ pub(super) fn functions() -> Vec<Function> {
             "1",
         ),
         Function::scalar("FORMAT_DATE", "Formats a date as a string.")
-            .param("format", FORMAT)
+            .format_param("format", FORMAT)
             .param(
                 "value",
                 "The `DATE`, or a `DATETIME` or a `TIMESTAMP`, which formats as its own type.",
@@ -608,7 +608,7 @@ pub(super) fn functions() -> Vec<Function> {
                 "'Tuesday, May  7, Q2'",
             ),
         Function::scalar("FORMAT_TIME", "Formats a time of day as a string.")
-            .param("format", FORMAT)
+            .format_param("format", FORMAT)
             .param("value", "The `TIME`.")
             .param("locale", LOCALE)
             .form("(format: STRING, value: TIME[, locale => CONST STRING]) -> STRING", format_utc)
@@ -618,7 +618,7 @@ pub(super) fn functions() -> Vec<Function> {
                 "'13:04:05.123 PM'",
             ),
         Function::scalar("FORMAT_DATETIME", "Formats a date and time as a string.")
-            .param("format", FORMAT)
+            .format_param("format", FORMAT)
             .param(
                 "value",
                 "The `DATETIME`, or a `TIMESTAMP`, which formats as its own type.",
@@ -640,7 +640,7 @@ pub(super) fn functions() -> Vec<Function> {
             "FORMAT_TIMESTAMP",
             "Formats an instant as a string, in a time zone.",
         )
-        .param("format", FORMAT)
+        .format_param("format", FORMAT)
         .param(
             "value",
             "The `TIMESTAMP`, or a `DATETIME`, which formats as its own type.",
@@ -665,7 +665,7 @@ pub(super) fn functions() -> Vec<Function> {
         ),
         Function::scalar("PARSE_DATE", "Parses a date from a string in a format.")
             .description(PARSE)
-            .param("format", FORMAT)
+            .format_param("format", FORMAT)
             .param("value", "The string.")
             .param("locale", LOCALE)
             .form("(format: STRING, value: STRING[, locale => CONST STRING]) -> DATE", |call| {
@@ -678,7 +678,7 @@ pub(super) fn functions() -> Vec<Function> {
             "Parses a time of day from a string in a format.",
         )
         .description(PARSE)
-        .param("format", FORMAT)
+        .format_param("format", FORMAT)
         .param("value", "The string.")
         .param("locale", LOCALE)
         .form("(format: STRING, value: STRING[, locale => CONST STRING]) -> TIME", |call| {
@@ -691,7 +691,7 @@ pub(super) fn functions() -> Vec<Function> {
             "Parses a date and time from a string in a format.",
         )
         .description(PARSE)
-        .param("format", FORMAT)
+        .format_param("format", FORMAT)
         .param("value", "The string.")
         .param("locale", LOCALE)
         .form("(format: STRING, value: STRING[, locale => CONST STRING]) -> DATETIME", |call| {
@@ -707,7 +707,7 @@ pub(super) fn functions() -> Vec<Function> {
             "Parses an instant from a string in a format and a time zone.",
         )
         .description(PARSE)
-        .param("format", FORMAT)
+        .format_param("format", FORMAT)
         .param(
             "value",
             "The string. An offset or a time zone in it, such as `+02:00` or `Asia/Kolkata`, \

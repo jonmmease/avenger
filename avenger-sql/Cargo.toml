@@ -10,10 +10,12 @@ async-trait = { workspace = true }
 avenger-chart = { path = "../avenger-chart", features = ["functions"] }
 avenger-datafusion-shared = { path = "../avenger-datafusion-shared" }
 avenger-datafusion-transforms = { path = "../avenger-datafusion-transforms" }
+avenger-format = { path = "../avenger-format" }
 avenger-format-datetime-googlesql = { path = "../avenger-format-datetime-googlesql", features = [
     "all-locales",
 ] }
 avenger-format-locales-d3 = { path = "../avenger-format-locales-d3" }
+avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-sql-syntax = { path = "../avenger-sql-syntax" }
 datafusion = { workspace = true, features = [
     "nested_expressions",
@@ -44,7 +46,6 @@ arrow = { workspace = true }
 # The tests of the planner compare its rows with reference queries in DataFusion's SQL.
 datafusion = { workspace = true, features = ["sql"] }
 avenger-chart-eval = { path = "../avenger-chart-eval", features = ["geo"] }
-avenger-format-number-googlesql = { path = "../avenger-format-number-googlesql" }
 avenger-render-fixtures = { path = "../avenger-render-fixtures" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-style = { path = "../avenger-style" }

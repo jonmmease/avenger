@@ -153,6 +153,10 @@ pub struct Takes {
     /// of the parameter's message, as `subtitle => '...'` and `title => '...'` do. A title's
     /// markup reads as plain text when the title sets `syntax => 'plain'`.
     pub markup: bool,
+    /// Whether a string of the parameter is a format pattern: it fills a field that the
+    /// `format_pattern` option of the chart format marks, as `labels(format => ...)` does, or it is
+    /// the format of a function such as `FORMAT_DATE`.
+    pub format_pattern: bool,
 }
 
 impl Takes {
@@ -703,6 +707,17 @@ impl Function {
             doc: doc.to_string(),
             takes: Takes::default(),
         });
+        self
+    }
+
+    /// A parameter whose string is a format pattern, as the format of `FORMAT_DATE` is.
+    pub(crate) fn format_param(mut self, name: &str, doc: &str) -> Self {
+        self = self.param(name, doc);
+        self.params
+            .last_mut()
+            .expect("the parameter")
+            .takes
+            .format_pattern = true;
         self
     }
 

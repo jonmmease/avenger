@@ -1805,6 +1805,12 @@ impl Pass<'_> {
         // argument of a constructor, such as that of `title(...)`, reads them as plain text.
         let mut markup = Vec::new();
         let mut plain = false;
+        // The literal format patterns of the arguments of a chart's function, which take the
+        // check of a chart's patterns, and the value that they format: the type of a text mark's
+        // `text`, or the name of a tooltip's `column`.
+        let mut patterns = Vec::new();
+        let mut text_type = None;
+        let mut column = None;
         for (position, argument) in list.iter().flat_map(|list| list.arguments()).enumerate() {
             ranges.push(argument.syntax().text_range());
             let (named, value) = match &argument {
@@ -1838,6 +1844,23 @@ impl Pass<'_> {
             if takes.is_some_and(|param| param.takes.markup) {
                 markup.extend(string_literals(&value));
             }
+            if takes.is_some_and(|param| param.takes.format_pattern) {
+                self.model.formats.extend(string_literals(&value));
+                if function.family != library::Family::GoogleSql {
+                    if let Some(pattern) = literal_string(&value) {
+                        patterns.push((value.syntax().text_range(), pattern));
+                    }
+                }
+            }
+            let param_is = |name: &str| {
+                param
+                    .as_deref()
+                    .is_some_and(|p| p.eq_ignore_ascii_case(name))
+            };
+            if param_is("column") {
+                column = literal_string(&value);
+            }
+            let formatted = param_is("text");
             let syntax = named
                 .as_deref()
                 .is_some_and(|name| name.eq_ignore_ascii_case("syntax"));
@@ -1926,6 +1949,9 @@ impl Pass<'_> {
                             channel,
                         });
                     }
+                    if formatted {
+                        text_type = self.type_of(&expr, arg_scope);
+                    }
                     args.push((named, Arg::Value(expr)));
                     strings.push(string_literal(&value));
                 }
@@ -1937,6 +1963,21 @@ impl Pass<'_> {
         match plain {
             true => (self.model.markup).retain(|literal| !range.contains_range(*literal)),
             false => self.model.markup.extend(markup),
+        }
+        // A chart's pattern of a value that the analysis knows takes the check of the value's
+        // type, and another the check of a pattern of numbers or of dates.
+        let column_type = |name: String| {
+            let fields = scope.schema?.fields();
+            let field = fields
+                .iter()
+                .find(|field| field.name().eq_ignore_ascii_case(&name))?;
+            Some(field.data_type().clone())
+        };
+        let ty = text_type.or_else(|| column.and_then(column_type));
+        for (range, pattern) in patterns {
+            if let Some(message) = super::formats::pattern_error(&pattern, ty.as_ref()) {
+                self.error(range, message);
+            }
         }
         let order_by = match list.as_ref().and_then(|list| list.order_by()) {
             Some(order) => self.sort_keys(&order, arg_scope),
@@ -2831,6 +2872,14 @@ fn string_literals(expr: &ast::Expr) -> Vec<TextRange> {
 /// Whether `expr` is the string literal `'typst'`, the syntax of `TEXT_SYNTAX_TYPST`, which
 /// reads a text as Typst markup. A syntax that is not a literal reads it as no syntax that the
 /// analysis knows, so no string of its call is markup.
+/// The value of `expr` when it is a string literal.
+fn literal_string(expr: &ast::Expr) -> Option<String> {
+    match expr {
+        ast::Expr::Literal(literal) => literal.string_value().map(|value| value.to_string()),
+        _ => None,
+    }
+}
+
 fn is_typst_syntax(expr: &ast::Expr) -> bool {
     match expr {
         ast::Expr::Literal(literal) => {

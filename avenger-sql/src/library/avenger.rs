@@ -323,8 +323,15 @@ fn takes(param: &ChartParam) -> Takes {
             (Class::Str, Shape::Markup) | (Class::Array, Shape::Array(Shape::Markup))
         )
     });
+    let format_pattern = (param.accepts.iter()).any(|accept| {
+        matches!(
+            (accept.class, accept.shape),
+            (Class::Str, Shape::FormatPattern)
+        )
+    });
     let mut takes = Takes {
         markup,
+        format_pattern,
         ..Takes::default()
     };
     let mut own: Option<(&'static str, bool)> = None;
@@ -370,6 +377,7 @@ fn takes(param: &ChartParam) -> Takes {
     else {
         return Takes {
             markup,
+            format_pattern,
             ..Takes::default()
         };
     };
@@ -380,6 +388,7 @@ fn takes(param: &ChartParam) -> Takes {
     match takes.constructors.is_empty() {
         true => Takes {
             markup,
+            format_pattern,
             ..Takes::default()
         },
         false => takes,
@@ -456,7 +465,7 @@ fn shape_ty(shape: &Shape) -> Ty {
         Shape::Bool => Ty::Bool,
         Shape::Int => Ty::Int64,
         Shape::Float => Ty::Float64,
-        Shape::Str | Shape::Markup => Ty::String,
+        Shape::Str | Shape::Markup | Shape::FormatPattern => Ty::String,
         Shape::Bytes | Shape::Message { .. } => Ty::Bytes,
         Shape::Array(element) => Ty::Array(Box::new(shape_ty(element))),
         Shape::Enum { .. } | Shape::Names(_) => Ty::String,

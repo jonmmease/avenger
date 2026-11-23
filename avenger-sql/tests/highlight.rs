@@ -201,3 +201,23 @@ fn the_strings_of_parameters_that_take_markup_hold_typst() {
         ]
     );
 }
+
+#[test]
+fn the_strings_of_parameters_that_take_format_patterns_are_formats() {
+    let text = "FROM penguins\n\
+                |> EXTEND DATE '2024-01-01' AS day\n\
+                |> AGGREGATE mark_text(x => species, y => body_mass_g, text => body_mass_g, format => '%.1f', title => 'Mass') AS mass,\n\
+                   mark_bar(x => x(species, axis => axis(labels => labels(format => '%d'))), y => body_mass_g, tools => [tooltip(fields => [field(column => 'day', format => '%Y-%m')])]) AS bars\n\
+                |> SELECT FORMAT_DATE('%b %e', CURRENT_DATE()) AS today, mass, bars";
+    let analysis = pass::analysis(text);
+    assert!(
+        analysis.diagnostics.is_empty(),
+        "{:?}",
+        analysis.diagnostics
+    );
+    let mut formats: Vec<&str> = (analysis.model.formats.iter())
+        .map(|range| &text[*range])
+        .collect();
+    formats.sort();
+    assert_eq!(formats, ["'%.1f'", "'%Y-%m'", "'%b %e'", "'%d'"]);
+}

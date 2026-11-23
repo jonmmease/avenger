@@ -121,6 +121,15 @@ fn the_strings_of_markup_and_of_typed_literals_are_in_languages_of_their_own() {
     // A plain title is no markup, and its subtitle neither.
     let plain = chart("title('*Mass*', subtitle => '_g_', syntax => 'plain')");
     assert_eq!(embedded(&common::document(&plain)), Vec::new());
+    // A chart's format and the format of a function.
+    let formats = "FROM penguins |> EXTEND FORMAT_DATE('%Y', CURRENT_DATE()) AS y |> AGGREGATE mark_text(x => species, y => body_mass_g, text => body_mass_g, format => '%.1f') AS chart";
+    assert_eq!(
+        embedded(&common::document(formats)),
+        [
+            ("'%Y'".to_string(), Embedded::Format),
+            ("'%.1f'".to_string(), Embedded::Format),
+        ]
+    );
     // The values of typed literals, and not a plain string or the keywords.
     let typed = "FROM penguins |> EXTEND DATE '2024-01-03' AS d, NUMERIC '1.25' AS n, 'plain' AS p";
     assert_eq!(

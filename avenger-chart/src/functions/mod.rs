@@ -178,6 +178,9 @@ pub enum Shape {
     /// A string of Typst markup, in the syntax of Typst 0.15, which the text engine renders, as
     /// the `markup` option of the format marks the field.
     Markup,
+    /// A format pattern, in the syntax of the chart's patterns of numbers or of dates, as the
+    /// `format_pattern` option of the format marks the field.
+    FormatPattern,
     Bytes,
     /// An enum, by its full name, which a string names with one of its values.
     Enum {
@@ -393,6 +396,7 @@ fn describe_accepts(param: &Param) -> String {
                 (Class::Array, Shape::Array(Shape::Message { .. })) => format!("array of {own}"),
                 (Class::Array, shape @ Shape::Array(_)) => describe_shape(shape, &own),
                 (Class::Str, Shape::Markup) => describe_shape(&Shape::Markup, &own),
+                (Class::Str, Shape::FormatPattern) => describe_shape(&Shape::FormatPattern, &own),
                 (class, _) => class_word(*class).to_string(),
             });
             if matches!(accept.shape, Shape::Names(_)) {
@@ -419,6 +423,7 @@ fn describe_shape(shape: &Shape, own: &str) -> String {
         Shape::Float => "number".into(),
         Shape::Str => "string".into(),
         Shape::Markup => "Typst markup".into(),
+        Shape::FormatPattern => "format pattern".into(),
         Shape::Bytes => "bytes".into(),
         Shape::Enum { values, .. } => format!("one of {}", error::names(values, ", ")),
         Shape::Value => "any constant".into(),

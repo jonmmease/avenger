@@ -2,7 +2,7 @@ facet(display, title, orient, labels, tick_length, tick_stroke, tick_stroke_widt
   display (positional): Boolean
   title: Boolean -> display; Typst markup -> text; title(...)
   orient: one of bottom, top, left, right
-  labels: Boolean -> display; string -> format; labels(...)
+  labels: Boolean -> display; format pattern -> format; labels(...)
   tick_length: number
   tick_stroke: string
   tick_stroke_width: number
@@ -11,8 +11,8 @@ facet(display, title, orient, labels, tick_length, tick_stroke, tick_stroke_widt
   classes: array of string
   id: string
 labels(value, format, markup, display, font_family, font_size, font_weight, color, angle, text_orient, text_align, vertical_align, margin, frame, sides)
-  value (positional): Boolean -> display; string -> format
-  format: string
+  value (positional): Boolean -> display; format pattern -> format
+  format: format pattern
   markup: Typst markup
   display: Boolean
   font_family: string
@@ -112,11 +112,11 @@ tooltip(nearest, max_radius, metric, title, fields, anchor, hide_swatch, modes)
 tooltip_field(column, title, format, markup)
   column: string
   title: string
-  format: string
+  format: format pattern
   markup: Typst markup
 tooltip_title(column, format, markup)
   column (positional): string
-  format: string
+  format: format pattern
   markup: Typst markup
 navigate(channels, modes)
   channels: array of one of x, y, x2, y2, theta, radius, theta2, radius2, longitude, latitude, longitude2, latitude2, geometry, text, image, path, color, fill, stroke, opacity, fill_opacity, stroke_opacity, stroke_width, stroke_dasharray, size, shape, angle, pattern, font_weight, font_style, width, height, detail, order
@@ -159,7 +159,7 @@ graticule(display, step, extent, step_major, extent_major, precision, labels, gr
   step_major: array of number
   extent_major: array of number
   precision: number
-  labels: Boolean -> display; string -> format; labels(...)
+  labels: Boolean -> display; format pattern -> format; labels(...)
   grid_stroke: string
   grid_stroke_width: number
 geo_navigation(pan_mode, min_zoom, max_zoom)
@@ -202,7 +202,7 @@ legend(display, type, title, labels, orient, background, border_color, border_ra
   display (positional): Boolean
   type: one of symbol, colorbar
   title: Boolean -> display; Typst markup -> text; title(...)
-  labels: Boolean -> display; string -> format; labels(...)
+  labels: Boolean -> display; format pattern -> format; labels(...)
   orient: one of bottom, top, left, right
   background: string
   border_color: string
@@ -232,7 +232,7 @@ axis(display, title, orient, labels, value_placement, ticks, tick_length, tick_s
   display (positional): Boolean
   title: Boolean -> display; Typst markup -> text; title(...)
   orient: one of bottom, top, left, right
-  labels: Boolean -> display; string -> format; labels(...)
+  labels: Boolean -> display; format pattern -> format; labels(...)
   value_placement: Boolean -> values; integer -> value_count; float -> value_count; string -> values; array -> values; struct -> values; other -> values; value_placement(...)
   ticks: Boolean
   tick_length: number
@@ -248,7 +248,7 @@ axis(display, title, orient, labels, value_placement, ticks, tick_length, tick_s
   classes: array of string
   id: string
 nested_axis_level(labels, title)
-  labels: Boolean -> display; string -> format; labels(...)
+  labels: Boolean -> display; format pattern -> format; labels(...)
   title: string
 scale(value, type, domain, zero, nice, pin, domain_empty, sort, range, reverse, family, navigation)
   value (positional): one of linear, log, pow, symlog, time, band, point, nested_band, ordinal, quantile, quantize, threshold

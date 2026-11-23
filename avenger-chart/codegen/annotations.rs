@@ -65,6 +65,8 @@ mod wire {
         pub element: Option<String>,
         #[prost(bool, optional, tag = "50009")]
         pub markup: Option<bool>,
+        #[prost(bool, optional, tag = "50010")]
+        pub format_pattern: Option<bool>,
     }
 
     #[derive(Clone, PartialEq, prost::Message)]
@@ -122,6 +124,8 @@ pub struct Annotations {
     pub lift_oneof: BTreeSet<(String, String)>,
     /// The string fields that the `markup` option marks, which hold Typst markup.
     pub markup: BTreeSet<(String, String)>,
+    /// The string fields that the `format_pattern` option marks, which hold format patterns.
+    pub format_pattern: BTreeSet<(String, String)>,
     /// The `element` name of each repeated message field that sets it.
     pub element: BTreeMap<(String, String), String>,
     /// The `channel_scale` of each value of `Channel` that sets it, by the value's name.
@@ -172,6 +176,9 @@ impl Annotations {
             if options.and_then(|o| o.markup) == Some(true) {
                 self.markup.insert(key.clone());
             }
+            if options.and_then(|o| o.format_pattern) == Some(true) {
+                self.format_pattern.insert(key.clone());
+            }
             if options.and_then(|o| o.lift) == Some(true) {
                 self.lift.insert(key);
             }
@@ -198,6 +205,11 @@ impl Annotations {
 
     pub fn is_markup(&self, message: &str, field: &str) -> bool {
         self.markup
+            .contains(&(message.to_string(), field.to_string()))
+    }
+
+    pub fn is_format_pattern(&self, message: &str, field: &str) -> bool {
+        self.format_pattern
             .contains(&(message.to_string(), field.to_string()))
     }
 
